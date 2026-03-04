@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getPayload } from 'payload'
-import config from '@payload-config'
+import { getPayload } from '@/lib/payload'
 import { parseTelegramCaption, parseStockUpdate } from '@/lib/telegram'
 
 export async function POST(req: NextRequest) {
@@ -21,7 +20,7 @@ export async function POST(req: NextRequest) {
     const text = message.text || message.caption || ''
     const chatId = message.chat?.id
 
-    const payload = await getPayload({ config })
+    const payload = await getPayload()
 
     // Handle STOCK UPDATE command
     if (text.startsWith('STOCK SKU:')) {

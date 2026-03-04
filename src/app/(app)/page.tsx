@@ -1,11 +1,10 @@
-import { getPayload } from 'payload'
-import config from '@payload-config'
+import { getPayload } from '@/lib/payload'
 import { ProductGrid } from '@/components/ProductGrid'
 
 export const revalidate = 60
 
 export default async function HomePage() {
-  const payload = await getPayload({ config })
+  const payload = await getPayload()
 
   const { docs: products } = await payload.find({
     collection: 'products',

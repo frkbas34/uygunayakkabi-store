@@ -1,5 +1,4 @@
-import { getPayload } from 'payload'
-import config from '@payload-config'
+import { getPayload } from '@/lib/payload'
 import { notFound } from 'next/navigation'
 import { ProductImages } from '@/components/ProductImages'
 import { ContactForm } from '@/components/ContactForm'
@@ -42,7 +41,7 @@ type ProductDoc = {
 
 export default async function ProductPage({ params }: Props) {
   const { slug } = await params
-  const payload = await getPayload({ config })
+  const payload = await getPayload()
 
   const { docs } = await payload.find({
     collection: 'products',

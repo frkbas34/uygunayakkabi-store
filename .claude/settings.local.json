@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(tar xzf uygunayakkabi-refactor.tar.gz)",
+      "Bash(ls /c/Projects/uygunayakkabi-store/*.tar.gz)"
+    ]
+  }
+}

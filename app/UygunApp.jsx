@@ -55,6 +55,24 @@ const products = [
     image: shoe("#f0fdf4", "#2d6a4f", "#fff", "#2d6a4f", "#2d6a4f", -5),
     images: [shoe("#f0fdf4", "#2d6a4f", "#fff", "#2d6a4f", "#2d6a4f", -5), shoe("#ecfdf5", "#1b4332", "#fefefe", "#40916c", "#1b4332", 3), shoe("#f5faf7", "#365e45", "#fff", "#52b788", "#365e45", -13)],
     sizes: [39,40,41,42,43], stock: 0, category: "Günlük", badge: "Tükendi" },
+  { id: 7, slug: "nike-air-force-1", name: "Nike Air Force 1 '07", price: 2299, originalPrice: 2799, description: "Efsanevi Air Force 1, klasik beyaz deri üst yapısıyla zamansız bir ikon.", image: shoe("#fafafa", "#e0e0e0", "#fff", "#ccc", "#ddd", -4), images: [shoe("#fafafa", "#e0e0e0", "#fff", "#ccc", "#ddd", -4), shoe("#f5f5f5", "#d5d5d5", "#fefefe", "#bbb", "#ccc", 3), shoe("#f0f0f0", "#ccc", "#fff", "#aaa", "#bbb", -10)], sizes: [38,39,40,41,42,43,44,45], stock: 15, category: "Günlük", badge: "İndirim" },
+  { id: 8, slug: "adidas-samba-og", name: "Adidas Samba OG", price: 1999, originalPrice: null, description: "Futsal efsanesi Samba, retro tarzıyla sokak stilinin vazgeçilmezi.", image: shoe("#f8f6f0", "#d4a76a", "#1a1a1a", "#c8a95e", "#fff", -6), images: [shoe("#f8f6f0", "#d4a76a", "#1a1a1a", "#c8a95e", "#fff", -6), shoe("#f5f3ed", "#c99b5c", "#222", "#b8993e", "#eee", 4), shoe("#faf8f2", "#deb978", "#111", "#d4ad5e", "#ddd", -12)], sizes: [38,39,40,41,42,43], stock: 7, category: "Günlük", badge: "Yeni" },
+  { id: 9, slug: "nike-vapormax-plus", name: "Nike Air VaporMax Plus", price: 3499, originalPrice: 3999, description: "VaporMax hava yastığı teknolojisi ile yere basmadan yürüme hissi.", image: shoe("#f0f0f5", "#333", "#1a1a1a", "#7c3aed", "#aaa", -3), images: [shoe("#f0f0f5", "#333", "#1a1a1a", "#7c3aed", "#aaa", -3), shoe("#eeeef5", "#444", "#222", "#6d28d9", "#999", 5), shoe("#f2f2f8", "#2a2a2a", "#111", "#8b5cf6", "#bbb", -11)], sizes: [40,41,42,43,44], stock: 4, category: "Spor", badge: "İndirim" },
+  { id: 10, slug: "reebok-classic-leather", name: "Reebok Classic Leather", price: 1399, originalPrice: null, description: "80'lerden bugüne ulaşan sade tasarım ve yumuşak deri üst yüzey.", image: shoe("#faf9f7", "#e8dcc0", "#fff", "#c7a97b", "#fff", -5), images: [shoe("#faf9f7", "#e8dcc0", "#fff", "#c7a97b", "#fff", -5), shoe("#f7f5f2", "#ddd0b5", "#fefefe", "#b89968", "#eee", 3), shoe("#fcfaf7", "#f0e4cc", "#fff", "#d4b88a", "#ddd", -13)], sizes: [38,39,40,41,42,43], stock: 10, category: "Günlük", badge: null },
+  { id: 11, slug: "adidas-stan-smith", name: "Adidas Stan Smith", price: 1799, originalPrice: 2199, description: "Tenis kökenli minimalist tasarımıyla dünyanın en çok satan sneaker'ı.", image: shoe("#f5f8f5", "#e0e0e0", "#fff", "#16a34a", "#fff", -4), images: [shoe("#f5f8f5", "#e0e0e0", "#fff", "#16a34a", "#fff", -4), shoe("#f0f5f0", "#d5d5d5", "#fefefe", "#15803d", "#eee", 5), shoe("#f8fbf8", "#ccc", "#fff", "#22c55e", "#ddd", -12)], sizes: [36,37,38,39,40,41,42,43], stock: 9, category: "Günlük", badge: "İndirim" },
+  { id: 12, slug: "nike-pegasus-41", name: "Nike Pegasus 41", price: 2699, originalPrice: null, description: "Her gün koşmak isteyenler için React köpük yastıklama ve nefes alan üst yapı.", image: shoe("#f0f5fa", "#1a1a1a", "#0077b6", "#00b4d8", "#fff", -7), images: [shoe("#f0f5fa", "#1a1a1a", "#0077b6", "#00b4d8", "#fff", -7), shoe("#edf3f8", "#222", "#006da0", "#0096c7", "#eee", 2), shoe("#f3f7fc", "#333", "#0088c4", "#48cae4", "#ddd", -14)], sizes: [39,40,41,42,43,44,45], stock: 6, category: "Spor", badge: "Yeni" },
+  { id: 13, slug: "puma-suede-classic", name: "Puma Suede Classic", price: 1499, originalPrice: 1799, description: "1968'den beri süet modanın sembolü. B-boy kültürünün temel taşı.", image: shoe("#f8f0f0", "#f0e6c8", "#8b1a2b", "#d4a76a", "#fff", -5), images: [shoe("#f8f0f0", "#f0e6c8", "#8b1a2b", "#d4a76a", "#fff", -5), shoe("#f5edec", "#e8dcc0", "#7a1525", "#c99b5c", "#eee", 4), shoe("#faf3f3", "#f5ecd0", "#9c1f33", "#deb978", "#ddd", -13)], sizes: [38,39,40,41,42,43], stock: 3, category: "Günlük", badge: "İndirim" },
+  { id: 14, slug: "adidas-gazelle-bold", name: "Adidas Gazelle Bold", price: 2099, originalPrice: null, description: "Platform tabanlı Gazelle, kalın taban ile retro tarzı modernize ediyor.", image: shoe("#faf5f8", "#e8b4c8", "#222", "#d63384", "#fff", -3), images: [shoe("#faf5f8", "#e8b4c8", "#222", "#d63384", "#fff", -3), shoe("#f7f0f5", "#dda0b8", "#1a1a1a", "#c2185b", "#eee", 6), shoe("#fcf7fa", "#f0c4d8", "#333", "#e91e8c", "#ddd", -10)], sizes: [36,37,38,39,40,41], stock: 5, category: "Günlük", badge: "Yeni" },
+  { id: 15, slug: "nike-air-max-90", name: "Nike Air Max 90", price: 2599, originalPrice: 3099, description: "90'ların ikonik koşu ayakkabısı, infrared aksan rengiyle kült klasik.", image: shoe("#fafafa", "#555", "#e5e5e5", "#ff4040", "#fff", -6), images: [shoe("#fafafa", "#555", "#e5e5e5", "#ff4040", "#fff", -6), shoe("#f5f5f5", "#666", "#ddd", "#e63030", "#eee", 3), shoe("#f0f0f0", "#444", "#ccc", "#ff5555", "#ddd", -14)], sizes: [39,40,41,42,43,44], stock: 2, category: "Spor", badge: "İndirim" },
+  { id: 16, slug: "vans-old-skool", name: "Vans Old Skool", price: 1199, originalPrice: null, description: "Jazz stripe detayıyla skate kültürünün sembolü olan efsanevi silüet.", image: shoe("#faf9f6", "#f0e6c8", "#1a1a1a", "#fff", "#fff", -4), images: [shoe("#faf9f6", "#f0e6c8", "#1a1a1a", "#fff", "#fff", -4), shoe("#f5f4f0", "#e8dcc0", "#222", "#eee", "#eee", 5), shoe("#f8f7f4", "#f5ecd0", "#111", "#ddd", "#ddd", -12)], sizes: [36,37,38,39,40,41,42,43,44], stock: 20, category: "Günlük", badge: null },
+  { id: 17, slug: "nb-530", name: "New Balance 530", price: 2199, originalPrice: 2699, description: "2000'lerin koşu teknolojisi ABZORB ile retro-futuristik bir sneaker.", image: shoe("#f5f5f5", "#d5d5d5", "#e0e0e0", "#7c8a96", "#ccc", -5), images: [shoe("#f5f5f5", "#d5d5d5", "#e0e0e0", "#7c8a96", "#ccc", -5), shoe("#f0f0f0", "#c8c8c8", "#d5d5d5", "#6b7a88", "#bbb", 4), shoe("#fafafa", "#e0e0e0", "#eee", "#8d9ba8", "#ddd", -13)], sizes: [38,39,40,41,42,43], stock: 8, category: "Spor", badge: "İndirim" },
+  { id: 18, slug: "asics-gel-1130", name: "Asics Gel-1130", price: 2399, originalPrice: null, description: "Y2K trendinin gözdesi, GEL teknolojili retro koşu modeli.", image: shoe("#f5f5f8", "#c0c0c0", "#e8e8e8", "#8888cc", "#ddd", -3), images: [shoe("#f5f5f8", "#c0c0c0", "#e8e8e8", "#8888cc", "#ddd", -3), shoe("#f0f0f5", "#b5b5b5", "#ddd", "#7777bb", "#ccc", 5), shoe("#f8f8fb", "#cccccc", "#f0f0f0", "#9999dd", "#eee", -11)], sizes: [39,40,41,42,43,44], stock: 6, category: "Spor", badge: "Yeni" },
+  { id: 19, slug: "converse-run-star", name: "Converse Run Star Hike", price: 1699, originalPrice: 2099, description: "Klasik Chuck Taylor'ı platform taban ve modern detaylarla yeniden yorumluyor.", image: shoe("#faf9f6", "#1a1a1a", "#2d2d2d", "#c8102e", "#fff", -8), images: [shoe("#faf9f6", "#1a1a1a", "#2d2d2d", "#c8102e", "#fff", -8), shoe("#f5f4f0", "#222", "#333", "#b91c1c", "#eee", 2), shoe("#f8f7f4", "#111", "#444", "#dc2626", "#ddd", -15)], sizes: [36,37,38,39,40,41,42], stock: 4, category: "Günlük", badge: "İndirim" },
+  { id: 20, slug: "nike-blazer-mid-77", name: "Nike Blazer Mid '77", price: 1899, originalPrice: null, description: "70'lerin basketbol sahalarından sokağa inen vintage bir ikon.", image: shoe("#fafafa", "#f0e6c8", "#fff", "#c8102e", "#c8102e", -5), images: [shoe("#fafafa", "#f0e6c8", "#fff", "#c8102e", "#c8102e", -5), shoe("#f5f5f5", "#e8dcc0", "#fefefe", "#b91c1c", "#b91c1c", 3), shoe("#f0f0f0", "#f5ecd0", "#fff", "#dc2626", "#dc2626", -12)], sizes: [38,39,40,41,42,43,44], stock: 11, category: "Günlük", badge: null },
+  { id: 21, slug: "adidas-nmd-r1", name: "Adidas NMD R1", price: 2599, originalPrice: 3199, description: "Boost tabanlı şehir koşucusu, hafif yapısı ve şık tasarımıyla öne çıkıyor.", image: shoe("#f0f0f0", "#1a1a1a", "#333", "#c8102e", "#ccc", -4), images: [shoe("#f0f0f0", "#1a1a1a", "#333", "#c8102e", "#ccc", -4), shoe("#eee", "#222", "#444", "#b91c1c", "#bbb", 5), shoe("#f5f5f5", "#111", "#2a2a2a", "#dc2626", "#ddd", -11)], sizes: [39,40,41,42,43,44], stock: 3, category: "Spor", badge: "İndirim" },
+  { id: 22, slug: "puma-palermo", name: "Puma Palermo", price: 1599, originalPrice: null, description: "İtalyan terrace kültüründen ilham alan süet retro sneaker.", image: shoe("#f0f5fa", "#d4c5a0", "#3d6b99", "#c9a84c", "#fff", -6), images: [shoe("#f0f5fa", "#d4c5a0", "#3d6b99", "#c9a84c", "#fff", -6), shoe("#edf3f8", "#c8b890", "#2d5a80", "#b89838", "#eee", 3), shoe("#f3f7fc", "#ddd5b0", "#4d7aaa", "#d4b458", "#ddd", -13)], sizes: [38,39,40,41,42,43], stock: 9, category: "Günlük", badge: "Yeni" },
+  { id: 23, slug: "nb-2002r", name: "New Balance 2002R", price: 2899, originalPrice: 3399, description: "N-ergy yastıklama ve premium süet yapıyla lüks koşu konforu.", image: shoe("#f5f0eb", "#8a7a6a", "#6b5b4b", "#c9a84c", "#fff", -5), images: [shoe("#f5f0eb", "#8a7a6a", "#6b5b4b", "#c9a84c", "#fff", -5), shoe("#f0ebe3", "#7a6a5a", "#5b4b3b", "#b89838", "#eee", 4), shoe("#faf5f0", "#9a8a7a", "#7b6b5b", "#d4b458", "#ddd", -14)], sizes: [39,40,41,42,43,44], stock: 1, category: "Spor", badge: "İndirim" },
+  { id: 24, slug: "nike-cortez", name: "Nike Cortez", price: 1699, originalPrice: 1999, description: "1972'den bu yana Amerikan spor kültürünün simgesi. Hafif, klasik, zamansız.", image: shoe("#fafafa", "#e0e0e0", "#fff", "#c8102e", "#0055a4", -4), images: [shoe("#fafafa", "#e0e0e0", "#fff", "#c8102e", "#0055a4", -4), shoe("#f5f5f5", "#d5d5d5", "#fefefe", "#b91c1c", "#004080", 5), shoe("#f0f0f0", "#ccc", "#fff", "#dc2626", "#0066bb", -12)], sizes: [36,37,38,39,40,41,42,43], stock: 7, category: "Günlük", badge: "İndirim" },
 ];
 
 // ============================================
@@ -109,9 +127,9 @@ function Card({ p, onView }) {
   const [h, sH] = useState(false);
   return (
     <div onMouseEnter={() => sH(true)} onMouseLeave={() => sH(false)} onClick={() => onView(p)}
-      style={{ cursor: "pointer", borderRadius: T.r.xl, overflow: "hidden", background: T.wh, transition: "transform 0.35s cubic-bezier(.22,1,.36,1), box-shadow 0.35s", transform: h ? "translateY(-6px)" : "", boxShadow: h ? "0 24px 48px rgba(0,0,0,0.1)" : "0 1px 4px rgba(0,0,0,0.04)", border: "1px solid #e8e8e8" }}>
+      style={{ cursor: "pointer", borderRadius: T.r.xl, overflow: "hidden", background: T.wh, transition: "transform 0.4s cubic-bezier(.22,1,.36,1), box-shadow 0.4s cubic-bezier(.22,1,.36,1), border-color 0.3s", transform: h ? "translateY(-8px) scale(1.015)" : "translateY(0) scale(1)", boxShadow: h ? "0 28px 56px rgba(0,0,0,0.13), 0 8px 16px rgba(0,0,0,0.06)" : "0 2px 8px rgba(0,0,0,0.04)", border: h ? "1px solid #d0d0d0" : "1px solid #e8e8e8" }}>
       <div style={{ position: "relative", paddingTop: "115%", overflow: "hidden", background: T.g100 }}>
-        <img src={p.image} alt={p.name} style={{ position: "absolute", top: 0, left: 0, width: "100%", height: "100%", objectFit: "cover", transition: "transform 0.6s cubic-bezier(.22,1,.36,1)", transform: h ? "scale(1.08)" : "", filter: p.stock === 0 ? "grayscale(40%)" : "" }} />
+        <img src={p.image} alt={p.name} style={{ position: "absolute", top: 0, left: 0, width: "100%", height: "100%", objectFit: "cover", transition: "transform 0.6s cubic-bezier(.22,1,.36,1)", transform: h ? "scale(1.1)" : "scale(1)", filter: p.stock === 0 ? "grayscale(40%)" : "" }} />
         {p.badge && <span style={{ position: "absolute", top: 14, left: 14, fontFamily: T.f, fontSize: 11, fontWeight: 700, letterSpacing: "0.04em", textTransform: "uppercase", padding: "5px 12px", borderRadius: T.r.full, color: T.wh, background: p.badge === "Tükendi" ? T.g500 : p.badge === "İndirim" ? T.ac : T.bk }}>{p.badge}</span>}
         <div style={{ position: "absolute", bottom: 0, left: 0, right: 0, padding: "32px 16px 16px", background: "linear-gradient(transparent, rgba(0,0,0,0.5))", opacity: h ? 1 : 0, transition: "opacity 0.3s", display: "flex", justifyContent: "center" }}>
           <span style={{ fontFamily: T.f, fontSize: 13, fontWeight: 600, color: T.wh, background: "rgba(255,255,255,0.2)", backdropFilter: "blur(8px)", padding: "8px 20px", borderRadius: T.r.full }}>İncele →</span>
@@ -251,10 +269,10 @@ function Home({ onNav, onView }) {
           <div><p style={{ fontFamily: T.f, fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.12em", color: T.ac, marginBottom: 8 }}>Koleksiyon</p><h2 style={{ fontFamily: T.d, fontSize: "clamp(28px, 3vw, 36px)", fontWeight: 700, color: T.bk }}>Çok Satanlar</h2></div>
           <span onClick={() => onNav("catalog")} style={{ fontFamily: T.f, fontSize: 14, fontWeight: 500, color: T.g500, cursor: "pointer" }}>Tümünü Gör →</span>
         </div>
-        <div className="bg" style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 24 }}>
-          {products.slice(0, 6).map(p => <Card key={p.id} p={p} onView={onView} />)}
+        <div className="bg" style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 20 }}>
+          {products.slice(0, 8).map(p => <Card key={p.id} p={p} onView={onView} />)}
         </div>
-        <style>{`@media(max-width:1024px){.bg{grid-template-columns:repeat(2,1fr)!important}}@media(max-width:640px){.bg{grid-template-columns:1fr!important;gap:16px!important}}`}</style>
+        <style>{`@media(max-width:1024px){.bg{grid-template-columns:repeat(3,1fr)!important}}@media(max-width:640px){.bg{grid-template-columns:repeat(2,1fr)!important;gap:12px!important}}`}</style>
       </section>
 
       {/* WHY US */}
@@ -295,19 +313,32 @@ function Home({ onNav, onView }) {
 // ============================================
 function Catalog({ onView }) {
   const [fl, sFl] = useState("Tümü");
+  const [vis, sVis] = useState(12);
   const cs = ["Tümü", "Spor", "Günlük"];
   const flt = fl === "Tümü" ? products : products.filter(p => p.category === fl);
+  const shown = flt.slice(0, vis);
+  const hasMore = vis < flt.length;
+  const handleFilter = (c) => { sFl(c); sVis(12); };
   return (
     <div style={{ paddingTop: 68 }}>
       <section style={{ maxWidth: 1280, margin: "0 auto", padding: "40px 24px 80px" }}>
         <div style={{ marginBottom: 36 }}><p style={{ fontFamily: T.f, fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.12em", color: T.ac, marginBottom: 8 }}>Koleksiyon</p><h1 style={{ fontFamily: T.d, fontSize: "clamp(32px, 4vw, 44px)", fontWeight: 700, color: T.bk, marginBottom: 8 }}>Ayakkabılar</h1><p style={{ fontFamily: T.f, fontSize: 15, color: T.g500 }}>{flt.length} ürün listeleniyor</p></div>
         <div style={{ display: "flex", gap: 8, marginBottom: 36, flexWrap: "wrap" }}>
-          {cs.map(c => <button key={c} onClick={() => sFl(c)} style={{ fontFamily: T.f, fontSize: 13, fontWeight: 500, padding: "10px 24px", borderRadius: T.r.full, border: "none", cursor: "pointer", background: fl === c ? T.bk : T.g100, color: fl === c ? T.wh : T.g600 }}>{c}</button>)}
+          {cs.map(c => <button key={c} onClick={() => handleFilter(c)} style={{ fontFamily: T.f, fontSize: 13, fontWeight: 500, padding: "10px 24px", borderRadius: T.r.full, border: "none", cursor: "pointer", background: fl === c ? T.bk : T.g100, color: fl === c ? T.wh : T.g600, transition: "all 0.2s" }}>{c}</button>)}
         </div>
-        <div className="cg" style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 24 }}>
-          {flt.map(p => <Card key={p.id} p={p} onView={onView} />)}
+        <div className="cg" style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 20 }}>
+          {shown.map(p => <Card key={p.id} p={p} onView={onView} />)}
         </div>
-        <style>{`@media(max-width:1024px){.cg{grid-template-columns:repeat(2,1fr)!important}}@media(max-width:640px){.cg{grid-template-columns:1fr!important;gap:16px!important}}`}</style>
+        {hasMore && (
+          <div style={{ textAlign: "center", marginTop: 48 }}>
+            <button onClick={() => sVis(v => v + 12)} style={{ fontFamily: T.f, fontSize: 15, fontWeight: 600, color: T.bk, background: T.wh, border: "2px solid #e0e0e0", padding: "14px 48px", borderRadius: T.r.full, cursor: "pointer", transition: "all 0.2s" }}
+              onMouseEnter={e => { e.currentTarget.style.background = T.bk; e.currentTarget.style.color = T.wh; e.currentTarget.style.borderColor = T.bk; }}
+              onMouseLeave={e => { e.currentTarget.style.background = T.wh; e.currentTarget.style.color = T.bk; e.currentTarget.style.borderColor = "#e0e0e0"; }}>
+              Daha Fazla Göster ({flt.length - vis > 0 ? flt.length - vis : 0} ürün kaldı)
+            </button>
+          </div>
+        )}
+        <style>{`@media(max-width:1024px){.cg{grid-template-columns:repeat(3,1fr)!important}}@media(max-width:640px){.cg{grid-template-columns:repeat(2,1fr)!important;gap:12px!important}}`}</style>
       </section>
       <Foot onNav={() => {}} />
     </div>

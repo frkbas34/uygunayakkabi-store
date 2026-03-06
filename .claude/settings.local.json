@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm install lucide-react)",
+      "Bash(npm run build)",
+      "Bash(node -e \"const pkg = require\\(''./node_modules/lucide-react/package.json''\\); console.log\\(''lucide-react:'', pkg.version\\)\")",
+      "Bash(npm install embla-carousel-react)"
+    ]
+  }
+}

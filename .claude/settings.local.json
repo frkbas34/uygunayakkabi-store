@@ -1,10 +1,15 @@
 {
   "permissions": {
     "allow": [
+<<<<<<< HEAD
       "Bash(npm install lucide-react)",
       "Bash(npm run build)",
       "Bash(node -e \"const pkg = require\\(''./node_modules/lucide-react/package.json''\\); console.log\\(''lucide-react:'', pkg.version\\)\")",
       "Bash(npm install embla-carousel-react)"
+=======
+      "Bash(tar xzf uygunayakkabi-refactor.tar.gz)",
+      "Bash(ls /c/Projects/uygunayakkabi-store/*.tar.gz)"
+>>>>>>> a98765d04b6eead99b5036048e4580d4ea7c00f8
     ]
   }
 }

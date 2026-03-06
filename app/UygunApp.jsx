@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback } from "react";
 import Image from "next/image";
+import { useRouter } from "next/navigation";
 import useEmblaCarousel from "embla-carousel-react";
 import {
   Menu,
@@ -19,7 +20,11 @@ import {
   ChevronLeft,
   ChevronRight,
   Zap,
+  ShoppingBag,
+  Plus,
+  Minus,
 } from "lucide-react";
+import { useCart } from "./context/CartContext";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // SVG SHOE GENERATOR
@@ -230,6 +235,9 @@ function ProductImage({ src, alt, className = "" }) {
 function CardCarousel({ product: p, onCallBack }) {
   const [emblaRef, emblaApi] = useEmblaCarousel({ loop: true, dragFree: false });
   const [selected, setSelected] = useState(0);
+  // "default" | "sizing" | "added"
+  const [cartPhase, setCartPhase] = useState("default");
+  const { dispatch } = useCart();
 
   useEffect(() => {
     if (!emblaApi) return;
@@ -246,6 +254,13 @@ function CardCarousel({ product: p, onCallBack }) {
     (e) => { e.stopPropagation(); emblaApi?.scrollNext(); },
     [emblaApi]
   );
+
+  const handleAddToCart = (e, size) => {
+    e.stopPropagation();
+    dispatch({ type: "ADD", product: p, size, qty: 1 });
+    setCartPhase("added");
+    setTimeout(() => setCartPhase("default"), 1800);
+  };
 
   const badgeCls =
     p.badge === "Tükendi"
@@ -337,6 +352,60 @@ function CardCarousel({ product: p, onCallBack }) {
           flex flex-col justify-end p-2.5 gap-1.5
           pointer-events-none group-hover/card:pointer-events-auto"
       >
+        {/* ── Sepete Ekle area (3 phases) ── */}
+        {cartPhase === "default" && (
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              if (p.stock > 0) setCartPhase("sizing");
+            }}
+            disabled={p.stock === 0}
+            className="w-full flex items-center justify-center gap-1.5 bg-gray-900/90 text-white
+              text-[11px] font-semibold py-2 rounded-xl hover:bg-gray-800
+              active:scale-95 transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+          >
+            <ShoppingBag size={11} />
+            {p.stock > 0 ? "Sepete Ekle" : "Stokta Yok"}
+          </button>
+        )}
+
+        {cartPhase === "sizing" && (
+          <div onClick={(e) => e.stopPropagation()} className="flex flex-col gap-1.5">
+            <div className="flex items-center justify-between">
+              <span className="font-sans text-[10px] font-semibold text-white/70 uppercase tracking-wider">
+                Beden Seç
+              </span>
+              <button
+                onClick={(e) => { e.stopPropagation(); setCartPhase("default"); }}
+                className="text-white/60 hover:text-white transition-colors"
+              >
+                <X size={13} />
+              </button>
+            </div>
+            <div className="flex gap-1 flex-wrap">
+              {p.sizes.map((s) => (
+                <button
+                  key={s}
+                  onClick={(e) => handleAddToCart(e, s)}
+                  className="w-9 h-8 rounded-lg bg-white/15 hover:bg-white hover:text-gray-900
+                    text-white font-sans text-[11px] font-semibold transition-all active:scale-90"
+                >
+                  {s}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {cartPhase === "added" && (
+          <div className="w-full flex items-center justify-center gap-1.5 bg-green-500 text-white
+            text-[11px] font-semibold py-2 rounded-xl">
+            <Check size={12} />
+            Sepete Eklendi!
+          </div>
+        )}
+
+        {/* ── Lead-capture buttons — always visible on hover ── */}
         <button
           onClick={(e) => {
             e.stopPropagation();
@@ -499,6 +568,8 @@ function DetailCarousel({ images, name }) {
 function Navbar({ page, onNav }) {
   const [open, setOpen] = useState(false);
   const [scrolled, setScrolled] = useState(false);
+  const { totalItems } = useCart();
+  const router = useRouter();
 
   useEffect(() => {
     const handler = () => setScrolled(window.scrollY > 30);
@@ -543,6 +614,21 @@ function Navbar({ page, onNav }) {
               )}
             </button>
           ))}
+
+          {/* Cart icon */}
+          <button
+            onClick={() => router.push("/cart")}
+            aria-label="Sepet"
+            className="relative p-1.5 text-gray-700 hover:text-gray-900 transition-colors"
+          >
+            <ShoppingBag size={20} />
+            {totalItems > 0 && (
+              <span className="absolute -top-0.5 -right-0.5 w-4 h-4 bg-[#c8102e] text-white text-[9px] font-bold rounded-full flex items-center justify-center leading-none">
+                {totalItems > 9 ? "9+" : totalItems}
+              </span>
+            )}
+          </button>
+
           <a
             href="tel:+905551234567"
             className="flex items-center gap-2 bg-gray-900 text-white text-xs font-semibold px-5 py-2.5 rounded-full hover:bg-[#c8102e] transition-colors duration-200"
@@ -552,13 +638,28 @@ function Navbar({ page, onNav }) {
           </a>
         </div>
 
-        <button
-          onClick={() => setOpen(!open)}
-          className="md:hidden p-1.5 text-gray-700"
-          aria-label="Menüyü aç"
-        >
-          {open ? <X size={22} /> : <Menu size={22} />}
-        </button>
+        <div className="flex items-center gap-2 md:hidden">
+          {/* Cart icon mobile */}
+          <button
+            onClick={() => router.push("/cart")}
+            aria-label="Sepet"
+            className="relative p-1.5 text-gray-700"
+          >
+            <ShoppingBag size={20} />
+            {totalItems > 0 && (
+              <span className="absolute -top-0.5 -right-0.5 w-4 h-4 bg-[#c8102e] text-white text-[9px] font-bold rounded-full flex items-center justify-center leading-none">
+                {totalItems > 9 ? "9+" : totalItems}
+              </span>
+            )}
+          </button>
+          <button
+            onClick={() => setOpen(!open)}
+            className="p-1.5 text-gray-700"
+            aria-label="Menüyü aç"
+          >
+            {open ? <X size={22} /> : <Menu size={22} />}
+          </button>
+        </div>
       </div>
 
       {open && (
@@ -1092,6 +1193,15 @@ function CatalogPage({ onView, onCallBack }) {
 // ─────────────────────────────────────────────────────────────────────────────
 function DetailPage({ product: p, onBack, onCallBack }) {
   const [size, setSize] = useState(null);
+  const [cartAdded, setCartAdded] = useState(false);
+  const { dispatch } = useCart();
+
+  const handleAddToCart = () => {
+    if (!size || p.stock === 0) return;
+    dispatch({ type: "ADD", product: p, size, qty: 1 });
+    setCartAdded(true);
+    setTimeout(() => setCartAdded(false), 2000);
+  };
 
   const stockStatus =
     p.stock === 0
@@ -1171,28 +1281,52 @@ function DetailPage({ product: p, onBack, onCallBack }) {
             </div>
 
             <div className="flex flex-col gap-3">
+              {/* Primary: Sepete Ekle */}
               <button
-                onClick={() => p.stock > 0 && onCallBack(p)}
+                onClick={handleAddToCart}
                 disabled={p.stock === 0}
                 className={`flex items-center justify-center gap-2.5 w-full py-4 rounded-2xl font-sans text-base font-semibold transition-all active:scale-[0.98] ${
-                  p.stock > 0
-                    ? "bg-[#c8102e] text-white hover:bg-[#a50d26]"
-                    : "bg-gray-200 text-gray-400 cursor-not-allowed"
+                  p.stock === 0
+                    ? "bg-gray-200 text-gray-400 cursor-not-allowed"
+                    : cartAdded
+                    ? "bg-green-500 text-white"
+                    : !size
+                    ? "bg-gray-900 text-white hover:bg-gray-700"
+                    : "bg-[#c8102e] text-white hover:bg-[#a50d26]"
                 }`}
               >
-                <Phone size={17} />
-                {p.stock > 0 ? "Beni Geri Ara" : "Stokta Yok"}
+                {cartAdded ? (
+                  <><Check size={17} />Sepete Eklendi!</>
+                ) : p.stock === 0 ? (
+                  <><ShoppingBag size={17} />Stokta Yok</>
+                ) : !size ? (
+                  <><ShoppingBag size={17} />Önce Beden Seçin</>
+                ) : (
+                  <><ShoppingBag size={17} />Sepete Ekle — {size}</>
+                )}
               </button>
-              <a
-                href={`https://wa.me/905551234567?text=${encodeURIComponent(
-                  `Merhaba! ${p.name} hakkında bilgi almak istiyorum.`
-                )}`}
-                target="_blank"
-                rel="noreferrer"
-                className="flex items-center justify-center gap-2.5 w-full py-4 rounded-2xl bg-white border-2 border-[#25D366] text-[#25D366] font-sans text-base font-semibold hover:bg-[#25D366] hover:text-white active:scale-[0.98] transition-all"
-              >
-                <MessageCircle size={17} />WhatsApp ile Sor
-              </a>
+
+              {/* Secondary: lead-capture row */}
+              <div className="flex gap-2.5">
+                <button
+                  onClick={() => p.stock > 0 && onCallBack(p)}
+                  disabled={p.stock === 0}
+                  className="flex-1 flex items-center justify-center gap-2 py-3.5 rounded-2xl bg-white border-2 border-gray-200 text-gray-700 font-sans text-sm font-semibold hover:border-gray-400 active:scale-[0.98] transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  <Phone size={15} />
+                  Beni Ara
+                </button>
+                <a
+                  href={`https://wa.me/905551234567?text=${encodeURIComponent(
+                    `Merhaba! ${p.name} hakkında bilgi almak istiyorum.`
+                  )}`}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="flex-1 flex items-center justify-center gap-2 py-3.5 rounded-2xl bg-white border-2 border-[#25D366] text-[#25D366] font-sans text-sm font-semibold hover:bg-[#25D366] hover:text-white active:scale-[0.98] transition-all"
+                >
+                  <MessageCircle size={15} />WhatsApp
+                </a>
+              </div>
             </div>
 
             <div className="flex gap-6 mt-8 pt-8 border-t border-gray-100 flex-wrap">

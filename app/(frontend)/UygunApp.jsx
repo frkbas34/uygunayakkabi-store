@@ -55,7 +55,26 @@ const heroImg = shoe("#f5ede0", "#3d1f0a", "#6b3a1f", "#c8a882", "#7a5535", -8);
 // Shared placeholder — swap out once individual product photos are added
 const PLACEHOLDER = "/products/kahve-deri.jpg";
 
-const products = [
+// Helper: transform Payload product to frontend format
+function transformPayloadProduct(p) {
+  return {
+    id: p.id,
+    name: p.name,
+    price: p.price,
+    originalPrice: p.originalPrice || null,
+    description: p.description,
+    images: p.images && p.images.length > 0
+      ? p.images.map((img) => img.image?.url || img.image?.sizes?.card?.url || PLACEHOLDER)
+      : [PLACEHOLDER, PLACEHOLDER, PLACEHOLDER],
+    sizes: Array.isArray(p.sizes) ? p.sizes : [40, 41, 42, 43],
+    stock: p.stock ?? 0,
+    category: p.category || "Günlük",
+    badge: p.badge || null,
+  };
+}
+
+// Fallback hardcoded products (used until Payload data loads)
+const fallbackProducts = [
   {
     id: 1,
     name: "Deri Runner — Çikolata",
@@ -187,6 +206,9 @@ const products = [
     badge: null,
   },
 ];
+
+// Live products — will be replaced by Payload data when available
+let products = fallbackProducts;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // TRUST ITEMS
@@ -1352,6 +1374,23 @@ export default function App() {
   const [page, setPage] = useState("home");
   const [selectedProduct, setSelectedProduct] = useState(null);
   const [callbackProduct, setCallbackProduct] = useState(null);
+  const [liveProducts, setLiveProducts] = useState(null);
+
+  // Fetch products from Payload CMS API
+  useEffect(() => {
+    fetch("/api/products?limit=100&depth=1")
+      .then((res) => res.json())
+      .then((data) => {
+        if (data.docs && data.docs.length > 0) {
+          const transformed = data.docs.map(transformPayloadProduct);
+          products = transformed;
+          setLiveProducts(transformed);
+        }
+      })
+      .catch(() => {
+        // silently fall back to hardcoded products
+      });
+  }, []);
 
   const navigate = (pg) => {
     setPage(pg);

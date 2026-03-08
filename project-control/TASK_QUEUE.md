@@ -3,31 +3,33 @@
 ## PHASE 1 — Core Admin System + Storefront Stabilization
 
 ### ✅ Completed
-- [x] Fix `UygunApp.jsx` helper ordering issue (`const U` before `const heroImg`)
-- [x] Fix Payload importMap — all 29 components including CollectionCards
-- [x] Fix admin panel CSS — `import '@payloadcms/next/css'` in layout.tsx
-- [x] Fix media upload path — `staticDir: public/media`
-- [x] Fix DB schema mismatch — confirmed all columns exist in DB
-- [x] Clear `.next` cache — stale Drizzle schema was causing enum push errors
-- [x] Reset payload_migrations — clean schema detection on next startup
-- [x] Collection field types aligned to actual DB column types (text not select for brand/category/size)
-- [x] Remove required:true from fields with potential null DB values
-- [x] Rewrite `page.tsx` as Server Component — fetches Payload CMS products on each request
-- [x] Update `App` to accept `dbProducts` prop + create merged `allProducts`
-- [x] Update `HomePage` to use `allProducts` prop (DB products show first)
-- [x] Update `CatalogPage` to use `allProducts` prop + empty-state fallback
-- [x] Replace all product images with SVG shoe generator (no Unsplash on product cards)
-- [x] Add `Orders` collection to admin panel
-- [x] Add `Krampon` category to catalog filter and CATEGORY_DATA
+- [x] Fix `UygunApp.jsx` helper ordering issue
+- [x] Fix Payload importMap — all required components registered
+- [x] Fix admin panel CSS
+- [x] Fix media upload path
+- [x] Fix DB schema mismatch
+- [x] Clear `.next` cache and reset payload_migrations
+- [x] Collection field types aligned to DB column types
+- [x] Rewrite `page.tsx` as Server Component
+- [x] Update `App`, `HomePage`, `CatalogPage` to use `allProducts` prop
+- [x] Add `Orders` collection, `Krampon` category
+- [x] **Resolve merge conflicts** (copilot/setup-product-publishing-system branch)
+- [x] **New Brands collection** (src/collections/Brands.ts)
+- [x] **New Categories collection** (src/collections/Categories.ts)
+- [x] **Admin Dashboard component** (quick links, image guide, brand tips)
+- [x] **Site UI overhaul** — logo, WhatsApp number, remove obsolete text, category images, product count → 37
+- [x] **WhatsApp Order Guide** replaces old CTABanner
+- [x] Products: gender select field added; brand/category descriptions improved
 
 ### 🔲 Pending Validation
-- [ ] Restart server — confirm `push: true` runs cleanly with no errors
-- [ ] Confirm admin panel loads at /admin without runtime errors
-- [ ] Confirm Products collection lists and edits correctly
-- [ ] Confirm Variants collection lists and edits correctly
+- [ ] Restart server — confirm `push: true` runs cleanly (new Brands + Categories tables will be created)
+- [ ] Confirm admin panel loads at /admin — Dashboard visible
+- [ ] Confirm Products, Brands, Categories collections render correctly
 - [ ] Confirm Media upload works (file saved to public/media)
-- [ ] Create a new test product via admin and confirm it appears on storefront
-- [ ] Confirm no "column does not exist" or "enum" errors in terminal on startup
+- [ ] Create a test product via admin with image → confirm appears on storefront
+- [ ] Confirm Brands and Categories collections accept new entries
+- [ ] Confirm no DB errors in terminal on startup
+- [ ] Push to GitHub: `git push origin main` (run from local machine)
 
 ### 🔲 Phase Gate
 - [ ] All validation items above checked → Phase 1 complete → unlock Phase 2

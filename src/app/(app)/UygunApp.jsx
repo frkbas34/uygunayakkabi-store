@@ -1,1510 +1,246 @@
 "use client";
+import { useState, useEffect } from "react";
 
-import { useState, useEffect, useCallback } from "react";
-import Image from "next/image";
-import { useRouter } from "next/navigation";
-import useEmblaCarousel from "embla-carousel-react";
-import {
-  Menu,
-  X,
-  Phone,
-  MessageCircle,
-  Check,
-  Truck,
-  ShieldCheck,
-  RotateCcw,
-  Star,
-  Users,
-  ArrowRight,
-  BadgeCheck,
-  ChevronLeft,
-  ChevronRight,
-  Zap,
-  ShoppingBag,
-  Plus,
-  Minus,
-} from "lucide-react";
-import { useCart } from "./context/CartContext";
+// ============================================
+// TOKENS
+// ============================================
+const T = {
+  f: "'Outfit', sans-serif", d: "'Playfair Display', serif",
+  bk: "#0a0a0a", wh: "#ffffff",
+  g50: "#fafafa", g100: "#f5f5f5", g200: "#e8e8e8", g400: "#a3a3a3", g500: "#737373", g600: "#525252",
+  ac: "#c8102e", gn: "#16a34a",
+  r: { sm: 8, md: 12, lg: 16, xl: 20, full: 999 },
+};
 
-// ─────────────────────────────────────────────────────────────────────────────
+// ============================================
 // SVG SHOE GENERATOR
-// Placeholder images — swap the `images` arrays in the products data below with
-// real paths like "/products/model-1-side.jpg" once photos are placed in /public/products/
-// ─────────────────────────────────────────────────────────────────────────────
+// ============================================
 function shoe(bg, sole, body, acc, lace, rot = 0) {
-  return `data:image/svg+xml,${encodeURIComponent(
-    `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 800"><defs><radialGradient id="g1" cx="30%" cy="30%"><stop offset="0%" stop-color="${acc}" stop-opacity="0.08"/><stop offset="100%" stop-color="${acc}" stop-opacity="0"/></radialGradient></defs><rect width="800" height="800" fill="${bg}"/><rect width="800" height="800" fill="url(#g1)"/><g transform="translate(400,400) rotate(${rot}) scale(1.15)"><path d="M-220,80Q-220,110-180,120L200,120Q240,120,250,95L260,60Q260,45,240,40L-180,40Q-220,45-220,80Z" fill="${sole}"/><path d="M-180,120Q-180,138-145,142L195,142Q235,142,245,125L250,95Q240,120,200,120L-180,120Z" fill="${sole}" opacity="0.4"/><path d="M-200,48Q-210,68-190,78L230,78Q250,73,255,53L250,33Q245,23,230,23L-175,23Q-200,28-200,48Z" fill="white" opacity="0.88"/><ellipse cx="185" cy="52" rx="38" ry="20" fill="${acc}" opacity="0.18"/><ellipse cx="-120" cy="52" rx="30" ry="16" fill="${acc}" opacity="0.1"/><path d="M-180,28Q-200,8-195,-42Q-185,-102-140,-132Q-80,-172,20,-177Q120,-180,180,-152Q230,-127,245,-72Q255,-27,245,13L240,23L-175,23Q-185,26-180,28Z" fill="${body}"/><path d="M60,-165Q140,-160,185,-135Q225,-112,240,-65Q250,-25,245,13L170,13Q178,-22,162,-58Q140,-100,85,-128Q30,-150-25,-148Z" fill="white" opacity="0.09"/><path d="M-150,-45Q-70,-92,50,-87Q145,-82,210,-38" fill="none" stroke="${acc}" stroke-width="14" stroke-linecap="round" opacity="0.75"/><path d="M-195,-42Q-190,-58-168,-68Q-128,-88-78,-82" fill="none" stroke="${body}" stroke-width="18" stroke-linecap="round" opacity="0.3"/><path d="M-118,-132Q-98,-172-58,-187Q-18,-197,22,-187Q42,-180,47,-167" fill="${body}" opacity="0.55"/><line x1="-78" y1="-132" x2="-18" y2="-147" stroke="${lace}" stroke-width="4.5" stroke-linecap="round"/><line x1="-58" y1="-112" x2="2" y2="-132" stroke="${lace}" stroke-width="4.5" stroke-linecap="round"/><line x1="-38" y1="-92" x2="22" y2="-117" stroke="${lace}" stroke-width="4.5" stroke-linecap="round"/><circle cx="-78" cy="-132" r="5" fill="${lace}" opacity="0.55"/><circle cx="-58" cy="-112" r="5" fill="${lace}" opacity="0.55"/><circle cx="-38" cy="-92" r="5" fill="${lace}" opacity="0.55"/><circle cx="-18" cy="-147" r="5" fill="${lace}" opacity="0.55"/><circle cx="2" cy="-132" r="5" fill="${lace}" opacity="0.55"/><circle cx="22" cy="-117" r="5" fill="${lace}" opacity="0.55"/></g><ellipse cx="400" cy="605" rx="240" ry="20" fill="black" opacity="0.055"/></svg>`
-  )}`;
+  return `data:image/svg+xml,${encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 800"><defs><radialGradient id="g1" cx="30%" cy="30%"><stop offset="0%" stop-color="${acc}" stop-opacity="0.08"/><stop offset="100%" stop-color="${acc}" stop-opacity="0"/></radialGradient></defs><rect width="800" height="800" fill="${bg}"/><rect width="800" height="800" fill="url(#g1)"/><g transform="translate(400,400) rotate(${rot}) scale(1.15)"><path d="M-220,80Q-220,110-180,120L200,120Q240,120,250,95L260,60Q260,45,240,40L-180,40Q-220,45-220,80Z" fill="${sole}"/><path d="M-180,120Q-180,138-145,142L195,142Q235,142,245,125L250,95Q240,120,200,120L-180,120Z" fill="${sole}" opacity="0.4"/><path d="M-200,48Q-210,68-190,78L230,78Q250,73,255,53L250,33Q245,23,230,23L-175,23Q-200,28-200,48Z" fill="white" opacity="0.88"/><ellipse cx="185" cy="52" rx="38" ry="20" fill="${acc}" opacity="0.18"/><ellipse cx="-120" cy="52" rx="30" ry="16" fill="${acc}" opacity="0.1"/><path d="M-180,28Q-200,8-195,-42Q-185,-102-140,-132Q-80,-172,20,-177Q120,-180,180,-152Q230,-127,245,-72Q255,-27,245,13L240,23L-175,23Q-185,26-180,28Z" fill="${body}"/><path d="M60,-165Q140,-160,185,-135Q225,-112,240,-65Q250,-25,245,13L170,13Q178,-22,162,-58Q140,-100,85,-128Q30,-150-25,-148Z" fill="white" opacity="0.09"/><path d="M-150,-45Q-70,-92,50,-87Q145,-82,210,-38" fill="none" stroke="${lace}" stroke-width="6" stroke-linecap="round" opacity="0.6"/><path d="M-130,-60Q-50,-105,60,-100Q155,-95,218,-52" fill="none" stroke="${lace}" stroke-width="5" stroke-linecap="round" opacity="0.4"/><ellipse cx="-150" cy="35" rx="18" ry="12" fill="${acc}" opacity="0.5"/><ellipse cx="150" cy="35" rx="18" ry="12" fill="${acc}" opacity="0.5"/></g></svg>`)}`;
 }
 
-// Hero image — real photo for hero section (Unsplash)
-const heroImg = `https://images.unsplash.com/photo-1549298916-b41d501d3772?w=900&h=1100&fit=crop&q=80`;
+const heroImg = shoe("#f0f0f0", "#222", "#c8102e", "#fff", "#fff", -8);
 
-// ─────────────────────────────────────────────────────────────────────────────
-// PRODUCTS — All images use SVG shoe generator for consistency
-// ─────────────────────────────────────────────────────────────────────────────
-
-// Günlük — casual sneakers / runners
-const imgCikolata  = [shoe("#f5ede0","#3d1f0a","#6b3a1f","#c8a882","#7a5535",0), shoe("#ede5d8","#2d1205","#5a3018","#b89872","#6a4525",-3)];
-const imgSiyah     = [shoe("#f0f0f0","#111","#222","#888","#fff",0), shoe("#e8e8e8","#0a0a0a","#1a1a1a","#777","#eee",-3)];
-const imgLacivert  = [shoe("#e8eef8","#0a1a40","#1a3a7a","#4a6fb5","#8ab4d8",0), shoe("#dde5f5","#08163a","#163270","#3a5fa5","#7aa4c8",-3)];
-const imgCamel     = [shoe("#fdf5e0","#6b4c1a","#b8834a","#d4a96c","#f0d4a0",0), shoe("#f5eedc","#5a3e12","#a87540","#c4995c","#e0c490",-3)];
-const imgBordo     = [shoe("#f5e6e8","#3d0a0e","#8b1a22","#cc4444","#f0a0a8",0), shoe("#ede0e2","#350208","#7a1218","#bb3838","#e09098",-3)];
-const imgKum       = [shoe("#faf5e4","#7a6a36","#c4a862","#e0c890","#d4b870",0), shoe("#f2edd8","#6a5a28","#b49852","#d0b880","#c4a860",-3)];
-// Klasik — derby, loafer, oxford
-const imgKonjak    = [shoe("#f8f0e4","#5a2a0a","#a84a18","#d4864a","#c8b878",0), shoe("#f0e8dc","#4a2008","#983e10","#c47640","#b8a868",-3)];
-const imgGece      = [shoe("#e0e8f4","#0a0a2e","#1a1a5a","#3a3a8a","#8888cc",0), shoe("#d8e0ec","#080826","#12124a","#2a2a7a","#7878bc",-3)];
-const imgOxford    = [shoe("#f2f2f2","#0a0a0a","#1c1c1c","#aaa","#ddd",0), shoe("#eaeaea","#050505","#141414","#999","#ccc",-3)];
-const imgVelvet    = [shoe("#e8f0fc","#0a1a4a","#1a2a8a","#4a5acc","#d0d8f8",0), shoe("#e0e8f4","#081640","#182280","#3a4abc","#c0c8e8",-3)];
-// Spor — running, training, trail
-const imgSporBeyaz = [shoe("#f8f8f8","#e0e0e0","#ffffff","#00b4d8","#0077b6",0), shoe("#f0f0f8","#d0d0d0","#f0f0f0","#0090c0","#005a9a",-3)];
-const imgSporKirmizi=[shoe("#fff0f0","#c8102e","#e8182e","#ff6b8a","#fff",0), shoe("#f8e8e8","#a80018","#c81020","#ee5b7a","#eee",-3)];
-const imgSporYesil = [shoe("#f0faf2","#145a20","#1e8a2e","#4dcc6a","#b8f5c4",0), shoe("#e8f2ea","#0e4a18","#187a26","#3dbc5a","#a8e5b4",-3)];
-const imgSporTuruncu=[shoe("#fff5ec","#7a3000","#d4560a","#ff8c42","#ffe0c8",0), shoe("#f5ede4","#6a2800","#c44800","#ef7c32","#f5d0b8",-3)];
-// Bot — boots
-const imgBotKahve  = [shoe("#ede0d0","#2a1400","#5a3010","#8a5430","#d4a06a",0), shoe("#e5d8c8","#1e0e00","#4a2808","#7a4428","#c4905a",-3)];
-const imgBotSiyah  = [shoe("#e8e8e8","#080808","#181818","#555","#ccc",0), shoe("#e0e0e0","#050505","#101010","#444","#bbb",-3)];
-const imgBotHaki   = [shoe("#f0f0e4","#2a3010","#4a5420","#7a8a40","#c4d090",0), shoe("#e8e8dc","#202808","#3a4418","#6a7a30","#b4c080",-3)];
-// Sandalet — sandals
-const imgSandKrem  = [shoe("#fdfaf2","#7a6040","#c8a870","#e8c890","#f5e8c0",0), shoe("#f5f2ea","#6a5030","#b89860","#d8b880","#e5d8b0",-3)];
-const imgSandMavi  = [shoe("#e8f4fd","#0a3a5a","#1a6a9a","#3a9acc","#a0d8f0",0), shoe("#e0eef5","#083050","#126090","#2a8abc","#90c8e0",-3)];
-
-const products = [
-  // ── GÜNLÜK ──────────────────────────────────────────────────────────────────
-  {
-    id: 1,
-    name: "Deri Runner — Çikolata",
-    price: 4290,
-    originalPrice: 5490,
-    description: "Çikolata kahvesi nubuk ve tam deri kombinasyonu, kabartmalı elmas desen panel ve tabaka kauçuk taban. El işçiliği, premium İtalyan deri.",
-    images: imgCikolata,
-    sizes: [40, 41, 42, 43, 44],
-    stock: 5,
-    category: "Günlük",
-    badge: "İndirim",
-  },
-  {
-    id: 2,
-    name: "Deri Runner — Jet Siyah",
-    price: 4290,
-    originalPrice: null,
-    description: "Siyah tam deri üst, kontrastlı kabartma panel ve bej tabaka taban. Sofistike sokak stili için tasarlandı.",
-    images: imgSiyah,
-    sizes: [39, 40, 41, 42, 43, 44],
-    stock: 8,
-    category: "Günlük",
-    badge: "Yeni",
-  },
-  {
-    id: 3,
-    name: "Deri Runner — Lacivert",
-    price: 4290,
-    originalPrice: 5490,
-    description: "Lacivert tam deri, kontrast bej taban ve işlemeli yan panel. Zamansız zarafetle modern konfor.",
-    images: imgLacivert,
-    sizes: [40, 41, 42, 43],
-    stock: 3,
-    category: "Günlük",
-    badge: "İndirim",
-  },
-  {
-    id: 4,
-    name: "Deri Runner — Camel",
-    price: 4890,
-    originalPrice: null,
-    description: "Işıltılı camel patinalı deri ve süet kombinasyonu. Tabaka sole ve bağcıklı tasarımıyla her kombiye uyum.",
-    images: imgCamel,
-    sizes: [40, 41, 42, 43, 44, 45],
-    stock: 6,
-    category: "Günlük",
-    badge: null,
-  },
-  {
-    id: 5,
-    name: "Deri Runner — Bordo",
-    price: 4890,
-    originalPrice: 5990,
-    description: "Zengin bordo patinalı deri, kontrast dikişler ve özel işçilik. Koleksiyonun en gösterişli rengi.",
-    images: imgBordo,
-    sizes: [39, 40, 41, 42, 43],
-    stock: 2,
-    category: "Günlük",
-    badge: "İndirim",
-  },
-  {
-    id: 6,
-    name: "Nubuk Sneaker — Kum",
-    price: 3890,
-    originalPrice: null,
-    description: "Nefes alabilen kum rengi nubuk deri, crepe kauçuk taban ve minimal kesim. Günlük kullanımın vazgeçilmezi.",
-    images: imgKum,
-    sizes: [38, 39, 40, 41, 42],
-    stock: 10,
-    category: "Günlük",
-    badge: "Yeni",
-  },
-  {
-    id: 10,
-    name: "Velvet Sneaker — Derin Mavi",
-    price: 4990,
-    originalPrice: null,
-    description: "Derin mavi kadife üst, kontrast beyaz taban ve saten bağcıklar. Lüks gece stili için tasarlanmış özel koleksiyon.",
-    images: imgVelvet,
-    sizes: [38, 39, 40, 41, 42, 43],
-    stock: 5,
-    category: "Günlük",
-    badge: null,
-  },
-  // ── KLASİK ──────────────────────────────────────────────────────────────────
-  {
-    id: 7,
-    name: "Deri Derby — Konjak",
-    price: 5290,
-    originalPrice: 6490,
-    description: "Zengin konjak rengi İngiliz deri, Goodyear welt dikişi ve kauçuk-deri karma taban. Resmi ve business casual her ortam için.",
-    images: imgKonjak,
-    sizes: [40, 41, 42, 43, 44],
-    stock: 4,
-    category: "Klasik",
-    badge: "İndirim",
-  },
-  {
-    id: 8,
-    name: "Süet Loafer — Gece",
-    price: 4490,
-    originalPrice: null,
-    description: "Gece mavisi süet, altın bitişli tok nal taban ve tassel detayıyla soylu bir klasik. Tam ayak konforu.",
-    images: imgGece,
-    sizes: [39, 40, 41, 42, 43, 44],
-    stock: 7,
-    category: "Klasik",
-    badge: "Yeni",
-  },
-  {
-    id: 9,
-    name: "Deri Oxford — Siyah",
-    price: 5490,
-    originalPrice: 6990,
-    description: "Siyah tam deri Brogue detayları, Goodyear welt dikişi ve deri-kauçuk karma taban. Zamansız bir klasik.",
-    images: imgOxford,
-    sizes: [40, 41, 42, 43],
-    stock: 0,
-    category: "Klasik",
-    badge: "Tükendi",
-  },
-  // ── SPOR ────────────────────────────────────────────────────────────────────
-  {
-    id: 11,
-    name: "Air Runner — Beyaz/Mavi",
-    price: 3490,
-    originalPrice: 4290,
-    description: "Ultra hafif köpük taban ve mesh üst. Koşu ve günlük antrenmanlar için nefes alabilen spor tasarımı.",
-    images: imgSporBeyaz,
-    sizes: [38, 39, 40, 41, 42, 43, 44],
-    stock: 12,
-    category: "Spor",
-    badge: "İndirim",
-  },
-  {
-    id: 12,
-    name: "Sprint Pro — Kırmızı",
-    price: 3890,
-    originalPrice: null,
-    description: "Enerji dolduran kırmızı tonları, ergonomik taban ve anti-kayma dış taban. Performansını bir üst seviyeye taşı.",
-    images: imgSporKirmizi,
-    sizes: [39, 40, 41, 42, 43, 44],
-    stock: 9,
-    category: "Spor",
-    badge: "Yeni",
-  },
-  {
-    id: 13,
-    name: "TrailMax — Yeşil",
-    price: 4190,
-    originalPrice: 5090,
-    description: "Doğa yürüyüşleri için su geçirmez dış kaplama, agresif çivi tabanlı zemin tutuşu ve şok emici bölge.",
-    images: imgSporYesil,
-    sizes: [40, 41, 42, 43, 44, 45],
-    stock: 6,
-    category: "Spor",
-    badge: "İndirim",
-  },
-  {
-    id: 14,
-    name: "FlexFit — Turuncu",
-    price: 3290,
-    originalPrice: null,
-    description: "360° esnek taban teknolojisi, turuncu aksanlar ve geniş burun bölgesi. Yoga ve studio antrenmanlarının vazgeçilmezi.",
-    images: imgSporTuruncu,
-    sizes: [38, 39, 40, 41, 42],
-    stock: 15,
-    category: "Spor",
-    badge: "Yeni",
-  },
-  // ── BOT ─────────────────────────────────────────────────────────────────────
-  {
-    id: 15,
-    name: "Deri Bot — Taba",
-    price: 6490,
-    originalPrice: 7990,
-    description: "Gerçek deri üst, YKK fermuar ve kalın kauçuk taban. Kış aylarında hem sıcak hem şık görünümün garantisi.",
-    images: imgBotKahve,
-    sizes: [40, 41, 42, 43, 44],
-    stock: 4,
-    category: "Bot",
-    badge: "İndirim",
-  },
-  {
-    id: 16,
-    name: "Combat Bot — Siyah",
-    price: 5990,
-    originalPrice: null,
-    description: "Sağlam deri yapısı, çelik güçlendirilmiş bağcık gözeleri ve platform taban. Sokak stilinin en sert ifadesi.",
-    images: imgBotSiyah,
-    sizes: [39, 40, 41, 42, 43, 44],
-    stock: 7,
-    category: "Bot",
-    badge: "Yeni",
-  },
-  {
-    id: 17,
-    name: "Haki Bot — Kargo",
-    price: 5490,
-    originalPrice: 6590,
-    description: "Askeri haki ton, yüksek konç tasarımı ve çift kilitleme sistemi. Kamp ve şehir hayatı için ideal.",
-    images: imgBotHaki,
-    sizes: [40, 41, 42, 43, 44, 45],
-    stock: 5,
-    category: "Bot",
-    badge: "İndirim",
-  },
-  // ── SANDALET ────────────────────────────────────────────────────────────────
-  {
-    id: 18,
-    name: "Sandalet — Krem Deri",
-    price: 2890,
-    originalPrice: 3490,
-    description: "Yumuşak krem deri kayışlar, özel kalıplı EVA taban ve tokalı ayarlanabilir bilek bağı. Yaz sezonunun favorisi.",
-    images: imgSandKrem,
-    sizes: [37, 38, 39, 40, 41, 42],
-    stock: 8,
-    category: "Sandalet",
-    badge: "İndirim",
-  },
-  {
-    id: 19,
-    name: "Sandalet — Mavi Süet",
-    price: 2690,
-    originalPrice: null,
-    description: "Okyanus mavisi süet kayışlar, mantar taban ve çift tokalı kapama. Plaj ve tatil için harika seçim.",
-    images: imgSandMavi,
-    sizes: [37, 38, 39, 40, 41],
-    stock: 11,
-    category: "Sandalet",
-    badge: "Yeni",
-  },
-  // ── GÜNLÜK EK MODELLER ───────────────────────────────────────────────────────
-  {
-    id: 20,
-    name: "Nike Air Max — Beyaz",
-    price: 3990,
-    originalPrice: 5290,
-    description: "Klasik Air Max silüeti, extra büyük hava yastığı ve tertemiz beyaz üst. Her kombiye uyum sağlayan ikonik tasarım.",
-    images: imgSporBeyaz,
-    sizes: [38, 39, 40, 41, 42, 43, 44],
-    stock: 7,
-    category: "Günlük",
-    badge: "İndirim",
-    brand: "Nike",
-  },
-  {
-    id: 21,
-    name: "Adidas Stan Smith — Beyaz/Yeşil",
-    price: 3290,
-    originalPrice: null,
-    description: "Zamansız Stan Smith ikonası. Temiz beyaz deri üst ve sinyal yeşili topuk etiketi. Klasikleşmiş sadelik.",
-    images: imgSporYesil,
-    sizes: [38, 39, 40, 41, 42, 43],
-    stock: 9,
-    category: "Günlük",
-    badge: "Yeni",
-    brand: "Adidas",
-  },
-  {
-    id: 22,
-    name: "New Balance 574 — Lacivert",
-    price: 3590,
-    originalPrice: 4490,
-    description: "Deri ve mesh karışımı üst, ENCAP orta taban ve konforlu arka desteği. Günlük kullanım için efsane model.",
-    images: imgLacivert,
-    sizes: [39, 40, 41, 42, 43, 44],
-    stock: 5,
-    category: "Günlük",
-    badge: "İndirim",
-    brand: "New Balance",
-  },
-  {
-    id: 23,
-    name: "Puma Suede Classic — Bordo",
-    price: 2990,
-    originalPrice: null,
-    description: "Süet üst, formstrip yan şerit ve köpük orta taban. 50+ yıllık ikonun bordo yorumu.",
-    images: imgBordo,
-    sizes: [39, 40, 41, 42, 43],
-    stock: 6,
-    category: "Günlük",
-    badge: null,
-    brand: "Puma",
-  },
-  {
-    id: 24,
-    name: "Converse Chuck Taylor — Siyah",
-    price: 2490,
-    originalPrice: 2990,
-    description: "Bez üst, kauçuk burun koruyucu ve ikonik metal gözler. Asla modası geçmeyen sokak klasiği.",
-    images: imgSiyah,
-    sizes: [37, 38, 39, 40, 41, 42, 43],
-    stock: 14,
-    category: "Günlük",
-    badge: "İndirim",
-    brand: "Converse",
-  },
-  // ── KLASİK EK MODELLER ──────────────────────────────────────────────────────
-  {
-    id: 25,
-    name: "Deri Moccasin — Camel",
-    price: 4690,
-    originalPrice: 5990,
-    description: "El yapımı camel rengi deri, dekoratif bağcık ve çelik toka detayı. Ofis ve dinner için ideal.",
-    images: imgCamel,
-    sizes: [40, 41, 42, 43, 44],
-    stock: 3,
-    category: "Klasik",
-    badge: "İndirim",
-  },
-  {
-    id: 26,
-    name: "Patent Deri Oxford — Lacivert",
-    price: 5990,
-    originalPrice: null,
-    description: "Parlak patent deri, çift bükme taban ve bilek kemer tokası. Davet ve özel geceler için.",
-    images: imgVelvet,
-    sizes: [40, 41, 42, 43],
-    stock: 2,
-    category: "Klasik",
-    badge: "Yeni",
-  },
-  // ── SPOR EK MODELLER ────────────────────────────────────────────────────────
-  {
-    id: 27,
-    name: "Adidas Ultraboost — Turuncu",
-    price: 4490,
-    originalPrice: 5990,
-    description: "Primeknit üst, Boost orta taban ve Continental kauçuk dış taban. Uzun mesafe için üstün konfor.",
-    images: imgSporTuruncu,
-    sizes: [39, 40, 41, 42, 43, 44],
-    stock: 8,
-    category: "Spor",
-    badge: "İndirim",
-    brand: "Adidas",
-  },
-  {
-    id: 28,
-    name: "Nike React — Kırmızı/Beyaz",
-    price: 3890,
-    originalPrice: null,
-    description: "React köpük teknolojisi, hafif mesh üst ve geniş platform taban. Antrenmandan sokağa kesintisiz.",
-    images: imgSporKirmizi,
-    sizes: [38, 39, 40, 41, 42, 43],
-    stock: 10,
-    category: "Spor",
-    badge: "Yeni",
-    brand: "Nike",
-  },
-  // ── BOT EK MODELLER ─────────────────────────────────────────────────────────
-  {
-    id: 29,
-    name: "Chelsea Bot — Camel",
-    price: 5290,
-    originalPrice: 6490,
-    description: "Elastik yan panel, deri üst ve blok topuk. Zahmetsiz giyip çıkarma ile şık kış stili.",
-    images: imgCamel,
-    sizes: [39, 40, 41, 42, 43, 44],
-    stock: 4,
-    category: "Bot",
-    badge: "İndirim",
-  },
-  {
-    id: 30,
-    name: "Su Geçirmez Bot — Haki",
-    price: 4990,
-    originalPrice: null,
-    description: "Waterproof membran, Vibram taban ve çift kilit kapama. Dağ ve doğa koşullarına tam uyum.",
-    images: imgBotHaki,
-    sizes: [40, 41, 42, 43, 44, 45],
-    stock: 6,
-    category: "Bot",
-    badge: "Yeni",
-  },
-  // ── SANDALET EK MODELLER ────────────────────────────────────────────────────
-  {
-    id: 31,
-    name: "Slider Sandalet — Kırmızı",
-    price: 1490,
-    originalPrice: 1990,
-    description: "Yumuşak EVA taban, geniş tek bant ve kaymaz taban. Ev içi ve sahil kullanımı için pratik seçim.",
-    images: imgSporKirmizi,
-    sizes: [37, 38, 39, 40, 41, 42, 43],
-    stock: 20,
-    category: "Sandalet",
-    badge: "İndirim",
-  },
-  {
-    id: 32,
-    name: "Deri Sandalet — Kahve",
-    price: 3190,
-    originalPrice: null,
-    description: "Çapraz deri kayışlar, anatomik mantar taban ve metal toka. Günlük şık kullanımın tam tercihi.",
-    images: imgBotKahve,
-    sizes: [37, 38, 39, 40, 41, 42],
-    stock: 8,
-    category: "Sandalet",
-    badge: "Yeni",
-  },
-  // ── KRAMPON ─────────────────────────────────────────────────────────────────
-  {
-    id: 33,
-    name: "Krampon FG — Siyah/Sarı",
-    price: 3490,
-    originalPrice: 4590,
-    description: "Gerçek çim yüzeyleri için sert zemin (FG) tabanı, sentetik deri üst ve çevik kesim. Saha performansı.",
-    images: imgGece,
-    sizes: [39, 40, 41, 42, 43, 44],
-    stock: 7,
-    category: "Krampon",
-    badge: "İndirim",
-  },
-  {
-    id: 34,
-    name: "Krampon AG — Kırmızı",
-    price: 3890,
-    originalPrice: null,
-    description: "Yapay çim yüzeyler için AG tabanı, kanal dikişli üst ve ergonomik bilek desteği. Her sahanın favorisi.",
-    images: imgSporKirmizi,
-    sizes: [38, 39, 40, 41, 42, 43],
-    stock: 9,
-    category: "Krampon",
-    badge: "Yeni",
-  },
-  {
-    id: 35,
-    name: "Krampon TF — Turf",
-    price: 2990,
-    originalPrice: 3790,
-    description: "Halı saha için özel turf taban, hafif EVA orta taban ve geniş burun bölgesi. Futsal uyumlu.",
-    images: imgSporTuruncu,
-    sizes: [37, 38, 39, 40, 41, 42, 43, 44],
-    stock: 12,
-    category: "Krampon",
-    badge: "İndirim",
-  },
-  {
-    id: 36,
-    name: "Koşu Ayakkabısı — Turuncu Neon",
-    price: 3290,
-    originalPrice: null,
-    description: "Neon reflektif şeritler, ultra hafif mesh üst ve reaktif köpük taban. Sabah koşusunun vazgeçilmezi.",
-    images: imgSporTuruncu,
-    sizes: [38, 39, 40, 41, 42, 43, 44],
-    stock: 11,
-    category: "Spor",
-    badge: "Yeni",
-  },
-  {
-    id: 37,
-    name: "Training Ayakkabı — Yeşil/Gri",
-    price: 2890,
-    originalPrice: 3590,
-    description: "Çok yönlü antrenman tasarımı, topuk stabilizatörü ve esnek ön taban. Spor salonu için ideal.",
-    images: imgSporYesil,
-    sizes: [39, 40, 41, 42, 43],
-    stock: 7,
-    category: "Spor",
-    badge: "İndirim",
-  },
+// ============================================
+// STATIC PRODUCT DATA (36 products)
+// ============================================
+const STATIC_PRODUCTS = [
+  { id: 1, slug: "nike-air-max-270", name: "Nike Air Max 270", price: 2499, originalPrice: 3299, description: "Gün boyu konfor sunan Air Max 270, büyük Air ünitesiyle her adımda maksimum yastıklama sağlar.", image: shoe("#fafafa","#1a1a1a","#c8102e","#fff","#fff",-5), images: [shoe("#fafafa","#1a1a1a","#c8102e","#fff","#fff",-5),shoe("#f5f0eb","#333","#c8102e","#ff6b6b","#eee",3),shoe("#eef2f7","#222","#a8071a","#fff","#ddd",-12)], sizes:[38,39,40,41,42,43,44], stock:3, category:"Spor", badge:"İndirim" },
+  { id: 2, slug: "adidas-ultraboost-23", name: "Adidas Ultraboost 23", price: 2899, originalPrice: null, description: "Efsanevi Boost teknolojisiyle enerji iade eden taban yapısı. Koşu ve günlük kullanım için ideal.", image: shoe("#f5f5f5","#e0e0e0","#1a1a1a","#00b4d8","#ccc",-3), images: [shoe("#f5f5f5","#e0e0e0","#1a1a1a","#00b4d8","#ccc",-3),shoe("#edf6f9","#d5d5d5","#222","#0096c7","#bbb",5),shoe("#f0f0f0","#ccc","#111","#48cae4","#aaa",-10)], sizes:[39,40,41,42,43], stock:8, category:"Spor", badge:"Yeni" },
+  { id: 3, slug: "new-balance-574", name: "New Balance 574", price: 1899, originalPrice: 2499, description: "Zamansız tasarım ve ENCAP yastıklama sistemiyle hem şık hem rahat bir klasik.", image: shoe("#f7f3ef","#8B7355","#3d5a80","#ee6c4d","#fff",-6), images: [shoe("#f7f3ef","#8B7355","#3d5a80","#ee6c4d","#fff",-6),shoe("#f0ebe3","#7a6548","#293241","#e07a5f","#eee",4),shoe("#faf6f1","#9a8568","#415a77","#f4845f","#ddd",-14)], sizes:[38,39,40,41,42], stock:2, category:"Günlük", badge:"İndirim" },
+  { id: 4, slug: "puma-rs-x", name: "Puma RS-X", price: 1699, originalPrice: null, description: "Retro koşu estetiği ile modern teknolojiyi buluşturan cesur ve renkli bir sneaker.", image: shoe("#f5f0ff","#6c63ff","#fff","#ff6584","#6c63ff",-4), images: [shoe("#f5f0ff","#6c63ff","#fff","#ff6584","#6c63ff",-4),shoe("#fff0f5","#7c3aed","#fefefe","#f472b6","#7c3aed",6),shoe("#f0f0ff","#5b52e0","#fff","#ec4899","#5b52e0",-11)], sizes:[40,41,42,43,44,45], stock:5, category:"Spor", badge:null },
+  { id: 5, slug: "converse-chuck-70", name: "Converse Chuck 70", price: 1299, originalPrice: 1599, description: "Premium materyaller ve geliştirilmiş taban ile ikonik Chuck Taylor'ın üst seviye versiyonu.", image: shoe("#faf9f6","#f0e6c8","#2d2d2d","#c8102e","#fff",-7), images: [shoe("#faf9f6","#f0e6c8","#2d2d2d","#c8102e","#fff",-7),shoe("#f5f4f0","#e8dcc0","#1a1a1a","#b91c1c","#eee",2),shoe("#f8f7f4","#f5ecd0","#333","#dc2626","#ddd",-15)], sizes:[36,37,38,39,40,41,42], stock:12, category:"Günlük", badge:"İndirim" },
+  { id: 6, slug: "nike-dunk-low", name: "Nike Dunk Low Retro", price: 2199, originalPrice: null, description: "Basketbol kökenli bu ikon, sokak modasının vazgeçilmezi olarak geri döndü.", image: shoe("#f0fdf4","#2d6a4f","#fff","#2d6a4f","#2d6a4f",-5), images: [shoe("#f0fdf4","#2d6a4f","#fff","#2d6a4f","#2d6a4f",-5),shoe("#ecfdf5","#1b4332","#fefefe","#40916c","#1b4332",3),shoe("#f5faf7","#365e45","#fff","#52b788","#365e45",-13)], sizes:[39,40,41,42,43], stock:0, category:"Günlük", badge:"Tükendi" },
+  { id: 7, slug: "nike-air-force-1", name: "Nike Air Force 1 '07", price: 2299, originalPrice: 2799, description: "Efsanevi Air Force 1, klasik beyaz deri üst yapısıyla zamansız bir ikon.", image: shoe("#fafafa","#e0e0e0","#fff","#ccc","#ddd",-4), images: [shoe("#fafafa","#e0e0e0","#fff","#ccc","#ddd",-4),shoe("#f5f5f5","#d5d5d5","#fefefe","#bbb","#ccc",3),shoe("#f0f0f0","#ccc","#fff","#aaa","#bbb",-10)], sizes:[38,39,40,41,42,43,44,45], stock:15, category:"Günlük", badge:"İndirim" },
+  { id: 8, slug: "adidas-samba-og", name: "Adidas Samba OG", price: 1999, originalPrice: null, description: "Futsal efsanesi Samba, retro tarzıyla sokak stilinin vazgeçilmezi.", image: shoe("#f8f6f0","#d4a76a","#1a1a1a","#c8a95e","#fff",-6), images: [shoe("#f8f6f0","#d4a76a","#1a1a1a","#c8a95e","#fff",-6),shoe("#f5f3ed","#c99b5c","#222","#b8993e","#eee",4),shoe("#faf8f2","#deb978","#111","#d4ad5e","#ddd",-12)], sizes:[38,39,40,41,42,43], stock:7, category:"Günlük", badge:"Yeni" },
+  { id: 9, slug: "nike-vapormax-plus", name: "Nike Air VaporMax Plus", price: 3499, originalPrice: 3999, description: "VaporMax hava yastığı teknolojisi ile yere basmadan yürüme hissi.", image: shoe("#f0f0f5","#333","#1a1a1a","#7c3aed","#aaa",-3), images: [shoe("#f0f0f5","#333","#1a1a1a","#7c3aed","#aaa",-3),shoe("#eeeef5","#444","#222","#6d28d9","#999",5),shoe("#f2f2f8","#2a2a2a","#111","#8b5cf6","#bbb",-11)], sizes:[40,41,42,43,44], stock:4, category:"Spor", badge:"İndirim" },
+  { id: 10, slug: "reebok-classic-leather", name: "Reebok Classic Leather", price: 1399, originalPrice: null, description: "80'lerden bugüne ulaşan sade tasarım ve yumuşak deri üst yüzey.", image: shoe("#faf9f7","#e8dcc0","#fff","#c7a97b","#fff",-5), images: [shoe("#faf9f7","#e8dcc0","#fff","#c7a97b","#fff",-5),shoe("#f7f5f2","#ddd0b5","#fefefe","#b89968","#eee",3),shoe("#fcfaf7","#f0e4cc","#fff","#d4b88a","#ddd",-13)], sizes:[38,39,40,41,42,43], stock:10, category:"Günlük", badge:null },
+  { id: 11, slug: "adidas-stan-smith", name: "Adidas Stan Smith", price: 1799, originalPrice: 2199, description: "Tenis kökenli minimalist tasarımıyla dünyanın en çok satan sneaker'ı.", image: shoe("#f5f8f5","#e0e0e0","#fff","#16a34a","#fff",-4), images: [shoe("#f5f8f5","#e0e0e0","#fff","#16a34a","#fff",-4),shoe("#f0f5f0","#d5d5d5","#fefefe","#15803d","#eee",5),shoe("#f8fbf8","#ccc","#fff","#22c55e","#ddd",-12)], sizes:[36,37,38,39,40,41,42,43], stock:9, category:"Günlük", badge:"İndirim" },
+  { id: 12, slug: "nike-pegasus-41", name: "Nike Pegasus 41", price: 2699, originalPrice: null, description: "Her gün koşmak isteyenler için React köpük yastıklama ve nefes alan üst yapı.", image: shoe("#f0f5fa","#1a1a1a","#0077b6","#00b4d8","#fff",-7), images: [shoe("#f0f5fa","#1a1a1a","#0077b6","#00b4d8","#fff",-7),shoe("#edf3f8","#222","#006da0","#0096c7","#eee",2),shoe("#f3f7fc","#333","#0088c4","#48cae4","#ddd",-14)], sizes:[39,40,41,42,43,44,45], stock:6, category:"Spor", badge:"Yeni" },
+  { id: 13, slug: "puma-suede-classic", name: "Puma Suede Classic", price: 1499, originalPrice: 1799, description: "1968'den beri süet modanın sembolü. B-boy kültürünün temel taşı.", image: shoe("#f8f0f0","#f0e6c8","#8b1a2b","#d4a76a","#fff",-5), images: [shoe("#f8f0f0","#f0e6c8","#8b1a2b","#d4a76a","#fff",-5),shoe("#f5edec","#e8dcc0","#7a1525","#c99b5c","#eee",4),shoe("#faf3f3","#f5ecd0","#9c1f33","#deb978","#ddd",-13)], sizes:[38,39,40,41,42,43], stock:3, category:"Günlük", badge:"İndirim" },
+  { id: 14, slug: "adidas-gazelle-bold", name: "Adidas Gazelle Bold", price: 2099, originalPrice: null, description: "Platform tabanlı Gazelle, kalın taban ile retro tarzı modernize ediyor.", image: shoe("#faf5f8","#e8b4c8","#222","#d63384","#fff",-3), images: [shoe("#faf5f8","#e8b4c8","#222","#d63384","#fff",-3),shoe("#f7f0f5","#dda0b8","#1a1a1a","#c2185b","#eee",6),shoe("#fcf7fa","#f0c4d8","#333","#e91e8c","#ddd",-10)], sizes:[36,37,38,39,40,41], stock:5, category:"Günlük", badge:"Yeni" },
+  { id: 15, slug: "nike-air-max-90", name: "Nike Air Max 90", price: 2599, originalPrice: 3099, description: "90'ların ikonik koşu ayakkabısı, infrared aksan rengiyle kült klasik.", image: shoe("#fafafa","#555","#e5e5e5","#ff4040","#fff",-6), images: [shoe("#fafafa","#555","#e5e5e5","#ff4040","#fff",-6),shoe("#f5f5f5","#666","#ddd","#e63030","#eee",3),shoe("#f0f0f0","#444","#ccc","#ff5555","#ddd",-14)], sizes:[39,40,41,42,43,44], stock:2, category:"Spor", badge:"İndirim" },
+  { id: 16, slug: "vans-old-skool", name: "Vans Old Skool", price: 1199, originalPrice: null, description: "Jazz stripe detayıyla skate kültürünün sembolü olan efsanevi silüet.", image: shoe("#faf9f6","#f0e6c8","#1a1a1a","#fff","#fff",-4), images: [shoe("#faf9f6","#f0e6c8","#1a1a1a","#fff","#fff",-4),shoe("#f5f4f0","#e8dcc0","#222","#eee","#eee",5),shoe("#f8f7f4","#f5ecd0","#111","#ddd","#ddd",-12)], sizes:[36,37,38,39,40,41,42,43,44], stock:20, category:"Günlük", badge:null },
+  { id: 17, slug: "nb-530", name: "New Balance 530", price: 2199, originalPrice: 2699, description: "2000'lerin koşu teknolojisi ABZORB ile retro-futuristik bir sneaker.", image: shoe("#f5f5f5","#d5d5d5","#e0e0e0","#7c8a96","#ccc",-5), images: [shoe("#f5f5f5","#d5d5d5","#e0e0e0","#7c8a96","#ccc",-5),shoe("#f0f0f0","#c8c8c8","#d5d5d5","#6b7a88","#bbb",4),shoe("#fafafa","#e0e0e0","#eee","#8d9ba8","#ddd",-13)], sizes:[38,39,40,41,42,43], stock:8, category:"Spor", badge:"İndirim" },
+  { id: 18, slug: "asics-gel-1130", name: "Asics Gel-1130", price: 2399, originalPrice: null, description: "Y2K trendinin gözdesi, GEL teknolojili retro koşu modeli.", image: shoe("#f5f5f8","#c0c0c0","#e8e8e8","#8888cc","#ddd",-3), images: [shoe("#f5f5f8","#c0c0c0","#e8e8e8","#8888cc","#ddd",-3),shoe("#f0f0f5","#b5b5b5","#ddd","#7777bb","#ccc",5),shoe("#f8f8fb","#cccccc","#f0f0f0","#9999dd","#eee",-11)], sizes:[39,40,41,42,43,44], stock:6, category:"Spor", badge:"Yeni" },
+  { id: 19, slug: "converse-run-star", name: "Converse Run Star Hike", price: 1699, originalPrice: 2099, description: "Klasik Chuck Taylor'ı platform taban ve modern detaylarla yeniden yorumluyor.", image: shoe("#faf9f6","#1a1a1a","#2d2d2d","#c8102e","#fff",-8), images: [shoe("#faf9f6","#1a1a1a","#2d2d2d","#c8102e","#fff",-8),shoe("#f5f4f0","#222","#333","#b91c1c","#eee",2),shoe("#f8f7f4","#111","#444","#dc2626","#ddd",-15)], sizes:[36,37,38,39,40,41,42], stock:4, category:"Günlük", badge:"İndirim" },
+  { id: 20, slug: "nike-blazer-mid-77", name: "Nike Blazer Mid '77", price: 1899, originalPrice: null, description: "70'lerin basketbol sahalarından sokağa inen vintage bir ikon.", image: shoe("#fafafa","#f0e6c8","#fff","#c8102e","#c8102e",-5), images: [shoe("#fafafa","#f0e6c8","#fff","#c8102e","#c8102e",-5),shoe("#f5f5f5","#e8dcc0","#fefefe","#b91c1c","#b91c1c",3),shoe("#f0f0f0","#f5ecd0","#fff","#dc2626","#dc2626",-12)], sizes:[38,39,40,41,42,43,44], stock:11, category:"Günlük", badge:null },
+  { id: 21, slug: "adidas-nmd-r1", name: "Adidas NMD R1", price: 2599, originalPrice: 3199, description: "Boost tabanlı şehir koşucusu, hafif yapısı ve şık tasarımıyla öne çıkıyor.", image: shoe("#f0f0f0","#1a1a1a","#333","#c8102e","#ccc",-4), images: [shoe("#f0f0f0","#1a1a1a","#333","#c8102e","#ccc",-4),shoe("#eee","#222","#444","#b91c1c","#bbb",5),shoe("#f5f5f5","#111","#2a2a2a","#dc2626","#ddd",-11)], sizes:[39,40,41,42,43,44], stock:3, category:"Spor", badge:"İndirim" },
+  { id: 22, slug: "puma-palermo", name: "Puma Palermo", price: 1599, originalPrice: null, description: "İtalyan terrace kültüründen ilham alan süet retro sneaker.", image: shoe("#f0f5fa","#d4c5a0","#3d6b99","#c9a84c","#fff",-6), images: [shoe("#f0f5fa","#d4c5a0","#3d6b99","#c9a84c","#fff",-6),shoe("#edf3f8","#c8b890","#2d5a80","#b89838","#eee",3),shoe("#f3f7fc","#ddd5b0","#4d7aaa","#d4b458","#ddd",-13)], sizes:[38,39,40,41,42,43], stock:9, category:"Günlük", badge:"Yeni" },
+  { id: 23, slug: "nb-2002r", name: "New Balance 2002R", price: 2899, originalPrice: 3399, description: "N-ergy yastıklama ve premium süet yapıyla lüks koşu konforu.", image: shoe("#f5f0eb","#8a7a6a","#6b5b4b","#c9a84c","#fff",-5), images: [shoe("#f5f0eb","#8a7a6a","#6b5b4b","#c9a84c","#fff",-5),shoe("#f0ebe3","#7a6a5a","#5b4b3b","#b89838","#eee",4),shoe("#faf5f0","#9a8a7a","#7b6b5b","#d4b458","#ddd",-14)], sizes:[39,40,41,42,43,44], stock:1, category:"Spor", badge:"İndirim" },
+  { id: 24, slug: "nike-cortez", name: "Nike Cortez", price: 1699, originalPrice: 1999, description: "1972'den bu yana Amerikan spor kültürünün simgesi. Hafif, klasik, zamansız.", image: shoe("#fafafa","#e0e0e0","#fff","#c8102e","#0055a4",-4), images: [shoe("#fafafa","#e0e0e0","#fff","#c8102e","#0055a4",-4),shoe("#f5f5f5","#d5d5d5","#fefefe","#b91c1c","#004080",5),shoe("#f0f0f0","#ccc","#fff","#dc2626","#0066bb",-12)], sizes:[36,37,38,39,40,41,42,43], stock:7, category:"Günlük", badge:"İndirim" },
+  // ── Bot ──────────────────────────────────────────────────────
+  { id: 25, slug: "timberland-6-inch", name: "Timberland 6-Inch Boot", price: 3299, originalPrice: 3999, description: "Su geçirmez nubuck deri ve sağlam taban ile kış aylarının vazgeçilmezi.", image: shoe("#f5f0e8","#8B6914","#c19a30","#f5d98e","#fff",-3), images: [shoe("#f5f0e8","#8B6914","#c19a30","#f5d98e","#fff",-3),shoe("#f0ebe0","#7a5c10","#b08928","#e8cc7c","#eee",4),shoe("#faf5ed","#9a7818","#d4ad38","#f8e496","#ddd",-11)], sizes:[40,41,42,43,44,45], stock:5, category:"Bot", badge:"Yeni" },
+  { id: 26, slug: "dr-martens-1460", name: "Dr. Martens 1460", price: 2899, originalPrice: null, description: "İkonik sarı dikiş ve hava yastıklı AirWair tabanıyla punk kültürünün efsanesi.", image: shoe("#1a1a1a","#111","#222","#f5d98e","#333",-5), images: [shoe("#1a1a1a","#111","#222","#f5d98e","#333",-5),shoe("#222","#0a0a0a","#1a1a1a","#e8cc7c","#444",3),shoe("#111","#000","#2a2a2a","#ffd700","#222",-12)], sizes:[37,38,39,40,41,42,43,44], stock:8, category:"Bot", badge:null },
+  { id: 27, slug: "ugg-classic-mini", name: "UGG Classic Mini", price: 2499, originalPrice: 2999, description: "Gerçek koyun derisiyle üretilmiş, kışın en rahat kısa bot modeli.", image: shoe("#f5e8d5","#c8a882","#d4b896","#c8102e","#fff",-4), images: [shoe("#f5e8d5","#c8a882","#d4b896","#c8102e","#fff",-4),shoe("#f0e3d0","#bc9c76","#c8ac8a","#b91c1c","#eee",4),shoe("#faf3ea","#d4b490","#dcc0a0","#dc2626","#ddd",-10)], sizes:[36,37,38,39,40,41], stock:4, category:"Bot", badge:"İndirim" },
+  // ── Sandalet ─────────────────────────────────────────────────
+  { id: 28, slug: "birkenstock-arizona", name: "Birkenstock Arizona", price: 1799, originalPrice: null, description: "Kork taban üzerinde anatomi tasarımlı, yaz aylarının konfor ikonu.", image: shoe("#f5e8d5","#c8a882","#deb887","#8b6914","#fff",-2), images: [shoe("#f5e8d5","#c8a882","#deb887","#8b6914","#fff",-2),shoe("#f0e3d0","#bc9c76","#d4ac72","#7a5c10","#eee",4),shoe("#faf3ea","#d4b490","#e8c080","#9a7818","#ddd",-8)], sizes:[36,37,38,39,40,41,42,43], stock:12, category:"Sandalet", badge:"Yeni" },
+  { id: 29, slug: "adidas-adilette", name: "Adidas Adilette Comfort", price: 899, originalPrice: 1199, description: "Yumuşak köpük taban ve ikonik 3 bant tasarımıyla günlük konfor.", image: shoe("#f0f5fa","#0055a4","#fff","#0055a4","#00a0e0",-1), images: [shoe("#f0f5fa","#0055a4","#fff","#0055a4","#00a0e0",-1),shoe("#edf3f8","#004494","#fefefe","#003d8f","#0090cc",4),shoe("#f3f7fc","#0066bb","#fff","#0066bb","#00b0f0",-6)], sizes:[36,37,38,39,40,41,42,43,44,45], stock:25, category:"Sandalet", badge:"İndirim" },
+  { id: 30, slug: "havaianas-slim", name: "Havaianas Slim", price: 499, originalPrice: null, description: "Brezilya'dan gelen o eşsiz renk ve kauçuk kalite — yaz için biçilmiş kaftan.", image: shoe("#fef3c7","#f59e0b","#fde68a","#c8102e","#f59e0b",0), images: [shoe("#fef3c7","#f59e0b","#fde68a","#c8102e","#f59e0b",0),shoe("#fef9e7","#d97706","#fef3c7","#b91c1c","#d97706",4),shoe("#fffbeb","#f59e0b","#fef3c7","#dc2626","#fbbf24",-6)], sizes:[35,36,37,38,39,40,41,42], stock:30, category:"Sandalet", badge:null },
+  // ── Krampon ───────────────────────────────────────────────────
+  { id: 31, slug: "nike-mercurial-vapor", name: "Nike Mercurial Vapor 16", price: 3999, originalPrice: 4799, description: "Next-Gen hız teknolojisi ile sahada fark yaratan üst seviye krampon.", image: shoe("#eef2f7","#c8102e","#1a1a1a","#fbbf24","#fff",-8), images: [shoe("#eef2f7","#c8102e","#1a1a1a","#fbbf24","#fff",-8),shoe("#e8eef5","#b91c1c","#222","#f59e0b","#eee",3),shoe("#f0f5fa","#dc2626","#111","#d97706","#ddd",-14)], sizes:[39,40,41,42,43,44,45], stock:3, category:"Krampon", badge:"İndirim" },
+  { id: 32, slug: "adidas-predator-30", name: "Adidas Predator 30 FG", price: 3499, originalPrice: null, description: "Control Zone teknolojisi ve Element Skin kaplamasıyla topa mutlak hakimiyet.", image: shoe("#1a1a1a","#222","#c8102e","#fbbf24","#333",-5), images: [shoe("#1a1a1a","#222","#c8102e","#fbbf24","#333",-5),shoe("#222","#333","#b91c1c","#f59e0b","#444",4),shoe("#111","#1a1a1a","#a50d26","#d97706","#222",-11)], sizes:[39,40,41,42,43,44], stock:6, category:"Krampon", badge:"Yeni" },
+  { id: 33, slug: "puma-future-8", name: "Puma Future 8 FG", price: 3299, originalPrice: 3899, description: "AccuFoam yastıklama ve BreatheFit üst yapısıyla sahada üst düzey performans.", image: shoe("#f5f0ff","#6c63ff","#1a1a1a","#fbbf24","#7c3aed",-6), images: [shoe("#f5f0ff","#6c63ff","#1a1a1a","#fbbf24","#7c3aed",-6),shoe("#f0ebff","#5b52e0","#222","#f59e0b","#6d28d9",3),shoe("#f8f5ff","#7c73ff","#111","#d97706","#8b5cf6",-12)], sizes:[38,39,40,41,42,43,44], stock:4, category:"Krampon", badge:"İndirim" },
+  // ── Klasik ────────────────────────────────────────────────────
+  { id: 34, slug: "oxford-brogue-leather", name: "Klasik Brogue Oxford", price: 2299, originalPrice: null, description: "El yapımı deri ve geleneksel brogue oyma detaylarıyla ofis ve özel günler için şıklık.", image: shoe("#3d2b1f","#2a1f16","#5c4033","#c9a97b","#fff",-3), images: [shoe("#3d2b1f","#2a1f16","#5c4033","#c9a97b","#fff",-3),shoe("#4a352a","#2d231a","#66493d","#d4b88a","#eee",4),shoe("#332418","#1f170e","#4d3528","#b89468","#ddd",-10)], sizes:[40,41,42,43,44,45], stock:7, category:"Klasik", badge:null },
+  { id: 35, slug: "loafer-suede", name: "Süet Loafer", price: 1899, originalPrice: 2299, description: "Yumuşak süet deri ve yuvarlak burun tasarımıyla her kombinasyona uyan klasik loafer.", image: shoe("#8B6914","#6b4f0e","#b08928","#c8102e","#d4a76a",-4), images: [shoe("#8B6914","#6b4f0e","#b08928","#c8102e","#d4a76a",-4),shoe("#7a5c10","#5a4208","#9a7818","#b91c1c","#c99b5c",3),shoe("#9a7818","#7a5c10","#c4982e","#dc2626","#deb978",-11)], sizes:[37,38,39,40,41,42,43], stock:9, category:"Klasik", badge:"İndirim" },
+  { id: 36, slug: "chelsea-boot-classic", name: "Chelsea Boot Deri", price: 2699, originalPrice: null, description: "Elastik panel ve yuvarlak biye detaylı, kısa konçlu deri Chelsea bot.", image: shoe("#2d2016","#1a1209","#3d2c1e","#c9a97b","#fff",-5), images: [shoe("#2d2016","#1a1209","#3d2c1e","#c9a97b","#fff",-5),shoe("#3a2b1c","#221710","#4a382a","#d4b88a","#eee",3),shoe("#201508","#0f0804","#2d1e12","#b89468","#ddd",-12)], sizes:[39,40,41,42,43,44], stock:5, category:"Klasik", badge:"Yeni" },
 ];
 
-// ─────────────────────────────────────────────────────────────────────────────
-// TRUST ITEMS
-// ─────────────────────────────────────────────────────────────────────────────
-const TRUST = [
-  { Icon: ShieldCheck, label: "Kaliteli Ürünler", sub: "Geniş Marka Yelpazesi" },
-  { Icon: Truck, label: "Hızlı Kargo", sub: "1-3 İş Günü" },
-  { Icon: RotateCcw, label: "Kolay İade", sub: "30 Gün" },
-  { Icon: BadgeCheck, label: "Güvenli Alışveriş", sub: "SSL Korumalı" },
-];
+// ============================================
+// ICONS
+// ============================================
+const I = {
+  menu: <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>,
+  close: <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>,
+  arrow: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M5 12h14M12 5l7 7-7 7"/></svg>,
+  check: <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#16a34a" strokeWidth="2.5"><path d="M20 6L9 17l-5-5"/></svg>,
+  truck: <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#c8102e" strokeWidth="1.8"><path d="M1 3h15v13H1zM16 8h4l3 3v5h-7V8z"/><circle cx="5.5" cy="18.5" r="2.5"/><circle cx="18.5" cy="18.5" r="2.5"/></svg>,
+  tag: <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#c8102e" strokeWidth="1.8"><path d="M20.59 13.41l-7.17 7.17a2 2 0 01-2.83 0L2 12V2h10l8.59 8.59a2 2 0 010 2.82z"/><line x1="7" y1="7" x2="7.01" y2="7"/></svg>,
+  heart: <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#c8102e" strokeWidth="1.8"><path d="M20.84 4.61a5.5 5.5 0 00-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 00-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 000-7.78z"/></svg>,
+  phone: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M22 16.92v3a2 2 0 01-2.18 2 19.79 19.79 0 01-8.63-3.07 19.5 19.5 0 01-6-6 19.79 19.79 0 01-3.07-8.67A2 2 0 014.11 2h3a2 2 0 012 1.72c.127.96.361 1.903.7 2.81a2 2 0 01-.45 2.11L8.09 9.91a16 16 0 006 6l1.27-1.27a2 2 0 012.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0122 16.92z"/></svg>,
+  wa: <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/></svg>,
+};
 
-// ─────────────────────────────────────────────────────────────────────────────
-// PRODUCT IMAGE — smart wrapper: <img> for SVG data URIs, <Image> for real paths
-// When you add real photos to /public/products/, next/image handles optimization
-// automatically (lazy loading, WebP conversion, responsive srcsets).
-// ─────────────────────────────────────────────────────────────────────────────
-function ProductImage({ src, alt, className = "" }) {
-  if (!src) return null;
-  // Data URIs and blob URLs are not optimizable — use a regular img tag
-  if (src.startsWith("data:") || src.startsWith("blob:")) {
-    return (
-      <img
-        src={src}
-        alt={alt}
-        draggable={false}
-        className={`w-full h-full object-cover select-none ${className}`}
-      />
-    );
-  }
-  // Real /public/ paths — use next/image for WebP conversion + lazy loading
-  return (
-    <Image
-      src={src}
-      alt={alt}
-      fill
-      draggable={false}
-      sizes="(max-width: 640px) 50vw, (max-width: 1024px) 33vw, 20vw"
-      className={`object-contain select-none ${className}`}
-    />
-  );
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// CARD CAROUSEL — Embla-powered, touch-friendly swipe for product cards
-// ─────────────────────────────────────────────────────────────────────────────
-function CardCarousel({ product: p, onCallBack }) {
-  const [emblaRef, emblaApi] = useEmblaCarousel({ loop: true, dragFree: false });
-  const [selected, setSelected] = useState(0);
-  // "default" | "sizing" | "added"
-  const [cartPhase, setCartPhase] = useState("default");
-  const { dispatch } = useCart();
-
+// ============================================
+// NAVBAR
+// ============================================
+function Navbar({ onNav, pg }) {
+  const [mo, setMo] = useState(false);
+  const [sc, setSc] = useState(false);
   useEffect(() => {
-    if (!emblaApi) return;
-    const onSelect = () => setSelected(emblaApi.selectedScrollSnap());
-    emblaApi.on("select", onSelect);
-    return () => emblaApi.off("select", onSelect);
-  }, [emblaApi]);
-
-  const scrollPrev = useCallback(
-    (e) => { e.stopPropagation(); emblaApi?.scrollPrev(); },
-    [emblaApi]
-  );
-  const scrollNext = useCallback(
-    (e) => { e.stopPropagation(); emblaApi?.scrollNext(); },
-    [emblaApi]
-  );
-
-  const handleAddToCart = (e, size) => {
-    e.stopPropagation();
-    dispatch({ type: "ADD", product: p, size, qty: 1 });
-    setCartPhase("added");
-    setTimeout(() => setCartPhase("default"), 1800);
-  };
-
-  const badgeCls =
-    p.badge === "Tükendi"
-      ? "bg-gray-500"
-      : p.badge === "İndirim"
-      ? "bg-gradient-to-r from-[#c8102e] to-rose-500"
-      : p.badge === "Yeni"
-      ? "bg-gradient-to-r from-emerald-500 to-teal-600"
-      : "bg-gray-800";
-
-  return (
-    <div className="relative aspect-[4/5] overflow-hidden bg-white">
-      {/* ── Embla viewport ── */}
-      <div
-        ref={emblaRef}
-        className="overflow-hidden h-full cursor-grab active:cursor-grabbing"
-        style={{ touchAction: "pan-y" }}
-      >
-        <div className="flex h-full select-none">
-          {p.images.map((src, i) => (
-            <div key={i} className="flex-[0_0_100%] min-w-0 h-full relative">
-              <ProductImage src={src} alt={`${p.name} — ${i + 1}. açı`} />
-            </div>
-          ))}
-        </div>
-      </div>
-
-      {/* ── Status badge ── */}
-      {p.badge && (
-        <span
-          className={`absolute top-2.5 left-2.5 z-20 ${badgeCls} text-white text-[10px] font-bold uppercase tracking-wider px-2.5 py-1 rounded-full`}
-        >
-          {p.badge}
-        </span>
-      )}
-
-      {/* ── Discount pill (top-right) ── */}
-      {p.originalPrice && p.badge !== "Tükendi" && (
-        <span className="absolute top-2.5 right-2.5 z-20 bg-white text-[#c8102e] text-[10px] font-bold px-2 py-1 rounded-full shadow-sm">
-          %{Math.round((1 - p.price / p.originalPrice) * 100)}
-        </span>
-      )}
-
-      {/* ── Prev / Next arrows — appear on card hover (desktop only) ── */}
-      {p.images.length > 1 && (
-        <>
-          <button
-            onClick={scrollPrev}
-            aria-label="Önceki görsel"
-            className="absolute left-2 top-1/2 -translate-y-1/2 z-20 w-7 h-7
-              bg-white/92 backdrop-blur-sm rounded-full flex items-center justify-center
-              shadow-md opacity-0 group-hover/card:opacity-100
-              transition-all duration-200 hover:bg-white hover:shadow-lg active:scale-90"
-          >
-            <ChevronLeft size={13} className="text-gray-800" />
-          </button>
-          <button
-            onClick={scrollNext}
-            aria-label="Sonraki görsel"
-            className="absolute right-2 top-1/2 -translate-y-1/2 z-20 w-7 h-7
-              bg-white/92 backdrop-blur-sm rounded-full flex items-center justify-center
-              shadow-md opacity-0 group-hover/card:opacity-100
-              transition-all duration-200 hover:bg-white hover:shadow-lg active:scale-90"
-          >
-            <ChevronRight size={13} className="text-gray-800" />
-          </button>
-        </>
-      )}
-
-      {/* ── Dot indicators — always visible ── */}
-      {p.images.length > 1 && (
-        <div className="absolute bottom-2.5 left-0 right-0 z-20 flex justify-center gap-1.5 pointer-events-none">
-          {p.images.map((_, i) => (
-            <span
-              key={i}
-              className={`h-1.5 rounded-full transition-all duration-300 ${
-                i === selected ? "w-4 bg-white" : "w-1.5 bg-white/50"
-              }`}
-            />
-          ))}
-        </div>
-      )}
-
-      {/* ── CTA overlay — appears on card hover ── */}
-      <div
-        className="absolute inset-0 z-10
-          bg-gradient-to-t from-gray-950/88 via-gray-950/15 to-transparent
-          opacity-0 group-hover/card:opacity-100 transition-opacity duration-300
-          flex flex-col justify-end p-2.5 gap-1.5
-          pointer-events-none group-hover/card:pointer-events-auto"
-      >
-        {/* ── Sepete Ekle area (3 phases) ── */}
-        {cartPhase === "default" && (
-          <button
-            onClick={(e) => {
-              e.stopPropagation();
-              if (p.stock > 0) setCartPhase("sizing");
-            }}
-            disabled={p.stock === 0}
-            className="w-full flex items-center justify-center gap-1.5 bg-gray-900/90 text-white
-              text-[11px] font-semibold py-2 rounded-xl hover:bg-gray-800
-              active:scale-95 transition-all disabled:opacity-40 disabled:cursor-not-allowed"
-          >
-            <ShoppingBag size={11} />
-            {p.stock > 0 ? "Sepete Ekle" : "Stokta Yok"}
-          </button>
-        )}
-
-        {cartPhase === "sizing" && (
-          <div onClick={(e) => e.stopPropagation()} className="flex flex-col gap-1.5">
-            <div className="flex items-center justify-between">
-              <span className="font-sans text-[10px] font-semibold text-white/70 uppercase tracking-wider">
-                Beden Seç
-              </span>
-              <button
-                onClick={(e) => { e.stopPropagation(); setCartPhase("default"); }}
-                className="text-white/60 hover:text-white transition-colors"
-              >
-                <X size={13} />
-              </button>
-            </div>
-            <div className="flex gap-1 flex-wrap">
-              {p.sizes.map((s) => (
-                <button
-                  key={s}
-                  onClick={(e) => handleAddToCart(e, s)}
-                  className="w-9 h-8 rounded-lg bg-white/15 hover:bg-white hover:text-gray-900
-                    text-white font-sans text-[11px] font-semibold transition-all active:scale-90"
-                >
-                  {s}
-                </button>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {cartPhase === "added" && (
-          <div className="w-full flex items-center justify-center gap-1.5 bg-green-500 text-white
-            text-[11px] font-semibold py-2 rounded-xl">
-            <Check size={12} />
-            Sepete Eklendi!
-          </div>
-        )}
-
-        {/* ── Lead-capture buttons — always visible on hover ── */}
-        <button
-          onClick={(e) => {
-            e.stopPropagation();
-            if (p.stock > 0) onCallBack(p);
-          }}
-          disabled={p.stock === 0}
-          className="w-full flex items-center justify-center gap-1.5 bg-white text-gray-900
-            text-[11px] font-semibold py-2.5 rounded-xl hover:bg-gray-50
-            active:scale-95 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
-        >
-          <Phone size={11} />
-          {p.stock > 0 ? "Beni Ara" : "Stokta Yok"}
-        </button>
-        <a
-          href={`https://wa.me/905331524843?text=${encodeURIComponent(
-            `Merhaba! ${p.name} hakkında bilgi almak istiyorum.`
-          )}`}
-          target="_blank"
-          rel="noreferrer"
-          onClick={(e) => e.stopPropagation()}
-          className="w-full flex items-center justify-center gap-1.5 bg-[#25D366] text-white
-            text-[11px] font-semibold py-2.5 rounded-xl hover:bg-[#22c55e]
-            active:scale-95 transition-all"
-        >
-          <MessageCircle size={11} />
-          WhatsApp
-        </a>
-      </div>
-    </div>
-  );
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// PRODUCT CARD — uses CardCarousel internally
-// ─────────────────────────────────────────────────────────────────────────────
-function ProductCard({ product: p, onView, onCallBack }) {
-  return (
-    <article
-      onClick={() => onView(p)}
-      className="group/card relative bg-white rounded-2xl overflow-hidden cursor-pointer
-        border border-gray-100 hover:border-gray-200
-        transition-all duration-300 ease-out
-        hover:-translate-y-1.5 hover:shadow-[0_16px_40px_rgba(0,0,0,0.09)]"
-    >
-      <CardCarousel product={p} onCallBack={onCallBack} />
-
-      {/* Card info */}
-      <div className="p-3">
-        <p className="font-sans text-[10px] font-semibold uppercase tracking-widest text-gray-400 mb-1.5">
-          {p.category}
-        </p>
-        <h3 className="font-sans text-[13px] font-semibold text-gray-900 leading-tight mb-2.5 line-clamp-2 min-h-[2.4em]">
-          {p.name}
-        </h3>
-        <div className="flex items-baseline gap-2">
-          <span className="font-sans text-[15px] font-bold text-gray-900">
-            ₺{p.price.toLocaleString("tr-TR")}
-          </span>
-          {p.originalPrice && (
-            <span className="font-sans text-[11px] text-gray-400 line-through">
-              ₺{p.originalPrice.toLocaleString("tr-TR")}
-            </span>
-          )}
-        </div>
-      </div>
-    </article>
-  );
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// DETAIL CAROUSEL — full-size Embla carousel for the product detail page
-// ─────────────────────────────────────────────────────────────────────────────
-function DetailCarousel({ images, name }) {
-  const [emblaRef, emblaApi] = useEmblaCarousel({ loop: false });
-  const [selected, setSelected] = useState(0);
-
-  useEffect(() => {
-    if (!emblaApi) return;
-    const onSelect = () => setSelected(emblaApi.selectedScrollSnap());
-    emblaApi.on("select", onSelect);
-    return () => emblaApi.off("select", onSelect);
-  }, [emblaApi]);
-
-  const scrollPrev = useCallback(() => emblaApi?.scrollPrev(), [emblaApi]);
-  const scrollNext = useCallback(() => emblaApi?.scrollNext(), [emblaApi]);
-
-  return (
-    <div>
-      {/* Main carousel */}
-      <div className="relative rounded-3xl overflow-hidden aspect-square bg-white mb-3.5 group">
-        <div
-          ref={emblaRef}
-          className="overflow-hidden h-full cursor-grab active:cursor-grabbing"
-          style={{ touchAction: "pan-y" }}
-        >
-          <div className="flex h-full select-none">
-            {images.map((src, i) => (
-              <div key={i} className="flex-[0_0_100%] min-w-0 h-full relative">
-                <ProductImage src={src} alt={`${name} — ${i + 1}. açı`} />
-              </div>
-            ))}
-          </div>
-        </div>
-
-        {/* Arrows */}
-        <button
-          onClick={scrollPrev}
-          aria-label="Önceki görsel"
-          className="absolute left-3 top-1/2 -translate-y-1/2 z-10 w-9 h-9
-            bg-white/92 backdrop-blur-sm rounded-full flex items-center justify-center
-            shadow-md opacity-0 group-hover:opacity-100 transition-opacity duration-200
-            hover:bg-white hover:shadow-lg active:scale-90"
-        >
-          <ChevronLeft size={16} className="text-gray-800" />
-        </button>
-        <button
-          onClick={scrollNext}
-          aria-label="Sonraki görsel"
-          className="absolute right-3 top-1/2 -translate-y-1/2 z-10 w-9 h-9
-            bg-white/92 backdrop-blur-sm rounded-full flex items-center justify-center
-            shadow-md opacity-0 group-hover:opacity-100 transition-opacity duration-200
-            hover:bg-white hover:shadow-lg active:scale-90"
-        >
-          <ChevronRight size={16} className="text-gray-800" />
-        </button>
-
-        {/* Slide counter */}
-        <div className="absolute bottom-4 right-4 z-10 bg-gray-900/60 backdrop-blur-sm px-3 py-1 rounded-full">
-          <span className="font-sans text-xs font-semibold text-white">
-            {selected + 1} / {images.length}
-          </span>
-        </div>
-      </div>
-
-      {/* Thumbnail strip */}
-      <div className="flex gap-2.5">
-        {images.map((src, i) => (
-          <button
-            key={i}
-            onClick={() => emblaApi?.scrollTo(i)}
-            aria-label={`${i + 1}. görsele git`}
-            className={`relative w-[72px] h-[72px] rounded-2xl overflow-hidden flex-shrink-0
-              transition-all duration-200
-              ${selected === i
-                ? "ring-2 ring-gray-900 ring-offset-2"
-                : "opacity-55 hover:opacity-100"
-              }`}
-          >
-            <ProductImage src={src} alt={`Görsel ${i + 1}`} />
-          </button>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// NAVBAR — glassmorphism sticky
-// ─────────────────────────────────────────────────────────────────────────────
-function Navbar({ page, onNav }) {
-  const [open, setOpen] = useState(false);
-  const [scrolled, setScrolled] = useState(false);
-  const { totalItems } = useCart();
-  const router = useRouter();
-
-  useEffect(() => {
-    const handler = () => setScrolled(window.scrollY > 30);
-    window.addEventListener("scroll", handler, { passive: true });
-    return () => window.removeEventListener("scroll", handler);
+    const fn = () => setSc(window.scrollY > 20);
+    window.addEventListener("scroll", fn);
+    return () => window.removeEventListener("scroll", fn);
   }, []);
-
-  const links = [
-    { key: "home", label: "Ana Sayfa" },
-    { key: "catalog", label: "Ayakkabılar" },
-  ];
-
+  const lnk = [{ k: "home", l: "Ana Sayfa" }, { k: "catalog", l: "Ayakkabılar" }];
   return (
-    <nav
-      className={`fixed inset-x-0 top-0 z-50 transition-all duration-300 backdrop-blur-xl ${
-        scrolled
-          ? "bg-white/95 border-b border-gray-100 shadow-[0_1px_24px_rgba(0,0,0,0.06)]"
-          : "bg-white/70 border-b border-transparent"
-      }`}
-    >
-      <div className="max-w-screen-xl mx-auto px-5 h-16 flex items-center justify-between">
-        <button
-          onClick={() => onNav("home")}
-          className="flex items-center gap-2 cursor-pointer"
-        >
-          <div className="w-8 h-8 bg-[#c8102e] rounded-lg flex items-center justify-center flex-shrink-0">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M2 17c0 0 1-3 5-3s5-2 8-2 6 1 6 4H2z"/>
-              <path d="M7 14c0 0 0-4 3-6s6-2 8 0"/>
-            </svg>
-          </div>
-          <div className="flex items-baseline gap-0.5">
-            <span className="font-serif text-xl font-bold italic text-gray-900">Uygun</span>
-            <span className="font-sans text-xl font-bold text-[#c8102e]">Ayakkabı</span>
-          </div>
-        </button>
-
-        <div className="hidden md:flex items-center gap-8">
-          {links.map((l) => (
-            <button
-              key={l.key}
-              onClick={() => onNav(l.key)}
-              className={`relative font-sans text-sm font-medium transition-colors duration-200 ${
-                page === l.key ? "text-gray-900" : "text-gray-500 hover:text-gray-900"
-              }`}
-            >
-              {l.label}
-              {page === l.key && (
-                <span className="absolute -bottom-0.5 left-1/2 -translate-x-1/2 w-4 h-0.5 bg-[#c8102e] rounded-full" />
-              )}
-            </button>
+    <nav style={{ position: "fixed", top: 0, left: 0, right: 0, zIndex: 100, background: sc ? "rgba(255,255,255,0.96)" : "rgba(255,255,255,0.8)", backdropFilter: "blur(24px)", borderBottom: sc ? "1px solid #eee" : "1px solid transparent", transition: "all 0.3s" }}>
+      <div style={{ maxWidth: 1280, margin: "0 auto", padding: "0 24px", height: 68, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+        <div onClick={() => onNav("home")} style={{ cursor: "pointer", display: "flex", alignItems: "baseline", gap: 2 }}>
+          <span style={{ fontFamily: T.d, fontSize: 22, fontWeight: 700, color: T.bk, fontStyle: "italic" }}>Uygun</span>
+          <span style={{ fontFamily: T.f, fontSize: 20, fontWeight: 700, color: T.ac }}>Ayakkabı</span>
+        </div>
+        <div className="nav-desktop" style={{ display: "flex", alignItems: "center", gap: 36 }}>
+          {lnk.map(l => (
+            <span key={l.k} onClick={() => onNav(l.k)} style={{ cursor: "pointer", fontFamily: T.f, fontSize: 14, fontWeight: pg === l.k ? 600 : 400, color: pg === l.k ? T.bk : T.g500, position: "relative" }}>
+              {l.l}
+              {pg === l.k && <span style={{ position: "absolute", bottom: -4, left: "50%", transform: "translateX(-50%)", width: 16, height: 2, background: T.ac, borderRadius: 2 }} />}
+            </span>
           ))}
-
-          {/* Cart icon */}
-          <button
-            onClick={() => router.push("/cart")}
-            aria-label="Sepet"
-            className="relative p-1.5 text-gray-700 hover:text-gray-900 transition-colors"
-          >
-            <ShoppingBag size={20} />
-            {totalItems > 0 && (
-              <span className="absolute -top-0.5 -right-0.5 w-4 h-4 bg-[#c8102e] text-white text-[9px] font-bold rounded-full flex items-center justify-center leading-none">
-                {totalItems > 9 ? "9+" : totalItems}
-              </span>
-            )}
-          </button>
-
-          <a
-            href="tel:+905331524843"
-            className="flex items-center gap-2 bg-gray-900 text-white text-xs font-semibold px-5 py-2.5 rounded-full hover:bg-[#c8102e] transition-colors duration-200"
-          >
-            <Phone size={13} />
-            Bizi Ara
+          <a href="https://wa.me/905331524843" target="_blank" rel="noreferrer" style={{ display: "flex", alignItems: "center", gap: 8, fontFamily: T.f, fontSize: 13, fontWeight: 600, color: T.wh, background: "#25D366", padding: "10px 20px", borderRadius: T.r.full, textDecoration: "none" }}>
+            {I.wa} WhatsApp
           </a>
         </div>
-
-        <div className="flex items-center gap-2 md:hidden">
-          {/* Cart icon mobile */}
-          <button
-            onClick={() => router.push("/cart")}
-            aria-label="Sepet"
-            className="relative p-1.5 text-gray-700"
-          >
-            <ShoppingBag size={20} />
-            {totalItems > 0 && (
-              <span className="absolute -top-0.5 -right-0.5 w-4 h-4 bg-[#c8102e] text-white text-[9px] font-bold rounded-full flex items-center justify-center leading-none">
-                {totalItems > 9 ? "9+" : totalItems}
-              </span>
-            )}
-          </button>
-          <button
-            onClick={() => setOpen(!open)}
-            className="p-1.5 text-gray-700"
-            aria-label="Menüyü aç"
-          >
-            {open ? <X size={22} /> : <Menu size={22} />}
-          </button>
-        </div>
+        <button className="nav-mobile" onClick={() => setMo(!mo)} style={{ display: "none", background: "none", border: "none", cursor: "pointer", color: T.bk, padding: 4 }}>
+          {mo ? I.close : I.menu}
+        </button>
       </div>
-
-      {open && (
-        <div className="md:hidden border-t border-gray-100 bg-white/98 backdrop-blur-xl px-5 pb-6">
-          <div className="flex flex-col gap-0.5 pt-1">
-            {links.map((l) => (
-              <button
-                key={l.key}
-                onClick={() => { onNav(l.key); setOpen(false); }}
-                className="text-left font-sans text-base font-medium text-gray-800 py-3.5 border-b border-gray-50"
-              >
-                {l.label}
-              </button>
-            ))}
-          </div>
-          <a
-            href="tel:+905331524843"
-            className="mt-4 flex items-center justify-center gap-2 bg-gray-900 text-white text-sm font-semibold py-3.5 rounded-2xl"
-          >
-            <Phone size={15} />
-            Bizi Ara
+      {mo && (
+        <div style={{ padding: "8px 24px 28px", display: "flex", flexDirection: "column", gap: 4, borderTop: "1px solid #e8e8e8" }}>
+          {lnk.map(l => (
+            <span key={l.k} onClick={() => { onNav(l.k); setMo(false); }} style={{ cursor: "pointer", fontFamily: T.f, fontSize: 16, fontWeight: 500, color: T.bk, padding: "12px 0", borderBottom: "1px solid #f5f5f5" }}>
+              {l.l}
+            </span>
+          ))}
+          <a href="https://wa.me/905331524843" target="_blank" rel="noreferrer" style={{ marginTop: 8, fontFamily: T.f, fontSize: 14, fontWeight: 600, color: T.wh, background: "#25D366", padding: "14px 24px", borderRadius: T.r.full, textDecoration: "none", textAlign: "center" }}>
+            WhatsApp'tan Yaz
           </a>
         </div>
       )}
+      <style>{`@media(max-width:768px){.nav-desktop{display:none!important}.nav-mobile{display:block!important}}`}</style>
     </nav>
   );
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// CATEGORY SHOWCASE — renkli kategori kartları
-// ─────────────────────────────────────────────────────────────────────────────
-const CATEGORY_DATA = [
-  {
-    key: "Günlük",
-    label: "Günlük",
-    sub: "Rahat & Şık",
-    emoji: "👟",
-    gradient: "from-amber-500/80 to-orange-600/80",
-    count: 12,
-    img: "https://images.unsplash.com/photo-1542291026-7eec264c27ff?w=400&h=600&fit=crop&q=70",
-  },
-  {
-    key: "Klasik",
-    label: "Klasik",
-    sub: "Zarafet & Prestij",
-    emoji: "👞",
-    gradient: "from-slate-700/80 to-gray-900/80",
-    count: 8,
-    img: "https://images.unsplash.com/photo-1533867617858-e7b97e060509?w=400&h=600&fit=crop&q=70",
-  },
-  {
-    key: "Spor",
-    label: "Spor",
-    sub: "Performans & Güç",
-    emoji: "🏃",
-    gradient: "from-emerald-500/80 to-teal-700/80",
-    count: 10,
-    img: "https://images.unsplash.com/photo-1606107557195-0e29a4b5b4aa?w=400&h=600&fit=crop&q=70",
-  },
-  {
-    key: "Bot",
-    label: "Bot",
-    sub: "Güçlü & Dayanıklı",
-    emoji: "🥾",
-    gradient: "from-stone-600/80 to-amber-900/80",
-    count: 6,
-    img: "https://images.unsplash.com/photo-1520639888713-7851133b1ed0?w=400&h=600&fit=crop&q=70",
-  },
-  {
-    key: "Sandalet",
-    label: "Sandalet",
-    sub: "Yaz Enerjisi",
-    emoji: "🩴",
-    gradient: "from-sky-500/80 to-blue-700/80",
-    count: 7,
-    img: "https://images.unsplash.com/photo-1543163521-1bf539c55dd2?w=400&h=600&fit=crop&q=70",
-  },
-  {
-    key: "Krampon",
-    label: "Krampon",
-    sub: "Saha Performansı",
-    emoji: "⚽",
-    gradient: "from-green-600/80 to-emerald-800/80",
-    count: 5,
-    img: "https://images.unsplash.com/photo-1511886929837-354d827aae26?w=400&h=600&fit=crop&q=70",
-  },
-];
-
-function CategoryShowcase({ onFilter }) {
+// ============================================
+// PRODUCT CARD
+// ============================================
+function Card({ p, onView }) {
+  const [h, sH] = useState(false);
+  const imgSrc = p.dbImage || p.image;
   return (
-    <section className="py-16 bg-gradient-to-b from-gray-50 to-white">
-      <div className="max-w-screen-xl mx-auto px-5">
-        <div className="text-center mb-10">
-          <span className="inline-block font-sans text-[11px] font-semibold uppercase tracking-widest text-[#c8102e] bg-red-50 px-4 py-1.5 rounded-full mb-4">
-            Kategoriler
+    <div
+      onMouseEnter={() => sH(true)}
+      onMouseLeave={() => sH(false)}
+      onClick={() => onView(p)}
+      style={{ cursor: "pointer", borderRadius: T.r.xl, overflow: "hidden", background: T.wh, transition: "transform 0.4s cubic-bezier(.22,1,.36,1), box-shadow 0.4s cubic-bezier(.22,1,.36,1), border-color 0.3s", transform: h ? "translateY(-8px) scale(1.015)" : "translateY(0) scale(1)", boxShadow: h ? "0 28px 56px rgba(0,0,0,0.13), 0 8px 16px rgba(0,0,0,0.06)" : "0 2px 8px rgba(0,0,0,0.04)", border: h ? "1px solid #d0d0d0" : "1px solid #e8e8e8" }}>
+      <div style={{ position: "relative", paddingTop: "115%", overflow: "hidden", background: T.g100 }}>
+        <img src={imgSrc} alt={p.name || p.title} style={{ position: "absolute", top: 0, left: 0, width: "100%", height: "100%", objectFit: "cover", transition: "transform 0.6s cubic-bezier(.22,1,.36,1)", transform: h ? "scale(1.1)" : "scale(1)", filter: (p.stock === 0 || p.status === "soldout") ? "grayscale(40%)" : "" }} />
+        {p.badge && (
+          <span style={{ position: "absolute", top: 14, left: 14, fontFamily: T.f, fontSize: 11, fontWeight: 700, letterSpacing: "0.04em", textTransform: "uppercase", padding: "5px 12px", borderRadius: T.r.full, color: T.wh, background: p.badge === "Tükendi" ? T.g500 : p.badge === "İndirim" ? T.ac : T.bk }}>
+            {p.badge}
           </span>
-          <h2 className="font-serif text-3xl md:text-4xl font-bold text-gray-900">
-            Her Stile Uygun Ayakkabı
-          </h2>
-        </div>
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4">
-          {CATEGORY_DATA.map((cat) => (
-            <button
-              key={cat.key}
-              onClick={() => onFilter(cat.key)}
-              className="group relative overflow-hidden rounded-3xl aspect-[3/4] flex flex-col items-center justify-end pb-5 px-3 cursor-pointer hover:-translate-y-1 transition-transform duration-300 shadow-md hover:shadow-xl"
-            >
-              {/* Real shoe background image */}
-              {cat.img && (
-                <img
-                  src={cat.img}
-                  alt={cat.label}
-                  className="absolute inset-0 w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
-                  loading="lazy"
-                />
-              )}
-              {/* gradient overlay */}
-              <div className={`absolute inset-0 bg-gradient-to-br ${cat.gradient} group-hover:opacity-90 transition-opacity`} />
-              {/* subtle pattern overlay */}
-              <div className="absolute inset-0 bg-[radial-gradient(circle_at_30%_20%,rgba(255,255,255,0.12),transparent_60%)]" />
-              {/* big emoji */}
-              <span className="relative text-5xl mb-2.5 drop-shadow-lg group-hover:scale-110 transition-transform duration-300">
-                {cat.emoji}
-              </span>
-              <div className="relative text-center">
-                <p className="font-sans text-sm font-bold text-white leading-tight">{cat.label}</p>
-                <p className="font-sans text-[10px] text-white/75 mt-0.5">{cat.sub}</p>
-                <span className="inline-block mt-1.5 font-sans text-[9px] font-semibold text-white/65 bg-white/15 px-3 py-0.5 rounded-full">
-                  {cat.count}+ Ürün
-                </span>
-              </div>
-            </button>
-          ))}
+        )}
+        {p.status === "soldout" && !p.badge && (
+          <span style={{ position: "absolute", top: 14, left: 14, fontFamily: T.f, fontSize: 11, fontWeight: 700, textTransform: "uppercase", padding: "5px 12px", borderRadius: T.r.full, color: T.wh, background: T.g500 }}>Tükendi</span>
+        )}
+        <div style={{ position: "absolute", bottom: 0, left: 0, right: 0, padding: "32px 16px 16px", background: "linear-gradient(transparent, rgba(0,0,0,0.5))", opacity: h ? 1 : 0, transition: "opacity 0.3s", display: "flex", justifyContent: "center" }}>
+          <span style={{ fontFamily: T.f, fontSize: 13, fontWeight: 600, color: T.wh, background: "rgba(255,255,255,0.2)", backdropFilter: "blur(8px)", padding: "8px 20px", borderRadius: T.r.full }}>İncele →</span>
         </div>
       </div>
-    </section>
-  );
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// TRUST STRIP
-// ─────────────────────────────────────────────────────────────────────────────
-function TrustStrip() {
-  return (
-    <div className="bg-gray-950 text-white">
-      <div className="max-w-screen-xl mx-auto px-5 py-3">
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-x-4 gap-y-2.5">
-          {TRUST.map(({ Icon, label, sub }, i) => (
-            <div key={i} className="flex items-center justify-center gap-2.5">
-              <Icon size={15} className="text-[#c8102e] flex-shrink-0" />
-              <div>
-                <p className="font-sans text-[11px] font-semibold leading-tight">{label}</p>
-                <p className="font-sans text-[10px] text-gray-500 leading-tight">{sub}</p>
-              </div>
-            </div>
-          ))}
+      <div style={{ padding: "18px 18px 20px" }}>
+        <p style={{ fontFamily: T.f, fontSize: 11, fontWeight: 500, color: T.g400, textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 6 }}>{p.category}</p>
+        <h3 style={{ fontFamily: T.f, fontSize: 15, fontWeight: 600, color: T.bk, marginBottom: 10, lineHeight: 1.3 }}>{p.name || p.title}</h3>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <span style={{ fontFamily: T.f, fontSize: 18, fontWeight: 700, color: T.bk }}>₺{(p.price || 0).toLocaleString("tr-TR")}</span>
+            {p.originalPrice && <span style={{ fontFamily: T.f, fontSize: 13, color: T.g400, textDecoration: "line-through" }}>₺{p.originalPrice.toLocaleString("tr-TR")}</span>}
+          </div>
+          {p.originalPrice && p.price < p.originalPrice && (
+            <span style={{ fontFamily: T.f, fontSize: 11, fontWeight: 700, color: T.ac, background: "#fef2f2", padding: "3px 8px", borderRadius: T.r.full }}>
+              %{Math.round((1 - p.price / p.originalPrice) * 100)}
+            </span>
+          )}
         </div>
       </div>
     </div>
   );
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// SOCIAL PROOF
-// ─────────────────────────────────────────────────────────────────────────────
-function SocialProof() {
-  const stats = [
-    { Icon: Users, number: "Aylık 500", label: "Mutlu Müşteri" },
-    { Icon: ShoppingBag, number: "100+", label: "Marka Çeşidi" },
-    { Icon: Truck, number: "1-3", label: "Gün Teslimat" },
-    { Icon: Star, number: "4.9★", label: "Müşteri Puanı" },
-  ];
-
-  const statColors = [
-    { bg: "from-red-500 to-rose-600",    icon: "text-white" },
-    { bg: "from-emerald-500 to-teal-600", icon: "text-white" },
-    { bg: "from-blue-500 to-indigo-600", icon: "text-white" },
-    { bg: "from-amber-400 to-orange-500", icon: "text-white" },
-  ];
-
-  return (
-    <section className="py-20 bg-gradient-to-b from-white to-gray-50">
-      <div className="max-w-screen-xl mx-auto px-5">
-        <div className="text-center mb-12">
-          <span className="inline-block font-sans text-[11px] font-semibold uppercase tracking-widest text-[#c8102e] bg-red-50 px-4 py-1.5 rounded-full mb-5">
-            Sosyal Kanıt
-          </span>
-          <h2 className="font-serif text-3xl md:text-5xl font-bold text-gray-900 mb-4">
-            Aylık 500 Mutlu Müşteri
-          </h2>
-          <p className="font-sans text-gray-500 text-base max-w-md mx-auto leading-relaxed">
-            Kaliteye güvenen müşterilerimizin deneyimlerine katılın.
-          </p>
-        </div>
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-          {stats.map(({ Icon, number, label }, i) => (
-            <div
-              key={i}
-              className="rounded-3xl p-6 md:p-8 text-center hover:scale-105 transition-all duration-200 shadow-md hover:shadow-xl overflow-hidden relative bg-gradient-to-br"
-              style={{ background: `linear-gradient(135deg, var(--tw-gradient-stops))` }}
-            >
-              <div className={`absolute inset-0 bg-gradient-to-br ${statColors[i].bg} opacity-100`} />
-              <div className="relative">
-                <div className="w-11 h-11 bg-white/20 rounded-xl flex items-center justify-center mx-auto mb-4">
-                  <Icon size={20} className="text-white" />
-                </div>
-                <p className="font-serif text-3xl md:text-4xl font-bold text-white mb-1">{number}</p>
-                <p className="font-sans text-xs font-semibold text-white/80">{label}</p>
-              </div>
-            </div>
-          ))}
-        </div>
-      </div>
-    </section>
-  );
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// WHY US
-// ─────────────────────────────────────────────────────────────────────────────
-function WhyUs() {
-  const items = [
-    { Icon: Truck, title: "Hızlı Kargo", desc: "Siparişleriniz 1-3 iş günü içinde kapınıza teslim edilir.", gradient: "from-blue-500 to-indigo-600", bg: "bg-blue-50" },
-    { Icon: ShieldCheck, title: "Uygun Fiyat", desc: "Piyasanın altında fiyatlarla geniş marka yelpazesinden kaliteli ayakkabılar.", gradient: "from-emerald-500 to-teal-600", bg: "bg-emerald-50" },
-    { Icon: Users, title: "Müşteri Memnuniyeti", desc: "Binlerce mutlu müşteri ve %100 iade garantisiyle güvenli alışveriş.", gradient: "from-amber-400 to-orange-500", bg: "bg-amber-50" },
-  ];
-
-  return (
-    <section className="py-20 bg-white">
-      <div className="max-w-screen-xl mx-auto px-5">
-        <div className="text-center mb-12">
-          <span className="inline-block font-sans text-[11px] font-semibold uppercase tracking-widest text-[#c8102e] bg-red-50 px-4 py-1.5 rounded-full mb-5">
-            Neden Biz?
-          </span>
-          <h2 className="font-serif text-3xl md:text-5xl font-bold text-gray-900">Farkımız</h2>
-        </div>
-        <div className="grid md:grid-cols-3 gap-6">
-          {items.map(({ Icon, title, desc, gradient, bg }, i) => (
-            <div
-              key={i}
-              className={`${bg} rounded-3xl p-8 border border-gray-100 hover:shadow-xl hover:-translate-y-1 transition-all duration-300 group relative overflow-hidden`}
-            >
-              <div className="absolute top-0 right-0 w-32 h-32 bg-white/30 rounded-full -translate-x-8 -translate-y-8 pointer-events-none" />
-              <div className={`w-12 h-12 bg-gradient-to-br ${gradient} rounded-2xl flex items-center justify-center mb-6 shadow-lg`}>
-                <Icon size={20} className="text-white" />
-              </div>
-              <h3 className="font-sans text-base font-bold text-gray-900 mb-2.5">{title}</h3>
-              <p className="font-sans text-sm text-gray-600 leading-relaxed">{desc}</p>
-            </div>
-          ))}
-        </div>
-      </div>
-    </section>
-  );
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// WHATSAPP ORDER GUIDE
-// ─────────────────────────────────────────────────────────────────────────────
-function WhatsAppOrderGuide() {
-  const steps = [
-    { num: "1", title: "Ürünü Seç", desc: "Beğendiğiniz ayakkabıyı siteden seçin veya fotoğrafını gönderin." },
-    { num: "2", title: "WhatsApp'tan Yaz", desc: "Beden ve renk bilgisiyle bize WhatsApp üzerinden ulaşın." },
-    { num: "3", title: "Onaylayın", desc: "Ürün detaylarını ve fiyatı birlikte netleştirelim." },
-    { num: "4", title: "Kapıda Teslim", desc: "1-3 iş günü içinde kapınıza teslim edilir." },
-  ];
-
-  return (
-    <section className="px-5 pb-20 max-w-screen-xl mx-auto">
-      <div className="bg-gray-950 rounded-3xl px-8 md:px-16 py-14 md:py-16 relative overflow-hidden">
-        <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top_right,rgba(200,16,46,0.15)_0%,transparent_60%)] pointer-events-none" />
-        <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_bottom_left,rgba(37,211,102,0.06)_0%,transparent_60%)] pointer-events-none" />
-        <div className="relative">
-          <div className="text-center mb-10">
-            <span className="inline-block font-sans text-[11px] font-semibold uppercase tracking-widest text-[#25D366] bg-green-900/30 px-4 py-1.5 rounded-full mb-4">
-              Kolay Sipariş
-            </span>
-            <h2 className="font-serif text-3xl md:text-4xl font-bold text-white mb-3">
-              WhatsApp ile <em className="text-[#25D366]">Hızlı Sipariş</em>
-            </h2>
-            <p className="font-sans text-gray-400 text-sm max-w-md mx-auto leading-relaxed">
-              Kataloğumuzdan seçin ya da istediğiniz modeli tarif edin — sizin için bulalım.
-            </p>
-          </div>
-
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-10">
-            {steps.map((s) => (
-              <div key={s.num} className="bg-white/5 border border-white/10 rounded-2xl p-5 text-center hover:bg-white/8 transition-colors">
-                <div className="w-9 h-9 bg-[#c8102e] rounded-xl flex items-center justify-center mx-auto mb-3">
-                  <span className="font-sans text-sm font-bold text-white">{s.num}</span>
-                </div>
-                <p className="font-sans text-sm font-semibold text-white mb-1.5">{s.title}</p>
-                <p className="font-sans text-xs text-gray-500 leading-relaxed">{s.desc}</p>
-              </div>
-            ))}
-          </div>
-
-          <div className="flex gap-3 justify-center flex-wrap">
-            <a
-              href="https://wa.me/905331524843?text=Merhaba!%20Sipariş%20vermek%20istiyorum."
-              target="_blank"
-              rel="noreferrer"
-              className="flex items-center gap-2 bg-[#25D366] text-white text-sm font-semibold px-8 py-4 rounded-full hover:bg-[#22c55e] active:scale-95 transition-all shadow-lg shadow-green-900/30"
-            >
-              <MessageCircle size={16} />WhatsApp ile Sipariş Ver
-            </a>
-            <a
-              href="tel:+905331524843"
-              className="flex items-center gap-2 bg-white/10 text-white text-sm font-semibold px-8 py-4 rounded-full hover:bg-white/15 active:scale-95 transition-all"
-            >
-              <Phone size={15} />0533 152 48 43
-            </a>
-          </div>
-        </div>
-      </div>
-    </section>
-  );
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// FOOTER
-// ─────────────────────────────────────────────────────────────────────────────
-function Footer({ onNav }) {
-  return (
-    <footer className="bg-gray-950 text-white">
-      <div className="max-w-screen-xl mx-auto px-5 pt-14">
-        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-10 pb-10 border-b border-gray-800">
-          <div className="md:col-span-1">
-            <div className="flex items-center gap-2 mb-4">
-              <div className="w-7 h-7 bg-[#c8102e] rounded-md flex items-center justify-center flex-shrink-0">
-                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M2 17c0 0 1-3 5-3s5-2 8-2 6 1 6 4H2z"/>
-                  <path d="M7 14c0 0 0-4 3-6s6-2 8 0"/>
-                </svg>
-              </div>
-              <div className="flex items-baseline gap-0.5">
-                <span className="font-serif text-lg font-bold italic text-white">Uygun</span>
-                <span className="font-sans text-lg font-bold text-[#c8102e]">Ayakkabı</span>
-              </div>
-            </div>
-            <p className="font-sans text-sm text-gray-500 leading-relaxed max-w-[200px]">
-              Kaliteli ayakkabılar, uygun fiyatlar. Geniş marka yelpazesi.
-            </p>
-          </div>
-          <div>
-            <h5 className="font-sans text-[11px] font-semibold uppercase tracking-widest text-gray-600 mb-4">
-              Sayfalar
-            </h5>
-            {[{ key: "home", label: "Ana Sayfa" }, { key: "catalog", label: "Ayakkabılar" }].map((l) => (
-              <button
-                key={l.key}
-                onClick={() => onNav(l.key)}
-                className="block font-sans text-sm text-gray-400 hover:text-white transition-colors mb-3"
-              >
-                {l.label}
-              </button>
-            ))}
-          </div>
-          <div>
-            <h5 className="font-sans text-[11px] font-semibold uppercase tracking-widest text-gray-600 mb-4">
-              İletişim
-            </h5>
-            <p className="font-sans text-sm text-gray-400 leading-loose">
-              0533 152 48 43<br />info@uygunayakkabi.com<br />İstanbul, Türkiye
-            </p>
-          </div>
-          <div>
-            <h5 className="font-sans text-[11px] font-semibold uppercase tracking-widest text-gray-600 mb-4">
-              Sosyal Medya
-            </h5>
-            <div className="flex flex-col gap-3">
-              {["Instagram", "WhatsApp", "TikTok"].map((s) => (
-                <span key={s} className="font-sans text-sm text-gray-400 hover:text-white transition-colors cursor-pointer">
-                  {s}
-                </span>
-              ))}
-            </div>
-          </div>
-        </div>
-        <div className="py-5 flex justify-between items-center flex-wrap gap-2">
-          <p className="font-sans text-xs text-gray-600">© 2025 UygunAyakkabı — Tüm hakları saklıdır.</p>
-          <p className="font-sans text-xs text-gray-600">uygunayakkabi.com</p>
-        </div>
-      </div>
-    </footer>
-  );
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// BUY FORM — lead capture modal
-// ─────────────────────────────────────────────────────────────────────────────
+// ============================================
+// BUY FORM MODAL
+// ============================================
 function BuyForm({ product: p, onClose }) {
-  const [form, setForm] = useState({ name: "", phone: "", city: "" });
-  const [errors, setErrors] = useState({});
-  const [success, setSuccess] = useState(false);
-
-  const fields = [
-    { key: "name", label: "Ad Soyad", placeholder: "Adınız ve soyadınız", type: "text" },
-    { key: "phone", label: "Telefon", placeholder: "05XX XXX XX XX", type: "tel" },
-    { key: "city", label: "Şehir", placeholder: "Bulunduğunuz şehir", type: "text" },
+  const [f, sF] = useState({ name: "", phone: "", city: "" });
+  const [ok, sOk] = useState(false);
+  const [er, sEr] = useState({});
+  const flds = [
+    { k: "name", l: "Ad Soyad", ph: "Adınız ve soyadınız", t: "text" },
+    { k: "phone", l: "Telefon Numarası", ph: "05XX XXX XX XX", t: "tel" },
+    { k: "city", l: "Şehir", ph: "Bulunduğunuz şehir", t: "text" },
   ];
-
-  const submit = () => {
+  const go = () => {
     const e = {};
-    if (!form.name.trim()) e.name = true;
-    if (form.phone.replace(/\D/g, "").length < 10) e.phone = true;
-    if (!form.city.trim()) e.city = true;
-    setErrors(e);
-    if (!Object.keys(e).length) setSuccess(true);
+    if (!f.name.trim()) e.name = 1;
+    if (f.phone.length < 10) e.phone = 1;
+    if (!f.city.trim()) e.city = 1;
+    sEr(e);
+    if (!Object.keys(e).length) sOk(true);
   };
-
+  const imgSrc = p.dbImage || p.image;
   return (
-    <div className="fixed inset-0 z-[200] flex items-center justify-center p-4">
-      <div onClick={onClose} className="absolute inset-0 bg-gray-950/65 backdrop-blur-sm" />
-      <div className="relative bg-white rounded-3xl p-8 w-full max-w-md shadow-[0_40px_80px_rgba(0,0,0,0.3)] max-h-[90vh] overflow-y-auto">
-        <button
-          onClick={onClose}
-          className="absolute top-4 right-4 bg-gray-100 hover:bg-gray-200 transition-colors w-9 h-9 rounded-full flex items-center justify-center text-gray-600"
-        >
-          <X size={17} />
-        </button>
-
-        {success ? (
-          <div className="text-center py-8">
-            <div className="w-16 h-16 bg-green-50 rounded-full flex items-center justify-center mx-auto mb-5">
-              <Check size={30} className="text-green-600" />
-            </div>
-            <h3 className="font-serif text-2xl font-bold text-gray-900 mb-2">Talebiniz Alındı!</h3>
-            <p className="font-sans text-gray-500 text-sm leading-relaxed mb-7">
-              Ekibimiz en kısa sürede sizi arayacak.
-            </p>
-            <button
-              onClick={onClose}
-              className="font-sans text-sm font-semibold bg-gray-900 text-white px-8 py-3 rounded-2xl hover:bg-[#c8102e] transition-colors"
-            >
-              Tamam
-            </button>
+    <div style={{ position: "fixed", inset: 0, zIndex: 300, display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }}>
+      <div onClick={onClose} style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,0.55)", backdropFilter: "blur(6px)" }} />
+      <div style={{ position: "relative", background: T.wh, borderRadius: T.r.xl, padding: "36px 32px", maxWidth: 440, width: "100%", boxShadow: "0 32px 64px rgba(0,0,0,0.2)", maxHeight: "90vh", overflowY: "auto" }}>
+        <button onClick={onClose} style={{ position: "absolute", top: 16, right: 16, background: T.g100, border: "none", width: 36, height: 36, borderRadius: T.r.full, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: T.g600 }}>{I.close}</button>
+        {ok ? (
+          <div style={{ textAlign: "center", padding: "24px 0" }}>
+            <div style={{ width: 64, height: 64, borderRadius: "50%", background: "#f0fdf4", display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 20px" }}>{I.check}</div>
+            <h3 style={{ fontFamily: T.f, fontSize: 22, fontWeight: 700, color: T.bk, marginBottom: 8 }}>Talebiniz Alındı!</h3>
+            <p style={{ fontFamily: T.f, fontSize: 14, color: T.g500, lineHeight: 1.7, marginBottom: 24 }}>Ekibimiz en kısa sürede sizi arayacak.</p>
+            <button onClick={onClose} style={{ fontFamily: T.f, fontSize: 14, fontWeight: 600, color: T.wh, background: T.bk, border: "none", padding: "12px 32px", borderRadius: T.r.full, cursor: "pointer" }}>Tamam</button>
           </div>
         ) : (
           <>
-            <div className="flex gap-4 mb-6 p-4 bg-gray-50 rounded-2xl">
-              <div className="relative w-14 h-14 rounded-xl overflow-hidden flex-shrink-0">
-                <ProductImage src={p.images[0]} alt={p.name} />
-              </div>
+            <div style={{ display: "flex", gap: 14, marginBottom: 28, padding: 14, background: T.g50, borderRadius: T.r.lg }}>
+              <img src={imgSrc} alt="" style={{ width: 56, height: 56, borderRadius: T.r.md, objectFit: "cover" }} />
               <div>
-                <p className="font-sans text-sm font-semibold text-gray-900 line-clamp-1">{p.name}</p>
-                <p className="font-sans text-lg font-bold text-[#c8102e] mt-0.5">
-                  ₺{p.price.toLocaleString("tr-TR")}
-                </p>
+                <p style={{ fontFamily: T.f, fontSize: 14, fontWeight: 600, color: T.bk }}>{p.name || p.title}</p>
+                <p style={{ fontFamily: T.f, fontSize: 15, fontWeight: 700, color: T.ac }}>₺{(p.price || 0).toLocaleString("tr-TR")}</p>
               </div>
             </div>
-
-            <h3 className="font-serif text-xl font-bold text-gray-900 mb-1">Geri Arama Talebi</h3>
-            <p className="font-sans text-sm text-gray-500 mb-6">
-              Bilgilerinizi bırakın, sizi hemen arayalım.
-            </p>
-
-            <div className="space-y-4">
-              {fields.map((f) => (
-                <div key={f.key}>
-                  <label className="block font-sans text-[11px] font-semibold uppercase tracking-wider text-gray-500 mb-2">
-                    {f.label}
-                  </label>
-                  <input
-                    type={f.type}
-                    placeholder={f.placeholder}
-                    value={form[f.key]}
-                    onChange={(e) => {
-                      setForm({ ...form, [f.key]: e.target.value });
-                      setErrors({ ...errors, [f.key]: false });
-                    }}
-                    className={`w-full px-4 py-3.5 rounded-xl border-2 font-sans text-sm outline-none transition-colors focus:border-gray-900 placeholder:text-gray-300 ${
-                      errors[f.key] ? "border-[#c8102e]" : "border-gray-200"
-                    }`}
-                  />
-                  {errors[f.key] && (
-                    <p className="font-sans text-xs text-[#c8102e] mt-1.5">Bu alan zorunludur.</p>
-                  )}
-                </div>
-              ))}
+            <h3 style={{ fontFamily: T.f, fontSize: 20, fontWeight: 700, color: T.bk, marginBottom: 4 }}>Satın Alma Talebi</h3>
+            <p style={{ fontFamily: T.f, fontSize: 13, color: T.g500, marginBottom: 24 }}>Bilgilerinizi bırakın, sizi arayalım.</p>
+            {flds.map(x => (
+              <div key={x.k} style={{ marginBottom: 18 }}>
+                <label style={{ fontFamily: T.f, fontSize: 12, fontWeight: 600, color: T.g600, display: "block", marginBottom: 6, textTransform: "uppercase", letterSpacing: "0.04em" }}>{x.l}</label>
+                <input type={x.t} placeholder={x.ph} value={f[x.k]} onChange={e => { sF({ ...f, [x.k]: e.target.value }); sEr({ ...er, [x.k]: false }); }}
+                  style={{ width: "100%", padding: "13px 16px", borderRadius: T.r.md, border: `2px solid ${er[x.k] ? T.ac : T.g200}`, fontFamily: T.f, fontSize: 14, outline: "none", boxSizing: "border-box" }}
+                  onFocus={e => e.target.style.borderColor = T.bk}
+                  onBlur={e => e.target.style.borderColor = er[x.k] ? T.ac : T.g200} />
+              </div>
+            ))}
+            <button onClick={go} style={{ width: "100%", padding: "15px", background: T.ac, color: T.wh, border: "none", borderRadius: T.r.md, fontFamily: T.f, fontSize: 15, fontWeight: 600, cursor: "pointer", marginTop: 4 }}>Talep Gönder</button>
+            <div style={{ marginTop: 16, textAlign: "center" }}>
+              <p style={{ fontFamily: T.f, fontSize: 12, color: T.g400, marginBottom: 10 }}>Ya da doğrudan WhatsApp'tan ulaşın</p>
+              <a href={`https://wa.me/905331524843?text=Merhaba!%20${encodeURIComponent((p.name || p.title || "Ürün"))}%20hakkında%20bilgi%20almak%20istiyorum.`}
+                target="_blank" rel="noreferrer"
+                style={{ display: "inline-flex", alignItems: "center", gap: 8, fontFamily: T.f, fontSize: 14, fontWeight: 600, color: T.wh, background: "#25D366", padding: "12px 28px", borderRadius: T.r.full, textDecoration: "none" }}>
+                {I.wa} WhatsApp ile Sor
+              </a>
             </div>
-
-            <button
-              onClick={submit}
-              className="w-full mt-6 bg-[#c8102e] text-white font-sans text-base font-semibold py-4 rounded-2xl hover:bg-[#a50d26] active:scale-[0.98] transition-all"
-            >
-              Geri Arama İste
-            </button>
-            <p className="font-sans text-[11px] text-gray-400 text-center mt-3">
-              Bilgileriniz yalnızca sipariş teyidi için kullanılır.
-            </p>
+            <p style={{ fontFamily: T.f, fontSize: 11, color: T.g400, textAlign: "center", marginTop: 14 }}>Bilgileriniz yalnızca sipariş teyidi için kullanılacaktır.</p>
           </>
         )}
       </div>
@@ -1512,435 +248,370 @@ function BuyForm({ product: p, onClose }) {
   );
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// FLOATING WHATSAPP WIDGET
-// ─────────────────────────────────────────────────────────────────────────────
-function FloatingWA() {
+// ============================================
+// FOOTER
+// ============================================
+function Foot({ onNav }) {
   return (
-    <a
-      href="https://wa.me/905331524843?text=Merhaba!"
-      target="_blank"
-      rel="noreferrer"
-      aria-label="WhatsApp ile Yaz"
-      className="fixed bottom-6 right-6 z-40 flex items-center gap-2.5
-        bg-[#25D366] text-white rounded-full
-        shadow-[0_8px_32px_rgba(37,211,102,0.4)]
-        py-3.5 pl-4 pr-5
-        hover:shadow-[0_12px_40px_rgba(37,211,102,0.55)]
-        hover:-translate-y-0.5 transition-all duration-300"
-    >
-      <MessageCircle size={21} className="flex-shrink-0" />
-      <span className="font-sans text-sm font-semibold whitespace-nowrap">WhatsApp</span>
-    </a>
+    <footer style={{ background: T.bk, color: T.wh, padding: "56px 24px 0" }}>
+      <div style={{ maxWidth: 1280, margin: "0 auto", display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 40 }}>
+        <div>
+          <div style={{ display: "flex", alignItems: "baseline", gap: 2, marginBottom: 14 }}>
+            <span style={{ fontFamily: T.d, fontSize: 20, fontWeight: 700, fontStyle: "italic" }}>Uygun</span>
+            <span style={{ fontFamily: T.f, fontSize: 18, fontWeight: 700, color: T.ac }}>Ayakkabı</span>
+          </div>
+          <p style={{ fontFamily: T.f, fontSize: 13, color: "#777", lineHeight: 1.8, maxWidth: 280 }}>Kaliteli ayakkabılar, uygun fiyatlar. Geniş marka yelpazesi, hızlı kargo.</p>
+        </div>
+        <div>
+          <h5 style={{ fontFamily: T.f, fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.1em", color: "#555", marginBottom: 18 }}>Sayfalar</h5>
+          {[["Ana Sayfa", "home"], ["Ayakkabılar", "catalog"]].map(([l, k]) => (
+            <p key={k} onClick={() => onNav(k)} style={{ fontFamily: T.f, fontSize: 14, color: "#999", marginBottom: 10, cursor: "pointer" }}>{l}</p>
+          ))}
+        </div>
+        <div>
+          <h5 style={{ fontFamily: T.f, fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.1em", color: "#555", marginBottom: 18 }}>İletişim</h5>
+          <p style={{ fontFamily: T.f, fontSize: 14, color: "#999", lineHeight: 2.2 }}>
+            0533 152 48 43<br />
+            info@uygunayakkabi.com<br />
+            İstanbul, Türkiye
+          </p>
+        </div>
+        <div>
+          <h5 style={{ fontFamily: T.f, fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.1em", color: "#555", marginBottom: 18 }}>WhatsApp Sipariş</h5>
+          <a href="https://wa.me/905331524843" target="_blank" rel="noreferrer"
+            style={{ display: "inline-flex", alignItems: "center", gap: 8, fontFamily: T.f, fontSize: 14, fontWeight: 600, color: T.wh, background: "#25D366", padding: "12px 20px", borderRadius: T.r.full, textDecoration: "none", marginBottom: 12 }}>
+            {I.wa} WhatsApp'tan Yaz
+          </a>
+          <p style={{ fontFamily: T.f, fontSize: 12, color: "#666", lineHeight: 1.7 }}>Beğendiğiniz modeli seçip WhatsApp'tan yazın — hemen yardımcı olalım.</p>
+        </div>
+      </div>
+      <div style={{ maxWidth: 1280, margin: "48px auto 0", padding: "20px 0", borderTop: "1px solid #1a1a1a", display: "flex", justifyContent: "space-between", flexWrap: "wrap", gap: 8 }}>
+        <p style={{ fontFamily: T.f, fontSize: 12, color: "#444" }}>© 2025 UygunAyakkabı — Tüm hakları saklıdır.</p>
+        <p style={{ fontFamily: T.f, fontSize: 12, color: "#444" }}>uygunayakkabi.com</p>
+      </div>
+    </footer>
   );
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
+// ============================================
 // HOME PAGE
-// ─────────────────────────────────────────────────────────────────────────────
-function HomePage({ onNav, onView, onCallBack, onCategoryFilter, allProducts = [] }) {
+// ============================================
+function Home({ onNav, onView, allProducts }) {
+  const why = [
+    { icon: I.truck, title: "Hızlı Kargo", desc: "Siparişleriniz 1-3 iş günü içinde kapınızda." },
+    { icon: I.tag, title: "Uygun Fiyat", desc: "Piyasanın altında fiyatlarla geniş marka yelpazesi." },
+    { icon: I.heart, title: "Müşteri Memnuniyeti", desc: "Aylık 500 mutlu müşteri ve kolay iade garantisi." },
+  ];
+  const first = allProducts[0];
   return (
     <div>
-      {/* ── HERO ── */}
-      <section className="relative min-h-screen flex items-center bg-white overflow-hidden">
-        <div className="absolute inset-0 bg-[radial-gradient(ellipse_80%_60%_at_75%_40%,#fef2f2,transparent)] pointer-events-none" />
-        <div className="absolute top-0 left-0 w-64 h-64 bg-gradient-to-br from-amber-100 to-transparent rounded-full blur-3xl opacity-60 pointer-events-none" />
-        <div className="absolute bottom-20 right-0 w-80 h-80 bg-gradient-to-tl from-blue-50 to-transparent rounded-full blur-3xl opacity-50 pointer-events-none" />
-
-        <div className="relative max-w-screen-xl mx-auto px-5 w-full pt-28 pb-20 grid grid-cols-1 lg:grid-cols-2 gap-12 lg:gap-20 items-center">
-          <div>
-            <span className="inline-flex items-center gap-2 font-sans text-[11px] font-semibold uppercase tracking-widest text-[#c8102e] bg-red-50 px-4 py-2 rounded-full mb-7">
-              <Zap size={10} />
-              Güncel Koleksiyon
-            </span>
-            <h1 className="font-serif text-[clamp(44px,6vw,80px)] font-bold text-gray-900 leading-[1.02] mb-5">
-              Kaliteli
-              <br />
-              <em>Ayakkabılar,</em>
-              <br />
-              <span className="font-sans font-light text-[clamp(28px,3.5vw,52px)] text-gray-400">
-                Uygun Fiyatlar
-              </span>
+      {/* HERO */}
+      <section style={{ minHeight: "100vh", display: "flex", alignItems: "center", background: T.g50, position: "relative", overflow: "hidden" }}>
+        <div style={{ position: "absolute", top: "-20%", right: "-10%", width: "60%", height: "140%", background: "radial-gradient(ellipse, rgba(200,16,46,0.03) 0%, transparent 70%)", pointerEvents: "none" }} />
+        <div className="hero-grid" style={{ maxWidth: 1280, margin: "0 auto", padding: "120px 24px 80px", display: "grid", gridTemplateColumns: "1fr 1fr", gap: 56, alignItems: "center", width: "100%" }}>
+          <div style={{ position: "relative", zIndex: 2 }}>
+            <div style={{ display: "inline-block", fontFamily: T.f, fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.14em", color: T.ac, background: "#fef2f2", padding: "6px 14px", borderRadius: T.r.full, marginBottom: 20 }}>Güncel Koleksiyon</div>
+            <h1 style={{ fontFamily: T.d, fontSize: "clamp(40px, 5.5vw, 72px)", fontWeight: 700, color: T.bk, lineHeight: 1.05, marginBottom: 20 }}>
+              Kaliteli Ayakkabılar
+              <span style={{ display: "block", fontFamily: T.f, fontWeight: 300, fontSize: "clamp(28px, 3.5vw, 48px)", color: T.g500, marginTop: 4 }}>Uygun Fiyatlar</span>
             </h1>
-            <p className="font-sans text-base text-gray-500 leading-relaxed mb-8 max-w-[380px]">
-              En popüler markaların en iyi modelleri, piyasanın altında fiyatlarla.
-              Beğendiğiniz ayakkabıyı seçin, biz sizi arayalım.
-            </p>
-            <div className="flex flex-wrap gap-3 mb-8">
-              <button
-                onClick={() => onNav("catalog")}
-                className="flex items-center gap-2.5 bg-[#c8102e] text-white font-sans text-sm font-semibold px-7 py-4 rounded-full hover:bg-[#a50d26] active:scale-95 transition-all"
-              >
-                Ayakkabıları Keşfet <ArrowRight size={15} />
+            <p style={{ fontFamily: T.f, fontSize: 16, color: T.g500, lineHeight: 1.75, marginBottom: 36, maxWidth: 420 }}>En popüler markaların en iyi modelleri, piyasanın altında fiyatlarla. Beğendiğiniz ayakkabıyı seçin, WhatsApp'tan yazın.</p>
+            <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
+              <button onClick={() => onNav("catalog")} style={{ fontFamily: T.f, fontSize: 15, fontWeight: 600, color: T.wh, background: T.ac, border: "none", padding: "16px 36px", borderRadius: T.r.full, cursor: "pointer", display: "flex", alignItems: "center", gap: 10 }}>
+                Ayakkabıları Gör {I.arrow}
               </button>
-              <a
-                href="https://wa.me/905331524843?text=Merhaba!%20Ürünleriniz%20hakkında%20bilgi%20almak%20istiyorum."
-                target="_blank"
-                rel="noreferrer"
-                className="flex items-center gap-2.5 bg-white text-gray-900 font-sans text-sm font-semibold px-7 py-4 rounded-full border-2 border-gray-200 hover:border-gray-400 active:scale-95 transition-all"
-              >
-                <MessageCircle size={14} />WhatsApp'tan Yaz
+              <a href="https://wa.me/905331524843" target="_blank" rel="noreferrer" style={{ fontFamily: T.f, fontSize: 15, fontWeight: 600, color: T.wh, background: "#25D366", border: "none", padding: "16px 28px", borderRadius: T.r.full, textDecoration: "none", display: "flex", alignItems: "center", gap: 8 }}>
+                {I.wa} WhatsApp'tan Yaz
               </a>
             </div>
-            <div className="flex flex-wrap gap-5">
-              {["Hızlı Kargo", "Kolay İade", "Güvenli Ödeme"].map((label, i) => (
-                <div key={i} className="flex items-center gap-1.5">
-                  <Check size={13} className="text-green-500 flex-shrink-0" />
-                  <span className="font-sans text-xs text-gray-500 font-medium">{label}</span>
+            <div style={{ display: "flex", gap: 24, marginTop: 36, flexWrap: "wrap" }}>
+              {["Hızlı Kargo", "Kolay İade", "Güvenli Ödeme"].map(t => (
+                <div key={t} style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#16a34a" strokeWidth="3"><path d="M20 6L9 17l-5-5"/></svg>
+                  <span style={{ fontFamily: T.f, fontSize: 13, fontWeight: 500, color: T.g600 }}>{t}</span>
                 </div>
               ))}
             </div>
           </div>
-
-          <div className="relative hidden lg:block">
-            <div className="rounded-3xl overflow-hidden aspect-[4/5] bg-gray-100 shadow-[0_48px_96px_rgba(0,0,0,0.14)]">
-              <Image src={heroImg} alt="Featured" fill className="object-cover" sizes="(max-width: 1024px) 100vw, 50vw" priority />
+          <div style={{ position: "relative" }}>
+            <div style={{ borderRadius: 28, overflow: "hidden", aspectRatio: "4/5", background: T.g200, boxShadow: "0 32px 64px rgba(0,0,0,0.12)" }}>
+              <img src={heroImg} alt="Featured" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
             </div>
-            {allProducts.length > 0 && (
-            <div
-              onClick={() => onView(allProducts[0])}
-              className="absolute -bottom-5 -left-6 bg-white rounded-2xl px-4 py-3.5 shadow-[0_24px_56px_rgba(0,0,0,0.13)] flex items-center gap-3 cursor-pointer hover:-translate-y-0.5 transition-transform"
-            >
-              <div className="relative w-12 h-12 rounded-xl overflow-hidden flex-shrink-0">
-                <ProductImage src={allProducts[0].images[0]} alt={allProducts[0].name} />
+            {first && (
+              <div style={{ position: "absolute", bottom: -16, left: -16, background: T.wh, borderRadius: T.r.lg, padding: "16px 20px", boxShadow: "0 16px 40px rgba(0,0,0,0.1)", display: "flex", alignItems: "center", gap: 14, cursor: "pointer" }} onClick={() => onView(first)}>
+                <img src={first.dbImage || first.image} alt="" style={{ width: 48, height: 48, borderRadius: T.r.md, objectFit: "cover" }} />
+                <div>
+                  <p style={{ fontFamily: T.f, fontSize: 13, fontWeight: 600, color: T.bk }}>{first.name || first.title}</p>
+                  <p style={{ fontFamily: T.f, fontSize: 14, fontWeight: 700, color: T.ac }}>₺{(first.price || 0).toLocaleString("tr-TR")}</p>
+                </div>
               </div>
-              <div>
-                <p className="font-sans text-xs font-semibold text-gray-900 max-w-[130px] truncate">
-                  {allProducts[0].name}
-                </p>
-                <p className="font-sans text-sm font-bold text-[#c8102e] mt-0.5">
-                  ₺{allProducts[0].price.toLocaleString("tr-TR")}
-                </p>
-              </div>
-            </div>
             )}
-            <div className="absolute top-8 -right-6 bg-white rounded-2xl px-5 py-4 shadow-[0_20px_48px_rgba(0,0,0,0.1)] text-center">
-              <p className="font-serif text-2xl font-bold text-[#c8102e]">Aylık 500</p>
-              <p className="font-sans text-[11px] font-medium text-gray-500 mt-0.5">Mutlu Müşteri</p>
+            <div style={{ position: "absolute", top: 24, right: -12, background: T.wh, borderRadius: T.r.lg, padding: "14px 20px", boxShadow: "0 12px 32px rgba(0,0,0,0.08)", textAlign: "center" }}>
+              <p style={{ fontFamily: T.f, fontSize: 22, fontWeight: 800, color: T.ac }}>Aylık 500</p>
+              <p style={{ fontFamily: T.f, fontSize: 11, fontWeight: 500, color: T.g500 }}>Mutlu Müşteri</p>
             </div>
+          </div>
+        </div>
+        <style>{`@media(max-width:768px){.hero-grid{grid-template-columns:1fr!important;text-align:center;padding-top:100px!important}.hero-grid>div:last-child{order:-1}.hero-grid>div:first-child>div:last-child{justify-content:center}}`}</style>
+      </section>
+
+      {/* BEST SELLERS */}
+      <section style={{ padding: "80px 24px", maxWidth: 1280, margin: "0 auto" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", marginBottom: 40, flexWrap: "wrap", gap: 12 }}>
+          <div>
+            <p style={{ fontFamily: T.f, fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.12em", color: T.ac, marginBottom: 8 }}>Koleksiyon</p>
+            <h2 style={{ fontFamily: T.d, fontSize: "clamp(28px, 3vw, 36px)", fontWeight: 700, color: T.bk }}>Çok Satanlar</h2>
+          </div>
+          <span onClick={() => onNav("catalog")} style={{ fontFamily: T.f, fontSize: 14, fontWeight: 500, color: T.g500, cursor: "pointer" }}>Tümünü Gör →</span>
+        </div>
+        <div className="home-grid" style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 20 }}>
+          {allProducts.slice(0, 8).map(p => <Card key={p.id || p.slug} p={p} onView={onView} />)}
+        </div>
+        <style>{`@media(max-width:1024px){.home-grid{grid-template-columns:repeat(3,1fr)!important}}@media(max-width:640px){.home-grid{grid-template-columns:repeat(2,1fr)!important;gap:12px!important}}`}</style>
+      </section>
+
+      {/* WHY US */}
+      <section style={{ padding: "64px 24px 80px", background: T.g50 }}>
+        <div style={{ maxWidth: 1280, margin: "0 auto" }}>
+          <div style={{ textAlign: "center", marginBottom: 48 }}>
+            <p style={{ fontFamily: T.f, fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.12em", color: T.ac, marginBottom: 8 }}>Neden Biz?</p>
+            <h2 style={{ fontFamily: T.d, fontSize: "clamp(28px, 3vw, 36px)", fontWeight: 700, color: T.bk }}>Farkımız</h2>
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))", gap: 24 }}>
+            {why.map((w, i) => (
+              <div key={i} style={{ background: T.wh, borderRadius: T.r.xl, padding: "36px 28px", textAlign: "center", border: "1px solid #e8e8e8" }}>
+                <div style={{ width: 60, height: 60, borderRadius: T.r.lg, background: "#fef2f2", display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 20px" }}>{w.icon}</div>
+                <h3 style={{ fontFamily: T.f, fontSize: 17, fontWeight: 700, color: T.bk, marginBottom: 8 }}>{w.title}</h3>
+                <p style={{ fontFamily: T.f, fontSize: 14, color: T.g500, lineHeight: 1.65 }}>{w.desc}</p>
+              </div>
+            ))}
           </div>
         </div>
       </section>
 
-      <TrustStrip />
-
-      {/* ── CATEGORY SHOWCASE ── */}
-      <CategoryShowcase onFilter={(cat) => { onCategoryFilter(cat); onNav("catalog"); }} />
-
-      {/* ── ALL PRODUCTS — 10 items = 2 perfect rows of 5 ── */}
-      <section className="py-20 max-w-screen-xl mx-auto px-5">
-        <div className="flex justify-between items-end mb-10 flex-wrap gap-4">
-          <div>
-            <span className="font-sans text-[11px] font-semibold uppercase tracking-widest text-[#c8102e] mb-3 block">
-              Koleksiyon
-            </span>
-            <h2 className="font-serif text-3xl md:text-5xl font-bold text-gray-900">Çok Satanlar</h2>
+      {/* WHATSAPP ORDER GUIDE */}
+      <section style={{ padding: "0 24px", maxWidth: 1280, margin: "0 auto" }}>
+        <div style={{ background: T.bk, borderRadius: 28, padding: "64px 40px", margin: "64px 0", position: "relative", overflow: "hidden" }}>
+          <div style={{ position: "absolute", top: 0, right: 0, width: "40%", height: "100%", background: "radial-gradient(ellipse at right, rgba(37,211,102,0.06) 0%, transparent 70%)", pointerEvents: "none" }} />
+          <div style={{ textAlign: "center", marginBottom: 48, position: "relative" }}>
+            <p style={{ fontFamily: T.f, fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.14em", color: "#25D366", marginBottom: 12 }}>WhatsApp ile Kolay Alışveriş</p>
+            <h2 style={{ fontFamily: T.d, fontSize: "clamp(24px, 3vw, 40px)", fontWeight: 700, color: T.wh, marginBottom: 12 }}>Nasıl Sipariş Verilir?</h2>
+            <p style={{ fontFamily: T.f, fontSize: 15, color: "#888" }}>4 basit adımda ayakkabınız kapınızda.</p>
           </div>
-          <button
-            onClick={() => onNav("catalog")}
-            className="flex items-center gap-1.5 font-sans text-sm font-medium text-gray-500 hover:text-gray-900 transition-colors"
-          >
-            Tümünü Gör <ArrowRight size={14} />
-          </button>
+          <div className="wa-steps" style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 20, position: "relative", marginBottom: 48 }}>
+            {[
+              { n: "1", t: "Ürünü Seç", d: "Katalogdan beğendiğin modeli bul" },
+              { n: "2", t: "WhatsApp'tan Yaz", d: "Ürün adı ve bedenini bize ilet" },
+              { n: "3", t: "Siparişi Onayla", d: "Ödeme ve teslimat bilgilerini ver" },
+              { n: "4", t: "Kapıda Teslim", d: "1-3 iş günü içinde kapında" },
+            ].map(s => (
+              <div key={s.n} style={{ background: "rgba(255,255,255,0.06)", borderRadius: T.r.xl, padding: "28px 20px", textAlign: "center" }}>
+                <div style={{ width: 40, height: 40, borderRadius: T.r.full, background: "#25D366", display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 16px", fontFamily: T.f, fontSize: 16, fontWeight: 800, color: T.wh }}>{s.n}</div>
+                <p style={{ fontFamily: T.f, fontSize: 14, fontWeight: 700, color: T.wh, marginBottom: 8 }}>{s.t}</p>
+                <p style={{ fontFamily: T.f, fontSize: 12, color: "#888", lineHeight: 1.6 }}>{s.d}</p>
+              </div>
+            ))}
+          </div>
+          <div style={{ display: "flex", justifyContent: "center", position: "relative" }}>
+            <a href="https://wa.me/905331524843" target="_blank" rel="noreferrer" style={{ fontFamily: T.f, fontSize: 15, fontWeight: 600, color: T.wh, background: "#25D366", padding: "16px 36px", borderRadius: T.r.full, textDecoration: "none", display: "flex", alignItems: "center", gap: 10 }}>
+              {I.wa} 0533 152 48 43
+            </a>
+          </div>
         </div>
+        <style>{`@media(max-width:768px){.wa-steps{grid-template-columns:repeat(2,1fr)!important}}`}</style>
+      </section>
 
-        {/* Exactly 5 columns on xl+, balanced 2 full rows of 5 */}
-        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
-          {allProducts.slice(0, 10).map((p) => (
-            <ProductCard key={p.id} product={p} onView={onView} onCallBack={onCallBack} />
+      <Foot onNav={onNav} />
+    </div>
+  );
+}
+
+// ============================================
+// CATALOG PAGE
+// ============================================
+const ALL_CATEGORIES = ["Tümü", "Spor", "Günlük", "Bot", "Sandalet", "Krampon", "Klasik"];
+
+function Catalog({ onView, allProducts }) {
+  const [fl, sFl] = useState("Tümü");
+  const [vis, sVis] = useState(12);
+  const flt = fl === "Tümü" ? allProducts : allProducts.filter(p => p.category === fl);
+  const shown = flt.slice(0, vis);
+  const hasMore = vis < flt.length;
+  const handleFilter = (c) => { sFl(c); sVis(12); };
+  return (
+    <div style={{ paddingTop: 68 }}>
+      <section style={{ maxWidth: 1280, margin: "0 auto", padding: "40px 24px 80px" }}>
+        <div style={{ marginBottom: 36 }}>
+          <p style={{ fontFamily: T.f, fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.12em", color: T.ac, marginBottom: 8 }}>Koleksiyon</p>
+          <h1 style={{ fontFamily: T.d, fontSize: "clamp(32px, 4vw, 44px)", fontWeight: 700, color: T.bk, marginBottom: 8 }}>Ayakkabılar</h1>
+          <p style={{ fontFamily: T.f, fontSize: 15, color: T.g500 }}>{flt.length} ürün listeleniyor</p>
+        </div>
+        <div style={{ display: "flex", gap: 8, marginBottom: 36, flexWrap: "wrap" }}>
+          {ALL_CATEGORIES.map(c => (
+            <button key={c} onClick={() => handleFilter(c)}
+              style={{ fontFamily: T.f, fontSize: 13, fontWeight: 500, padding: "10px 20px", borderRadius: T.r.full, border: "none", cursor: "pointer", background: fl === c ? T.bk : T.g100, color: fl === c ? T.wh : T.g600, transition: "all 0.2s" }}>
+              {c}
+            </button>
           ))}
         </div>
+        <div className="catalog-grid" style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 20 }}>
+          {shown.map(p => <Card key={p.id || p.slug} p={p} onView={onView} />)}
+        </div>
+        {hasMore && (
+          <div style={{ textAlign: "center", marginTop: 48 }}>
+            <button onClick={() => sVis(v => v + 12)}
+              style={{ fontFamily: T.f, fontSize: 15, fontWeight: 600, color: T.bk, background: T.wh, border: "2px solid #e0e0e0", padding: "14px 48px", borderRadius: T.r.full, cursor: "pointer", transition: "all 0.2s" }}
+              onMouseEnter={e => { e.currentTarget.style.background = T.bk; e.currentTarget.style.color = T.wh; e.currentTarget.style.borderColor = T.bk; }}
+              onMouseLeave={e => { e.currentTarget.style.background = T.wh; e.currentTarget.style.color = T.bk; e.currentTarget.style.borderColor = "#e0e0e0"; }}>
+              Daha Fazla Göster ({Math.max(0, flt.length - vis)} ürün kaldı)
+            </button>
+          </div>
+        )}
+        <style>{`@media(max-width:1024px){.catalog-grid{grid-template-columns:repeat(3,1fr)!important}}@media(max-width:640px){.catalog-grid{grid-template-columns:repeat(2,1fr)!important;gap:12px!important}}`}</style>
       </section>
-
-      <SocialProof />
-      <WhyUs />
-      <WhatsAppOrderGuide />
-      <Footer onNav={onNav} />
+      <Foot onNav={() => {}} />
     </div>
   );
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// CATALOG PAGE
-// ─────────────────────────────────────────────────────────────────────────────
-function CatalogPage({ onView, onCallBack, initialFilter, allProducts = [] }) {
-  const [filter, setFilter] = useState(initialFilter || "Tümü");
-  const categories = ["Tümü", "Günlük", "Klasik", "Spor", "Bot", "Sandalet", "Krampon"];
-  const filtered = filter === "Tümü" ? allProducts : allProducts.filter((p) => p.category === filter);
-
-  return (
-    <div className="pt-16">
-      <section className="max-w-screen-xl mx-auto px-5 py-12 pb-24">
-        <div className="mb-8">
-          <span className="font-sans text-sm font-semibold uppercase tracking-widest text-[#c8102e] mb-3 block">
-            Koleksiyon
-          </span>
-          <h1 className="font-serif text-3xl md:text-4xl font-bold text-gray-900 mb-2">Ayakkabılar</h1>
-          <p className="font-sans text-sm text-gray-500">{filtered.length} ürün listeleniyor</p>
-        </div>
-
-        <div className="flex gap-2 mb-10 flex-wrap">
-          {categories.map((c) => {
-            const catInfo = CATEGORY_DATA.find((x) => x.key === c);
-            const isActive = filter === c;
-            return (
-              <button
-                key={c}
-                onClick={() => setFilter(c)}
-                className={`font-sans text-xs font-semibold px-5 py-2.5 rounded-full transition-all duration-200 flex items-center gap-1.5 ${
-                  isActive
-                    ? "bg-gray-900 text-white shadow-sm scale-105"
-                    : "bg-gray-100 text-gray-600 hover:bg-gray-200"
-                }`}
-              >
-                {catInfo && <span>{catInfo.emoji}</span>}
-                {c}
-              </button>
-            );
-          })}
-        </div>
-
-        {/* 5 columns on xl+, 2 on mobile */}
-        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
-          {filtered.length > 0 ? (
-            filtered.map((p) => (
-              <ProductCard key={p.id} product={p} onView={onView} onCallBack={onCallBack} />
-            ))
-          ) : (
-            <div className="col-span-full text-center py-20 text-gray-400 font-sans text-sm">
-              Bu kategoride ürün bulunamadı.
-            </div>
-          )}
-        </div>
-      </section>
-      <Footer onNav={() => {}} />
-    </div>
-  );
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
+// ============================================
 // DETAIL PAGE
-// ─────────────────────────────────────────────────────────────────────────────
-function DetailPage({ product: p, onBack, onCallBack }) {
-  const [size, setSize] = useState(null);
-  const [cartAdded, setCartAdded] = useState(false);
-  const { dispatch } = useCart();
-
-  const handleAddToCart = () => {
-    if (!size || p.stock === 0) return;
-    dispatch({ type: "ADD", product: p, size, qty: 1 });
-    setCartAdded(true);
-    setTimeout(() => setCartAdded(false), 2000);
-  };
-
-  const stockStatus =
-    p.stock === 0
-      ? { label: "Stokta Yok", dot: "bg-[#c8102e]", pill: "text-[#c8102e] bg-red-50" }
-      : p.stock <= 3
-      ? { label: `Son ${p.stock} adet!`, dot: "bg-amber-500", pill: "text-amber-700 bg-amber-50" }
-      : { label: "Stokta", dot: "bg-green-500", pill: "text-green-700 bg-green-50" };
-
+// ============================================
+function Detail({ product: p, onBack }) {
+  const [sz, sSz] = useState(null);
+  const [im, sIm] = useState(0);
+  const [sf, sSf] = useState(false);
+  const isSoldOut = p.stock === 0 || p.status === "soldout";
+  const sl = isSoldOut
+    ? { t: "Stokta Yok", c: T.ac, bg: "#fef2f2" }
+    : p.stock && p.stock <= 3
+    ? { t: `Son ${p.stock} adet!`, c: "#d97706", bg: "#fffbeb" }
+    : { t: "Stokta", c: T.gn, bg: "#f0fdf4" };
+  const allImages = p.images?.length ? p.images : [p.dbImage || p.image];
   return (
-    <div className="pt-16">
-      <section className="max-w-screen-xl mx-auto px-5 py-10 pb-24">
-        <button
-          onClick={onBack}
-          className="flex items-center gap-1.5 font-sans text-sm text-gray-500 hover:text-gray-900 transition-colors mb-10 group"
-        >
-          <ChevronLeft size={16} className="group-hover:-translate-x-0.5 transition-transform" />
-          Ayakkabılar
-        </button>
-
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-12 lg:gap-20">
-          {/* Embla carousel with thumbnail strip */}
-          <DetailCarousel images={p.images} name={p.name} />
-
-          {/* Info */}
-          <div className="py-2">
-            <p className="font-sans text-xs font-semibold uppercase tracking-widest text-[#c8102e] mb-3">
-              {p.category}
-            </p>
-            <h1 className="font-serif text-4xl md:text-5xl font-bold text-gray-900 leading-tight mb-6">
-              {p.name}
-            </h1>
-
-            <div className="flex items-center gap-4 mb-5">
-              <span className="font-sans text-3xl font-bold text-gray-900">
-                ₺{p.price.toLocaleString("tr-TR")}
-              </span>
+    <div style={{ paddingTop: 68 }}>
+      {sf && <BuyForm product={p} onClose={() => sSf(false)} />}
+      <section style={{ maxWidth: 1280, margin: "0 auto", padding: "32px 24px 80px" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 32 }}>
+          <span onClick={onBack} style={{ fontFamily: T.f, fontSize: 13, color: T.g500, cursor: "pointer" }}>← Ayakkabılar</span>
+          <span style={{ color: T.g200 }}>/</span>
+          <span style={{ fontFamily: T.f, fontSize: 13, color: T.bk, fontWeight: 500 }}>{p.name || p.title}</span>
+        </div>
+        <div className="detail-grid" style={{ display: "grid", gridTemplateColumns: "1.2fr 1fr", gap: 56 }}>
+          <div>
+            <div style={{ borderRadius: 24, overflow: "hidden", aspectRatio: "1/1", background: T.g100, marginBottom: 14, position: "relative" }}>
+              <img src={allImages[im]} alt={p.name || p.title} style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+              {p.badge && <span style={{ position: "absolute", top: 20, left: 20, fontFamily: T.f, fontSize: 12, fontWeight: 700, textTransform: "uppercase", padding: "6px 14px", borderRadius: T.r.full, color: T.wh, background: p.badge === "Tükendi" ? T.g500 : p.badge === "İndirim" ? T.ac : T.bk }}>{p.badge}</span>}
+            </div>
+            {allImages.length > 1 && (
+              <div style={{ display: "flex", gap: 10 }}>
+                {allImages.map((x, i) => (
+                  <div key={i} onClick={() => sIm(i)} style={{ width: 80, height: 80, borderRadius: T.r.md, overflow: "hidden", border: `2.5px solid ${im === i ? T.bk : "transparent"}`, cursor: "pointer", flexShrink: 0 }}>
+                    <img src={x} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+          <div style={{ paddingTop: 8 }}>
+            <p style={{ fontFamily: T.f, fontSize: 12, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.1em", color: T.ac, marginBottom: 10 }}>{p.category}</p>
+            <h1 style={{ fontFamily: T.d, fontSize: "clamp(28px, 3vw, 38px)", fontWeight: 700, color: T.bk, marginBottom: 16, lineHeight: 1.15 }}>{p.name || p.title}</h1>
+            <div style={{ display: "flex", alignItems: "center", gap: 14, marginBottom: 20 }}>
+              <span style={{ fontFamily: T.f, fontSize: 30, fontWeight: 800, color: T.bk }}>₺{(p.price || 0).toLocaleString("tr-TR")}</span>
               {p.originalPrice && (
                 <>
-                  <span className="font-sans text-lg text-gray-400 line-through">
-                    ₺{p.originalPrice.toLocaleString("tr-TR")}
-                  </span>
-                  <span className="font-sans text-sm font-bold text-[#c8102e] bg-red-50 px-3 py-1 rounded-full">
-                    %{Math.round((1 - p.price / p.originalPrice) * 100)} İndirim
-                  </span>
+                  <span style={{ fontFamily: T.f, fontSize: 18, color: T.g400, textDecoration: "line-through" }}>₺{p.originalPrice.toLocaleString("tr-TR")}</span>
+                  <span style={{ fontFamily: T.f, fontSize: 13, fontWeight: 700, color: T.ac, background: "#fef2f2", padding: "4px 10px", borderRadius: T.r.full }}>%{Math.round((1 - p.price / p.originalPrice) * 100)} İndirim</span>
                 </>
               )}
             </div>
-
-            <p className="font-sans text-sm text-gray-500 leading-relaxed mb-6 max-w-[480px]">
-              {p.description}
-            </p>
-
-            <div className={`inline-flex items-center gap-2 ${stockStatus.pill} px-4 py-2 rounded-full mb-8`}>
-              <div className={`w-2 h-2 rounded-full flex-shrink-0 ${stockStatus.dot}`} />
-              <span className="font-sans text-xs font-semibold">{stockStatus.label}</span>
+            {p.description && <p style={{ fontFamily: T.f, fontSize: 15, color: T.g500, lineHeight: 1.7, marginBottom: 24, maxWidth: 480 }}>{p.description}</p>}
+            <div style={{ display: "inline-flex", alignItems: "center", gap: 8, padding: "8px 16px", borderRadius: T.r.full, background: sl.bg, marginBottom: 28 }}>
+              <div style={{ width: 8, height: 8, borderRadius: "50%", background: sl.c }} />
+              <span style={{ fontFamily: T.f, fontSize: 13, fontWeight: 600, color: sl.c }}>{sl.t}</span>
             </div>
-
-            <div className="mb-8">
-              <p className="font-sans text-xs font-semibold uppercase tracking-wider text-gray-500 mb-3">
-                Beden {size && <span className="text-gray-900">— {size}</span>}
-              </p>
-              <div className="flex gap-2 flex-wrap">
-                {p.sizes.map((s) => (
-                  <button
-                    key={s}
-                    onClick={() => setSize(s)}
-                    className={`w-12 h-12 rounded-xl font-sans text-sm font-semibold transition-all duration-150 border-2 ${
-                      size === s
-                        ? "bg-gray-900 text-white border-gray-900"
-                        : "bg-white text-gray-600 border-gray-200 hover:border-gray-400"
-                    }`}
-                  >
-                    {s}
-                  </button>
-                ))}
+            {p.sizes && p.sizes.length > 0 && (
+              <div style={{ marginBottom: 32 }}>
+                <p style={{ fontFamily: T.f, fontSize: 12, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.08em", color: T.g600, marginBottom: 14 }}>
+                  Beden {sz && <span style={{ color: T.bk }}>— {sz}</span>}
+                </p>
+                <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                  {p.sizes.map(s => (
+                    <button key={s} onClick={() => sSz(s)} style={{ width: 52, height: 52, borderRadius: T.r.md, border: sz === s ? `2px solid ${T.bk}` : `2px solid ${T.g200}`, background: sz === s ? T.bk : T.wh, color: sz === s ? T.wh : T.g600, fontFamily: T.f, fontSize: 14, fontWeight: 600, cursor: "pointer" }}>
+                      {s}
+                    </button>
+                  ))}
+                </div>
               </div>
-            </div>
-
-            <div className="flex flex-col gap-3">
-              {/* Primary: Sepete Ekle */}
-              <button
-                onClick={handleAddToCart}
-                disabled={p.stock === 0}
-                className={`flex items-center justify-center gap-2.5 w-full py-4 rounded-2xl font-sans text-base font-semibold transition-all active:scale-[0.98] ${
-                  p.stock === 0
-                    ? "bg-gray-200 text-gray-400 cursor-not-allowed"
-                    : cartAdded
-                    ? "bg-green-500 text-white"
-                    : !size
-                    ? "bg-gray-900 text-white hover:bg-gray-700"
-                    : "bg-[#c8102e] text-white hover:bg-[#a50d26]"
-                }`}
-              >
-                {cartAdded ? (
-                  <><Check size={17} />Sepete Eklendi!</>
-                ) : p.stock === 0 ? (
-                  <><ShoppingBag size={17} />Stokta Yok</>
-                ) : !size ? (
-                  <><ShoppingBag size={17} />Önce Beden Seçin</>
-                ) : (
-                  <><ShoppingBag size={17} />Sepete Ekle — {size}</>
-                )}
+            )}
+            <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+              <button onClick={() => !isSoldOut && sSf(true)}
+                style={{ width: "100%", padding: "17px", background: !isSoldOut ? T.ac : T.g400, color: T.wh, border: "none", borderRadius: T.r.md, fontFamily: T.f, fontSize: 16, fontWeight: 700, cursor: !isSoldOut ? "pointer" : "not-allowed" }}>
+                {!isSoldOut ? "Satın Alma Talebi" : "Stokta Yok"}
               </button>
-
-              {/* Secondary: lead-capture row */}
-              <div className="flex gap-2.5">
-                <button
-                  onClick={() => p.stock > 0 && onCallBack(p)}
-                  disabled={p.stock === 0}
-                  className="flex-1 flex items-center justify-center gap-2 py-3.5 rounded-2xl bg-white border-2 border-gray-200 text-gray-700 font-sans text-sm font-semibold hover:border-gray-400 active:scale-[0.98] transition-all disabled:opacity-40 disabled:cursor-not-allowed"
-                >
-                  <Phone size={15} />
-                  Beni Ara
-                </button>
-                <a
-                  href={`https://wa.me/905331524843?text=${encodeURIComponent(
-                    `Merhaba! ${p.name} hakkında bilgi almak istiyorum.`
-                  )}`}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="flex-1 flex items-center justify-center gap-2 py-3.5 rounded-2xl bg-white border-2 border-[#25D366] text-[#25D366] font-sans text-sm font-semibold hover:bg-[#25D366] hover:text-white active:scale-[0.98] transition-all"
-                >
-                  <MessageCircle size={15} />WhatsApp
-                </a>
-              </div>
+              <a href={`https://wa.me/905331524843?text=Merhaba!%20${encodeURIComponent((p.name || p.title || "Ürün"))}%20hakkında%20bilgi%20almak%20istiyorum.`}
+                target="_blank" rel="noreferrer"
+                style={{ width: "100%", padding: "15px", background: T.wh, color: "#25D366", border: "2px solid #25D366", borderRadius: T.r.md, fontFamily: T.f, fontSize: 15, fontWeight: 600, textDecoration: "none", textAlign: "center", boxSizing: "border-box", display: "flex", alignItems: "center", justifyContent: "center", gap: 10 }}>
+                {I.wa} WhatsApp ile Sor
+              </a>
             </div>
-
-            <div className="flex gap-6 mt-8 pt-8 border-t border-gray-100 flex-wrap">
-              {["Kaliteli Ürün", "Hızlı Kargo", "İade Garantisi", "Güvenli Ödeme"].map((t) => (
-                <div key={t} className="flex items-center gap-1.5">
-                  <Check size={13} className="text-green-500 flex-shrink-0" />
-                  <span className="font-sans text-xs font-medium text-gray-500">{t}</span>
+            <div style={{ display: "flex", gap: 24, marginTop: 32, paddingTop: 24, borderTop: "1px solid #e8e8e8", flexWrap: "wrap" }}>
+              {["Kaliteli Ürün", "Hızlı Kargo", "İade Garantisi", "Güvenli Ödeme"].map(t => (
+                <div key={t} style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#16a34a" strokeWidth="3"><path d="M20 6L9 17l-5-5"/></svg>
+                  <span style={{ fontFamily: T.f, fontSize: 12, fontWeight: 500, color: T.g500 }}>{t}</span>
                 </div>
               ))}
             </div>
           </div>
         </div>
+        <style>{`@media(max-width:768px){.detail-grid{grid-template-columns:1fr!important;gap:28px!important}}`}</style>
       </section>
-      <Footer onNav={() => {}} />
+      <Foot onNav={() => {}} />
     </div>
   );
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// APP — root
-// ─────────────────────────────────────────────────────────────────────────────
+// ============================================
+// APP ROOT — accepts dbProducts from Payload CMS
+// ============================================
 export default function App({ dbProducts = [] }) {
-  const [page, setPage] = useState("home");
-  const [selectedProduct, setSelectedProduct] = useState(null);
-  const [callbackProduct, setCallbackProduct] = useState(null);
-  const [catalogFilter, setCatalogFilter] = useState("Tümü");
+  const [pg, sPg] = useState("home");
+  const [sel, sSel] = useState(null);
 
-  // DB ürünleri önde, statik ürünler arkada
-  const allProducts = dbProducts.length > 0
-    ? [...dbProducts, ...products]
-    : products;
+  // Load Google Fonts
+  useEffect(() => {
+    if (document.querySelector('link[data-uygun-fonts]')) return;
+    const fl = document.createElement("link");
+    fl.href = "https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800;900&family=Playfair+Display:ital,wght@0,700;1,700&display=swap";
+    fl.rel = "stylesheet";
+    fl.setAttribute("data-uygun-fonts", "1");
+    document.head.appendChild(fl);
+  }, []);
 
-  const navigate = (pg) => {
-    setPage(pg);
-    if (pg !== "detail") setSelectedProduct(null);
-    window.scrollTo({ top: 0, behavior: "smooth" });
-  };
+  // Merge DB products (pre-processed by page.tsx) with static products
+  // page.tsx already returns: { id, name, price, originalPrice, description, images: string[], sizes, stock, category, badge, slug, fromDb }
+  const allProducts = (() => {
+    const dbMapped = dbProducts.map(p => ({
+      ...p,
+      // Ensure image (first of images array) is available for Card / Detail
+      image: Array.isArray(p.images) && p.images[0] ? p.images[0] : shoe("#f5f5f5","#e0e0e0","#ccc","#c8102e","#fff",0),
+      dbImage: Array.isArray(p.images) && p.images[0] ? p.images[0] : null,
+    }));
+    const dbSlugs = new Set(dbMapped.map(p => p.slug));
+    const staticFiltered = STATIC_PRODUCTS.filter(p => !dbSlugs.has(p.slug));
+    return [...dbMapped, ...staticFiltered];
+  })();
 
-  const viewProduct = (product) => {
-    setSelectedProduct(product);
-    setPage("detail");
-    window.scrollTo({ top: 0, behavior: "smooth" });
-  };
-
-  const openCatalogWithFilter = (cat) => {
-    setCatalogFilter(cat);
-    setPage("catalog");
-    window.scrollTo({ top: 0, behavior: "smooth" });
-  };
+  const nav = p => { sPg(p); if (p !== "detail") sSel(null); window.scrollTo({ top: 0, behavior: "smooth" }); };
+  const view = p => { sSel(p); sPg("detail"); window.scrollTo({ top: 0, behavior: "smooth" }); };
 
   return (
-    <div className="min-h-screen bg-white">
-      <Navbar page={page} onNav={navigate} />
-
-      {callbackProduct && (
-        <BuyForm product={callbackProduct} onClose={() => setCallbackProduct(null)} />
-      )}
-
-      <FloatingWA />
-
-      {page === "home" && (
-        <HomePage
-          onNav={navigate}
-          onView={viewProduct}
-          onCallBack={setCallbackProduct}
-          onCategoryFilter={openCatalogWithFilter}
-          allProducts={allProducts}
-        />
-      )}
-      {page === "catalog" && (
-        <CatalogPage
-          onView={viewProduct}
-          onCallBack={setCallbackProduct}
-          initialFilter={catalogFilter}
-          allProducts={allProducts}
-        />
-      )}
-      {page === "detail" && selectedProduct && (
-        <DetailPage
-          product={selectedProduct}
-          onBack={() => navigate("catalog")}
-          onCallBack={setCallbackProduct}
-        />
-      )}
+    <div style={{ minHeight: "100vh", background: T.wh }}>
+      <Navbar onNav={nav} pg={pg} />
+      {pg === "home" && <Home onNav={nav} onView={view} allProducts={allProducts} />}
+      {pg === "catalog" && <Catalog onView={view} allProducts={allProducts} />}
+      {pg === "detail" && sel && <Detail product={sel} onBack={() => nav("catalog")} />}
     </div>
   );
 }

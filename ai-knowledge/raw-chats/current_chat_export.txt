@@ -1,0 +1,112 @@
+
+CHAT EXPORT — CURRENT SESSION
+--------------------------------
+
+User:
+Shopier kaç para kazanca kadar şirket kurulmasını gerektirmiyor?
+
+Assistant:
+Türkiye’de resmî olarak “şu tutara kadar şirket gerekmez” şeklinde net bir limit yoktur.
+Eğer düzenli olarak ürün satışı yapıyorsan ve kazanç amacıyla faaliyet yürütüyorsan
+bu ticari faaliyet sayılır ve şirket kurulması gerekir.
+
+Piyasada pratikte:
+- Küçük ve düzensiz satışlar genelde sorun oluşturmaz.
+- Düzenli ve yüksek hacimli satışlarda vergi levhası istenebilir.
+
+Özet:
+Düzenli stoklu ürün satışı → şirket açılması önerilir.
+
+--------------------------------
+
+User:
+Siteyi yarın ayağa kaldırmayı planlıyorum. 
+OpenAI agent + n8n ile otomasyon kurmak istiyorum.
+WhatsApp üzerinden foto gönderince:
+- fotoğrafı enhance etsin
+- stok kodlarıyla siteye eklesin
+- Instagram'da paylaşsın
+- stok kontrolünü agent üzerinden yapayım
+panelden tek tek yüklemek istemiyorum.
+
+Assistant:
+Önerilen mimari:
+
+Input:
+WhatsApp / Telegram → foto + caption
+
+Process:
+1. Foto indir
+2. Enhance
+3. Ürün datası oluştur
+4. Siteye ürün ekle
+5. Instagram post
+6. Stok takibi
+
+Automation stack:
+- Telegram Bot / WhatsApp Business API
+- n8n
+- AI agent
+- Image enhancement
+- CMS API
+- Instagram Graph API
+
+--------------------------------
+
+User:
+Next.js custom + CMS ile başlayacağız.
+Telegram kullanacağız.
+Instagram Business hesap var.
+Yarın çalışması şart değil.
+
+Assistant:
+Önerilen sistem mimarisi:
+
+Frontend
+- Next.js storefront
+
+Backend
+- Headless CMS (Payload önerildi)
+
+Automation
+- n8n
+- Telegram Bot API
+- AI agent
+- Image enhancement service
+- Object storage (R2 / S3 / Supabase)
+
+Workflow:
+
+Telegram → Image → AI parse → Enhance → Upload → CMS product create → Instagram post
+
+Veri modeli:
+
+Product
+Variant
+Media
+InventoryLog
+
+Telegram caption formatı:
+
+SKU: AH-000123
+TITLE: Product name
+PRICE: 1499
+CATEGORY: Sneaker
+BRAND: Nike
+SIZES: 36=1,37=1,38=2
+
+--------------------------------
+
+User:
+Chat'i AI ingestion için knowledge module formatına çevir.
+
+Assistant:
+SOURCE MODULE formatında yapılandırılmış AI ingestion dokümanı oluşturuldu.
+
+--------------------------------
+
+User:
+bana full chati text file olarak verirmisin direkt olarak download yapabilmem için
+
+--------------------------------
+END OF CHAT EXPORT

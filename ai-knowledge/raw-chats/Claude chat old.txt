@@ -1,0 +1,1003 @@
+evet su anda benim repository'e girip hedefimizde nerede oldugumuzu söylermisin  ?6 MarSearched project for “project structure files components”Searched project for “project structure files components”Proje dosyalarına baktım. Şu anki durumu net görmek için mevcut kaynak koduna bakayım:Check uploaded files and project directoryCheck uploaded files and project directoryProject knowledge'da sadece project-summary.txt var, repository'nin gerçek kaynak kodu (app klasörü, components, vs.) bu project'e eklenmemiş.
+Şu an ne biliyorum kesin olarak:
+
+📊 Mevcut Durum
+✅ Tamamlananlar (altyapı hazır)
+KatmanDurumDomain: uygunayakkabi.com✅ Cloudflare'de bağlıHosting✅ Vercel'de aktif (uygunayakkabi-store.vercel.app)Repo✅ GitHub'da var, main branch'e push = otomatik deployNext.js projesi✅ Kurulu (npm run dev çalışıyor)Deployment pipeline✅ VS Code → GitHub → Vercel zinciri kurulu
+❓ Bilinmeyenler (kaynak kodu göremedim)
+Şu an repository'deki gerçek dosyaları göremiyorum — hangi sayfalar var, hangi component'lar yazılmış, ne eksik.
+Phase 1 hedeflerin (/, /shoes, /product/[slug] + 8 component) ne kadarı yapılmış bilmiyorum.
+
+🎯 Sonraki Adım
+Bana şunları paylaşırsan tam bir "neredeyiz" raporu çıkarırım ve eksik olanları yazarım:
+
+Terminalden: find . -type f -name "*.tsx" -o -name "*.ts" | grep -v node_modules çıktısı
+Veya VS Code'dan src/app ve src/components klasörlerinin screenshot'ı
+
+Ya da direkt "Phase 1'i sıfırdan başlat" dersen — mevcut ne varsa üzerine yazar, tam patch list çıkarırım.6 MarPowerShell kullanıyorsun, grep çalışmıyor. Şu komutu çalıştır:
+powershellGet-ChildItem -Recurse -Include "*.tsx","*.ts" | Where-Object { $_.FullName -notlike "*node_modules*" } | Select-Object FullName
+Bu çıktıyı buraya yapıştır, mevcut dosya yapısını tam görebileyim.Şu anda Uygunayakkabi.com projesinde tam olarak nerede olduğumuzu ve bundan sonra hangi adımları izleyeceğimizi net ve sistematik şekilde özetliyorum. Bu özet doğrudan proje dosyasındaki bilgilerle de uyumlu. 
+
+project-summary
+
+📍 PROJENİN ŞU ANKİ DURUMU
+1️⃣ Altyapı (Infrastructure) — ✅ Kuruldu
+
+Şu pastedsana chatgpt'e calısıtıgım hedefimi vesaire paylastım onlarıda inceleyip bir fikir edin. Ayrıca istediğin çıktıyıa ek ran görüntüsü olarak paylastım.6 MarMükemmel! Şimdi tam resmi görüyorum. Hem dosya yapısını hem de ChatGPT analizini inceledim.
+📊 GERÇEK DURUM
+Mevcut dosyalar:
+app/
+  layout.tsx          ✅
+  page.tsx            ✅ (homepage - muhtemelen boş skeleton)
+  next-env.d.ts       ✅
+  next.config.ts      ✅
+  payload.config.ts   ⚠️ SORUN BURASI
+  payload-types.ts    ⚠️
+  app/payload/...     ⚠️
+Branch: feat/product-card — yani birisi product card üzerinde çalışmaya başlamış ama bitmemiş.
+
+🎯 KRİTİK KARAR
+Payload CMS kurulmuş ama PostgreSQL olmadan çalışmıyor. Sana dürüst tavsiyem:
+Payload CMS'i şimdi kaldır, Phase 1'i saf Next.js + mock data ile bitir. Çünkü:
+
+Payload = database + docker + kompleks deploy
+Senin hedefin = hızlı vitrin + lead form
+Phase 2'de Payload veya başka CMS eklenebilir
+
+
+Devam etmeden önce şunu sor:
+app/page.tsx içeriğini buraya yapıştırır mısın?
+(VS Code'da dosyaya tıkla, Ctrl+A, Ctrl+C, buraya yapıştır)
+Mevcut kodu göreyim, üzerine tam Phase 1 patch list yazayım — Payload'ı temizleyip, temiz UI skeleton kuralım.6 MarMükemmel, tam resmi gördüm. Şimdi her şey netleşti.
+📊 GERÇEK DURUM — TAM ANALİZ
+Mevcut dosya yapısı:
+app/
+  (payload)/          ⚠️ Payload CMS kalıntısı - SİLİNECEK
+  favicon.ico
+  globals.css
+  layout.tsx
+  page.tsx            → sadece <App /> return ediyor (boş)
+  UygunApp.jsx        → muhtemelen skeleton
+
+Root:
+  payload.config.ts   ⚠️ SİLİNECEK
+  payload-types.ts    ⚠️ SİLİNECEK
+  postcss.config.mjs
+  tsconfig.json
+  next.config.ts
+Branch: feat/product-card — yarım kalmış.
+
+🎯 PLAN
+Payload CMS tamamen temizlenir, Phase 1 sıfırdan yazılır.
+Şimdi tam patch list yazıyorum. Uzun olacak ama her dosya eksiksiz olacak.
+
+A) PLAN
+
+Payload dosyalarını sil
+next.config.ts temizle
+Mock data oluştur (lib/products.ts)
+Tüm component'ları yaz
+Sayfaları yaz (/, /shoes, /product/[slug])
+
+
+B) PATCH LIST
+1. SİLİNECEK DOSYALAR
+VS Code'da şunları sil (sağ tık → Delete):
+app/(payload)/          ← klasör, içiyle birlikte
+payload.config.ts
+payload-types.ts
+
+2. next.config.ts — TAM İÇERİK
+tsimport type { NextConfig } from "next";
+
+const nextConfig: NextConfig = {
+  images: {
+    remotePatterns: [
+      {
+        protocol: "https",
+        hostname: "images.unsplash.com",
+      },
+    ],
+  },
+};
+
+export default nextConfig;
+
+3. app/globals.css — TAM İÇERİK
+css@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+* {
+  box-sizing: border-box;
+  padding: 0;
+  margin: 0;
+}
+
+html,
+body {
+  max-width: 100vw;
+  overflow-x: hidden;
+}
+
+4. app/layout.tsx — TAM İÇERİK
+tsximport type { Metadata } from "next";
+import "./globals.css";
+import Navbar from "@/components/Navbar";
+import Footer from "@/components/Footer";
+
+export const metadata: Metadata = {
+  title: "UygunAyakkabi — Uygun Fiyatlı Ayakkabılar",
+  description: "En uygun fiyatlı ayakkabıları keşfet.",
+};
+
+export default function RootLayout({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
+  return (
+    <html lang="tr">
+      <body className="bg-white text-gray-900 min-h-screen flex flex-col">
+        <Navbar />
+        <main className="flex-1">{children}</main>
+        <Footer />
+      </body>
+    </html>
+  );
+}
+
+5. lib/products.ts — YENİ DOSYA (oluştur)
+tsexport type Product = {
+  id: string;
+  slug: string;
+  name: string;
+  price: number;
+  images: string[];
+  sizes: number[];
+  stockBySize: Record<number, number>;
+  description: string;
+  category: string;
+  isBestSeller?: boolean;
+};
+
+export const products: Product[] = [
+  {
+    id: "1",
+    slug: "beyaz-spor-ayakkabi",
+    name: "Beyaz Spor Ayakkabı",
+    price: 649,
+    images: [
+      "https://images.unsplash.com/photo-1542291026-7eec264c27ff?w=800",
+      "https://images.unsplash.com/photo-1606107557195-0e29a4b5b4aa?w=800",
+      "https://images.unsplash.com/photo-1608231387042-66d1773070a5?w=800",
+    ],
+    sizes: [36, 37, 38, 39, 40, 41, 42, 43, 44],
+    stockBySize: { 36: 3, 37: 5, 38: 2, 39: 0, 40: 8, 41: 4, 42: 1, 43: 0, 44: 6 },
+    description: "Rahat ve şık beyaz spor ayakkabı. Günlük kullanım için ideal.",
+    category: "Spor",
+    isBestSeller: true,
+  },
+  {
+    id: "2",
+    slug: "siyah-deri-oxford",
+    name: "Siyah Deri Oxford",
+    price: 1249,
+    images: [
+      "https://images.unsplash.com/photo-1614252235316-8c857d38b5f4?w=800",
+      "https://images.unsplash.com/photo-1531310197839-ccf54634509e?w=800",
+    ],
+    sizes: [40, 41, 42, 43, 44, 45],
+    stockBySize: { 40: 2, 41: 5, 42: 7, 43: 3, 44: 0, 45: 1 },
+    description: "Klasik siyah deri oxford. İş hayatı ve özel günler için.",
+    category: "Klasik",
+    isBestSeller: true,
+  },
+  {
+    id: "3",
+    slug: "mavi-sneaker",
+    name: "Mavi Sneaker",
+    price: 799,
+    images: [
+      "https://images.unsplash.com/photo-1460353581641-37baddab0fa2?w=800",
+      "https://images.unsplash.com/photo-1539185441755-769473a23570?w=800",
+    ],
+    sizes: [37, 38, 39, 40, 41, 42],
+    stockBySize: { 37: 4, 38: 6, 39: 2, 40: 0, 41: 3, 42: 5 },
+    description: "Trend mavi sneaker. Genç ve dinamik bir görünüm için.",
+    category: "Spor",
+    isBestSeller: false,
+  },
+  {
+    id: "4",
+    slug: "kahverengi-bot",
+    name: "Kahverengi Bot",
+    price: 1599,
+    images: [
+      "https://images.unsplash.com/photo-1638247025967-b4e38f787b76?w=800",
+      "https://images.unsplash.com/photo-1520639888713-7851133b1ed0?w=800",
+    ],
+    sizes: [40, 41, 42, 43, 44],
+    stockBySize: { 40: 1, 41: 0, 42: 4, 43: 2, 44: 3 },
+    description: "Dayanıklı kahverengi bot. Kış aylarında şıklığını koru.",
+    category: "Bot",
+    isBestSeller: true,
+  },
+  {
+    id: "5",
+    slug: "kirmizi-topuklu",
+    name: "Kırmızı Topuklu",
+    price: 1099,
+    images: [
+      "https://images.unsplash.com/photo-1543163521-1bf539c55dd2?w=800",
+      "https://images.unsplash.com/photo-1515347619252-60a4bf4fff4f?w=800",
+    ],
+    sizes: [36, 37, 38, 39, 40],
+    stockBySize: { 36: 2, 37: 3, 38: 0, 39: 5, 40: 1 },
+    description: "Zarif kırmızı topuklu. Özel günlerin vazgeçilmezi.",
+    category: "Topuklu",
+    isBestSeller: false,
+  },
+  {
+    id: "6",
+    slug: "gri-yuruyus-ayakkabisi",
+    name: "Gri Yürüyüş Ayakkabısı",
+    price: 549,
+    images: [
+      "https://images.unsplash.com/photo-1491553895911-0055eca6402d?w=800",
+      "https://images.unsplash.com/photo-1562183241-b937e95585b6?w=800",
+    ],
+    sizes: [37, 38, 39, 40, 41, 42, 43],
+    stockBySize: { 37: 8, 38: 6, 39: 4, 40: 9, 41: 3, 42: 2, 43: 7 },
+    description: "Hafif ve konforlu yürüyüş ayakkabısı. Her adımda rahatlık.",
+    category: "Spor",
+    isBestSeller: false,
+  },
+];
+
+export function getProductBySlug(slug: string): Product | undefined {
+  return products.find((p) => p.slug === slug);
+}
+
+export function getBestSellers(): Product[] {
+  return products.filter((p) => p.isBestSeller);
+}
+
+6. components/Navbar.tsx — YENİ DOSYA
+tsx"use client";
+import Link from "next/link";
+import { useState } from "react";
+
+export default function Navbar() {
+  const [menuOpen, setMenuOpen] = useState(false);
+
+  return (
+    <nav className="bg-white border-b border-gray-200 sticky top-0 z-50">
+      <div className="max-w-6xl mx-auto px-4 flex items-center justify-between h-16">
+        <Link href="/" className="text-xl font-bold text-gray-900 tracking-tight">
+          UygunAyakkabı
+        </Link>
+
+        {/* Desktop nav */}
+        <div className="hidden md:flex items-center gap-8">
+          <Link href="/" className="text-gray-600 hover:text-gray-900 text-sm font-medium">
+            Ana Sayfa
+          </Link>
+          <Link href="/shoes" className="text-gray-600 hover:text-gray-900 text-sm font-medium">
+            Ürünler
+          </Link>
+        </div>
+
+        {/* Mobile hamburger */}
+        <button
+          className="md:hidden p-2"
+          onClick={() => setMenuOpen(!menuOpen)}
+          aria-label="Menü"
+        >
+          <div className="w-5 h-0.5 bg-gray-700 mb-1" />
+          <div className="w-5 h-0.5 bg-gray-700 mb-1" />
+          <div className="w-5 h-0.5 bg-gray-700" />
+        </button>
+      </div>
+
+      {/* Mobile menu */}
+      {menuOpen && (
+        <div className="md:hidden bg-white border-t border-gray-100 px-4 py-3 flex flex-col gap-3">
+          <Link href="/" onClick={() => setMenuOpen(false)} className="text-gray-700 font-medium">
+            Ana Sayfa
+          </Link>
+          <Link href="/shoes" onClick={() => setMenuOpen(false)} className="text-gray-700 font-medium">
+            Ürünler
+          </Link>
+        </div>
+      )}
+    </nav>
+  );
+}
+
+7. components/Footer.tsx — YENİ DOSYA
+tsxexport default function Footer() {
+  return (
+    <footer className="bg-gray-900 text-gray-400 py-10 mt-16">
+      <div className="max-w-6xl mx-auto px-4 text-center">
+        <p className="text-lg font-bold text-white mb-1">UygunAyakkabı</p>
+        <p className="text-sm mb-4">En uygun fiyatlı ayakkabılar kapınıza kadar gelir.</p>
+        <p className="text-xs text-gray-500">© 2025 UygunAyakkabı. Tüm hakları saklıdır.</p>
+      </div>
+    </footer>
+  );
+}
+
+8. components/ProductCard.tsx — YENİ DOSYA
+tsximport Image from "next/image";
+import Link from "next/link";
+import type { Product } from "@/lib/products";
+
+export default function ProductCard({ product }: { product: Product }) {
+  return (
+    <Link href={`/product/${product.slug}`} className="group block">
+      <div className="relative aspect-square overflow-hidden rounded-xl bg-gray-100">
+        <Image
+          src={product.images[0]}
+          alt={product.name}
+          fill
+          className="object-cover group-hover:scale-105 transition-transform duration-300"
+        />
+        {product.isBestSeller && (
+          <span className="absolute top-2 left-2 bg-orange-500 text-white text-xs font-bold px-2 py-1 rounded-full">
+            Çok Satan
+          </span>
+        )}
+      </div>
+      <div className="mt-3">
+        <p className="text-sm text-gray-500">{product.category}</p>
+        <h3 className="font-semibold text-gray-900 group-hover:text-orange-600 transition-colors">
+          {product.name}
+        </h3>
+        <p className="text-orange-600 font-bold mt-1">{product.price.toLocaleString("tr-TR")} ₺</p>
+      </div>
+    </Link>
+  );
+}
+
+9. components/ProductGrid.tsx — YENİ DOSYA
+tsximport type { Product } from "@/lib/products";
+import ProductCard from "./ProductCard";
+
+export default function ProductGrid({ products }: { products: Product[] }) {
+  return (
+    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+      {products.map((product) => (
+        <ProductCard key={product.id} product={product} />
+      ))}
+    </div>
+  );
+}
+
+10. components/HeroSection.tsx — YENİ DOSYA
+tsximport Link from "next/link";
+
+export default function HeroSection() {
+  return (
+    <section className="bg-gradient-to-br from-gray-900 to-gray-700 text-white py-20 px-4">
+      <div className="max-w-4xl mx-auto text-center">
+        <p className="text-orange-400 text-sm font-semibold uppercase tracking-widest mb-3">
+          Yeni Sezon
+        </p>
+        <h1 className="text-4xl md:text-6xl font-extrabold leading-tight mb-6">
+          Stilini Bul,<br />
+          <span className="text-orange-400">Uygun Fiyatla</span>
+        </h1>
+        <p className="text-gray-300 text-lg mb-8 max-w-xl mx-auto">
+          Yüzlerce model, her bütçeye uygun fiyat. Beğendiğini seç, biz seni arayalım.
+        </p>
+        <Link
+          href="/shoes"
+          className="inline-block bg-orange-500 hover:bg-orange-600 text-white font-bold px-8 py-4 rounded-full text-lg transition-colors"
+        >
+          Ürünlere Göz At
+        </Link>
+      </div>
+    </section>
+  );
+}
+
+11. components/ProductGallery.tsx — YENİ DOSYA
+tsx"use client";
+import { useState } from "react";
+import Image from "next/image";
+
+export default function ProductGallery({ images, name }: { images: string[]; name: string }) {
+  const [selected, setSelected] = useState(0);
+
+  return (
+    <div className="flex flex-col gap-3">
+      <div className="relative aspect-square rounded-2xl overflow-hidden bg-gray-100">
+        <Image
+          src={images[selected]}
+          alt={name}
+          fill
+          className="object-cover"
+          priority
+        />
+      </div>
+      {images.length > 1 && (
+        <div className="flex gap-2 overflow-x-auto pb-1">
+          {images.map((img, i) => (
+            <button
+              key={i}
+              onClick={() => setSelected(i)}
+              className={`relative flex-shrink-0 w-16 h-16 rounded-lg overflow-hidden border-2 transition-colors ${
+                selected === i ? "border-orange-500" : "border-transparent"
+              }`}
+            >
+              <Image src={img} alt={`${name} ${i + 1}`} fill className="object-cover" />
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+12. components/SizeSelector.tsx — YENİ DOSYA
+tsx"use client";
+
+type Props = {
+  sizes: number[];
+  stockBySize: Record<number, number>;
+  selected: number | null;
+  onSelect: (size: number) => void;
+};
+
+export default function SizeSelector({ sizes, stockBySize, selected, onSelect }: Props) {
+  return (
+    <div>
+      <p className="text-sm font-semibold text-gray-700 mb-2">Numara Seç</p>
+      <div className="flex flex-wrap gap-2">
+        {sizes.map((size) => {
+          const stock = stockBySize[size] ?? 0;
+          const isOut = stock === 0;
+          const isSelected = selected === size;
+          return (
+            <button
+              key={size}
+              disabled={isOut}
+              onClick={() => onSelect(size)}
+              className={`
+                w-12 h-12 rounded-lg text-sm font-semibold border-2 transition-all
+                ${isOut ? "bg-gray-100 text-gray-400 border-gray-200 cursor-not-allowed line-through" : ""}
+                ${!isOut && !isSelected ? "bg-white text-gray-800 border-gray-300 hover:border-orange-400" : ""}
+                ${isSelected ? "bg-orange-500 text-white border-orange-500" : ""}
+              `}
+            >
+              {size}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+13. components/BuyRequestModal.tsx — YENİ DOSYA
+tsx"use client";
+import { useState } from "react";
+
+type Props = {
+  productName: string;
+  selectedSize: number | null;
+  onClose: () => void;
+};
+
+export default function BuyRequestModal({ productName, selectedSize, onClose }: Props) {
+  const [form, setForm] = useState({ name: "", phone: "", city: "" });
+  const [submitted, setSubmitted] = useState(false);
+
+  const handleSubmit = () => {
+    if (!form.name || !form.phone || !form.city) {
+      alert("Lütfen tüm alanları doldurun.");
+      return;
+    }
+    console.log("Satın alma talebi:", {
+      product: productName,
+      size: selectedSize,
+      ...form,
+    });
+    setSubmitted(true);
+  };
+
+  return (
+    <div
+      className="fixed inset-0 bg-black/60 z-50 flex items-end sm:items-center justify-center p-4"
+      onClick={onClose}
+    >
+      <div
+        className="bg-white rounded-t-2xl sm:rounded-2xl w-full max-w-md p-6"
+        onClick={(e) => e.stopPropagation()}
+      >
+        {submitted ? (
+          <div className="text-center py-6">
+            <div className="text-4xl mb-3">✅</div>
+            <h3 className="text-xl font-bold text-gray-900 mb-2">Talebiniz Alındı!</h3>
+            <p className="text-gray-500 mb-6">
+              En kısa sürede sizi arayacağız.
+            </p>
+            <button
+              onClick={onClose}
+              className="bg-orange-500 text-white font-bold px-8 py-3 rounded-full w-full"
+            >
+              Kapat
+            </button>
+          </div>
+        ) : (
+          <>
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-lg font-bold text-gray-900">Satın Alma Talebi</h2>
+              <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-2xl leading-none">
+                ×
+              </button>
+            </div>
+            <p className="text-sm text-gray-500 mb-5">
+              <span className="font-medium text-gray-700">{productName}</span>
+              {selectedSize && ` — Numara: ${selectedSize}`}
+            </p>
+
+            <div className="flex flex-col gap-3">
+              <input
+                type="text"
+                placeholder="Adınız Soyadınız"
+                value={form.name}
+                onChange={(e) => setForm({ ...form, name: e.target.value })}
+                className="border border-gray-300 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-orange-400"
+              />
+              <input
+                type="tel"
+                placeholder="Telefon Numaranız"
+                value={form.phone}
+                onChange={(e) => setForm({ ...form, phone: e.target.value })}
+                className="border border-gray-300 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-orange-400"
+              />
+              <input
+                type="text"
+                placeholder="Şehir"
+                value={form.city}
+                onChange={(e) => setForm({ ...form, city: e.target.value })}
+                className="border border-gray-300 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-orange-400"
+              />
+            </div>
+
+            <button
+              onClick={handleSubmit}
+              className="mt-5 w-full bg-orange-500 hover:bg-orange-600 text-white font-bold py-4 rounded-full transition-colors"
+            >
+              Talep Gönder — Sizi Arayalım
+            </button>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+14. app/page.tsx — TAM İÇERİK (mevcut dosyayı değiştir)
+tsximport HeroSection from "@/components/HeroSection";
+import ProductGrid from "@/components/ProductGrid";
+import { getBestSellers, products } from "@/lib/products";
+import Link from "next/link";
+
+export default function HomePage() {
+  const bestSellers = getBestSellers();
+
+  return (
+    <>
+      <HeroSection />
+
+      {/* Best Sellers */}
+      <section className="max-w-6xl mx-auto px-4 py-16">
+        <div className="flex items-center justify-between mb-8">
+          <h2 className="text-2xl font-extrabold text-gray-900">Çok Satanlar</h2>
+          <Link href="/shoes" className="text-orange-500 text-sm font-semibold hover:underline">
+            Tümünü Gör →
+          </Link>
+        </div>
+        <ProductGrid products={bestSellers} />
+      </section>
+
+      {/* Trust section */}
+      <section className="bg-gray-50 py-12">
+        <div className="max-w-4xl mx-auto px-4 grid grid-cols-1 md:grid-cols-3 gap-8 text-center">
+          {[
+            { icon: "📞", title: "Kolay Satın Al", desc: "Numaranı bırak, biz seni arayalım." },
+            { icon: "🚚", title: "Hızlı Teslimat", desc: "Türkiye'nin her yerine kargo." },
+            { icon: "✅", title: "Güvenli Alışveriş", desc: "Ürünü görmeden ödeme yapma." },
+          ].map((item) => (
+            <div key={item.title}>
+              <div className="text-4xl mb-3">{item.icon}</div>
+              <h3 className="font-bold text-gray-900 mb-1">{item.title}</h3>
+              <p className="text-gray-500 text-sm">{item.desc}</p>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      {/* All products preview */}
+      <section className="max-w-6xl mx-auto px-4 py-16">
+        <div className="flex items-center justify-between mb-8">
+          <h2 className="text-2xl font-extrabold text-gray-900">Tüm Ürünler</h2>
+        </div>
+        <ProductGrid products={products} />
+        <div className="text-center mt-10">
+          <Link
+            href="/shoes"
+            className="inline-block border-2 border-orange-500 text-orange-500 hover:bg-orange-500 hover:text-white font-bold px-8 py-3 rounded-full transition-colors"
+          >
+            Tüm Kataloğu Gör
+          </Link>
+        </div>
+      </section>
+    </>
+  );
+}
+
+15. app/shoes/page.tsx — YENİ DOSYA (klasör oluştur)
+tsximport ProductGrid from "@/components/ProductGrid";
+import { products } from "@/lib/products";
+
+export default function ShoesPage() {
+  return (
+    <div className="max-w-6xl mx-auto px-4 py-10">
+      <h1 className="text-3xl font-extrabold text-gray-900 mb-2">Tüm Ürünler</h1>
+      <p className="text-gray-500 mb-8">{products.length} ürün bulundu</p>
+      <ProductGrid products={products} />
+    </div>
+  );
+}
+
+16. app/product/[slug]/page.tsx — YENİ DOSYA
+tsx"use client";
+import { useState } from "react";
+import { notFound } from "next/navigation";
+import { getProductBySlug } from "@/lib/products";
+import ProductGallery from "@/components/ProductGallery";
+import SizeSelector from "@/components/SizeSelector";
+import BuyRequestModal from "@/components/BuyRequestModal";
+
+export default function ProductPage({ params }: { params: { slug: string } }) {
+  const product = getProductBySlug(params.slug);
+  if (!product) notFound();
+
+  const [selectedSize, setSelectedSize] = useState<number | null>(null);
+  const [modalOpen, setModalOpen] = useState(false);
+
+  const totalStock = Object.values(product.stockBySize).reduce((a, b) => a + b, 0);
+  const selectedStock = selectedSize ? product.stockBySize[selectedSize] : null;
+
+  const handleBuyClick = () => {
+    if (!selectedSize) {
+      alert("Lütfen numara seçin.");
+      return;
+    }
+    setModalOpen(true);
+  };
+
+  return (
+    <>
+      <div className="max-w-5xl mx-auto px-4 py-10">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-10">
+          {/* Gallery */}
+          <ProductGallery images={product.images} name={product.name} />
+
+          {/* Info */}
+          <div className="flex flex-col gap-5">
+            <div>
+              <p className="text-sm text-orange-500 font-semibold uppercase tracking-wide">
+                {product.category}
+              </p>
+              <h1 className="text-3xl font-extrabold text-gray-900 mt-1">{product.name}</h1>
+            </div>
+
+            <p className="text-3xl font-bold text-orange-600">
+              {product.price.toLocaleString("tr-TR")} ₺
+            </p>
+
+            {/* Stock indicator */}
+            {totalStock > 0 && totalStock <= 10 && (
+              <p className="text-red-500 text-sm font-semibold">
+                ⚠️ Son {totalStock} adet kaldı!
+              </p>
+            )}
+            {totalStock === 0 && (
+              <p className="text-red-600 text-sm font-semibold">Stok tükendi</p>
+            )}
+
+            <SizeSelector
+              sizes={product.sizes}
+              stockBySize={product.stockBySize}
+              selected={selectedSize}
+              onSelect={setSelectedSize}
+            />
+
+            {/* Size stock hint */}
+            {selectedSize && selectedStock !== null && selectedStock > 0 && selectedStock <= 3 && (
+              <p className="text-orange-500 text-sm">
+                Bu numaradan sadece {selectedStock} adet kaldı!
+              </p>
+            )}
+
+            <p className="text-gray-600 text-sm leading-relaxed">{product.description}</p>
+
+            {/* Desktop buy button */}
+            <button
+              onClick={handleBuyClick}
+              disabled={totalStock === 0}
+              className="hidden md:block bg-orange-500 hover:bg-orange-600 disabled:bg-gray-300 text-white font-bold py-4 rounded-full text-lg transition-colors"
+            >
+              {totalStock === 0 ? "Stok Tükendi" : "Satın Almak İstiyorum"}
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {/* Mobile sticky bottom button */}
+      <div className="md:hidden fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 p-4 z-40">
+        <button
+          onClick={handleBuyClick}
+          disabled={totalStock === 0}
+          className="w-full bg-orange-500 hover:bg-orange-600 disabled:bg-gray-300 text-white font-bold py-4 rounded-full text-lg transition-colors"
+        >
+          {totalStock === 0 ? "Stok Tükendi" : "Satın Almak İstiyorum"}
+        </button>
+      </div>
+
+      {modalOpen && (
+        <BuyRequestModal
+          productName={product.name}
+          selectedSize={selectedSize}
+          onClose={() => setModalOpen(false)}
+        />
+      )}
+    </>
+  );
+}
+
+C) HOW TO RUN
+Terminalde sırayla:
+powershell# 1. Payload bağımlılıklarını temizle
+npm uninstall payload @payloadcms/next @payloadcms/richtext-lexical @payloadcms/db-postgres
+
+# 2. Bağımlılıkları yükle
+npm install
+
+# 3. Çalıştır
+npm run dev
+```
+
+Sonra: `http://localhost:3000`
+
+---
+
+## 📁 OLUŞTURULACAK KLASÖR/DOSYA ÖZETİ
+```
+lib/
+  products.ts                    ← YENİ
+components/
+  Navbar.tsx                     ← YENİ
+  Footer.tsx                     ← YENİ
+  ProductCard.tsx                ← YENİ
+  ProductGrid.tsx                ← YENİ
+  HeroSection.tsx                ← YENİ
+  ProductGallery.tsx             ← YENİ
+  SizeSelector.tsx               ← YENİ
+  BuyRequestModal.tsx            ← YENİ
+app/
+  page.tsx                       ← DEĞİŞTİR
+  layout.tsx                     ← DEĞİŞTİR
+  shoes/page.tsx                 ← YENİ KLASÖR + DOSYA
+  product/[slug]/page.tsx        ← YENİ KLASÖR + DOSYA
+  (payload)/                     ← SİL
+next.config.ts                   ← DEĞİŞTİR
+payload.config.ts                ← SİL
+payload-types.ts                 ← SİL
+Başla, takıldığın yerde yaz!payloadı neden siliyoruz ? payload bizim admin panelimiz için gerekli değil mi ? ayrıca payloadı nasıl kullanacağım hiç bir fikrim yok bana yardmıcı olurmusun ? onun hakkında biraz bilgi verirmisin6 MarHarika soru. Önce Payload'ı anlayalım, sonra senin projen için doğru kararı birlikte verelim.
+
+Payload CMS Nedir?
+Payload, Next.js ile entegre çalışan bir headless CMS + admin panel sistemidir.
+Yani sana şunları verir:
+
+/admin adresinde hazır bir yönetim paneli
+Ürün ekleme, silme, düzenleme arayüzü
+Otomatik REST + GraphQL API
+Veritabanı yönetimi (PostgreSQL ile)
+
+Şöyle düşün:
+Sen (admin)
+    ↓
+/admin paneline gir
+    ↓
+Yeni ayakkabı ekle (foto, fiyat, stok)
+    ↓
+Payload veritabanına kaydeder
+    ↓
+Site otomatik güncellenir
+
+Peki Neden Silmeyi Önermiştim?
+Şu an PostgreSQL kurulu değil, bu yüzden Payload hata veriyor. Payload'ı çalıştırabilmek için bir veritabanı bağlantısı şart.
+Ama senin planın zaten Payload kullanmak üzerine kurulu — özellikle Phase 2'deki Telegram → AI → otomatik ürün yükleme sistemi için Payload mükemmel bir seçim.
+Yani silmek yerine düzgün kurmak daha mantıklı.
+
+Şimdi sana iki şeyi sormam gerekiyor:benim için farketmiyor. sen hangisine öncelik verirsen6 MarBenim tavsiyem net:
+
+🎯 Doğru Sıra
+Önce site çalışsın, sonra admin.
+Sebepleri:
+1. Müşteri siteyi görür, admin panelini görmez. Önce vitrin hazır olmalı.
+2. Mock data ile başlamak sana hız kazandırır. Payload kurulumu 1-2 saat alır, mock data ile 15 dakikada çalışan site olur.
+3. Payload'ı mock data üzerine bağlamak kolay. Tersi zor — önce Payload kursan, sonra UI yazmak daha karmaşık.
+4. Vercel'e deploy ederken cloud Postgres bağlantısı gerekiyor. Bunu site hazır olduktan sonra bir adımda hallederiz.
+
+Önerdiğim Yol Haritası
+HAFTA 1 — Şu an
+━━━━━━━━━━━━━━━
+✅ Next.js + Tailwind
+⬜ Mock data ile UI (/, /shoes, /product/[slug])
+⬜ Buy modal çalışıyor
+
+HAFTA 2
+━━━━━━━━━━━━━━━
+⬜ Neon.tech'te ücretsiz Postgres aç (5 dk)
+⬜ Payload'ı bağla
+⬜ /admin paneli çalışıyor
+⬜ Ürünleri mock'tan Payload'a taşı
+
+HAFTA 3
+━━━━━━━━━━━━━━━
+⬜ Lead form → veritabanına kaydet
+⬜ Telegram bot başlangıcı
+
+Şimdi yapacağımız: Payload'a dokunmadan, sadece UI dosyalarını yazıyoruz. Payload dosyaları yerinde dursun, hata vermemesi için next.config.ts'i düzelteceğiz.
+Hazır mısın? "Başla" de, adım adım her dosyayı yazalım. 🚀şöyle düşün bu projeyi 2-3 farklı bilgiyasarda çalışarak inşa ediyoruz. farklı yerlerde. ayrıca ileride telegram entegrasyonu yapmak istiyorum. en iyi tavsiyen nedir ? shopier ilede bağlantılı calısması lazım. ana hedefim telegramdan bir ayakkabı fotografı cektigimde bir agent ın fotografı enhance edip benim vereceğim stok,ürün ve fiyat kodları ile onu otomatik siteye,shopiere ve instagrama atması..6 MarBu çok net bir vizyon. Şimdi sana gerçekten düşünülmüş bir mimari önereceğim.
+
+🧠 Senin Gerçek Hedefin
+Sen (telefon)
+    ↓
+Telegram'a fotoğraf + kısa kod at
+(örn: "Nike Air 649 40-44 stok:3")
+    ↓
+Agent devreye girer:
+    ├── Fotoğrafı enhance eder
+    ├── Ürün açıklaması yazar (AI)
+    ├── Siteye yükler
+    ├── Shopier'e yükler
+    └── Instagram'a post atar
+Tek mesajla 4 platform güncellenir.
+
+🏗️ MİMARİ TAVSİYEM
+┌─────────────────────────────────────┐
+│         TELEGRAM BOT                │
+│   (fotoğraf + komut alır)           │
+└──────────────┬──────────────────────┘
+               ↓
+┌─────────────────────────────────────┐
+│              n8n                    │
+│   (workflow orchestrator)           │
+│   - AI image enhancement            │
+│   - GPT product description         │
+│   - tüm platformlara dağıtır        │
+└──┬──────────┬──────────┬────────────┘
+   ↓          ↓          ↓
+┌──────┐  ┌───────┐  ┌──────────┐
+│Site  │  │Shopier│  │Instagram │
+│(CMS) │  │ API   │  │  API     │
+└──────┘  └───────┘  └──────────┘
+n8n burada beyindir — Türkiye'den de bulut versiyonu kullanılabilir, ücretsiz tier var.
+
+💾 VERİTABANI: Neden Payload + Neon?
+2-3 farklı bilgisayarda çalışıyorsunuz — bu her şeyi değiştiriyor.
+Local PostgreSQL kesinlikle olmaz. Çünkü:
+
+Bilgisayar A'da eklediğin ürün Bilgisayar B'de görünmez
+Her bilgisayarda ayrı kurulum gerekir
+Senkronizasyon derdi çıkar
+
+Doğru çözüm:
+Bilgisayar A ──┐
+Bilgisayar B ──┼──→ GitHub → Vercel → Neon.tech (cloud Postgres)
+Bilgisayar C ──┘
+Her bilgisayar aynı cloud veritabanına bağlanır. Kod GitHub'da, data Neon'da.
+
+📋 STACK KARARI (KESİN)
+KatmanTeknolojiNedenFrontendNext.js + TailwindZaten kuruluCMS / AdminPayload CMSn8n entegrasyonu kolay, API hazırVeritabanıNeon.tech (cloud Postgres)Ücretsiz, her yerden erişimOtomasyonn8n (cloud)Telegram + Instagram + Shopier bağlarSatışShopierTürkiye'de en yaygın, API varHostingVercelZaten kuruluDomainCloudflareZaten kurulu
+
+🚀 DOĞRU ADIM SIRASI
+ADIM 1 — Bugün (1-2 saat)
+━━━━━━━━━━━━━━━━━━━━━━━━━
+→ Neon.tech'te ücretsiz Postgres aç
+→ .env dosyasına bağlantı string'i ekle
+→ Payload çalışır hale gelir
+→ /admin açılır
+
+ADIM 2 — Bu hafta
+━━━━━━━━━━━━━━━━━━━━━━━━━
+→ Payload'da Products collection tanımla
+→ Mock datayı Payload'a taşı
+→ UI sayfalarını yaz (/, /shoes, /product/[slug])
+
+ADIM 3 — Gelecek hafta
+━━━━━━━━━━━━━━━━━━━━━━━━━
+→ Lead formunu Payload'a kaydet
+→ n8n cloud hesabı aç
+→ Telegram bot oluştur
+
+ADIM 4 — Otomasyon
+━━━━━━━━━━━━━━━━━━━━━━━━━
+→ Telegram → n8n → Payload → Site
+→ n8n → Shopier API
+→ n8n → Instagram API
+
+⚡ HEMEN BAŞLAYALIM
+İlk adım Neon.tech. 5 dakika sürer, sonra Payload çalışır.
+Şimdi sana adım adım şunları yazayım mı:
+
+Neon.tech'te nasıl ücretsiz Postgres açarsın
+.env dosyasına ne yazacaksın
+Payload'ın çalışması için next.config.ts nasıl olmalı
+
+"Evet başla" de, adım adım gidelim. 🎯peki bir sorum var. Admin panelimizden ürünleri ayrıca ekleyip düzenlemeler vesaire yapabilecekmiyiz?6 MarEvet, kesinlikle. Payload tam olarak bunun için var.
+
+Payload Admin Panel — Ne Yapabilirsin?
+uygunayakkabi.com/admin
+Bu adrese girdiğinde sana hazır bir panel gelir:
+Ürün Yönetimi:
+
+✅ Yeni ürün ekle
+✅ Fotoğraf yükle (birden fazla)
+✅ Fiyat, stok, numara güncelle
+✅ Ürünü yayından kaldır / aktif et
+✅ Kategori ata
+
+Sipariş / Lead Yönetimi:
+
+✅ Gelen talepleri gör (isim, telefon, şehir)
+✅ Hangi ürün, hangi numara istendi
+✅ Durumu güncelle (arandı, satıldı vs.)
+
+Kullanıcı Yönetimi:
+
+✅ Birden fazla admin ekle
+✅ Her bilgisayardan /admin'e giriş
+
+
+Görsel Olarak Şöyle Çalışır
+/admin giriş yap
+    ↓
+Sol menü:
+├── Products     → ürün listesi, ekle/düzenle
+├── Leads        → gelen talepler
+├── Users        → admin hesapları
+└── Media        → yüklenen fotoğraflar
+
+Telegram ile Farkı Ne?
+MANUEL YOL:
+Sen → /admin → form doldur → kaydet
+
+OTOMATİK YOL:
+Sen → Telegram'a fotoğraf at → otomatik /admin'e kaydolur
+İkisi de aynı veritabanına yazar. Telegram sadece Manuel girişi atlayan bir kısayol.
+
+Hazırsan Neon.tech kurulumuna geçelim, 5 dakikada Payload'ı ayağa kaldıralım. 🚀peki kafa karısıklılıgı olmaması için bu chat penceresinde devam etmek istemiyorum. yeni bir pençere açıp başla dersem devam edebilirmiyiz ?6 MarEvet, devam edebiliriz! Ama şunu bilmeni isterim:
+Yeni pencerede başlarsan bu konuşmayı hatırlamayabilirim. Çünkü her yeni chat farklı bir oturum.
+
+Sorunsuz Devam İçin Şunu Yap:
+Yeni pencereyi açtığında ilk mesaj olarak şunu yapıştır:
+
+
+"Uygunayakkabi.com projesine devam ediyoruz.
+Stack: Next.js + Tailwind + Payload CMS + Neon.tech (cloud Postgres) + Vercel + Cloudflare
+Şu an Payload kurulu ama PostgreSQL bağlantısı yok, hata veriyor.
+Hedef: Neon.tech ücretsiz Postgres aç → .env bağla → Payload çalıştır → admin panel → UI sayfaları
+Ayrıca ileride: n8n + Telegram bot + Shopier + Instagram otomasyonu
+Adım adım devam et."
+
+
+Bu kadar. Yeni pencerede bu mesajı görünce tam olarak nereden devam edeceğimizi bilirim. 🎯

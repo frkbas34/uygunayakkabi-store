@@ -4,6 +4,7 @@
 /node_modules
 /.pnp
 .pnp.*
+.pnp.js
 .yarn/*
 !.yarn/patches
 !.yarn/plugins
@@ -35,6 +36,7 @@ out/
 # debug
 npm-debug.log*
 yarn-debug.log*
+yarn-debug.log*
 yarn-error.log*
 .pnpm-debug.log*
 pnpm-debug.log*
@@ -47,6 +49,7 @@ pnpm-debug.log*
 # Payload CMS
 /public/media
 payload-types.ts
+payload.db
 
 # vercel
 .vercel

@@ -12,6 +12,8 @@ import { CustomerInquiries } from "./src/collections/CustomerInquiries";
 import { InventoryLogs } from "./src/collections/InventoryLogs";
 import { Orders } from "./src/collections/Orders";
 import { Users } from "./src/collections/Users";
+import { Brands } from "./src/collections/Brands";
+import { Categories } from "./src/collections/Categories";
 
 const filename = fileURLToPath(import.meta.url);
 const dirname = path.dirname(filename);
@@ -22,11 +24,16 @@ export default buildConfig({
     meta: {
       titleSuffix: " — UygunAyakkabı Admin",
     },
+    components: {
+      afterDashboard: ["@/components/admin/Dashboard"],
+    },
   },
   collections: [
     Users,
     Products,
     Variants,
+    Brands,
+    Categories,
     MediaCollection,
     CustomerInquiries,
     InventoryLogs,

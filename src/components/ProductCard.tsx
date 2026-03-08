@@ -50,7 +50,7 @@ export function ProductCard({ product }: ProductCardProps) {
 
         <div className="p-4">
           {product.brand && (
-            <p className="text-xs font-semibold text-brand-600 uppercase tracking-wide mb-1">
+            <p className="text-xs font-semibold text-red-600 uppercase tracking-wide mb-1">
               {product.brand}
             </p>
           )}

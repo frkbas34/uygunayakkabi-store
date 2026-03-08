@@ -1,3 +1,4 @@
+import Dashboard_custom from '@/components/admin/Dashboard'
 import { RscEntryLexicalCell as RscEntryLexicalCell_0 } from '@payloadcms/richtext-lexical/rsc'
 import { RscEntryLexicalField as RscEntryLexicalField_1 } from '@payloadcms/richtext-lexical/rsc'
 import { LexicalDiffComponent as LexicalDiffComponent_2 } from '@payloadcms/richtext-lexical/rsc'
@@ -61,5 +62,6 @@ export const importMap = {
   "@payloadcms/next/client#DefaultNavClient": DefaultNavClient_26,
   "@payloadcms/next/client#NavHamburger": NavHamburger_27,
   "@payloadcms/next/client#NavWrapper": NavWrapper_28,
-  "@payloadcms/next/client#SlugField": SlugField_29
+  "@payloadcms/next/client#SlugField": SlugField_29,
+  "@/components/admin/Dashboard#default": Dashboard_custom,
 }

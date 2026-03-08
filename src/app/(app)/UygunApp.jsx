@@ -303,13 +303,242 @@ const products = [
     category: "Sandalet",
     badge: "Yeni",
   },
+  // ── GÜNLÜK EK MODELLER ───────────────────────────────────────────────────────
+  {
+    id: 20,
+    name: "Nike Air Max — Beyaz",
+    price: 3990,
+    originalPrice: 5290,
+    description: "Klasik Air Max silüeti, extra büyük hava yastığı ve tertemiz beyaz üst. Her kombiye uyum sağlayan ikonik tasarım.",
+    images: imgSporBeyaz,
+    sizes: [38, 39, 40, 41, 42, 43, 44],
+    stock: 7,
+    category: "Günlük",
+    badge: "İndirim",
+    brand: "Nike",
+  },
+  {
+    id: 21,
+    name: "Adidas Stan Smith — Beyaz/Yeşil",
+    price: 3290,
+    originalPrice: null,
+    description: "Zamansız Stan Smith ikonası. Temiz beyaz deri üst ve sinyal yeşili topuk etiketi. Klasikleşmiş sadelik.",
+    images: imgSporYesil,
+    sizes: [38, 39, 40, 41, 42, 43],
+    stock: 9,
+    category: "Günlük",
+    badge: "Yeni",
+    brand: "Adidas",
+  },
+  {
+    id: 22,
+    name: "New Balance 574 — Lacivert",
+    price: 3590,
+    originalPrice: 4490,
+    description: "Deri ve mesh karışımı üst, ENCAP orta taban ve konforlu arka desteği. Günlük kullanım için efsane model.",
+    images: imgLacivert,
+    sizes: [39, 40, 41, 42, 43, 44],
+    stock: 5,
+    category: "Günlük",
+    badge: "İndirim",
+    brand: "New Balance",
+  },
+  {
+    id: 23,
+    name: "Puma Suede Classic — Bordo",
+    price: 2990,
+    originalPrice: null,
+    description: "Süet üst, formstrip yan şerit ve köpük orta taban. 50+ yıllık ikonun bordo yorumu.",
+    images: imgBordo,
+    sizes: [39, 40, 41, 42, 43],
+    stock: 6,
+    category: "Günlük",
+    badge: null,
+    brand: "Puma",
+  },
+  {
+    id: 24,
+    name: "Converse Chuck Taylor — Siyah",
+    price: 2490,
+    originalPrice: 2990,
+    description: "Bez üst, kauçuk burun koruyucu ve ikonik metal gözler. Asla modası geçmeyen sokak klasiği.",
+    images: imgSiyah,
+    sizes: [37, 38, 39, 40, 41, 42, 43],
+    stock: 14,
+    category: "Günlük",
+    badge: "İndirim",
+    brand: "Converse",
+  },
+  // ── KLASİK EK MODELLER ──────────────────────────────────────────────────────
+  {
+    id: 25,
+    name: "Deri Moccasin — Camel",
+    price: 4690,
+    originalPrice: 5990,
+    description: "El yapımı camel rengi deri, dekoratif bağcık ve çelik toka detayı. Ofis ve dinner için ideal.",
+    images: imgCamel,
+    sizes: [40, 41, 42, 43, 44],
+    stock: 3,
+    category: "Klasik",
+    badge: "İndirim",
+  },
+  {
+    id: 26,
+    name: "Patent Deri Oxford — Lacivert",
+    price: 5990,
+    originalPrice: null,
+    description: "Parlak patent deri, çift bükme taban ve bilek kemer tokası. Davet ve özel geceler için.",
+    images: imgVelvet,
+    sizes: [40, 41, 42, 43],
+    stock: 2,
+    category: "Klasik",
+    badge: "Yeni",
+  },
+  // ── SPOR EK MODELLER ────────────────────────────────────────────────────────
+  {
+    id: 27,
+    name: "Adidas Ultraboost — Turuncu",
+    price: 4490,
+    originalPrice: 5990,
+    description: "Primeknit üst, Boost orta taban ve Continental kauçuk dış taban. Uzun mesafe için üstün konfor.",
+    images: imgSporTuruncu,
+    sizes: [39, 40, 41, 42, 43, 44],
+    stock: 8,
+    category: "Spor",
+    badge: "İndirim",
+    brand: "Adidas",
+  },
+  {
+    id: 28,
+    name: "Nike React — Kırmızı/Beyaz",
+    price: 3890,
+    originalPrice: null,
+    description: "React köpük teknolojisi, hafif mesh üst ve geniş platform taban. Antrenmandan sokağa kesintisiz.",
+    images: imgSporKirmizi,
+    sizes: [38, 39, 40, 41, 42, 43],
+    stock: 10,
+    category: "Spor",
+    badge: "Yeni",
+    brand: "Nike",
+  },
+  // ── BOT EK MODELLER ─────────────────────────────────────────────────────────
+  {
+    id: 29,
+    name: "Chelsea Bot — Camel",
+    price: 5290,
+    originalPrice: 6490,
+    description: "Elastik yan panel, deri üst ve blok topuk. Zahmetsiz giyip çıkarma ile şık kış stili.",
+    images: imgCamel,
+    sizes: [39, 40, 41, 42, 43, 44],
+    stock: 4,
+    category: "Bot",
+    badge: "İndirim",
+  },
+  {
+    id: 30,
+    name: "Su Geçirmez Bot — Haki",
+    price: 4990,
+    originalPrice: null,
+    description: "Waterproof membran, Vibram taban ve çift kilit kapama. Dağ ve doğa koşullarına tam uyum.",
+    images: imgBotHaki,
+    sizes: [40, 41, 42, 43, 44, 45],
+    stock: 6,
+    category: "Bot",
+    badge: "Yeni",
+  },
+  // ── SANDALET EK MODELLER ────────────────────────────────────────────────────
+  {
+    id: 31,
+    name: "Slider Sandalet — Kırmızı",
+    price: 1490,
+    originalPrice: 1990,
+    description: "Yumuşak EVA taban, geniş tek bant ve kaymaz taban. Ev içi ve sahil kullanımı için pratik seçim.",
+    images: imgSporKirmizi,
+    sizes: [37, 38, 39, 40, 41, 42, 43],
+    stock: 20,
+    category: "Sandalet",
+    badge: "İndirim",
+  },
+  {
+    id: 32,
+    name: "Deri Sandalet — Kahve",
+    price: 3190,
+    originalPrice: null,
+    description: "Çapraz deri kayışlar, anatomik mantar taban ve metal toka. Günlük şık kullanımın tam tercihi.",
+    images: imgBotKahve,
+    sizes: [37, 38, 39, 40, 41, 42],
+    stock: 8,
+    category: "Sandalet",
+    badge: "Yeni",
+  },
+  // ── KRAMPON ─────────────────────────────────────────────────────────────────
+  {
+    id: 33,
+    name: "Krampon FG — Siyah/Sarı",
+    price: 3490,
+    originalPrice: 4590,
+    description: "Gerçek çim yüzeyleri için sert zemin (FG) tabanı, sentetik deri üst ve çevik kesim. Saha performansı.",
+    images: imgGece,
+    sizes: [39, 40, 41, 42, 43, 44],
+    stock: 7,
+    category: "Krampon",
+    badge: "İndirim",
+  },
+  {
+    id: 34,
+    name: "Krampon AG — Kırmızı",
+    price: 3890,
+    originalPrice: null,
+    description: "Yapay çim yüzeyler için AG tabanı, kanal dikişli üst ve ergonomik bilek desteği. Her sahanın favorisi.",
+    images: imgSporKirmizi,
+    sizes: [38, 39, 40, 41, 42, 43],
+    stock: 9,
+    category: "Krampon",
+    badge: "Yeni",
+  },
+  {
+    id: 35,
+    name: "Krampon TF — Turf",
+    price: 2990,
+    originalPrice: 3790,
+    description: "Halı saha için özel turf taban, hafif EVA orta taban ve geniş burun bölgesi. Futsal uyumlu.",
+    images: imgSporTuruncu,
+    sizes: [37, 38, 39, 40, 41, 42, 43, 44],
+    stock: 12,
+    category: "Krampon",
+    badge: "İndirim",
+  },
+  {
+    id: 36,
+    name: "Koşu Ayakkabısı — Turuncu Neon",
+    price: 3290,
+    originalPrice: null,
+    description: "Neon reflektif şeritler, ultra hafif mesh üst ve reaktif köpük taban. Sabah koşusunun vazgeçilmezi.",
+    images: imgSporTuruncu,
+    sizes: [38, 39, 40, 41, 42, 43, 44],
+    stock: 11,
+    category: "Spor",
+    badge: "Yeni",
+  },
+  {
+    id: 37,
+    name: "Training Ayakkabı — Yeşil/Gri",
+    price: 2890,
+    originalPrice: 3590,
+    description: "Çok yönlü antrenman tasarımı, topuk stabilizatörü ve esnek ön taban. Spor salonu için ideal.",
+    images: imgSporYesil,
+    sizes: [39, 40, 41, 42, 43],
+    stock: 7,
+    category: "Spor",
+    badge: "İndirim",
+  },
 ];
 
 // ─────────────────────────────────────────────────────────────────────────────
 // TRUST ITEMS
 // ─────────────────────────────────────────────────────────────────────────────
 const TRUST = [
-  { Icon: ShieldCheck, label: "%100 Orijinal", sub: "Ürün Garantisi" },
+  { Icon: ShieldCheck, label: "Kaliteli Ürünler", sub: "Geniş Marka Yelpazesi" },
   { Icon: Truck, label: "Hızlı Kargo", sub: "1-3 İş Günü" },
   { Icon: RotateCcw, label: "Kolay İade", sub: "30 Gün" },
   { Icon: BadgeCheck, label: "Güvenli Alışveriş", sub: "SSL Korumalı" },
@@ -537,7 +766,7 @@ function CardCarousel({ product: p, onCallBack }) {
           {p.stock > 0 ? "Beni Ara" : "Stokta Yok"}
         </button>
         <a
-          href={`https://wa.me/905551234567?text=${encodeURIComponent(
+          href={`https://wa.me/905331524843?text=${encodeURIComponent(
             `Merhaba! ${p.name} hakkında bilgi almak istiyorum.`
           )}`}
           target="_blank"
@@ -710,10 +939,18 @@ function Navbar({ page, onNav }) {
       <div className="max-w-screen-xl mx-auto px-5 h-16 flex items-center justify-between">
         <button
           onClick={() => onNav("home")}
-          className="flex items-baseline gap-0.5 cursor-pointer"
+          className="flex items-center gap-2 cursor-pointer"
         >
-          <span className="font-serif text-xl font-bold italic text-gray-900">Uygun</span>
-          <span className="font-sans text-xl font-bold text-[#c8102e]">Ayakkabı</span>
+          <div className="w-8 h-8 bg-[#c8102e] rounded-lg flex items-center justify-center flex-shrink-0">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M2 17c0 0 1-3 5-3s5-2 8-2 6 1 6 4H2z"/>
+              <path d="M7 14c0 0 0-4 3-6s6-2 8 0"/>
+            </svg>
+          </div>
+          <div className="flex items-baseline gap-0.5">
+            <span className="font-serif text-xl font-bold italic text-gray-900">Uygun</span>
+            <span className="font-sans text-xl font-bold text-[#c8102e]">Ayakkabı</span>
+          </div>
         </button>
 
         <div className="hidden md:flex items-center gap-8">
@@ -747,7 +984,7 @@ function Navbar({ page, onNav }) {
           </button>
 
           <a
-            href="tel:+905551234567"
+            href="tel:+905331524843"
             className="flex items-center gap-2 bg-gray-900 text-white text-xs font-semibold px-5 py-2.5 rounded-full hover:bg-[#c8102e] transition-colors duration-200"
           >
             <Phone size={13} />
@@ -793,7 +1030,7 @@ function Navbar({ page, onNav }) {
             ))}
           </div>
           <a
-            href="tel:+905551234567"
+            href="tel:+905331524843"
             className="mt-4 flex items-center justify-center gap-2 bg-gray-900 text-white text-sm font-semibold py-3.5 rounded-2xl"
           >
             <Phone size={15} />
@@ -814,48 +1051,54 @@ const CATEGORY_DATA = [
     label: "Günlük",
     sub: "Rahat & Şık",
     emoji: "👟",
-    gradient: "from-amber-400 to-orange-500",
-    count: 7,
+    gradient: "from-amber-500/80 to-orange-600/80",
+    count: 12,
+    img: "https://images.unsplash.com/photo-1542291026-7eec264c27ff?w=400&h=600&fit=crop&q=70",
   },
   {
     key: "Klasik",
     label: "Klasik",
     sub: "Zarafet & Prestij",
     emoji: "👞",
-    gradient: "from-slate-600 to-gray-800",
-    count: 3,
+    gradient: "from-slate-700/80 to-gray-900/80",
+    count: 8,
+    img: "https://images.unsplash.com/photo-1533867617858-e7b97e060509?w=400&h=600&fit=crop&q=70",
   },
   {
     key: "Spor",
     label: "Spor",
     sub: "Performans & Güç",
     emoji: "🏃",
-    gradient: "from-emerald-400 to-teal-600",
-    count: 4,
+    gradient: "from-emerald-500/80 to-teal-700/80",
+    count: 10,
+    img: "https://images.unsplash.com/photo-1606107557195-0e29a4b5b4aa?w=400&h=600&fit=crop&q=70",
   },
   {
     key: "Bot",
     label: "Bot",
     sub: "Güçlü & Dayanıklı",
     emoji: "🥾",
-    gradient: "from-stone-500 to-amber-800",
-    count: 3,
+    gradient: "from-stone-600/80 to-amber-900/80",
+    count: 6,
+    img: "https://images.unsplash.com/photo-1520639888713-7851133b1ed0?w=400&h=600&fit=crop&q=70",
   },
   {
     key: "Sandalet",
     label: "Sandalet",
     sub: "Yaz Enerjisi",
     emoji: "🩴",
-    gradient: "from-sky-400 to-blue-600",
-    count: 2,
+    gradient: "from-sky-500/80 to-blue-700/80",
+    count: 7,
+    img: "https://images.unsplash.com/photo-1543163521-1bf539c55dd2?w=400&h=600&fit=crop&q=70",
   },
   {
     key: "Krampon",
     label: "Krampon",
     sub: "Saha Performansı",
     emoji: "⚽",
-    gradient: "from-green-500 to-emerald-700",
-    count: 0,
+    gradient: "from-green-600/80 to-emerald-800/80",
+    count: 5,
+    img: "https://images.unsplash.com/photo-1511886929837-354d827aae26?w=400&h=600&fit=crop&q=70",
   },
 ];
 
@@ -871,26 +1114,35 @@ function CategoryShowcase({ onFilter }) {
             Her Stile Uygun Ayakkabı
           </h2>
         </div>
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4">
           {CATEGORY_DATA.map((cat) => (
             <button
               key={cat.key}
               onClick={() => onFilter(cat.key)}
               className="group relative overflow-hidden rounded-3xl aspect-[3/4] flex flex-col items-center justify-end pb-5 px-3 cursor-pointer hover:-translate-y-1 transition-transform duration-300 shadow-md hover:shadow-xl"
             >
-              {/* gradient background */}
-              <div className={`absolute inset-0 bg-gradient-to-br ${cat.gradient} opacity-90 group-hover:opacity-100 transition-opacity`} />
+              {/* Real shoe background image */}
+              {cat.img && (
+                <img
+                  src={cat.img}
+                  alt={cat.label}
+                  className="absolute inset-0 w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+                  loading="lazy"
+                />
+              )}
+              {/* gradient overlay */}
+              <div className={`absolute inset-0 bg-gradient-to-br ${cat.gradient} group-hover:opacity-90 transition-opacity`} />
               {/* subtle pattern overlay */}
-              <div className="absolute inset-0 bg-[radial-gradient(circle_at_30%_20%,rgba(255,255,255,0.15),transparent_60%)]" />
+              <div className="absolute inset-0 bg-[radial-gradient(circle_at_30%_20%,rgba(255,255,255,0.12),transparent_60%)]" />
               {/* big emoji */}
-              <span className="relative text-6xl mb-3 drop-shadow-lg group-hover:scale-110 transition-transform duration-300">
+              <span className="relative text-5xl mb-2.5 drop-shadow-lg group-hover:scale-110 transition-transform duration-300">
                 {cat.emoji}
               </span>
               <div className="relative text-center">
-                <p className="font-sans text-base font-bold text-white leading-tight">{cat.label}</p>
-                <p className="font-sans text-[11px] text-white/70 mt-0.5">{cat.sub}</p>
-                <span className="inline-block mt-2 font-sans text-[10px] font-semibold text-white/60 bg-white/15 px-3 py-0.5 rounded-full">
-                  {cat.count} Ürün
+                <p className="font-sans text-sm font-bold text-white leading-tight">{cat.label}</p>
+                <p className="font-sans text-[10px] text-white/75 mt-0.5">{cat.sub}</p>
+                <span className="inline-block mt-1.5 font-sans text-[9px] font-semibold text-white/65 bg-white/15 px-3 py-0.5 rounded-full">
+                  {cat.count}+ Ürün
                 </span>
               </div>
             </button>
@@ -929,8 +1181,8 @@ function TrustStrip() {
 // ─────────────────────────────────────────────────────────────────────────────
 function SocialProof() {
   const stats = [
-    { Icon: Users, number: "500+", label: "Mutlu Müşteri" },
-    { Icon: ShieldCheck, number: "%100", label: "Orijinal Ürün" },
+    { Icon: Users, number: "Aylık 500", label: "Mutlu Müşteri" },
+    { Icon: ShoppingBag, number: "100+", label: "Marka Çeşidi" },
     { Icon: Truck, number: "1-3", label: "Gün Teslimat" },
     { Icon: Star, number: "4.9★", label: "Müşteri Puanı" },
   ];
@@ -950,7 +1202,7 @@ function SocialProof() {
             Sosyal Kanıt
           </span>
           <h2 className="font-serif text-3xl md:text-5xl font-bold text-gray-900 mb-4">
-            500+ Mutlu Müşteri
+            Aylık 500 Mutlu Müşteri
           </h2>
           <p className="font-sans text-gray-500 text-base max-w-md mx-auto leading-relaxed">
             Kaliteye güvenen müşterilerimizin deneyimlerine katılın.
@@ -985,7 +1237,7 @@ function SocialProof() {
 function WhyUs() {
   const items = [
     { Icon: Truck, title: "Hızlı Kargo", desc: "Siparişleriniz 1-3 iş günü içinde kapınıza teslim edilir.", gradient: "from-blue-500 to-indigo-600", bg: "bg-blue-50" },
-    { Icon: ShieldCheck, title: "Uygun Fiyat", desc: "Piyasanın altında fiyatlarla %100 orijinal ürünler garantisi.", gradient: "from-emerald-500 to-teal-600", bg: "bg-emerald-50" },
+    { Icon: ShieldCheck, title: "Uygun Fiyat", desc: "Piyasanın altında fiyatlarla geniş marka yelpazesinden kaliteli ayakkabılar.", gradient: "from-emerald-500 to-teal-600", bg: "bg-emerald-50" },
     { Icon: Users, title: "Müşteri Memnuniyeti", desc: "Binlerce mutlu müşteri ve %100 iade garantisiyle güvenli alışveriş.", gradient: "from-amber-400 to-orange-500", bg: "bg-amber-50" },
   ];
 
@@ -1019,37 +1271,60 @@ function WhyUs() {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// CTA BANNER
+// WHATSAPP ORDER GUIDE
 // ─────────────────────────────────────────────────────────────────────────────
-function CTABanner() {
+function WhatsAppOrderGuide() {
+  const steps = [
+    { num: "1", title: "Ürünü Seç", desc: "Beğendiğiniz ayakkabıyı siteden seçin veya fotoğrafını gönderin." },
+    { num: "2", title: "WhatsApp'tan Yaz", desc: "Beden ve renk bilgisiyle bize WhatsApp üzerinden ulaşın." },
+    { num: "3", title: "Onaylayın", desc: "Ürün detaylarını ve fiyatı birlikte netleştirelim." },
+    { num: "4", title: "Kapıda Teslim", desc: "1-3 iş günü içinde kapınıza teslim edilir." },
+  ];
+
   return (
     <section className="px-5 pb-20 max-w-screen-xl mx-auto">
-      <div className="bg-gray-950 rounded-3xl px-8 md:px-16 py-14 md:py-20 text-center relative overflow-hidden">
-        <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top_right,rgba(200,16,46,0.18)_0%,transparent_60%)] pointer-events-none" />
-        <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_bottom_left,rgba(200,16,46,0.06)_0%,transparent_60%)] pointer-events-none" />
+      <div className="bg-gray-950 rounded-3xl px-8 md:px-16 py-14 md:py-16 relative overflow-hidden">
+        <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top_right,rgba(200,16,46,0.15)_0%,transparent_60%)] pointer-events-none" />
+        <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_bottom_left,rgba(37,211,102,0.06)_0%,transparent_60%)] pointer-events-none" />
         <div className="relative">
-          <h2 className="font-serif text-3xl md:text-5xl font-bold text-white mb-4 leading-tight">
-            Aradığınız modeli
-            <br />
-            <em>bulamadınız mı?</em>
-          </h2>
-          <p className="font-sans text-gray-400 text-sm md:text-base mb-10 max-w-sm mx-auto leading-relaxed">
-            Bize ulaşın, istediğiniz ayakkabıyı sizin için bulalım.
-          </p>
+          <div className="text-center mb-10">
+            <span className="inline-block font-sans text-[11px] font-semibold uppercase tracking-widest text-[#25D366] bg-green-900/30 px-4 py-1.5 rounded-full mb-4">
+              Kolay Sipariş
+            </span>
+            <h2 className="font-serif text-3xl md:text-4xl font-bold text-white mb-3">
+              WhatsApp ile <em className="text-[#25D366]">Hızlı Sipariş</em>
+            </h2>
+            <p className="font-sans text-gray-400 text-sm max-w-md mx-auto leading-relaxed">
+              Kataloğumuzdan seçin ya da istediğiniz modeli tarif edin — sizin için bulalım.
+            </p>
+          </div>
+
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-10">
+            {steps.map((s) => (
+              <div key={s.num} className="bg-white/5 border border-white/10 rounded-2xl p-5 text-center hover:bg-white/8 transition-colors">
+                <div className="w-9 h-9 bg-[#c8102e] rounded-xl flex items-center justify-center mx-auto mb-3">
+                  <span className="font-sans text-sm font-bold text-white">{s.num}</span>
+                </div>
+                <p className="font-sans text-sm font-semibold text-white mb-1.5">{s.title}</p>
+                <p className="font-sans text-xs text-gray-500 leading-relaxed">{s.desc}</p>
+              </div>
+            ))}
+          </div>
+
           <div className="flex gap-3 justify-center flex-wrap">
             <a
-              href="tel:+905551234567"
-              className="flex items-center gap-2 bg-white text-gray-900 text-sm font-semibold px-7 py-3.5 rounded-full hover:bg-gray-100 active:scale-95 transition-all"
-            >
-              <Phone size={15} />0555 123 45 67
-            </a>
-            <a
-              href="https://wa.me/905551234567"
+              href="https://wa.me/905331524843?text=Merhaba!%20Sipariş%20vermek%20istiyorum."
               target="_blank"
               rel="noreferrer"
-              className="flex items-center gap-2 bg-[#25D366] text-white text-sm font-semibold px-7 py-3.5 rounded-full hover:bg-[#22c55e] active:scale-95 transition-all"
+              className="flex items-center gap-2 bg-[#25D366] text-white text-sm font-semibold px-8 py-4 rounded-full hover:bg-[#22c55e] active:scale-95 transition-all shadow-lg shadow-green-900/30"
             >
-              <MessageCircle size={15} />WhatsApp
+              <MessageCircle size={16} />WhatsApp ile Sipariş Ver
+            </a>
+            <a
+              href="tel:+905331524843"
+              className="flex items-center gap-2 bg-white/10 text-white text-sm font-semibold px-8 py-4 rounded-full hover:bg-white/15 active:scale-95 transition-all"
+            >
+              <Phone size={15} />0533 152 48 43
             </a>
           </div>
         </div>
@@ -1067,12 +1342,20 @@ function Footer({ onNav }) {
       <div className="max-w-screen-xl mx-auto px-5 pt-14">
         <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-10 pb-10 border-b border-gray-800">
           <div className="md:col-span-1">
-            <div className="flex items-baseline gap-0.5 mb-4">
-              <span className="font-serif text-lg font-bold italic">Uygun</span>
-              <span className="font-sans text-lg font-bold text-[#c8102e]">Ayakkabı</span>
+            <div className="flex items-center gap-2 mb-4">
+              <div className="w-7 h-7 bg-[#c8102e] rounded-md flex items-center justify-center flex-shrink-0">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M2 17c0 0 1-3 5-3s5-2 8-2 6 1 6 4H2z"/>
+                  <path d="M7 14c0 0 0-4 3-6s6-2 8 0"/>
+                </svg>
+              </div>
+              <div className="flex items-baseline gap-0.5">
+                <span className="font-serif text-lg font-bold italic text-white">Uygun</span>
+                <span className="font-sans text-lg font-bold text-[#c8102e]">Ayakkabı</span>
+              </div>
             </div>
             <p className="font-sans text-sm text-gray-500 leading-relaxed max-w-[200px]">
-              Kaliteli ayakkabılar, uygun fiyatlar. %100 orijinal ürünler.
+              Kaliteli ayakkabılar, uygun fiyatlar. Geniş marka yelpazesi.
             </p>
           </div>
           <div>
@@ -1094,7 +1377,7 @@ function Footer({ onNav }) {
               İletişim
             </h5>
             <p className="font-sans text-sm text-gray-400 leading-loose">
-              0555 123 45 67<br />info@uygunayakkabi.com<br />İstanbul, Türkiye
+              0533 152 48 43<br />info@uygunayakkabi.com<br />İstanbul, Türkiye
             </p>
           </div>
           <div>
@@ -1235,7 +1518,7 @@ function BuyForm({ product: p, onClose }) {
 function FloatingWA() {
   return (
     <a
-      href="https://wa.me/905551234567?text=Merhaba!"
+      href="https://wa.me/905331524843?text=Merhaba!"
       target="_blank"
       rel="noreferrer"
       aria-label="WhatsApp ile Yaz"
@@ -1268,7 +1551,7 @@ function HomePage({ onNav, onView, onCallBack, onCategoryFilter, allProducts = [
           <div>
             <span className="inline-flex items-center gap-2 font-sans text-[11px] font-semibold uppercase tracking-widest text-[#c8102e] bg-red-50 px-4 py-2 rounded-full mb-7">
               <Zap size={10} />
-              Yeni Sezon 2025
+              Güncel Koleksiyon
             </span>
             <h1 className="font-serif text-[clamp(44px,6vw,80px)] font-bold text-gray-900 leading-[1.02] mb-5">
               Kaliteli
@@ -1291,14 +1574,16 @@ function HomePage({ onNav, onView, onCallBack, onCategoryFilter, allProducts = [
                 Ayakkabıları Keşfet <ArrowRight size={15} />
               </button>
               <a
-                href="tel:+905551234567"
+                href="https://wa.me/905331524843?text=Merhaba!%20Ürünleriniz%20hakkında%20bilgi%20almak%20istiyorum."
+                target="_blank"
+                rel="noreferrer"
                 className="flex items-center gap-2.5 bg-white text-gray-900 font-sans text-sm font-semibold px-7 py-4 rounded-full border-2 border-gray-200 hover:border-gray-400 active:scale-95 transition-all"
               >
-                <Phone size={14} />Hemen Ara
+                <MessageCircle size={14} />WhatsApp'tan Yaz
               </a>
             </div>
             <div className="flex flex-wrap gap-5">
-              {TRUST.slice(0, 3).map(({ label }, i) => (
+              {["Hızlı Kargo", "Kolay İade", "Güvenli Ödeme"].map((label, i) => (
                 <div key={i} className="flex items-center gap-1.5">
                   <Check size={13} className="text-green-500 flex-shrink-0" />
                   <span className="font-sans text-xs text-gray-500 font-medium">{label}</span>
@@ -1330,7 +1615,7 @@ function HomePage({ onNav, onView, onCallBack, onCategoryFilter, allProducts = [
             </div>
             )}
             <div className="absolute top-8 -right-6 bg-white rounded-2xl px-5 py-4 shadow-[0_20px_48px_rgba(0,0,0,0.1)] text-center">
-              <p className="font-serif text-2xl font-bold text-[#c8102e]">500+</p>
+              <p className="font-serif text-2xl font-bold text-[#c8102e]">Aylık 500</p>
               <p className="font-sans text-[11px] font-medium text-gray-500 mt-0.5">Mutlu Müşteri</p>
             </div>
           </div>
@@ -1369,7 +1654,7 @@ function HomePage({ onNav, onView, onCallBack, onCategoryFilter, allProducts = [
 
       <SocialProof />
       <WhyUs />
-      <CTABanner />
+      <WhatsAppOrderGuide />
       <Footer onNav={onNav} />
     </div>
   );
@@ -1387,10 +1672,10 @@ function CatalogPage({ onView, onCallBack, initialFilter, allProducts = [] }) {
     <div className="pt-16">
       <section className="max-w-screen-xl mx-auto px-5 py-12 pb-24">
         <div className="mb-8">
-          <span className="font-sans text-[11px] font-semibold uppercase tracking-widest text-[#c8102e] mb-3 block">
+          <span className="font-sans text-sm font-semibold uppercase tracking-widest text-[#c8102e] mb-3 block">
             Koleksiyon
           </span>
-          <h1 className="font-serif text-4xl md:text-5xl font-bold text-gray-900 mb-2">Ayakkabılar</h1>
+          <h1 className="font-serif text-3xl md:text-4xl font-bold text-gray-900 mb-2">Ayakkabılar</h1>
           <p className="font-sans text-sm text-gray-500">{filtered.length} ürün listeleniyor</p>
         </div>
 
@@ -1562,7 +1847,7 @@ function DetailPage({ product: p, onBack, onCallBack }) {
                   Beni Ara
                 </button>
                 <a
-                  href={`https://wa.me/905551234567?text=${encodeURIComponent(
+                  href={`https://wa.me/905331524843?text=${encodeURIComponent(
                     `Merhaba! ${p.name} hakkında bilgi almak istiyorum.`
                   )}`}
                   target="_blank"
@@ -1575,7 +1860,7 @@ function DetailPage({ product: p, onBack, onCallBack }) {
             </div>
 
             <div className="flex gap-6 mt-8 pt-8 border-t border-gray-100 flex-wrap">
-              {["Orijinal Ürün", "Hızlı Kargo", "İade Garantisi"].map((t) => (
+              {["Kaliteli Ürün", "Hızlı Kargo", "İade Garantisi", "Güvenli Ödeme"].map((t) => (
                 <div key={t} className="flex items-center gap-1.5">
                   <Check size={13} className="text-green-500 flex-shrink-0" />
                   <span className="font-sans text-xs font-medium text-gray-500">{t}</span>

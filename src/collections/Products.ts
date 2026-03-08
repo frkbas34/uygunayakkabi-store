@@ -37,7 +37,10 @@ export const Products: CollectionConfig = {
       label: 'Marka',
       admin: {
         position: 'sidebar',
-        description: 'Nike, Adidas, Puma, New Balance, vb.',
+        description: 'Nike, Adidas, Puma, New Balance, Converse, Vans, Reebok, vb.',
+        components: {
+          // autocomplete hint shown in description — actual select done via text field
+        },
       },
     },
     {
@@ -46,8 +49,21 @@ export const Products: CollectionConfig = {
       label: 'Kategori',
       admin: {
         position: 'sidebar',
-        description: 'gunluk, klasik, spor, bot, sandalet, krampon',
+        description: 'Günlük, Klasik, Spor, Bot, Sandalet, Krampon',
       },
+    },
+    {
+      name: 'gender',
+      type: 'select',
+      label: 'Cinsiyet',
+      options: [
+        { label: 'Erkek', value: 'erkek' },
+        { label: 'Kadın', value: 'kadin' },
+        { label: 'Unisex', value: 'unisex' },
+        { label: 'Çocuk', value: 'cocuk' },
+      ],
+      defaultValue: 'unisex',
+      admin: { position: 'sidebar' },
     },
     {
       name: 'description',

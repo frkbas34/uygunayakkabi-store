@@ -1,0 +1,143 @@
+UYGUANAYAKKABI PROJECT — DEVELOPMENT CONVERSATION LOG Generated:
+2026-03-08T14:45:32.344748 UTC
+
+  -------------------------------------------------
+  1. PROJECT GOAL
+  -------------------------------------------------
+  Build a lightweight e‑commerce style site for
+  uygunayakkabi.com.
+
+  Instead of traditional online payments: Customer
+  → leaves phone number → seller calls → sale
+  completed manually.
+
+  Tech Stack: Next.js Payload CMS PostgreSQL (Neon
+  planned) GitHub Vercel Cloudflare VS Code
+  -------------------------------------------------
+
+2. DEVELOPMENT ENVIRONMENT
+
+OS: Windows Editor: VS Code Runtime: Node.js Package Manager: npm
+
+Local dev server: http://localhost:3000
+
+  -------------------------------------------------
+  3. ADMIN PANEL INTEGRATION
+  -------------------------------------------------
+  Payload CMS admin integrated inside Next.js App
+  Router.
+
+  Admin route: /admin
+
+  Folder structure used:
+
+  app/ (payload)/ admin/ [[…segments]]/
+
+  payload.config.ts located in project root.
+  -------------------------------------------------
+
+4. PROBLEMS ENCOUNTERED DURING SETUP
+
+Issue 1 — Next.js version mismatch Initial setup used Next.js 16.
+Payload CMS compatibility caused dependency conflicts.
+
+Solution: Downgraded Next.js to 15.4.7.
+
+------------------------------------------------------------------------
+
+Issue 2 — Dev server flag error
+
+Error: unknown option –webpack
+
+Cause: package.json dev script used: next dev –webpack
+
+Solution: Updated script to:
+
+“scripts”: { “dev”: “next dev” }
+
+------------------------------------------------------------------------
+
+Issue 3 — Missing dependencies
+
+Errors encountered during installation:
+
+Missing packages: graphql cli-color pg
+
+Installed manually using:
+
+npm install graphql cli-color npm install pg
+
+------------------------------------------------------------------------
+
+Issue 4 — PostgreSQL driver
+
+Error: Module not found: Can’t resolve ‘pg’
+
+Cause: Payload PostgreSQL adapter requires pg driver.
+
+Solution: Installed pg package.
+
+------------------------------------------------------------------------
+
+Issue 5 — Payload config alias
+
+Error: Module not found: Can’t resolve ‘@payload-config’
+
+Cause: Next.js configuration missing Payload integration wrapper.
+
+Recommended configuration:
+
+next.config.ts
+
+import { withPayload } from ‘@payloadcms/next/withPayload’
+
+const nextConfig = {}
+
+export default withPayload(nextConfig)
+
+  ------------------
+  5. CURRENT STATE
+  ------------------
+
+Payload admin UI loads successfully:
+
+http://localhost:3000/admin
+
+User creation screen appears.
+
+However backend requests return 500 errors when trying to create the
+first user.
+
+POST /admin/create-first-user → 500 POST /api/users/first-register → 500
+
+Likely cause: Payload configuration alias resolution not fully applied.
+
+  ---------------
+  6. NEXT STEPS
+  ---------------
+
+1.  Ensure next.config.ts uses withPayload wrapper.
+2.  Restart dev server.
+3.  Verify Payload config alias resolves correctly.
+4.  Create first admin user.
+5.  Connect Neon PostgreSQL database.
+6.  Begin product schema creation.
+7.  Build admin product management panel.
+
+  ---------------------------
+  7. LONG‑TERM ARCHITECTURE
+  ---------------------------
+
+Future automation plan:
+
+Telegram → send product photo ↓ AI image enhancement ↓ Auto product
+creation ↓ Publish to website ↓ Auto Instagram post
+
+Possible automation stack:
+
+Telegram Bot API n8n workflow automation AI image processing Payload CMS
+API Next.js storefront
+
+------------------------------------------------------------------------
+
+END OF DOCUMENT

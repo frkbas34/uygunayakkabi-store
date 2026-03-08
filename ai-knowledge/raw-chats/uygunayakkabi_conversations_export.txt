@@ -1,0 +1,265 @@
+
+UYGUNAYAKKABI PROJECT — CONVERSATION / CONTEXT EXPORT
+=====================================================
+
+This file contains the project context and conversation-derived summary
+that was generated during the ChatGPT sessions for the Uygunayakkabi project.
+
+Sections Included
+-----------------
+1. Project Summary
+2. Architecture Overview
+3. Deployment Pipeline
+4. Business Model Logic
+5. Future Automation Plan
+
+=====================================================
+
+
+PROJECT SUMMARY — UygunAyakkabi Web Setup
+Generated: 2026-03-04T15:59:03.722373 UTC
+
+-------------------------------------------------
+1. PROJECT GOAL
+-------------------------------------------------
+Create a fast e‑commerce style storefront for selling shoes under the domain:
+
+    uygunayakkabi.com
+
+The site will function mainly as a product showcase and lead capture system.
+Customers will leave their phone number instead of paying online. Sales are then
+completed via direct communication.
+
+Tech stack selected:
+
+- Next.js (frontend)
+- GitHub (code repository)
+- Vercel (deployment + hosting)
+- Cloudflare (domain + DNS)
+- VS Code (development environment)
+
+-------------------------------------------------
+2. DEVELOPMENT WORKFLOW
+-------------------------------------------------
+Local Development
+-----------------
+VS Code → Next.js project
+
+Commands used:
+
+npm install
+npm run dev
+
+Project runs locally at:
+
+http://localhost:3000
+
+-------------------------------------------------
+3. DEPLOYMENT PIPELINE
+-------------------------------------------------
+Deployment architecture:
+
+Developer (VS Code)
+        ↓
+Git commit + push
+        ↓
+GitHub repository
+        ↓
+Vercel auto deploy
+        ↓
+Live website
+
+Repository connected to Vercel project:
+
+uygunayakkabi-store
+
+Every push to:
+
+main branch
+
+triggers automatic deployment.
+
+-------------------------------------------------
+4. BUILD CONFIGURATION
+-------------------------------------------------
+Framework detected:
+
+Next.js
+
+Required scripts in package.json:
+
+"scripts": {
+  "dev": "next dev",
+  "build": "next build",
+  "start": "next start"
+}
+
+Build command:
+
+next build
+
+Development command:
+
+next dev
+
+-------------------------------------------------
+5. CURRENT DEPLOYMENT STATUS
+-------------------------------------------------
+Deployment status: READY
+
+Vercel preview domain:
+
+https://uygunayakkabi-store.vercel.app
+
+Repository source:
+
+main branch
+commit: update homepage
+
+-------------------------------------------------
+6. DOMAIN CONNECTION
+-------------------------------------------------
+Custom domain:
+
+uygunayakkabi.com
+
+Domain provider:
+
+Cloudflare
+
+DNS records required:
+
+A Record
+Name: @
+Value: 76.76.21.21
+Proxy: DNS only
+
+CNAME Record
+Name: www
+Target: cname.vercel-dns.com
+Proxy: DNS only
+
+Expected DNS table:
+
+A       @       76.76.21.21
+CNAME   www     cname.vercel-dns.com
+
+After DNS propagation, Vercel should display:
+
+Valid Configuration
+
+-------------------------------------------------
+7. WEBSITE PURPOSE (BUSINESS MODEL)
+-------------------------------------------------
+The site is NOT intended to be a traditional e‑commerce checkout.
+
+Instead:
+
+Customer Flow
+
+User visits site
+        ↓
+Browses shoes
+        ↓
+Clicks buy
+        ↓
+Leaves name + phone number
+        ↓
+Seller calls customer
+        ↓
+Sale completed manually
+
+Advantages:
+
+• simpler logistics
+• no payment integration required
+• faster launch
+• lower risk
+
+-------------------------------------------------
+8. FUTURE FEATURES (PLANNED)
+-------------------------------------------------
+Phase 1
+-------
+
+• Product listing
+• Product detail pages
+• Stock tracking
+• Phone lead form
+• Admin product upload
+
+Phase 2
+-------
+
+Automation system:
+
+Telegram → Product photo
+        ↓
+AI product title generation
+        ↓
+Auto upload to website
+        ↓
+Auto Instagram post
+
+Potential automation stack:
+
+Telegram Bot API
+n8n workflow automation
+AI image processing
+Headless CMS
+
+-------------------------------------------------
+9. SYSTEM ARCHITECTURE
+-------------------------------------------------
+
+Cloudflare
+   │
+   │ DNS
+   ▼
+Vercel
+   │
+   │ Next.js hosting
+   ▼
+GitHub
+   │
+   │ code repository
+   ▼
+VS Code
+(local development)
+
+-------------------------------------------------
+10. STRATEGIC INSIGHT
+-------------------------------------------------
+This architecture represents a modern startup web stack:
+
+Cloudflare
+GitHub
+Next.js
+Vercel
+
+Advantages:
+
+• global CDN
+• automatic deployment
+• scalable infrastructure
+• developer friendly
+• minimal server management
+
+-------------------------------------------------
+11. PROJECT FILE USAGE
+-------------------------------------------------
+This archive is intended to be stored inside the project as:
+
+/project-docs/
+    project-summary.txt
+
+It can be used for:
+
+• project documentation
+• onboarding new developers
+• AI ingestion modules
+• technical reference
+
+-------------------------------------------------
+END OF FILE
+-------------------------------------------------

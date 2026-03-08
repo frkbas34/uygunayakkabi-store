@@ -1,0 +1,50 @@
+# SOURCE MODULE
+
+## MODULE ID
+UYGUNAYAKKABI-TELEGRAM-FIRST-COMMERCE-VISION-V1
+
+## Domain Category
+Automation / Commerce Operations
+
+## Core Purpose
+Define the long-term Telegram-first commerce and publishing vision of the project.
+
+## Extracted Knowledge
+- The project is not intended to remain a manually managed classic storefront only.
+- The long-term vision is phone-first and Telegram-first product intake.
+- Desired future operational logic:
+  1. Product photo is taken on phone
+  2. Photo and basic info are sent to Telegram
+  3. Automation workflow receives the input
+  4. AI/image workflow enhances the original image and may generate additional usable product views
+  5. Product metadata is parsed/structured
+  6. Product is created in the website/CMS
+  7. Product is also distributed to Instagram
+  8. Additional channel distribution may later include Shopier-compatible flows
+
+## Related System Direction
+- n8n is the intended workflow orchestrator
+- Payload CMS acts as admin/backend layer
+- Cloud-friendly media handling is preferred
+- The product model should remain automation-compatible
+- A future content layer may also generate blog or product-related publishing assets from the same product context
+
+## Established Constraints
+- Automation should not start before admin/storefront stabilization
+- Admin must remain an override/control layer over the same data system
+- Product model should support source/sync-aware future logic
+
+## Strategic Notes
+- This is the core operational identity of the project:
+  Telegram-operated AI commerce system
+- Manual admin work may remain, but the direction is increasing automation
+
+## Reuse Value
+Useful for:
+- automation design sessions
+- bot design
+- product model decisions
+- future integration planning
+
+## Hierarchy Suggestion
+Core Vision Module

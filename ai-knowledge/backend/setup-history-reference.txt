@@ -1,0 +1,44 @@
+# SOURCE MODULE
+
+## MODULE ID
+UYGUNAYAKKABI-SETUP-HISTORY-REFERENCE-V1
+
+## Domain Category
+Backend / Setup History Reference
+
+## Core Purpose
+Preserve earlier setup and migration issues as reference-only technical history.
+
+## Extracted Knowledge
+- Earlier phases included Payload setup instability.
+- There were route/layout related uncertainties in the Next.js + Payload integration.
+- A Payload layout requirement was identified in prior work.
+- `payload.config.ts` required ESM-safe handling instead of `__dirname`.
+- ImportMap generation was not straightforward in the observed environment.
+- Windows/Linux esbuild mismatch complicated generation and build-related operations.
+- Some earlier discussions considered removing Payload and simplifying the stack, but this did not remain the active direction.
+
+## Interpretation Rule
+These records are reference history.
+They are not the current truth authority unless the same issues clearly reappear.
+
+## Established Constraints
+- Do not let early setup pain redefine the whole architectural direction.
+- Use this module only when debugging recurring setup-level failures.
+
+## Strategic Notes
+- The correct lesson is not “Payload was a mistake.”
+- The correct lesson is that setup history must be separated from current project state.
+
+## Conflict Sensitivities
+- Some old chats may strongly suggest removing Payload entirely.
+- More recent work confirms Payload remained the active direction.
+
+## Reuse Value
+Useful for:
+- recurring setup/debug checks
+- understanding why importMap/layout/config history matters
+- avoiding circular conversations
+
+## Hierarchy Suggestion
+Reference Module

@@ -1,0 +1,53 @@
+# SOURCE MODULE
+
+## MODULE ID
+UYGUNAYAKKABI-PAYLOAD-ADMIN-RUNTIME-ISSUES-V1
+
+## Domain Category
+Backend / Admin Runtime
+
+## Core Purpose
+Record the most recent Payload CMS admin-side runtime issues and their significance for Phase 1 stabilization.
+
+## Extracted Knowledge
+- Payload CMS is actively being used as the admin/backend layer.
+- Payload admin access and login were reached in recent work.
+- However, full admin runtime integrity was not yet confirmed.
+- A major admin-side issue was traced to an incomplete or empty importMap.
+- The importMap had to be manually reconstructed after generation problems.
+- Lexical-related component mappings were added manually.
+- A remaining unresolved issue was:
+  `PayloadComponent not found in importMap`
+  especially for:
+  `@payloadcms/next/rsc#CollectionCards`
+- This indicates that the Payload admin dashboard was still not fully operational at that point.
+
+## Established Constraints
+- Admin access alone does not mean the admin panel is validated.
+- The admin panel must be considered unstable until all required dashboard/admin components resolve correctly.
+- ImportMap completeness is a validation requirement for Phase 1.
+
+## Related Technical Context
+- `payload.config.ts` uses Payload CMS with Postgres adapter and lexical editor setup.
+- A Payload layout requirement was identified in earlier work.
+- Some importMap generation issues were made worse by Windows/Linux esbuild mismatch conditions.
+- Manual importMap repair was used as a temporary recovery step, not as proof of final stability.
+
+## Strategic Notes
+- This module should be treated as runtime stabilization history, not as a reason to abandon Payload.
+- The correct conclusion is:
+  Payload remains the direction, but the admin side must be stabilized and validated before automation begins.
+
+## Conflict Sensitivities
+- Do not treat this module as proof that Payload failed.
+- Do not treat this module as proof that admin is already fully complete.
+- Treat it as a stabilization-state reference.
+
+## Reuse Value
+Useful for:
+- admin stabilization planning
+- debugging continuity
+- deciding whether Phase 1 is truly complete
+
+## Hierarchy Suggestion
+Supporting Module

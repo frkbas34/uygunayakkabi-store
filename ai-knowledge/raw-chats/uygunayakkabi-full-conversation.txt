@@ -1,0 +1,116 @@
+UygunAyakkabi Project – Conversation Export Generated:
+2026-03-08T14:48:29.168757 UTC
+
+NOTE: This file reconstructs the key conversation content and decisions
+from this session so it can be provided to another AI system (e.g.,
+Claude) as context.
+
+  ------------------------------------------------------------
+  USER GOAL
+  ------------------------------------------------------------
+  Build an e‑commerce style shoe website:
+
+  Domain: uygunayakkabi.com
+
+  Main characteristics:
+
+  • Product showcase website • Customers leave name + phone
+  instead of paying online • Seller calls customer to finalize
+  sale
+  ------------------------------------------------------------
+
+TECH STACK
+
+Frontend: Next.js
+
+Development: VS Code
+
+Repository: GitHub
+
+Deployment: Vercel
+
+DNS: Cloudflare
+
+Future Automation:
+
+Telegram Bot n8n AI image processing Instagram auto-posting
+
+  ----------------------------
+  LOCAL DEVELOPMENT WORKFLOW
+  ----------------------------
+
+Commands used:
+
+npm install npm run dev
+
+Local server:
+
+http://localhost:3000
+
+  ---------------------
+  DEPLOYMENT PIPELINE
+  ---------------------
+
+VS Code ↓ Git commit ↓ GitHub ↓ Vercel Auto Deploy ↓ Live Website
+
+  ----------------
+  BUSINESS MODEL
+  ----------------
+
+User visits site ↓ Browses shoes ↓ Clicks buy ↓ Leaves phone number ↓
+Seller calls ↓ Sale completed manually
+
+Advantages:
+
+• No payment integration • Faster launch • Lower complexity
+
+  ----------------------------
+  CURRENT DEVELOPMENT STATUS
+  ----------------------------
+
+• Git repository created • Next.js project running locally • Dev server
+operational • Payload CMS installation attempted • Payload admin route
+errors currently unresolved • Admin panel integration in progress
+
+  -----------------------
+  NEXT STEPS IDENTIFIED
+  -----------------------
+
+1.  Fix Payload CMS import paths
+2.  Ensure admin panel loads at:
+
+http://localhost:3000/admin
+
+3.  Verify API routes:
+
+http://localhost:3000/api
+
+4.  Add product database structure
+5.  Implement admin product upload
+
+  ----------------------------
+  DATABASE CONNECTION FORMAT
+  ----------------------------
+
+Example PostgreSQL connection string:
+
+DATABASE_URI=postgresql://USERNAME:PASSWORD@HOST:PORT/DATABASE
+
+Example:
+
+DATABASE_URI=postgresql://postgres:password@localhost:5432/uygunayakkabi
+
+  ------------------------
+  FUTURE AUTOMATION PLAN
+  ------------------------
+
+Telegram → Product Photo ↓ AI Enhances Image ↓ Generate Product Title ↓
+Upload to Website ↓ Post to Instagram
+
+Possible tools:
+
+Telegram Bot API n8n AI image generation Headless CMS
+
+  ---------------
+  END OF EXPORT
+  ---------------

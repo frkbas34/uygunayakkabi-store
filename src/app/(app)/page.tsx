@@ -1,4 +1,5 @@
 import App from "./UygunApp";
+import type { DbProduct, DbBanner, SiteSettings } from "./UygunApp";
 import { getPayload } from "@/lib/payload";
 
 // SVG ayakkabı renkleri — kategoriye göre
@@ -62,9 +63,9 @@ const CATEGORY_LABELS: Record<string, string> = {
 };
 
 export default async function Page() {
-  let dbProducts: any[] = [];
-  let siteSettings: any = null;
-  let banners: any[] = [];
+  let dbProducts: DbProduct[] = [];
+  let siteSettings: SiteSettings | null = null;
+  let banners: DbBanner[] = [];
 
   try {
     const payload = await getPayload();

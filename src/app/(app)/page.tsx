@@ -63,9 +63,13 @@ const CATEGORY_LABELS: Record<string, string> = {
 
 export default async function Page() {
   let dbProducts: any[] = [];
+  let siteSettings: any = null;
+  let banners: any[] = [];
 
   try {
     const payload = await getPayload();
+
+    // Fetch products
     const result = await payload.find({
       collection: 'products',
       where: { status: { equals: 'active' } },
@@ -115,9 +119,70 @@ export default async function Page() {
         fromDb: true,
       };
     });
+
+    // Fetch SiteSettings global
+    try {
+      const settings = await payload.findGlobal({ slug: 'site-settings' });
+      siteSettings = {
+        siteName: settings.siteName || 'UygunAyakkabı',
+        siteDescription: settings.siteDescription || '',
+        contact: {
+          whatsapp: settings.contact?.whatsapp || '0533 152 48 43',
+          whatsappFull: settings.contact?.whatsappFull || '905331524843',
+          email: settings.contact?.email || '',
+          instagram: settings.contact?.instagram || '',
+        },
+        shipping: {
+          freeShippingThreshold: settings.shipping?.freeShippingThreshold ?? 500,
+          shippingCost: settings.shipping?.shippingCost ?? 49,
+          showFreeShippingBanner: settings.shipping?.showFreeShippingBanner ?? true,
+        },
+        trustBadges: {
+          monthlyCustomers: settings.trustBadges?.monthlyCustomers || '500+',
+          totalProducts: settings.trustBadges?.totalProducts || '200+',
+          satisfactionRate: settings.trustBadges?.satisfactionRate || '%98',
+        },
+        announcementBar: {
+          enabled: settings.announcementBar?.enabled ?? true,
+          text: settings.announcementBar?.text || '🚚 500₺ üzeri siparişlerde KARGO BEDAVA!',
+          bgColor: settings.announcementBar?.bgColor || '#c8102e',
+        },
+      };
+    } catch (e) {
+      console.log('[Page] SiteSettings yüklenemedi, varsayılan değerler kullanılacak');
+    }
+
+    // Fetch active Banners
+    try {
+      const bannerResult = await payload.find({
+        collection: 'banners',
+        where: {
+          active: { equals: true },
+        },
+        depth: 1,
+        limit: 10,
+        sort: 'sortOrder',
+      });
+      banners = bannerResult.docs.map((b: any) => ({
+        id: b.id,
+        title: b.title,
+        subtitle: b.subtitle || '',
+        type: b.type,
+        discountPercent: b.discountPercent || null,
+        couponCode: b.couponCode || '',
+        bgColor: b.bgColor || '#c8102e',
+        textColor: b.textColor || '#ffffff',
+        linkUrl: b.linkUrl || '',
+        placement: b.placement || 'top_bar',
+        imageUrl: b.image?.url || null,
+      }));
+    } catch (e) {
+      console.log('[Page] Bannerlar yüklenemedi');
+    }
+
   } catch (err) {
     console.error('[Page] DB ürünleri yüklenemedi:', err);
   }
 
-  return <App dbProducts={dbProducts} />;
+  return <App dbProducts={dbProducts} siteSettings={siteSettings} banners={banners} />;
 }

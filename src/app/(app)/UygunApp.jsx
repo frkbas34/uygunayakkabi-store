@@ -128,12 +128,14 @@ const I = {
 // ============================================
 // ANNOUNCEMENT BAR
 // ============================================
-function AnnouncementBar() {
+function AnnouncementBar({ settings }) {
   const [show, setShow] = useState(true);
-  if (!show) return null;
+  const bar = settings?.announcementBar || DEFAULT_SETTINGS.announcementBar;
+  const phone = settings?.contact?.whatsapp || DEFAULT_SETTINGS.contact.whatsapp;
+  if (!show || !bar.enabled) return null;
   return (
-    <div style={{ background: T.ac, color: T.wh, fontFamily: T.f, fontSize: 13, fontWeight: 600, textAlign: "center", padding: "10px 48px 10px 24px", position: "relative", letterSpacing: "0.02em" }}>
-      🚚 500₺ Üzeri Siparişlerde <span style={{ textDecoration: "underline" }}>KARGO BEDAVA</span> &nbsp;|&nbsp; 📞 0533 152 48 43
+    <div style={{ background: bar.bgColor || T.ac, color: T.wh, fontFamily: T.f, fontSize: 13, fontWeight: 600, textAlign: "center", padding: "10px 48px 10px 24px", position: "relative", letterSpacing: "0.02em" }}>
+      {bar.text} &nbsp;|&nbsp; 📞 {phone}
       <button onClick={() => setShow(false)} style={{ position: "absolute", right: 12, top: "50%", transform: "translateY(-50%)", background: "none", border: "none", color: "rgba(255,255,255,0.7)", cursor: "pointer", fontSize: 16, padding: 4, lineHeight: 1 }}>✕</button>
     </div>
   );
@@ -142,7 +144,8 @@ function AnnouncementBar() {
 // ============================================
 // NAVBAR
 // ============================================
-function Navbar({ onNav, pg }) {
+function Navbar({ onNav, pg, settings }) {
+  const waNum = settings?.contact?.whatsappFull || DEFAULT_SETTINGS.contact.whatsappFull;
   const [mo, setMo] = useState(false);
   const [sc, setSc] = useState(false);
   useEffect(() => {
@@ -165,7 +168,7 @@ function Navbar({ onNav, pg }) {
               {pg === l.k && <span style={{ position: "absolute", bottom: -4, left: "50%", transform: "translateX(-50%)", width: 16, height: 2, background: T.ac, borderRadius: 2 }} />}
             </span>
           ))}
-          <a href="https://wa.me/905331524843" target="_blank" rel="noreferrer" style={{ display: "flex", alignItems: "center", gap: 8, fontFamily: T.f, fontSize: 13, fontWeight: 600, color: T.wh, background: "#25D366", padding: "10px 20px", borderRadius: T.r.full, textDecoration: "none" }}>
+          <a href={waLink(waNum)} target="_blank" rel="noreferrer" style={{ display: "flex", alignItems: "center", gap: 8, fontFamily: T.f, fontSize: 13, fontWeight: 600, color: T.wh, background: "#25D366", padding: "10px 20px", borderRadius: T.r.full, textDecoration: "none" }}>
             {I.wa} WhatsApp
           </a>
         </div>
@@ -180,7 +183,7 @@ function Navbar({ onNav, pg }) {
               {l.l}
             </span>
           ))}
-          <a href="https://wa.me/905331524843" target="_blank" rel="noreferrer" style={{ marginTop: 8, fontFamily: T.f, fontSize: 14, fontWeight: 600, color: T.wh, background: "#25D366", padding: "14px 24px", borderRadius: T.r.full, textDecoration: "none", textAlign: "center" }}>
+          <a href={waLink(waNum)} target="_blank" rel="noreferrer" style={{ marginTop: 8, fontFamily: T.f, fontSize: 14, fontWeight: 600, color: T.wh, background: "#25D366", padding: "14px 24px", borderRadius: T.r.full, textDecoration: "none", textAlign: "center" }}>
             WhatsApp'tan Yaz
           </a>
         </div>
@@ -356,7 +359,7 @@ function BuyForm({ product: p, onClose }) {
             <button onClick={go} style={{ width: "100%", padding: "15px", background: T.ac, color: T.wh, border: "none", borderRadius: T.r.md, fontFamily: T.f, fontSize: 15, fontWeight: 600, cursor: "pointer", marginTop: 4 }}>Talep Gönder</button>
             <div style={{ marginTop: 16, textAlign: "center" }}>
               <p style={{ fontFamily: T.f, fontSize: 12, color: T.g400, marginBottom: 10 }}>Ya da doğrudan WhatsApp'tan ulaşın</p>
-              <a href={`https://wa.me/905331524843?text=Merhaba!%20${encodeURIComponent((p.name || p.title || "Ürün"))}%20hakkında%20bilgi%20almak%20istiyorum.`}
+              <a href={`https://wa.me/${ct.whatsappFull}?text=Merhaba!%20${encodeURIComponent((p.name || p.title || "Ürün"))}%20hakkında%20bilgi%20almak%20istiyorum.`}
                 target="_blank" rel="noreferrer"
                 style={{ display: "inline-flex", alignItems: "center", gap: 8, fontFamily: T.f, fontSize: 14, fontWeight: 600, color: T.wh, background: "#25D366", padding: "12px 28px", borderRadius: T.r.full, textDecoration: "none" }}>
                 {I.wa} WhatsApp ile Sor
@@ -373,7 +376,8 @@ function BuyForm({ product: p, onClose }) {
 // ============================================
 // FOOTER
 // ============================================
-function Foot({ onNav }) {
+function Foot({ onNav, settings }) {
+  const ct = settings?.contact || DEFAULT_SETTINGS.contact;
   return (
     <footer style={{ background: T.bk, color: T.wh, padding: "56px 24px 0" }}>
       <div style={{ maxWidth: 1280, margin: "0 auto", display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 40 }}>
@@ -393,14 +397,14 @@ function Foot({ onNav }) {
         <div>
           <h5 style={{ fontFamily: T.f, fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.1em", color: "#555", marginBottom: 18 }}>İletişim</h5>
           <p style={{ fontFamily: T.f, fontSize: 14, color: "#999", lineHeight: 2.2 }}>
-            0533 152 48 43<br />
-            info@uygunayakkabi.com<br />
+            {ct.whatsapp}<br />
+            {ct.email || 'info@uygunayakkabi.com'}<br />
             İstanbul, Türkiye
           </p>
         </div>
         <div>
           <h5 style={{ fontFamily: T.f, fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.1em", color: "#555", marginBottom: 18 }}>WhatsApp Sipariş</h5>
-          <a href="https://wa.me/905331524843" target="_blank" rel="noreferrer"
+          <a href={waLink(ct.whatsappFull)} target="_blank" rel="noreferrer"
             style={{ display: "inline-flex", alignItems: "center", gap: 8, fontFamily: T.f, fontSize: 14, fontWeight: 600, color: T.wh, background: "#25D366", padding: "12px 20px", borderRadius: T.r.full, textDecoration: "none", marginBottom: 12 }}>
             {I.wa} WhatsApp'tan Yaz
           </a>
@@ -418,17 +422,23 @@ function Foot({ onNav }) {
 // ============================================
 // HOME PAGE
 // ============================================
-function Home({ onNav, onView, allProducts }) {
+function Home({ onNav, onView, allProducts, settings, banners = [] }) {
+  const S = settings || DEFAULT_SETTINGS;
+  const trust = S.trustBadges || DEFAULT_SETTINGS.trustBadges;
+  const ship = S.shipping || DEFAULT_SETTINGS.shipping;
+  const contact = S.contact || DEFAULT_SETTINGS.contact;
   const catCounts = CAT_DATA.reduce((acc, c) => {
     acc[c.name] = allProducts.filter(p => p.category === c.name).length;
     return acc;
   }, {});
   const why = [
-    { icon: I.truck, title: "Hızlı Kargo", desc: "Siparişleriniz 1-3 iş günü içinde kapınızda. 500₺ üzeri kargo bedava!" },
+    { icon: I.truck, title: "Hızlı Kargo", desc: `Siparişleriniz 1-3 iş günü içinde kapınızda. ${ship.freeShippingThreshold}₺ üzeri kargo bedava!` },
     { icon: I.tag, title: "Uygun Fiyat Garantisi", desc: "Piyasanın altında fiyatlarla geniş marka yelpazesi. %40'a varan indirimler." },
-    { icon: I.heart, title: "%98 Müşteri Memnuniyeti", desc: "Aylık 500+ mutlu müşteri ve kolay iade garantisi." },
+    { icon: I.heart, title: `${trust.satisfactionRate} Müşteri Memnuniyeti`, desc: `Aylık ${trust.monthlyCustomers} mutlu müşteri ve kolay iade garantisi.` },
     { icon: I.check, title: "Orijinal Ürünler", desc: "Tüm ürünlerimiz orijinal ve faturalıdır. Güvenle alışveriş yapın." },
   ];
+  // Find a banner for the promo section (hero or catalog_top placement, or first discount banner)
+  const promoBanner = banners.find(b => b.placement === 'hero' || b.type === 'discount') || null;
   const first = allProducts[0];
   return (
     <div>
@@ -447,7 +457,7 @@ function Home({ onNav, onView, allProducts }) {
               <button onClick={() => onNav("catalog")} style={{ fontFamily: T.f, fontSize: 15, fontWeight: 600, color: T.wh, background: T.ac, border: "none", padding: "16px 36px", borderRadius: T.r.full, cursor: "pointer", display: "flex", alignItems: "center", gap: 10 }}>
                 Ayakkabıları Gör {I.arrow}
               </button>
-              <a href="https://wa.me/905331524843" target="_blank" rel="noreferrer" style={{ fontFamily: T.f, fontSize: 15, fontWeight: 600, color: T.wh, background: "#25D366", border: "none", padding: "16px 28px", borderRadius: T.r.full, textDecoration: "none", display: "flex", alignItems: "center", gap: 8 }}>
+              <a href={`https://wa.me/${contact.whatsappFull}`} target="_blank" rel="noreferrer" style={{ fontFamily: T.f, fontSize: 15, fontWeight: 600, color: T.wh, background: "#25D366", border: "none", padding: "16px 28px", borderRadius: T.r.full, textDecoration: "none", display: "flex", alignItems: "center", gap: 8 }}>
                 {I.wa} WhatsApp'tan Yaz
               </a>
             </div>
@@ -474,7 +484,7 @@ function Home({ onNav, onView, allProducts }) {
               </div>
             )}
             <div style={{ position: "absolute", top: 24, right: -12, background: T.wh, borderRadius: T.r.lg, padding: "14px 20px", boxShadow: "0 12px 32px rgba(0,0,0,0.08)", textAlign: "center" }}>
-              <p style={{ fontFamily: T.f, fontSize: 22, fontWeight: 800, color: T.ac }}>500<span style={{ fontSize: 16, color: T.gn }}>+</span></p>
+              <p style={{ fontFamily: T.f, fontSize: 22, fontWeight: 800, color: T.ac }}>{trust.monthlyCustomers}</p>
               <p style={{ fontFamily: T.f, fontSize: 11, fontWeight: 500, color: T.g500 }}>Aylık Müşteri</p>
             </div>
           </div>
@@ -497,18 +507,21 @@ function Home({ onNav, onView, allProducts }) {
         <style>{`@media(max-width:1024px){.home-grid{grid-template-columns:repeat(3,1fr)!important}}@media(max-width:640px){.home-grid{grid-template-columns:repeat(2,1fr)!important;gap:12px!important}}`}</style>
       </section>
 
-      {/* PROMO BANNER */}
+      {/* PROMO BANNER — uses dynamic banner from admin or falls back to default */}
       <section style={{ padding: "0 24px", maxWidth: 1280, margin: "0 auto" }}>
-        <div onClick={() => onNav("catalog")} style={{ cursor: "pointer", background: "linear-gradient(135deg, #0a0a0a 0%, #1a1a2e 50%, #c8102e 100%)", borderRadius: 24, padding: "48px 40px", display: "grid", gridTemplateColumns: "1fr auto", alignItems: "center", gap: 24, position: "relative", overflow: "hidden" }}>
+        <div onClick={() => onNav("catalog")} style={{ cursor: "pointer", background: promoBanner ? `linear-gradient(135deg, #0a0a0a 0%, #1a1a2e 50%, ${promoBanner.bgColor} 100%)` : "linear-gradient(135deg, #0a0a0a 0%, #1a1a2e 50%, #c8102e 100%)", borderRadius: 24, padding: "48px 40px", display: "grid", gridTemplateColumns: "1fr auto", alignItems: "center", gap: 24, position: "relative", overflow: "hidden" }}>
           <div style={{ position: "absolute", top: -30, right: -30, width: 200, height: 200, background: "rgba(200,16,46,0.2)", borderRadius: "50%" }} />
           <div style={{ position: "absolute", bottom: -20, left: "30%", width: 120, height: 120, background: "rgba(200,16,46,0.1)", borderRadius: "50%" }} />
           <div style={{ position: "relative" }}>
-            <div style={{ fontFamily: T.f, fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.14em", color: "#fbbf24", marginBottom: 12 }}>Sınırlı Süre</div>
-            <h3 style={{ fontFamily: T.d, fontSize: "clamp(24px, 3vw, 38px)", fontWeight: 700, color: T.wh, lineHeight: 1.2, marginBottom: 10 }}>Sezon Sonu İndirimi</h3>
-            <p style={{ fontFamily: T.f, fontSize: 15, color: "rgba(255,255,255,0.65)", lineHeight: 1.6 }}>Seçili modellerde <strong style={{ color: "#fbbf24" }}>%40'a varan</strong> indirimler. Fırsatı kaçırma!</p>
+            <div style={{ fontFamily: T.f, fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.14em", color: "#fbbf24", marginBottom: 12 }}>{promoBanner?.type === 'flash_sale' ? '⏰ Flash Sale' : 'Sınırlı Süre'}</div>
+            <h3 style={{ fontFamily: T.d, fontSize: "clamp(24px, 3vw, 38px)", fontWeight: 700, color: promoBanner?.textColor || T.wh, lineHeight: 1.2, marginBottom: 10 }}>{promoBanner?.title || 'Sezon Sonu İndirimi'}</h3>
+            <p style={{ fontFamily: T.f, fontSize: 15, color: "rgba(255,255,255,0.65)", lineHeight: 1.6 }}>
+              {promoBanner?.subtitle || (<>Seçili modellerde <strong style={{ color: "#fbbf24" }}>%40'a varan</strong> indirimler. Fırsatı kaçırma!</>)}
+            </p>
+            {promoBanner?.couponCode && <div style={{ fontFamily: T.f, fontSize: 12, fontWeight: 700, color: "#fbbf24", marginTop: 10, background: "rgba(251,191,36,0.15)", display: "inline-block", padding: "4px 12px", borderRadius: T.r.sm }}>Kupon: {promoBanner.couponCode}</div>}
           </div>
           <div style={{ textAlign: "center", position: "relative" }}>
-            <div style={{ fontFamily: T.f, fontSize: 56, fontWeight: 900, color: T.wh, lineHeight: 1 }}>%40</div>
+            <div style={{ fontFamily: T.f, fontSize: 56, fontWeight: 900, color: promoBanner?.textColor || T.wh, lineHeight: 1 }}>%{promoBanner?.discountPercent || 40}</div>
             <div style={{ fontFamily: T.f, fontSize: 12, fontWeight: 700, color: "#fbbf24", textTransform: "uppercase", letterSpacing: "0.1em" }}>İndirim</div>
             <div style={{ marginTop: 16, fontFamily: T.f, fontSize: 13, fontWeight: 600, color: T.wh, background: "rgba(255,255,255,0.15)", padding: "10px 24px", borderRadius: T.r.full, display: "inline-flex", alignItems: "center", gap: 8 }}>Alışverişe Başla {I.arrow}</div>
           </div>
@@ -575,15 +588,15 @@ function Home({ onNav, onView, allProducts }) {
             ))}
           </div>
           <div style={{ display: "flex", justifyContent: "center", position: "relative" }}>
-            <a href="https://wa.me/905331524843" target="_blank" rel="noreferrer" style={{ fontFamily: T.f, fontSize: 15, fontWeight: 600, color: T.wh, background: "#25D366", padding: "16px 36px", borderRadius: T.r.full, textDecoration: "none", display: "flex", alignItems: "center", gap: 10 }}>
-              {I.wa} 0533 152 48 43
+            <a href={`https://wa.me/${contact.whatsappFull}`} target="_blank" rel="noreferrer" style={{ fontFamily: T.f, fontSize: 15, fontWeight: 600, color: T.wh, background: "#25D366", padding: "16px 36px", borderRadius: T.r.full, textDecoration: "none", display: "flex", alignItems: "center", gap: 10 }}>
+              {I.wa} {contact.whatsapp}
             </a>
           </div>
         </div>
         <style>{`@media(max-width:768px){.wa-steps{grid-template-columns:repeat(2,1fr)!important}}`}</style>
       </section>
 
-      <Foot onNav={onNav} />
+      <Foot onNav={onNav} settings={S} />
     </div>
   );
 }
@@ -639,7 +652,8 @@ function Catalog({ onView, allProducts, initCat = "Tümü" }) {
 // ============================================
 // DETAIL PAGE
 // ============================================
-function Detail({ product: p, onBack }) {
+function Detail({ product: p, onBack, settings }) {
+  const ct = settings?.contact || DEFAULT_SETTINGS.contact;
   const [sz, sSz] = useState(null);
   const [im, sIm] = useState(0);
   const [sf, sSf] = useState(false);
@@ -711,7 +725,7 @@ function Detail({ product: p, onBack }) {
                 style={{ width: "100%", padding: "17px", background: !isSoldOut ? T.ac : T.g400, color: T.wh, border: "none", borderRadius: T.r.md, fontFamily: T.f, fontSize: 16, fontWeight: 700, cursor: !isSoldOut ? "pointer" : "not-allowed" }}>
                 {!isSoldOut ? "Satın Alma Talebi" : "Stokta Yok"}
               </button>
-              <a href={`https://wa.me/905331524843?text=Merhaba!%20${encodeURIComponent((p.name || p.title || "Ürün"))}%20hakkında%20bilgi%20almak%20istiyorum.`}
+              <a href={`https://wa.me/${ct.whatsappFull}?text=Merhaba!%20${encodeURIComponent((p.name || p.title || "Ürün"))}%20hakkında%20bilgi%20almak%20istiyorum.`}
                 target="_blank" rel="noreferrer"
                 style={{ width: "100%", padding: "15px", background: T.wh, color: "#25D366", border: "2px solid #25D366", borderRadius: T.r.md, fontFamily: T.f, fontSize: 15, fontWeight: 600, textDecoration: "none", textAlign: "center", boxSizing: "border-box", display: "flex", alignItems: "center", justifyContent: "center", gap: 10 }}>
                 {I.wa} WhatsApp ile Sor
@@ -729,7 +743,7 @@ function Detail({ product: p, onBack }) {
         </div>
         <style>{`@media(max-width:768px){.detail-grid{grid-template-columns:1fr!important;gap:28px!important}}`}</style>
       </section>
-      <Foot onNav={() => {}} />
+      <Foot onNav={() => {}} settings={settings} />
     </div>
   );
 }
@@ -737,7 +751,20 @@ function Detail({ product: p, onBack }) {
 // ============================================
 // APP ROOT — accepts dbProducts from Payload CMS
 // ============================================
-export default function App({ dbProducts = [] }) {
+// Default site settings (used when Payload global hasn't been populated yet)
+const DEFAULT_SETTINGS = {
+  siteName: 'UygunAyakkabı',
+  contact: { whatsapp: '0533 152 48 43', whatsappFull: '905331524843', email: '', instagram: '' },
+  shipping: { freeShippingThreshold: 500, shippingCost: 49, showFreeShippingBanner: true },
+  trustBadges: { monthlyCustomers: '500+', totalProducts: '200+', satisfactionRate: '%98' },
+  announcementBar: { enabled: true, text: '🚚 500₺ üzeri siparişlerde KARGO BEDAVA!', bgColor: '#c8102e' },
+};
+
+// Helper to get WhatsApp link
+const waLink = (num) => `https://wa.me/${num || '905331524843'}`;
+
+export default function App({ dbProducts = [], siteSettings = null, banners = [] }) {
+  const S = siteSettings || DEFAULT_SETTINGS;
   const [pg, sPg] = useState("home");
   const [sel, sSel] = useState(null);
   const [initCat, sInitCat] = useState("Tümü");
@@ -779,11 +806,11 @@ export default function App({ dbProducts = [] }) {
 
   return (
     <div style={{ minHeight: "100vh", background: T.wh }}>
-      <AnnouncementBar />
-      <Navbar onNav={nav} pg={pg} />
-      {pg === "home" && <Home onNav={nav} onView={view} allProducts={allProducts} />}
+      <AnnouncementBar settings={S} />
+      <Navbar onNav={nav} pg={pg} settings={S} />
+      {pg === "home" && <Home onNav={nav} onView={view} allProducts={allProducts} settings={S} banners={banners} />}
       {pg === "catalog" && <Catalog key={initCat} initCat={initCat} onView={view} allProducts={allProducts} />}
-      {pg === "detail" && sel && <Detail product={sel} onBack={() => nav("catalog")} />}
+      {pg === "detail" && sel && <Detail product={sel} onBack={() => nav("catalog")} settings={S} />}
     </div>
   );
 }

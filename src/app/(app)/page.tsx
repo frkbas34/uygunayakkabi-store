@@ -31,9 +31,14 @@ function getMediaUrl(images: any[]) {
   return null;
 }
 
+// Map from stored category value → display label
+// Supports both legacy lowercase and new mixed-case values
 const CATEGORY_LABELS: Record<string, string> = {
   gunluk: 'Günlük', klasik: 'Klasik', spor: 'Spor',
   bot: 'Bot', sandalet: 'Sandalet', krampon: 'Krampon',
+  // Pass-through for values already in display form
+  'Günlük': 'Günlük', 'Klasik': 'Klasik', 'Spor': 'Spor',
+  'Bot': 'Bot', 'Sandalet': 'Sandalet', 'Krampon': 'Krampon',
 };
 
 export default async function Page() {

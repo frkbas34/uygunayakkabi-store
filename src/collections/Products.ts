@@ -32,15 +32,36 @@ export const Products: CollectionConfig = {
       required: true,
     },
     {
+      name: 'description',
+      type: 'textarea',
+      label: 'Ürün Açıklaması',
+    },
+    // ── 📸 Görseller — Ürün fotoğraflarını buradan ekle/değiştir ──
+    {
+      name: 'images',
+      type: 'array',
+      label: '📸 Ürün Görselleri (Fotoğraf Ekle / Değiştir)',
+      admin: {
+        description: '⬆️ Önce "Medya Kütüphanesi"nden görsel yükleyin, sonra buradan seçin. İlk görsel kapak fotoğrafı olarak kullanılır. En fazla 8 görsel.',
+        initCollapsed: false,
+      },
+      fields: [
+        {
+          name: 'image',
+          type: 'relationship',
+          relationTo: 'media',
+          label: 'Görsel Seç',
+        },
+      ],
+    },
+    // ── Marka & Kategori ──────────────────────────────────────
+    {
       name: 'brand',
       type: 'text',
       label: 'Marka',
       admin: {
         position: 'sidebar',
-        description: 'Nike, Adidas, Puma, New Balance, Converse, Vans, Reebok, vb.',
-        components: {
-          // autocomplete hint shown in description — actual select done via text field
-        },
+        description: 'Nike / Adidas / Puma / New Balance / Converse / Vans / Reebok / Timberland / Dr. Martens / UGG / Birkenstock',
       },
     },
     {
@@ -49,7 +70,8 @@ export const Products: CollectionConfig = {
       label: 'Kategori',
       admin: {
         position: 'sidebar',
-        description: 'Günlük, Klasik, Spor, Bot, Sandalet, Krampon',
+        // DB constraint: text field — cannot change to enum without migration
+        description: 'Günlük | Spor | Klasik | Bot | Sandalet | Krampon',
       },
     },
     {
@@ -64,25 +86,6 @@ export const Products: CollectionConfig = {
       ],
       defaultValue: 'unisex',
       admin: { position: 'sidebar' },
-    },
-    {
-      name: 'description',
-      type: 'textarea',
-      label: 'Ürün Açıklaması',
-    },
-    // ── Görseller ─────────────────────────────────────────────
-    {
-      name: 'images',
-      type: 'array',
-      label: 'Ürün Görselleri',
-      fields: [
-        {
-          name: 'image',
-          type: 'relationship',
-          relationTo: 'media',
-          label: 'Görsel',
-        },
-      ],
     },
     // ── Fiyat ─────────────────────────────────────────────────
     {

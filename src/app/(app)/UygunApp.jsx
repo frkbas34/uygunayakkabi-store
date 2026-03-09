@@ -68,6 +68,18 @@ const STATIC_PRODUCTS = [
 ];
 
 // ============================================
+// CATEGORY DATA (for category cards section)
+// ============================================
+const CAT_DATA = [
+  { name: "Spor",     emoji: "🏃", desc: "Koşu & Fitness",   gradient: "linear-gradient(135deg,#e8f0fe,#c5d6f8)", shoe: shoe("#ddeafe","#1a2a8a","#c8102e","#fff","#fff",-8) },
+  { name: "Günlük",   emoji: "👟", desc: "Her Güne Uygun",   gradient: "linear-gradient(135deg,#f3f0ff,#ddd5fa)", shoe: shoe("#f3f0ff","#2d2d2d","#ffffff","#7c3aed","#ddd",-5) },
+  { name: "Klasik",   emoji: "👞", desc: "Ofis & Şıklık",    gradient: "linear-gradient(135deg,#fdf5e8,#f5e0bc)", shoe: shoe("#fdf5e8","#2a1f16","#5c4033","#c9a97b","#fff",-3) },
+  { name: "Bot",      emoji: "🥾", desc: "Kış & Dağ",        gradient: "linear-gradient(135deg,#f5ede0,#e8d5b8)", shoe: shoe("#f5ede0","#5a3010","#8B6914","#f5d98e","#fff",-4) },
+  { name: "Sandalet", emoji: "🩴", desc: "Yaz Hafifliği",    gradient: "linear-gradient(135deg,#fffbf0,#fef0c4)", shoe: shoe("#fffbf0","#7a6040","#c8a870","#e8c890","#fff",-2) },
+  { name: "Krampon",  emoji: "⚽", desc: "Saha Performansı", gradient: "linear-gradient(135deg,#edfdf3,#bbf7d0)", shoe: shoe("#edfdf3","#145a20","#1e8a2e","#4dcc6a","#fff",-7) },
+];
+
+// ============================================
 // ICONS
 // ============================================
 const I = {
@@ -174,6 +186,71 @@ function Card({ p, onView }) {
           )}
         </div>
       </div>
+    </div>
+  );
+}
+
+// ============================================
+// CATEGORY CARD
+// ============================================
+function CategoryCard({ cat, count, onNav }) {
+  const [h, sH] = useState(false);
+  return (
+    <div
+      onMouseEnter={() => sH(true)}
+      onMouseLeave={() => sH(false)}
+      onClick={() => onNav("catalog", cat.name)}
+      style={{
+        cursor: "pointer",
+        borderRadius: T.r.xl,
+        overflow: "hidden",
+        background: cat.gradient,
+        position: "relative",
+        aspectRatio: "1/1",
+        transition: "transform 0.35s cubic-bezier(.22,1,.36,1), box-shadow 0.35s",
+        transform: h ? "translateY(-6px) scale(1.02)" : "none",
+        boxShadow: h ? "0 20px 48px rgba(0,0,0,0.14)" : "0 2px 8px rgba(0,0,0,0.06)",
+        border: "1px solid rgba(0,0,0,0.05)",
+      }}
+    >
+      {/* Shoe background image */}
+      <img
+        src={cat.shoe}
+        alt={cat.name}
+        style={{
+          position: "absolute",
+          inset: 0,
+          width: "100%",
+          height: "100%",
+          objectFit: "cover",
+          opacity: h ? 0.55 : 0.38,
+          transform: h ? "scale(1.08) rotate(2deg)" : "scale(1) rotate(0deg)",
+          transition: "opacity 0.4s, transform 0.6s cubic-bezier(.22,1,.36,1)",
+        }}
+      />
+      {/* Content overlay */}
+      <div style={{
+        position: "absolute", inset: 0, display: "flex", flexDirection: "column",
+        alignItems: "center", justifyContent: "center", padding: 16,
+      }}>
+        <span style={{ fontSize: 42, marginBottom: 10, filter: "drop-shadow(0 2px 6px rgba(0,0,0,0.1))" }}>{cat.emoji}</span>
+        <p style={{ fontFamily: T.f, fontSize: 16, fontWeight: 700, color: T.bk, marginBottom: 4, textAlign: "center" }}>{cat.name}</p>
+        <p style={{ fontFamily: T.f, fontSize: 11, fontWeight: 500, color: T.g500, textAlign: "center" }}>{cat.desc}</p>
+        {count > 0 && (
+          <span style={{ marginTop: 10, fontFamily: T.f, fontSize: 10, fontWeight: 600, color: T.g400, background: "rgba(0,0,0,0.06)", padding: "3px 10px", borderRadius: T.r.full }}>
+            {count} ürün
+          </span>
+        )}
+      </div>
+      {/* Hover arrow */}
+      <div style={{
+        position: "absolute", bottom: 14, right: 14,
+        width: 28, height: 28, borderRadius: "50%",
+        background: T.bk, color: T.wh,
+        display: "flex", alignItems: "center", justifyContent: "center",
+        opacity: h ? 1 : 0, transition: "opacity 0.25s",
+        fontSize: 12, fontWeight: 700,
+      }}>→</div>
     </div>
   );
 }
@@ -297,6 +374,10 @@ function Foot({ onNav }) {
 // HOME PAGE
 // ============================================
 function Home({ onNav, onView, allProducts }) {
+  const catCounts = CAT_DATA.reduce((acc, c) => {
+    acc[c.name] = allProducts.filter(p => p.category === c.name).length;
+    return acc;
+  }, {});
   const why = [
     { icon: I.truck, title: "Hızlı Kargo", desc: "Siparişleriniz 1-3 iş günü içinde kapınızda." },
     { icon: I.tag, title: "Uygun Fiyat", desc: "Piyasanın altında fiyatlarla geniş marka yelpazesi." },
@@ -370,8 +451,24 @@ function Home({ onNav, onView, allProducts }) {
         <style>{`@media(max-width:1024px){.home-grid{grid-template-columns:repeat(3,1fr)!important}}@media(max-width:640px){.home-grid{grid-template-columns:repeat(2,1fr)!important;gap:12px!important}}`}</style>
       </section>
 
-      {/* WHY US */}
+      {/* CATEGORIES */}
       <section style={{ padding: "64px 24px 80px", background: T.g50 }}>
+        <div style={{ maxWidth: 1280, margin: "0 auto" }}>
+          <div style={{ textAlign: "center", marginBottom: 48 }}>
+            <p style={{ fontFamily: T.f, fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.12em", color: T.ac, marginBottom: 8 }}>Kategoriler</p>
+            <h2 style={{ fontFamily: T.d, fontSize: "clamp(28px, 3vw, 36px)", fontWeight: 700, color: T.bk }}>Ne Arıyorsunuz?</h2>
+          </div>
+          <div className="cat-grid" style={{ display: "grid", gridTemplateColumns: "repeat(6, 1fr)", gap: 16 }}>
+            {CAT_DATA.map(cat => (
+              <CategoryCard key={cat.name} cat={cat} count={catCounts[cat.name] || 0} onNav={onNav} />
+            ))}
+          </div>
+          <style>{`@media(max-width:900px){.cat-grid{grid-template-columns:repeat(3,1fr)!important}}@media(max-width:480px){.cat-grid{grid-template-columns:repeat(2,1fr)!important}}`}</style>
+        </div>
+      </section>
+
+      {/* WHY US */}
+      <section style={{ padding: "64px 24px 80px", background: T.wh }}>
         <div style={{ maxWidth: 1280, margin: "0 auto" }}>
           <div style={{ textAlign: "center", marginBottom: 48 }}>
             <p style={{ fontFamily: T.f, fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.12em", color: T.ac, marginBottom: 8 }}>Neden Biz?</p>
@@ -431,8 +528,8 @@ function Home({ onNav, onView, allProducts }) {
 // ============================================
 const ALL_CATEGORIES = ["Tümü", "Spor", "Günlük", "Bot", "Sandalet", "Krampon", "Klasik"];
 
-function Catalog({ onView, allProducts }) {
-  const [fl, sFl] = useState("Tümü");
+function Catalog({ onView, allProducts, initCat = "Tümü" }) {
+  const [fl, sFl] = useState(initCat);
   const [vis, sVis] = useState(12);
   const flt = fl === "Tümü" ? allProducts : allProducts.filter(p => p.category === fl);
   const shown = flt.slice(0, vis);
@@ -578,6 +675,7 @@ function Detail({ product: p, onBack }) {
 export default function App({ dbProducts = [] }) {
   const [pg, sPg] = useState("home");
   const [sel, sSel] = useState(null);
+  const [initCat, sInitCat] = useState("Tümü");
 
   // Load Google Fonts
   useEffect(() => {
@@ -603,14 +701,22 @@ export default function App({ dbProducts = [] }) {
     return [...dbMapped, ...staticFiltered];
   })();
 
-  const nav = p => { sPg(p); if (p !== "detail") sSel(null); window.scrollTo({ top: 0, behavior: "smooth" }); };
+  // nav(page) — normal navigation
+  // nav(page, cat) — navigate to catalog with a pre-selected category filter
+  const nav = (p, cat) => {
+    if (cat) sInitCat(cat);
+    else if (p === "catalog") sInitCat("Tümü");
+    sPg(p);
+    if (p !== "detail") sSel(null);
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  };
   const view = p => { sSel(p); sPg("detail"); window.scrollTo({ top: 0, behavior: "smooth" }); };
 
   return (
     <div style={{ minHeight: "100vh", background: T.wh }}>
       <Navbar onNav={nav} pg={pg} />
       {pg === "home" && <Home onNav={nav} onView={view} allProducts={allProducts} />}
-      {pg === "catalog" && <Catalog onView={view} allProducts={allProducts} />}
+      {pg === "catalog" && <Catalog key={initCat} initCat={initCat} onView={view} allProducts={allProducts} />}
       {pg === "detail" && sel && <Detail product={sel} onBack={() => nav("catalog")} />}
     </div>
   );

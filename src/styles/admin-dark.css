@@ -1,0 +1,239 @@
+/* ============================================
+   UygunAyakkabı Admin — Dark Mode Theme
+   Forces dark mode as default for admin panel
+   ============================================ */
+
+/* Force dark theme on html/body level */
+html[data-theme="light"],
+html:not([data-theme]) {
+  --theme-elevation-0: #0d1117 !important;
+  --theme-elevation-50: #161b22 !important;
+  --theme-elevation-100: #1c2128 !important;
+  --theme-elevation-150: #21262d !important;
+  --theme-elevation-200: #282e36 !important;
+  --theme-elevation-250: #30363d !important;
+  --theme-elevation-300: #3a424b !important;
+  --theme-elevation-350: #444c56 !important;
+  --theme-elevation-400: #545d68 !important;
+  --theme-elevation-450: #6e7681 !important;
+  --theme-elevation-500: #8b949e !important;
+  --theme-elevation-550: #9da5af !important;
+  --theme-elevation-600: #b1bac4 !important;
+  --theme-elevation-650: #c9d1d9 !important;
+  --theme-elevation-700: #d4dae0 !important;
+  --theme-elevation-750: #e2e6ea !important;
+  --theme-elevation-800: #eceff2 !important;
+  --theme-elevation-850: #f0f3f6 !important;
+  --theme-elevation-900: #f5f7fa !important;
+  --theme-elevation-950: #f8f9fb !important;
+  --theme-elevation-1000: #ffffff !important;
+
+  --theme-bg: #0d1117 !important;
+  --theme-text: #e6edf3 !important;
+  --theme-input-bg: #161b22 !important;
+
+  --theme-success-50: #0a2818 !important;
+  --theme-success-100: #0d3520 !important;
+  --theme-success-500: #3fb950 !important;
+  --theme-success-650: #56d364 !important;
+
+  --theme-error-50: #2d0f12 !important;
+  --theme-error-100: #3d1418 !important;
+  --theme-error-500: #f85149 !important;
+  --theme-error-650: #ff7b72 !important;
+
+  --theme-warning-50: #2a1d08 !important;
+  --theme-warning-100: #3b2810 !important;
+  --theme-warning-500: #d29922 !important;
+  --theme-warning-650: #e3b341 !important;
+
+  color-scheme: dark !important;
+}
+
+/* Override Payload's body background */
+body {
+  background-color: #0d1117 !important;
+  color: #e6edf3 !important;
+}
+
+/* Side nav dark styling */
+.nav,
+nav[class*="nav"] {
+  background-color: #0d1117 !important;
+  border-right-color: #21262d !important;
+}
+
+/* Header / top bar */
+header {
+  background-color: #161b22 !important;
+  border-bottom-color: #21262d !important;
+}
+
+/* Cards and elevated surfaces */
+.card,
+[class*="card"],
+[class*="Cell"],
+[class*="field-type"] {
+  background-color: #161b22 !important;
+  border-color: #30363d !important;
+}
+
+/* Table styling */
+table {
+  background-color: #0d1117 !important;
+}
+
+table tr {
+  border-color: #21262d !important;
+}
+
+table tr:hover {
+  background-color: #161b22 !important;
+}
+
+table th {
+  background-color: #161b22 !important;
+  color: #8b949e !important;
+  border-color: #21262d !important;
+}
+
+table td {
+  border-color: #21262d !important;
+  color: #c9d1d9 !important;
+}
+
+/* Form inputs */
+input, textarea, select {
+  background-color: #161b22 !important;
+  border-color: #30363d !important;
+  color: #e6edf3 !important;
+}
+
+input:focus, textarea:focus, select:focus {
+  border-color: #c8102e !important;
+  box-shadow: 0 0 0 2px rgba(200, 16, 46, 0.2) !important;
+}
+
+/* Buttons */
+.btn--style-primary,
+button[class*="primary"] {
+  background-color: #c8102e !important;
+  color: white !important;
+}
+
+.btn--style-primary:hover,
+button[class*="primary"]:hover {
+  background-color: #a50d26 !important;
+}
+
+/* Scrollbar styling for dark mode */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: #0d1117;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #30363d;
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #444c56;
+}
+
+/* Sidebar active link */
+a[class*="active"],
+[class*="nav__link--active"] {
+  background-color: rgba(200, 16, 46, 0.15) !important;
+  color: #ff6b7a !important;
+}
+
+/* Upload / dropzone */
+[class*="dropzone"],
+[class*="upload"] {
+  background-color: #161b22 !important;
+  border-color: #30363d !important;
+}
+
+/* Modal / drawer backgrounds */
+[class*="modal"],
+[class*="drawer"],
+[class*="Modal"],
+[class*="Drawer"] {
+  background-color: #161b22 !important;
+}
+
+/* Code blocks */
+pre, code {
+  background-color: #161b22 !important;
+  color: #e6edf3 !important;
+}
+
+/* Labels and descriptions */
+label {
+  color: #c9d1d9 !important;
+}
+
+[class*="description"],
+[class*="fieldDescription"] {
+  color: #8b949e !important;
+}
+
+/* Pill / Badge / Tag */
+[class*="pill"],
+[class*="badge"],
+[class*="tag"] {
+  background-color: #21262d !important;
+  color: #c9d1d9 !important;
+  border-color: #30363d !important;
+}
+
+/* Status indicators */
+[class*="status--published"],
+[class*="status--active"] {
+  color: #3fb950 !important;
+}
+
+/* Search */
+[class*="search"] input {
+  background-color: #0d1117 !important;
+  border-color: #30363d !important;
+}
+
+/* Richtext / Lexical editor */
+[class*="lexical"],
+[class*="richText"],
+.ContentEditable__root {
+  background-color: #161b22 !important;
+  color: #e6edf3 !important;
+}
+
+/* Breadcrumbs */
+[class*="step-nav"],
+[class*="breadcrumb"] {
+  color: #8b949e !important;
+}
+
+[class*="step-nav"] a,
+[class*="breadcrumb"] a {
+  color: #c9d1d9 !important;
+}
+
+/* Tooltip */
+[class*="tooltip"] {
+  background-color: #21262d !important;
+  color: #e6edf3 !important;
+  border-color: #30363d !important;
+}
+
+/* Group labels */
+[class*="group-label"],
+[class*="nav-group__label"] {
+  color: #8b949e !important;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}

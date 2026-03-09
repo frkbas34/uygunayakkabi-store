@@ -64,7 +64,10 @@ export default async function ProductPage({ params }: Props) {
   const images = (product.images ?? [])
     .map((img) => {
       const mediaDoc = img.image as MediaDoc
-      return mediaDoc?.url ?? null
+      // Try url field first, then construct from filename
+      if (mediaDoc?.url) return mediaDoc.url
+      if ((mediaDoc as any)?.filename) return `/media/${(mediaDoc as any).filename}`
+      return null
     })
     .filter(Boolean) as string[]
 

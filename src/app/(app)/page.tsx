@@ -25,10 +25,27 @@ function getMediaUrl(images: any[]) {
   if (!images || images.length === 0) return null;
   const first = images[0]?.image;
   if (!first) return null;
-  if (typeof first === 'object' && first.filename) {
-    return `/media/${first.filename}`;
+  if (typeof first === 'object') {
+    // Payload CMS stores the url field on media documents
+    if (first.url) return first.url;
+    // Fallback: construct from filename (files in public/media/)
+    if (first.filename) return `/media/${first.filename}`;
   }
   return null;
+}
+
+// Extract ALL media URLs from a product's images array
+function getAllMediaUrls(images: any[]): string[] {
+  if (!images || images.length === 0) return [];
+  return images
+    .map((entry: any) => {
+      const img = entry?.image;
+      if (!img || typeof img !== 'object') return null;
+      if (img.url) return img.url;
+      if (img.filename) return `/media/${img.filename}`;
+      return null;
+    })
+    .filter(Boolean) as string[];
 }
 
 // Map from stored category value → display label
@@ -56,9 +73,9 @@ export default async function Page() {
 
     dbProducts = result.docs.map((p: any) => {
       const shoeImg = getShoeImage(p.category || 'gunluk');
-      const mediaUrl = getMediaUrl(p.images || []);
-      const imgSrc = mediaUrl || shoeImg;
-      const img2 = shoeImg; // İkinci görsel her zaman SVG
+      const mediaUrls = getAllMediaUrls(p.images || []);
+      const imgSrc = mediaUrls[0] || shoeImg;
+      const img2 = mediaUrls[1] || shoeImg;
 
       // Varyantlardan beden ve stok
       const variants = Array.isArray(p.variants) ? p.variants : [];
@@ -84,7 +101,8 @@ export default async function Page() {
         price: Number(p.price) || 0,
         originalPrice: p.originalPrice ? Number(p.originalPrice) : null,
         description: p.description || `${p.title} — uygun fiyatlı ayakkabı`,
-        images: [imgSrc, img2],
+        images: mediaUrls.length > 0 ? [...mediaUrls, shoeImg] : [imgSrc, img2],
+        dbImage: mediaUrls[0] || null,
         sizes: sizes.length > 0 ? sizes : [38, 39, 40, 41, 42, 43],
         stock: totalStock || 5,
         category: CATEGORY_LABELS[p.category] || p.category || 'Günlük',

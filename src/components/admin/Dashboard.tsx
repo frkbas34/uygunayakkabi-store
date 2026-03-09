@@ -3,7 +3,31 @@
 import React from 'react'
 import Link from 'next/link'
 
-// ── Quick-access card ────────────────────────────────────────────────────────
+// ── Colors ──────────────────────────────────────────────────────────────
+const C = {
+  bg: '#0d1117',
+  card: '#161b22',
+  border: '#21262d',
+  borderLight: '#30363d',
+  text: '#e6edf3',
+  textMuted: '#8b949e',
+  textDim: '#6e7681',
+  accent: '#c8102e',
+  accentHover: '#a50d26',
+  accentSoft: 'rgba(200, 16, 46, 0.15)',
+  green: '#3fb950',
+  greenSoft: 'rgba(63, 185, 80, 0.12)',
+  blue: '#58a6ff',
+  blueSoft: 'rgba(88, 166, 255, 0.12)',
+  orange: '#d29922',
+  orangeSoft: 'rgba(210, 153, 34, 0.12)',
+  purple: '#bc8cff',
+  purpleSoft: 'rgba(188, 140, 255, 0.12)',
+  pink: '#f778ba',
+  pinkSoft: 'rgba(247, 120, 186, 0.12)',
+}
+
+// ── Quick-access card ─────────────────────────────────────────────────
 function QuickCard({
   href,
   icon,
@@ -18,41 +42,59 @@ function QuickCard({
   color: string
 }) {
   return (
-    <Link href={href}>
+    <Link href={href} style={{ textDecoration: 'none' }}>
       <div
         style={{
-          background: color,
-          borderRadius: 16,
-          padding: '20px 24px',
+          background: C.card,
+          border: `1px solid ${C.border}`,
+          borderRadius: 14,
+          padding: '18px 20px',
           display: 'flex',
           alignItems: 'center',
-          gap: 16,
+          gap: 14,
           cursor: 'pointer',
-          transition: 'transform 0.15s, box-shadow 0.15s',
-          boxShadow: '0 2px 12px rgba(0,0,0,0.08)',
-          textDecoration: 'none',
-          color: 'inherit',
+          transition: 'all 0.2s ease',
+          position: 'relative',
+          overflow: 'hidden',
         }}
         onMouseEnter={(e) => {
-          ;(e.currentTarget as HTMLDivElement).style.transform = 'translateY(-2px)'
-          ;(e.currentTarget as HTMLDivElement).style.boxShadow = '0 8px 24px rgba(0,0,0,0.13)'
+          const el = e.currentTarget as HTMLDivElement
+          el.style.transform = 'translateY(-3px)'
+          el.style.boxShadow = '0 8px 24px rgba(0,0,0,0.3)'
+          el.style.borderColor = C.borderLight
         }}
         onMouseLeave={(e) => {
-          ;(e.currentTarget as HTMLDivElement).style.transform = 'translateY(0)'
-          ;(e.currentTarget as HTMLDivElement).style.boxShadow = '0 2px 12px rgba(0,0,0,0.08)'
+          const el = e.currentTarget as HTMLDivElement
+          el.style.transform = 'translateY(0)'
+          el.style.boxShadow = 'none'
+          el.style.borderColor = C.border
         }}
       >
-        <span style={{ fontSize: 32 }}>{icon}</span>
+        <div
+          style={{
+            width: 44,
+            height: 44,
+            borderRadius: 12,
+            background: color,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            fontSize: 22,
+            flexShrink: 0,
+          }}
+        >
+          {icon}
+        </div>
         <div>
-          <div style={{ fontWeight: 700, fontSize: 15, color: '#1a1a1a' }}>{title}</div>
-          <div style={{ fontSize: 12, color: '#666', marginTop: 2 }}>{subtitle}</div>
+          <div style={{ fontWeight: 700, fontSize: 14, color: C.text }}>{title}</div>
+          <div style={{ fontSize: 12, color: C.textMuted, marginTop: 2 }}>{subtitle}</div>
         </div>
       </div>
     </Link>
   )
 }
 
-// ── Step card ────────────────────────────────────────────────────────────────
+// ── Step card ─────────────────────────────────────────────────────────
 function StepCard({
   num,
   title,
@@ -65,9 +107,10 @@ function StepCard({
   return (
     <div
       style={{
-        background: '#f8f9fa',
+        background: C.bg,
+        border: `1px solid ${C.border}`,
         borderRadius: 12,
-        padding: '16px 20px',
+        padding: '16px 18px',
         display: 'flex',
         gap: 14,
         alignItems: 'flex-start',
@@ -75,175 +118,300 @@ function StepCard({
     >
       <div
         style={{
-          minWidth: 32,
-          height: 32,
-          background: '#c8102e',
+          minWidth: 30,
+          height: 30,
+          background: C.accent,
           borderRadius: 8,
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
           color: 'white',
-          fontWeight: 700,
-          fontSize: 14,
+          fontWeight: 800,
+          fontSize: 13,
+          flexShrink: 0,
         }}
       >
         {num}
       </div>
       <div>
-        <div style={{ fontWeight: 600, fontSize: 14, color: '#1a1a1a' }}>{title}</div>
-        <div style={{ fontSize: 12, color: '#666', marginTop: 3, lineHeight: 1.5 }}>{desc}</div>
+        <div style={{ fontWeight: 600, fontSize: 13, color: C.text }}>{title}</div>
+        <div style={{ fontSize: 11.5, color: C.textMuted, marginTop: 3, lineHeight: 1.6 }}>
+          {desc}
+        </div>
       </div>
     </div>
   )
 }
 
-// ── Main Dashboard ───────────────────────────────────────────────────────────
+// ── Stat card ─────────────────────────────────────────────────────────
+function StatCard({
+  icon,
+  label,
+  value,
+  color,
+  bgColor,
+}: {
+  icon: string
+  label: string
+  value: string
+  color: string
+  bgColor: string
+}) {
+  return (
+    <div
+      style={{
+        background: C.card,
+        border: `1px solid ${C.border}`,
+        borderRadius: 14,
+        padding: '20px',
+        display: 'flex',
+        alignItems: 'center',
+        gap: 14,
+      }}
+    >
+      <div
+        style={{
+          width: 42,
+          height: 42,
+          borderRadius: 10,
+          background: bgColor,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          fontSize: 20,
+          flexShrink: 0,
+        }}
+      >
+        {icon}
+      </div>
+      <div>
+        <div style={{ fontSize: 22, fontWeight: 800, color }}>{value}</div>
+        <div style={{ fontSize: 11, color: C.textMuted, fontWeight: 500 }}>{label}</div>
+      </div>
+    </div>
+  )
+}
+
+// ── Main Dashboard ───────────────────────────────────────────────────
 export default function Dashboard() {
   const quickLinks = [
     {
       href: '/admin/collections/products/create',
       icon: '👟',
-      title: 'Yeni Ürün Ekle',
-      subtitle: 'Hızlıca yeni ayakkabı ekle',
-      color: '#fff0f2',
+      title: 'Yeni Urun Ekle',
+      subtitle: 'Hizlica yeni ayakkabi ekle',
+      color: C.accentSoft,
     },
     {
       href: '/admin/collections/products',
       icon: '📦',
-      title: 'Ürünleri Yönet',
-      subtitle: 'Tüm ürünleri görüntüle ve düzenle',
-      color: '#f0f4ff',
+      title: 'Urunleri Yonet',
+      subtitle: 'Tum urunleri goruntule',
+      color: C.blueSoft,
     },
     {
       href: '/admin/collections/media',
       icon: '🖼️',
-      title: 'Medya Kütüphanesi',
-      subtitle: 'Görselleri yükle ve yönet',
-      color: '#f0faf5',
+      title: 'Medya Kutuphanesi',
+      subtitle: 'Gorselleri yukle ve yonet',
+      color: C.greenSoft,
     },
     {
       href: '/admin/collections/orders',
       icon: '🛒',
-      title: 'Siparişler',
-      subtitle: 'Gelen siparişleri takip et',
-      color: '#fff8f0',
+      title: 'Siparisler',
+      subtitle: 'Gelen siparisleri takip et',
+      color: C.orangeSoft,
     },
     {
       href: '/admin/collections/brands',
       icon: '🏷️',
       title: 'Markalar',
-      subtitle: 'Marka listesini güncelle',
-      color: '#f5f0ff',
+      subtitle: 'Marka listesini guncelle',
+      color: C.purpleSoft,
     },
     {
       href: '/admin/collections/categories',
       icon: '📂',
       title: 'Kategoriler',
-      subtitle: 'Kategori yönetimi',
-      color: '#f0f9ff',
+      subtitle: 'Kategori yonetimi',
+      color: C.pinkSoft,
     },
     {
       href: '/admin/collections/variants',
       icon: '📐',
-      title: 'Beden Varyantları',
-      subtitle: 'Stok ve beden yönetimi',
-      color: '#fffff0',
+      title: 'Beden Varyantlari',
+      subtitle: 'Stok ve beden yonetimi',
+      color: C.orangeSoft,
     },
     {
       href: '/admin/collections/customer-inquiries',
       icon: '📞',
-      title: 'Müşteri Talepleri',
-      subtitle: 'Geri arama formlarını gör',
-      color: '#f0fff4',
+      title: 'Musteri Talepleri',
+      subtitle: 'Geri arama formlarini gor',
+      color: C.greenSoft,
     },
   ]
 
   const steps = [
     {
       num: '1',
-      title: 'Görseli Yükle',
-      desc: 'Medya Kütüphanesi → Yeni görsel yükle. Ürün fotoğrafları /public/media klasörüne kaydedilir.',
+      title: 'Gorseli Yukle',
+      desc: 'Medya Kutuphanesi → Yeni gorsel yukle. Urun fotograflari /public/media klasorune kaydedilir.',
     },
     {
       num: '2',
-      title: 'Ürün Oluştur',
-      desc: 'Ürünler → Yeni Ekle. Başlık, fiyat, kategori, marka ve beden bilgilerini gir.',
+      title: 'Urun Olustur',
+      desc: 'Urunler → Yeni Ekle. Baslik, fiyat, kategori, marka ve beden bilgilerini gir.',
     },
     {
       num: '3',
-      title: 'Görseli Ürüne Bağla',
-      desc: 'Ürün düzenleme sayfasında "Ürün Görselleri" alanına yüklediğin görseli seç.',
+      title: 'Gorseli Urune Bagla',
+      desc: 'Urun duzenleme sayfasinda "Urun Gorselleri" alanina yukleyecegin gorseli sec.',
     },
     {
       num: '4',
-      title: 'Yayınla',
-      desc: 'Durumu "Aktif" olarak ayarla ve kaydet. Ürün sitede anında görünür.',
+      title: 'Yayinla',
+      desc: 'Durumu "Aktif" olarak ayarla ve kaydet. Urun sitede aninda gorunur.',
     },
   ]
 
   return (
-    <div style={{ padding: '32px 0', maxWidth: 900 }}>
-      {/* Header */}
+    <div style={{ padding: '32px 0', maxWidth: 920, color: C.text }}>
+      {/* ── Header Banner ──────────────────────────────────────────── */}
       <div
         style={{
-          background: 'linear-gradient(135deg, #c8102e 0%, #a50d26 100%)',
+          background: `linear-gradient(135deg, ${C.accent} 0%, #7a0a1b 50%, #0d1117 100%)`,
           borderRadius: 20,
-          padding: '32px 36px',
-          marginBottom: 32,
+          padding: '36px 40px',
+          marginBottom: 28,
           position: 'relative',
           overflow: 'hidden',
+          border: `1px solid ${C.border}`,
         }}
       >
+        {/* Decorative circles */}
         <div
           style={{
             position: 'absolute',
-            top: -40,
-            right: -40,
-            width: 200,
-            height: 200,
-            background: 'rgba(255,255,255,0.06)',
+            top: -50,
+            right: -50,
+            width: 220,
+            height: 220,
+            background: 'rgba(255,255,255,0.04)',
+            borderRadius: '50%',
+          }}
+        />
+        <div
+          style={{
+            position: 'absolute',
+            bottom: -30,
+            right: 80,
+            width: 120,
+            height: 120,
+            background: 'rgba(255,255,255,0.03)',
             borderRadius: '50%',
           }}
         />
         <div style={{ position: 'relative' }}>
-          <div style={{ fontSize: 28, fontWeight: 800, color: 'white', marginBottom: 6 }}>
-            👋 Hoş Geldiniz — UygunAyakkabı Admin
+          <div
+            style={{
+              fontSize: 30,
+              fontWeight: 800,
+              color: 'white',
+              marginBottom: 8,
+              letterSpacing: '-0.3px',
+            }}
+          >
+            UygunAyakkabi Admin
           </div>
-          <div style={{ fontSize: 14, color: 'rgba(255,255,255,0.75)', lineHeight: 1.6, maxWidth: 520 }}>
-            Ürün yönetimi, görsel yükleme, marka ve kategori düzenlemesi, sipariş takibi — hepsi bu panelden.
+          <div
+            style={{
+              fontSize: 14,
+              color: 'rgba(255,255,255,0.65)',
+              lineHeight: 1.7,
+              maxWidth: 520,
+            }}
+          >
+            Urun yonetimi, gorsel yukleme, marka ve kategori duzenlemesi, siparis takibi — hepsi bu
+            panelden.
           </div>
-          <div style={{ marginTop: 16, display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-            <Link href="/" target="_blank">
+          <div style={{ marginTop: 20, display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+            <Link href="/" target="_blank" style={{ textDecoration: 'none' }}>
               <span
                 style={{
-                  background: 'rgba(255,255,255,0.15)',
+                  background: 'rgba(255,255,255,0.12)',
                   color: 'white',
-                  padding: '8px 16px',
-                  borderRadius: 20,
+                  padding: '10px 20px',
+                  borderRadius: 24,
                   fontSize: 12,
-                  fontWeight: 600,
+                  fontWeight: 700,
                   cursor: 'pointer',
                   textDecoration: 'none',
-                  border: '1px solid rgba(255,255,255,0.25)',
+                  border: '1px solid rgba(255,255,255,0.18)',
+                  display: 'inline-block',
+                  transition: 'all 0.15s',
                 }}
               >
-                🌐 Siteyi Gör →
+                🌐 Siteyi Gor →
+              </span>
+            </Link>
+            <Link href="/admin/collections/products/create" style={{ textDecoration: 'none' }}>
+              <span
+                style={{
+                  background: 'white',
+                  color: C.accent,
+                  padding: '10px 20px',
+                  borderRadius: 24,
+                  fontSize: 12,
+                  fontWeight: 700,
+                  cursor: 'pointer',
+                  textDecoration: 'none',
+                  display: 'inline-block',
+                  transition: 'all 0.15s',
+                }}
+              >
+                + Yeni Urun Ekle
               </span>
             </Link>
           </div>
         </div>
       </div>
 
-      {/* Quick links */}
-      <div style={{ marginBottom: 32 }}>
-        <div style={{ fontSize: 13, fontWeight: 700, color: '#666', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 14 }}>
-          Hızlı Erişim
+      {/* ── Stats Overview ─────────────────────────────────────────── */}
+      <div
+        style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))',
+          gap: 12,
+          marginBottom: 28,
+        }}
+      >
+        <StatCard icon="👟" label="Urunler" value="—" color={C.accent} bgColor={C.accentSoft} />
+        <StatCard icon="📦" label="Siparisler" value="—" color={C.blue} bgColor={C.blueSoft} />
+        <StatCard icon="🖼️" label="Gorseller" value="—" color={C.green} bgColor={C.greenSoft} />
+        <StatCard icon="📞" label="Talepler" value="—" color={C.orange} bgColor={C.orangeSoft} />
+      </div>
+
+      {/* ── Quick links ────────────────────────────────────────────── */}
+      <div style={{ marginBottom: 28 }}>
+        <div
+          style={{
+            fontSize: 12,
+            fontWeight: 700,
+            color: C.textMuted,
+            textTransform: 'uppercase',
+            letterSpacing: 1.2,
+            marginBottom: 14,
+          }}
+        >
+          Hizli Erisim
         </div>
         <div
           style={{
             display: 'grid',
             gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))',
-            gap: 12,
+            gap: 10,
           }}
         >
           {quickLinks.map((ql) => (
@@ -252,51 +420,84 @@ export default function Dashboard() {
         </div>
       </div>
 
-      {/* How to add a product with image */}
+      {/* ── How to add a product ───────────────────────────────────── */}
       <div
         style={{
-          background: '#ffffff',
-          border: '1px solid #ebebeb',
+          background: C.card,
+          border: `1px solid ${C.border}`,
           borderRadius: 16,
           padding: '24px 28px',
-          marginBottom: 24,
+          marginBottom: 20,
         }}
       >
-        <div style={{ fontSize: 16, fontWeight: 700, color: '#1a1a1a', marginBottom: 4 }}>
-          📸 Ürüne Görsel Nasıl Eklenir?
+        <div style={{ fontSize: 16, fontWeight: 700, color: C.text, marginBottom: 4 }}>
+          📸 Urune Gorsel Nasil Eklenir?
         </div>
-        <div style={{ fontSize: 12, color: '#888', marginBottom: 20 }}>
-          Adım adım kılavuz
+        <div style={{ fontSize: 12, color: C.textDim, marginBottom: 18 }}>
+          Adim adim kilavuz
         </div>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: 10 }}>
+        <div
+          style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))',
+            gap: 10,
+          }}
+        >
           {steps.map((s) => (
             <StepCard key={s.num} {...s} />
           ))}
         </div>
       </div>
 
-      {/* Brand reminder */}
-      <div
-        style={{
-          background: '#fffaf0',
-          border: '1px solid #fde68a',
-          borderRadius: 12,
-          padding: '16px 20px',
-          display: 'flex',
-          gap: 12,
-          alignItems: 'flex-start',
-        }}
-      >
-        <span style={{ fontSize: 20 }}>💡</span>
-        <div>
-          <div style={{ fontWeight: 600, fontSize: 13, color: '#92400e', marginBottom: 4 }}>
-            Marka ve Kategori İpucu
+      {/* ── Tips section ───────────────────────────────────────────── */}
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+        {/* Brand / Category tip */}
+        <div
+          style={{
+            background: C.card,
+            border: `1px solid ${C.border}`,
+            borderRadius: 14,
+            padding: '18px 20px',
+            display: 'flex',
+            gap: 12,
+            alignItems: 'flex-start',
+          }}
+        >
+          <span style={{ fontSize: 20 }}>💡</span>
+          <div>
+            <div style={{ fontWeight: 700, fontSize: 13, color: C.orange, marginBottom: 6 }}>
+              Marka & Kategori
+            </div>
+            <div style={{ fontSize: 12, color: C.textMuted, lineHeight: 1.7 }}>
+              Urun eklerken <strong style={{ color: C.text }}>Marka</strong> alanina Nike, Adidas,
+              Puma gibi isimler, <strong style={{ color: C.text }}>Kategori</strong> alanina Gunluk /
+              Klasik / Spor / Bot / Sandalet / Krampon degerlerinden birini yazin.
+            </div>
           </div>
-          <div style={{ fontSize: 12, color: '#78350f', lineHeight: 1.6 }}>
-            Ürün eklerken Marka alanına Nike, Adidas, Puma, New Balance gibi marka adını,
-            Kategori alanına Günlük / Klasik / Spor / Bot / Sandalet / Krampon değerlerinden
-            birini yazmanız önerilir. Bu sayede sitedeki filtreleme ve kategori gösterimi
-            doğru çalışır. Markalar ve Kategoriler koleksiyonlarından tüm listeyi yönetebilirsiniz.
+        </div>
+
+        {/* Image tip */}
+        <div
+          style={{
+            background: C.card,
+            border: `1px solid ${C.border}`,
+            borderRadius: 14,
+            padding: '18px 20px',
+            display: 'flex',
+            gap: 12,
+            alignItems: 'flex-start',
+          }}
+        >
+          <span style={{ fontSize: 20 }}>🖼️</span>
+          <div>
+            <div style={{ fontWeight: 700, fontSize: 13, color: C.green, marginBottom: 6 }}>
+              Gorsel Ipucu
+            </div>
+            <div style={{ fontSize: 12, color: C.textMuted, lineHeight: 1.7 }}>
+              Ilk yukleyeceginiz gorsel <strong style={{ color: C.text }}>kapak fotografi</strong>{' '}
+              olarak kullanilir. En fazla 8 gorsel ekleyebilirsiniz. Kare (1:1) gorseller en iyi
+              gorunur.
+            </div>
           </div>
         </div>
       </div>

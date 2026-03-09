@@ -8,6 +8,8 @@ import React from 'react'
 
 // Required: Payload admin panel styles
 import '@payloadcms/next/css'
+// Custom dark mode theme
+import '@/styles/admin-dark.css'
 
 import { importMap } from './importMap'
 

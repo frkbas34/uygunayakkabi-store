@@ -1,7 +1,6 @@
 'use client'
 
 import { useState } from 'react'
-import Image from 'next/image'
 
 type Props = {
   images: string[]
@@ -22,13 +21,17 @@ export function ProductImages({ images, title }: Props) {
   return (
     <div>
       <div className="relative aspect-square bg-gray-100 rounded-2xl overflow-hidden mb-4">
-        <Image
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
           src={images[activeIndex]}
           alt={title}
-          fill
-          className="object-cover"
-          sizes="(max-width: 1024px) 100vw, 50vw"
-          priority
+          style={{
+            position: 'absolute',
+            inset: 0,
+            width: '100%',
+            height: '100%',
+            objectFit: 'cover',
+          }}
         />
       </div>
       {images.length > 1 && (
@@ -41,12 +44,17 @@ export function ProductImages({ images, title }: Props) {
                 idx === activeIndex ? 'border-brand-500' : 'border-transparent'
               }`}
             >
-              <Image
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
                 src={img}
                 alt={`${title} - ${idx + 1}`}
-                fill
-                className="object-cover"
-                sizes="80px"
+                style={{
+                  position: 'absolute',
+                  inset: 0,
+                  width: '100%',
+                  height: '100%',
+                  objectFit: 'cover',
+                }}
               />
             </button>
           ))}

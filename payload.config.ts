@@ -1,6 +1,7 @@
 import { buildConfig } from "payload";
 import { postgresAdapter } from "@payloadcms/db-postgres";
 import { lexicalEditor } from "@payloadcms/richtext-lexical";
+import { tr } from "@payloadcms/translations/languages/tr";
 import sharp from "sharp";
 import path from "path";
 import { fileURLToPath } from "url";
@@ -19,6 +20,10 @@ const filename = fileURLToPath(import.meta.url);
 const dirname = path.dirname(filename);
 
 export default buildConfig({
+  i18n: {
+    supportedLanguages: { tr },
+    fallbackLanguage: "tr",
+  },
   admin: {
     user: "users",
     meta: {

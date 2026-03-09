@@ -9,6 +9,7 @@ const CATEGORY_COLORS: Record<string, [string, string, string, string, string]> 
   bot:      ['#ede0d0', '#2a1400', '#5a3010', '#8a5430', '#d4a06a'],
   sandalet: ['#fdfaf2', '#7a6040', '#c8a870', '#e8c890', '#f5e8c0'],
   krampon:  ['#f0fff4', '#145a20', '#1e8a2e', '#4dcc6a', '#b8f5c4'],
+  cuzdan:   ['#f5f0eb', '#5c3a1e', '#8b6914', '#c9a97b', '#d4a76a'],
 };
 
 function makeSvgShoe(bg: string, sole: string, body: string, acc: string, lace: string) {
@@ -53,9 +54,11 @@ function getAllMediaUrls(images: any[]): string[] {
 const CATEGORY_LABELS: Record<string, string> = {
   gunluk: 'Günlük', klasik: 'Klasik', spor: 'Spor',
   bot: 'Bot', sandalet: 'Sandalet', krampon: 'Krampon',
+  cuzdan: 'Cüzdan',
   // Pass-through for values already in display form
   'Günlük': 'Günlük', 'Klasik': 'Klasik', 'Spor': 'Spor',
   'Bot': 'Bot', 'Sandalet': 'Sandalet', 'Krampon': 'Krampon',
+  'Cüzdan': 'Cüzdan',
 };
 
 export default async function Page() {

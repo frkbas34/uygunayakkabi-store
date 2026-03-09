@@ -2,37 +2,51 @@
 
 ## PHASE 1 — Core Admin System + Storefront Stabilization
 
-### ✅ Completed
-- [x] Fix `UygunApp.jsx` helper ordering issue
-- [x] Fix Payload importMap — all required components registered
+### ✅ Completed (Implementation)
+- [x] Fix Payload importMap — all required components registered manually
 - [x] Fix admin panel CSS
-- [x] Fix media upload path
-- [x] Fix DB schema mismatch
-- [x] Clear `.next` cache and reset payload_migrations
-- [x] Collection field types aligned to DB column types
-- [x] Rewrite `page.tsx` as Server Component
-- [x] Update `App`, `HomePage`, `CatalogPage` to use `allProducts` prop
-- [x] Add `Orders` collection, `Krampon` category
-- [x] **Resolve merge conflicts** (copilot/setup-product-publishing-system branch)
-- [x] **New Brands collection** (src/collections/Brands.ts)
-- [x] **New Categories collection** (src/collections/Categories.ts)
-- [x] **Admin Dashboard component** (quick links, image guide, brand tips)
-- [x] **Site UI overhaul** — logo, WhatsApp number, remove obsolete text, category images, product count → 37
-- [x] **WhatsApp Order Guide** replaces old CTABanner
-- [x] Products: gender select field added; brand/category descriptions improved
+- [x] Fix media upload path (staticDir + staticURL)
+- [x] Fix DB schema mismatch (field types aligned to varchar columns)
+- [x] Rewrite page.tsx as Server Component (products, settings, banners)
+- [x] All collections: Products, Variants, Brands, Categories, Media, Users, CustomerInquiries, InventoryLogs, Orders, Banners
+- [x] SiteSettings global (contact, shipping, trust badges, announcement bar)
+- [x] Admin dark mode (GitHub-inspired CSS overrides)
+- [x] Turkish language configured as default
+- [x] Admin Dashboard with live stats from Payload API
+- [x] 39 static products across 8 categories (Spor, Günlük, Bot, Sandalet, Krampon, Klasik, Cüzdan)
+- [x] Real product images (5 Unsplash shoe photos + 3 wallet photos)
+- [x] SVG fallback generators (shoe + wallet)
+- [x] Product detail page with multi-image gallery, size selector, stock indicator
+- [x] Catalog page with 8-category filter + "Daha Fazla Göster" pagination
+- [x] AnnouncementBar (dynamic from SiteSettings)
+- [x] Promo banner section (dynamic from Banners collection)
+- [x] Trust badges (dynamic from SiteSettings)
+- [x] WhatsApp links throughout site (dynamic from SiteSettings contact)
+- [x] Footer with dynamic contact info
+- [x] WhatsApp Order Guide (4-step CTA)
+- [x] BuyForm modal with WhatsApp shortcut
+- [x] Orders collection: paymentMethod, isPaid, shippingCompany, deliveredAt
+- [x] Products collection: color, material, draft status
+- [x] Connect SiteSettings & Banners to frontend dynamically
 
-### 🔲 Pending Validation
-- [ ] Restart server — confirm `push: true` runs cleanly (new Brands + Categories tables will be created)
-- [ ] Confirm admin panel loads at /admin — Dashboard visible
-- [ ] Confirm Products, Brands, Categories collections render correctly
-- [ ] Confirm Media upload works (file saved to public/media)
-- [ ] Create a test product via admin with image → confirm appears on storefront
-- [ ] Confirm Brands and Categories collections accept new entries
-- [ ] Confirm no DB errors in terminal on startup
-- [ ] Push to GitHub: `git push origin main` (run from local machine)
+### 🔲 Pending Validation (user must perform)
+- [ ] Push to GitHub: `git push origin main`
+- [ ] Clear .next cache: `Remove-Item -Recurse -Force .next`
+- [ ] Run: `npm install && npm run dev`
+- [ ] Confirm server starts without schema push errors
+- [ ] Confirm admin panel loads at /admin (dark mode, Turkish)
+- [ ] Confirm Dashboard shows live stats
+- [ ] Confirm all collections visible in admin sidebar
+- [ ] Upload a test image via Media collection → confirm file saved to public/media/
+- [ ] Create a test product via admin with uploaded image → confirm appears on storefront
+- [ ] Populate SiteSettings global → confirm changes reflected on storefront
+- [ ] Create a test Banner → confirm promo section updates on homepage
 
-### 🔲 Phase Gate
-- [ ] All validation items above checked → Phase 1 complete → unlock Phase 2
+### 🔲 Phase 1 Gate
+- [ ] All validation items above checked
+- [ ] No runtime errors in console
+- [ ] End-to-end admin → storefront flow confirmed
+- [ ] → Phase 1 complete → unlock Phase 2
 
 ---
 
@@ -46,7 +60,7 @@
 - [ ] Test Telegram bot integration end-to-end (photo → product)
 - [ ] Design n8n workflow architecture
 - [ ] Define AI image processing step (background removal / enhancement)
-- [ ] Define product ingestion mapping (caption format → CMS fields)
+- [ ] Define product ingestion mapping (Telegram caption → CMS fields)
 - [ ] Define Instagram publishing flow
 - [ ] Define Shopier-compatible publishing logic
 

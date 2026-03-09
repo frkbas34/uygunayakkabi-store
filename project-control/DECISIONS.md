@@ -312,10 +312,14 @@ ACTIVE
 ## D-023 — Existing Enum Values Cannot Be Changed Without Migration
 **Decision:** Do not add or remove values from existing select fields in-place via push.
 **Current safe enum values:**
-- enum_products_status: active, soldout
+- enum_products_status: active, soldout, **draft** (added 2026-03-09)
 - enum_customer_inquiries_status: new, contacted, completed
 - enum_inventory_logs_source: telegram, admin, system
 - enum_media_type: original, enhanced
+- enum_orders_payment_method: card_on_delivery, cash_on_delivery, bank_transfer, online (NEW)
+- enum_orders_shipping_company: yurtici, aras, mng, ptt, surat, trendyol, other (NEW)
+- enum_banners_type: discount, announcement, new_season, free_shipping, flash_sale (NEW)
+- enum_banners_placement: top_bar, hero, catalog_top, popup (NEW)
 **Status:** ACTIVE — LOCKED CONSTRAINT
 
 ---
@@ -324,3 +328,54 @@ ACTIVE
 **Decision:** If Drizzle push tries to apply schema changes that contradict current collection definitions, the .next build cache is likely stale.
 **Resolution:** Delete .next folder → restart server → push re-derives schema from fresh compiled code.
 **Status:** ACTIVE — Known operational procedure
+
+---
+
+## D-025 — Use `<img>` Tags Instead of next/image for Product Images
+**Decision:** The storefront uses plain `<img>` tags rather than Next.js `Image` component for product images.
+**Reason:** `next/image` enforces `remotePatterns` validation that blocks dynamically-sourced images (admin uploads, Unsplash URLs from DB). Plain `<img>` tags avoid this while still working correctly.
+**Scope:** ProductImages.tsx, UygunApp.jsx (Card, Detail, Hero components)
+**Status:** ACTIVE
+
+---
+
+## D-026 — SiteSettings Global as Single Source of Frontend Config
+**Decision:** All site-wide configuration values displayed on the storefront (contact info, shipping thresholds, trust badges, announcement bar) are sourced from the SiteSettings Payload global.
+**Fallback:** `DEFAULT_SETTINGS` object in UygunApp.jsx provides hardcoded defaults when the global hasn't been populated yet.
+**Data flow:** page.tsx (Server Component) → fetches global → passes as prop → UygunApp.jsx uses values
+**Status:** ACTIVE
+
+---
+
+## D-027 — Banners Collection for Dynamic Promotional Content
+**Decision:** Campaign banners and promotions are managed through a Banners collection (not hardcoded in frontend code).
+**Mechanism:** page.tsx fetches active banners → passes to UygunApp → promo banner section renders first matching banner (hero placement or discount type).
+**Status:** ACTIVE
+
+---
+
+## D-028 — Turkish Language as Default Admin Language
+**Decision:** The Payload CMS admin panel uses Turkish as the default and fallback language.
+**Implementation:** `i18n: { supportedLanguages: { tr }, fallbackLanguage: "tr" }` in payload.config.ts
+**Status:** ACTIVE
+
+---
+
+## D-029 — Admin Dark Mode via CSS Override
+**Decision:** The admin panel uses a custom dark mode theme applied via CSS overrides in `src/styles/admin-dark.css`, imported in `(payload)/layout.tsx`.
+**Reason:** Payload CMS doesn't have a built-in dark mode toggle. CSS variable overrides provide a comprehensive dark theme without modifying Payload source.
+**Status:** ACTIVE
+
+---
+
+## D-030 — Inline Style Token System for Storefront
+**Decision:** The storefront (UygunApp.jsx) uses an inline-style token system (`T = { f, d, bk, wh, ac, gn, r }`) rather than Tailwind CSS classes.
+**Reason:** The entire storefront is a single-file SPA; inline styles with a token object provide consistent theming without build-time CSS dependencies.
+**Status:** ACTIVE
+
+---
+
+## D-031 — Static Products as Fallback Layer
+**Decision:** 39 static products are hardcoded in UygunApp.jsx and displayed alongside DB products. DB products take priority (deduplication by slug).
+**Reason:** Ensures the storefront always has content even before admin populates the database. As DB products grow, static products are gradually displaced.
+**Status:** ACTIVE — will be reconsidered when DB has sufficient products

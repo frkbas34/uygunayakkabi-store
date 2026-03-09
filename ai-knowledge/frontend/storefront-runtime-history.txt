@@ -1,46 +1,53 @@
 # SOURCE MODULE
 
 ## MODULE ID
-UYGUNAYAKKABI-STOREFRONT-RUNTIME-HISTORY-V1
+UYGUNAYAKKABI-STOREFRONT-RUNTIME-HISTORY-V2
 
 ## Domain Category
 Frontend / Runtime Stability
 
 ## Core Purpose
-Capture the recent storefront-side runtime problems and the state of visual/product expansion work.
+Document storefront runtime issues and their resolutions for future reference.
 
-## Extracted Knowledge
-- The storefront runs on Next.js.
-- Real product visuals were introduced alongside fallback visual strategies.
-- Additional product/category enrichment work was performed.
-- New categories such as Spor, Bot, and Sandalet were added in recent work.
-- New products were also added to make the storefront richer and more realistic.
-- A major runtime issue occurred in `UygunApp.jsx`:
-  `ReferenceError: Cannot access 'U' before initialization`
-- The helper function `U` was declared after it was used by `heroImg`.
-- This caused the storefront to return 500 and prevented reliable validation.
+## Resolved Issues (History)
 
-## Established Constraints
-- Storefront visual enrichment is not equal to storefront stability.
-- A richer UI does not matter if runtime still crashes.
-- Helper ordering and core runtime integrity must be fixed before treating the storefront as operational.
+### Issue: ReferenceError — Cannot access 'U' before initialization
+- **Status**: RESOLVED
+- **Cause**: Helper function `U` was declared after it was used by `heroImg`
+- **Fix**: Reordered function declarations in UygunApp.jsx
+- **Commit**: Part of earlier stabilization work
 
-## Strategic Notes
-- The project is beyond placeholder-only UI work.
-- However, storefront reliability remains part of Phase 1 validation.
-- The correct interpretation is:
-  storefront progress exists, but runtime stability must be confirmed before moving on.
+### Issue: next/image remotePatterns blocking product images
+- **Status**: RESOLVED
+- **Cause**: `next/image` enforces remotePatterns validation; admin-uploaded images and Unsplash URLs were blocked
+- **Fix**: Replaced `next/image` with plain `<img>` tags in ProductImages.tsx and UygunApp.jsx (D-025)
+- **Commit**: 8c3b520
 
-## Conflict Sensitivities
-- Some conversations may sound as if the storefront was fully upgraded and ready.
-- The most recently checked storefront runtime state still included at least one blocking crash.
+### Issue: Media URLs not resolving correctly
+- **Status**: RESOLVED
+- **Cause**: `getMediaUrl()` was constructing `/media/${filename}` but Payload stores a `url` field on media documents
+- **Fix**: Updated to check `first.url` first, fallback to `/media/${first.filename}`; added `staticURL: '/media'` to Media.ts
+- **Commit**: 8c3b520
+
+### Issue: Empty product images
+- **Status**: RESOLVED
+- **Cause**: No real images in static product data
+- **Fix**: Added 5 Unsplash shoe photos + 3 wallet photos rotated across all 39 products
+- **Commit**: 30f6825
+
+## Current State (2026-03-09)
+- Storefront is functionally complete with ~817 lines in UygunApp.jsx
+- 39 static products across 8 categories with real images
+- Dynamic content from SiteSettings and Banners (server-side fetched)
+- All WhatsApp links, trust badges, promo banners driven by admin settings
+- Inline-style token system (no Tailwind dependency)
+- Awaiting user runtime validation
 
 ## Reuse Value
 Useful for:
-- preventing false “frontend complete” assumptions
-- documenting why stabilization matters
-- Phase 1 validation planning
+- debugging future image/media display issues
+- understanding the <img> vs next/image decision
+- Phase 2 automation when handling product images
 
 ## Hierarchy Suggestion
-Supporting Module
-
+Supporting Module — Historical Reference

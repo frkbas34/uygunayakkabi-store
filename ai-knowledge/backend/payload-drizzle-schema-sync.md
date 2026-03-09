@@ -83,13 +83,20 @@ SQL: `DELETE FROM payload_migrations;`
 
 ---
 
-## Current DB Enum Inventory (March 2026)
+## Current DB Enum Inventory (March 2026 — Updated)
 
 ```
-enum_products_status: active, soldout
+enum_products_status: active, soldout, draft
+enum_products_gender: erkek, kadin, unisex
 enum_customer_inquiries_status: new, contacted, completed
 enum_inventory_logs_source: telegram, admin, system
 enum_media_type: original, enhanced
+enum_orders_status: pending, confirmed, shipped, delivered, cancelled, returned
+enum_orders_source: website, telegram, phone, instagram
+enum_orders_payment_method: card_on_delivery, cash_on_delivery, bank_transfer, online
+enum_orders_shipping_company: yurtici, aras, mng, ptt, surat, trendyol, other
+enum_banners_type: discount, announcement, new_season, free_shipping, flash_sale
+enum_banners_placement: top_bar, hero, catalog_top, popup
 ```
 
 Do not modify these enum sets without a proper migration plan.
@@ -107,5 +114,20 @@ Do not modify these enum sets without a proper migration plan.
 
 ### variants table — added via push
 - price_adjustment (numeric)
+
+### products table — added via push (2026-03-09)
+- color (varchar)
+- material (varchar)
+- status now includes 'draft' enum value
+
+### orders table — added via push (2026-03-09)
+- payment_method (enum)
+- is_paid (boolean)
+- shipping_company (enum)
+- delivered_at (timestamptz)
+
+### New tables expected on next startup
+- banners (full collection with enums)
+- site_settings (global — single row)
 
 All above columns are nullable (no `required: true`) — push succeeded cleanly.

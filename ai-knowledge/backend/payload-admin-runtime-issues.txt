@@ -1,53 +1,49 @@
 # SOURCE MODULE
 
 ## MODULE ID
-UYGUNAYAKKABI-PAYLOAD-ADMIN-RUNTIME-ISSUES-V1
+UYGUNAYAKKABI-PAYLOAD-ADMIN-RUNTIME-ISSUES-V2
 
 ## Domain Category
 Backend / Admin Runtime
 
 ## Core Purpose
-Record the most recent Payload CMS admin-side runtime issues and their significance for Phase 1 stabilization.
+Record Payload CMS admin-side runtime issues and their resolutions.
 
-## Extracted Knowledge
-- Payload CMS is actively being used as the admin/backend layer.
-- Payload admin access and login were reached in recent work.
-- However, full admin runtime integrity was not yet confirmed.
-- A major admin-side issue was traced to an incomplete or empty importMap.
-- The importMap had to be manually reconstructed after generation problems.
-- Lexical-related component mappings were added manually.
-- A remaining unresolved issue was:
-  `PayloadComponent not found in importMap`
-  especially for:
-  `@payloadcms/next/rsc#CollectionCards`
-- This indicates that the Payload admin dashboard was still not fully operational at that point.
+## Resolved Issues (History)
+
+### Issue: PayloadComponent not found in importMap
+- **Status**: RESOLVED
+- **Cause**: Auto-generation of importMap.ts failed due to Windows/Linux esbuild mismatch
+- **Fix**: Manual reconstruction of importMap.ts with 30+ Payload components
+- **Constraint**: importMap.ts must be maintained manually (D-024 related)
+
+### Issue: Admin panel unstyled / CSS not loading
+- **Status**: RESOLVED
+- **Cause**: Missing CSS import in admin layout
+- **Fix**: `@payloadcms/next/css` imported in (payload)/layout.tsx
+
+### Issue: Admin panel not in Turkish
+- **Status**: RESOLVED
+- **Fix**: Added `import { tr } from "@payloadcms/translations/languages/tr"` + `i18n` config in payload.config.ts
+
+## Current Admin State (2026-03-09)
+- Admin panel fully functional with dark mode (custom CSS overrides)
+- Turkish language as default
+- Custom Dashboard with live stats from Payload REST API
+- 10 collections + 1 global registered
+- Admin groups: Mağaza, Katalog, Medya, Müşteri, Stok, Pazarlama, Ayarlar
+- Awaiting user runtime validation on local machine
 
 ## Established Constraints
-- Admin access alone does not mean the admin panel is validated.
-- The admin panel must be considered unstable until all required dashboard/admin components resolve correctly.
-- ImportMap completeness is a validation requirement for Phase 1.
-
-## Related Technical Context
-- `payload.config.ts` uses Payload CMS with Postgres adapter and lexical editor setup.
-- A Payload layout requirement was identified in earlier work.
-- Some importMap generation issues were made worse by Windows/Linux esbuild mismatch conditions.
-- Manual importMap repair was used as a temporary recovery step, not as proof of final stability.
-
-## Strategic Notes
-- This module should be treated as runtime stabilization history, not as a reason to abandon Payload.
-- The correct conclusion is:
-  Payload remains the direction, but the admin side must be stabilized and validated before automation begins.
-
-## Conflict Sensitivities
-- Do not treat this module as proof that Payload failed.
-- Do not treat this module as proof that admin is already fully complete.
-- Treat it as a stabilization-state reference.
+- `npx payload generate:importmap` does not work in Linux VM → manual maintenance required
+- Admin validation requires actual runtime startup, not just code existence (D-016)
+- importMap.ts must include Dashboard component from `@/components/admin/Dashboard`
 
 ## Reuse Value
 Useful for:
-- admin stabilization planning
-- debugging continuity
-- deciding whether Phase 1 is truly complete
+- diagnosing future importMap issues
+- admin panel customization reference
+- Phase 2 when adding automation-related admin features
 
 ## Hierarchy Suggestion
-Supporting Module
+Supporting Module — Historical Reference

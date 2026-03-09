@@ -1,5 +1,10 @@
 @import "tailwindcss";
 
+:root {
+  --font-outfit: 'Outfit';
+  --font-playfair: 'Playfair Display';
+}
+
 @theme {
   --font-sans: var(--font-outfit), ui-sans-serif, system-ui, sans-serif;
   --font-serif: var(--font-playfair), ui-serif, Georgia, serif;

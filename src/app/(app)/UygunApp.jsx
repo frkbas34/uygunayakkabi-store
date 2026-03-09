@@ -126,6 +126,20 @@ const I = {
 };
 
 // ============================================
+// ANNOUNCEMENT BAR
+// ============================================
+function AnnouncementBar() {
+  const [show, setShow] = useState(true);
+  if (!show) return null;
+  return (
+    <div style={{ background: T.ac, color: T.wh, fontFamily: T.f, fontSize: 13, fontWeight: 600, textAlign: "center", padding: "10px 48px 10px 24px", position: "relative", letterSpacing: "0.02em" }}>
+      🚚 500₺ Üzeri Siparişlerde <span style={{ textDecoration: "underline" }}>KARGO BEDAVA</span> &nbsp;|&nbsp; 📞 0533 152 48 43
+      <button onClick={() => setShow(false)} style={{ position: "absolute", right: 12, top: "50%", transform: "translateY(-50%)", background: "none", border: "none", color: "rgba(255,255,255,0.7)", cursor: "pointer", fontSize: 16, padding: 4, lineHeight: 1 }}>✕</button>
+    </div>
+  );
+}
+
+// ============================================
 // NAVBAR
 // ============================================
 function Navbar({ onNav, pg }) {
@@ -410,9 +424,10 @@ function Home({ onNav, onView, allProducts }) {
     return acc;
   }, {});
   const why = [
-    { icon: I.truck, title: "Hızlı Kargo", desc: "Siparişleriniz 1-3 iş günü içinde kapınızda." },
-    { icon: I.tag, title: "Uygun Fiyat", desc: "Piyasanın altında fiyatlarla geniş marka yelpazesi." },
-    { icon: I.heart, title: "Müşteri Memnuniyeti", desc: "Aylık 500 mutlu müşteri ve kolay iade garantisi." },
+    { icon: I.truck, title: "Hızlı Kargo", desc: "Siparişleriniz 1-3 iş günü içinde kapınızda. 500₺ üzeri kargo bedava!" },
+    { icon: I.tag, title: "Uygun Fiyat Garantisi", desc: "Piyasanın altında fiyatlarla geniş marka yelpazesi. %40'a varan indirimler." },
+    { icon: I.heart, title: "%98 Müşteri Memnuniyeti", desc: "Aylık 500+ mutlu müşteri ve kolay iade garantisi." },
+    { icon: I.check, title: "Orijinal Ürünler", desc: "Tüm ürünlerimiz orijinal ve faturalıdır. Güvenle alışveriş yapın." },
   ];
   const first = allProducts[0];
   return (
@@ -459,8 +474,8 @@ function Home({ onNav, onView, allProducts }) {
               </div>
             )}
             <div style={{ position: "absolute", top: 24, right: -12, background: T.wh, borderRadius: T.r.lg, padding: "14px 20px", boxShadow: "0 12px 32px rgba(0,0,0,0.08)", textAlign: "center" }}>
-              <p style={{ fontFamily: T.f, fontSize: 22, fontWeight: 800, color: T.ac }}>Aylık 500</p>
-              <p style={{ fontFamily: T.f, fontSize: 11, fontWeight: 500, color: T.g500 }}>Mutlu Müşteri</p>
+              <p style={{ fontFamily: T.f, fontSize: 22, fontWeight: 800, color: T.ac }}>500<span style={{ fontSize: 16, color: T.gn }}>+</span></p>
+              <p style={{ fontFamily: T.f, fontSize: 11, fontWeight: 500, color: T.g500 }}>Aylık Müşteri</p>
             </div>
           </div>
         </div>
@@ -482,6 +497,25 @@ function Home({ onNav, onView, allProducts }) {
         <style>{`@media(max-width:1024px){.home-grid{grid-template-columns:repeat(3,1fr)!important}}@media(max-width:640px){.home-grid{grid-template-columns:repeat(2,1fr)!important;gap:12px!important}}`}</style>
       </section>
 
+      {/* PROMO BANNER */}
+      <section style={{ padding: "0 24px", maxWidth: 1280, margin: "0 auto" }}>
+        <div onClick={() => onNav("catalog")} style={{ cursor: "pointer", background: "linear-gradient(135deg, #0a0a0a 0%, #1a1a2e 50%, #c8102e 100%)", borderRadius: 24, padding: "48px 40px", display: "grid", gridTemplateColumns: "1fr auto", alignItems: "center", gap: 24, position: "relative", overflow: "hidden" }}>
+          <div style={{ position: "absolute", top: -30, right: -30, width: 200, height: 200, background: "rgba(200,16,46,0.2)", borderRadius: "50%" }} />
+          <div style={{ position: "absolute", bottom: -20, left: "30%", width: 120, height: 120, background: "rgba(200,16,46,0.1)", borderRadius: "50%" }} />
+          <div style={{ position: "relative" }}>
+            <div style={{ fontFamily: T.f, fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.14em", color: "#fbbf24", marginBottom: 12 }}>Sınırlı Süre</div>
+            <h3 style={{ fontFamily: T.d, fontSize: "clamp(24px, 3vw, 38px)", fontWeight: 700, color: T.wh, lineHeight: 1.2, marginBottom: 10 }}>Sezon Sonu İndirimi</h3>
+            <p style={{ fontFamily: T.f, fontSize: 15, color: "rgba(255,255,255,0.65)", lineHeight: 1.6 }}>Seçili modellerde <strong style={{ color: "#fbbf24" }}>%40'a varan</strong> indirimler. Fırsatı kaçırma!</p>
+          </div>
+          <div style={{ textAlign: "center", position: "relative" }}>
+            <div style={{ fontFamily: T.f, fontSize: 56, fontWeight: 900, color: T.wh, lineHeight: 1 }}>%40</div>
+            <div style={{ fontFamily: T.f, fontSize: 12, fontWeight: 700, color: "#fbbf24", textTransform: "uppercase", letterSpacing: "0.1em" }}>İndirim</div>
+            <div style={{ marginTop: 16, fontFamily: T.f, fontSize: 13, fontWeight: 600, color: T.wh, background: "rgba(255,255,255,0.15)", padding: "10px 24px", borderRadius: T.r.full, display: "inline-flex", alignItems: "center", gap: 8 }}>Alışverişe Başla {I.arrow}</div>
+          </div>
+        </div>
+        <style>{`@media(max-width:640px){section:has(>[style*="grid-template-columns: 1fr auto"]){padding:0 16px!important}section:has(>[style*="grid-template-columns: 1fr auto"])>div{grid-template-columns:1fr!important;text-align:center;padding:36px 24px!important}}`}</style>
+      </section>
+
       {/* CATEGORIES */}
       <section style={{ padding: "64px 24px 80px", background: T.g50 }}>
         <div style={{ maxWidth: 1280, margin: "0 auto" }}>
@@ -489,12 +523,12 @@ function Home({ onNav, onView, allProducts }) {
             <p style={{ fontFamily: T.f, fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.12em", color: T.ac, marginBottom: 8 }}>Kategoriler</p>
             <h2 style={{ fontFamily: T.d, fontSize: "clamp(28px, 3vw, 36px)", fontWeight: 700, color: T.bk }}>Ne Arıyorsunuz?</h2>
           </div>
-          <div className="cat-grid" style={{ display: "grid", gridTemplateColumns: "repeat(6, 1fr)", gap: 16 }}>
+          <div className="cat-grid" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: 16 }}>
             {CAT_DATA.map(cat => (
               <CategoryCard key={cat.name} cat={cat} count={catCounts[cat.name] || 0} onNav={onNav} />
             ))}
           </div>
-          <style>{`@media(max-width:900px){.cat-grid{grid-template-columns:repeat(3,1fr)!important}}@media(max-width:480px){.cat-grid{grid-template-columns:repeat(2,1fr)!important}}`}</style>
+          <style>{`@media(max-width:480px){.cat-grid{grid-template-columns:repeat(2,1fr)!important}}`}</style>
         </div>
       </section>
 
@@ -745,6 +779,7 @@ export default function App({ dbProducts = [] }) {
 
   return (
     <div style={{ minHeight: "100vh", background: T.wh }}>
+      <AnnouncementBar />
       <Navbar onNav={nav} pg={pg} />
       {pg === "home" && <Home onNav={nav} onView={view} allProducts={allProducts} />}
       {pg === "catalog" && <Catalog key={initCat} initCat={initCat} onView={view} allProducts={allProducts} />}

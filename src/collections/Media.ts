@@ -9,6 +9,8 @@ export const MediaCollection: CollectionConfig = {
   slug: 'media',
   upload: {
     staticDir: path.resolve(dirname, '../../public/media'),
+    // URL prefix: files saved to public/media are served by Next.js at /media/*
+    staticURL: '/media',
     mimeTypes: ['image/jpeg', 'image/png', 'image/webp', 'image/gif', 'image/svg+xml'],
     imageSizes: [
       {

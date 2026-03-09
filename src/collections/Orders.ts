@@ -108,6 +108,26 @@ export const Orders: CollectionConfig = {
       ],
       admin: { position: 'sidebar' },
     },
+    // ── Ödeme ─────────────────────────────────────────────────
+    {
+      name: 'paymentMethod',
+      type: 'select',
+      label: 'Ödeme Yöntemi',
+      options: [
+        { label: '💳 Kapıda Kredi Kartı', value: 'card_on_delivery' },
+        { label: '💵 Kapıda Nakit', value: 'cash_on_delivery' },
+        { label: '🏦 Havale/EFT', value: 'bank_transfer' },
+        { label: '💳 Online Ödeme', value: 'online' },
+      ],
+      admin: { position: 'sidebar' },
+    },
+    {
+      name: 'isPaid',
+      type: 'checkbox',
+      label: 'Ödeme Alındı',
+      defaultValue: false,
+      admin: { position: 'sidebar' },
+    },
     // ── Notlar ────────────────────────────────────────────────
     {
       name: 'notes',
@@ -116,6 +136,20 @@ export const Orders: CollectionConfig = {
       admin: { description: 'İç notlar — müşteri tarafından görülmez' },
     },
     // ── Kargo ─────────────────────────────────────────────────
+    {
+      name: 'shippingCompany',
+      type: 'select',
+      label: 'Kargo Firması',
+      options: [
+        { label: 'Yurtiçi Kargo', value: 'yurtici' },
+        { label: 'Aras Kargo', value: 'aras' },
+        { label: 'MNG Kargo', value: 'mng' },
+        { label: 'PTT Kargo', value: 'ptt' },
+        { label: 'Sürat Kargo', value: 'surat' },
+        { label: 'Trendyol Express', value: 'trendyol' },
+        { label: 'Diğer', value: 'other' },
+      ],
+    },
     {
       name: 'trackingNumber',
       type: 'text',
@@ -126,6 +160,11 @@ export const Orders: CollectionConfig = {
       name: 'shippedAt',
       type: 'date',
       label: 'Kargo Tarihi',
+    },
+    {
+      name: 'deliveredAt',
+      type: 'date',
+      label: 'Teslim Tarihi',
     },
   ],
 }

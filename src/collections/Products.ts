@@ -71,7 +71,7 @@ export const Products: CollectionConfig = {
       admin: {
         position: 'sidebar',
         // DB constraint: text field — cannot change to enum without migration
-        description: 'Günlük | Spor | Klasik | Bot | Sandalet | Krampon',
+        description: 'Günlük | Spor | Klasik | Bot | Sandalet | Krampon | Cüzdan',
       },
     },
     {
@@ -132,11 +132,30 @@ export const Products: CollectionConfig = {
       label: 'Durum',
       defaultValue: 'active',
       options: [
-        { label: 'Aktif', value: 'active' },
-        { label: 'Tükendi', value: 'soldout' },
+        { label: '🟢 Aktif', value: 'active' },
+        { label: '🔴 Tükendi', value: 'soldout' },
+        { label: '📝 Taslak', value: 'draft' },
       ],
       admin: {
         position: 'sidebar',
+      },
+    },
+    {
+      name: 'color',
+      type: 'text',
+      label: 'Renk',
+      admin: {
+        position: 'sidebar',
+        description: 'Siyah, Beyaz, Kırmızı, Mavi vb.',
+      },
+    },
+    {
+      name: 'material',
+      type: 'text',
+      label: 'Materyal',
+      admin: {
+        position: 'sidebar',
+        description: 'Deri, Süet, Kanvas, Sentetik vb.',
       },
     },
     {

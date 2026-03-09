@@ -15,6 +15,8 @@ import { Orders } from "./src/collections/Orders";
 import { Users } from "./src/collections/Users";
 import { Brands } from "./src/collections/Brands";
 import { Categories } from "./src/collections/Categories";
+import { Banners } from "./src/collections/Banners";
+import { SiteSettings } from "./src/globals/SiteSettings";
 
 const filename = fileURLToPath(import.meta.url);
 const dirname = path.dirname(filename);
@@ -43,7 +45,9 @@ export default buildConfig({
     CustomerInquiries,
     InventoryLogs,
     Orders,
+    Banners,
   ],
+  globals: [SiteSettings],
   db: postgresAdapter({
     pool: {
       connectionString: process.env.DATABASE_URI!,

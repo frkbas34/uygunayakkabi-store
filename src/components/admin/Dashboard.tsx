@@ -1,6 +1,6 @@
 'use client'
 
-import React from 'react'
+import React, { useEffect, useState } from 'react'
 import Link from 'next/link'
 
 // ── Colors ──────────────────────────────────────────────────────────────
@@ -194,6 +194,28 @@ function StatCard({
 
 // ── Main Dashboard ───────────────────────────────────────────────────
 export default function Dashboard() {
+  const [stats, setStats] = useState({ products: '—', orders: '—', media: '—', inquiries: '—' })
+
+  useEffect(() => {
+    async function fetchStats() {
+      try {
+        const [prodRes, ordRes, medRes, inqRes] = await Promise.all([
+          fetch('/api/products?limit=0&depth=0').then(r => r.json()).catch(() => null),
+          fetch('/api/orders?limit=0&depth=0').then(r => r.json()).catch(() => null),
+          fetch('/api/media?limit=0&depth=0').then(r => r.json()).catch(() => null),
+          fetch('/api/customer-inquiries?limit=0&depth=0').then(r => r.json()).catch(() => null),
+        ])
+        setStats({
+          products: prodRes?.totalDocs?.toString() ?? '—',
+          orders: ordRes?.totalDocs?.toString() ?? '—',
+          media: medRes?.totalDocs?.toString() ?? '—',
+          inquiries: inqRes?.totalDocs?.toString() ?? '—',
+        })
+      } catch { /* silent */ }
+    }
+    fetchStats()
+  }, [])
+
   const quickLinks = [
     {
       href: '/admin/collections/products/create',
@@ -250,6 +272,20 @@ export default function Dashboard() {
       title: 'Musteri Talepleri',
       subtitle: 'Geri arama formlarini gor',
       color: C.greenSoft,
+    },
+    {
+      href: '/admin/collections/banners',
+      icon: '🎯',
+      title: 'Kampanyalar',
+      subtitle: 'Banner ve indirim yonetimi',
+      color: C.accentSoft,
+    },
+    {
+      href: '/admin/globals/site-settings',
+      icon: '⚙️',
+      title: 'Site Ayarlari',
+      subtitle: 'Iletisim, kargo, SEO',
+      color: C.blueSoft,
     },
   ]
 
@@ -387,10 +423,10 @@ export default function Dashboard() {
           marginBottom: 28,
         }}
       >
-        <StatCard icon="👟" label="Urunler" value="—" color={C.accent} bgColor={C.accentSoft} />
-        <StatCard icon="📦" label="Siparisler" value="—" color={C.blue} bgColor={C.blueSoft} />
-        <StatCard icon="🖼️" label="Gorseller" value="—" color={C.green} bgColor={C.greenSoft} />
-        <StatCard icon="📞" label="Talepler" value="—" color={C.orange} bgColor={C.orangeSoft} />
+        <StatCard icon="👟" label="Urunler" value={stats.products} color={C.accent} bgColor={C.accentSoft} />
+        <StatCard icon="📦" label="Siparisler" value={stats.orders} color={C.blue} bgColor={C.blueSoft} />
+        <StatCard icon="🖼️" label="Gorseller" value={stats.media} color={C.green} bgColor={C.greenSoft} />
+        <StatCard icon="📞" label="Talepler" value={stats.inquiries} color={C.orange} bgColor={C.orangeSoft} />
       </div>
 
       {/* ── Quick links ────────────────────────────────────────────── */}

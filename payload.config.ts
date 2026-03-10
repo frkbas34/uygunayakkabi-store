@@ -44,7 +44,7 @@ export default buildConfig({
       titleSuffix: " — UygunAyakkabı Admin",
     },
     components: {
-      afterDashboard: ["@/components/admin/Dashboard"],
+      // afterDashboard: ["@/components/admin/Dashboard"], // geçici olarak devre dışı
     },
   },
   collections: [

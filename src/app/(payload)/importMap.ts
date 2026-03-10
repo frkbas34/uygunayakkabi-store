@@ -30,6 +30,8 @@ import { DefaultNavClient as DefaultNavClient_26 } from '@payloadcms/next/client
 import { NavHamburger as NavHamburger_27 } from '@payloadcms/next/client'
 import { NavWrapper as NavWrapper_28 } from '@payloadcms/next/client'
 import { SlugField as SlugField_29 } from '@payloadcms/next/client'
+// Vercel Blob Storage client component
+import { VercelBlobClientUploadHandler as VercelBlobClientUploadHandler_30 } from '@payloadcms/storage-vercel-blob/client'
 
 export const importMap = {
   "@payloadcms/richtext-lexical/rsc#RscEntryLexicalCell": RscEntryLexicalCell_0,
@@ -62,4 +64,5 @@ export const importMap = {
   "@payloadcms/next/client#NavHamburger": NavHamburger_27,
   "@payloadcms/next/client#NavWrapper": NavWrapper_28,
   "@payloadcms/next/client#SlugField": SlugField_29,
+  "@payloadcms/storage-vercel-blob/client#VercelBlobClientUploadHandler": VercelBlobClientUploadHandler_30,
 }

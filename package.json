@@ -18,7 +18,7 @@
     "graphql": "^16.13.1",
     "jose": "^6.2.0",
     "lucide-react": "^0.577.0",
-    "next": "16.1.6",
+    "next": "16.2.0-canary.81",
     "payload": "^3.79.0",
     "react": "19.2.3",
     "react-dom": "19.2.3",
@@ -31,7 +31,7 @@
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "eslint": "^9",
-    "eslint-config-next": "16.1.6",
+    "eslint-config-next": "16.2.0-canary.81",
     "tailwindcss": "^4",
     "typescript": "^5"
   }

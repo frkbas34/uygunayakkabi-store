@@ -362,9 +362,10 @@ ACTIVE
 ---
 
 ## D-029 — Admin Dark Mode via CSS Override
-**Decision:** The admin panel uses a custom dark mode theme applied via CSS overrides in `src/styles/admin-dark.css`, imported in `(payload)/layout.tsx`.
-**Reason:** Payload CMS doesn't have a built-in dark mode toggle. CSS variable overrides provide a comprehensive dark theme without modifying Payload source.
-**Status:** ACTIVE
+**Decision:** ~~The admin panel uses a custom dark mode theme applied via CSS overrides in `src/styles/admin-dark.css`.~~
+**Status:** SUPERSEDED — Dark mode CSS was causing admin panel to render black/white (broke Payload UI with `!important` overrides). The import was removed. Admin now shows default Payload light theme.
+**File still exists** at `src/styles/admin-dark.css` but is not imported.
+**Future direction:** Re-implement dark mode without `!important` overrides if desired.
 
 ---
 
@@ -379,3 +380,28 @@ ACTIVE
 **Decision:** 39 static products are hardcoded in UygunApp.jsx and displayed alongside DB products. DB products take priority (deduplication by slug).
 **Reason:** Ensures the storefront always has content even before admin populates the database. As DB products grow, static products are gradually displaced.
 **Status:** ACTIVE — will be reconsidered when DB has sufficient products
+
+---
+
+## D-032 — Next.js Version: 16.2.0-canary.81
+**Decision:** Project uses Next.js `16.2.0-canary.81`.
+**Reason:** Payload CMS 3.79.0 peer dependency explicitly excludes Next.js 15.5–16.1.x. Supported ranges are 15.4.x or >=16.2.0-canary.10. Next.js 15.4.x had webpack incompatibilities with @payloadcms/next@3.79.0 (module resolution failures, formatAdminURL export mismatch). The 16.2.0-canary series uses Turbopack and is the correct path.
+**Constraint:** Next.js 16.1.x will NEVER be supported by Payload 3.x. Do not attempt to use it.
+**Status:** ACTIVE — LOCKED
+
+---
+
+## D-033 — Vercel Blob Storage for Production Media
+**Decision:** Production media uploads use Vercel Blob Storage (`@payloadcms/storage-vercel-blob`).
+**Reason:** Vercel filesystem is read-only at runtime. Local `public/media/` only works for local dev.
+**Implementation:** Plugin enabled conditionally — active only when `BLOB_READ_WRITE_TOKEN` env var is present.
+**Status:** ACTIVE
+
+---
+
+## D-034 — importMap Must Be Updated Manually When Plugins Are Added
+**Decision:** When a new Payload plugin that registers client components is added, `importMap.ts` must be updated manually.
+**Reason:** `npx payload generate:importmap` does not work in Linux VM (Windows node_modules esbuild mismatch). Missing importMap entries cause the admin panel to silently fail to render (white screen, no JS errors in browser console).
+**Lesson:** `@payloadcms/storage-vercel-blob` registers `VercelBlobClientUploadHandler` — this was the root cause of the white screen after adding Blob Storage.
+**Procedure:** Check plugin docs for client component exports → add import + map entry to `src/app/(payload)/importMap.ts`.
+**Status:** ACTIVE — OPERATIONAL PROCEDURE

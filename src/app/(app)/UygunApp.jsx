@@ -501,9 +501,17 @@ function Home({ onNav, onView, allProducts, settings, banners = [] }) {
           </div>
           <span onClick={() => onNav("catalog")} style={{ fontFamily: T.f, fontSize: 14, fontWeight: 500, color: T.g500, cursor: "pointer" }}>Tümünü Gör →</span>
         </div>
-        <div className="home-grid" style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 20 }}>
-          {allProducts.slice(0, 8).map(p => <Card key={p.id || p.slug} p={p} onView={onView} />)}
-        </div>
+        {allProducts.length === 0 ? (
+          <div style={{ textAlign: "center", padding: "60px 24px", color: T.g500 }}>
+            <div style={{ fontSize: 40, marginBottom: 12 }}>🛍️</div>
+            <p style={{ fontFamily: T.f, fontSize: 16, fontWeight: 600, color: T.bk, marginBottom: 6 }}>Henüz ürün eklenmedi</p>
+            <p style={{ fontFamily: T.f, fontSize: 13, color: T.g500 }}>Admin panelinden ürün ekleyerek başlayın.</p>
+          </div>
+        ) : (
+          <div className="home-grid" style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 20 }}>
+            {allProducts.slice(0, 8).map(p => <Card key={p.id || p.slug} p={p} onView={onView} />)}
+          </div>
+        )}
         <style>{`@media(max-width:1024px){.home-grid{grid-template-columns:repeat(3,1fr)!important}}@media(max-width:640px){.home-grid{grid-template-columns:repeat(2,1fr)!important;gap:12px!important}}`}</style>
       </section>
 
@@ -629,9 +637,21 @@ function Catalog({ onView, allProducts, initCat = "Tümü" }) {
             </button>
           ))}
         </div>
-        <div className="catalog-grid" style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 20 }}>
-          {shown.map(p => <Card key={p.id || p.slug} p={p} onView={onView} />)}
-        </div>
+        {flt.length === 0 ? (
+          <div style={{ textAlign: "center", padding: "80px 24px", color: T.g500 }}>
+            <div style={{ fontSize: 48, marginBottom: 16 }}>🛍️</div>
+            <p style={{ fontFamily: T.f, fontSize: 18, fontWeight: 600, color: T.bk, marginBottom: 8 }}>
+              {fl === "Tümü" ? "Henüz ürün eklenmedi" : `${fl} kategorisinde ürün yok`}
+            </p>
+            <p style={{ fontFamily: T.f, fontSize: 14, color: T.g500 }}>
+              {fl === "Tümü" ? "Admin panelinden ürün ekleyerek başlayın." : "Başka bir kategori seçin veya tüm ürünlere göz atın."}
+            </p>
+          </div>
+        ) : (
+          <div className="catalog-grid" style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 20 }}>
+            {shown.map(p => <Card key={p.id || p.slug} p={p} onView={onView} />)}
+          </div>
+        )}
         {hasMore && (
           <div style={{ textAlign: "center", marginTop: 48 }}>
             <button onClick={() => sVis(v => v + 12)}
@@ -779,18 +799,33 @@ export default function App({ dbProducts = [], siteSettings = null, banners = []
     document.head.appendChild(fl);
   }, []);
 
-  // Merge DB products (pre-processed by page.tsx) with static products
-  // page.tsx already returns: { id, name, price, originalPrice, description, images: string[], sizes, stock, category, badge, slug, fromDb }
+  // ── CMS-FIRST PRODUCT PIPELINE ───────────────────────────────────────────
+  // Source of truth: DB products fetched by page.tsx (Server Component).
+  // page.tsx guarantees shape: { id, name, price, originalPrice, description,
+  //   images: string[], sizes, stock, category, badge, slug, fromDb: true }
+  //
+  // STATIC_PRODUCTS are intentionally disabled during validation.
+  // To re-enable them as fallback, change ENABLE_STATIC_FALLBACK to true.
+  const ENABLE_STATIC_FALLBACK = false;
+
   const allProducts = (() => {
-    const dbMapped = dbProducts.map(p => ({
-      ...p,
-      // Ensure image (first of images array) is available for Card / Detail
-      image: Array.isArray(p.images) && p.images[0] ? p.images[0] : shoe("#f5f5f5","#e0e0e0","#ccc","#c8102e","#fff",0),
-      dbImage: Array.isArray(p.images) && p.images[0] ? p.images[0] : null,
-    }));
-    const dbSlugs = new Set(dbMapped.map(p => p.slug));
-    const staticFiltered = STATIC_PRODUCTS.filter(p => !dbSlugs.has(p.slug));
-    return [...dbMapped, ...staticFiltered];
+    // Map DB products — resolve image fields so Card/Detail can use p.image directly
+    const dbMapped = (dbProducts || []).map(p => {
+      // images[] is already resolved to URL strings by page.tsx
+      const firstImg = Array.isArray(p.images) && p.images[0] ? p.images[0] : null;
+      return {
+        ...p,
+        image: firstImg || shoe("#f5f5f5","#e0e0e0","#ccc","#c8102e","#fff",0),
+        dbImage: firstImg,
+      };
+    });
+
+    if (ENABLE_STATIC_FALLBACK && dbMapped.length === 0) {
+      // Static fallback — only used when DB is empty and flag is enabled
+      return STATIC_PRODUCTS.map(p => ({ ...p, dbImage: null }));
+    }
+
+    return dbMapped;
   })();
 
   // nav(page) — normal navigation

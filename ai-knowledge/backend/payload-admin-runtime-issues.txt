@@ -1,7 +1,7 @@
 # SOURCE MODULE
 
 ## MODULE ID
-UYGUNAYAKKABI-PAYLOAD-ADMIN-RUNTIME-ISSUES-V2
+UYGUNAYAKKABI-PAYLOAD-ADMIN-RUNTIME-ISSUES-V3
 
 ## Domain Category
 Backend / Admin Runtime
@@ -11,11 +11,11 @@ Record Payload CMS admin-side runtime issues and their resolutions.
 
 ## Resolved Issues (History)
 
-### Issue: PayloadComponent not found in importMap
+### Issue: PayloadComponent not found in importMap (initial)
 - **Status**: RESOLVED
 - **Cause**: Auto-generation of importMap.ts failed due to Windows/Linux esbuild mismatch
 - **Fix**: Manual reconstruction of importMap.ts with 30+ Payload components
-- **Constraint**: importMap.ts must be maintained manually (D-024 related)
+- **Constraint**: importMap.ts must be maintained manually
 
 ### Issue: Admin panel unstyled / CSS not loading
 - **Status**: RESOLVED
@@ -26,24 +26,42 @@ Record Payload CMS admin-side runtime issues and their resolutions.
 - **Status**: RESOLVED
 - **Fix**: Added `import { tr } from "@payloadcms/translations/languages/tr"` + `i18n` config in payload.config.ts
 
-## Current Admin State (2026-03-09)
-- Admin panel fully functional with dark mode (custom CSS overrides)
-- Turkish language as default
-- Custom Dashboard with live stats from Payload REST API
-- 10 collections + 1 global registered
-- Admin groups: Mağaza, Katalog, Medya, Müşteri, Stok, Pazarlama, Ayarlar
-- Awaiting user runtime validation on local machine
+### Issue: Admin panel — BLACK SCREEN (2026-03-10)
+- **Status**: RESOLVED
+- **Cause**: `src/styles/admin-dark.css` was imported in `(payload)/layout.tsx`. This CSS used `!important` overrides including `body { background-color: #0d1117 !important }` and overwrote ALL Payload CSS variables. The admin React app was rendering but completely invisible.
+- **Fix**: Removed `import '@/styles/admin-dark.css'` from `(payload)/layout.tsx`
+- **File still exists**: `src/styles/admin-dark.css` is present but not imported
 
-## Established Constraints
-- `npx payload generate:importmap` does not work in Linux VM → manual maintenance required
-- Admin validation requires actual runtime startup, not just code existence (D-016)
-- importMap.ts must include Dashboard component from `@/components/admin/Dashboard`
+### Issue: Admin panel — WHITE SCREEN, no JS errors (2026-03-10)
+- **Status**: RESOLVED
+- **Root Cause 1 (primary)**: `@payloadcms/storage-vercel-blob/client#VercelBlobClientUploadHandler` was NOT in `importMap.ts`. Payload CMS silently fails to render the admin UI when a registered plugin's client component is missing from importMap. No browser console errors. Status 200 responses. Deployment "Ready". The only trace is in Vercel Runtime Logs: `getFromImportMap: PayloadComponent not found in importMap`.
+- **Root Cause 2 (contributing)**: Next.js 16.1.6 is explicitly NOT supported by `@payloadcms/next@3.79.0`. Peer dependency requires `>=16.2.0-canary.10 <17.0.0` for the 16.x branch, OR >=15.4.11 <15.5.0. 16.1.x is in a dead zone that Payload will never support.
+- **Fix**: 1) Added `VercelBlobClientUploadHandler` to importMap.ts. 2) Upgraded Next.js to 16.2.0-canary.81.
+- **Lesson**: When a new Payload plugin is added, CHECK if it registers any client components and manually add them to importMap.ts.
+
+### Issue: Next.js 15.4.x + Payload 3.79.0 webpack errors
+- **Status**: RESOLVED (by using Next.js 16.2.0-canary.81 instead)
+- **Errors seen**: `Module not found: Can't resolve 'payload'`, `formatAdminURL not exported from @payloadcms/ui/shared`
+- **Root cause**: `@payloadcms/next@3.79.0`'s `withPayload` wrapper was designed/tested for Next.js 16.2 Turbopack. With 15.4's webpack bundler, module resolution fails for server-only packages even with serverExternalPackages config.
+- **Conclusion**: Do not try to use Payload 3.79.0 with Next.js 15.4.x. Use 16.2.0-canary.10+ instead.
+
+## Current Admin State (2026-03-10) — PRODUCTION VALIDATED
+- Admin panel fully functional at uygunayakkabi.com/admin ✅
+- Default Payload light theme (dark CSS removed)
+- Turkish language as default
+- Custom Dashboard (`afterDashboard`) currently DISABLED — can be re-enabled once dark mode is properly addressed
+- 10 collections + 1 global registered
+- importMap includes 31 components (standard Payload + VercelBlobClientUploadHandler)
+- Media uploads via Vercel Blob Storage in production
+
+## Critical Operational Rules
+1. `npx payload generate:importmap` does NOT work in Linux VM → importMap.ts must be maintained manually
+2. When adding a Payload plugin, check its docs for client components → add to importMap.ts
+3. Next.js 16.1.x is permanently unsupported by Payload 3.x — never use it
+4. Admin white screen with no JS errors → check Vercel Runtime Logs (not browser console)
+5. If dark CSS overrides are needed, they must NOT use `!important` on `body` or Payload theme variables
 
 ## Reuse Value
-Useful for:
-- diagnosing future importMap issues
-- admin panel customization reference
-- Phase 2 when adding automation-related admin features
-
-## Hierarchy Suggestion
-Supporting Module — Historical Reference
+- Critical reference for diagnosing future importMap issues
+- Next.js version selection reference
+- Phase 2 when adding automation-related admin features that may include new plugin client components

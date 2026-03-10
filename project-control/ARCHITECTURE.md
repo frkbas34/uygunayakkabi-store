@@ -4,13 +4,14 @@
 Uygunayakkabi is a custom e-commerce system built in three evolving phases. It is not a simple storefront — its long-term identity is a **Telegram-first AI-assisted commerce system** with multi-channel publishing.
 
 ## Core Stack
-- **Runtime**: Next.js 16.1.6 (App Router) + React 19.2.3
+- **Runtime**: Next.js 16.2.0-canary.81 (App Router, Turbopack) + React 19.2.3
 - **CMS/Admin**: Payload CMS v3.79.0 (admin panel, REST API, collection management)
 - **Database**: Neon PostgreSQL via `@payloadcms/db-postgres` (Drizzle ORM, `push: true`)
 - **Rich Text**: Lexical editor (`@payloadcms/richtext-lexical`)
 - **Image Processing**: Sharp
 - **i18n**: Turkish as default language (`@payloadcms/translations/languages/tr`)
-- **Styling**: Storefront uses inline-style token system (no Tailwind); Admin uses custom dark CSS overrides
+- **Styling**: Storefront uses inline-style token system (no Tailwind); Admin uses default Payload light theme (dark CSS removed)
+- **Media Storage (Production)**: Vercel Blob Storage via `@payloadcms/storage-vercel-blob`
 
 ## Directory Structure
 
@@ -23,8 +24,8 @@ src/
 │   │   ├── UygunApp.jsx          # Client SPA — all storefront UI (~817 lines)
 │   │   └── products/[slug]/      # Product detail (SSR)
 │   ├── (payload)/                # Admin panel (route group)
-│   │   ├── layout.tsx            # Admin layout (imports dark CSS)
-│   │   ├── importMap.ts          # Manual Payload component registry (30+ components)
+│   │   ├── layout.tsx            # Admin layout (standard Payload styles only)
+│   │   ├── importMap.ts          # Manual Payload component registry (31 components incl. VercelBlobClientUploadHandler)
 │   │   └── admin/[[...segments]] # Payload admin entry
 │   └── api/                      # Custom API routes
 │       ├── inquiries/route.ts    # Customer inquiry endpoint
@@ -61,7 +62,8 @@ src/
 - Admin grouped into: Mağaza, Katalog, Medya, Müşteri, Stok, Pazarlama, Ayarlar
 
 ### Media Pipeline
-- Upload: Admin panel → `public/media/` directory (local filesystem)
+- **Production**: Vercel Blob Storage (`@payloadcms/storage-vercel-blob`, enabled via `BLOB_READ_WRITE_TOKEN`)
+- **Local dev**: Falls back to local filesystem (`public/media/`) when `BLOB_READ_WRITE_TOKEN` is absent
 - URL resolution: `page.tsx` checks `media.url` first, falls back to `/media/${filename}`
 - Display: `<img>` tags (not `next/image`) to avoid remotePatterns validation
 - External images: Unsplash URLs in static product data (whitelisted in next.config.ts)
@@ -90,7 +92,7 @@ src/
 
 ## Architectural Phases
 
-### Phase 1 — Core Admin + Storefront Stabilization (CURRENT — implementation complete)
+### Phase 1 — Core Admin + Storefront Stabilization (**PRODUCTION VALIDATED** 2026-03-10)
 - Full admin panel with dark mode, Turkish language, live dashboard
 - Complete storefront with 8 categories, 39 products, dynamic content
 - Order/product/banner management

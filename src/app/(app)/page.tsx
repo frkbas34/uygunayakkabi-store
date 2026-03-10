@@ -2,6 +2,10 @@ import App from "./UygunApp";
 import type { DbProduct, DbBanner, SiteSettings } from "./UygunApp";
 import { getPayload } from "@/lib/payload";
 
+// Force server-side rendering on every request so admin changes reflect immediately.
+// Without this, Next.js statically caches the page at build time and DB products never update.
+export const dynamic = 'force-dynamic';
+
 // SVG ayakkabı renkleri — kategoriye göre
 const CATEGORY_COLORS: Record<string, [string, string, string, string, string]> = {
   gunluk:   ['#f8f8f8', '#e0e0e0', '#ffffff', '#00b4d8', '#0077b6'],
@@ -78,6 +82,9 @@ export default async function Page() {
       limit: 100,
       sort: '-createdAt',
     });
+
+    // DEBUG: log raw Payload response — visible in Vercel Runtime Logs
+    console.log(`[Page] Payload returned ${result.docs.length} active products. IDs:`, result.docs.map((p: any) => p.id));
 
     dbProducts = result.docs.map((p: any) => {
       const shoeImg = getShoeImage(p.category || 'gunluk');
@@ -184,6 +191,9 @@ export default async function Page() {
   } catch (err) {
     console.error('[Page] DB ürünleri yüklenemedi:', err);
   }
+
+  // DEBUG: log final mapped products
+  console.log(`[Page] dbProducts passed to App: ${dbProducts.length}`, dbProducts.map(p => ({ id: p.id, name: p.name, slug: p.slug, category: p.category, status: 'active' })));
 
   return <App dbProducts={dbProducts} siteSettings={siteSettings} banners={banners} />;
 }

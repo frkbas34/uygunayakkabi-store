@@ -2,48 +2,41 @@
 
 ## PHASE 1 — Core Admin System + Storefront Stabilization
 
-### ✅ Completed (Implementation)
-- [x] Fix Payload importMap — all required components registered manually
-- [x] Fix admin panel CSS
-- [x] Fix media upload path (staticDir + staticURL)
+### ✅ Completed & Production Validated (2026-03-10)
+- [x] Fix Payload importMap — all required components registered (incl. VercelBlobClientUploadHandler)
+- [x] Fix admin panel CSS (dark CSS removed, default Payload theme restored)
+- [x] Fix media upload — Vercel Blob Storage in production, local filesystem in dev
 - [x] Fix DB schema mismatch (field types aligned to varchar columns)
+- [x] Fix Next.js version — upgraded to 16.2.0-canary.81 (Payload 3.79.0 compatible)
+- [x] Fix Google Fonts build failure — replaced next/font/google with <link> CDN tags
+- [x] Fix TypeScript `any[]` to `never[]` error — UygunApp.d.ts declaration file
 - [x] Rewrite page.tsx as Server Component (products, settings, banners)
 - [x] All collections: Products, Variants, Brands, Categories, Media, Users, CustomerInquiries, InventoryLogs, Orders, Banners
 - [x] SiteSettings global (contact, shipping, trust badges, announcement bar)
-- [x] Admin dark mode (GitHub-inspired CSS overrides)
 - [x] Turkish language configured as default
-- [x] Admin Dashboard with live stats from Payload API
-- [x] 39 static products across 8 categories (Spor, Günlük, Bot, Sandalet, Krampon, Klasik, Cüzdan)
-- [x] Real product images (5 Unsplash shoe photos + 3 wallet photos)
-- [x] SVG fallback generators (shoe + wallet)
-- [x] Product detail page with multi-image gallery, size selector, stock indicator
-- [x] Catalog page with 8-category filter + "Daha Fazla Göster" pagination
-- [x] AnnouncementBar (dynamic from SiteSettings)
-- [x] Promo banner section (dynamic from Banners collection)
-- [x] Trust badges (dynamic from SiteSettings)
-- [x] WhatsApp links throughout site (dynamic from SiteSettings contact)
-- [x] Footer with dynamic contact info
-- [x] WhatsApp Order Guide (4-step CTA)
-- [x] BuyForm modal with WhatsApp shortcut
+- [x] 39 static products across 8 categories as fallback layer
+- [x] Product detail page, catalog page, WhatsApp order flow
 - [x] Orders collection: paymentMethod, isPaid, shippingCompany, deliveredAt
-- [x] Products collection: color, material, draft status
 - [x] Connect SiteSettings & Banners to frontend dynamically
+- [x] Admin panel loads correctly in production at uygunayakkabi.com/admin ✅
+- [x] Storefront live at uygunayakkabi.com ✅
+- [x] Vercel env vars set (DATABASE_URI, PAYLOAD_SECRET, NEXT_PUBLIC_SERVER_URL, NEXT_PUBLIC_WHATSAPP_NUMBER, BLOB_READ_WRITE_TOKEN) ✅
 
-### 🔲 Pending Validation (user must perform)
-- [ ] Push to GitHub: `git push origin main`
-- [ ] Clear .next cache: `Remove-Item -Recurse -Force .next`
-- [ ] Run: `npm install && npm run dev`
-- [ ] Confirm server starts without schema push errors
-- [ ] Confirm admin panel loads at /admin (dark mode, Turkish)
-- [ ] Confirm Dashboard shows live stats
-- [ ] Confirm all collections visible in admin sidebar
-- [ ] Upload a test image via Media collection → confirm file saved to public/media/
+### 🔲 Remaining Phase 1 Validation (user must perform)
+- [ ] Login to admin panel → create first admin user if not yet created
+- [ ] Confirm all 10 collections visible in admin sidebar
+- [ ] Upload a test image via Media collection → confirm Vercel Blob URL returned
 - [ ] Create a test product via admin with uploaded image → confirm appears on storefront
 - [ ] Populate SiteSettings global → confirm changes reflected on storefront
 - [ ] Create a test Banner → confirm promo section updates on homepage
 
+### 🔲 Cleanup Tasks (post-validation)
+- [ ] Re-implement admin dark mode properly (without `!important` overrides that break Payload UI)
+- [ ] Re-enable custom Dashboard component (`afterDashboard`) once dark mode is resolved
+- [ ] Add proper favicon.ico (current site has none — 404 on every page load)
+
 ### 🔲 Phase 1 Gate
-- [ ] All validation items above checked
+- [ ] All remaining validation items above checked
 - [ ] No runtime errors in console
 - [ ] End-to-end admin → storefront flow confirmed
 - [ ] → Phase 1 complete → unlock Phase 2

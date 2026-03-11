@@ -405,3 +405,85 @@ ACTIVE
 **Lesson:** `@payloadcms/storage-vercel-blob` registers `VercelBlobClientUploadHandler` — this was the root cause of the white screen after adding Blob Storage.
 **Procedure:** Check plugin docs for client component exports → add import + map entry to `src/app/(payload)/importMap.ts`.
 **Status:** ACTIVE — OPERATIONAL PROCEDURE
+
+---
+
+## D-035 — SSL Config Belongs in Pool Options, Not DATABASE_URI String
+**Decision:** Do not include `sslmode=require` in the DATABASE_URI connection string. Instead configure SSL in the pool options object in `payload.config.ts`.
+**Reason:** `pg-connection-string` library has deprecated the `sslmode` parameter in the connection string. When present, it triggers a full-screen red error overlay in Next.js dev mode that blocks the storefront from rendering.
+**Implementation:**
+```typescript
+db: postgresAdapter({
+  pool: {
+    connectionString: process.env.DATABASE_URI!,
+    ssl: process.env.DATABASE_URI?.includes('neon.tech') ? { rejectUnauthorized: false } : undefined,
+  },
+  push: true,
+}),
+```
+**DATABASE_URI format:** `postgresql://user:pass@host/db?channel_binding=require` (no sslmode param)
+**Status:** ACTIVE
+
+---
+
+## D-036 — Reverse Media Lookup as Image Fallback
+**Decision:** When a product's `images[]` array is empty, `page.tsx` performs a reverse lookup on the Media collection to find any media documents where `media.product` references that product.
+**Reason:** Admin users were uploading images via the Media collection and setting "İlgili Ürün" (related product) on the media document — a reverse reference. The storefront only read `product.images[]`, so those uploads were invisible.
+**Implementation:** Batch query after fetching products. Build a `reverseMediaMap: Map<id, media[]>`. Merge with `allUrls = mediaUrls.length > 0 ? mediaUrls : reverseUrls`.
+**Priority:** `product.images[]` always takes precedence. Reverse lookup is fallback only.
+**Status:** ACTIVE
+
+---
+
+## D-037 — objectFit: contain for All Product Images
+**Decision:** All product images (catalog cards, detail page, thumbnails) use `objectFit: "contain"` rather than `"cover"`.
+**Reason:** Shoes have specific shapes and key details that must be fully visible. `cover` crops edges of the shoe, hiding the toe or heel. `contain` scales the image to fit the container without cropping.
+**Status:** ACTIVE
+
+---
+
+## D-038 — Products.category Changed to Select Field
+**Decision:** `Products.category` was changed from `type: 'text'` to `type: 'select'` with predefined options: Günlük, Spor, Klasik, Bot, Sandalet, Krampon, Cüzdan.
+**Reason:** Free-text category input caused filter mismatches when admin entered slightly different values (e.g., "spor" vs "Spor").
+**Note:** This contradicts D-022 which states category must remain `type: 'text'` due to varchar column. If the DB column already has values that match the new select options, `push: true` will attempt an enum migration. Monitor for migration errors after restart. CATEGORY_LABELS in page.tsx handles backward compatibility with any old lowercase values.
+**Status:** ACTIVE — monitor DB migration on next server start
+
+---
+
+## D-039 — beforeDelete Hook Pattern for FK Cleanup
+**Decision:** Products collection uses a `beforeDelete` hook to nullify all related records before deletion to avoid PostgreSQL FK constraint violations.
+**Reason:** Variants.product and Media.product reference Products. If not nullified first, deleting a product throws a FK constraint error shown to admin as "Bilinmeyen bir hata oluştu".
+**Implementation:**
+```typescript
+beforeDelete: [async ({ req, id }) => {
+  // nullify variant references
+  const variants = await req.payload.find({ collection: 'variants', where: { product: { equals: id } }, limit: 200 })
+  for (const v of variants.docs) {
+    await req.payload.update({ collection: 'variants', id: v.id, data: { product: null as any } })
+  }
+  // clear media references
+  const media = await req.payload.find({ collection: 'media', where: { product: { equals: id } }, limit: 200 })
+  for (const m of media.docs) {
+    await req.payload.update({ collection: 'media', id: m.id, data: { product: null as any } })
+  }
+}]
+```
+**Also required:** Variants.product must be `required: false` (was `required: true`) so the null update doesn't fail its own validation.
+**Status:** ACTIVE
+
+---
+
+## D-040 — Auto-Generated Slug and SKU via beforeValidate Hook
+**Decision:** Products.slug is always auto-generated from the title via `beforeValidate` hook and is read-only in admin. Products.sku is auto-generated only if the field is empty.
+**Reason:** Admin users were leaving slug and SKU blank or entering inconsistent values, causing storefront filter mismatches and display issues.
+**Slug format:** Turkish-safe `toSlug()` helper: lowercase, replace Turkish chars (ş→s, ğ→g, etc.), replace spaces with hyphens, strip non-alphanumeric.
+**SKU format:** `AYK-{TIMESTAMP_BASE36}` if empty.
+**Status:** ACTIVE
+
+---
+
+## D-041 — Catalog Card Hover Preview
+**Decision:** Catalog product cards show a crossfade preview of the second product image on mouse hover.
+**Reason:** Improves product discovery — users can see the shoe from a different angle without clicking into the detail page.
+**Implementation:** Two `<img>` tags stacked absolutely. Primary fades to opacity 0 on hover (when a second image exists). Secondary fades to opacity 1. CSS `transition: opacity 0.3s`.
+**Status:** ACTIVE

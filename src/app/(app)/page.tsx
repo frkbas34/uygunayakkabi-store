@@ -27,19 +27,6 @@ function getShoeImage(category: string) {
   return makeSvgShoe(...colors);
 }
 
-function getMediaUrl(images: any[]) {
-  if (!images || images.length === 0) return null;
-  const first = images[0]?.image;
-  if (!first) return null;
-  if (typeof first === 'object') {
-    // Payload CMS stores the url field on media documents
-    if (first.url) return first.url;
-    // Fallback: construct from filename (files in public/media/)
-    if (first.filename) return `/media/${first.filename}`;
-  }
-  return null;
-}
-
 // Extract ALL media URLs from a product's images array
 function getAllMediaUrls(images: any[]): string[] {
   if (!images || images.length === 0) return [];
@@ -83,14 +70,45 @@ export default async function Page() {
       sort: '-createdAt',
     });
 
-    // DEBUG: log raw Payload response — visible in Vercel Runtime Logs
-    console.log(`[Page] Payload returned ${result.docs.length} active products. IDs:`, result.docs.map((p: any) => p.id));
+    // ── Reverse media lookup ──────────────────────────────────────────
+    // Some admins link images by setting "İlgili Ürün" on the Media record
+    // instead of adding images via the Product's images array.
+    // Fetch all media docs that have a product reference so we can use them
+    // as fallback images when the product's own images array is empty.
+    const productIds = result.docs.map((p: any) => p.id);
+    let reverseMediaMap = new Map<number | string, any[]>();
+    if (productIds.length > 0) {
+      try {
+        const reverseMedia = await payload.find({
+          collection: 'media',
+          where: { product: { in: productIds } },
+          depth: 0,
+          limit: 500,
+        });
+        for (const m of reverseMedia.docs) {
+          const pid = typeof m.product === 'object' ? (m.product as any).id : m.product;
+          if (pid) {
+            if (!reverseMediaMap.has(pid)) reverseMediaMap.set(pid, []);
+            reverseMediaMap.get(pid)!.push(m);
+          }
+        }
+      } catch (e) {
+        // Non-critical — just means reverse media won't be used as fallback
+      }
+    }
 
     dbProducts = result.docs.map((p: any) => {
       const shoeImg = getShoeImage(p.category || 'gunluk');
+      // Primary: images from the product's own images array
       const mediaUrls = getAllMediaUrls(p.images || []);
-      const imgSrc = mediaUrls[0] || shoeImg;
-      const img2 = mediaUrls[1] || shoeImg;
+      // Fallback: images linked via Media's "İlgili Ürün" field
+      const reverseUrls = (reverseMediaMap.get(p.id) || [])
+        .map((m: any) => m.url || (m.filename ? `/media/${m.filename}` : null))
+        .filter(Boolean) as string[];
+      // Use product's own images first, reverse-linked images as fallback
+      const allUrls = mediaUrls.length > 0 ? mediaUrls : reverseUrls;
+      const imgSrc = allUrls[0] || shoeImg;
+      const img2 = allUrls[1] || shoeImg;
 
       // Varyantlardan beden ve stok
       const variants = Array.isArray(p.variants) ? p.variants : [];
@@ -116,8 +134,8 @@ export default async function Page() {
         price: Number(p.price) || 0,
         originalPrice: p.originalPrice ? Number(p.originalPrice) : null,
         description: p.description || `${p.title} — uygun fiyatlı ayakkabı`,
-        images: mediaUrls.length > 0 ? [...mediaUrls, shoeImg] : [imgSrc, img2],
-        dbImage: mediaUrls[0] || null,
+        images: allUrls.length > 0 ? [...allUrls, shoeImg] : [imgSrc, img2],
+        dbImage: allUrls[0] || null,
         sizes: sizes.length > 0 ? sizes : [38, 39, 40, 41, 42, 43],
         stock: totalStock || 5,
         category: CATEGORY_LABELS[p.category] || p.category || 'Günlük',
@@ -191,9 +209,6 @@ export default async function Page() {
   } catch (err) {
     console.error('[Page] DB ürünleri yüklenemedi:', err);
   }
-
-  // DEBUG: log final mapped products
-  console.log(`[Page] dbProducts passed to App: ${dbProducts.length}`, dbProducts.map(p => ({ id: p.id, name: p.name, slug: p.slug, category: p.category, status: 'active' })));
 
   return <App dbProducts={dbProducts} siteSettings={siteSettings} banners={banners} />;
 }

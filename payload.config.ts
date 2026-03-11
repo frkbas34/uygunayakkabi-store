@@ -63,6 +63,9 @@ export default buildConfig({
   db: postgresAdapter({
     pool: {
       connectionString: process.env.DATABASE_URI!,
+      // SSL handled here instead of sslmode= in connection string
+      // to avoid pg-connection-string deprecation warning
+      ssl: process.env.DATABASE_URI?.includes('neon.tech') ? { rejectUnauthorized: false } : undefined,
     },
     // Şema değişikliklerini otomatik uygular (dev için ideal)
     push: true,

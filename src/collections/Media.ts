@@ -7,6 +7,10 @@ const dirname = path.dirname(filename)
 
 export const MediaCollection: CollectionConfig = {
   slug: 'media',
+  access: {
+    // Images must be publicly readable so storefront visitors can see product photos
+    read: () => true,
+  },
   upload: {
     staticDir: path.resolve(dirname, '../../public/media'),
     mimeTypes: ['image/jpeg', 'image/png', 'image/webp', 'image/gif', 'image/svg+xml'],

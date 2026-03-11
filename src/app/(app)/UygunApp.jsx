@@ -199,6 +199,8 @@ function Navbar({ onNav, pg, settings }) {
 function Card({ p, onView }) {
   const [h, sH] = useState(false);
   const imgSrc = p.dbImage || p.image;
+  // Second image for hover preview (if available)
+  const img2 = Array.isArray(p.images) && p.images.length > 1 ? p.images[1] : null;
   return (
     <div
       onMouseEnter={() => sH(true)}
@@ -206,7 +208,8 @@ function Card({ p, onView }) {
       onClick={() => onView(p)}
       style={{ cursor: "pointer", borderRadius: T.r.xl, overflow: "hidden", background: T.wh, transition: "transform 0.4s cubic-bezier(.22,1,.36,1), box-shadow 0.4s cubic-bezier(.22,1,.36,1), border-color 0.3s", transform: h ? "translateY(-8px) scale(1.015)" : "translateY(0) scale(1)", boxShadow: h ? "0 28px 56px rgba(0,0,0,0.13), 0 8px 16px rgba(0,0,0,0.06)" : "0 2px 8px rgba(0,0,0,0.04)", border: h ? "1px solid #d0d0d0" : "1px solid #e8e8e8" }}>
       <div style={{ position: "relative", paddingTop: "115%", overflow: "hidden", background: T.g100 }}>
-        <img src={imgSrc} alt={p.name || p.title} style={{ position: "absolute", top: 0, left: 0, width: "100%", height: "100%", objectFit: "cover", transition: "transform 0.6s cubic-bezier(.22,1,.36,1)", transform: h ? "scale(1.1)" : "scale(1)", filter: (p.stock === 0 || p.status === "soldout") ? "grayscale(40%)" : "" }} />
+        <img src={imgSrc} alt={p.name || p.title} style={{ position: "absolute", top: 0, left: 0, width: "100%", height: "100%", objectFit: "contain", objectPosition: "center", transition: "opacity 0.4s ease, transform 0.6s cubic-bezier(.22,1,.36,1)", opacity: (h && img2) ? 0 : 1, transform: h ? "scale(1.05)" : "scale(1)", filter: (p.stock === 0 || p.status === "soldout") ? "grayscale(40%)" : "" }} />
+        {img2 && <img src={img2} alt="" style={{ position: "absolute", top: 0, left: 0, width: "100%", height: "100%", objectFit: "contain", objectPosition: "center", transition: "opacity 0.4s ease", opacity: h ? 1 : 0, filter: (p.stock === 0 || p.status === "soldout") ? "grayscale(40%)" : "" }} />}
         {p.badge && (
           <span style={{ position: "absolute", top: 14, left: 14, fontFamily: T.f, fontSize: 11, fontWeight: 700, letterSpacing: "0.04em", textTransform: "uppercase", padding: "5px 12px", borderRadius: T.r.full, color: T.wh, background: p.badge === "Tükendi" ? T.g500 : p.badge === "İndirim" ? T.ac : T.bk }}>
             {p.badge}
@@ -696,14 +699,14 @@ function Detail({ product: p, onBack, settings }) {
         <div className="detail-grid" style={{ display: "grid", gridTemplateColumns: "1.2fr 1fr", gap: 56 }}>
           <div>
             <div style={{ borderRadius: 24, overflow: "hidden", aspectRatio: "1/1", background: T.g100, marginBottom: 14, position: "relative" }}>
-              <img src={allImages[im]} alt={p.name || p.title} style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+              <img src={allImages[im]} alt={p.name || p.title} style={{ width: "100%", height: "100%", objectFit: "contain", objectPosition: "center" }} />
               {p.badge && <span style={{ position: "absolute", top: 20, left: 20, fontFamily: T.f, fontSize: 12, fontWeight: 700, textTransform: "uppercase", padding: "6px 14px", borderRadius: T.r.full, color: T.wh, background: p.badge === "Tükendi" ? T.g500 : p.badge === "İndirim" ? T.ac : T.bk }}>{p.badge}</span>}
             </div>
             {allImages.length > 1 && (
               <div style={{ display: "flex", gap: 10 }}>
                 {allImages.map((x, i) => (
-                  <div key={i} onClick={() => sIm(i)} style={{ width: 80, height: 80, borderRadius: T.r.md, overflow: "hidden", border: `2.5px solid ${im === i ? T.bk : "transparent"}`, cursor: "pointer", flexShrink: 0 }}>
-                    <img src={x} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+                  <div key={i} onClick={() => sIm(i)} style={{ width: 80, height: 80, borderRadius: T.r.md, overflow: "hidden", border: `2.5px solid ${im === i ? T.bk : "transparent"}`, cursor: "pointer", flexShrink: 0, background: T.g100 }}>
+                    <img src={x} alt="" style={{ width: "100%", height: "100%", objectFit: "contain" }} />
                   </div>
                 ))}
               </div>

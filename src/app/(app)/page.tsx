@@ -114,7 +114,11 @@ export default async function Page() {
       const variants = Array.isArray(p.variants) ? p.variants : [];
       const sizes = variants
         .filter((v: any) => typeof v === 'object' && v?.size)
-        .map((v: any) => parseInt(v.size))
+        .map((v: any) => {
+          // Extract number from size field — handles "42", "ADS-42", "42 numara" etc.
+          const match = String(v.size).match(/(\d+)/);
+          return match ? parseInt(match[1]) : NaN;
+        })
         .filter((s: number) => !isNaN(s))
         .sort((a: number, b: number) => a - b);
 
@@ -134,7 +138,8 @@ export default async function Page() {
         price: Number(p.price) || 0,
         originalPrice: p.originalPrice ? Number(p.originalPrice) : null,
         description: p.description || `${p.title} — uygun fiyatlı ayakkabı`,
-        images: allUrls.length > 0 ? [...allUrls, shoeImg] : [imgSrc, img2],
+        // Only use real uploaded images; SVG placeholder only if zero real images exist
+        images: allUrls.length > 0 ? allUrls : [shoeImg],
         dbImage: allUrls[0] || null,
         sizes: sizes.length > 0 ? sizes : [38, 39, 40, 41, 42, 43],
         stock: totalStock || 5,

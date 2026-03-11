@@ -3,9 +3,9 @@ import type { CollectionConfig } from 'payload'
 export const Variants: CollectionConfig = {
   slug: 'variants',
   admin: {
-    useAsTitle: 'variantSku',
+    useAsTitle: 'size',
     group: 'Mağaza',
-    defaultColumns: ['variantSku', 'product', 'size', 'stock'],
+    defaultColumns: ['size', 'product', 'stock', 'variantSku'],
     description: 'Ürün beden varyantları ve stok takibi',
   },
   fields: [
@@ -13,17 +13,18 @@ export const Variants: CollectionConfig = {
       name: 'product',
       type: 'relationship',
       relationTo: 'products',
-      required: true,
+      // NOT required — allows product deletion (sets to null instead of FK error)
+      required: false,
       label: 'Ürün',
       admin: { position: 'sidebar' },
     },
     {
       name: 'size',
       type: 'text',
-      label: 'Beden (36–49)',
+      label: 'Beden',
       required: true,
       admin: {
-        description: 'Geçerli bedenler: 36 37 38 39 40 41 42 43 44 45 46 47 48 49',
+        description: 'Sadece numara yazın: 36, 37, 38, 39, 40, 41, 42, 43, 44, 45',
       },
     },
     {
@@ -44,10 +45,10 @@ export const Variants: CollectionConfig = {
     {
       name: 'variantSku',
       type: 'text',
-      label: 'Varyant SKU',
+      label: 'Varyant SKU (opsiyonel)',
       admin: {
         position: 'sidebar',
-        description: 'Ör: NKE-AM90-BLK-42',
+        description: 'Ör: NKE-AM90-BLK-42 — boş bırakılabilir',
       },
     },
   ],

@@ -1,5 +1,15 @@
 import type { CollectionConfig } from 'payload'
 
+// Turkish slug generator
+function toSlug(text: string): string {
+  return text
+    .toLowerCase()
+    .replace(/ğ/g, 'g').replace(/ü/g, 'u').replace(/ş/g, 's')
+    .replace(/ı/g, 'i').replace(/ö/g, 'o').replace(/ç/g, 'c')
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+}
+
 export const Products: CollectionConfig = {
   slug: 'products',
   admin: {
@@ -11,15 +21,54 @@ export const Products: CollectionConfig = {
   hooks: {
     beforeValidate: [
       ({ data }) => {
-        if (data && data.title && !data.slug) {
-          data.slug = data.title
-            .toLowerCase()
-            .replace(/ğ/g, 'g').replace(/ü/g, 'u').replace(/ş/g, 's')
-            .replace(/ı/g, 'i').replace(/ö/g, 'o').replace(/ç/g, 'c')
-            .replace(/[^a-z0-9]+/g, '-')
-            .replace(/^-+|-+$/g, '')
+        if (!data) return data
+        // Auto-generate slug from title (always regenerate on save)
+        if (data.title) {
+          data.slug = toSlug(data.title)
+        }
+        // Auto-generate SKU if empty
+        if (data.title && !data.sku) {
+          const prefix = data.title.substring(0, 3).toUpperCase()
+            .replace(/[^A-Z]/g, 'X')
+          data.sku = `${prefix}-${Date.now().toString(36).toUpperCase()}`
         }
         return data
+      },
+    ],
+    beforeDelete: [
+      async ({ req, id }) => {
+        // Clean up: nullify variant references before product deletion
+        // This prevents foreign key constraint errors in PostgreSQL
+        try {
+          const variants = await req.payload.find({
+            collection: 'variants',
+            where: { product: { equals: id } },
+            limit: 200,
+          })
+          for (const v of variants.docs) {
+            await req.payload.update({
+              collection: 'variants',
+              id: v.id,
+              data: { product: null as any },
+            })
+          }
+          // Also clear media reverse references
+          const media = await req.payload.find({
+            collection: 'media',
+            where: { product: { equals: id } },
+            limit: 200,
+          })
+          for (const m of media.docs) {
+            await req.payload.update({
+              collection: 'media',
+              id: m.id,
+              data: { product: null as any },
+            })
+          }
+        } catch (e) {
+          // Non-critical — log and continue with delete
+          console.error('[Products] beforeDelete cleanup failed:', e)
+        }
       },
     ],
   },
@@ -30,6 +79,12 @@ export const Products: CollectionConfig = {
       type: 'text',
       label: 'Ürün Adı',
       required: true,
+      validate: (value: any) => {
+        if (!value || String(value).trim().length === 0) {
+          return '⚠️ Ürün adı zorunludur. Lütfen bir ürün adı girin.'
+        }
+        return true
+      },
     },
     {
       name: 'description',
@@ -42,7 +97,7 @@ export const Products: CollectionConfig = {
       type: 'array',
       label: '📸 Ürün Görselleri (Fotoğraf Ekle / Değiştir)',
       admin: {
-        description: '⬆️ Önce "Medya Kütüphanesi"nden görsel yükleyin, sonra buradan seçin. İlk görsel kapak fotoğrafı olarak kullanılır. En fazla 8 görsel.',
+        description: '⬆️ Önce "Medya Kütüphanesi"nden görsel yükleyin, sonra buradan seçin. İlk görsel kapak fotoğrafı olarak kullanılır. En fazla 8 görsel. — VEYA medya kütüphanesinden "İlgili Ürün" alanını seçin, o da çalışır.',
         initCollapsed: false,
       },
       fields: [
@@ -61,17 +116,25 @@ export const Products: CollectionConfig = {
       label: 'Marka',
       admin: {
         position: 'sidebar',
-        description: 'Nike / Adidas / Puma / New Balance / Converse / Vans / Reebok / Timberland / Dr. Martens / UGG / Birkenstock',
+        description: 'Nike / Adidas / Puma / New Balance / Converse / Vans / Reebok / Timberland',
       },
     },
     {
       name: 'category',
-      type: 'text',
+      type: 'select',
       label: 'Kategori',
+      options: [
+        { label: 'Günlük', value: 'Günlük' },
+        { label: 'Spor', value: 'Spor' },
+        { label: 'Klasik', value: 'Klasik' },
+        { label: 'Bot', value: 'Bot' },
+        { label: 'Sandalet', value: 'Sandalet' },
+        { label: 'Krampon', value: 'Krampon' },
+        { label: 'Cüzdan', value: 'Cüzdan' },
+      ],
+      defaultValue: 'Günlük',
       admin: {
         position: 'sidebar',
-        // DB constraint: text field — cannot change to enum without migration
-        description: 'Günlük | Spor | Klasik | Bot | Sandalet | Krampon | Cüzdan',
       },
     },
     {
@@ -93,13 +156,22 @@ export const Products: CollectionConfig = {
       type: 'number',
       label: 'Satış Fiyatı (₺)',
       required: true,
+      validate: (value: any) => {
+        if (value === undefined || value === null || value === '') {
+          return '⚠️ Satış fiyatı zorunludur.'
+        }
+        if (Number(value) <= 0) {
+          return '⚠️ Fiyat 0\'dan büyük olmalıdır.'
+        }
+        return true
+      },
     },
     {
       name: 'originalPrice',
       type: 'number',
       label: 'Piyasa Fiyatı (₺)',
       admin: {
-        description: 'İndirim hesabı için eski fiyat',
+        description: 'İndirim hesabı için eski fiyat — boş bırakılabilir',
       },
     },
     // ── Tanımlayıcılar ───────────────────────────────────────
@@ -107,22 +179,21 @@ export const Products: CollectionConfig = {
       name: 'slug',
       type: 'text',
       label: 'Slug (URL)',
-      required: true,
       unique: true,
       admin: {
         position: 'sidebar',
-        description: 'Başlıktan otomatik oluşturulur',
+        description: 'Otomatik oluşturulur — değiştirmenize gerek yok',
+        readOnly: true,
       },
     },
     {
       name: 'sku',
       type: 'text',
       label: 'SKU / Stok Kodu',
-      required: true,
       unique: true,
       admin: {
         position: 'sidebar',
-        description: 'Benzersiz ürün kodu (ör: NKE-AM90-BLK)',
+        description: 'Boş bırakırsanız otomatik oluşturulur (ör: NKE-AM90-BLK)',
       },
     },
     // ── Durum ─────────────────────────────────────────────────
@@ -132,9 +203,9 @@ export const Products: CollectionConfig = {
       label: 'Durum',
       defaultValue: 'active',
       options: [
-        { label: '🟢 Aktif', value: 'active' },
-        { label: '🔴 Tükendi', value: 'soldout' },
-        { label: '📝 Taslak', value: 'draft' },
+        { label: '🟢 Aktif — Sitede görünür', value: 'active' },
+        { label: '🔴 Tükendi — Stok bitti', value: 'soldout' },
+        { label: '📝 Taslak — Sitede görünmez', value: 'draft' },
       ],
       admin: {
         position: 'sidebar',

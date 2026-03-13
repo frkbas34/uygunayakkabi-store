@@ -377,9 +377,8 @@ ACTIVE
 ---
 
 ## D-031 — Static Products as Fallback Layer
-**Decision:** 39 static products are hardcoded in UygunApp.jsx and displayed alongside DB products. DB products take priority (deduplication by slug).
-**Reason:** Ensures the storefront always has content even before admin populates the database. As DB products grow, static products are gradually displaced.
-**Status:** ACTIVE — will be reconsidered when DB has sufficient products
+**Decision:** ~~39 static products are hardcoded in UygunApp.jsx and displayed alongside DB products.~~
+**Status:** SUPERSEDED — `ENABLE_STATIC_FALLBACK = false` is now set in UygunApp.jsx. DB is the sole source of products. Static products array remains in code but is not rendered. Remove the static array when DB product count is sufficient to avoid dead code.
 
 ---
 
@@ -487,3 +486,24 @@ beforeDelete: [async ({ req, id }) => {
 **Reason:** Improves product discovery — users can see the shoe from a different angle without clicking into the detail page.
 **Implementation:** Two `<img>` tags stacked absolutely. Primary fades to opacity 0 on hover (when a second image exists). Secondary fades to opacity 1. CSS `transition: opacity 0.3s`.
 **Status:** ACTIVE
+
+---
+
+## D-042 — Git Branch Strategy: main is the Only Deployable Branch
+**Decision:** All production-ready work must be on `main`. Feature branches must be merged to main before considering any work "done" or "deployed."
+**Reason:** User lost ~12 hours of work on 2026-03-13 due to working across multiple diverged branches (`main`, `copilot/setup-product-publishing-system`, `feat/product-card`, `v0/frkbas34-7159-de82aac4`). Changes made on non-main branches did not reach Vercel production.
+**Rules:**
+- Always run `git pull origin main` before starting work on any machine
+- Use `git status && git branch` to confirm active branch before every push
+- Merge or cherry-pick feature branch work to main before switching machines
+- Do NOT switch computers without first running: `git add . && git commit -m "..." && git push origin main`
+- Preferred push flow: `git pull origin main --rebase` → fix conflicts → `git push origin main`
+**Status:** ACTIVE — OPERATIONAL RULE
+
+---
+
+## D-043 — Admin → Storefront Pipeline End-to-End Validation Required
+**Decision:** The admin → storefront data flow must be explicitly validated as a working end-to-end pipeline before Phase 1 can be marked complete.
+**Reason:** On 2026-03-13, products were confirmed not appearing on storefront despite CMS-first pipeline being in code. Root cause was investigated and resolved.
+**Status:** RESOLVED (2026-03-13) — pipeline confirmed working. Final user smoke test (create product in admin → appears on storefront) remains as Phase 1 sign-off gate.
+**Retained rule:** "Code exists" ≠ "pipeline works." Always validate end-to-end after major changes.

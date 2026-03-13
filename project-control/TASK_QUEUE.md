@@ -1,6 +1,12 @@
 # TASK QUEUE — Uygunayakkabi
 
-_Last updated: 2026-03-11_
+_Last updated: 2026-03-13_
+
+---
+
+## ✅ RESOLVED BLOCKERS (2026-03-13)
+- ~~Admin → Storefront product visibility broken~~ — **RESOLVED**
+- ~~Git branch divergence / data loss risk~~ — **RESOLVED** (main confirmed authoritative)
 
 ---
 
@@ -48,20 +54,19 @@ _Last updated: 2026-03-11_
 
 ---
 
-### 🔲 Remaining Phase 1 — User Must Validate in Production
+### 🔲 Phase 1 — Final Production Validation (CURRENT PRIORITY)
 
-**Before switching computers, run on your machine:**
+**Before any session, sync your branch:**
 ```bash
 git pull origin main
 npm run dev
 ```
-(This applies schema changes — category select field, variant required: false)
 
-**Then validate these 6 items in production:**
+**Production smoke tests — run in order:**
 - [ ] Login to admin at uygunayakkabi.com/admin → confirm all 10 collections visible in sidebar
-- [ ] Upload a test image via Media collection → confirm Vercel Blob URL returned (starts with `https://...blob.vercel-storage.com/...`)
-- [ ] Create a test product via admin with uploaded image → confirm it appears on storefront
-- [ ] Populate SiteSettings global → confirm changes (site name, WhatsApp, announcement bar) appear on storefront
+- [ ] Upload a test image via Media collection → confirm Vercel Blob URL returned (`https://...blob.vercel-storage.com/...`)
+- [ ] Create a test product via admin with uploaded image, set status to `active` → confirm it appears on storefront within one page reload
+- [ ] Populate SiteSettings global (site name, WhatsApp number, announcement bar) → confirm changes appear on storefront
 - [ ] Create a test Banner → confirm promo section updates on homepage
 - [ ] Try bulk-deleting 2–3 test products → confirm "Bilinmeyen hata" error is GONE
 
@@ -76,35 +81,75 @@ npm run dev
 
 ---
 
-## PHASE 2 — Automation Backbone
-_(Do not begin until Phase 1 validation is complete)_
+## PHASE 2 — Automation Backbone (ACTIVE ▶️)
 
-### Architecture & Setup
-- [ ] Set TELEGRAM_BOT_TOKEN, TELEGRAM_WEBHOOK_SECRET, TELEGRAM_CHAT_ID in .env / Vercel
-- [ ] Review existing Telegram webhook at `src/app/api/telegram/route.ts`
-- [ ] Review existing `src/lib/telegram.ts` parser utilities
-- [ ] Register Telegram bot webhook URL with BotFather: `https://uygunayakkabi.com/api/telegram`
-- [ ] Test Telegram bot end-to-end: send photo + caption → webhook receives → product created in CMS
+### MVP Scope: Telegram → Payload Draft Product
+_Goal: Minimum viable slice. Phone photo + caption → webhook → product draft in CMS._
+_Do not build AI image processing or Instagram publishing yet — validate the thin slice first._
 
-### n8n Workflow
-- [ ] Set up n8n (self-hosted on VPS or n8n Cloud)
-- [ ] Design n8n workflow architecture (Telegram → parse → CMS product → publish)
-- [ ] Define AI image processing step (background removal / enhancement)
-- [ ] Define product ingestion mapping (Telegram caption → CMS fields)
-- [ ] Define Instagram publishing flow
-- [ ] Define Shopier-compatible publishing logic
+---
 
-### Target Flow
+### Step 1 — Telegram Bot Setup
+- [ ] Create a Telegram bot via BotFather → get `TELEGRAM_BOT_TOKEN`
+- [ ] Determine the Telegram `CHAT_ID` that the bot will listen to (your personal/business Telegram)
+- [ ] Add to `.env.local` and Vercel env vars:
+  - `TELEGRAM_BOT_TOKEN`
+  - `TELEGRAM_WEBHOOK_SECRET` (any random string for signature verification)
+  - `TELEGRAM_CHAT_ID` (your authorized sender ID)
+
+### Step 2 — Inspect Existing Webhook Scaffold
+- [ ] Read `src/app/api/telegram/route.ts` — understand current state (scaffold or functional?)
+- [ ] Read `src/lib/telegram.ts` — understand parser utilities available
+- [ ] Identify gaps: what's missing to receive a photo+caption and create a Payload product
+
+### Step 3 — Implement Webhook Handler
+- [ ] `POST /api/telegram` receives Telegram `Update` object
+- [ ] Verify `X-Telegram-Bot-Api-Secret-Token` header matches `TELEGRAM_WEBHOOK_SECRET`
+- [ ] Verify sender `chat.id` matches `TELEGRAM_CHAT_ID` (reject unauthorized senders)
+- [ ] Extract from message:
+  - photo (largest available `file_id`)
+  - caption text (title, price, stock code, quantity if present)
+- [ ] Parse caption using `src/lib/telegram.ts` helpers
+- [ ] Download photo from Telegram File API → upload to Payload Media collection (Vercel Blob)
+- [ ] Create product draft in Payload via `payload.create({ collection: 'products', data: {...} })` with `status: 'draft'`
+- [ ] Return 200 to Telegram (mandatory — Telegram retries if no 200)
+
+### Step 4 — Register Webhook with Telegram
+- [ ] Deploy to Vercel (push to main)
+- [ ] Register webhook: `https://api.telegram.org/bot<TOKEN>/setWebhook?url=https://uygunayakkabi.com/api/telegram&secret_token=<SECRET>`
+- [ ] Verify with: `https://api.telegram.org/bot<TOKEN>/getWebhookInfo`
+
+### Step 5 — End-to-End Test
+- [ ] Send a photo + caption from your phone to the bot
+- [ ] Confirm product draft appears in Payload admin under Products
+- [ ] Admin reviews draft, sets status to `active` → product appears on storefront
+- [ ] Validate the full loop: phone → bot → draft → admin approval → live
+
+---
+
+### Step 6 — Caption Parser Hardening (after MVP works)
+- [ ] Define caption format convention (e.g. `Nike Air Max\n₺1200\n#AYK-001\nAdet: 5`)
+- [ ] Update `src/lib/telegram.ts` parser to extract: title, price, SKU/stock code, quantity
+- [ ] Handle missing fields gracefully (use defaults, not errors)
+- [ ] Map parsed fields to Products collection fields
+
+### Step 7 — Phase 2 Expansion (after thin slice validated)
+- [ ] n8n integration: replace inline parsing logic with n8n workflow if complexity grows
+- [ ] AI image processing: background removal / enhancement before uploading to Blob
+- [ ] Instagram auto-publish: after product goes `active`, post to Instagram via Graph API
+- [ ] Shopier listing sync
+
+### Target Flow (MVP)
 ```
-Telegram (phone photo + caption)
+Your phone → Telegram bot (photo + caption)
     ↓
-Telegram Bot → webhook → src/app/api/telegram/route.ts
+POST /api/telegram (webhook)
     ↓
-n8n workflow: parse caption → AI image cleanup → create product in Payload CMS
+Parse caption → download photo → upload to Vercel Blob
     ↓
-Payload CMS → storefront live
-    ↓ (optional)
-n8n → Instagram post + Shopier listing
+payload.create('products', { status: 'draft', ... })
+    ↓
+Admin sees draft → approves → product goes live on storefront
 ```
 
 ---

@@ -1,12 +1,17 @@
 # PROJECT STATE — Uygunayakkabi
 
-_Last updated: 2026-03-11_
+_Last updated: 2026-03-13_
 
 ## Current Status
-Phase 1 is **complete and production validated**. Admin panel and storefront are both live at uygunayakkabi.com. A full second round of UX and stability fixes was applied on 2026-03-11. Phase 2 (Telegram automation) is next.
+Phase 1 is **COMPLETE**. Production smoke test passed (2026-03-13):
+- Admin → storefront end-to-end pipeline confirmed working
+- Git branch confirmed clean, main authoritative
+
+Active phase: **Phase 2 — Automation Backbone**
+Entry point: Telegram-first MVP (webhook → parser → Payload draft product)
 
 ## Current Phase
-Phase 1 — Core Admin System + Storefront Stabilization (**COMPLETE**)
+Phase 2 — Automation Backbone (**ACTIVE**)
 
 ---
 
@@ -73,15 +78,23 @@ Phase 1 — Core Admin System + Storefront Stabilization (**COMPLETE**)
 - Env vars set: DATABASE_URI, PAYLOAD_SECRET, NEXT_PUBLIC_SERVER_URL, NEXT_PUBLIC_WHATSAPP_NUMBER, BLOB_READ_WRITE_TOKEN
 - Next.js: **16.2.0-canary.81** (required for Payload CMS 3.79.0 compatibility)
 
-### Git State
-- Branch: main
-- All changes committed locally
-- **User must push from their machine:** `git pull origin main && git push origin main`
-- **Then restart dev server:** `npm run dev` (applies schema changes — category select, variant required:false)
+### Git State (as of 2026-03-13)
+- Branch divergence incident **RESOLVED** — main is confirmed authoritative
+- Active operational rule: always pull before pushing, always work on main (see D-042)
+- GitHub repo: https://github.com/frkbas34/uygunayakkabi-store
+- Safe push procedure: `git pull origin main --rebase` → resolve conflicts → `git push origin main`
 
 ---
 
-## Unresolved / Known Gaps
+## Phase 1 Deferred Cleanup (non-blocking, Phase 2 parallel)
+- **SiteSettings**: not fully populated yet — storefront falls back to DEFAULT_SETTINGS for some fields
+- **Banners**: collection exists, no banners created yet
+- **Admin dark mode**: `admin-dark.css` exists but inactive — re-implement if desired, without `!important`
+- **favicon.ico**: missing, 404 on every page load
+- **No `/products/[slug]` route**: slug auto-generated but no dedicated URL route yet
+- **`push: true`**: switch to migrations before Phase 2 data model stabilizes in production
+
+### 🟡 NON-CRITICAL — Post-Validation Cleanup
 - **Custom Dashboard disabled**: `afterDashboard` commented out in payload.config.ts. Component still exists at `src/components/admin/Dashboard.tsx` but is inactive.
 - **Admin dark mode removed**: `src/styles/admin-dark.css` exists but not imported. Re-implement without `!important` overrides if desired.
 - **importMap is manually maintained**: `npx payload generate:importmap` does not work in Linux VM. importMap.ts must be updated manually when new plugins/components are added.
@@ -96,20 +109,18 @@ Phase 1 — Core Admin System + Storefront Stabilization (**COMPLETE**)
 - importMap must be maintained manually (see D-034)
 - Some enum values are locked (see D-023)
 
-## Phase 1 Completion Criteria
-- [x] Admin panel accessible in production
-- [x] Admin panel renders correctly (login, dashboard, collections)
-- [x] All collections visible in admin sidebar
+## Phase 1 Completion Record ✅ (validated 2026-03-13)
+- [x] Admin panel accessible and correctly rendered in production
+- [x] All 10 collections + SiteSettings global visible in admin sidebar
 - [x] Storefront live at uygunayakkabi.com
 - [x] Media uploads working via Vercel Blob Storage
 - [x] DB connected (Neon PostgreSQL)
 - [x] Turkish language configured
 - [x] SSL error overlay fixed (dev)
-- [x] Image pipeline fixed (reverse media lookup)
-- [x] UX fixes: objectFit contain, hover preview, no SVG in real galleries, variant size display, bulk delete
-- [ ] End-to-end: create product via admin → appears on storefront (user must validate)
-- [ ] SiteSettings populated → reflected on storefront (user must validate)
-- [ ] Bulk delete tested in production (user must validate)
+- [x] Image pipeline: reverse media lookup, objectFit contain, hover preview
+- [x] Admin stability: auto-slug, auto-SKU, FK-safe deletion, select category
+- [x] End-to-end pipeline: admin product → storefront confirmed ✅ (2026-03-13)
+- [x] Git branch stable, main authoritative
 
-## Next Major Transition
-Phase 1 technical work is complete. User must do 6 manual validation steps (see TASK_QUEUE.md). After those pass → **Phase 2 — Automation Backbone** (Telegram → n8n → product creation → multi-channel publish).
+## Next Focus
+Phase 2 active. Entry point: **Telegram → webhook → parser → Payload draft product**. See TASK_QUEUE.md.

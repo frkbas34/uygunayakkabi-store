@@ -1,0 +1,445 @@
+PROJECT HANDOFF — OPENCLAW + N8N + TELEGRAM + VPS SETUP
+DATE: 2026-03-14
+OWNER: Furkan
+PURPOSE: Continue setup, stabilization, security cleanup, and next-phase integration work from the exact state reached in this chat.
+
+==================================================
+1) HIGH-LEVEL GOAL
+==================================================
+
+We are building a Telegram-based AI agent control system on a VPS.
+
+Core target architecture:
+- VPS as main runtime environment
+- Docker-based deployment
+- Caddy as reverse proxy
+- n8n as workflow/automation engine
+- OpenClaw as AI agent control/interface layer
+- Telegram bot as user-facing command channel
+- OpenAI API as model provider
+- Domain routing through Cloudflare
+
+Operational domains:
+- flow.uygunayakkabi.com -> n8n
+- agent.uygunayakkabi.com -> OpenClaw
+
+Current status at end of session:
+- VPS is provisioned and working
+- Docker is installed and working
+- Caddy is installed and working
+- n8n is installed and accessible
+- OpenClaw is installed and accessible
+- Telegram bot is connected and responding in DM
+- OpenClaw dashboard is accessible at agent.uygunayakkabi.com
+- Telegram DM test succeeded
+- OpenAI model currently in use: openai/gpt-5-mini
+
+==================================================
+2) VPS / HOSTING DECISIONS
+==================================================
+
+Initial hosting discussions compared Hetzner, DigitalOcean, Netcup, Hostinger and others.
+Final active environment is Netcup VPS.
+
+Important host facts:
+- Final runtime used Ubuntu 22.04.5 LTS minimal
+- Root filesystem was initially too small despite a larger disk allocation
+- Disk resize was required before OpenClaw image could be pulled
+
+Resolved disk issue:
+- Physical disk: /dev/vda = 128G
+- Root partition was initially ~8.7G
+- It was expanded successfully to ~125G usable root space
+
+==================================================
+3) BASE SERVER SETUP COMPLETED
+==================================================
+
+Actions completed:
+- Connected via SSH
+- Installed base tools:
+  - curl
+  - wget
+  - git
+  - ufw
+  - ca-certificates
+  - gnupg
+  - lsb-release
+  - unzip
+  - nano
+- Timezone set to Europe/Istanbul
+- Firewall enabled
+- Docker installed successfully
+- Docker Compose plugin installed successfully
+
+Firewall ports opened:
+- OpenSSH
+- 80
+- 443
+
+Docker status confirmed working.
+User account created:
+- furkan
+- added to sudo group
+- added to docker group
+
+Directories created:
+- /opt/openclaw
+- /opt/n8n
+- /opt/caddy
+
+==================================================
+4) DNS / DOMAIN / CLOUDFLARE
+==================================================
+
+Cloudflare DNS was configured.
+
+Relevant records created:
+- flow -> VPS IP
+- agent -> VPS IP
+
+==================================================
+5) CADDY SETUP
+==================================================
+
+Caddy was deployed with Docker.
+
+Current intended Caddyfile logic:
+
+flow.uygunayakkabi.com {
+    reverse_proxy n8n:5678
+}
+
+agent.uygunayakkabi.com {
+    reverse_proxy openclaw-openclaw-gateway-1:18789
+}
+
+Important issue that occurred:
+- Caddy could not initially resolve the OpenClaw gateway container
+- Cause: Caddy was on Docker network "web", OpenClaw gateway was only on "openclaw_default"
+- Result: 502 errors on agent.uygunayakkabi.com
+
+Resolution:
+- OpenClaw gateway container was connected to the shared Docker network "web"
+- After that, agent.uygunayakkabi.com began opening successfully
+
+==================================================
+6) N8N SETUP
+==================================================
+
+n8n was deployed successfully with Docker.
+
+Status:
+- bound internally
+- exposed through Caddy at flow.uygunayakkabi.com
+- initial setup screen reached
+- panel works
+
+==================================================
+7) OPENCLAW SETUP
+==================================================
+
+OpenClaw repository was cloned to:
+- /opt/openclaw
+
+OpenClaw setup path:
+- docker-setup.sh was run
+- onboarding flow completed after several retries/fixes
+
+Important issues encountered:
+1. No space left on device
+   - fixed by partition + filesystem expansion
+
+2. Missing config / gateway restart loop
+   - fixed by re-running onboarding manually
+
+3. Control UI allowedOrigins issue
+   - fixed by editing ~/.openclaw/openclaw.json and adding:
+     gateway.controlUi.allowedOrigins = ["https://agent.uygunayakkabi.com"]
+
+4. Reverse proxy networking issue
+   - fixed by connecting gateway container to shared "web" network
+
+Final result:
+- openclaw-openclaw-gateway-1 is healthy
+- dashboard accessible through domain
+
+==================================================
+8) OPENCLAW ONBOARDING DECISIONS
+==================================================
+
+Selections made during onboarding:
+
+- Security continue -> Yes
+- Onboarding mode -> QuickStart
+- Model/auth provider -> OpenAI
+- OpenAI auth method -> OpenAI API key
+- Default model -> openai/gpt-5-mini
+- Channel -> Telegram (Bot API)
+- Web search provider -> Skip for now
+- Configure skills -> Yes
+- Hooks -> Skip for now
+
+Selected skills/dependencies attempt:
+- clawhub
+- github
+- gog
+- xurl
+
+Outcome:
+- several skill installs failed
+- reasons included Homebrew not installed and npm registry temporary DNS failure
+- these did not block core OpenClaw setup
+
+Optional API prompts answered:
+- Google Places API -> No
+- Gemini API -> No
+- Notion API -> No
+- OpenAI image gen API -> No
+- OpenAI whisper API -> No
+- ElevenLabs API -> No
+
+==================================================
+9) OPENCLAW CONFIG STATE
+==================================================
+
+Config file location:
+- /home/furkan/.openclaw/openclaw.json
+
+Important active config characteristics:
+- OpenAI provider configured
+- model set to openai/gpt-5-mini
+- Telegram channel enabled
+- gateway port set to 18789
+- gateway mode set to local
+- gateway auth token exists
+- allowedOrigins fixed to include:
+  https://agent.uygunayakkabi.com
+
+Security note:
+Sensitive values were visible during the session and must be considered compromised:
+- Telegram bot token
+- OpenAI API key
+- gateway token
+
+These should be rotated.
+
+==================================================
+10) TELEGRAM BOT STATE
+==================================================
+
+Telegram channel was selected in OpenClaw onboarding.
+
+Initial behavior:
+- Telegram DM required pairing
+- Bot responded with pairing instructions and Telegram user id
+- Pairing code was generated
+- CLI pairing approval command was used successfully
+- After approval, Telegram DM started working
+
+Observed Telegram behavior:
+- DM works
+- groupPolicy warning exists:
+  channels.telegram.groupPolicy is "allowlist" but groupAllowFrom / allowFrom is empty
+- implication:
+  - group messages are silently dropped
+  - DM remains the safe active test mode
+
+Recommendation:
+- stay DM-only first
+- later decide whether to keep DM-only or add 3 specific user IDs to allowlist for shared group usage
+
+==================================================
+11) OPENCLAW DASHBOARD / PAIRING STATE
+==================================================
+
+Dashboard was accessed through:
+- agent.uygunayakkabi.com
+
+Flow:
+- dashboard initially asked for gateway token
+- gateway tokenized dashboard URL was retrieved via CLI
+- dashboard then required pairing
+- pending device request was listed via CLI
+- request was approved via CLI
+- dashboard access then succeeded
+
+Current result:
+- OpenClaw dashboard is accessible and working
+
+==================================================
+12) CURRENT KNOWN WORKING STATE
+==================================================
+
+CONFIRMED WORKING:
+- SSH access
+- Docker
+- Caddy
+- n8n
+- OpenClaw gateway
+- OpenClaw dashboard
+- Telegram DM bot responses
+- OpenAI model invocation
+- domain routing
+
+WORKING DOMAINS:
+- flow.uygunayakkabi.com
+- agent.uygunayakkabi.com
+
+WORKING MODEL:
+- openai/gpt-5-mini
+
+==================================================
+13) ISSUES ENCOUNTERED AND THEIR FINAL STATUS
+==================================================
+
+A) Disk full / image pull failure
+STATUS: RESOLVED
+
+B) OpenClaw missing config / restart loop
+STATUS: RESOLVED
+
+C) allowedOrigins / Control UI non-loopback error
+STATUS: RESOLVED
+
+D) Caddy 502 to OpenClaw
+STATUS: RESOLVED by attaching gateway to shared Docker network "web"
+BUT SHOULD BE MADE PERSISTENT IN COMPOSE
+
+E) API rate limit reached
+STATUS:
+- appeared during early tests
+- later Telegram bot responded successfully
+- must still verify OpenAI billing/quota cleanly
+
+F) Skill install dependency failures
+STATUS: DEFERRED
+
+==================================================
+14) SECURITY CLEANUP REQUIRED
+==================================================
+
+This is the first priority for the next session.
+
+Must rotate:
+1. Telegram bot token
+2. OpenAI API key
+3. Optionally OpenClaw gateway token
+
+Then update:
+- Telegram config
+- OpenAI auth config
+- any related environment/config references
+
+Do NOT reuse the exposed secrets from this session.
+
+==================================================
+15) WHAT WAS SUCCESSFULLY PROVEN
+==================================================
+
+The following was successfully demonstrated:
+
+- Telegram bot receives DM
+- Bot responds in Turkish
+- Bot identifies itself as OpenClaw assistant
+- Bot confirms it is running on openai/gpt-5-mini
+- Dashboard and Sessions view show Telegram direct session
+- OpenClaw is operational enough for next-phase integration
+
+==================================================
+16) RECOMMENDED NEXT SESSION PLAN
+==================================================
+
+Priority order for next working session:
+
+1. SECURITY ROTATION
+- regenerate Telegram bot token
+- regenerate OpenAI API key
+- optionally regenerate gateway token
+- update configs safely
+
+2. TELEGRAM POLICY FINALIZATION
+Decide:
+- DM-only for now
+OR
+- allowlist specific 3 user IDs for limited shared use
+
+3. PERSISTENT DOCKER NETWORK FIX
+Make sure OpenClaw gateway is permanently attached to the same network as Caddy in compose, so the manual "docker network connect web ..." step is no longer necessary after restarts/redeploys.
+
+4. CONFIG CLEANUP
+- review OpenClaw config
+- remove/defer unused optional integrations
+- verify clean provider setup after key rotation
+
+5. SKILL CLEANUP
+- keep only minimal necessary skills
+- defer Homebrew-dependent tools unless clearly needed
+- revisit github/gog/xurl/clawhub only if operational need is real
+
+6. OPENCLAW -> N8N INTEGRATION DESIGN
+Design the actual workflow:
+- Telegram message
+- OpenClaw intent handling
+- n8n webhook/workflow trigger
+- downstream actions
+
+7. FIRST REAL USE CASES
+Define 3-5 actual operational commands.
+
+==================================================
+17) MINIMUM CONTEXT CLAUDE MUST PRESERVE
+==================================================
+
+Claude must remember all of the following as current truth:
+
+- This project already has a working VPS setup
+- Docker is already installed
+- Caddy is already installed
+- n8n is already installed and reachable at flow.uygunayakkabi.com
+- OpenClaw is already installed and reachable at agent.uygunayakkabi.com
+- OpenClaw dashboard pairing has already been completed
+- Telegram DM pairing has already been completed
+- Telegram bot has already answered successfully
+- Active OpenAI model is openai/gpt-5-mini
+- Current next priorities are:
+  1) token/key rotation
+  2) Telegram access policy cleanup
+  3) persistent network fix
+  4) OpenClaw -> n8n integration planning
+
+Claude must NOT restart this setup from scratch.
+Claude must continue from the existing deployed production-like state.
+
+Reminder:
+This is an existing VPS + Docker + Caddy + n8n + OpenClaw + Telegram system.
+Do NOT start over from zero.
+Continue from the current live deployed state.
+
+==================================================
+18) FINAL SUMMARY
+==================================================
+
+Today’s mission was to get the AI agent stack running.
+
+That mission is complete.
+
+Installed and validated:
+- VPS runtime
+- Docker
+- Caddy
+- n8n
+- OpenClaw
+- Telegram bot
+- OpenAI model connection
+- domain routing
+- dashboard access
+
+Current system is live and working.
+Next session should focus on:
+- security cleanup
+- policy hardening
+- persistent infrastructure cleanup
+- real workflow integration with n8n
+
+END OF HANDOFF

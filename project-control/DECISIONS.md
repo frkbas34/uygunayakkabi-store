@@ -507,3 +507,71 @@ beforeDelete: [async ({ req, id }) => {
 **Reason:** On 2026-03-13, products were confirmed not appearing on storefront despite CMS-first pipeline being in code. Root cause was investigated and resolved.
 **Status:** RESOLVED (2026-03-13) — pipeline confirmed working. Final user smoke test (create product in admin → appears on storefront) remains as Phase 1 sign-off gate.
 **Retained rule:** "Code exists" ≠ "pipeline works." Always validate end-to-end after major changes.
+
+---
+
+## D-044 — VPS Provider: Netcup
+**Decision:** Use Netcup VPS as the automation infrastructure host.
+**Specs:** Ubuntu 22.04.5 LTS, 128G disk (expanded root ~125G), adequate for Docker workloads.
+**Reason:** Cost-effective European VPS. Alternatives evaluated: Hetzner, DigitalOcean, Hostinger. Netcup selected and provisioned.
+**Status:** ACTIVE
+
+---
+
+## D-045 — Docker-Based Deployment for All VPS Services
+**Decision:** All VPS services (Caddy, n8n, OpenClaw) run as Docker containers managed by Docker Compose.
+**Reason:** Consistent deployment, isolation, reproducibility. Avoids polluting host OS with service-specific dependencies.
+**Status:** ACTIVE
+
+---
+
+## D-046 — Caddy as Reverse Proxy with Auto-TLS
+**Decision:** Caddy handles reverse proxying and automatic TLS certificate management for all VPS-hosted services.
+**Routing:** `flow.uygunayakkabi.com` → n8n:5678, `agent.uygunayakkabi.com` → openclaw-gateway:18789
+**Reason:** Caddy auto-provisions Let's Encrypt certificates, minimal config, handles HTTPS termination.
+**Status:** ACTIVE
+
+---
+
+## D-047 — n8n as Workflow / Automation Engine
+**Decision:** n8n is the workflow orchestration engine for the automation backbone.
+**Role:** Receives webhook triggers → executes multi-step workflows → calls Payload API for product mutations.
+**Access:** `flow.uygunayakkabi.com`
+**Reason:** Visual workflow builder, webhook support, HTTP request nodes, self-hosted on VPS for full control.
+**Status:** ACTIVE
+
+---
+
+## D-048 — OpenClaw as AI Agent Control Layer
+**Decision:** OpenClaw serves as the AI agent interface layer between Telegram and backend services.
+**Role:** Receives Telegram messages → AI intent parsing → routes to n8n or direct actions.
+**Model:** `openai/gpt-5-mini` via OpenAI API.
+**Access:** `agent.uygunayakkabi.com` (dashboard)
+**Config:** `/home/furkan/.openclaw/openclaw.json`
+**Reason:** Provides AI-powered intent handling, Telegram integration, and a control dashboard without building a custom agent from scratch.
+**Status:** ACTIVE
+
+---
+
+## D-049 — Telegram DM-Only Policy (Initial)
+**Decision:** Telegram bot operates in DM-only mode initially. Group messages are silently dropped.
+**Config:** `channels.telegram.groupPolicy: "allowlist"` with empty `allowFrom` list.
+**Reason:** Simplest secure starting point. Group support can be added later by whitelisting specific user IDs.
+**Future:** Consider adding 3 specific user IDs to allowlist for limited shared group usage.
+**Status:** ACTIVE
+
+---
+
+## D-050 — Exposed Secrets Must Be Rotated Before Production Use
+**Decision:** All API keys and tokens exposed during the initial VPS setup session must be regenerated before the system handles real data.
+**Affected:** Telegram bot token, OpenAI API key, OpenClaw gateway token.
+**Reason:** These values were visible in terminal output and chat logs during setup.
+**Rule:** After rotation, update `/home/furkan/.openclaw/openclaw.json` and restart affected containers. Verify functionality after each rotation.
+**Status:** ACTIVE — 🔴 PENDING EXECUTION
+
+---
+
+## D-051 — Automation Layer Always Creates Draft Products
+**Decision:** Products created via the automation pipeline (Telegram → OpenClaw → n8n → Payload) must always be created with `status: 'draft'`. Admin manually reviews and sets to `active`.
+**Reason:** Prevents unreviewed products from appearing on the live storefront. Admin remains the quality gate.
+**Status:** ACTIVE

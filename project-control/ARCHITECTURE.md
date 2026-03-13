@@ -6,14 +6,26 @@ _Last updated: 2026-03-13_
 Uygunayakkabi is a custom e-commerce system built in three evolving phases. It is not a simple storefront — its long-term identity is a **Telegram-first AI-assisted commerce system** with multi-channel publishing.
 
 ## Core Stack
+
+### Storefront + CMS (Vercel)
 - **Runtime**: Next.js 16.2.0-canary.81 (App Router, Turbopack) + React 19.2.3
 - **CMS/Admin**: Payload CMS v3.79.0 (admin panel, REST API, collection management)
 - **Database**: Neon PostgreSQL via `@payloadcms/db-postgres` (Drizzle ORM, `push: true`)
 - **Rich Text**: Lexical editor (`@payloadcms/richtext-lexical`)
 - **Image Processing**: Sharp
 - **i18n**: Turkish as default language (`@payloadcms/translations/languages/tr`)
-- **Styling**: Storefront uses inline-style token system (no Tailwind); Admin uses default Payload light theme (dark CSS removed)
+- **Styling**: Storefront uses inline-style token system (no Tailwind); Admin uses default Payload light theme
 - **Media Storage (Production)**: Vercel Blob Storage via `@payloadcms/storage-vercel-blob`
+
+### Automation Infrastructure (VPS — Netcup)
+- **OS**: Ubuntu 22.04.5 LTS (128G disk, expanded root ~125G)
+- **Containerization**: Docker + Docker Compose
+- **Reverse Proxy / TLS**: Caddy (Docker container, auto-HTTPS)
+- **Workflow Engine**: n8n (Docker container) → `flow.uygunayakkabi.com`
+- **AI Agent Layer**: OpenClaw (Docker containers) → `agent.uygunayakkabi.com`
+- **Bot Interface**: Telegram bot (`mentix_aibot`) connected via OpenClaw
+- **AI Model Provider**: OpenAI (`openai/gpt-5-mini`)
+- **DNS/CDN**: Cloudflare (A records → VPS IP for `flow.*` and `agent.*` subdomains)
 
 ## Directory Structure
 
@@ -123,10 +135,12 @@ src/
 - Banners (campaign management: discount/announcement/flash_sale, date ranges, placement)
 - SiteSettings (centralized control: contact info, shipping rules, trust badges, announcement bar)
 
-### Integration Domain (Phase 2 scaffold — NOT YET ACTIVE)
-- Telegram webhook handler (`src/app/api/telegram/route.ts`)
-- Telegram caption/stock parsers (`src/lib/telegram.ts`)
-- Future: n8n workflows, AI image pipeline, Instagram/Shopier publishing
+### Integration Domain (Phase 2 — INFRASTRUCTURE LIVE)
+- **Telegram bot** (`mentix_aibot`): connected via OpenClaw, DM pairing complete, responding in Turkish
+- **OpenClaw**: AI agent control layer, dashboard at `agent.uygunayakkabi.com`, gateway port 18789
+- **n8n**: workflow engine at `flow.uygunayakkabi.com`, port 5678
+- **Existing code scaffolds**: `src/app/api/telegram/route.ts` (webhook handler), `src/lib/telegram.ts` (caption/stock parsers)
+- **Future**: n8n workflows triggering Payload product creation, AI image pipeline, Instagram/Shopier publishing
 
 ## Architectural Phases
 
@@ -138,23 +152,68 @@ src/
 - SSL fix, reverse media lookup, debug logs removed
 - End-to-end pipeline validated: admin product → storefront confirmed working
 
-### Phase 2 — Automation Backbone (ACTIVE ▶️)
-- n8n workflow orchestration
-- Telegram-first product intake (phone photo + caption → webhook → CMS product)
-- AI image processing (background removal, enhancement, multi-view generation)
-- Multi-channel publishing (website → Instagram → Shopier)
+### Phase 2 — Automation Backbone (ACTIVE ▶️ — Infrastructure Live 2026-03-14)
+- VPS provisioned: Docker + Caddy + n8n + OpenClaw all running
+- Telegram bot connected via OpenClaw, DM working
+- OpenClaw dashboard and n8n panel both accessible via subdomains
+- **Next**: security rotation → persistent Docker networking → OpenClaw↔n8n integration → Payload product creation workflow
+- **Target flow**: Telegram → OpenClaw → n8n workflow → Payload API → draft product → admin approval → live
+- **Later expansion**: AI image processing, Instagram publish, Shopier listing
 
 ### Phase 3 — Autonomous Content & Growth (FUTURE)
 - AI-generated product descriptions
 - Blog/content generation from product data
 - Organic SEO content pipeline
 
+## VPS Infrastructure Layout
+
+```
+VPS (Netcup — Ubuntu 22.04.5 LTS)
+├── /opt/caddy/           # Caddy reverse proxy (Docker)
+│   └── Caddyfile         # flow.* → n8n:5678, agent.* → openclaw:18789
+├── /opt/n8n/             # n8n workflow engine (Docker)
+│   └── docker-compose.yml
+├── /opt/openclaw/        # OpenClaw AI agent (Docker)
+│   └── docker-compose.yml
+└── /home/furkan/
+    └── .openclaw/
+        └── openclaw.json # OpenClaw config (gateway, model, Telegram, auth)
+
+Docker Networks:
+├── web                   # Shared: Caddy ↔ n8n ↔ OpenClaw gateway
+└── openclaw_default      # Internal: OpenClaw services
+
+Domain Routing:
+├── uygunayakkabi.com          → Vercel (storefront + admin)
+├── flow.uygunayakkabi.com     → VPS → Caddy → n8n:5678
+└── agent.uygunayakkabi.com    → VPS → Caddy → openclaw-gateway:18789
+```
+
+## Phase 2 Data Flow (Target)
+
+```
+User (phone) → Telegram DM → mentix_aibot
+    ↓
+OpenClaw (intent parsing / AI agent)
+    ↓
+n8n webhook (workflow trigger)
+    ↓
+n8n workflow: parse caption → download photo → upload to Vercel Blob
+    ↓
+Payload API: create product (status: draft)
+    ↓
+Admin reviews draft → sets active → product live on storefront
+```
+
 ## Architectural Boundaries
 - UI components: presentation-focused, receive data via props
 - Business logic: API routes, libs, collections
 - External integrations: isolated in `src/lib` or dedicated modules
-- Admin: override/control layer over all data (including future automation-created records)
+- Admin: override/control layer over all data (including automation-created records)
 - Automation (Phase 2): must not bypass core product model — always creates via Payload API
+- VPS services: isolated from Vercel deployment; communicate via webhooks/API calls
+- OpenClaw: AI agent layer, not a data store — routes intents to n8n or direct API calls
+- n8n: workflow orchestration only — does not own data, calls Payload API for mutations
 - SiteSettings global: single source of truth for site-wide config values used by frontend
 
 ## Known Locked Constraints

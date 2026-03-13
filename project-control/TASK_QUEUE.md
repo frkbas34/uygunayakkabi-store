@@ -83,71 +83,85 @@ npm run dev
 
 ## PHASE 2 — Automation Backbone (ACTIVE ▶️)
 
-### MVP Scope: Telegram → Payload Draft Product
-_Goal: Minimum viable slice. Phone photo + caption → webhook → product draft in CMS._
-_Do not build AI image processing or Instagram publishing yet — validate the thin slice first._
+### ✅ Completed Infrastructure (2026-03-14)
+- [x] VPS provisioned (Netcup, Ubuntu 22.04.5 LTS, 128G disk)
+- [x] Docker + Docker Compose installed
+- [x] Caddy reverse proxy running (auto-TLS)
+- [x] n8n deployed and accessible at `flow.uygunayakkabi.com`
+- [x] OpenClaw deployed and accessible at `agent.uygunayakkabi.com`
+- [x] Telegram bot (`mentix_aibot`) connected via OpenClaw, DM pairing done
+- [x] OpenClaw dashboard pairing complete
+- [x] OpenAI model (`openai/gpt-5-mini`) connected and responding
+- [x] DNS configured via Cloudflare (`flow.*`, `agent.*` → VPS IP)
+- [x] Proof of concept: Telegram DM → bot responds in Turkish ✅
 
 ---
 
-### Step 1 — Telegram Bot Setup
-- [ ] Create a Telegram bot via BotFather → get `TELEGRAM_BOT_TOKEN`
-- [ ] Determine the Telegram `CHAT_ID` that the bot will listen to (your personal/business Telegram)
-- [ ] Add to `.env.local` and Vercel env vars:
-  - `TELEGRAM_BOT_TOKEN`
-  - `TELEGRAM_WEBHOOK_SECRET` (any random string for signature verification)
-  - `TELEGRAM_CHAT_ID` (your authorized sender ID)
+### 🔴 Step 1 — Security Rotation (MUST DO FIRST)
+- [ ] Regenerate Telegram bot token via BotFather → update OpenClaw config
+- [ ] Regenerate OpenAI API key → update OpenClaw config
+- [ ] Optionally regenerate OpenClaw gateway token
+- [ ] Update `/home/furkan/.openclaw/openclaw.json` with new values
+- [ ] Restart OpenClaw containers after config update
+- [ ] Verify Telegram bot still responds after token change
+- [ ] Verify OpenAI model calls still work after key change
 
-### Step 2 — Inspect Existing Webhook Scaffold
-- [ ] Read `src/app/api/telegram/route.ts` — understand current state (scaffold or functional?)
-- [ ] Read `src/lib/telegram.ts` — understand parser utilities available
-- [ ] Identify gaps: what's missing to receive a photo+caption and create a Payload product
+### Step 2 — Persistent Docker Network Fix
+- [ ] Edit OpenClaw `docker-compose.yml` to include `web` external network on the gateway service
+- [ ] Verify Caddy can route to OpenClaw gateway after `docker-compose down && docker-compose up -d`
+- [ ] Confirm no manual `docker network connect` needed after restart
 
-### Step 3 — Implement Webhook Handler
-- [ ] `POST /api/telegram` receives Telegram `Update` object
-- [ ] Verify `X-Telegram-Bot-Api-Secret-Token` header matches `TELEGRAM_WEBHOOK_SECRET`
-- [ ] Verify sender `chat.id` matches `TELEGRAM_CHAT_ID` (reject unauthorized senders)
-- [ ] Extract from message:
-  - photo (largest available `file_id`)
-  - caption text (title, price, stock code, quantity if present)
-- [ ] Parse caption using `src/lib/telegram.ts` helpers
-- [ ] Download photo from Telegram File API → upload to Payload Media collection (Vercel Blob)
-- [ ] Create product draft in Payload via `payload.create({ collection: 'products', data: {...} })` with `status: 'draft'`
-- [ ] Return 200 to Telegram (mandatory — Telegram retries if no 200)
+### Step 3 — Telegram Access Policy
+- [ ] Decide: stay DM-only OR add specific user IDs to allowlist
+- [ ] If DM-only: no config change needed (current state works)
+- [ ] If group: add user IDs to `channels.telegram.groupAllowFrom` in openclaw.json
 
-### Step 4 — Register Webhook with Telegram
-- [ ] Deploy to Vercel (push to main)
-- [ ] Register webhook: `https://api.telegram.org/bot<TOKEN>/setWebhook?url=https://uygunayakkabi.com/api/telegram&secret_token=<SECRET>`
-- [ ] Verify with: `https://api.telegram.org/bot<TOKEN>/getWebhookInfo`
+### Step 4 — OpenClaw → n8n Integration Design
+- [ ] Define how OpenClaw forwards product-related intents to n8n
+- [ ] Options: (a) OpenClaw calls n8n webhook URL directly, (b) n8n polls or listens, (c) OpenClaw skill wraps n8n call
+- [ ] Design n8n webhook endpoint that accepts: photo URL, caption text, parsed fields
+- [ ] Create n8n workflow: receive webhook → parse → call Payload API
 
-### Step 5 — End-to-End Test
-- [ ] Send a photo + caption from your phone to the bot
-- [ ] Confirm product draft appears in Payload admin under Products
-- [ ] Admin reviews draft, sets status to `active` → product appears on storefront
-- [ ] Validate the full loop: phone → bot → draft → admin approval → live
+### Step 5 — n8n → Payload Product Creation Workflow
+- [ ] n8n workflow receives parsed product data (title, price, SKU, photo URL)
+- [ ] n8n downloads photo from Telegram File API (via photo URL)
+- [ ] n8n uploads photo to Payload Media collection (Vercel Blob in production)
+- [ ] n8n creates product via Payload REST API: `POST /api/products` with `status: 'draft'`
+- [ ] Payload API auth: use API key or admin credentials stored in n8n
+
+### Step 6 — End-to-End Test
+- [ ] Send photo + caption from phone → Telegram bot
+- [ ] OpenClaw receives → forwards to n8n webhook
+- [ ] n8n creates draft product in Payload CMS
+- [ ] Admin sees draft in `uygunayakkabi.com/admin` → sets status to `active`
+- [ ] Product appears on storefront
+- [ ] Validate full loop: phone → bot → n8n → draft → admin → live
 
 ---
 
-### Step 6 — Caption Parser Hardening (after MVP works)
-- [ ] Define caption format convention (e.g. `Nike Air Max\n₺1200\n#AYK-001\nAdet: 5`)
-- [ ] Update `src/lib/telegram.ts` parser to extract: title, price, SKU/stock code, quantity
-- [ ] Handle missing fields gracefully (use defaults, not errors)
-- [ ] Map parsed fields to Products collection fields
+### Step 7 — Caption Parser / Data Mapping (after MVP works)
+- [ ] Define caption format: e.g. `Nike Air Max\n₺1200\n#AYK-001\nAdet: 5`
+- [ ] Map parsed fields to Products collection: title, price, sku, quantity
+- [ ] Handle missing fields with sensible defaults
+- [ ] Review existing `src/lib/telegram.ts` parser — reuse or adapt for n8n
 
-### Step 7 — Phase 2 Expansion (after thin slice validated)
-- [ ] n8n integration: replace inline parsing logic with n8n workflow if complexity grows
-- [ ] AI image processing: background removal / enhancement before uploading to Blob
-- [ ] Instagram auto-publish: after product goes `active`, post to Instagram via Graph API
+### Step 8 — Phase 2 Expansion (after thin slice validated)
+- [ ] AI image processing: background removal / enhancement before Blob upload
+- [ ] Instagram auto-publish: after product goes `active`, post via Graph API
 - [ ] Shopier listing sync
+- [ ] n8n workflow branching: different actions for different caption formats
 
 ### Target Flow (MVP)
 ```
-Your phone → Telegram bot (photo + caption)
+Your phone → Telegram DM → mentix_aibot
     ↓
-POST /api/telegram (webhook)
+OpenClaw (AI agent — intent parsing)
     ↓
-Parse caption → download photo → upload to Vercel Blob
+n8n webhook (flow.uygunayakkabi.com)
     ↓
-payload.create('products', { status: 'draft', ... })
+n8n workflow: parse → download photo → upload to Vercel Blob
+    ↓
+Payload REST API: POST /api/products (status: draft)
     ↓
 Admin sees draft → approves → product goes live on storefront
 ```

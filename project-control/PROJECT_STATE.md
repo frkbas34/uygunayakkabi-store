@@ -1,17 +1,23 @@
 # PROJECT STATE — Uygunayakkabi
 
-_Last updated: 2026-03-13_
+_Last updated: 2026-03-14_
 
 ## Current Status
-Phase 1 is **COMPLETE**. Production smoke test passed (2026-03-13):
-- Admin → storefront end-to-end pipeline confirmed working
-- Git branch confirmed clean, main authoritative
+Phase 1 **COMPLETE** (validated 2026-03-13).
+Phase 2 **ACTIVE** — VPS infrastructure is live and operational (2026-03-14).
 
-Active phase: **Phase 2 — Automation Backbone**
-Entry point: Telegram-first MVP (webhook → parser → Payload draft product)
+Core proof-of-concept achieved:
+- VPS provisioned (Netcup, Ubuntu 22.04.5 LTS)
+- Docker + Caddy + n8n + OpenClaw all running
+- Telegram bot connected and responding in DM (bot: `mentix_aibot`)
+- OpenClaw dashboard accessible at `agent.uygunayakkabi.com`
+- n8n accessible at `flow.uygunayakkabi.com`
+- OpenAI model active: `openai/gpt-5-mini`
+
+**🔴 SECURITY: API keys and tokens were exposed in session — rotation required before any production use.**
 
 ## Current Phase
-Phase 2 — Automation Backbone (**ACTIVE**)
+Phase 2 — Automation Backbone (**ACTIVE — Infrastructure Live, Integration Pending**)
 
 ---
 
@@ -78,11 +84,33 @@ Phase 2 — Automation Backbone (**ACTIVE**)
 - Env vars set: DATABASE_URI, PAYLOAD_SECRET, NEXT_PUBLIC_SERVER_URL, NEXT_PUBLIC_WHATSAPP_NUMBER, BLOB_READ_WRITE_TOKEN
 - Next.js: **16.2.0-canary.81** (required for Payload CMS 3.79.0 compatibility)
 
-### Git State (as of 2026-03-13)
-- Branch divergence incident **RESOLVED** — main is confirmed authoritative
-- Active operational rule: always pull before pushing, always work on main (see D-042)
+### Git State
+- main is authoritative. Always pull before pushing (D-042).
 - GitHub repo: https://github.com/frkbas34/uygunayakkabi-store
-- Safe push procedure: `git pull origin main --rebase` → resolve conflicts → `git push origin main`
+
+### VPS Infrastructure (Netcup — provisioned 2026-03-14)
+- **OS**: Ubuntu 22.04.5 LTS (disk expanded to ~125G)
+- **Docker**: installed, Docker Compose plugin active
+- **Caddy**: reverse proxy via Docker, handles TLS
+- **n8n**: Docker container, accessible at `flow.uygunayakkabi.com`
+- **OpenClaw**: Docker containers (`openclaw-openclaw-gateway-1` healthy), accessible at `agent.uygunayakkabi.com`
+- **Telegram bot**: `mentix_aibot` — DM pairing complete, responding in Turkish
+- **OpenAI model**: `openai/gpt-5-mini`
+- **User account**: `furkan` (sudo + docker groups)
+- **Directories**: `/opt/openclaw`, `/opt/n8n`, `/opt/caddy`
+- **OpenClaw config**: `/home/furkan/.openclaw/openclaw.json`
+- **Firewall (ufw)**: OpenSSH, 80, 443
+
+### VPS Domain Routing
+- `flow.uygunayakkabi.com` → Caddy → n8n:5678
+- `agent.uygunayakkabi.com` → Caddy → openclaw-gateway:18789
+- DNS via Cloudflare (A records → VPS IP)
+
+### VPS Known Issues
+- **🔴 Security rotation required**: Telegram bot token, OpenAI API key, OpenClaw gateway token — all exposed in setup session
+- **Docker network persistence**: OpenClaw gateway was manually connected to `web` network for Caddy routing. This must be made persistent in docker-compose (currently reverts on restart/redeploy)
+- **Telegram group policy**: `groupPolicy: "allowlist"` but `allowFrom` is empty — group messages silently dropped. DM-only for now.
+- **OpenClaw skills**: clawhub/github/gog/xurl install attempts failed (Homebrew not installed, DNS issues). Deferred — not blocking core operation.
 
 ---
 
@@ -123,4 +151,9 @@ Phase 2 — Automation Backbone (**ACTIVE**)
 - [x] Git branch stable, main authoritative
 
 ## Next Focus
-Phase 2 active. Entry point: **Telegram → webhook → parser → Payload draft product**. See TASK_QUEUE.md.
+Phase 2 infrastructure is live. Immediate priorities:
+1. **🔴 Security rotation** — regenerate all exposed tokens/keys
+2. **Persistent Docker networking** — OpenClaw gateway → `web` network in compose
+3. **OpenClaw → n8n integration design** — define how Telegram commands trigger n8n workflows
+4. **n8n → Payload product creation** — webhook from n8n → Payload API → draft product
+See TASK_QUEUE.md for ordered execution plan.

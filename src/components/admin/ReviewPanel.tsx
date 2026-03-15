@@ -23,24 +23,27 @@ type CheckItem = {
  */
 export const ReviewPanel: React.FC = () => {
   // Read relevant fields from the Payload form state
-  const title      = useFormFields(([f]) => f['title']?.value) as string | undefined
-  const price      = useFormFields(([f]) => f['price']?.value) as number | undefined
-  const sku        = useFormFields(([f]) => f['sku']?.value) as string | undefined
-  const status     = useFormFields(([f]) => f['status']?.value) as string | undefined
-  const source     = useFormFields(([f]) => f['source']?.value) as string | undefined
-  const brand      = useFormFields(([f]) => f['brand']?.value) as string | undefined
-  const category   = useFormFields(([f]) => f['category']?.value) as string | undefined
-  const images     = useFormFields(([f]) => f['images']?.value) as unknown[] | undefined
-  const chatId     = useFormFields(([f]) => f['automationMeta.telegramChatId']?.value) as string | undefined
-  const msgId      = useFormFields(([f]) => f['automationMeta.telegramMessageId']?.value) as string | undefined
-  const lockedVal  = useFormFields(([f]) => f['automationMeta.lockFields']?.value) as boolean | undefined
+  const title         = useFormFields(([f]) => f['title']?.value) as string | undefined
+  const price         = useFormFields(([f]) => f['price']?.value) as number | undefined
+  const sku           = useFormFields(([f]) => f['sku']?.value) as string | undefined
+  const status        = useFormFields(([f]) => f['status']?.value) as string | undefined
+  const source        = useFormFields(([f]) => f['source']?.value) as string | undefined
+  const brand         = useFormFields(([f]) => f['brand']?.value) as string | undefined
+  const category      = useFormFields(([f]) => f['category']?.value) as string | undefined
+  const images        = useFormFields(([f]) => f['images']?.value) as unknown[] | undefined
+  const stockQuantity = useFormFields(([f]) => f['stockQuantity']?.value) as number | undefined
+  const chatId        = useFormFields(([f]) => f['automationMeta.telegramChatId']?.value) as string | undefined
+  const msgId         = useFormFields(([f]) => f['automationMeta.telegramMessageId']?.value) as string | undefined
+  const lockedVal     = useFormFields(([f]) => f['automationMeta.lockFields']?.value) as boolean | undefined
 
   // Only render for automation-sourced products
   if (!source || source === 'admin') return null
 
-  const hasImages = Array.isArray(images) && images.length > 0
-  const priceNum  = typeof price === 'number' ? price : Number(price)
-  const hasPrice  = !isNaN(priceNum) && priceNum > 0
+  const hasImages  = Array.isArray(images) && images.length > 0
+  const priceNum   = typeof price === 'number' ? price : Number(price)
+  const hasPrice   = !isNaN(priceNum) && priceNum > 0
+  const stockNum   = typeof stockQuantity === 'number' ? stockQuantity : Number(stockQuantity)
+  const hasStock   = !isNaN(stockNum) && stockNum >= 0
 
   const checks: CheckItem[] = [
     {
@@ -59,6 +62,12 @@ export const ReviewPanel: React.FC = () => {
         ? `${(images as unknown[]).length} görsel ekli`
         : 'Görsel yok',
       ok: hasImages,
+    },
+    {
+      label: 'Stok adedi',
+      detail: hasStock ? `${stockNum} adet` : 'Girilmemiş (varsayılan: 1)',
+      ok: true,
+      warn: !hasStock || stockNum === 0,
     },
     {
       label: 'SKU / Stok kodu',

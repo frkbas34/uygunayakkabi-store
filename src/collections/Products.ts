@@ -28,9 +28,16 @@ export const Products: CollectionConfig = {
         }
         // Auto-generate SKU if empty
         if (data.title && !data.sku) {
-          const prefix = data.title.substring(0, 3).toUpperCase()
-            .replace(/[^A-Z]/g, 'X')
-          data.sku = `${prefix}-${Date.now().toString(36).toUpperCase()}`
+          const prefix = data.title.substring(0, 3).toUpperCase().replace(/[^A-Z]/g, 'X')
+          const isAutomation = data.source === 'n8n' || data.source === 'telegram'
+          const msgId = (data.automationMeta as Record<string, string> | undefined)?.telegramMessageId
+          // Automation SKU: TG-{PREFIX3}-{msgId} — traceable back to the Telegram message
+          // Admin/manual SKU: {PREFIX3}-{timestamp36}
+          if (isAutomation && msgId) {
+            data.sku = `TG-${prefix}-${msgId}`
+          } else {
+            data.sku = `${prefix}-${Date.now().toString(36).toUpperCase()}`
+          }
         }
         return data
       },
@@ -213,6 +220,25 @@ export const Products: CollectionConfig = {
       label: 'Piyasa Fiyatı (₺)',
       admin: {
         description: 'İndirim hesabı için eski fiyat — boş bırakılabilir',
+      },
+    },
+    // ── Stok Adedi (D-063) ─────────────────────────────────────
+    // Product-level stock for products without size variants.
+    // Variant-level stock is tracked separately in the Variants collection.
+    // Automation intake sets this from the Telegram message quantity field.
+    {
+      name: 'stockQuantity',
+      type: 'number',
+      label: 'Stok Adedi',
+      defaultValue: 1,
+      admin: {
+        position: 'sidebar',
+        description: 'Toplam stok — beden varyantı olmayan ürünler için. Varyantsız stok.',
+      },
+      validate: (value: any) => {
+        if (value === undefined || value === null || value === '') return true
+        if (Number(value) < 0) return '⚠️ Stok adedi 0\'dan küçük olamaz.'
+        return true
       },
     },
     // ── Tanımlayıcılar ───────────────────────────────────────

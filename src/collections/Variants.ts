@@ -42,6 +42,18 @@ export const Variants: CollectionConfig = {
       defaultValue: 0,
       admin: { description: 'Temel fiyata ek/indirim (pozitif veya negatif)' },
     },
+    // ── Renk (D-063 variant readiness) ──────────────────────
+    // Optional color dimension — enables future size×color variant matrix.
+    // Leave empty for single-color products; set when the same product
+    // comes in multiple colors tracked as separate variants.
+    {
+      name: 'color',
+      type: 'text',
+      label: 'Renk',
+      admin: {
+        description: 'Renk kodu veya adı — ör: Siyah, BLK, #000000. Tek renkli ürünlerde boş bırakın.',
+      },
+    },
     {
       name: 'variantSku',
       type: 'text',

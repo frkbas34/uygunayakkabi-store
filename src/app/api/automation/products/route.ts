@@ -78,6 +78,13 @@ export async function POST(req: NextRequest) {
     }
     // ────────────────────────────────────────────────────────────────────────
 
+    // Determine stock quantity — intake field name: stockQuantity or quantity
+    const stockQty = (() => {
+      const raw = body.stockQuantity ?? body.quantity
+      const n = typeof raw === 'number' ? raw : (raw !== undefined ? Number(raw) : NaN)
+      return !isNaN(n) && n >= 0 ? n : 1
+    })()
+
     const product = await payload.create({
       collection: 'products',
       data: {
@@ -85,18 +92,22 @@ export async function POST(req: NextRequest) {
         price: typeof body.price === 'number' ? body.price : 0,
         status: (body.status as string) || 'draft',
         source: (body.source as string) || 'n8n',
+        stockQuantity: stockQty,
         ...(body.sku ? { sku: body.sku as string } : {}),
         ...(body.channels ? { channels: body.channels as Record<string, boolean> } : {}),
         ...(meta ? { automationMeta: meta } : {}),
       },
     })
 
+    const productData = product as Record<string, unknown>
     return NextResponse.json(
       {
         status: 'created',
         product_id: product.id,
         title: product.title,
-        slug: (product as Record<string, unknown>).slug,
+        slug: productData.slug,
+        sku: productData.sku,
+        stock_quantity: productData.stockQuantity ?? stockQty,
         workflow: 'n8n-automation',
         timestamp: new Date().toISOString(),
       },

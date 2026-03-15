@@ -679,3 +679,43 @@ beforeDelete: [async ({ req, id }) => {
 **Decision:** The future try-on system is a frontend UX feature on product pages. It does not affect the product data model, media pipeline, or catalog source images.
 **Implementation:** When ready, add a client-side component that loads on product detail pages. No new collections or fields needed now.
 **Status:** PLANNED — No implementation yet
+
+---
+
+## D-063 — Step 9: Inventory / Variant Readiness Baseline
+**Decision:** Add product-level `stockQuantity` field and variant-level `color` field. Define `TG-{PREFIX3}-{msgId}` as the standard SKU pattern for automation-sourced products.
+
+**Rationale:**
+- Products table had zero stock columns. Automation intake had nowhere to store quantity from Telegram messages.
+- Variant-level stock already exists in Variants collection. Product-level is needed for products without size variants.
+- SKU generation was `{PREFIX3}-{TIMESTAMP36}` — not traceable. New pattern `TG-{PREFIX3}-{msgId}` links SKU back to the originating Telegram message.
+- Variants had no `color` field — required for future size×color matrix without schema changes.
+- InventoryLogs table exists but is unused — deliberately left for a future hook when stock changes are logged automatically.
+
+**Changes made (2026-03-15):**
+- `products` table: `ALTER TABLE products ADD COLUMN stock_quantity integer NOT NULL DEFAULT 1`
+- `variants` table: `ALTER TABLE variants ADD COLUMN color varchar`
+- `Products.ts`: added `stockQuantity` field (position: sidebar, default: 1, validate ≥ 0)
+- `Products.ts`: `beforeValidate` SKU generation — if source is `n8n`/`telegram` AND `telegramMessageId` is available, generates `TG-{PREFIX3}-{msgId}`; otherwise falls back to `{PREFIX3}-{TIMESTAMP36}`
+- `Variants.ts`: added optional `color` text field
+- `/api/automation/products`: accepts `stockQuantity` or `quantity` from intake body, passes to Payload create; returns `sku` and `stock_quantity` in response
+- `ReviewPanel`: added stok adedi check (⚡ warning if 0 or missing)
+- Orphaned variants (ids 1–3, product_id=null) from deleted Adidas Superstar cleaned up
+
+**SKU standard:**
+- Automation (Telegram/n8n): `TG-{PREFIX3}-{msgId}` — e.g. `TG-NIK-9001`
+- Manual/Admin: `{PREFIX3}-{TIMESTAMP36}` — e.g. `NIK-M9X2AK`
+- Explicit SKU from Telegram caption always takes priority (not overwritten)
+
+**Stock design:**
+- `products.stock_quantity` — total stock for variantless products, set by automation intake
+- `variants.stock` — per-variant (per-size) stock, managed via Variants collection
+- Future: `afterChange` hook on Variants to write InventoryLog entry when stock changes
+
+**Not implemented now (deferred):**
+- Auto-create Variants from Telegram intake (e.g. "42, 43, 44: 2 adet her")
+- InventoryLogs write-on-change hook
+- Size-level intake parsing in OpenClaw skill
+- Color as intake dimension
+
+**Status:** ACTIVE — stock_quantity and color columns live in DB

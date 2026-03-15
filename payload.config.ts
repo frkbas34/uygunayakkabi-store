@@ -17,6 +17,7 @@ import { Users } from "./src/collections/Users";
 import { Brands } from "./src/collections/Brands";
 import { Categories } from "./src/collections/Categories";
 import { Banners } from "./src/collections/Banners";
+import { BlogPosts } from "./src/collections/BlogPosts";
 import { SiteSettings } from "./src/globals/SiteSettings";
 
 const filename = fileURLToPath(import.meta.url);
@@ -58,6 +59,7 @@ export default buildConfig({
     InventoryLogs,
     Orders,
     Banners,
+    BlogPosts,
   ],
   globals: [SiteSettings],
   db: postgresAdapter({

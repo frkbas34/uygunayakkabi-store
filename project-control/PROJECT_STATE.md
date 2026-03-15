@@ -10,6 +10,7 @@ Phase 2 **ACTIVE** — Steps 1–5 complete. Full automation backbone operationa
 **Telegram group access enabled** (2026-03-15) — limited allowlist (2 users), mention-only behavior enforced natively (D-061).
 **Mentix Intake Webhook live** (2026-03-15) — OpenClaw → n8n transport validated end-to-end (D-062).
 **n8n → Payload product creation LIVE** (2026-03-15) — full pipeline validated: webhook → parse → schema map → `/api/automation/products` → Payload draft ✅ (D-063).
+**Media pipeline LIVE** (2026-03-15) — Telegram photo → Telegram Bot API download → Vercel Blob → Payload Media → product.images[] ✅ (D-064).
 
 Core proof-of-concept achieved:
 - VPS provisioned (Netcup, Ubuntu 22.04.5 LTS)
@@ -122,13 +123,13 @@ Phase 2 — Automation Backbone (**ACTIVE — Transport layer validated, product
 - `agent.uygunayakkabi.com` → Caddy → openclaw-gateway:18789
 - DNS via Cloudflare (A records → VPS IP)
 
-### n8n Intake Webhook (live 2026-03-15) — STEP 5 COMPLETE ✅
+### n8n Intake Webhook (live 2026-03-15) — STEPS 5 + 6 COMPLETE ✅
 - **Workflow name**: `Mentix Intake Webhook`
 - **Workflow ID**: `WOv8kRkN00Jo8g2D`
 - **Endpoint**: `POST /webhook/mentix-intake`
 - **Public URL**: `https://flow.uygunayakkabi.com/webhook/mentix-intake`
 - **Internal URL**: `http://n8n:5678/webhook/mentix-intake` (used by OpenClaw — Docker network)
-- **Nodes (7)**: Webhook → Parse Intake Fields (Set) → Map to Payload Schema (Code) → Create Product in Payload (HTTP) → Success? (IF) → Respond OK / Respond Error
+- **Nodes (9)**: Webhook → Parse Intake Fields → Map to Schema → Create Product → Has Media? → (YES) Attach Telegram Media → Success? → Respond OK/Error; (NO) → Success? directly
 - **Response on success**: `{"status":"created","product_id":N,"title":"...","slug":"...","workflow":"mentix-intake","timestamp":"..."}`
 - **Status**: Active, fully validated ✅ — creates draft products in Payload CMS
 - **Payload schema**: `schema_version 1.0` — see D-062 for field definitions
@@ -145,14 +146,22 @@ Phase 2 — Automation Backbone (**ACTIVE — Transport layer validated, product
 - **Returns**: `{"status":"created","product_id":N,"title":"...","slug":"...","workflow":"n8n-automation","timestamp":"..."}`
 - **DB migration note**: `push: true` did not auto-apply new columns in production; manually ran ALTER TABLE 2026-03-15 to add `product_family`, `product_type`, `channels_*`, `source`, `automation_meta_*` columns and their enum types
 
-### OpenClaw mentix-intake Skill (installed 2026-03-15)
+### OpenClaw mentix-intake Skill (updated 2026-03-15)
 - **Path on host**: `/home/furkan/.openclaw/skills/mentix-intake/SKILL.md`
 - **Path in container**: `/home/node/.openclaw/skills/mentix-intake/SKILL.md`
-- **Trigger**: When Telegram message contains product data (name, price, stock code, or quantity)
-- **Behavior**: Parse → build JSON → exec curl to `http://n8n:5678/webhook/mentix-intake` → confirm to user
-- **Transport**: exec tool → curl POST (internal Docker network, no TLS overhead)
-- **Skills watch**: enabled (`skills.load.watch: true`) — file changes reload without restart
-- **Not yet tested**: full Telegram DM/group → skill trigger → n8n exec chain (requires live Telegram message)
+- **Trigger**: Telegram message with product data (name, price, stock code, quantity) or photo with caption
+- **Behavior**: Parse text + extract media_file_id from largest photo → build JSON → exec curl → confirm in Turkish
+- **Payload schema**: includes `message.media_file_id`, `message.has_media`, `message.media_type`
+- **Media pipeline**: ACTIVE — photo file_id is now fully processed (not just logged)
+- **Transport**: exec tool → curl POST (internal Docker network) with `--max-time 15`
+
+### /api/automation/attach-media (live 2026-03-15)
+- **Route**: `src/app/api/automation/attach-media/route.ts`
+- **Auth**: `X-Automation-Secret` header
+- **Requires**: `TELEGRAM_BOT_TOKEN` Vercel env var
+- **Flow**: `file_id` → Telegram `getFile` → binary download → `payload.create({ collection: 'media', file: {...} })` → `payload.update({ products.images.append })
+- **MIME handling**: Normalizes Telegram CDN content-type; falls back to extension-based detection
+- **Result**: Media uploaded to Vercel Blob, Media document created, product.images[] appended non-destructively
 
 ### Telegram Group Access Policy (configured 2026-03-15)
 - **groupPolicy**: `allowlist` — preserved

@@ -1,9 +1,9 @@
 # ARCHITECTURE — Uygunayakkabi
 
-_Last updated: 2026-03-13_
+_Last updated: 2026-03-15_
 
 ## High-Level Overview
-Uygunayakkabi is a custom e-commerce system built in three evolving phases. It is not a simple storefront — its long-term identity is a **Telegram-first AI-assisted commerce system** with multi-channel publishing.
+Uygunayakkabi is a custom e-commerce system built in three evolving phases. It is not a simple storefront — its long-term identity is a **Telegram-first AI-assisted multi-channel commerce engine** with AI visual expansion, SEO content generation, and multi-product-family support (shoes, wallets, bags, accessories).
 
 ## Core Stack
 
@@ -52,17 +52,23 @@ src/
 │   └── api/                      # Custom API routes
 │       ├── inquiries/route.ts    # Customer inquiry endpoint
 │       └── telegram/route.ts     # Telegram webhook handler (Phase 2 scaffold)
-├── collections/                  # 10 Payload collections
-│   ├── Products.ts               # Fully rewritten 2026-03-11:
+├── collections/                  # 11 Payload collections
+│   ├── Products.ts               # Fully rewritten 2026-03-11, expanded 2026-03-15:
 │   │                             #   beforeValidate: auto-slug (always), auto-SKU (if empty)
 │   │                             #   beforeDelete: nullify variant + media FK refs
 │   │                             #   category: select field (Günlük/Spor/Klasik/Bot/Sandalet/Krampon/Cüzdan)
+│   │                             #   productFamily: select (shoes/wallets/bags/accessories) — D-054
+│   │                             #   productType: text (free-form: sneaker, boot, bifold, etc.)
+│   │                             #   channels group: publishWebsite/Instagram/Shopier/Dolap — D-055
+│   │                             #   source: select (admin/telegram/n8n/api/import) — D-056
+│   │                             #   automationMeta group: telegramChatId, lastSyncedAt, updatedBy, lockFields — D-057
 │   │                             #   slug: readOnly in admin, auto-generated
 │   │                             #   Turkish validation messages on title and price
 │   ├── Variants.ts               # useAsTitle: 'size' (not variantSku), product required: false
 │   ├── Brands.ts, Categories.ts
 │   ├── Orders.ts                 # Full lifecycle with payment, shipping, tracking
 │   ├── Media.ts                  # staticDir = public/media; production = Vercel Blob
+│   ├── BlogPosts.ts              # SEO/content scaffold — D-058
 │   ├── Users.ts
 │   ├── CustomerInquiries.ts
 │   ├── InventoryLogs.ts
@@ -100,9 +106,9 @@ src/
 ### Media Pipeline
 - **Production**: Vercel Blob Storage (`@payloadcms/storage-vercel-blob`, enabled via `BLOB_READ_WRITE_TOKEN`)
 - **Local dev**: Falls back to local filesystem (`public/media/`) when `BLOB_READ_WRITE_TOKEN` is absent
-- **Access control**: `access: { read: () => true }` — required for public image serving (see D-042). Without this, Payload returns 403 for unauthenticated image requests.
+- **Access control**: `access: { read: () => true }` — required for public image serving (see D-052). Without this, Payload returns 403 for unauthenticated image requests.
 - **Reverse media lookup**: `media.product` field (reverse reference) → used as fallback when `product.images[]` is empty. Prioritizes `media.url` (Blob), falls back to `/media/${filename}`
-- **Multi-PC rule**: Always upload via production admin to ensure Vercel Blob storage. Local uploads only persist on the uploading machine (see D-043).
+- **Multi-PC rule**: Always upload via production admin to ensure Vercel Blob storage. Local uploads only persist on the uploading machine (see D-053).
 - Display: `<img>` tags (not `next/image`) to avoid remotePatterns validation (see D-025)
 - `objectFit: "contain"` everywhere — no cropping of product images
 
@@ -123,10 +129,10 @@ src/
 ## Core Domains
 
 ### Catalog Domain
-- Products (auto-slug, auto-SKU, select category, Turkish validation, delete hooks)
+- Products (auto-slug, auto-SKU, select category, Turkish validation, delete hooks, multi-family support, channel toggles, automation metadata)
 - Variants (size-based, required:false product FK, useAsTitle: size)
 - Brands and Categories (separate collections for admin management)
-- Media (Blob in production, local in dev, reverse-linked to products)
+- Media (Blob in production, local in dev, reverse-linked to products, type: original/enhanced for AI pipeline)
 
 ### Commerce Domain
 - Orders (full lifecycle: status, payment method, shipping company, tracking, delivery)
@@ -137,12 +143,22 @@ src/
 - Banners (campaign management: discount/announcement/flash_sale, date ranges, placement)
 - SiteSettings (centralized control: contact info, shipping rules, trust badges, announcement bar)
 
+### Content Domain (Phase 3 — SCAFFOLDED)
+- BlogPosts (title, slug, richText content, excerpt, category, tags, status, SEO fields, relatedProducts)
+- Future: AI-generated product descriptions, organic SEO content pipeline
+
 ### Integration Domain (Phase 2 — INFRASTRUCTURE LIVE)
 - **Telegram bot** (`mentix_aibot`): connected via OpenClaw, DM pairing complete, responding in Turkish
 - **OpenClaw**: AI agent control layer, dashboard at `agent.uygunayakkabi.com`, gateway port 18789
 - **n8n**: workflow engine at `flow.uygunayakkabi.com`, port 5678
 - **Existing code scaffolds**: `src/app/api/telegram/route.ts` (webhook handler), `src/lib/telegram.ts` (caption/stock parsers)
-- **Future**: n8n workflows triggering Payload product creation, AI image pipeline, Instagram/Shopier publishing
+- **Future**: n8n workflows triggering Payload product creation, AI image pipeline, Instagram/Shopier/Dolap publishing
+
+### Publishing Domain (Phase 2.5 — DATA MODEL READY)
+- Per-product channel toggles: website, Instagram, Shopier, Dolap (D-055)
+- Source tracking: admin, telegram, n8n, api, import (D-056)
+- Automation metadata: sync timestamps, updatedBy, lockFields (D-057)
+- Future: n8n publish workflows read channel toggles → publish to each enabled channel
 
 ## Architectural Phases
 
@@ -158,14 +174,18 @@ src/
 - VPS provisioned: Docker + Caddy + n8n + OpenClaw all running
 - Telegram bot connected via OpenClaw, DM working
 - OpenClaw dashboard and n8n panel both accessible via subdomains
+- **Product model expanded** (2026-03-15): productFamily, productType, channels group, source, automationMeta — D-054 through D-057
+- **BlogPosts collection scaffolded** (2026-03-15) — D-058
 - **Next**: security rotation → persistent Docker networking → OpenClaw↔n8n integration → Payload product creation workflow
 - **Target flow**: Telegram → OpenClaw → n8n workflow → Payload API → draft product → admin approval → live
-- **Later expansion**: AI image processing, Instagram publish, Shopier listing
+- **Later expansion**: AI image processing, multi-channel publish (Instagram/Shopier/Dolap)
 
-### Phase 3 — Autonomous Content & Growth (FUTURE)
+### Phase 3 — Autonomous Content & Growth (FUTURE — BlogPosts collection ready)
 - AI-generated product descriptions
-- Blog/content generation from product data
+- Blog/content generation from product data (BlogPosts collection scaffolded)
 - Organic SEO content pipeline
+- AI visual expansion engine (non-destructive additional product images)
+- Try-on UX layer on product detail pages (D-060)
 
 ## VPS Infrastructure Layout
 
@@ -205,6 +225,36 @@ n8n workflow: parse caption → download photo → upload to Vercel Blob
 Payload API: create product (status: draft)
     ↓
 Admin reviews draft → sets active → product live on storefront
+```
+
+## Expanded Product Model (2026-03-15)
+
+```
+Products collection fields (grouped):
+├── Core: title, description, images[], slug (auto), sku (auto), status
+├── Classification: category (select — legacy shoe types), productFamily (select), productType (text)
+├── Identity: brand (text), gender (select), color (text), material (text), featured (checkbox)
+├── Pricing: price, originalPrice
+├── Variants: variants (relationship → Variants collection)
+├── Channels: channels.publishWebsite, channels.publishInstagram, channels.publishShopier, channels.publishDolap
+├── Source: source (select: admin/telegram/n8n/api/import)
+├── Automation: automationMeta.telegramChatId, .telegramMessageId, .lastSyncedAt, .updatedBy, .lockFields
+└── Legacy: createdByAutomation (checkbox), telegramMessageId (text), postToInstagram (checkbox)
+    └── Legacy fields kept for backward compatibility; new code should use channels.* and automationMeta.*
+```
+
+## Multi-Channel Publishing Flow (Target)
+
+```
+Product in Payload (status: active, channels.publishWebsite: true)
+    ↓
+n8n Channel Publisher Workflows:
+├── Website: already live (storefront reads active products)
+├── Instagram: n8n reads channels.publishInstagram → Graph API post
+├── Shopier: n8n reads channels.publishShopier → Shopier API listing
+└── Dolap: n8n reads channels.publishDolap → Dolap API listing
+    ↓
+Each workflow updates product's publishedChannels tracking
 ```
 
 ## Architectural Boundaries

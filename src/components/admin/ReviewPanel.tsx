@@ -33,7 +33,9 @@ export const ReviewPanel: React.FC = () => {
   const images        = useFormFields(([f]) => f['images']?.value) as unknown[] | undefined
   const stockQuantity = useFormFields(([f]) => f['stockQuantity']?.value) as number | undefined
   const chatId        = useFormFields(([f]) => f['automationMeta.telegramChatId']?.value) as string | undefined
+  const chatType      = useFormFields(([f]) => f['automationMeta.telegramChatType']?.value) as string | undefined
   const msgId         = useFormFields(([f]) => f['automationMeta.telegramMessageId']?.value) as string | undefined
+  const fromUserId    = useFormFields(([f]) => f['automationMeta.telegramFromUserId']?.value) as string | undefined
   const lockedVal     = useFormFields(([f]) => f['automationMeta.lockFields']?.value) as boolean | undefined
 
   // Only render for automation-sourced products
@@ -162,6 +164,12 @@ export const ReviewPanel: React.FC = () => {
             <strong style={{ color: '#cbd5e1' }}>Kaynak:</strong>{' '}
             {SOURCE_LABEL[source!] ?? source}
           </span>
+          {chatType && (
+            <span>
+              <strong style={{ color: '#cbd5e1' }}>Tip:</strong>{' '}
+              {chatType === 'supergroup' || chatType === 'group' ? '👥 Grup' : '💬 DM'}
+            </span>
+          )}
           {chatId && (
             <span>
               <strong style={{ color: '#cbd5e1' }}>Chat ID:</strong> {chatId}
@@ -170,6 +178,11 @@ export const ReviewPanel: React.FC = () => {
           {msgId && (
             <span>
               <strong style={{ color: '#cbd5e1' }}>Mesaj ID:</strong> {msgId}
+            </span>
+          )}
+          {fromUserId && (
+            <span>
+              <strong style={{ color: '#cbd5e1' }}>Gönderen:</strong> {fromUserId}
             </span>
           )}
           {isLocked && (

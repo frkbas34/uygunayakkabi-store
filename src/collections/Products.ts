@@ -413,13 +413,34 @@ export const Products: CollectionConfig = {
           name: 'telegramChatId',
           type: 'text',
           label: 'Telegram Chat ID',
-          admin: { readOnly: true },
+          admin: {
+            readOnly: true,
+            description: 'Grup ID\'si (negatif) veya DM kullanıcı ID\'si',
+          },
+        },
+        {
+          name: 'telegramChatType',
+          type: 'text',
+          label: 'Chat Tipi',
+          admin: {
+            readOnly: true,
+            description: 'private / group / supergroup / channel',
+          },
         },
         {
           name: 'telegramMessageId',
           type: 'text',
           label: 'Telegram Mesaj ID',
           admin: { readOnly: true },
+        },
+        {
+          name: 'telegramFromUserId',
+          type: 'text',
+          label: 'Gönderen Kullanıcı ID',
+          admin: {
+            readOnly: true,
+            description: 'Grup\'ta ürünü kim gönderdi',
+          },
         },
         {
           name: 'lastSyncedAt',

@@ -85,6 +85,20 @@ export async function POST(req: NextRequest) {
       return !isNaN(n) && n >= 0 ? n : 1
     })()
 
+    // Merge automationMeta with top-level telegram block
+    // Group messages carry from_user_id and chat_type in body.telegram
+    const telegram = body.telegram as Record<string, string> | undefined
+    const mergedMeta: Record<string, string | boolean> = {
+      ...(meta ?? {}),
+      ...(telegram?.from_user_id ? { telegramFromUserId: telegram.from_user_id } : {}),
+      ...(telegram?.chat_type    ? { telegramChatType:   telegram.chat_type }    : {}),
+      // Allow telegram block to supply chatId/messageId if automationMeta didn't have them
+      ...(telegram?.chat_id && !meta?.telegramChatId
+          ? { telegramChatId: telegram.chat_id } : {}),
+      ...(telegram?.message_id && !meta?.telegramMessageId
+          ? { telegramMessageId: telegram.message_id } : {}),
+    }
+
     const product = await payload.create({
       collection: 'products',
       data: {
@@ -95,7 +109,7 @@ export async function POST(req: NextRequest) {
         stockQuantity: stockQty,
         ...(body.sku ? { sku: body.sku as string } : {}),
         ...(body.channels ? { channels: body.channels as Record<string, boolean> } : {}),
-        ...(meta ? { automationMeta: meta } : {}),
+        ...(Object.keys(mergedMeta).length > 0 ? { automationMeta: mergedMeta } : {}),
       },
     })
 

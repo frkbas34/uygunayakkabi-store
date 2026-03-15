@@ -8,6 +8,13 @@ import { getPayload } from '@/lib/payload'
  *
  * Header: X-Automation-Secret: <AUTOMATION_SECRET env var>
  * Body: product fields (title required, price, sku, status, etc.)
+ *
+ * Idempotency (Step 7):
+ *   If automationMeta.telegramChatId + automationMeta.telegramMessageId are both
+ *   present in the request body, we query for an existing product with the same
+ *   pair before creating a new one. This prevents duplicate products from webhook
+ *   replays, retries, or repeated Telegram events.
+ *   Response on duplicate: { status: "duplicate", product_id, title, slug, ... }
  */
 export async function POST(req: NextRequest) {
   // Auth: shared secret header check
@@ -31,6 +38,46 @@ export async function POST(req: NextRequest) {
   try {
     const payload = await getPayload()
 
+    // ── Idempotency check ────────────────────────────────────────────────────
+    // If telegramChatId + telegramMessageId are both provided, check for an
+    // existing product with the same pair to prevent duplicates.
+    const meta = body.automationMeta as Record<string, string> | undefined
+    const tgChatId = meta?.telegramChatId
+    const tgMsgId = meta?.telegramMessageId
+
+    if (tgChatId && tgMsgId) {
+      const existing = await payload.find({
+        collection: 'products',
+        where: {
+          and: [
+            { 'automationMeta.telegramChatId': { equals: tgChatId } },
+            { 'automationMeta.telegramMessageId': { equals: tgMsgId } },
+          ],
+        },
+        limit: 1,
+      })
+
+      if (existing.docs.length > 0) {
+        const dup = existing.docs[0]
+        console.log(
+          `[automation/products] duplicate blocked — chat_id=${tgChatId} msg_id=${tgMsgId} existing_id=${dup.id}`,
+        )
+        return NextResponse.json(
+          {
+            status: 'duplicate',
+            product_id: dup.id,
+            title: dup.title,
+            slug: (dup as Record<string, unknown>).slug,
+            workflow: 'n8n-automation',
+            message: 'Bu Telegram mesajından zaten bir ürün oluşturulmuş. Tekrar oluşturulmadı.',
+            timestamp: new Date().toISOString(),
+          },
+          { status: 200 },
+        )
+      }
+    }
+    // ────────────────────────────────────────────────────────────────────────
+
     const product = await payload.create({
       collection: 'products',
       data: {
@@ -40,7 +87,7 @@ export async function POST(req: NextRequest) {
         source: (body.source as string) || 'n8n',
         ...(body.sku ? { sku: body.sku as string } : {}),
         ...(body.channels ? { channels: body.channels as Record<string, boolean> } : {}),
-        ...(body.automationMeta ? { automationMeta: body.automationMeta as Record<string, string> } : {}),
+        ...(meta ? { automationMeta: meta } : {}),
       },
     })
 

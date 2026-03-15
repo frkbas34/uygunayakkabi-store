@@ -240,6 +240,9 @@ export const Products: CollectionConfig = {
       ],
       admin: {
         position: 'sidebar',
+        components: {
+          Cell: '@/components/admin/StatusCell#StatusCell',
+        },
       },
     },
     {

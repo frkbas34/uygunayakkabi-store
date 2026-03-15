@@ -67,8 +67,21 @@ export async function POST(req: NextRequest) {
     }
 
     const imageBuffer = Buffer.from(await imageRes.arrayBuffer())
-    const contentType = imageRes.headers.get('content-type') || 'image/jpeg'
+
+    // Normalize MIME type: strip parameters (e.g. "image/jpeg; charset=utf-8" → "image/jpeg")
+    // and infer from file extension as fallback — Telegram photos are always JPEG
+    const rawContentType = imageRes.headers.get('content-type') || ''
     const ext = filePath.split('.').pop()?.toLowerCase() || 'jpg'
+    const EXT_MIME: Record<string, string> = {
+      jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png',
+      webp: 'image/webp', gif: 'image/gif',
+    }
+    const normalizedMime = rawContentType.split(';')[0].trim()
+    const ALLOWED = ['image/jpeg', 'image/png', 'image/webp', 'image/gif']
+    const contentType = ALLOWED.includes(normalizedMime)
+      ? normalizedMime
+      : (EXT_MIME[ext] ?? 'image/jpeg')
+
     const filename = `tg-${productId}-${Date.now()}.${ext}`
 
     // Step 3: Create Media document (Vercel Blob in production)

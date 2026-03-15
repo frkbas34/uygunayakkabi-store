@@ -719,3 +719,43 @@ beforeDelete: [async ({ req, id }) => {
 - Color as intake dimension
 
 **Status:** ACTIVE — stock_quantity and color columns live in DB
+
+---
+
+## D-064 — Step 10: Publishing Flow / Commerce Activation
+**Decision:** Define controlled draft → active transition with server-side publish guard. Fix product detail page status enforcement.
+
+**State machine:**
+```
+draft (automation creates) → [operator reviews] → active (publish) → soldout
+```
+No intermediate "reviewed" state — operator directly activates. Simplicity over process overhead.
+
+**Publish-readiness rules (BLOCKING — server enforced):**
+- price > 0 — beforeChange hook throws if activating with price = 0 or null
+- title non-empty — already enforced by existing validate function
+
+**Publish-readiness (WARNING only — not blocking):**
+- images: 0 images allowed (operator may activate and add images later)
+- SKU: always auto-generated, never missing
+- category/brand: optional
+
+**Changes made (2026-03-15):**
+1. `products/[slug]/page.tsx`: Added `if (product.status === 'draft') notFound()` — draft products no longer accessible on public storefront via direct URL. Soldout products remain accessible.
+2. `Products.ts` beforeChange hook: throws error when `operation === 'update'` AND `data.status === 'active'` AND `originalDoc.status !== 'active'` AND `price <= 0`. Does NOT block automation draft creation (create operations are fully exempt).
+3. `StatusCell.tsx`: Now reads server error response (Payload `errors[0].message`), renders inline error message below the button in red. User can click to dismiss. No more silent failures.
+
+**Validation results:**
+- Storefront homepage: `where: { status: { equals: 'active' } }` — already correct ✅
+- Product detail: now returns 404 for draft slugs ✅
+- "Aktif Yap" button: blocked at server if price = 0, error shown inline ✅
+- "Aktif Yap" button: succeeds and updates cell optimistically if price > 0 ✅
+
+**Commerce integration attach points (future — NOT implemented):**
+- **Shopier sync**: `afterChange` hook on Products — if `data.status === 'active'` && `data.channels?.publishShopier === true` && originalDoc.status !== 'active' → POST to Shopier API or trigger n8n webhook
+- **Instagram posting**: same `afterChange` hook — if `channels.publishInstagram === true` → n8n workflow → Graph API
+- **Dolap sync**: same hook — if `channels.publishDolap === true` → Dolap API
+- **Exact hook location**: Products.ts `afterChange` array, separate from the beforeChange guard
+- **Recommended trigger**: status transition + channel flag, not every save (to avoid duplicate posts)
+
+**Status:** ACTIVE — publish guard live, storefront protection in place

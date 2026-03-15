@@ -19,6 +19,28 @@ export const Products: CollectionConfig = {
     description: 'Mağazadaki tüm ürünler (ayakkabı, cüzdan, çanta, aksesuar)',
   },
   hooks: {
+    beforeChange: [
+      // ── Publish Guard ─────────────────────────────────────────────────────
+      // Prevents incomplete automation-created products from going live.
+      // Only fires when transitioning an existing product to status: 'active'.
+      // Does NOT block automation draft creation (operation === 'create' is exempt).
+      async ({ data, originalDoc, operation }) => {
+        // Only guard on status transitions, not on initial create
+        if (operation === 'update' && data.status === 'active') {
+          const wasAlreadyActive = originalDoc?.status === 'active'
+          if (!wasAlreadyActive) {
+            // Transitioning draft/soldout → active
+            const price = data.price ?? originalDoc?.price
+            if (!price || Number(price) <= 0) {
+              throw new Error(
+                '⚠️ Yayınlamak için geçerli bir fiyat girilmesi zorunludur. Lütfen fiyatı 0\'dan büyük bir değere ayarlayın.',
+              )
+            }
+          }
+        }
+        return data
+      },
+    ],
     beforeValidate: [
       ({ data }) => {
         if (!data) return data

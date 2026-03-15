@@ -58,6 +58,12 @@ export default async function ProductPage({ params }: Props) {
     notFound()
   }
 
+  // Draft products must not be accessible on the public storefront.
+  // Soldout products remain visible (customers may still want to see them / inquire).
+  if (product.status === 'draft') {
+    notFound()
+  }
+
   const variants = (product.variants as VariantDoc[]) ?? []
   const availableSizes = variants.filter((v) => v.stock > 0)
 

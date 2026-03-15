@@ -100,7 +100,9 @@ src/
 ### Media Pipeline
 - **Production**: Vercel Blob Storage (`@payloadcms/storage-vercel-blob`, enabled via `BLOB_READ_WRITE_TOKEN`)
 - **Local dev**: Falls back to local filesystem (`public/media/`) when `BLOB_READ_WRITE_TOKEN` is absent
+- **Access control**: `access: { read: () => true }` — required for public image serving (see D-042). Without this, Payload returns 403 for unauthenticated image requests.
 - **Reverse media lookup**: `media.product` field (reverse reference) → used as fallback when `product.images[]` is empty. Prioritizes `media.url` (Blob), falls back to `/media/${filename}`
+- **Multi-PC rule**: Always upload via production admin to ensure Vercel Blob storage. Local uploads only persist on the uploading machine (see D-043).
 - Display: `<img>` tags (not `next/image`) to avoid remotePatterns validation (see D-025)
 - `objectFit: "contain"` everywhere — no cropping of product images
 

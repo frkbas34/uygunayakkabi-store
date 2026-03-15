@@ -575,3 +575,107 @@ beforeDelete: [async ({ req, id }) => {
 **Decision:** Products created via the automation pipeline (Telegram → OpenClaw → n8n → Payload) must always be created with `status: 'draft'`. Admin manually reviews and sets to `active`.
 **Reason:** Prevents unreviewed products from appearing on the live storefront. Admin remains the quality gate.
 **Status:** ACTIVE
+
+---
+
+## D-052 — Media Collection Requires Public Read Access
+**Decision:** The Media collection must have `access: { read: () => true }` to allow unauthenticated visitors to view product images.
+**Reason:** Payload CMS defaults to requiring authentication for all collection operations. Without explicit public read access, all image URLs served via `/api/media/file/...` return 403 for storefront visitors. The issue was masked during development because the developer was logged into the admin panel (browser had session cookie).
+**Implementation:** Added `access: { read: () => true }` to `src/collections/Media.ts`.
+**Lesson:** Any collection whose data must be publicly accessible (media, products via API, etc.) needs explicit `read: () => true` in its access config.
+**Status:** ACTIVE — FIXED 2026-03-11
+
+---
+
+## D-053 — Always Upload Media via Production Admin for Multi-PC Workflows
+**Decision:** When developing across multiple PCs, always upload product images through the **production admin** (`uygunayakkabi.com/admin`), never through local dev (`localhost:3000/admin`).
+**Reason:** Local uploads go to `public/media/` on the local filesystem, which is not synced between machines or to production. Production uploads go to Vercel Blob Storage, which is cloud-hosted and accessible from anywhere.
+**Diagnostic:** If image URLs in the DB are `/api/media/file/...` → uploaded locally. If URLs are `https://...blob.vercel-storage.com/...` → uploaded via production (correct).
+**Status:** ACTIVE — OPERATIONAL RULE
+
+---
+
+## D-054 — Product Family Architecture (Beyond Shoes)
+**Decision:** Products are no longer exclusively shoes. The system must support multiple product families (shoes, wallets, bags, accessories, etc.) without breaking the existing shoe-centric UI or data.
+**Implementation:** Add `productFamily` (select: shoes, wallets, bags, accessories) and `productType` (text, free-form: sneaker, boot, loafer, bifold, cardholder, etc.) as new additive fields. The existing `category` select field is preserved as-is for backward compatibility with the current storefront filtering.
+**Rule:** Do NOT replace or remove the existing `category` field. New fields are additive.
+**Status:** ACTIVE
+
+---
+
+## D-055 — Multi-Channel Publishing Toggles
+**Decision:** Products must have per-channel publish controls. Each channel (website, Instagram, Shopier, Dolap) gets an independent toggle.
+**Implementation:** Add a `channels` group on Products with checkbox fields: `publishWebsite` (default true), `publishInstagram`, `publishShopier`, `publishDolap`. The existing `postToInstagram` field is superseded by `channels.publishInstagram` but kept for backward compatibility.
+**Reason:** The business needs fine-grained control over which channels each product is published to. Automation should set these flags; admin can override.
+**Status:** ACTIVE
+
+---
+
+## D-056 — Product Source Tracking
+**Decision:** Every product must track where it was created from: `admin`, `telegram`, `n8n`, `api`, `import`.
+**Implementation:** Add `source` select field on Products. Default: `admin`. Automation pipeline sets to `telegram` or `n8n`.
+**Reason:** Needed for audit trail, analytics, and different processing logic for automation-created vs manually-created products.
+**Status:** ACTIVE
+
+---
+
+## D-057 — Automation Metadata on Products
+**Decision:** Products need automation-related metadata fields for sync tracking and conflict resolution.
+**Implementation:** Add `automationMeta` group with: `telegramChatId` (text), `telegramMessageId` (text — migrated from top-level field), `lastSyncedAt` (date), `updatedBy` (text: admin/automation/api), `lockFields` (checkbox — when true, automation cannot overwrite manual admin edits).
+**Reason:** Required for the Telegram → OpenClaw → n8n → Payload pipeline to avoid overwriting admin corrections.
+**Status:** ACTIVE
+
+---
+
+## D-058 — Blog/SEO Collection Scaffold
+**Decision:** A BlogPosts collection is scaffolded now in Phase 2 so the data model is ready when Phase 3 content generation begins.
+**Implementation:** BlogPosts collection with: title, slug (auto), content (richText), excerpt, category, tags, status (draft/published/archived), seoTitle, seoDescription, relatedProducts (relationship), author, publishedAt.
+**Reason:** The AI content engine needs a target collection. Building it now avoids schema churn later.
+**Status:** ACTIVE — SCAFFOLDED (not yet populated or rendered on storefront)
+
+---
+
+## D-059 — Payload Remains Single Source of Truth for All Channels
+**Decision:** Payload CMS is the authoritative data store for all product information. External channels (Instagram, Shopier, Dolap) publish FROM Payload, never independently.
+**Rule:** Automation may improve presentation (AI titles, enhanced images), but must never alter product truth (price, stock) without admin approval. All mutations go through Payload API.
+**Status:** ACTIVE — CORE ARCHITECTURAL RULE
+
+---
+
+## D-062 — OpenClaw → n8n Transport: exec + curl via Internal Docker Network
+**Decision:** OpenClaw forwards product intake data to n8n using its native `exec` tool to run `curl`, targeting n8n directly via the internal Docker network (`http://n8n:5678/webhook/mentix-intake`), not via the public Caddy URL.
+**Implementation:**
+- Transport: `exec` tool → `curl -X POST http://n8n:5678/webhook/mentix-intake`
+- Internal path avoids TLS overhead and Caddy dependency; ~8ms round-trip confirmed
+- n8n workflow: `Mentix Intake Webhook` (ID: `WOv8kRkN00Jo8g2D`) — Webhook → Parse Fields → Respond to Webhook
+- OpenClaw skill: `/home/furkan/.openclaw/skills/mentix-intake/SKILL.md` (mounted into container)
+- `skills.load.watch: true` — file edits reload the skill without container restart
+- n8n activation done via direct SQLite writes (workflow_entity.activeVersionId + workflow_published_version) because `n8n import:workflow` deactivates imported workflows by default
+**Payload schema v1.0 fields:** `schema_version`, `source`, `intent`, `telegram.{user_id, chat_id, chat_type, message_id, username}`, `message.{text, has_media, media_file_id, media_type}`, `parsed.{title, stock_code, price, quantity, notes}`, `timestamp`, `session_id`
+**Validated:** curl from inside OpenClaw container → n8n → 200 `{"status":"received"}` ✅ (exec #5, 8ms)
+**Not yet validated:** Full chain: real Telegram mention → skill triggers → exec runs → n8n receives
+**Status:** ACTIVE — transport layer proven. Next: n8n → Payload product creation (Step 5)
+
+---
+
+## D-061 — Telegram Group Access Policy: Restricted Allowlist + Mention-Only
+**Decision:** Enable OpenClaw group messaging for a limited allowlist of approved Telegram user IDs, with mention-only response behavior in groups. DM behavior unchanged.
+**Implementation:**
+- `groupPolicy: "allowlist"` — preserved (was already set, but no allowFrom entries)
+- `groupAllowFrom: [5450039553, 8049990232]` — only these 2 user IDs can trigger the bot in any group
+- `groups: { "*": { requireMention: true } }` — wildcard group config; bot only responds when explicitly @mentioned
+- Both fields are native OpenClaw config (no workarounds needed — `requireMention` is a first-class field in `TelegramGroupConfig`)
+- `requireMention` defaults to `true` in OpenClaw even without explicit config, but set explicitly for clarity
+- DM policy unchanged: `dmPolicy: "pairing"` — existing DM pairings continue to work
+- Config backup created at `/home/furkan/.openclaw/openclaw.json.bak` before change
+- OpenClaw hot-reloaded the Telegram channel on config change (confirmed in logs); container restarted cleanly
+**To add 3rd user:** append their numeric Telegram ID to `groupAllowFrom` array in openclaw.json, restart OpenClaw
+**Group to add bot to:** "Mentix Grup Bot" (not yet created — group chat ID not needed in config, wildcard `"*"` handles any group)
+**Status:** ACTIVE — 2 users approved, 3rd user pending
+
+---
+
+## D-060 — Try-On Is UX Layer Only
+**Decision:** The future try-on system is a frontend UX feature on product pages. It does not affect the product data model, media pipeline, or catalog source images.
+**Implementation:** When ready, add a client-side component that loads on product detail pages. No new collections or fields needed now.
+**Status:** PLANNED — No implementation yet

@@ -1,10 +1,14 @@
 # PROJECT STATE — Uygunayakkabi
 
-_Last updated: 2026-03-14_
+_Last updated: 2026-03-15_
 
 ## Current Status
-Phase 1 **COMPLETE** (validated 2026-03-13).
+Phase 1 **COMPLETE** (validated 2026-03-13). Media access issue from 2026-03-11 was resolved (D-052).
 Phase 2 **ACTIVE** — VPS infrastructure is live and operational (2026-03-14).
+**Product model expanded** (2026-03-15) — multi-family, channel toggles, source tracking, automation metadata (D-054–D-057).
+**BlogPosts collection scaffolded** (2026-03-15) — ready for Phase 3 content engine (D-058).
+**Telegram group access enabled** (2026-03-15) — limited allowlist (2 users), mention-only behavior enforced natively (D-061).
+**Mentix Intake Webhook live** (2026-03-15) — OpenClaw → n8n transport validated end-to-end (D-062).
 
 Core proof-of-concept achieved:
 - VPS provisioned (Netcup, Ubuntu 22.04.5 LTS)
@@ -13,11 +17,11 @@ Core proof-of-concept achieved:
 - OpenClaw dashboard accessible at `agent.uygunayakkabi.com`
 - n8n accessible at `flow.uygunayakkabi.com`
 - OpenAI model active: `openai/gpt-5-mini`
-
-**🔴 SECURITY: API keys and tokens were exposed in session — rotation required before any production use.**
+- **n8n intake webhook live**: `POST /webhook/mentix-intake` (active, validated ✅)
+- **OpenClaw `mentix-intake` skill installed**: routes product messages to n8n via internal Docker network
 
 ## Current Phase
-Phase 2 — Automation Backbone (**ACTIVE — Infrastructure Live, Integration Pending**)
+Phase 2 — Automation Backbone (**ACTIVE — Transport layer validated, product creation next**)
 
 ---
 
@@ -30,13 +34,17 @@ Phase 2 — Automation Backbone (**ACTIVE — Infrastructure Live, Integration P
 - importMap includes: all standard Payload components + VercelBlobClientUploadHandler
 - **Custom Dashboard** (`afterDashboard`) is currently **DISABLED** in payload.config.ts
 - Admin grouped: Mağaza / Katalog / Medya / Müşteri / Stok / Pazarlama (Banners) / Ayarlar (Site Settings)
-- 10 collections registered: Users, Products, Variants, Brands, Categories, Media, CustomerInquiries, InventoryLogs, Orders, Banners
+- 11 collections registered: Users, Products, Variants, Brands, Categories, Media, CustomerInquiries, InventoryLogs, Orders, Banners, BlogPosts
 - 1 global registered: SiteSettings
 
 ### Collections — Current Field State
 
-**Products** (fully rewritten 2026-03-11):
-- Fields: title (required, Turkish validation), description, brand (text), category (select: Günlük/Spor/Klasik/Bot/Sandalet/Krampon/Cüzdan), gender, price (required, Turkish validation), originalPrice, status (active/soldout/draft), featured, slug (auto-generated, readOnly), sku (auto-generated if empty), images, variants, color, material, telegram/automation fields
+**Products** (rewritten 2026-03-11, expanded 2026-03-15):
+- Core fields: title (required, Turkish validation), description, brand (text), category (select: Günlük/Spor/Klasik/Bot/Sandalet/Krampon/Cüzdan), gender, price (required, Turkish validation), originalPrice, status (active/soldout/draft), featured, slug (auto-generated, readOnly), sku (auto-generated if empty), images, variants, color, material
+- **New (2026-03-15)**: productFamily (select: shoes/wallets/bags/accessories), productType (text), source (select: admin/telegram/n8n/api/import)
+- **New (2026-03-15)**: channels group (publishWebsite, publishInstagram, publishShopier, publishDolap)
+- **New (2026-03-15)**: automationMeta group (telegramChatId, telegramMessageId, lastSyncedAt, updatedBy, lockFields)
+- Legacy fields kept: createdByAutomation, telegramMessageId (top-level), postToInstagram
 - `beforeValidate` hook: always auto-generates slug from title; auto-generates SKU if empty
 - `beforeDelete` hook: nullifies all variant.product and media.product references before deletion (prevents FK constraint errors)
 - Status labels: Turkish with emoji indicators
@@ -52,7 +60,7 @@ Phase 2 — Automation Backbone (**ACTIVE — Infrastructure Live, Integration P
 
 **SiteSettings** (global): siteName, siteDescription, contact group, shipping group, trustBadges group, announcementBar group
 
-**Media**: staticDir = public/media, staticURL = '/media', image sizes (thumbnail/card/large). Production: **Vercel Blob Storage**.
+**Media**: staticDir = public/media, staticURL = '/media', image sizes (thumbnail/card/large). Production: **Vercel Blob Storage**. **`access: { read: () => true }`** added 2026-03-11 to allow public image access (was missing — caused all images to return 403 for unauthenticated visitors).
 
 ### Database (Neon PostgreSQL)
 - Schema sync via `push: true`
@@ -87,6 +95,13 @@ Phase 2 — Automation Backbone (**ACTIVE — Infrastructure Live, Integration P
 ### Git State
 - main is authoritative. Always pull before pushing (D-042).
 - GitHub repo: https://github.com/frkbas34/uygunayakkabi-store
+- Git identity configured on personal laptop: `Furkan Baş <frk.bas34@gmail.com>`
+
+### Multi-PC Development
+- **Work PC**: Original development machine. Has local `public/media/` files from earlier uploads.
+- **Personal laptop**: Matebook. Git configured. Code synced via GitHub. No local media files.
+- **Sync method**: GitHub (code) + Neon PostgreSQL (data) + Vercel Blob (production media)
+- **Critical note**: Always upload media via production admin — see D-053.
 
 ### VPS Infrastructure (Netcup — provisioned 2026-03-14)
 - **OS**: Ubuntu 22.04.5 LTS (disk expanded to ~125G)
@@ -94,7 +109,7 @@ Phase 2 — Automation Backbone (**ACTIVE — Infrastructure Live, Integration P
 - **Caddy**: reverse proxy via Docker, handles TLS
 - **n8n**: Docker container, accessible at `flow.uygunayakkabi.com`
 - **OpenClaw**: Docker containers (`openclaw-openclaw-gateway-1` healthy), accessible at `agent.uygunayakkabi.com`
-- **Telegram bot**: `mentix_aibot` — DM pairing complete, responding in Turkish
+- **Telegram bot**: `mentix_aibot` — DM pairing complete + group access enabled (mention-only, allowlist 2 users)
 - **OpenAI model**: `openai/gpt-5-mini`
 - **User account**: `furkan` (sudo + docker groups)
 - **Directories**: `/opt/openclaw`, `/opt/n8n`, `/opt/caddy`
@@ -106,10 +121,37 @@ Phase 2 — Automation Backbone (**ACTIVE — Infrastructure Live, Integration P
 - `agent.uygunayakkabi.com` → Caddy → openclaw-gateway:18789
 - DNS via Cloudflare (A records → VPS IP)
 
+### n8n Intake Webhook (live 2026-03-15)
+- **Workflow name**: `Mentix Intake Webhook`
+- **Workflow ID**: `WOv8kRkN00Jo8g2D`
+- **Endpoint**: `POST /webhook/mentix-intake`
+- **Public URL**: `https://flow.uygunayakkabi.com/webhook/mentix-intake`
+- **Internal URL**: `http://n8n:5678/webhook/mentix-intake` (used by OpenClaw — Docker network)
+- **Nodes**: Webhook → Parse Intake Fields (Set) → Respond to Webhook
+- **Response**: `{"status":"received","workflow":"mentix-intake","timestamp":"..."}`
+- **Status**: Active, validated ✅ (execution ID 5, 8ms round-trip)
+- **Payload schema**: `schema_version 1.0` — see D-062 for field definitions
+- **n8n API Key** (label: `Mentix Intake Workflow`): stored in n8n DB — use header `X-N8N-API-KEY` for workflow management via REST API (`/api/v1/workflows`, `/api/v1/executions`, etc.)
+- **API Base**: `https://flow.uygunayakkabi.com/api/v1/`
+
+### OpenClaw mentix-intake Skill (installed 2026-03-15)
+- **Path on host**: `/home/furkan/.openclaw/skills/mentix-intake/SKILL.md`
+- **Path in container**: `/home/node/.openclaw/skills/mentix-intake/SKILL.md`
+- **Trigger**: When Telegram message contains product data (name, price, stock code, or quantity)
+- **Behavior**: Parse → build JSON → exec curl to `http://n8n:5678/webhook/mentix-intake` → confirm to user
+- **Transport**: exec tool → curl POST (internal Docker network, no TLS overhead)
+- **Skills watch**: enabled (`skills.load.watch: true`) — file changes reload without restart
+- **Not yet tested**: full Telegram DM/group → skill trigger → n8n exec chain (requires live Telegram message)
+
+### Telegram Group Access Policy (configured 2026-03-15)
+- **groupPolicy**: `allowlist` — preserved
+- **groupAllowFrom**: `[5450039553, 8049990232]` — only these two user IDs can trigger the bot in groups
+- **groups `"*"`**: `requireMention: true` — bot only responds when explicitly @mentioned in group
+- **DM behavior**: unchanged (`dmPolicy: "pairing"`)
+- **3rd user ID**: pending — add to `groupAllowFrom` array when ready
+- **Config**: `/home/furkan/.openclaw/openclaw.json` | backup at `openclaw.json.bak`
+
 ### VPS Known Issues
-- **🔴 Security rotation required**: Telegram bot token, OpenAI API key, OpenClaw gateway token — all exposed in setup session
-- **Docker network persistence**: OpenClaw gateway was manually connected to `web` network for Caddy routing. This must be made persistent in docker-compose (currently reverts on restart/redeploy)
-- **Telegram group policy**: `groupPolicy: "allowlist"` but `allowFrom` is empty — group messages silently dropped. DM-only for now.
 - **OpenClaw skills**: clawhub/github/gog/xurl install attempts failed (Homebrew not installed, DNS issues). Deferred — not blocking core operation.
 
 ---
@@ -122,6 +164,9 @@ Phase 2 — Automation Backbone (**ACTIVE — Infrastructure Live, Integration P
 - **No `/products/[slug]` route**: slug auto-generated but no dedicated URL route yet
 - **`push: true`**: switch to migrations before Phase 2 data model stabilizes in production
 
+### Resolved Issues (historical)
+- **Product images broken on live site (2026-03-11)**: Media collection missing `access: { read: () => true }` caused 403 for unauthenticated visitors. Fixed in D-052. Some images also needed re-upload via production admin (were uploaded locally). Fully resolved by 2026-03-13.
+
 ### 🟡 NON-CRITICAL — Post-Validation Cleanup
 - **Custom Dashboard disabled**: `afterDashboard` commented out in payload.config.ts. Component still exists at `src/components/admin/Dashboard.tsx` but is inactive.
 - **Admin dark mode removed**: `src/styles/admin-dark.css` exists but not imported. Re-implement without `!important` overrides if desired.
@@ -130,6 +175,7 @@ Phase 2 — Automation Backbone (**ACTIVE — Infrastructure Live, Integration P
 - **favicon.ico**: missing (404 on every page load). Add any 32×32 icon to `src/app/`.
 - **No `/products/[slug]` URL routing**: slug is stored and auto-generated but not used as a URL route.
 - **`push: true`**: should be switched to migrations before Phase 2 goes live (low risk for now).
+- **Local .env not set up on personal laptop**: Need to create `.env` with DATABASE_URI, PAYLOAD_SECRET, etc. for local development.
 
 ## Known Constraints
 - `push: true` auto-applies schema changes on startup
@@ -151,9 +197,12 @@ Phase 2 — Automation Backbone (**ACTIVE — Infrastructure Live, Integration P
 - [x] Git branch stable, main authoritative
 
 ## Next Focus
-Phase 2 infrastructure is live. Immediate priorities:
-1. **🔴 Security rotation** — regenerate all exposed tokens/keys
-2. **Persistent Docker networking** — OpenClaw gateway → `web` network in compose
-3. **OpenClaw → n8n integration design** — define how Telegram commands trigger n8n workflows
-4. **n8n → Payload product creation** — webhook from n8n → Payload API → draft product
+Phase 2 transport layer is validated. Next is product creation:
+1. ~~🔴 Security rotation~~ — **DONE**
+2. ~~Persistent Docker networking~~ — **DONE**
+3. ~~Telegram group access policy~~ — **DONE** (D-061, 2026-03-15)
+4. ~~OpenClaw → n8n transport design~~ — **DONE** (D-062, 2026-03-15)
+5. **n8n → Payload product creation** — extend the intake workflow: download media → upload to Vercel Blob → POST /api/products with status: draft
+6. **End-to-end MVP test** — phone → Telegram → bot → n8n → draft product in admin panel
+7. **Channel publish workflows** — n8n reads channels.publish* toggles → publishes to enabled channels
 See TASK_QUEUE.md for ordered execution plan.

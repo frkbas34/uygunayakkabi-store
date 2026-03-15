@@ -4,11 +4,12 @@ _Last updated: 2026-03-15_
 
 ## Current Status
 Phase 1 **COMPLETE** (validated 2026-03-13). Media access issue from 2026-03-11 was resolved (D-052).
-Phase 2 **ACTIVE** — VPS infrastructure is live and operational (2026-03-14).
+Phase 2 **ACTIVE** — Steps 1–5 complete. Full automation backbone operational.
 **Product model expanded** (2026-03-15) — multi-family, channel toggles, source tracking, automation metadata (D-054–D-057).
 **BlogPosts collection scaffolded** (2026-03-15) — ready for Phase 3 content engine (D-058).
 **Telegram group access enabled** (2026-03-15) — limited allowlist (2 users), mention-only behavior enforced natively (D-061).
 **Mentix Intake Webhook live** (2026-03-15) — OpenClaw → n8n transport validated end-to-end (D-062).
+**n8n → Payload product creation LIVE** (2026-03-15) — full pipeline validated: webhook → parse → schema map → `/api/automation/products` → Payload draft ✅ (D-063).
 
 Core proof-of-concept achieved:
 - VPS provisioned (Netcup, Ubuntu 22.04.5 LTS)
@@ -121,18 +122,28 @@ Phase 2 — Automation Backbone (**ACTIVE — Transport layer validated, product
 - `agent.uygunayakkabi.com` → Caddy → openclaw-gateway:18789
 - DNS via Cloudflare (A records → VPS IP)
 
-### n8n Intake Webhook (live 2026-03-15)
+### n8n Intake Webhook (live 2026-03-15) — STEP 5 COMPLETE ✅
 - **Workflow name**: `Mentix Intake Webhook`
 - **Workflow ID**: `WOv8kRkN00Jo8g2D`
 - **Endpoint**: `POST /webhook/mentix-intake`
 - **Public URL**: `https://flow.uygunayakkabi.com/webhook/mentix-intake`
 - **Internal URL**: `http://n8n:5678/webhook/mentix-intake` (used by OpenClaw — Docker network)
-- **Nodes**: Webhook → Parse Intake Fields (Set) → Respond to Webhook
-- **Response**: `{"status":"received","workflow":"mentix-intake","timestamp":"..."}`
-- **Status**: Active, validated ✅ (execution ID 5, 8ms round-trip)
+- **Nodes (7)**: Webhook → Parse Intake Fields (Set) → Map to Payload Schema (Code) → Create Product in Payload (HTTP) → Success? (IF) → Respond OK / Respond Error
+- **Response on success**: `{"status":"created","product_id":N,"title":"...","slug":"...","workflow":"mentix-intake","timestamp":"..."}`
+- **Status**: Active, fully validated ✅ — creates draft products in Payload CMS
 - **Payload schema**: `schema_version 1.0` — see D-062 for field definitions
-- **n8n API Key** (label: `Mentix Intake Workflow`): stored in n8n DB — use header `X-N8N-API-KEY` for workflow management via REST API (`/api/v1/workflows`, `/api/v1/executions`, etc.)
+- **Auth to Payload**: `X-Automation-Secret` header → `/api/automation/products` (custom Next.js route, no JWT needed)
+- **AUTOMATION_SECRET**: set in Vercel env vars (2026-03-15) — see D-063
+- **n8n API Key** (label: `Mentix Intake Workflow`): stored in n8n DB — use header `X-N8N-API-KEY` for workflow management
 - **API Base**: `https://flow.uygunayakkabi.com/api/v1/`
+
+### /api/automation/products (live 2026-03-15)
+- **Route**: `src/app/api/automation/products/route.ts`
+- **Auth**: `X-Automation-Secret: <AUTOMATION_SECRET>` header
+- **Uses**: Payload local API (`getPayload()`) — no JWT, no schema changes
+- **Creates**: draft product in `products` collection
+- **Returns**: `{"status":"created","product_id":N,"title":"...","slug":"...","workflow":"n8n-automation","timestamp":"..."}`
+- **DB migration note**: `push: true` did not auto-apply new columns in production; manually ran ALTER TABLE 2026-03-15 to add `product_family`, `product_type`, `channels_*`, `source`, `automation_meta_*` columns and their enum types
 
 ### OpenClaw mentix-intake Skill (installed 2026-03-15)
 - **Path on host**: `/home/furkan/.openclaw/skills/mentix-intake/SKILL.md`
@@ -197,12 +208,14 @@ Phase 2 — Automation Backbone (**ACTIVE — Transport layer validated, product
 - [x] Git branch stable, main authoritative
 
 ## Next Focus
-Phase 2 transport layer is validated. Next is product creation:
+Phase 2 core automation backbone is complete (Steps 1–5). Next:
 1. ~~🔴 Security rotation~~ — **DONE**
 2. ~~Persistent Docker networking~~ — **DONE**
 3. ~~Telegram group access policy~~ — **DONE** (D-061, 2026-03-15)
 4. ~~OpenClaw → n8n transport design~~ — **DONE** (D-062, 2026-03-15)
-5. **n8n → Payload product creation** — extend the intake workflow: download media → upload to Vercel Blob → POST /api/products with status: draft
-6. **End-to-end MVP test** — phone → Telegram → bot → n8n → draft product in admin panel
-7. **Channel publish workflows** — n8n reads channels.publish* toggles → publishes to enabled channels
+5. ~~n8n → Payload product creation~~ — **DONE** (D-063, 2026-03-15) ✅
+6. **End-to-end live Telegram test** — send real product message in Telegram group → verify draft appears in admin panel
+7. **Media handling** — attach photos from Telegram messages to draft products (upload to Vercel Blob)
+8. **Channel publish workflows** — n8n reads channels.publish* toggles → publishes to enabled channels
+9. **Create Telegram group "Mentix Grup Bot"** — add @mentix_aibot, test full chain with real messages
 See TASK_QUEUE.md for ordered execution plan.

@@ -57,7 +57,10 @@ export async function POST(req: NextRequest) {
     )
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err)
-    console.error('[automation/products] create failed:', message)
-    return NextResponse.json({ error: message }, { status: 500 })
+    // Expose the underlying Postgres/Drizzle cause for easier debugging
+    const cause = (err as Record<string, unknown>)?.cause
+    const causeMsg = cause instanceof Error ? cause.message : (typeof cause === 'string' ? cause : '')
+    console.error('[automation/products] create failed:', message, causeMsg)
+    return NextResponse.json({ error: message, cause: causeMsg }, { status: 500 })
   }
 }

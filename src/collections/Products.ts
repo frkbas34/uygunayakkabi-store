@@ -15,7 +15,7 @@ export const Products: CollectionConfig = {
   admin: {
     useAsTitle: 'title',
     group: 'Mağaza',
-    defaultColumns: ['title', 'category', 'brand', 'price', 'status'],
+    defaultColumns: ['title', 'source', 'status', 'price', 'brand'],
     description: 'Mağazadaki tüm ürünler (ayakkabı, cüzdan, çanta, aksesuar)',
   },
   hooks: {
@@ -73,6 +73,16 @@ export const Products: CollectionConfig = {
     ],
   },
   fields: [
+    // ── Otomasyon Kontrol Paneli (yalnızca otomasyon ürünlerinde görünür) ──
+    {
+      name: 'reviewPanel',
+      type: 'ui',
+      admin: {
+        components: {
+          Field: '@/components/admin/ReviewPanel#ReviewPanel',
+        },
+      },
+    },
     // ── Temel Bilgiler ────────────────────────────────────────
     {
       name: 'title',
@@ -333,6 +343,9 @@ export const Products: CollectionConfig = {
         position: 'sidebar',
         readOnly: true,
         description: 'Ürün nereden oluşturuldu',
+        components: {
+          Cell: '@/components/admin/SourceBadgeCell#SourceBadgeCell',
+        },
       },
     },
     // ── Otomasyon Meta (D-057) ──────────────────────────────

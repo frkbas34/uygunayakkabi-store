@@ -16,7 +16,7 @@ export const Products: CollectionConfig = {
     useAsTitle: 'title',
     group: 'Mağaza',
     defaultColumns: ['title', 'category', 'brand', 'price', 'status'],
-    description: 'Mağazadaki tüm ayakkabı ürünleri',
+    description: 'Mağazadaki tüm ürünler (ayakkabı, cüzdan, çanta, aksesuar)',
   },
   hooks: {
     beforeValidate: [
@@ -137,6 +137,32 @@ export const Products: CollectionConfig = {
         position: 'sidebar',
       },
     },
+    // ── Ürün Ailesi & Tipi (D-054) ────────────────────────────
+    {
+      name: 'productFamily',
+      type: 'select',
+      label: 'Ürün Ailesi',
+      options: [
+        { label: '👟 Ayakkabı', value: 'shoes' },
+        { label: '👛 Cüzdan', value: 'wallets' },
+        { label: '👜 Çanta', value: 'bags' },
+        { label: '🎒 Aksesuar', value: 'accessories' },
+      ],
+      defaultValue: 'shoes',
+      admin: {
+        position: 'sidebar',
+        description: 'Ana ürün grubu — filtreleme ve kanal yönlendirmede kullanılır',
+      },
+    },
+    {
+      name: 'productType',
+      type: 'text',
+      label: 'Ürün Tipi',
+      admin: {
+        position: 'sidebar',
+        description: 'Detay tip: sneaker, bot, loafer, bifold, cardholder vb.',
+      },
+    },
     {
       name: 'gender',
       type: 'select',
@@ -156,7 +182,12 @@ export const Products: CollectionConfig = {
       type: 'number',
       label: 'Satış Fiyatı (₺)',
       required: true,
-      validate: (value: any) => {
+      validate: (value: any, { data }: any) => {
+        // Otomasyon kaynağından gelen draft ürünler için fiyat validasyonu atlanır
+        // (fiyat daha sonra admin panelinden tamamlanır)
+        if (data?.source === 'n8n' || data?.source === 'automation') {
+          return true
+        }
         if (value === undefined || value === null || value === '') {
           return '⚠️ Satış fiyatı zorunludur.'
         }
@@ -247,32 +278,141 @@ export const Products: CollectionConfig = {
       relationTo: 'variants',
       hasMany: true,
     },
-    // ── Otomasyon ─────────────────────────────────────────────
+    // ── Kanal Yayın Kontrolleri (D-055) ────────────────────────
+    {
+      name: 'channels',
+      type: 'group',
+      label: '📢 Yayın Kanalları',
+      admin: {
+        description: 'Ürünün hangi kanallarda yayınlanacağını seçin',
+      },
+      fields: [
+        {
+          name: 'publishWebsite',
+          type: 'checkbox',
+          label: '🌐 Web Sitesi',
+          defaultValue: true,
+        },
+        {
+          name: 'publishInstagram',
+          type: 'checkbox',
+          label: '📸 Instagram',
+          defaultValue: false,
+        },
+        {
+          name: 'publishShopier',
+          type: 'checkbox',
+          label: '🛒 Shopier',
+          defaultValue: false,
+        },
+        {
+          name: 'publishDolap',
+          type: 'checkbox',
+          label: '👗 Dolap',
+          defaultValue: false,
+        },
+      ],
+    },
+    // ── Kaynak (D-056) ──────────────────────────────────────
+    {
+      name: 'source',
+      type: 'select',
+      label: 'Kaynak',
+      defaultValue: 'admin',
+      options: [
+        { label: '🖥️ Admin Paneli', value: 'admin' },
+        { label: '📱 Telegram', value: 'telegram' },
+        { label: '⚙️ n8n Otomasyon', value: 'n8n' },
+        { label: '🔌 API', value: 'api' },
+        { label: '📥 İçe Aktarım', value: 'import' },
+      ],
+      admin: {
+        position: 'sidebar',
+        readOnly: true,
+        description: 'Ürün nereden oluşturuldu',
+      },
+    },
+    // ── Otomasyon Meta (D-057) ──────────────────────────────
+    {
+      name: 'automationMeta',
+      type: 'group',
+      label: '🤖 Otomasyon Bilgileri',
+      admin: {
+        description: 'Otomasyon pipeline tarafından kullanılan alanlar',
+        condition: (data: any) => {
+          // Only show this group if source is not 'admin' or if createdByAutomation is true
+          return data?.source !== 'admin' || data?.createdByAutomation === true
+        },
+      },
+      fields: [
+        {
+          name: 'telegramChatId',
+          type: 'text',
+          label: 'Telegram Chat ID',
+          admin: { readOnly: true },
+        },
+        {
+          name: 'telegramMessageId',
+          type: 'text',
+          label: 'Telegram Mesaj ID',
+          admin: { readOnly: true },
+        },
+        {
+          name: 'lastSyncedAt',
+          type: 'date',
+          label: 'Son Senkronizasyon',
+          admin: { readOnly: true },
+        },
+        {
+          name: 'updatedBy',
+          type: 'text',
+          label: 'Son Güncelleyen',
+          admin: {
+            readOnly: true,
+            description: 'admin / automation / api',
+          },
+        },
+        {
+          name: 'lockFields',
+          type: 'checkbox',
+          label: '🔒 Alanları Kilitle',
+          defaultValue: false,
+          admin: {
+            description: 'Aktifken otomasyon bu ürünü güncelleyemez — sadece admin değiştirebilir',
+          },
+        },
+      ],
+    },
+    // ── Eski Otomasyon Alanları (geriye uyumluluk) ──────────
+    // Yeni kod channels.* ve automationMeta.* kullanmalı
     {
       name: 'createdByAutomation',
       type: 'checkbox',
-      label: 'Otomasyon ile Eklendi',
+      label: 'Otomasyon ile Eklendi (Eski)',
       defaultValue: false,
       admin: {
         position: 'sidebar',
         readOnly: true,
+        description: '⚠️ Eski alan — yeni ürünler için "Kaynak" alanını kullanın',
       },
     },
     {
       name: 'telegramMessageId',
       type: 'text',
-      label: 'Telegram Mesaj ID',
+      label: 'Telegram Mesaj ID (Eski)',
       admin: {
         position: 'sidebar',
+        description: '⚠️ Eski alan — automationMeta.telegramMessageId kullanın',
       },
     },
     {
       name: 'postToInstagram',
       type: 'checkbox',
-      label: 'Instagram Paylaş',
+      label: 'Instagram Paylaş (Eski)',
       defaultValue: false,
       admin: {
         position: 'sidebar',
+        description: '⚠️ Eski alan — channels.publishInstagram kullanın',
       },
     },
   ],

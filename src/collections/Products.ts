@@ -478,19 +478,15 @@ export const Products: CollectionConfig = {
     },
     // ── Kanal Hedefleri (multi-select, parser output) ─────────
     {
+      // channelTargets: hasMany:true disabled — requires separate DB table (products_channel_targets)
+      // Re-enable after running: CREATE TABLE "products_channel_targets" (...)
+      // Temporarily stored as text (JSON array string) to avoid migration blocker
       name: 'channelTargets',
-      type: 'select',
+      type: 'text',
       label: 'Kanal Hedefleri',
-      hasMany: true,
-      options: [
-        { label: 'Website', value: 'website' },
-        { label: 'Instagram', value: 'instagram' },
-        { label: 'Shopier', value: 'shopier' },
-        { label: 'Dolap', value: 'dolap' },
-      ],
-      defaultValue: ['website'],
+      defaultValue: '["website"]',
       admin: {
-        description: 'Bu ürün hangi kanallara yayınlansın? (parser veya admin tarafından ayarlanır)',
+        description: 'Kanal listesi — JSON dizi (website/instagram/shopier/dolap)',
       },
     },
     // ── Otomasyon Bayrakları (ürün bazlı overrides) ──────────

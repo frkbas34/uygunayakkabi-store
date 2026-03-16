@@ -1,0 +1,23 @@
+{
+  "_sim": true,
+  "decision_id": "DEC-SIM-002",
+  "timestamp": "2026-03-16T16:09:17.035655+00:00",
+  "incident_ref": "INC-SIM-002",
+  "trace_ref": "TRC-SIM-002",
+  "task_type": "diagnostic",
+  "risk_level": "MEDIUM",
+  "requires_write": true,
+  "requires_external_publish": false,
+  "confidence_score": 0.66,
+  "evidence_strength": "MODERATE",
+  "human_approval_required": true,
+  "reversible": true,
+  "blast_radius": "MEDIUM",
+  "selected_skills": [
+    "product-flow-debugger",
+    "sql-toolkit"
+  ],
+  "proposed_action": "UPDATE products SET category='G\u00fcnl\u00fck' WHERE id='TG-ADI-8812' \u2014 REQUIRES CONFIRMATION",
+  "final_action": "AWAITING_CONFIRMATION",
+  "gate_action": "PROPOSE_CONFIRM"
+}

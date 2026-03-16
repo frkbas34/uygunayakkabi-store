@@ -1,0 +1,74 @@
+{
+  "name": "Channel Stub — Dolap",
+  "nodes": [
+    {
+      "parameters": {
+        "path": "channel-dolap",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "node-wh-dolap",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [240, 300],
+      "webhookId": "channel-dolap-stub"
+    },
+    {
+      "parameters": {
+        "mode": "manual",
+        "duplicateItem": false,
+        "assignments": {
+          "assignments": [
+            { "id": "log-channel",    "name": "channel",    "value": "={{ $json.channel }}", "type": "string" },
+            { "id": "log-productId",  "name": "productId",  "value": "={{ $json.productId }}", "type": "string" },
+            { "id": "log-sku",        "name": "sku",        "value": "={{ $json.sku }}", "type": "string" },
+            { "id": "log-title",      "name": "title",      "value": "={{ $json.title }}", "type": "string" },
+            { "id": "log-price",      "name": "price",      "value": "={{ $json.price }}", "type": "number" },
+            { "id": "log-brand",      "name": "brand",      "value": "={{ $json.brand }}", "type": "string" },
+            { "id": "log-category",   "name": "category",   "value": "={{ $json.category }}", "type": "string" },
+            { "id": "log-mediaCount", "name": "mediaCount", "value": "={{ $json.mediaUrls?.length ?? 0 }}", "type": "number" },
+            { "id": "log-confidence", "name": "parseConfidence", "value": "={{ $json.meta?.parseConfidence }}", "type": "number" },
+            { "id": "log-trigger",    "name": "triggerReason", "value": "={{ $json.triggerReason }}", "type": "string" },
+            { "id": "log-ts",         "name": "dispatchTimestamp", "value": "={{ $json.dispatchTimestamp }}", "type": "string" },
+            { "id": "log-mode",       "name": "mode",       "value": "stub — no real Dolap API call", "type": "string" }
+          ]
+        },
+        "options": {}
+      },
+      "id": "node-set-dolap",
+      "name": "Log Payload",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [460, 300]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ received: true, channel: 'dolap', productId: $('Webhook').item.json.productId, sku: $('Webhook').item.json.sku, title: $('Webhook').item.json.title, timestamp: new Date().toISOString(), mode: 'stub' }) }}",
+        "options": {
+          "responseCode": 200
+        }
+      },
+      "id": "node-resp-dolap",
+      "name": "Respond 200",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [680, 300]
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [[{ "node": "Log Payload", "type": "main", "index": 0 }]]
+    },
+    "Log Payload": {
+      "main": [[{ "node": "Respond 200", "type": "main", "index": 0 }]]
+    }
+  },
+  "active": false,
+  "settings": { "executionOrder": "v1" },
+  "meta": {
+    "description": "STUB — receives channel dispatch from Payload, logs payload fields, returns HTTP 200. No real Dolap API calls. Set N8N_CHANNEL_DOLAP_WEBHOOK in Vercel to the webhook URL shown after importing this workflow.",
+    "templateCredsSetupCompleted": true
+  }
+}

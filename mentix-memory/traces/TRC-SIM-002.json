@@ -1,0 +1,46 @@
+{
+  "_sim": true,
+  "trace_id": "TRC-SIM-002",
+  "timestamp": "2026-03-16T16:09:17.022450+00:00",
+  "triggered_by": "simulation",
+  "incident_ref": "INC-SIM-002",
+  "input": {
+    "raw_query": "\u00dcr\u00fcn\u00fcn kategorisi yanl\u0131\u015f, storefront'ta 'G\u00fcnl\u00fck' yerine 'Di\u011fer' g\u00f6steriyor",
+    "context": "product_id=TG-ADI-8812, category field shows unexpected value"
+  },
+  "skills_invoked": [
+    "product-flow-debugger",
+    "sql-toolkit"
+  ],
+  "flow_steps": [
+    {
+      "step": 6,
+      "action": "Check parseTelegramCaption output",
+      "tool": "sql-toolkit.select",
+      "query": "SELECT automation_meta_raw_caption, automation_meta_parse_warnings FROM products WHERE id='TG-ADI-8812'",
+      "evidence": "parseWarnings=['category_normalized_to_fallback']",
+      "conclusion": "Parser normalization likely culprit"
+    },
+    {
+      "step": 6,
+      "action": "Check actual category field",
+      "tool": "sql-toolkit.select",
+      "query": "SELECT category FROM products WHERE id='TG-ADI-8812'",
+      "evidence": "category = 'Di\u011fer'",
+      "conclusion": "Confirmed: wrong category stored"
+    }
+  ],
+  "diagnosis": {
+    "flow_step_failed": 6,
+    "flow_step_name": "parseTelegramCaption() \u2192 parseConfidence, parseWarnings",
+    "symptom": "Category shows 'Di\u011fer' instead of 'G\u00fcnl\u00fck' on storefront",
+    "root_cause": "parseTelegramCaption normalization missed 'g\u00fcnl\u00fck kullan\u0131m' phrase; mapped to fallback category",
+    "symptom_vs_root_cause": "Symptom is wrong display; root cause may be parser normalization or manual override \u2014 needs DB confirmation",
+    "confidence": 0.66,
+    "evidence_strength": "MODERATE"
+  },
+  "decision": null,
+  "outcome": null,
+  "evaluation": null,
+  "reward": null
+}

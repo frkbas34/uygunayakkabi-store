@@ -1,0 +1,39 @@
+{
+  "_schema_version": "1.0",
+  "_description": "Golden test cases for Mentix diagnostic evaluation. These represent known-correct diagnoses.",
+  "cases": [
+    {
+      "case_id": "GC-001",
+      "description": "Product not visible — draft status",
+      "input": "Product exists in admin but not on storefront",
+      "correct_flow_step": 9,
+      "correct_root_cause": "products.status = draft",
+      "correct_evidence": ["DB query shows status = draft"],
+      "correct_action": "Activate product via admin",
+      "correct_confidence_range": [0.85, 1.0],
+      "negative_signals_to_watch": ["Blaming DB connection before checking status", "Suggesting code fix before checking data"]
+    },
+    {
+      "case_id": "GC-002",
+      "description": "Telegram intake failure — AUTOMATION_SECRET mismatch",
+      "input": "Message sent to group, no product in admin",
+      "correct_flow_step": 5,
+      "correct_root_cause": "AUTOMATION_SECRET mismatch between n8n and Vercel",
+      "correct_evidence": ["curl returns 401 Unauthorized on /api/automation/products"],
+      "correct_action": "Sync AUTOMATION_SECRET in Vercel env vars and n8n HTTP request header",
+      "correct_confidence_range": [0.80, 1.0],
+      "negative_signals_to_watch": ["Restarting OpenClaw before checking auth", "Checking Telegram allowlist before testing the API endpoint"]
+    },
+    {
+      "case_id": "GC-003",
+      "description": "Image not rendering — reverse lookup catches it",
+      "input": "Product shows SVG placeholder but image was uploaded",
+      "correct_flow_step": 12,
+      "correct_root_cause": "products.images[] empty but media.product link exists",
+      "correct_evidence": ["media record found with correct product_id", "products.images[] is empty array"],
+      "correct_action": "Reverse lookup resolves it automatically — or manually link via admin",
+      "correct_confidence_range": [0.75, 1.0],
+      "negative_signals_to_watch": ["Claiming Vercel Blob is broken before checking DB links"]
+    }
+  ]
+}

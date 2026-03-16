@@ -1,0 +1,553 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Mentix Intelligence Layer v2</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:'Segoe UI',system-ui,sans-serif;background:#080c17;color:#dde4f0;min-height:100vh}
+.nav{background:#0d1120;border-bottom:1px solid #1a2340;padding:12px 24px;display:flex;align-items:center;gap:16px;position:sticky;top:0;z-index:100;flex-wrap:wrap}
+.nav-brand{font-size:16px;font-weight:700;background:linear-gradient(135deg,#60a5fa,#a78bfa);-webkit-background-clip:text;-webkit-text-fill-color:transparent}
+.nav-version{font-size:11px;padding:2px 8px;background:rgba(96,165,250,.1);color:#60a5fa;border-radius:9999px;border:1px solid rgba(96,165,250,.2)}
+.nav-tabs{display:flex;gap:4px;margin-left:auto;flex-wrap:wrap}
+.nav-tab{font-size:12px;padding:5px 12px;border-radius:6px;cursor:pointer;border:1px solid transparent;color:#64748b;transition:all .15s}
+.nav-tab:hover,.nav-tab.active{background:#1a2340;border-color:#2a3560;color:#93c5fd}
+.main{max-width:1400px;margin:0 auto;padding:24px}
+.panel{display:none}.panel.active{display:block}
+.card{background:#0d1120;border:1px solid #1a2340;border-radius:12px;padding:20px;margin-bottom:16px}
+.card-title{font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:1px;margin-bottom:14px;display:flex;align-items:center;gap:8px}
+.stats-row{display:flex;gap:12px;margin-bottom:24px;flex-wrap:wrap}
+.stat{background:#0d1120;border:1px solid #1a2340;border-radius:10px;padding:14px 20px;min-width:120px;text-align:center}
+.stat-n{font-size:28px;font-weight:800}.stat-l{font-size:10px;color:#475569;text-transform:uppercase;letter-spacing:1px;margin-top:2px}
+.c-green{color:#34d399}.c-blue{color:#60a5fa}.c-yellow{color:#fbbf24}.c-purple{color:#a78bfa}.c-red{color:#f87171}.c-teal{color:#2dd4bf}
+.sh{font-size:14px;font-weight:600;margin:20px 0 12px;padding-left:10px;border-left:3px solid}
+.sh-a{border-color:#34d399;color:#34d399}.sh-b{border-color:#fbbf24;color:#fbbf24}.sh-c{border-color:#a78bfa;color:#a78bfa}
+.sh-blue{border-color:#60a5fa;color:#60a5fa}.sh-red{border-color:#f87171;color:#f87171}.sh-teal{border-color:#2dd4bf;color:#2dd4bf}
+.sg{display:grid;grid-template-columns:repeat(auto-fill,minmax(340px,1fr));gap:12px;margin-bottom:20px}
+.sc{background:#0d1120;border:1px solid #1a2340;border-radius:10px;padding:16px;position:relative;overflow:hidden;transition:border-color .15s}
+.sc:hover{border-color:#2a3560}
+.sc::before{content:'';position:absolute;top:0;left:0;right:0;height:2px}
+.sc.la::before{background:linear-gradient(90deg,#34d399,#10b981)}
+.sc.lb::before{background:linear-gradient(90deg,#fbbf24,#f59e0b)}
+.sc.lc::before{background:linear-gradient(90deg,#a78bfa,#8b5cf6)}
+.sc.ll::before{background:linear-gradient(90deg,#34d399,#34d399)}
+.sh2{display:flex;align-items:center;gap:10px;margin-bottom:10px}
+.icon{width:34px;height:34px;border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:17px;flex-shrink:0}
+.la .icon{background:rgba(52,211,153,.12)}.lb .icon{background:rgba(251,191,36,.12)}.lc .icon{background:rgba(167,139,250,.12)}.ll .icon{background:rgba(52,211,153,.12)}
+.sn{font-size:14px;font-weight:600}
+.mode{font-size:10px;padding:2px 8px;border-radius:9999px;font-weight:600;text-transform:uppercase;letter-spacing:.5px;margin-left:auto}
+.m-act{background:rgba(52,211,153,.12);color:#34d399}.m-ro{background:rgba(96,165,250,.12);color:#60a5fa}
+.m-ctrl{background:rgba(251,191,36,.12);color:#fbbf24}.m-obs{background:rgba(167,139,250,.12);color:#a78bfa}
+.m-live{background:rgba(52,211,153,.2);color:#34d399;border:1px solid rgba(52,211,153,.3)}.m-draft{background:rgba(251,191,36,.12);color:#fbbf24}.m-adv{background:rgba(96,165,250,.12);color:#60a5fa}
+.desc{font-size:12px;color:#94a3b8;line-height:1.5;margin-bottom:10px}
+.pt{width:100%;border-collapse:collapse;font-size:11px;margin-bottom:8px}
+.pt td{padding:3px 6px;border-bottom:1px solid #111827}
+.pt tr:last-child td{border-bottom:none}
+.perm-a{color:#34d399}.perm-c{color:#fbbf24}.perm-d{color:#f87171}.cap{color:#94a3b8}
+.risk-row{font-size:11px;color:#475569;display:flex;gap:6px;align-items:center}
+.rd{width:6px;height:6px;border-radius:50%}.rd-low{background:#34d399}.rd-med{background:#fbbf24}
+.flow-wrap{overflow-x:auto}
+.flow{display:flex;flex-direction:column;align-items:center;gap:0;min-width:300px}
+.fn{border:1px solid #1a2340;border-radius:8px;padding:8px 18px;font-size:12px;font-weight:500;text-align:center;min-width:260px}
+.fn-p{border-color:#60a5fa;background:rgba(96,165,250,.08);color:#93c5fd}
+.fn-g{border-color:#34d399;background:rgba(52,211,153,.08);color:#6ee7b7}
+.fn-y{border-color:#fbbf24;background:rgba(251,191,36,.08);color:#fde68a}
+.fn-r{border-color:#a78bfa;background:rgba(167,139,250,.08);color:#c4b5fd}
+.fn-t{border-color:#2dd4bf;background:rgba(45,212,191,.08);color:#99f6e4}
+.fa{color:#334155;font-size:14px;text-align:center;padding:2px 0}
+.fb{display:flex;gap:8px;justify-content:center;flex-wrap:wrap}
+.step-n{font-size:9px;color:#475569;margin-right:4px}
+.dm{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:10px}
+.dmc{background:#0d1120;border:1px solid #1a2340;border-radius:8px;padding:12px}
+.dmc-h{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px}
+.matrix{width:100%;border-collapse:collapse;font-size:11px}
+.matrix th{background:#111827;padding:8px 12px;text-align:center;color:#64748b;font-weight:600;font-size:10px;text-transform:uppercase}
+.matrix td{padding:8px 12px;border:1px solid #111827;text-align:center;font-size:11px}
+.cell-go{background:rgba(52,211,153,.08);color:#34d399}.cell-warn{background:rgba(251,191,36,.08);color:#fbbf24}.cell-stop{background:rgba(248,113,113,.08);color:#f87171}
+.mem-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:10px}
+.mem-card{background:#0d1120;border:1px solid #1a2340;border-radius:8px;padding:12px}
+.mem-title{font-size:11px;font-weight:600;color:#64748b;text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px}
+.mem-path{font-size:11px;font-family:monospace;color:#7dd3fc;margin-bottom:6px;line-height:1.6}
+.mem-desc{font-size:11px;color:#94a3b8;line-height:1.5}
+.oer{display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px}
+@media(max-width:720px){.oer{grid-template-columns:1fr}}
+.oer-card{border-radius:10px;padding:16px}
+.oer-o{background:rgba(96,165,250,.06);border:1px solid rgba(96,165,250,.2)}
+.oer-e{background:rgba(251,191,36,.06);border:1px solid rgba(251,191,36,.2)}
+.oer-r{background:rgba(52,211,153,.06);border:1px solid rgba(52,211,153,.2)}
+.oer-title{font-size:13px;font-weight:700;margin-bottom:4px}
+.oer-q{font-size:11px;color:#64748b;margin-bottom:8px}
+.oer-ex{font-size:12px;color:#94a3b8;line-height:1.5;font-style:italic}
+.oer-store{font-size:11px;margin-top:8px;font-family:monospace}
+.rwd-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+@media(max-width:600px){.rwd-grid{grid-template-columns:1fr}}
+.rwd-col h3{font-size:12px;font-weight:600;padding:6px 10px;border-radius:6px;margin-bottom:8px}
+.rwd-pos h3{background:rgba(52,211,153,.1);color:#34d399}.rwd-neg h3{background:rgba(248,113,113,.1);color:#f87171}
+.ri{display:flex;justify-content:space-between;align-items:center;font-size:12px;padding:5px 10px;border-bottom:1px solid #0d1120}
+.ri:last-child{border-bottom:none}
+.rs{font-weight:700;font-size:13px}.rs-p{color:#34d399}.rs-n{color:#f87171}
+.deploy{background:linear-gradient(135deg,rgba(96,165,250,.05),rgba(167,139,250,.05));border:1px solid #1a3a5c;border-radius:12px;padding:20px}
+.deploy-title{color:#93c5fd;font-size:14px;font-weight:600;margin-bottom:12px}
+.dstep{display:flex;gap:10px;margin-bottom:8px;font-size:12px;align-items:flex-start}
+.dnum{background:#1a3a5c;color:#60a5fa;width:22px;height:22px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;flex-shrink:0;margin-top:1px}
+.cmd{background:#060b14;border:1px solid #1a2340;border-radius:5px;padding:2px 7px;font-family:monospace;font-size:11px;color:#7dd3fc;word-break:break-all}
+.rt{width:100%;border-collapse:collapse;font-size:12px}
+.rt th{text-align:left;padding:8px 12px;background:#111827;color:#64748b;font-size:10px;text-transform:uppercase}
+.rt td{padding:8px 12px;border-bottom:1px solid #111827}
+.sev-m{color:#fbbf24}.sev-l{color:#34d399}
+.dg{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:10px}
+.dc{background:#0d1120;border:1px solid #1a2340;border-radius:8px;padding:14px}
+.dc-id{font-size:10px;color:#60a5fa;font-weight:700;margin-bottom:4px}
+.dc-t{font-size:13px;font-weight:600;margin-bottom:6px}
+.dc-r{font-size:11px;color:#94a3b8;line-height:1.5}
+.badge{font-size:10px;padding:1px 6px;border-radius:4px;font-weight:600}
+.b-new{background:rgba(52,211,153,.15);color:#34d399;border:1px solid rgba(52,211,153,.2)}
+.b-upd{background:rgba(96,165,250,.15);color:#60a5fa;border:1px solid rgba(96,165,250,.2)}
+.footer{text-align:center;padding:24px;color:#334155;font-size:11px;border-top:1px solid #111827}
+pre{font-size:11px;color:#94a3b8;line-height:1.7;overflow-x:auto;background:#060b14;padding:16px;border-radius:8px;border:1px solid #1a2340}
+</style>
+</head>
+<body>
+
+<div class="nav">
+  <span class="nav-brand">&#9889; Mentix</span>
+  <span class="nav-version">v2.0</span>
+  <div class="nav-tabs">
+    <div class="nav-tab active" onclick="show('overview',this)">Overview</div>
+    <div class="nav-tab" onclick="show('skills',this)">Skills</div>
+    <div class="nav-tab" onclick="show('debugger',this)">Product Debugger</div>
+    <div class="nav-tab" onclick="show('decision',this)">Decision Engine</div>
+    <div class="nav-tab" onclick="show('memory',this)">Memory</div>
+    <div class="nav-tab" onclick="show('learning',this)">Learning</div>
+    <div class="nav-tab" onclick="show('deploy',this)">Deploy</div>
+  </div>
+</div>
+
+<div class="main">
+
+<!-- OVERVIEW -->
+<div id="p-overview" class="panel active">
+  <div class="stats-row">
+    <div class="stat"><div class="stat-n c-green">13</div><div class="stat-l">Total Skills</div></div>
+    <div class="stat"><div class="stat-n c-blue">7</div><div class="stat-l">Level A</div></div>
+    <div class="stat"><div class="stat-n c-yellow">4</div><div class="stat-l">Level B</div></div>
+    <div class="stat"><div class="stat-n c-purple">1</div><div class="stat-l">Level C</div></div>
+    <div class="stat"><div class="stat-n c-teal">6</div><div class="stat-l">Runbooks</div></div>
+    <div class="stat"><div class="stat-n c-red">5</div><div class="stat-l">Policies</div></div>
+  </div>
+
+  <div class="card">
+    <div class="card-title c-blue">&#9889; Mentix — Six Core Subsystems</div>
+    <div class="dm">
+      <div class="dmc" style="border-color:rgba(96,165,250,.3)">
+        <div class="dmc-h c-blue">1 &#8212; Skill Router</div>
+        <div style="font-size:12px;color:#94a3b8">Routes incoming Telegram intent to the correct specialist skill.</div>
+      </div>
+      <div class="dmc" style="border-color:rgba(45,212,191,.3)">
+        <div class="dmc-h c-teal">2 &#8212; Product Flow Debugger <span class="badge b-new">NEW</span></div>
+        <div style="font-size:12px;color:#94a3b8">First-class module. Traces product data across all 13 flow steps.</div>
+      </div>
+      <div class="dmc" style="border-color:rgba(251,191,36,.3)">
+        <div class="dmc-h c-yellow">3 &#8212; Decision Engine <span class="badge b-upd">UPGRADED</span></div>
+        <div style="font-size:12px;color:#94a3b8">Formal JSON schema with confidence &#215; risk gate for every action.</div>
+      </div>
+      <div class="dmc" style="border-color:rgba(52,211,153,.3)">
+        <div class="dmc-h c-green">4 &#8212; Structured Memory <span class="badge b-upd">UPGRADED</span></div>
+        <div style="font-size:12px;color:#94a3b8">12-layer memory: identity, policies, runbooks, incidents, traces, patterns, decisions, evaluations, rewards, evals, summaries, archive.</div>
+      </div>
+      <div class="dmc" style="border-color:rgba(167,139,250,.3)">
+        <div class="dmc-h c-purple">5 &#8212; Evaluator + Reward Layer <span class="badge b-upd">UPGRADED</span></div>
+        <div style="font-size:12px;color:#94a3b8">Strict separation: OUTCOME &#8594; EVALUATION &#8594; REWARD.</div>
+      </div>
+      <div class="dmc" style="border-color:rgba(248,113,113,.3)">
+        <div class="dmc-h c-red">6 &#8212; Learning / Pattern Engine</div>
+        <div style="font-size:12px;color:#94a3b8">Observe-first. Detects patterns, proposes. Never auto-modifies production.</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-title c-teal">Full Data Flow</div>
+    <div class="flow-wrap"><div class="flow">
+      <div class="fn fn-p">&#128241; Telegram Group Message</div>
+      <div class="fa">&#8595;</div>
+      <div class="fn fn-p">&#129302; OpenClaw Gateway (mentix_aibot)</div>
+      <div class="fa">&#8595;</div>
+      <div class="fn fn-g">&#127919; Skill Router</div>
+      <div class="fa">&#8595;</div>
+      <div class="fb">
+        <div class="fn fn-g" style="min-width:0;font-size:11px;padding:6px 10px">mentix-intake</div>
+        <div class="fn fn-g" style="min-width:0;font-size:11px;padding:6px 10px">product-flow-debugger</div>
+        <div class="fn fn-g" style="min-width:0;font-size:11px;padding:6px 10px">sql-toolkit</div>
+        <div class="fn fn-g" style="min-width:0;font-size:11px;padding:6px 10px">uptime-kuma</div>
+        <div class="fn fn-y" style="min-width:0;font-size:11px;padding:6px 10px">research-cog&#8203;*</div>
+      </div>
+      <div class="fa">&#8595;</div>
+      <div class="fn fn-y">&#9878;&#65039; Decision Engine (confidence &#215; risk gate)</div>
+      <div class="fa">&#8595;</div>
+      <div class="fb">
+        <div class="fn" style="font-size:11px;border-color:#34d399;color:#6ee7b7;min-width:0;padding:6px 10px">LOW + conf&#8805;.80 &#8594; proceed</div>
+        <div class="fn" style="font-size:11px;border-color:#fbbf24;color:#fde68a;min-width:0;padding:6px 10px">MED risk &#8594; confirm</div>
+        <div class="fn" style="font-size:11px;border-color:#f87171;color:#fca5a5;min-width:0;padding:6px 10px">HIGH risk &#8594; escalate</div>
+      </div>
+      <div class="fa">&#8595;</div>
+      <div class="fn fn-r">&#129504; agent-memory (trace + outcome)</div>
+      <div class="fa">&#8595;</div>
+      <div class="fn fn-r">&#129302; learning-engine (observe &#8594; score &#8594; propose)</div>
+    </div></div>
+    <div style="font-size:11px;color:#475569;margin-top:8px;text-align:center">* research-cog is an optional branch, not a required pipeline node</div>
+  </div>
+</div>
+
+<!-- SKILLS -->
+<div id="p-skills" class="panel">
+  <div class="sh sh-a">Level A &#8212; Active from Day One (7 skills)</div>
+  <div class="sg">
+    <div class="sc la">
+      <div class="sh2"><div class="icon">&#128274;</div><div class="sn">skill-vetter</div><span class="mode m-act">Active</span></div>
+      <div class="desc">Security gateway for evaluating new skills. Checks permissions, provenance, and risk.</div>
+      <table class="pt"><tr><td class="perm-a">&#10003;</td><td class="cap">Evaluate skills, report risks</td></tr><tr><td class="perm-d">&#10007;</td><td class="cap">Auto-block without reporting</td></tr></table>
+      <div class="risk-row"><span class="rd rd-low"></span>Low risk &#8226; No dependencies</div>
+    </div>
+    <div class="sc la">
+      <div class="sh2"><div class="icon">&#127760;</div><div class="sn">browser-automation</div><span class="mode m-ro">Read-Only</span></div>
+      <div class="desc">Web inspection, screenshots, endpoint verification. No clicks or form fills in current mode.</div>
+      <table class="pt">
+        <tr><td class="perm-a">&#10003;</td><td class="cap">Read pages, screenshots, endpoint checks, DOM inspect</td></tr>
+        <tr><td class="perm-c">&#9888;</td><td class="cap">Click elements, fill forms, submit forms</td></tr>
+        <tr><td class="perm-d">&#10007;</td><td class="cap">Bulk automation, destructive actions, mass scraping</td></tr>
+      </table>
+      <div class="risk-row"><span class="rd rd-low"></span>Low risk &#8226; May need headless browser on VPS</div>
+    </div>
+    <div class="sc la">
+      <div class="sh2"><div class="icon">&#128451;</div><div class="sn">sql-toolkit</div><span class="mode m-act">Safe Diag</span></div>
+      <div class="desc">Read-only database diagnostics. Supports product-flow-debugger with evidence gathering.</div>
+      <table class="pt">
+        <tr><td class="perm-a">&#10003;</td><td class="cap">SELECT, schema inspect, EXPLAIN, aggregates, joins</td></tr>
+        <tr><td class="perm-c">&#9888;</td><td class="cap">UPDATE single record, ALTER TABLE, bulk UPDATE</td></tr>
+        <tr><td class="perm-d">&#10007;</td><td class="cap">DELETE, DROP TABLE, TRUNCATE, schema renames</td></tr>
+      </table>
+      <div class="risk-row"><span class="rd rd-low"></span>Medium risk &#8226; Needs DATABASE_URI</div>
+    </div>
+    <div class="sc la">
+      <div class="sh2"><div class="icon">&#129504;</div><div class="sn">agent-memory</div><span class="mode m-act">Active</span></div>
+      <div class="desc">Structured memory across 12 layers. File-based (over ChromaDB &#8212; see D-071).</div>
+      <table class="pt">
+        <tr><td class="perm-a">&#10003;</td><td class="cap">Store, retrieve, search, archive</td></tr>
+        <tr><td class="perm-d">&#10007;</td><td class="cap">Auto-delete entries</td></tr>
+      </table>
+      <div class="risk-row"><span class="rd rd-low"></span>Low risk &#8226; Needs data dirs on VPS</div>
+    </div>
+    <div class="sc la">
+      <div class="sh2"><div class="icon">&#128187;</div><div class="sn">github-workflow</div><span class="mode m-act">Active</span></div>
+      <div class="desc">Repo state tracking, issue listing, commit-to-symptom mapping.</div>
+      <table class="pt">
+        <tr><td class="perm-a">&#10003;</td><td class="cap">Read repo, list issues/PRs, diff analysis, commit summary</td></tr>
+        <tr><td class="perm-c">&#9888;</td><td class="cap">Create commit, push, open issue, merge PR, tag release</td></tr>
+        <tr><td class="perm-d">&#10007;</td><td class="cap">Force push, delete branches, modify CI workflows</td></tr>
+      </table>
+      <div class="risk-row"><span class="rd rd-low"></span>Low risk &#8226; Needs GITHUB_TOKEN</div>
+    </div>
+    <div class="sc la">
+      <div class="sh2"><div class="icon">&#128994;</div><div class="sn">uptime-kuma</div><span class="mode m-act">Active</span></div>
+      <div class="desc">Health monitoring for all services: storefront, admin, n8n, OpenClaw, Payload API.</div>
+      <table class="pt">
+        <tr><td class="perm-a">&#10003;</td><td class="cap">HTTP GET, DNS check, SSL check, response timing</td></tr>
+        <tr><td class="perm-d">&#10007;</td><td class="cap">Any write or mutation requests</td></tr>
+      </table>
+      <div class="risk-row"><span class="rd rd-low"></span>Low risk &#8226; Rate-limit 1 full check / 5 min</div>
+    </div>
+    <div class="sc la" style="border-color:rgba(45,212,191,.25)">
+      <div class="sh2"><div class="icon" style="background:rgba(45,212,191,.12)">&#128269;</div><div class="sn">product-flow-debugger</div><span class="mode" style="background:rgba(45,212,191,.12);color:#2dd4bf">First-Class <span class="badge b-new">NEW</span></span></div>
+      <div class="desc">First-class diagnostic module. 13-step trace map from Telegram intake to storefront. See Debugger tab.</div>
+      <table class="pt">
+        <tr><td class="perm-a">&#10003;</td><td class="cap">Inspect records, trace flow, report findings, propose</td></tr>
+        <tr><td class="perm-c">&#9888;</td><td class="cap">DB UPDATE, forceRedispatch, field edits to test</td></tr>
+        <tr><td class="perm-d">&#10007;</td><td class="cap">Auto-activate, auto-publish, delete for diagnostics</td></tr>
+      </table>
+      <div class="risk-row"><span class="rd rd-low"></span>Low risk &#8226; Integrates sql-toolkit + browser-automation</div>
+    </div>
+  </div>
+
+  <div class="sh sh-b">Level B &#8212; Controlled</div>
+  <div class="sg">
+    <div class="sc lb">
+      <div class="sh2"><div class="icon">&#127912;</div><div class="sn">eachlabs-image-edit</div><span class="mode m-ctrl">Per-Op Approval</span></div>
+      <div class="desc">Product image enhancement. Every single operation requires individual approval.</div>
+      <table class="pt">
+        <tr><td class="perm-a">&#10003;</td><td class="cap">Analyze image, preview enhancement</td></tr>
+        <tr><td class="perm-c">&#9888;</td><td class="cap">Enhance, upscale, background edit (one at a time)</td></tr>
+        <tr><td class="perm-d">&#10007;</td><td class="cap">Batch processing, overwrite original</td></tr>
+      </table>
+      <div class="risk-row"><span class="rd rd-low"></span>Medium &#8226; Needs image API key</div>
+    </div>
+    <div class="sc lb">
+      <div class="sh2"><div class="icon">&#128228;</div><div class="sn">upload-post</div><span class="mode m-draft">Draft-Only</span></div>
+      <div class="desc">Social media drafting. Nothing published without explicit human confirmation. Ever.</div>
+      <table class="pt">
+        <tr><td class="perm-a">&#10003;</td><td class="cap">Generate draft, captions, hashtags, preview</td></tr>
+        <tr><td class="perm-c">&#9888;</td><td class="cap">Publish single post, schedule post</td></tr>
+        <tr><td class="perm-d">&#10007;</td><td class="cap">Auto-publish, bulk publish, delete posts</td></tr>
+      </table>
+      <div class="risk-row"><span class="rd rd-low"></span>Medium &#8226; Needs channel APIs</div>
+    </div>
+    <div class="sc lb">
+      <div class="sh2"><div class="icon">&#128270;</div><div class="sn">research-cog</div><span class="mode m-adv">Info Only</span></div>
+      <div class="desc">Market research, competitor analysis. <em>Optional branch</em> &#8212; not required for every flow.</div>
+      <table class="pt">
+        <tr><td class="perm-a">&#10003;</td><td class="cap">Web search, analyze content, generate reports</td></tr>
+        <tr><td class="perm-d">&#10007;</td><td class="cap">Auto-execute recommendations</td></tr>
+      </table>
+      <div class="risk-row"><span class="rd rd-low"></span>Low risk &#8226; No dependencies</div>
+    </div>
+    <div class="sc lb">
+      <div class="sh2"><div class="icon">&#128736;</div><div class="sn">senior-backend</div><span class="mode m-adv">Advisory</span></div>
+      <div class="desc">Architecture reasoning, API design, infra hardening. Recommends only.</div>
+      <table class="pt">
+        <tr><td class="perm-a">&#10003;</td><td class="cap">Analyze architecture, suggest changes, review code</td></tr>
+        <tr><td class="perm-d">&#10007;</td><td class="cap">Modify codebase, modify infrastructure</td></tr>
+      </table>
+      <div class="risk-row"><span class="rd rd-low"></span>Low risk &#8226; No dependencies</div>
+    </div>
+  </div>
+
+  <div class="sh sh-c">Level C &#8212; Observe Only</div>
+  <div class="sg">
+    <div class="sc lc" style="max-width:700px">
+      <div class="sh2"><div class="icon">&#129302;</div><div class="sn">learning-engine</div><span class="mode m-obs">Observe Only</span></div>
+      <div class="desc">Self-observation, pattern detection, reward scoring, improvement proposals. <strong>NEVER auto-modifies production behavior.</strong></div>
+      <table class="pt">
+        <tr><td class="perm-a">&#10003;</td><td class="cap">Observe outputs, score, detect patterns, summarize, propose, write to memory</td></tr>
+        <tr><td class="perm-d">&#10007;</td><td class="cap">Apply proposals, modify skill files, change config, execute recommendations, self-modify, enable/disable skills</td></tr>
+      </table>
+      <div class="risk-row"><span class="rd rd-low"></span>Low risk &#8226; Depends on agent-memory</div>
+    </div>
+  </div>
+
+  <div class="sh sh-a">Currently Live on VPS</div>
+  <div class="sg">
+    <div class="sc ll">
+      <div class="sh2"><div class="icon">&#128230;</div><div class="sn">mentix-intake</div><span class="mode m-live">LIVE</span></div>
+      <div class="desc">Product intake from Telegram. Parses captions (photo + text), POSTs to n8n webhook.</div>
+      <table class="pt"><tr><td class="perm-a">&#10003;</td><td class="cap">Parse caption, POST to n8n, respond in Turkish</td></tr></table>
+      <div class="risk-row"><span class="rd rd-low"></span>Production &#8226; /home/furkan/.openclaw/skills/mentix-intake/</div>
+    </div>
+  </div>
+</div>
+
+<!-- PRODUCT DEBUGGER -->
+<div id="p-debugger" class="panel">
+  <div class="card" style="border-color:rgba(45,212,191,.2)">
+    <div class="card-title c-teal">&#128269; Product Flow Debugger &#8212; 13-Step Trace Map</div>
+    <div class="flow-wrap"><div class="flow">
+      <div class="fn fn-p"><span class="step-n">[1]</span> &#128241; Telegram Group Message</div><div class="fa">&#8595;</div>
+      <div class="fn fn-p"><span class="step-n">[2]</span> &#129302; OpenClaw Gateway (mentix_aibot)</div><div class="fa">&#8595;</div>
+      <div class="fn fn-g"><span class="step-n">[3]</span> &#128230; mentix-intake (caption + photo parsing)</div><div class="fa">&#8595;</div>
+      <div class="fn fn-g"><span class="step-n">[4]</span> &#9889; n8n Webhook &#8594; POST /api/automation/products</div><div class="fa">&#8595;</div>
+      <div class="fn fn-g"><span class="step-n">[5]</span> &#128272; Auth Gate (X-Automation-Secret)</div><div class="fa">&#8595;</div>
+      <div class="fn fn-y"><span class="step-n">[6]</span> &#129513; parseTelegramCaption() &#8594; parseConfidence, parseWarnings</div><div class="fa">&#8595;</div>
+      <div class="fn fn-y"><span class="step-n">[7]</span> &#9881;&#65039; resolveProductStatus() via AutomationSettings</div><div class="fa">&#8595;</div>
+      <div class="fn fn-g"><span class="step-n">[8]</span> &#128190; Neon PostgreSQL &#8212; product created (status: draft)</div><div class="fa">&#8595;</div>
+      <div class="fn fn-y"><span class="step-n">[9]</span> &#128065;&#65039; Admin Review &#8594; status: draft &#8594; active</div><div class="fa">&#8595;</div>
+      <div class="fn fn-g"><span class="step-n">[10]</span> &#128279; Products.ts afterChange &#8594; channelDispatch.ts</div><div class="fa">&#8595;</div>
+      <div class="fn fn-y"><span class="step-n">[11]</span> &#128225; n8n Channel Webhooks (Instagram / Shopier / Dolap)</div><div class="fa">&#8595;</div>
+      <div class="fn fn-g"><span class="step-n">[12]</span> &#127760; page.tsx (force-dynamic, DB query, media lookup)</div><div class="fa">&#8595;</div>
+      <div class="fn fn-t"><span class="step-n">[13]</span> &#10003; Public at uygunayakkabi.com</div>
+    </div></div>
+  </div>
+
+  <div class="sh sh-teal">6 Diagnostic Entry Points</div>
+  <div class="dm" style="grid-template-columns:repeat(auto-fill,minmax(280px,1fr))">
+    <div class="dmc" style="border-color:rgba(248,113,113,.2)"><div class="dmc-h" style="color:#f87171">&#128308; A &#8212; Product Not Visible</div><div style="font-size:11px;color:#94a3b8;line-height:1.8">1. products.status == &#39;active&#39;?<br>2. Storefront query intact?<br>3. ENABLE_STATIC_FALLBACK = false?<br>4. force-dynamic on page.tsx?<br>5. Vercel deployment current?<br>6. price &gt; 0 (activation gate)?<br>7. Neon DB reachable?</div></div>
+    <div class="dmc" style="border-color:rgba(251,191,36,.2)"><div class="dmc-h" style="color:#fbbf24">&#128993; B &#8212; Wrong Product Data</div><div style="font-size:11px;color:#94a3b8;line-height:1.8">1. parseConfidence &lt; 70?<br>2. parseWarnings[]?<br>3. automationMeta.rawCaption?<br>4. Explicit fields override parsed?<br>5. autoDecisionReason?<br>6. DB record directly?</div></div>
+    <div class="dmc" style="border-color:rgba(96,165,250,.2)"><div class="dmc-h" style="color:#60a5fa">&#128309; C &#8212; Image Not Rendering</div><div style="font-size:11px;color:#94a3b8;line-height:1.8">1. products.images[] populated?<br>2. media.product reverse lookup?<br>3. Blob URL absolute HTTPS?<br>4. extractMediaUrls() output?<br>5. NEXT_PUBLIC_SERVER_URL set?<br>6. BLOB_READ_WRITE_TOKEN valid?</div></div>
+    <div class="dmc" style="border-color:rgba(167,139,250,.2)"><div class="dmc-h" style="color:#a78bfa">&#128280; D &#8212; Channel Dispatch Failed</div><div style="font-size:11px;color:#94a3b8;line-height:1.8">1. channelTargets includes channel?<br>2. AutomationSettings.publishX?<br>3. channels.publishX not false?<br>4. N8N_CHANNEL_X_WEBHOOK set?<br>5. n8n workflow active?<br>6. dispatchNotes in sourceMeta?</div></div>
+    <div class="dmc" style="border-color:rgba(52,211,153,.2)"><div class="dmc-h" style="color:#34d399">&#128994; E &#8212; Telegram Intake Failed</div><div style="font-size:11px;color:#94a3b8;line-height:1.8">1. Bot online? (uptime-kuma)<br>2. Group in allowlist? requireMention?<br>3. n8n webhook active (not test)?<br>4. AUTOMATION_SECRET match?<br>5. Duplicate detected?<br>6. Media attach step succeeded?</div></div>
+    <div class="dmc" style="border-color:rgba(45,212,191,.2)"><div class="dmc-h" style="color:#2dd4bf">&#128307; F &#8212; Stock / Price Mismatch</div><div style="font-size:11px;color:#94a3b8;line-height:1.8">1. DB: actual price / stock_quantity?<br>2. Variant records linked?<br>3. Telegram STOCK command used?<br>4. InventoryLogs entries?<br>5. Caption price parsing correct?<br>6. External sync overwrote value?</div></div>
+  </div>
+
+  <div class="sh sh-teal">Confidence &#215; Risk Decision Gate</div>
+  <div class="card"><table class="matrix">
+    <tr><th>Confidence</th><th>LOW Risk</th><th>MEDIUM Risk</th><th>HIGH Risk</th></tr>
+    <tr><td style="color:#64748b">&lt; 0.55</td><td class="cell-warn">Report only</td><td class="cell-warn">Report only</td><td class="cell-stop">Report only</td></tr>
+    <tr><td style="color:#fbbf24">0.55&#8211;0.79</td><td class="cell-warn">Propose + confirm</td><td class="cell-stop">Propose + confirm</td><td class="cell-stop">Escalate</td></tr>
+    <tr><td style="color:#34d399">&#8805; 0.80</td><td class="cell-go">Proceed</td><td class="cell-warn">Propose + confirm</td><td class="cell-stop">Escalate always</td></tr>
+  </table></div>
+</div>
+
+<!-- DECISION ENGINE -->
+<div id="p-decision" class="panel">
+  <div class="card">
+    <div class="card-title c-yellow">Decision Schema</div>
+    <pre>{
+  "decision_id":               "DEC-2026-03-16-001",
+  "timestamp":                 "ISO8601",
+  "task_type":                 "product_visibility_debug | channel_dispatch | stock_fix | ...",
+  "triggered_by":              "user | schedule | auto-detect",
+  "risk_level":                "LOW | MEDIUM | HIGH",
+  "requires_write":            false,
+  "requires_external_publish": false,
+  "confidence_score":          0.82,
+  "evidence_strength":         "STRONG | MODERATE | WEAK | NONE",
+  "human_approval_required":   false,
+  "reversible":                true,
+  "blast_radius":              "LOW | MEDIUM | HIGH",
+  "selected_skills":           ["product-flow-debugger", "sql-toolkit"],
+  "proposed_action":           "...",
+  "final_action":              "...",
+  "outcome":                   "PENDING | SUCCESS | FAILURE | PARTIAL"
+}</pre>
+  </div>
+
+  <div class="sh sh-yellow">Risk &#215; Blast Radius Gate</div>
+  <div class="card"><table class="matrix">
+    <tr><th>Blast Radius</th><th>LOW Risk</th><th>MEDIUM Risk</th><th>HIGH Risk</th></tr>
+    <tr><td>LOW (0&#8211;1 records, reversible)</td><td class="cell-go">Auto if conf &#8805; .80</td><td class="cell-warn">Confirm required</td><td class="cell-stop">Escalate</td></tr>
+    <tr><td>MEDIUM (2&#8211;10 records)</td><td class="cell-warn">Confirm required</td><td class="cell-warn">Confirm required</td><td class="cell-stop">Escalate</td></tr>
+    <tr><td>HIGH (10+ / irreversible)</td><td class="cell-stop">Explicit approval</td><td class="cell-stop">Explicit approval</td><td class="cell-stop">Never auto</td></tr>
+  </table></div>
+
+  <div class="sh sh-yellow">Key Decisions</div>
+  <div class="dg">
+    <div class="dc"><div class="dc-id">D-070</div><div class="dc-t">11-Skill Stack, 3-Level Rollout</div><div class="dc-r">Safe evolution from single intake bot to full ops assistant.</div></div>
+    <div class="dc"><div class="dc-id">D-071</div><div class="dc-t">agent-memory over ChromaDB</div><div class="dc-r">File-based aligns with existing docs, no extra Docker container needed.</div></div>
+    <div class="dc"><div class="dc-id">D-072</div><div class="dc-t">Learning Engine: Observe-First</div><div class="dc-r">No auto-modification until trust is built through observation (30+ days).</div></div>
+    <div class="dc"><div class="dc-id">D-073</div><div class="dc-t">Draft-First, Confirm Writes</div><div class="dc-r">Publishing, DB writes, image ops all gated. Irreversible mistakes prevented.</div></div>
+  </div>
+</div>
+
+<!-- MEMORY -->
+<div id="p-memory" class="panel">
+  <div class="card">
+    <div class="card-title c-green">mentix-memory &#8212; Directory Structure</div>
+    <div class="mem-grid">
+      <div class="mem-card"><div class="mem-title">identity/</div><div class="mem-path">MENTIX_IDENTITY.md</div><div class="mem-desc">Who Mentix is, 6 core subsystems, non-goals</div></div>
+      <div class="mem-card"><div class="mem-title">policies/</div><div class="mem-path">DECISION_POLICY.md<br>WRITE_POLICY.md<br>PUBLISH_POLICY.md<br>MEMORY_POLICY.md<br>SKILL_GATING_POLICY.md</div><div class="mem-desc">All safety and operational rules</div></div>
+      <div class="mem-card"><div class="mem-title">runbooks/</div><div class="mem-path">product-not-visible.md<br>stock-mismatch.md<br>intake-failure.md<br>image-not-rendering.md<br>storefront-desync.md<br>price-not-updated.md</div><div class="mem-desc">6 step-by-step incident response guides</div></div>
+      <div class="mem-card"><div class="mem-title">incidents/</div><div class="mem-path">YYYY-MM-DD-*.json</div><div class="mem-desc">Confirmed issue records. Retain 90 days if no recurrence.</div></div>
+      <div class="mem-card"><div class="mem-title">traces/</div><div class="mem-path">TRACE_SCHEMA.json<br>TRC-*.json</div><div class="mem-desc">Full diagnostic sessions: input &#8594; steps &#8594; diagnosis &#8594; outcome</div></div>
+      <div class="mem-card"><div class="mem-title">patterns/</div><div class="mem-path">KNOWN_FAILURE_PATTERNS.json<br>KNOWN_SUCCESS_PATTERNS.json</div><div class="mem-desc">Issues seen 2+ times. Permanent, never deleted.</div></div>
+      <div class="mem-card"><div class="mem-title">decisions/</div><div class="mem-path">DEC-*.json</div><div class="mem-desc">All decisions using the formal JSON schema above.</div></div>
+      <div class="mem-card"><div class="mem-title">evaluations/</div><div class="mem-path">EVAL-*.json</div><div class="mem-desc">Was Mentix's diagnosis correct? Separate from reward.</div></div>
+      <div class="mem-card"><div class="mem-title">rewards/</div><div class="mem-path">reward-log.jsonl<br>success-metrics.json</div><div class="mem-desc">Scores from outcome + evaluation. Max 1000 entries.</div></div>
+      <div class="mem-card"><div class="mem-title">evals/</div><div class="mem-path">GOLDEN_CASES.json<br>grader-results.jsonl</div><div class="mem-desc">Known-correct test cases + regression results.</div></div>
+      <div class="mem-card"><div class="mem-title">summaries/</div><div class="mem-path">weekly-summary.md<br>monthly-summary.md</div><div class="mem-desc">Periodic digests from learning-engine.</div></div>
+      <div class="mem-card"><div class="mem-title">archive/</div><div class="mem-path">archived-*/</div><div class="mem-desc">Entries past retention limits.</div></div>
+    </div>
+  </div>
+
+  <div class="sh sh-blue">Active Runbooks</div>
+  <div class="dm">
+    <div class="dmc" style="border-color:rgba(248,113,113,.2)"><div class="dmc-h" style="color:#f87171">product-not-visible</div><div style="font-size:11px;color:#94a3b8">7-step: status &#8594; query &#8594; static fallback &#8594; force-dynamic &#8594; deploy &#8594; price gate &#8594; DB</div></div>
+    <div class="dmc" style="border-color:rgba(251,191,36,.2)"><div class="dmc-h" style="color:#fbbf24">stock-mismatch</div><div style="font-size:11px;color:#94a3b8">6-step: DB query &#8594; InventoryLogs &#8594; STOCK command &#8594; automation &#8594; variant vs product</div></div>
+    <div class="dmc" style="border-color:rgba(52,211,153,.2)"><div class="dmc-h" style="color:#34d399">intake-failure</div><div style="font-size:11px;color:#94a3b8">6-step: bot status &#8594; group policy &#8594; n8n webhook &#8594; auth &#8594; duplicate guard &#8594; media</div></div>
+    <div class="dmc" style="border-color:rgba(96,165,250,.2)"><div class="dmc-h" style="color:#60a5fa">image-not-rendering</div><div style="font-size:11px;color:#94a3b8">6-step: images array &#8594; reverse lookup &#8594; Blob URL &#8594; token &#8594; SVG condition</div></div>
+    <div class="dmc" style="border-color:rgba(45,212,191,.2)"><div class="dmc-h" style="color:#2dd4bf">storefront-desync</div><div style="font-size:11px;color:#94a3b8">6-step: force-dynamic &#8594; Vercel deploy &#8594; DB &#8594; SiteSettings &#8594; static fallback</div></div>
+    <div class="dmc" style="border-color:rgba(167,139,250,.2)"><div class="dmc-h" style="color:#a78bfa">price-not-updated</div><div style="font-size:11px;color:#94a3b8">6-step: DB &#8594; admin save &#8594; automation override &#8594; price hook &#8594; caching &#8594; parsing</div></div>
+  </div>
+</div>
+
+<!-- LEARNING -->
+<div id="p-learning" class="panel">
+  <div class="card" style="border-color:rgba(167,139,250,.2)">
+    <div class="card-title c-purple">Outcome / Evaluation / Reward &#8212; Strict Separation</div>
+    <div class="oer">
+      <div class="oer-card oer-o">
+        <div class="oer-title c-blue">OUTCOME</div>
+        <div class="oer-q">What actually happened in the system?</div>
+        <div class="oer-ex">&#8220;Product became visible after status changed to active&#8221;</div>
+        <div class="oer-store c-blue">stored in traces/</div>
+      </div>
+      <div class="oer-card oer-e">
+        <div class="oer-title c-yellow">EVALUATION</div>
+        <div class="oer-q">Was Mentix&#39;s diagnosis correct?</div>
+        <div class="oer-ex">&#8220;Agent found correct root cause: status was draft, not a DB issue&#8221;</div>
+        <div class="oer-store c-yellow">stored in evaluations/</div>
+      </div>
+      <div class="oer-card oer-r">
+        <div class="oer-title c-green">REWARD</div>
+        <div class="oer-q">Score from outcome + evaluation</div>
+        <div class="oer-ex">&#8220;+5 (correct root cause, human confirmed, first-pass)&#8221;</div>
+        <div class="oer-store c-green">stored in rewards/</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="sh sh-purple">Reward Framework</div>
+  <div class="rwd-grid">
+    <div class="rwd-col rwd-pos">
+      <h3>&#10003; Positive Signals</h3>
+      <div class="ri"><span>Correct root cause found</span><span class="rs rs-p">+5</span></div>
+      <div class="ri"><span>Issue prevented proactively</span><span class="rs rs-p">+5</span></div>
+      <div class="ri"><span>Human confirmed diagnosis</span><span class="rs rs-p">+4</span></div>
+      <div class="ri"><span>First-pass resolution</span><span class="rs rs-p">+3</span></div>
+      <div class="ri"><span>Recommendation reused later</span><span class="rs rs-p">+3</span></div>
+      <div class="ri"><span>Accurate prediction</span><span class="rs rs-p">+3</span></div>
+      <div class="ri"><span>Minimal diagnostic steps</span><span class="rs rs-p">+2</span></div>
+    </div>
+    <div class="rwd-col rwd-neg">
+      <h3>&#10007; Negative Signals</h3>
+      <div class="ri"><span>Wrong diagnosis</span><span class="rs rs-n">-5</span></div>
+      <div class="ri"><span>Risky action without evidence</span><span class="rs rs-n">-5</span></div>
+      <div class="ri"><span>Repeated wrong suggestion</span><span class="rs rs-n">-4</span></div>
+      <div class="ri"><span>High confidence, wrong answer</span><span class="rs rs-n">-4</span></div>
+      <div class="ri"><span>Symptom confused with root cause</span><span class="rs rs-n">-3</span></div>
+      <div class="ri"><span>Missed obvious diagnostic path</span><span class="rs rs-n">-3</span></div>
+      <div class="ri"><span>Unnecessary tool usage</span><span class="rs rs-n">-2</span></div>
+    </div>
+  </div>
+
+  <div class="card" style="margin-top:16px">
+    <div class="card-title c-purple">Learning Engine Hard Limits</div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:10px;font-size:12px">
+      <div style="padding:10px;background:rgba(248,113,113,.05);border:1px solid rgba(248,113,113,.15);border-radius:8px;color:#fca5a5">&#10007; Cannot rewrite skill files</div>
+      <div style="padding:10px;background:rgba(248,113,113,.05);border:1px solid rgba(248,113,113,.15);border-radius:8px;color:#fca5a5">&#10007; Cannot modify openclaw.json</div>
+      <div style="padding:10px;background:rgba(248,113,113,.05);border:1px solid rgba(248,113,113,.15);border-radius:8px;color:#fca5a5">&#10007; Cannot execute proposals</div>
+      <div style="padding:10px;background:rgba(248,113,113,.05);border:1px solid rgba(248,113,113,.15);border-radius:8px;color:#fca5a5">&#10007; Cannot enable/disable skills</div>
+      <div style="padding:10px;background:rgba(248,113,113,.05);border:1px solid rgba(248,113,113,.15);border-radius:8px;color:#fca5a5">&#10007; Cannot self-modify rules</div>
+      <div style="padding:10px;background:rgba(52,211,153,.05);border:1px solid rgba(52,211,153,.15);border-radius:8px;color:#6ee7b7">&#10003; Can propose &#8594; human reviews</div>
+    </div>
+  </div>
+</div>
+
+<!-- DEPLOY -->
+<div id="p-deploy" class="panel">
+  <div class="deploy">
+    <div class="deploy-title">&#128640; VPS Deployment Steps</div>
+    <div class="dstep"><div class="dnum">1</div><span>Copy skills: <span class="cmd">scp -r mentix-skills/* furkan@VPS:/home/furkan/.openclaw/skills/</span></span></div>
+    <div class="dstep"><div class="dnum">2</div><span>Copy memory: <span class="cmd">scp -r mentix-memory/* furkan@VPS:/home/furkan/.openclaw/mentix-memory/</span></span></div>
+    <div class="dstep"><div class="dnum">3</div><span>Create data dirs: <span class="cmd">mkdir -p /home/furkan/.openclaw/skills/agent-memory/data/{incidents,patterns,knowledge,decisions,rewards}</span></span></div>
+    <div class="dstep"><div class="dnum">4</div><span>Add to OpenClaw docker-compose env: <span class="cmd">DATABASE_URI</span> and <span class="cmd">GITHUB_TOKEN</span></span></div>
+    <div class="dstep"><div class="dnum">5</div><span>Restart: <span class="cmd">cd /opt/openclaw && docker compose restart</span></span></div>
+    <div class="dstep"><div class="dnum">6</div><span>Verify: <span class="cmd">docker logs openclaw-openclaw-gateway-1 --tail 50</span></span></div>
+    <div class="dstep"><div class="dnum">7</div><span>Test Level A skills one-by-one via Telegram &#64;mentix_aibot</span></div>
+  </div>
+
+  <div class="sh sh-red" style="margin-top:20px">Risk Register</div>
+  <div class="card"><table class="rt">
+    <thead><tr><th>Risk</th><th>Severity</th><th>Mitigation</th></tr></thead>
+    <tbody>
+      <tr><td>OpenClaw may not auto-discover skill files</td><td class="sev-m">MEDIUM</td><td>Check gateway logs; may need openclaw.json registration</td></tr>
+      <tr><td>sql-toolkit needs DATABASE_URI</td><td class="sev-m">MEDIUM</td><td>Add to OpenClaw Docker env</td></tr>
+      <tr><td>browser-automation needs headless browser</td><td class="sev-m">MEDIUM</td><td>May need Playwright in OpenClaw container</td></tr>
+      <tr><td>github-workflow needs GITHUB_TOKEN</td><td class="sev-l">LOW</td><td>Add to OpenClaw Docker env</td></tr>
+      <tr><td>learning-engine storage growth</td><td class="sev-l">LOW</td><td>Limits in MEMORY_POLICY: 1000 rewards, 200 patterns</td></tr>
+      <tr><td>Gateway restart disconnects Telegram</td><td class="sev-l">LOW</td><td>Re-pair if needed; log in mentix-memory/incidents/</td></tr>
+    </tbody>
+  </table></div>
+</div>
+
+</div>
+<div class="footer">Mentix Intelligence Layer v2.0 &#183; uygunayakkabi.com &#183; 2026-03-16</div>
+
+<script>
+function show(id,el){
+  document.querySelectorAll('.panel').forEach(function(p){p.classList.remove('active')});
+  document.querySelectorAll('.nav-tab').forEach(function(t){t.classList.remove('active')});
+  document.getElementById('p-'+id).classList.add('active');
+  el.classList.add('active');
+}
+</script>
+</body>
+</html>

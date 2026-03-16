@@ -1,0 +1,14 @@
+{
+  "_sim": true,
+  "incident_id": "INC-SIM-003",
+  "timestamp": "2026-03-16T16:09:17.056025+00:00",
+  "status": "OPEN",
+  "trace_ref": "TRC-SIM-003",
+  "symptom": "SVG placeholder shown instead of product image",
+  "root_cause": "UNKNOWN \u2014 could be: (a) products.images[] empty, (b) media.product not linked, (c) Vercel Blob URL malformed, (d) reverse lookup disabled",
+  "entry_point": "C",
+  "confidence": 0.47,
+  "risk": "LOW",
+  "gate_action": "REPORT_ONLY",
+  "resolved": false
+}

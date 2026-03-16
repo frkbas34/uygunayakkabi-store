@@ -1,0 +1,23 @@
+{
+  "_sim": true,
+  "decision_id": "DEC-SIM-001",
+  "timestamp": "2026-03-16T16:09:17.002060+00:00",
+  "incident_ref": "INC-SIM-001",
+  "trace_ref": "TRC-SIM-001",
+  "task_type": "diagnostic",
+  "risk_level": "LOW",
+  "requires_write": false,
+  "requires_external_publish": false,
+  "confidence_score": 0.92,
+  "evidence_strength": "STRONG",
+  "human_approval_required": false,
+  "reversible": true,
+  "blast_radius": "LOW",
+  "selected_skills": [
+    "product-flow-debugger",
+    "sql-toolkit"
+  ],
+  "proposed_action": "Set product status to 'active' via admin panel",
+  "final_action": "Set product status to 'active' via admin panel",
+  "gate_action": "PROCEED"
+}

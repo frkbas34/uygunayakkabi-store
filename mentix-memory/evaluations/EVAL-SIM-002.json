@@ -1,0 +1,15 @@
+{
+  "_sim": true,
+  "evaluation_id": "EVAL-SIM-002",
+  "timestamp": "2026-03-16T16:09:17.042358+00:00",
+  "trace_ref": "TRC-SIM-002",
+  "incident_ref": "INC-SIM-002",
+  "diagnosis_correct": true,
+  "first_pass": false,
+  "unnecessary_steps": 2,
+  "confidence_was": 0.66,
+  "evidence_strength": "MODERATE",
+  "evaluator_notes": "Correct root cause eventually found, but took 2 extra steps. Write required \u2192 MEDIUM risk.",
+  "golden_case_ref": null,
+  "gate_action_was": "PROPOSE_CONFIRM"
+}

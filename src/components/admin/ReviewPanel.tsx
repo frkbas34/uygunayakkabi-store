@@ -10,6 +10,24 @@ type CheckItem = {
   warn?: boolean // yellow (optional but recommended) vs red (blocking)
 }
 
+// ── Step 14: Dispatch result shape (matches ChannelDispatchResult in channelDispatch.ts) ──
+type DispatchChannelResult = {
+  channel: string
+  eligible: boolean
+  dispatched: boolean
+  webhookConfigured: boolean
+  skippedReason?: string
+  error?: string
+  responseStatus?: number
+  timestamp?: string
+}
+
+const CHANNEL_LABEL: Record<string, string> = {
+  instagram: '📸 Instagram',
+  shopier:   '🛒 Shopier',
+  dolap:     '👗 Dolap',
+}
+
 /**
  * ReviewPanel — Automation Product Review & Approval Checklist
  *
@@ -17,12 +35,14 @@ type CheckItem = {
  * Only visible for non-admin-sourced products (telegram / n8n / automation).
  *
  * Shows:
- *  - Telegram metadata (chat ID, message ID)
+ *  - Telegram metadata (chat ID, message ID, sender)
+ *  - Step 11: Caption parse confidence score + warnings
+ *  - Step 12: Automation decision row (active/draft + reason)
+ *  - Step 14: Channel dispatch status (per-channel eligible/dispatched/skipped)
  *  - Field completeness checklist
  *  - "Ready to publish" summary
  */
 export const ReviewPanel: React.FC = () => {
-  // Read relevant fields from the Payload form state
   const title         = useFormFields(([f]) => f['title']?.value) as string | undefined
   const price         = useFormFields(([f]) => f['price']?.value) as number | undefined
   const sku           = useFormFields(([f]) => f['sku']?.value) as string | undefined
@@ -32,11 +52,24 @@ export const ReviewPanel: React.FC = () => {
   const category      = useFormFields(([f]) => f['category']?.value) as string | undefined
   const images        = useFormFields(([f]) => f['images']?.value) as unknown[] | undefined
   const stockQuantity = useFormFields(([f]) => f['stockQuantity']?.value) as number | undefined
+  // Telegram meta
   const chatId        = useFormFields(([f]) => f['automationMeta.telegramChatId']?.value) as string | undefined
   const chatType      = useFormFields(([f]) => f['automationMeta.telegramChatType']?.value) as string | undefined
   const msgId         = useFormFields(([f]) => f['automationMeta.telegramMessageId']?.value) as string | undefined
   const fromUserId    = useFormFields(([f]) => f['automationMeta.telegramFromUserId']?.value) as string | undefined
   const lockedVal     = useFormFields(([f]) => f['automationMeta.lockFields']?.value) as boolean | undefined
+  // Step 11: Parser meta
+  const rawCaption       = useFormFields(([f]) => f['automationMeta.rawCaption']?.value) as string | undefined
+  const parseWarningsRaw = useFormFields(([f]) => f['automationMeta.parseWarnings']?.value) as string | undefined
+  const parseConfidence  = useFormFields(([f]) => f['automationMeta.parseConfidence']?.value) as number | undefined
+  // Step 12: Decision meta
+  const autoDecision       = useFormFields(([f]) => f['automationMeta.autoDecision']?.value) as string | undefined
+  const autoDecisionReason = useFormFields(([f]) => f['automationMeta.autoDecisionReason']?.value) as string | undefined
+  // Step 14: Dispatch meta
+  const dispatchedChannelsRaw = useFormFields(([f]) => f['sourceMeta.dispatchedChannels']?.value) as string | undefined
+  const lastDispatchedAt      = useFormFields(([f]) => f['sourceMeta.lastDispatchedAt']?.value) as string | undefined
+  const dispatchNotesRaw      = useFormFields(([f]) => f['sourceMeta.dispatchNotes']?.value) as string | undefined
+  const forceRedispatch       = useFormFields(([f]) => f['sourceMeta.forceRedispatch']?.value) as boolean | undefined
 
   // Only render for automation-sourced products
   if (!source || source === 'admin') return null
@@ -46,6 +79,51 @@ export const ReviewPanel: React.FC = () => {
   const hasPrice   = !isNaN(priceNum) && priceNum > 0
   const stockNum   = typeof stockQuantity === 'number' ? stockQuantity : Number(stockQuantity)
   const hasStock   = !isNaN(stockNum) && stockNum >= 0
+
+  // Parse warnings from JSON string
+  let parseWarnings: string[] = []
+  if (parseWarningsRaw) {
+    try {
+      const parsed = JSON.parse(parseWarningsRaw)
+      if (Array.isArray(parsed)) parseWarnings = parsed
+    } catch { /* Non-critical */ }
+  }
+
+  const confidenceNum = typeof parseConfidence === 'number' ? parseConfidence :
+    (parseConfidence !== undefined ? Number(parseConfidence) : undefined)
+  const hasConfidence = confidenceNum !== undefined && !isNaN(confidenceNum)
+
+  // Parse dispatch notes from JSON string
+  let dispatchResults: DispatchChannelResult[] = []
+  if (dispatchNotesRaw) {
+    try {
+      const parsed = JSON.parse(dispatchNotesRaw)
+      if (Array.isArray(parsed)) dispatchResults = parsed
+    } catch { /* Non-critical */ }
+  }
+
+  // Parse dispatched channels list
+  let dispatchedChannels: string[] = []
+  if (dispatchedChannelsRaw) {
+    try {
+      const parsed = JSON.parse(dispatchedChannelsRaw)
+      if (Array.isArray(parsed)) dispatchedChannels = parsed
+    } catch { /* Non-critical */ }
+  }
+
+  const hasDispatchData = dispatchResults.length > 0 || !!lastDispatchedAt
+  const isActive = status === 'active'
+
+  // Format dispatch timestamp for display
+  function formatDispatchTime(iso: string | undefined): string {
+    if (!iso) return '—'
+    try {
+      return new Date(iso).toLocaleString('tr-TR', {
+        day: '2-digit', month: '2-digit', year: 'numeric',
+        hour: '2-digit', minute: '2-digit', second: '2-digit',
+      })
+    } catch { return iso }
+  }
 
   const checks: CheckItem[] = [
     {
@@ -74,20 +152,20 @@ export const ReviewPanel: React.FC = () => {
     {
       label: 'SKU / Stok kodu',
       detail: sku ?? 'Otomatik oluşturulacak',
-      ok: true,  // auto-generated so always OK
-      warn: !sku, // but warn if not set manually
+      ok: true,
+      warn: !sku,
     },
     {
       label: 'Kategori',
       detail: category ?? 'Seçilmemiş',
       ok: !!category,
-      warn: true, // optional but recommended
+      warn: !category,
     },
     {
       label: 'Marka',
       detail: brand ?? 'Girilmemiş',
       ok: true,
-      warn: !brand, // optional but recommended
+      warn: !brand,
     },
   ]
 
@@ -103,6 +181,12 @@ export const ReviewPanel: React.FC = () => {
     api: '🔌 API',
     import: '📥 İçe Aktarım',
   }
+
+  // Confidence color: green ≥60, yellow 30-59, red <30
+  const confidenceColor = !hasConfidence ? '#64748b'
+    : confidenceNum! >= 60 ? '#22c55e'
+    : confidenceNum! >= 30 ? '#f59e0b'
+    : '#ef4444'
 
   return (
     <div
@@ -146,8 +230,8 @@ export const ReviewPanel: React.FC = () => {
         </span>
       </div>
 
-      {/* Telegram meta */}
-      {(chatId || msgId) && (
+      {/* Telegram + parser meta */}
+      {(chatId || msgId || hasConfidence) && (
         <div
           style={{
             background: '#0f172a',
@@ -185,10 +269,303 @@ export const ReviewPanel: React.FC = () => {
               <strong style={{ color: '#cbd5e1' }}>Gönderen:</strong> {fromUserId}
             </span>
           )}
+          {/* Step 11: parse confidence badge */}
+          {hasConfidence && (
+            <span>
+              <strong style={{ color: '#cbd5e1' }}>Parser güveni:</strong>{' '}
+              <span style={{ color: confidenceColor, fontWeight: 700 }}>
+                {confidenceNum}%
+              </span>
+            </span>
+          )}
           {isLocked && (
             <span style={{ color: '#f59e0b' }}>🔒 Alan kilidi aktif</span>
           )}
         </div>
+      )}
+
+      {/* Step 12: Decision row — why the product got this status */}
+      {autoDecision && (
+        <div
+          style={{
+            background: autoDecision === 'active' ? '#052e16' : '#1c1917',
+            padding: '8px 16px',
+            borderBottom: '1px solid #334155',
+            display: 'flex',
+            alignItems: 'flex-start',
+            gap: '8px',
+          }}
+        >
+          <span style={{ fontSize: '11px', fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.07em', minWidth: '100px' }}>
+            Otomasyon kararı
+          </span>
+          <div style={{ flex: 1 }}>
+            <span
+              style={{
+                fontSize: '11px',
+                fontWeight: 700,
+                color: autoDecision === 'active' ? '#4ade80' : '#f59e0b',
+              }}
+            >
+              {autoDecision === 'active' ? '✅ Aktif edildi' : '📝 Taslak bırakıldı'}
+            </span>
+            {autoDecisionReason && (
+              <div style={{ fontSize: '11px', color: '#64748b', marginTop: '2px' }}>
+                {autoDecisionReason}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* ── Step 14: Channel Dispatch Status ───────────────────────────────── */}
+      {isActive && (
+        <div
+          style={{
+            background: '#0c1628',
+            borderBottom: '1px solid #334155',
+          }}
+        >
+          {/* Section header */}
+          <div
+            style={{
+              padding: '7px 16px',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              borderBottom: hasDispatchData ? '1px solid #1e2d44' : undefined,
+            }}
+          >
+            <span style={{ fontSize: '10px', fontWeight: 700, color: '#475569', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
+              📤 Kanal Dispatch Durumu
+            </span>
+            {lastDispatchedAt && (
+              <span style={{ fontSize: '10px', color: '#334155' }}>
+                {formatDispatchTime(lastDispatchedAt)}
+              </span>
+            )}
+            {forceRedispatch && (
+              <span style={{ fontSize: '10px', color: '#f59e0b', fontWeight: 700 }}>
+                🔄 Redispatch bekliyor…
+              </span>
+            )}
+          </div>
+
+          {hasDispatchData ? (
+            /* Per-channel result rows */
+            <div style={{ padding: '6px 0' }}>
+              {dispatchResults.map((r, idx) => {
+                const label = CHANNEL_LABEL[r.channel] ?? r.channel
+                const eligibleIcon  = r.eligible ? '✅' : '⛔'
+                const dispatchIcon  = !r.eligible ? '—'
+                  : r.dispatched    ? '✅'
+                  : r.error         ? '❌'
+                  : '⚠️'
+                const webhookIcon = r.webhookConfigured ? '🔗' : '⚠️ URL yok'
+                const rowBg = r.dispatched ? '#0a1f0f'
+                  : !r.eligible     ? '#1a1a1a'
+                  : r.error         ? '#1f0a0a'
+                  : '#1a1500'
+
+                return (
+                  <div
+                    key={idx}
+                    style={{
+                      background: rowBg,
+                      padding: '5px 16px',
+                      borderBottom: '1px solid #1a2332',
+                      fontSize: '11px',
+                    }}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+                      {/* Channel name */}
+                      <span style={{ color: '#94a3b8', fontWeight: 700, minWidth: '110px' }}>
+                        {label}
+                      </span>
+                      {/* Eligible */}
+                      <span style={{ color: r.eligible ? '#86efac' : '#64748b' }} title="Eligible">
+                        {eligibleIcon} uygun
+                      </span>
+                      {/* Dispatched */}
+                      <span
+                        style={{
+                          color: !r.eligible ? '#334155'
+                            : r.dispatched ? '#4ade80'
+                            : r.error ? '#f87171'
+                            : '#f59e0b',
+                        }}
+                        title="Dispatched"
+                      >
+                        {dispatchIcon} {r.dispatched ? 'gönderildi' : r.eligible ? 'gönderilemedi' : 'atlandı'}
+                      </span>
+                      {/* Webhook */}
+                      <span style={{ color: r.webhookConfigured ? '#475569' : '#92400e' }} title="Webhook URL">
+                        {webhookIcon}
+                      </span>
+                      {/* HTTP status */}
+                      {r.responseStatus !== undefined && (
+                        <span style={{ color: r.responseStatus < 300 ? '#22d3ee' : '#f87171' }}>
+                          HTTP {r.responseStatus}
+                        </span>
+                      )}
+                    </div>
+                    {/* Skip reason */}
+                    {r.skippedReason && (
+                      <div style={{ fontSize: '10px', color: '#475569', marginTop: '2px', paddingLeft: '120px' }}>
+                        ↳ {r.skippedReason}
+                      </div>
+                    )}
+                    {/* Error */}
+                    {r.error && (
+                      <div style={{ fontSize: '10px', color: '#f87171', marginTop: '2px', paddingLeft: '120px' }}>
+                        ↳ Hata: {r.error}
+                      </div>
+                    )}
+                    {/* Timestamp */}
+                    {r.timestamp && (
+                      <div style={{ fontSize: '10px', color: '#334155', marginTop: '1px', paddingLeft: '120px' }}>
+                        {formatDispatchTime(r.timestamp)}
+                      </div>
+                    )}
+                  </div>
+                )
+              })}
+
+              {/* Summary line */}
+              {dispatchedChannels.length > 0 ? (
+                <div style={{ padding: '5px 16px', fontSize: '11px', color: '#4ade80' }}>
+                  ✅ İletilen: {dispatchedChannels.join(', ')}
+                </div>
+              ) : (
+                <div style={{ padding: '5px 16px', fontSize: '11px', color: '#475569' }}>
+                  ℹ️ Hiçbir kanala iletilmedi
+                  {dispatchResults.some(r => !r.webhookConfigured && r.eligible) && (
+                    <span style={{ color: '#92400e' }}> — webhook URL yapılandırılmamış</span>
+                  )}
+                </div>
+              )}
+            </div>
+          ) : (
+            /* No dispatch data yet */
+            <div style={{ padding: '8px 16px', fontSize: '11px', color: '#334155' }}>
+              Henüz dispatch gerçekleşmedi.
+              {!isActive && ' Ürün aktifleştirildiğinde dispatch tetiklenir.'}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Pending dispatch hint — product not yet active */}
+      {!isActive && (
+        <div
+          style={{
+            background: '#111827',
+            padding: '6px 16px',
+            borderBottom: '1px solid #334155',
+            fontSize: '11px',
+            color: '#334155',
+          }}
+        >
+          📤 Kanal dispatch: ürün aktif edildiğinde otomatik tetiklenir
+        </div>
+      )}
+
+      {/* Step 11: Parse warnings row */}
+      {parseWarnings.length > 0 && (
+        <div
+          style={{
+            background: '#1c1917',
+            padding: '8px 16px',
+            borderBottom: '1px solid #334155',
+          }}
+        >
+          <div style={{ fontSize: '10px', fontWeight: 700, color: '#78716c', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: '4px' }}>
+            Parser Uyarıları
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+            {parseWarnings.map((w, i) => (
+              <div key={i} style={{ fontSize: '11px', color: '#fbbf24', display: 'flex', gap: '4px' }}>
+                <span>⚡</span>
+                <span>{w}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Step 11: Raw caption preview */}
+      {rawCaption && (
+        <details
+          style={{
+            background: '#0f172a',
+            borderBottom: '1px solid #1e293b',
+          }}
+        >
+          <summary
+            style={{
+              padding: '6px 16px',
+              fontSize: '10px',
+              color: '#475569',
+              cursor: 'pointer',
+              textTransform: 'uppercase',
+              letterSpacing: '0.07em',
+              fontWeight: 700,
+            }}
+          >
+            📋 Ham Mesaj (debug)
+          </summary>
+          <pre
+            style={{
+              margin: 0,
+              padding: '8px 16px',
+              fontSize: '11px',
+              color: '#64748b',
+              whiteSpace: 'pre-wrap',
+              wordBreak: 'break-word',
+            }}
+          >
+            {rawCaption}
+          </pre>
+        </details>
+      )}
+
+      {/* Step 14: Raw dispatch notes (collapsible debug) */}
+      {dispatchNotesRaw && (
+        <details
+          style={{
+            background: '#0a0f1a',
+            borderBottom: '1px solid #1e293b',
+          }}
+        >
+          <summary
+            style={{
+              padding: '6px 16px',
+              fontSize: '10px',
+              color: '#334155',
+              cursor: 'pointer',
+              textTransform: 'uppercase',
+              letterSpacing: '0.07em',
+              fontWeight: 700,
+            }}
+          >
+            📤 Ham Dispatch Notları (debug)
+          </summary>
+          <pre
+            style={{
+              margin: 0,
+              padding: '8px 16px',
+              fontSize: '10px',
+              color: '#334155',
+              whiteSpace: 'pre-wrap',
+              wordBreak: 'break-word',
+            }}
+          >
+            {(() => {
+              try { return JSON.stringify(JSON.parse(dispatchNotesRaw), null, 2) }
+              catch { return dispatchNotesRaw }
+            })()}
+          </pre>
+        </details>
       )}
 
       {/* Checklist */}

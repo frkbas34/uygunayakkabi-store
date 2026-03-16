@@ -1,23 +1,91 @@
 # PROJECT STATE — Uygunayakkabi
 
-_Last updated: 2026-03-15_
+_Last updated: 2026-03-16 (Step 15 complete + Mentix Intelligence Layer v2 — full memory system, product-flow-debugger, decision engine)_
 
 ## Current Status
 Phase 1 **COMPLETE** (validated 2026-03-13).
-Phase 2 **ACTIVE** — VPS infrastructure is live and operational (2026-03-14).
+Phase 2 **ACTIVE** — Steps 1–15 complete. Dispatch chain verified, media URLs hardened, E2E runbook ready. (2026-03-16)
+**Mentix Intelligence Layer v2** — 13-skill stack + full mentix-memory/ system (12 layers, 5 policies, 6 runbooks, trace schema, golden cases). Dashboard rebuilt as v2 (7 tabs). (2026-03-16)
 
-Core proof-of-concept achieved:
-- VPS provisioned (Netcup, Ubuntu 22.04.5 LTS)
-- Docker + Caddy + n8n + OpenClaw all running
-- Telegram bot connected and responding in DM (bot: `mentix_aibot`)
-- OpenClaw dashboard accessible at `agent.uygunayakkabi.com`
-- n8n accessible at `flow.uygunayakkabi.com`
-- OpenAI model active: `openai/gpt-5-mini`
-
-**🔴 SECURITY: API keys and tokens were exposed in session — rotation required before any production use.**
+End-to-end pipeline validated:
+- Telegram group mention → OpenClaw (mentix-intake skill) → n8n webhook → Payload draft product → media attach → duplicate guard → admin review
+- Security rotation: **DONE**
+- Docker network persistence: **DONE**
+- Telegram group allowlist + mention-only: **DONE**
 
 ## Current Phase
-Phase 2 — Automation Backbone (**ACTIVE — Infrastructure Live, Integration Pending**)
+Phase 2 — Automation Backbone (**ACTIVE — Steps 1–15 complete, Step 16 next**)
+Mentix Intelligence Layer v2 — Skill stack + memory system designed, ready for VPS deployment
+
+---
+
+## Mentix Intelligence Layer v2 (2026-03-16)
+
+### Active Skills on VPS
+| Skill | Status | Location |
+|-------|--------|----------|
+| mentix-intake | ✅ LIVE | VPS: `/home/furkan/.openclaw/skills/mentix-intake/` |
+
+### Designed Skills (Pending VPS Deployment)
+| Skill | Level | Permission Model | Status |
+|-------|-------|-----------------|--------|
+| skill-vetter | A (active) | Full ALLOWED/CONFIRM/DENIED matrix | `mentix-skills/skill-vetter/` |
+| browser-automation | A (read-only) | Read=ALLOWED / Click=CONFIRM / Bulk=DENIED | `mentix-skills/browser-automation/` |
+| sql-toolkit | A (safe diagnostics) | SELECT=ALLOWED / UPDATE=CONFIRM / DELETE=DENIED | `mentix-skills/sql-toolkit/` |
+| agent-memory | A (active) | Full ALLOWED/CONFIRM/DENIED matrix | `mentix-skills/agent-memory/` |
+| github-workflow | A (active) | Read=ALLOWED / Commit=CONFIRM / Force-push=DENIED | `mentix-skills/github-workflow/` |
+| uptime-kuma | A (active) | Full ALLOWED/CONFIRM/DENIED matrix | `mentix-skills/uptime-kuma/` |
+| **product-flow-debugger** | **A (active)** | **First-class module — 13-step trace map** | `mentix-skills/product-flow-debugger/` |
+| eachlabs-image-edit | B (controlled) | Full ALLOWED/CONFIRM/DENIED matrix | `mentix-skills/eachlabs-image-edit/` |
+| upload-post | B (draft-only) | Draft=ALLOWED / Publish=CONFIRM / Auto-publish=DENIED | `mentix-skills/upload-post/` |
+| research-cog | B (optional branch) | Informational only — not a pipeline gate | `mentix-skills/research-cog/` |
+| senior-backend | B (advisory) | Advisory only | `mentix-skills/senior-backend/` |
+| learning-engine | C (observe-only) | OER separation — cannot auto-modify production | `mentix-skills/learning-engine/` |
+
+**Total: 12 designed skills + 1 live (mentix-intake) = 13 skills**
+
+### Deployment Commands
+```bash
+scp -r mentix-skills/* furkan@VPS:/home/furkan/.openclaw/skills/
+scp -r mentix-memory/* furkan@VPS:/home/furkan/.openclaw/mentix-memory/
+mkdir -p /home/furkan/.openclaw/skills/agent-memory/data/{incidents,patterns,knowledge,decisions,rewards}
+```
+See `mentix-skills/INSTALLATION_MATRIX.md` for full deployment guide.
+
+### mentix-memory/ System (12 Layers — in repo, pending VPS deployment)
+| Layer | Contents |
+|-------|----------|
+| `identity/` | MENTIX_IDENTITY.md — 6 subsystems, what Mentix is/isn't |
+| `policies/` | DECISION_POLICY.md, WRITE_POLICY.md, PUBLISH_POLICY.md, MEMORY_POLICY.md, SKILL_GATING_POLICY.md |
+| `runbooks/` | 6 runbooks: product-not-visible, intake-failure, stock-mismatch, image-not-rendering, storefront-desync, price-not-updated |
+| `incidents/` | Active incident records (runtime) |
+| `traces/` | TRACE_SCHEMA.json + diagnostic session traces |
+| `patterns/` | Recurring issue patterns (learning engine output) |
+| `decisions/` | Decision records per action taken |
+| `evaluations/` | Was Mentix correct? (separate from outcomes) |
+| `rewards/` | Score records (separate from evaluations) |
+| `evals/` | GOLDEN_CASES.json (3 regression test cases) |
+| `summaries/` | Weekly/monthly digests |
+| `archive/` | Compressed old records |
+
+### Formal Decision Schema (12 fields)
+All decisions logged with: `task_type`, `risk_level`, `requires_write`, `requires_external_publish`, `confidence_score`, `evidence_strength`, `human_approval_required`, `reversible`, `blast_radius`, `selected_skills`, `proposed_action`, `final_action`
+
+### Confidence Gate
+| Score | Risk | Action |
+|-------|------|--------|
+| < 0.55 | any | Report only — do not proceed |
+| 0.55–0.79 | any | Propose + confirm required |
+| ≥ 0.80 | LOW | Proceed autonomously |
+| ≥ 0.80 | MEDIUM | Proceed with confirmation |
+| any | HIGH | Escalate to human always |
+
+### Project Governance Files
+| File | Purpose | Location |
+|------|---------|----------|
+| SYSTEM_PROMPT.md | Repo-level memory governance rules | `project-control/SYSTEM_PROMPT.md` |
+| MENTIX_SYSTEM_PROMPT.md | Mentix skill stack governance + intelligence layer spec | `project-control/MENTIX_SYSTEM_PROMPT.md` |
+| Skill Stack Dashboard v2 | Visual HTML — 7-tab interactive dashboard | `mentix-skill-stack-dashboard.html` (repo root) |
 
 ---
 
@@ -27,21 +95,27 @@ Phase 2 — Automation Backbone (**ACTIVE — Infrastructure Live, Integration P
 - Admin panel loads correctly at `uygunayakkabi.com/admin` — **CONFIRMED WORKING**
 - **Default Payload light theme** (dark mode CSS was removed — see D-029)
 - **Turkish language** configured as default (`@payloadcms/translations/languages/tr`)
-- importMap includes: all standard Payload components + VercelBlobClientUploadHandler
+- importMap includes: all standard Payload components + VercelBlobClientUploadHandler + ReviewPanel + SourceBadgeCell + StatusCell
 - **Custom Dashboard** (`afterDashboard`) is currently **DISABLED** in payload.config.ts
 - Admin grouped: Mağaza / Katalog / Medya / Müşteri / Stok / Pazarlama (Banners) / Ayarlar (Site Settings)
 - 11 collections registered: Users, Products, Variants, Brands, Categories, Media, CustomerInquiries, InventoryLogs, Orders, Banners, BlogPosts
 - 2 globals registered: SiteSettings, AutomationSettings
+- **Products list**: Source column with badges (Telegram / Otomasyon / Admin) + "Aktif Yap" quick-activate button
+- **Products edit (automation source)**: ReviewPanel shown at top — source info, chat/message ID, readiness checklist (title/price/image/SKU/category/brand), "Yayına Hazır" / "Eksikler Var" status
 
 ### Collections — Current Field State
 
 **Products** (expanded 2026-03-15):
-- Fields: title (required, Turkish validation), description, brand (text), category (select: Günlük/Spor/Klasik/Bot/Sandalet/Krampon/Cüzdan), gender, price (required, Turkish validation), originalPrice, status (active/soldout/draft), featured, slug (auto-generated, readOnly), sku (auto-generated if empty), images, variants, color, material, telegram/automation fields
+- Fields: title (required, Turkish validation), description, brand (text), category (select: Günlük/Spor/Klasik/Bot/Sandalet/Krampon/Cüzdan), gender, price (required, Turkish validation), originalPrice, status (active/soldout/draft), featured, slug (auto-generated, readOnly), sku (auto-generated if empty), images, variants, color, material
 - **New fields (2026-03-15):** productFamily (select: shoes/wallets/bags/belts/accessories), productType (text), channelTargets (select multi: website/instagram/shopier/dolap), automationFlags group (autoActivate, generateBlog, generateExtraViews, enableTryOn), sourceMeta group (telegramChatId, telegramSenderId, workflowId, externalSyncId)
-- `beforeValidate` hook: always auto-generates slug from title; auto-generates SKU if empty
+- **Automation fields (2026-03-15):** source (select: admin/telegram/n8n/api/import, sidebar, readOnly, SourceBadgeCell), channels group (publishWebsite/publishInstagram/publishShopier/publishDolap checkboxes), automationMeta group (telegramChatId, telegramMessageId — used for idempotency), stockQuantity (int, default 1)
+- **Step 11 fields (2026-03-16):** automationMeta extended with rawCaption (text), parseWarnings (textarea/JSON), parseConfidence (number 0–100); channelTargets (multi-select); automationFlags group (autoActivate/generateBlog/generateExtraViews/enableTryOn); sourceMeta group (telegramSenderId/workflowId/externalSyncId)
+- **Step 12 fields (2026-03-16):** automationMeta extended with autoDecision (select: active/draft), autoDecisionReason (textarea) — stores decision layer output for admin visibility
+- `beforeValidate` hook: always auto-generates slug from title; auto-generates SKU if empty; automation SKU pattern: `TG-{PREFIX3}-{msgId}`
 - `beforeDelete` hook: nullifies all variant.product and media.product references before deletion (prevents FK constraint errors)
 - Status labels: Turkish with emoji indicators
 - **Backward compatibility:** existing `category` field preserved alongside new `productFamily`/`productType`
+- **Idempotency:** `automationMeta.telegramChatId + telegramMessageId` used for duplicate detection — returns `{ status: "duplicate" }` if same message re-submitted
 
 **BlogPosts** (added 2026-03-15):
 - Fields: title, slug, excerpt, content (richText), featuredImage (relationship to media), relatedProduct (relationship to products), focusKeywords (array of text), metaTitle, metaDescription, status (draft/published), source (ai/admin), publishedAt
@@ -93,7 +167,8 @@ Phase 2 — Automation Backbone (**ACTIVE — Infrastructure Live, Integration P
 ### Production Environment (Vercel)
 - Deployment: **READY and functional**
 - URL: uygunayakkabi.com
-- Env vars set: DATABASE_URI, PAYLOAD_SECRET, NEXT_PUBLIC_SERVER_URL, NEXT_PUBLIC_WHATSAPP_NUMBER, BLOB_READ_WRITE_TOKEN
+- Env vars set: DATABASE_URI, PAYLOAD_SECRET, NEXT_PUBLIC_SERVER_URL, NEXT_PUBLIC_WHATSAPP_NUMBER, BLOB_READ_WRITE_TOKEN, AUTOMATION_SECRET, N8N_INTAKE_WEBHOOK
+- Env vars **NOT YET SET** (pending operator): `N8N_CHANNEL_INSTAGRAM_WEBHOOK`, `N8N_CHANNEL_SHOPIER_WEBHOOK`, `N8N_CHANNEL_DOLAP_WEBHOOK`
 - Next.js: **16.2.0-canary.81** (required for Payload CMS 3.79.0 compatibility)
 
 ### Git State
@@ -118,11 +193,17 @@ Phase 2 — Automation Backbone (**ACTIVE — Infrastructure Live, Integration P
 - `agent.uygunayakkabi.com` → Caddy → openclaw-gateway:18789
 - DNS via Cloudflare (A records → VPS IP)
 
-### VPS Known Issues
-- **🔴 Security rotation required**: Telegram bot token, OpenAI API key, OpenClaw gateway token — all exposed in setup session
-- **Docker network persistence**: OpenClaw gateway was manually connected to `web` network for Caddy routing. This must be made persistent in docker-compose (currently reverts on restart/redeploy)
-- **Telegram group policy**: `groupPolicy: "allowlist"` but `allowFrom` is empty — group messages silently dropped. DM-only for now.
-- **OpenClaw skills**: clawhub/github/gog/xurl install attempts failed (Homebrew not installed, DNS issues). Deferred — not blocking core operation.
+### VPS — Automation Pipeline (LIVE as of 2026-03-15)
+- **Security rotation**: ✅ DONE (Step 1)
+- **Docker network persistence**: ✅ DONE — OpenClaw gateway bound to `web` network in docker-compose.yml (Step 2)
+- **Telegram group policy**: ✅ DONE — `groupAllowFrom: [5450039553, 8049990232]`, `requireMention: true`, BotFather Group Privacy OFF (Step 3)
+- **mentix-intake skill**: `/home/furkan/.openclaw/skills/mentix-intake/SKILL.md` — active on VPS, calls n8n webhook via curl (Step 4)
+- **n8n webhook**: `POST /webhook/mentix-intake` — 3-node workflow (Webhook → Parse Intake Fields → Respond), live at flow.uygunayakkabi.com (Steps 4–6)
+- **Payload automation endpoints**:
+  - `POST /api/automation/products` — X-Automation-Secret header auth, creates draft products (Step 5)
+  - `POST /api/automation/attach-media` — downloads Telegram file binary, uploads to Payload media, links to product (Step 6)
+- **Duplicate protection**: telegramChatId + telegramMessageId idempotency key — active (Step 7)
+- **OpenClaw skills**: clawhub/github/gog/xurl deferred — not blocking core operation.
 
 ---
 
@@ -162,11 +243,51 @@ Phase 2 — Automation Backbone (**ACTIVE — Infrastructure Live, Integration P
 - [x] End-to-end pipeline: admin product → storefront confirmed ✅ (2026-03-13)
 - [x] Git branch stable, main authoritative
 
+## Step 15 — E2E Verification Pass + Media URL Hardening (COMPLETE ✅ — 2026-03-16)
+- `channelDispatch.ts` `extractMediaUrls()`: relative `/media/` paths now made absolute via `NEXT_PUBLIC_SERVER_URL` — VPS-side workers can fetch all media URLs
+- `.env.example`: updated with full Phase 2 env var set (AUTOMATION_SECRET, BLOB_READ_WRITE_TOKEN, N8N_CHANNEL_*_WEBHOOK, N8N_INTAKE_WEBHOOK)
+- `n8n-workflows/E2E_TEST_CHECKLIST.md` (120-line runbook): n8n import → env setup → test product → log verification → n8n execution check → media URL test → forceRedispatch test → failure mode table → quick checklist
+- `CHANNEL_DISPATCH_CONTRACT.md`: Media URL Behavior section + Known Limitations table added
+- **Verified clean:** env var naming, dispatch error handling, afterChange guard, Blob URL accessibility, forceRedispatch behavior
+- **Remaining ops (not code):** import stubs to n8n, set env vars in Vercel, run E2E test per checklist
+
+## Step 14 — n8n Stubs + Admin Dispatch Visibility (COMPLETE ✅ — 2026-03-16)
+- `n8n-workflows/stubs/channel-instagram.json` + channel-shopier.json + channel-dolap.json — importable n8n stub workflows (Webhook → Log Payload → Respond 200, no real API calls)
+- `n8n-workflows/CHANNEL_DISPATCH_CONTRACT.md` (222 lines) — full adapter contract, sample payload, setup guide, test checklist
+- ReviewPanel: dispatch status section (active products only) — per-channel eligible/dispatched/webhookConfigured/skippedReason/error/responseStatus rows, color-coded, `lastDispatchedAt`, collapsible raw debug block, pending dispatch hint for inactive products
+- `sourceMeta.forceRedispatch` checkbox — admin-triggered manual re-dispatch; auto-resets to false; triggers on already-active products; retry-safe (not reset on error)
+- afterChange hook updated: handles `forceRedispatch === true` alongside `status → active` transition; logs trigger type; always resets flag on success
+
+## Step 13 — Channel Adapter Scaffolding (COMPLETE ✅ — 2026-03-16)
+- `src/lib/channelDispatch.ts` (374 lines) — pure dispatch library
+  - `ChannelDispatchPayload` type (adapter contract) for Instagram / Shopier / Dolap
+  - `evaluateChannelEligibility()` — 3-gate eligibility: global capability ∩ product channelTargets ∩ channels.* flag
+  - `buildDispatchPayload()` — builds full structured n8n payload from product doc
+  - `dispatchToChannel()` — POST to n8n webhook if env var set; scaffold log if not
+  - `buildChannelWebhookUrl()` — reads N8N_CHANNEL_INSTAGRAM/SHOPIER/DOLAP_WEBHOOK
+  - `dispatchProductToChannels()` — orchestrator, returns per-channel results
+- `Products.ts` afterChange hook: fires on status non-active → active transition
+  - `req.context.isDispatchUpdate = true` pattern prevents infinite re-trigger on sourceMeta write
+  - Non-fatal: activation always succeeds even if dispatch errors occur
+- `Products.ts` sourceMeta: `dispatchedChannels` (text/JSON), `lastDispatchedAt` (date), `dispatchNotes` (textarea/JSON) added
+- Env vars for live mode: `N8N_CHANNEL_INSTAGRAM_WEBHOOK`, `N8N_CHANNEL_SHOPIER_WEBHOOK`, `N8N_CHANNEL_DOLAP_WEBHOOK`
+- Website excluded: served natively via active status, no dispatch webhook needed
+
+## Pending Operator Actions (BEFORE Step 16 can start)
+
+⚠️ These are **VPS + Vercel Dashboard** tasks — not code. Must be completed and verified.
+
+1. **n8n**: Import `n8n-workflows/stubs/channel-instagram.json` → activate → confirm URL is `/webhook/channel-instagram` (not `/webhook-test/`)
+2. **Vercel**: Set `N8N_CHANNEL_INSTAGRAM_WEBHOOK=https://flow.uygunayakkabi.com/webhook/channel-instagram` → redeploy
+3. **AutomationSettings admin**: Confirm `publishInstagram = true`
+4. **E2E test**: Create test product (draft → active, channelTargets=instagram, 1 image) → verify Vercel logs `ok=true`, n8n execution Success, sourceMeta `dispatchedChannels: ["instagram"]`, ReviewPanel green row, `mediaUrls` all `https://`
+
+Go/no-go for Step 16: all 4 checks above pass.
+
 ## Next Focus
-Phase 2 infrastructure is live. Product model and automation scaffolding expanded (2026-03-15). Immediate priorities:
-1. **OpenClaw → n8n webhook contract** — define JSON payload format, wire up webhook
-2. **n8n → Payload product creation workflow** — media upload + product create with toggle-controlled status
-3. **End-to-end test** — Telegram photo → bot → n8n → Payload draft/active → storefront
-4. **Multi-channel distribution adapters** — Website (done), Instagram, Shopier, Dolap
-5. **AI SEO blog workflow** — active product triggers blog generation
+**Step 16 — First Real Channel Integration** (after E2E stub test passes)
+- Replace Instagram stub with real n8n workflow using Instagram Graph API
+- Keep Shopier, Dolap, Blog in scaffold mode
+- sourceMeta.externalSyncId write-back from channel worker
+- Preserve forceRedispatch support
 See TASK_QUEUE.md for ordered execution plan.

@@ -1,0 +1,38 @@
+{
+  "_sim": true,
+  "trace_id": "TRC-SIM-001",
+  "timestamp": "2026-03-16T16:09:16.988461+00:00",
+  "triggered_by": "simulation",
+  "incident_ref": "INC-SIM-001",
+  "input": {
+    "raw_query": "\u00dcr\u00fcn admin panelde var ama storefrontta g\u00f6r\u00fcnm\u00fcyor",
+    "context": "product_id=TG-NIK-9001, reported by operator"
+  },
+  "skills_invoked": [
+    "product-flow-debugger",
+    "sql-toolkit"
+  ],
+  "flow_steps": [
+    {
+      "step": 9,
+      "action": "Check products.status",
+      "tool": "sql-toolkit.select",
+      "query": "SELECT id, title, status FROM products WHERE id = 'TG-NIK-9001'",
+      "evidence": "status = 'draft'",
+      "conclusion": "Root cause found at step 9"
+    }
+  ],
+  "diagnosis": {
+    "flow_step_failed": 9,
+    "flow_step_name": "Admin Review (status: draft \u2192 active)",
+    "symptom": "Product not visible on storefront",
+    "root_cause": "products.status = 'draft' \u2014 product was never activated",
+    "symptom_vs_root_cause": "Symptom is storefront absence; root cause is missing activation, not DB or Vercel issue",
+    "confidence": 0.92,
+    "evidence_strength": "STRONG"
+  },
+  "decision": null,
+  "outcome": null,
+  "evaluation": null,
+  "reward": null
+}

@@ -1,0 +1,484 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Mentix Intelligence Layer — Skill Stack Dashboard</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: 'Segoe UI', system-ui, -apple-system, sans-serif; background: #0a0e1a; color: #e0e6f0; min-height: 100vh; padding: 24px; }
+
+  .header { text-align: center; margin-bottom: 32px; }
+  .header h1 { font-size: 28px; font-weight: 700; background: linear-gradient(135deg, #60a5fa, #a78bfa, #f472b6); -webkit-background-clip: text; -webkit-text-fill-color: transparent; margin-bottom: 6px; }
+  .header .subtitle { color: #64748b; font-size: 14px; }
+  .header .date { color: #475569; font-size: 12px; margin-top: 4px; }
+
+  .stats-row { display: flex; gap: 12px; justify-content: center; margin-bottom: 28px; flex-wrap: wrap; }
+  .stat-card { background: #111827; border: 1px solid #1e293b; border-radius: 10px; padding: 14px 24px; text-align: center; min-width: 140px; }
+  .stat-card .num { font-size: 28px; font-weight: 700; }
+  .stat-card .label { font-size: 11px; color: #64748b; text-transform: uppercase; letter-spacing: 1px; margin-top: 2px; }
+  .stat-green .num { color: #34d399; }
+  .stat-blue .num { color: #60a5fa; }
+  .stat-yellow .num { color: #fbbf24; }
+  .stat-purple .num { color: #a78bfa; }
+
+  .section-title { font-size: 16px; font-weight: 600; margin-bottom: 14px; padding-left: 12px; border-left: 3px solid; }
+  .section-title.green { border-color: #34d399; color: #34d399; }
+  .section-title.yellow { border-color: #fbbf24; color: #fbbf24; }
+  .section-title.purple { border-color: #a78bfa; color: #a78bfa; }
+
+  .level-section { margin-bottom: 28px; }
+  .skills-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 12px; }
+
+  .skill-card { background: #111827; border: 1px solid #1e293b; border-radius: 10px; padding: 16px; transition: all 0.2s; cursor: default; position: relative; overflow: hidden; }
+  .skill-card:hover { border-color: #334155; transform: translateY(-1px); box-shadow: 0 4px 20px rgba(0,0,0,0.3); }
+  .skill-card::before { content: ''; position: absolute; top: 0; left: 0; right: 0; height: 2px; }
+  .skill-card.level-a::before { background: linear-gradient(90deg, #34d399, #10b981); }
+  .skill-card.level-b::before { background: linear-gradient(90deg, #fbbf24, #f59e0b); }
+  .skill-card.level-c::before { background: linear-gradient(90deg, #a78bfa, #8b5cf6); }
+
+  .skill-header { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+  .skill-icon { width: 36px; height: 36px; border-radius: 8px; display: flex; align-items: center; justify-content: center; font-size: 18px; flex-shrink: 0; }
+  .level-a .skill-icon { background: rgba(52,211,153,0.15); }
+  .level-b .skill-icon { background: rgba(251,191,36,0.15); }
+  .level-c .skill-icon { background: rgba(167,139,250,0.15); }
+  .skill-name { font-size: 15px; font-weight: 600; }
+  .skill-mode { font-size: 10px; padding: 2px 8px; border-radius: 9999px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; margin-left: auto; }
+  .mode-active { background: rgba(52,211,153,0.15); color: #34d399; }
+  .mode-readonly { background: rgba(96,165,250,0.15); color: #60a5fa; }
+  .mode-controlled { background: rgba(251,191,36,0.15); color: #fbbf24; }
+  .mode-observe { background: rgba(167,139,250,0.15); color: #a78bfa; }
+  .mode-draft { background: rgba(251,191,36,0.15); color: #fbbf24; }
+  .mode-advisory { background: rgba(96,165,250,0.15); color: #60a5fa; }
+  .mode-info { background: rgba(96,165,250,0.15); color: #60a5fa; }
+
+  .skill-desc { font-size: 12px; color: #94a3b8; line-height: 1.5; margin-bottom: 10px; }
+  .skill-perms { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 8px; }
+  .perm { font-size: 10px; padding: 2px 6px; border-radius: 4px; }
+  .perm-allow { background: rgba(52,211,153,0.1); color: #34d399; border: 1px solid rgba(52,211,153,0.2); }
+  .perm-confirm { background: rgba(251,191,36,0.1); color: #fbbf24; border: 1px solid rgba(251,191,36,0.2); }
+  .perm-deny { background: rgba(248,113,113,0.1); color: #f87171; border: 1px solid rgba(248,113,113,0.2); }
+
+  .skill-risk { display: flex; align-items: center; gap: 6px; font-size: 11px; color: #64748b; }
+  .risk-dot { width: 6px; height: 6px; border-radius: 50%; }
+  .risk-low { background: #34d399; }
+  .risk-medium { background: #fbbf24; }
+
+  .flow-section { margin: 32px 0; padding: 24px; background: #111827; border: 1px solid #1e293b; border-radius: 12px; }
+  .flow-title { font-size: 16px; font-weight: 600; margin-bottom: 16px; color: #e0e6f0; text-align: center; }
+
+  .flow-diagram { display: flex; flex-direction: column; align-items: center; gap: 0; }
+  .flow-row { display: flex; align-items: center; gap: 8px; }
+  .flow-node { background: #1e293b; border: 1px solid #334155; border-radius: 8px; padding: 8px 16px; font-size: 12px; font-weight: 500; text-align: center; min-width: 160px; }
+  .flow-node.primary { border-color: #60a5fa; background: rgba(96,165,250,0.1); color: #93c5fd; }
+  .flow-node.success { border-color: #34d399; background: rgba(52,211,153,0.1); color: #6ee7b7; }
+  .flow-node.warning { border-color: #fbbf24; background: rgba(251,191,36,0.1); color: #fde68a; }
+  .flow-node.purple { border-color: #a78bfa; background: rgba(167,139,250,0.1); color: #c4b5fd; }
+  .flow-arrow { color: #475569; font-size: 16px; text-align: center; padding: 2px 0; }
+  .flow-branch { display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; }
+
+  .decision-section { margin: 28px 0; }
+  .decision-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 12px; }
+  .decision-card { background: #111827; border: 1px solid #1e293b; border-radius: 10px; padding: 14px; }
+  .decision-id { font-size: 11px; color: #60a5fa; font-weight: 600; margin-bottom: 4px; }
+  .decision-title { font-size: 13px; font-weight: 600; margin-bottom: 6px; }
+  .decision-reason { font-size: 11px; color: #94a3b8; line-height: 1.5; }
+
+  .reward-section { margin: 28px 0; }
+  .reward-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  @media (max-width: 640px) { .reward-grid { grid-template-columns: 1fr; } }
+  .reward-col h3 { font-size: 13px; font-weight: 600; margin-bottom: 10px; padding: 6px 10px; border-radius: 6px; }
+  .reward-col.positive h3 { background: rgba(52,211,153,0.1); color: #34d399; }
+  .reward-col.negative h3 { background: rgba(248,113,113,0.1); color: #f87171; }
+  .reward-item { display: flex; justify-content: space-between; align-items: center; font-size: 12px; padding: 6px 10px; border-bottom: 1px solid #1e293b; }
+  .reward-item:last-child { border-bottom: none; }
+  .reward-score { font-weight: 700; font-size: 13px; }
+  .score-pos { color: #34d399; }
+  .score-neg { color: #f87171; }
+
+  .deploy-section { margin: 28px 0; padding: 20px; background: linear-gradient(135deg, rgba(96,165,250,0.08), rgba(167,139,250,0.08)); border: 1px solid #1e3a5f; border-radius: 12px; }
+  .deploy-title { font-size: 16px; font-weight: 600; margin-bottom: 12px; color: #93c5fd; }
+  .deploy-steps { counter-reset: step; }
+  .deploy-step { display: flex; gap: 10px; margin-bottom: 8px; font-size: 12px; line-height: 1.6; }
+  .deploy-step::before { counter-increment: step; content: counter(step); background: #1e3a5f; color: #60a5fa; width: 22px; height: 22px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 700; flex-shrink: 0; margin-top: 1px; }
+  .deploy-cmd { background: #0d1117; border: 1px solid #1e293b; border-radius: 6px; padding: 4px 8px; font-family: 'JetBrains Mono', 'Fira Code', monospace; font-size: 11px; color: #7dd3fc; word-break: break-all; }
+
+  .risk-section { margin: 28px 0; }
+  .risk-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+  .risk-table th { text-align: left; padding: 8px 12px; background: #1e293b; color: #94a3b8; font-weight: 600; font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; }
+  .risk-table td { padding: 8px 12px; border-bottom: 1px solid #1e293b; }
+  .risk-table tr:hover td { background: rgba(30,41,59,0.5); }
+  .sev-medium { color: #fbbf24; }
+  .sev-low { color: #34d399; }
+
+  .footer { text-align: center; margin-top: 32px; padding-top: 16px; border-top: 1px solid #1e293b; color: #475569; font-size: 11px; }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1>Mentix Intelligence Layer</h1>
+  <div class="subtitle">Full Skill Stack &mdash; Architecture &amp; Activation Dashboard</div>
+  <div class="date">Designed 2026-03-16 &bull; Pending VPS Deployment</div>
+</div>
+
+<!-- Stats -->
+<div class="stats-row">
+  <div class="stat-card stat-green"><div class="num">12</div><div class="label">Total Skills</div></div>
+  <div class="stat-card stat-blue"><div class="num">6</div><div class="label">Level A &mdash; Active</div></div>
+  <div class="stat-card stat-yellow"><div class="num">4</div><div class="label">Level B &mdash; Controlled</div></div>
+  <div class="stat-card stat-purple"><div class="num">1</div><div class="label">Level C &mdash; Observe</div></div>
+</div>
+
+<!-- LEVEL A -->
+<div class="level-section">
+  <div class="section-title green">Level A &mdash; Active from Day One</div>
+  <div class="skills-grid">
+
+    <div class="skill-card level-a">
+      <div class="skill-header">
+        <div class="skill-icon">&#128274;</div>
+        <div class="skill-name">skill-vetter</div>
+        <span class="skill-mode mode-active">Active</span>
+      </div>
+      <div class="skill-desc">Security gateway for evaluating new skills. Checks permissions, provenance, safety, and operational risk before any addition.</div>
+      <div class="skill-perms">
+        <span class="perm perm-allow">evaluate skills</span>
+        <span class="perm perm-allow">report risks</span>
+        <span class="perm perm-deny">auto-block</span>
+      </div>
+      <div class="skill-risk"><span class="risk-dot risk-low"></span> Low risk &bull; No dependencies</div>
+    </div>
+
+    <div class="skill-card level-a">
+      <div class="skill-header">
+        <div class="skill-icon">&#127760;</div>
+        <div class="skill-name">browser-automation</div>
+        <span class="skill-mode mode-readonly">Read-Only</span>
+      </div>
+      <div class="skill-desc">Web inspection, screenshot capture, endpoint verification, and visual flow testing. No form filling or clicking allowed initially.</div>
+      <div class="skill-perms">
+        <span class="perm perm-allow">read pages</span>
+        <span class="perm perm-allow">screenshots</span>
+        <span class="perm perm-confirm">check endpoints</span>
+        <span class="perm perm-deny">fill forms</span>
+        <span class="perm perm-deny">click</span>
+      </div>
+      <div class="skill-risk"><span class="risk-dot risk-low"></span> Low risk &bull; Needs headless browser on VPS</div>
+    </div>
+
+    <div class="skill-card level-a">
+      <div class="skill-header">
+        <div class="skill-icon">&#128451;</div>
+        <div class="skill-name">sql-toolkit</div>
+        <span class="skill-mode mode-active">Safe Diag</span>
+      </div>
+      <div class="skill-desc">Database diagnostics: schema review, query analysis, stock/price consistency checks, product data flow debugging against Neon PostgreSQL.</div>
+      <div class="skill-perms">
+        <span class="perm perm-allow">SELECT</span>
+        <span class="perm perm-allow">schema inspect</span>
+        <span class="perm perm-confirm">UPDATE</span>
+        <span class="perm perm-deny">DDL</span>
+        <span class="perm perm-deny">DELETE</span>
+      </div>
+      <div class="skill-risk"><span class="risk-dot risk-medium"></span> Medium risk &bull; Needs DATABASE_URI</div>
+    </div>
+
+    <div class="skill-card level-a">
+      <div class="skill-header">
+        <div class="skill-icon">&#129504;</div>
+        <div class="skill-name">agent-memory</div>
+        <span class="skill-mode mode-active">Active</span>
+      </div>
+      <div class="skill-desc">Structured operational memory: incidents, patterns, knowledge, decisions, rewards. File-based (chosen over ChromaDB &mdash; see D-071).</div>
+      <div class="skill-perms">
+        <span class="perm perm-allow">store</span>
+        <span class="perm perm-allow">retrieve</span>
+        <span class="perm perm-allow">search</span>
+        <span class="perm perm-allow">archive</span>
+        <span class="perm perm-deny">delete</span>
+      </div>
+      <div class="skill-risk"><span class="risk-dot risk-low"></span> Low risk &bull; Needs data dir on VPS</div>
+    </div>
+
+    <div class="skill-card level-a">
+      <div class="skill-header">
+        <div class="skill-icon">&#128187;</div>
+        <div class="skill-name">github-workflow</div>
+        <span class="skill-mode mode-active">Active</span>
+      </div>
+      <div class="skill-desc">Repo state tracking, issue summarization, PR support, code change mapping. Read-heavy with confirmation gates on writes.</div>
+      <div class="skill-perms">
+        <span class="perm perm-allow">read repo</span>
+        <span class="perm perm-allow">list issues</span>
+        <span class="perm perm-confirm">create commit</span>
+        <span class="perm perm-confirm">push</span>
+        <span class="perm perm-deny">delete branch</span>
+      </div>
+      <div class="skill-risk"><span class="risk-dot risk-low"></span> Low risk &bull; Needs GITHUB_TOKEN</div>
+    </div>
+
+    <div class="skill-card level-a">
+      <div class="skill-header">
+        <div class="skill-icon">&#128994;</div>
+        <div class="skill-name">uptime-kuma</div>
+        <span class="skill-mode mode-active">Active</span>
+      </div>
+      <div class="skill-desc">Health monitoring for all services: storefront, admin, n8n, OpenClaw, Payload API. Quick/full/deep check modes with response timing.</div>
+      <div class="skill-perms">
+        <span class="perm perm-allow">HTTP GET</span>
+        <span class="perm perm-allow">DNS check</span>
+        <span class="perm perm-allow">SSL check</span>
+        <span class="perm perm-deny">write requests</span>
+      </div>
+      <div class="skill-risk"><span class="risk-dot risk-low"></span> Low risk &bull; No dependencies</div>
+    </div>
+
+  </div>
+</div>
+
+<!-- LEVEL B -->
+<div class="level-section">
+  <div class="section-title yellow">Level B &mdash; Installed but Controlled</div>
+  <div class="skills-grid">
+
+    <div class="skill-card level-b">
+      <div class="skill-header">
+        <div class="skill-icon">&#127912;</div>
+        <div class="skill-name">eachlabs-image-edit</div>
+        <span class="skill-mode mode-controlled">Controlled</span>
+      </div>
+      <div class="skill-desc">Product image enhancement: upscale, cleanup, background improvement. Every operation requires explicit approval.</div>
+      <div class="skill-perms">
+        <span class="perm perm-allow">analyze</span>
+        <span class="perm perm-confirm">enhance</span>
+        <span class="perm perm-confirm">upscale</span>
+        <span class="perm perm-deny">batch</span>
+        <span class="perm perm-deny">overwrite</span>
+      </div>
+      <div class="skill-risk"><span class="risk-dot risk-medium"></span> Medium &bull; Needs Image API key</div>
+    </div>
+
+    <div class="skill-card level-b">
+      <div class="skill-header">
+        <div class="skill-icon">&#128228;</div>
+        <div class="skill-name">upload-post</div>
+        <span class="skill-mode mode-draft">Draft-Only</span>
+      </div>
+      <div class="skill-desc">Social media content drafting: captions, hashtags, publish suggestions. Generates drafts only &mdash; never auto-publishes.</div>
+      <div class="skill-perms">
+        <span class="perm perm-allow">generate draft</span>
+        <span class="perm perm-allow">preview</span>
+        <span class="perm perm-confirm">publish</span>
+        <span class="perm perm-deny">auto-publish</span>
+        <span class="perm perm-deny">delete posts</span>
+      </div>
+      <div class="skill-risk"><span class="risk-dot risk-medium"></span> Medium &bull; Needs channel APIs</div>
+    </div>
+
+    <div class="skill-card level-b">
+      <div class="skill-header">
+        <div class="skill-icon">&#128270;</div>
+        <div class="skill-name">research-cog</div>
+        <span class="skill-mode mode-info">Informational</span>
+      </div>
+      <div class="skill-desc">Market research, competitor analysis, product research, content intelligence. Outputs reports only &mdash; no automated actions.</div>
+      <div class="skill-perms">
+        <span class="perm perm-allow">web search</span>
+        <span class="perm perm-allow">analyze</span>
+        <span class="perm perm-allow">report</span>
+        <span class="perm perm-deny">auto-execute</span>
+      </div>
+      <div class="skill-risk"><span class="risk-dot risk-low"></span> Low risk &bull; No dependencies</div>
+    </div>
+
+    <div class="skill-card level-b">
+      <div class="skill-header">
+        <div class="skill-icon">&#128736;</div>
+        <div class="skill-name">senior-backend</div>
+        <span class="skill-mode mode-advisory">Advisory</span>
+      </div>
+      <div class="skill-desc">Architecture reasoning, API design review, auth strategy, infra hardening, performance analysis. Recommends only &mdash; never auto-implements.</div>
+      <div class="skill-perms">
+        <span class="perm perm-allow">analyze</span>
+        <span class="perm perm-allow">suggest</span>
+        <span class="perm perm-allow">review code</span>
+        <span class="perm perm-deny">modify code</span>
+        <span class="perm perm-deny">modify infra</span>
+      </div>
+      <div class="skill-risk"><span class="risk-dot risk-low"></span> Low risk &bull; No dependencies</div>
+    </div>
+
+  </div>
+</div>
+
+<!-- LEVEL C -->
+<div class="level-section">
+  <div class="section-title purple">Level C &mdash; Observe-First Mode</div>
+  <div class="skills-grid">
+
+    <div class="skill-card level-c" style="max-width: 680px;">
+      <div class="skill-header">
+        <div class="skill-icon">&#129302;</div>
+        <div class="skill-name">learning-engine</div>
+        <span class="skill-mode mode-observe">Observe Only</span>
+      </div>
+      <div class="skill-desc">Self-observation, pattern recognition, reward/penalty scoring, and improvement proposals. Watches all skill operations silently. <strong>NEVER auto-modifies any skill, workflow, or system configuration.</strong> All proposals require explicit human approval.</div>
+      <div class="skill-perms">
+        <span class="perm perm-allow">observe</span>
+        <span class="perm perm-allow">score</span>
+        <span class="perm perm-allow">detect patterns</span>
+        <span class="perm perm-allow">summarize</span>
+        <span class="perm perm-allow">propose</span>
+        <span class="perm perm-deny">auto-modify</span>
+        <span class="perm perm-deny">self-modify</span>
+        <span class="perm perm-deny">execute</span>
+      </div>
+      <div class="skill-risk"><span class="risk-dot risk-low"></span> Low risk &bull; Depends on agent-memory</div>
+    </div>
+
+  </div>
+</div>
+
+<!-- Existing Live Skill -->
+<div class="level-section">
+  <div class="section-title green">Already Live on VPS</div>
+  <div class="skills-grid">
+    <div class="skill-card level-a">
+      <div class="skill-header">
+        <div class="skill-icon">&#128230;</div>
+        <div class="skill-name">mentix-intake</div>
+        <span class="skill-mode mode-active">LIVE</span>
+      </div>
+      <div class="skill-desc">Product intake from Telegram. Parses captions (photo + text), sends structured payload to n8n webhook for product creation in Payload CMS.</div>
+      <div class="skill-perms">
+        <span class="perm perm-allow">parse caption</span>
+        <span class="perm perm-allow">POST to n8n</span>
+        <span class="perm perm-allow">respond in TR</span>
+      </div>
+      <div class="skill-risk"><span class="risk-dot risk-low"></span> Production &bull; VPS: /home/furkan/.openclaw/skills/mentix-intake/</div>
+    </div>
+  </div>
+</div>
+
+<!-- Data Flow -->
+<div class="flow-section">
+  <div class="flow-title">Mentix Data Flow &amp; Decision Architecture</div>
+  <div class="flow-diagram">
+    <div class="flow-node primary">&#128241; Telegram Group Message</div>
+    <div class="flow-arrow">&#8595;</div>
+    <div class="flow-node primary">&#129302; OpenClaw Gateway (mentix_aibot)</div>
+    <div class="flow-arrow">&#8595;</div>
+    <div class="flow-node success">&#127919; Skill Router (intent detection)</div>
+    <div class="flow-arrow">&#8595;</div>
+    <div class="flow-branch">
+      <div class="flow-node" style="border-color:#34d399;color:#6ee7b7;">mentix-intake</div>
+      <div class="flow-node" style="border-color:#34d399;color:#6ee7b7;">sql-toolkit</div>
+      <div class="flow-node" style="border-color:#34d399;color:#6ee7b7;">uptime-kuma</div>
+      <div class="flow-node" style="border-color:#34d399;color:#6ee7b7;">github-workflow</div>
+      <div class="flow-node" style="border-color:#fbbf24;color:#fde68a;">research-cog</div>
+    </div>
+    <div class="flow-arrow">&#8595;</div>
+    <div class="flow-node warning">&#9878;&#65039; Decision Engine (risk-aware)</div>
+    <div class="flow-arrow">&#8595;</div>
+    <div class="flow-branch">
+      <div class="flow-node" style="font-size:11px;">LOW risk &#8594; proceed</div>
+      <div class="flow-node" style="font-size:11px;">MED risk &#8594; confirm</div>
+      <div class="flow-node" style="font-size:11px;">HIGH risk &#8594; escalate</div>
+    </div>
+    <div class="flow-arrow">&#8595;</div>
+    <div class="flow-node purple">&#129504; agent-memory (store outcome)</div>
+    <div class="flow-arrow">&#8595;</div>
+    <div class="flow-node purple">&#129302; learning-engine (observe + score)</div>
+  </div>
+</div>
+
+<!-- Reward System -->
+<div class="reward-section">
+  <div class="section-title purple" style="border-color:#60a5fa; color:#60a5fa;">Learning Engine &mdash; Reward Framework</div>
+  <div class="reward-grid">
+    <div class="reward-col positive">
+      <h3>&#10003; Positive Signals</h3>
+      <div class="reward-item"><span>Correct root cause found</span><span class="reward-score score-pos">+5</span></div>
+      <div class="reward-item"><span>Human confirmed diagnosis</span><span class="reward-score score-pos">+4</span></div>
+      <div class="reward-item"><span>Issue prevented proactively</span><span class="reward-score score-pos">+5</span></div>
+      <div class="reward-item"><span>First-pass resolution</span><span class="reward-score score-pos">+3</span></div>
+      <div class="reward-item"><span>Recommendation reused successfully</span><span class="reward-score score-pos">+3</span></div>
+      <div class="reward-item"><span>Accurate prediction</span><span class="reward-score score-pos">+3</span></div>
+      <div class="reward-item"><span>Minimal diagnostic steps</span><span class="reward-score score-pos">+2</span></div>
+    </div>
+    <div class="reward-col negative">
+      <h3>&#10007; Negative Signals</h3>
+      <div class="reward-item"><span>Wrong diagnosis</span><span class="reward-score score-neg">-5</span></div>
+      <div class="reward-item"><span>Risky recommendation without evidence</span><span class="reward-score score-neg">-5</span></div>
+      <div class="reward-item"><span>Repeated wrong suggestion</span><span class="reward-score score-neg">-4</span></div>
+      <div class="reward-item"><span>False confidence (high conf, wrong)</span><span class="reward-score score-neg">-4</span></div>
+      <div class="reward-item"><span>Confused symptom with root cause</span><span class="reward-score score-neg">-3</span></div>
+      <div class="reward-item"><span>Missed obvious diagnostic path</span><span class="reward-score score-neg">-3</span></div>
+      <div class="reward-item"><span>Unnecessary tool usage</span><span class="reward-score score-neg">-2</span></div>
+    </div>
+  </div>
+</div>
+
+<!-- Key Decisions -->
+<div class="decision-section">
+  <div class="section-title green" style="border-color: #60a5fa; color: #60a5fa;">Key Decisions (D-070 &mdash; D-073)</div>
+  <div class="decision-grid">
+    <div class="decision-card">
+      <div class="decision-id">D-070</div>
+      <div class="decision-title">11-Skill Stack with 3-Level Rollout</div>
+      <div class="decision-reason">Safe evolution from single-skill bot to full operations assistant. Level A active, Level B controlled, Level C observe-only.</div>
+    </div>
+    <div class="decision-card">
+      <div class="decision-id">D-071</div>
+      <div class="decision-title">agent-memory over ChromaDB</div>
+      <div class="decision-reason">File-based memory aligns with existing docs, avoids extra Docker container, easier to inspect/debug. Can upgrade to ChromaDB later.</div>
+    </div>
+    <div class="decision-card">
+      <div class="decision-id">D-072</div>
+      <div class="decision-title">Learning Engine: Observe-First</div>
+      <div class="decision-reason">No auto-modification of production behavior. Must build trust through accurate observations before earning autonomous rights (30+ days).</div>
+    </div>
+    <div class="decision-card">
+      <div class="decision-id">D-073</div>
+      <div class="decision-title">Draft-First Publishing, Confirm Writes</div>
+      <div class="decision-reason">Publishing, DB writes, and image ops all gated. High-impact, hard-to-reverse mistakes prevented by confirmation gates.</div>
+    </div>
+  </div>
+</div>
+
+<!-- Deployment -->
+<div class="deploy-section">
+  <div class="deploy-title">&#128640; Deployment Steps (VPS Operator Actions)</div>
+  <div class="deploy-steps">
+    <div class="deploy-step"><span>Copy skills to VPS: <span class="deploy-cmd">scp -r mentix-skills/* furkan@VPS:/home/furkan/.openclaw/skills/</span></span></div>
+    <div class="deploy-step"><span>Create memory dirs: <span class="deploy-cmd">mkdir -p /home/furkan/.openclaw/skills/agent-memory/data/{incidents,patterns,knowledge,decisions,rewards}</span></span></div>
+    <div class="deploy-step"><span>Add env vars to OpenClaw Docker: <span class="deploy-cmd">DATABASE_URI</span> and <span class="deploy-cmd">GITHUB_TOKEN</span></span></div>
+    <div class="deploy-step"><span>Restart gateway: <span class="deploy-cmd">cd /opt/openclaw && docker compose restart</span></span></div>
+    <div class="deploy-step"><span>Verify skill recognition in logs: <span class="deploy-cmd">docker logs openclaw-openclaw-gateway-1 --tail 50</span></span></div>
+    <div class="deploy-step"><span>Test Level A skills via Telegram (one by one)</span></div>
+  </div>
+</div>
+
+<!-- Risk Register -->
+<div class="risk-section">
+  <div class="section-title green" style="border-color: #f87171; color: #f87171;">Risk Register</div>
+  <table class="risk-table">
+    <thead><tr><th>Risk</th><th>Severity</th><th>Mitigation</th></tr></thead>
+    <tbody>
+      <tr><td>OpenClaw may not auto-discover skills</td><td class="sev-medium">MEDIUM</td><td>Check gateway logs; may need openclaw.json registration</td></tr>
+      <tr><td>sql-toolkit needs DB credentials</td><td class="sev-medium">MEDIUM</td><td>Add DATABASE_URI to Docker env before enabling</td></tr>
+      <tr><td>browser-automation lacks headless browser</td><td class="sev-medium">MEDIUM</td><td>May need Playwright install in OpenClaw container</td></tr>
+      <tr><td>GitHub skill needs auth token</td><td class="sev-low">LOW</td><td>Add GITHUB_TOKEN to OpenClaw environment</td></tr>
+      <tr><td>Learning engine storage growth</td><td class="sev-low">LOW</td><td>Size limits: 1000 rewards, 200 patterns; auto-archive</td></tr>
+      <tr><td>Gateway restart disconnects Telegram</td><td class="sev-low">LOW</td><td>Re-pair if needed after restart</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<div class="footer">
+  Mentix Intelligence Layer v1.0 &bull; Uygunayakkabi Project &bull; Generated 2026-03-16
+</div>
+
+</body>
+</html>

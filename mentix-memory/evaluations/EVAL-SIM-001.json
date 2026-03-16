@@ -1,0 +1,15 @@
+{
+  "_sim": true,
+  "evaluation_id": "EVAL-SIM-001",
+  "timestamp": "2026-03-16T16:09:17.008695+00:00",
+  "trace_ref": "TRC-SIM-001",
+  "incident_ref": "INC-SIM-001",
+  "diagnosis_correct": true,
+  "first_pass": true,
+  "unnecessary_steps": 0,
+  "confidence_was": 0.92,
+  "evidence_strength": "STRONG",
+  "evaluator_notes": "Correct entry point (A), correct root cause on first query, no unnecessary steps",
+  "golden_case_ref": "GC-001",
+  "gate_action_was": "PROCEED"
+}

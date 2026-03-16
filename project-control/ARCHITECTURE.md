@@ -1,6 +1,6 @@
 # ARCHITECTURE — Uygunayakkabi
 
-_Last updated: 2026-03-15_
+_Last updated: 2026-03-16 (Step 15 complete + Mentix Intelligence Layer v2 — 13 skills, mentix-memory/ system, formal decision engine)_
 
 ## High-Level Overview
 Uygunayakkabi is a **Telegram-first, AI-assisted, multi-channel commerce engine** with integrated content generation, visual expansion, and future try-on capabilities. It is not a simple storefront — it is a central product management system that publishes to multiple channels (website, Instagram, Shopier, Dolap) from a single source of truth (Payload CMS).
@@ -27,6 +27,23 @@ Uygunayakkabi is a **Telegram-first, AI-assisted, multi-channel commerce engine*
 - **AI Model Provider**: OpenAI (`openai/gpt-5-mini`)
 - **DNS/CDN**: Cloudflare (A records → VPS IP for `flow.*` and `agent.*` subdomains)
 
+### Mentix Intelligence Layer v2 (OpenClaw Skills)
+- **Skills Location**: VPS: `/home/furkan/.openclaw/skills/`
+- **Active Skill**: `mentix-intake` (product intake via Telegram)
+- **Designed Skills (pending deployment)**: 12 skills in 3 activation levels
+  - **Level A (Active)**: skill-vetter, browser-automation, sql-toolkit, agent-memory, github-workflow, uptime-kuma, **product-flow-debugger** (first-class diagnostic module — 13-step trace map)
+  - **Level B (Controlled)**: eachlabs-image-edit, upload-post, research-cog (optional branch), senior-backend
+  - **Level C (Observe)**: learning-engine (OER separation — outcome/evaluation/reward distinct)
+- **Permission Model**: Each skill has explicit ALLOWED / CONFIRM-REQUIRED / DENIED table (capability ≠ permission)
+- **Decision Engine**: Formal 12-field JSON schema + confidence gate (see D-074, DECISION_POLICY.md)
+- **Memory System**: File-based 12-layer structured memory at `mentix-memory/` (see D-071)
+  - `policies/` (5), `runbooks/` (6), `traces/`, `evals/` (golden cases), `evaluations/`, `rewards/`
+- **Learning System**: Observe-first, OER-separated reward scoring (see D-072, D-075)
+- **Skill Definitions**: Repo: `mentix-skills/` → deploy to VPS via SCP
+- **Memory Definitions**: Repo: `mentix-memory/` → deploy to VPS via SCP
+- **Dashboard**: `mentix-skill-stack-dashboard.html` (repo root) — 7-tab interactive HTML
+- **Full Matrix**: `mentix-skills/INSTALLATION_MATRIX.md`
+
 ## Directory Structure
 
 ```
@@ -51,7 +68,14 @@ src/
 │   │   └── admin/[[...segments]] # Payload admin entry
 │   └── api/                      # Custom API routes
 │       ├── inquiries/route.ts    # Customer inquiry endpoint
-│       └── telegram/route.ts     # Telegram webhook handler (Phase 2 scaffold)
+│       ├── telegram/route.ts     # Telegram webhook handler (Phase 2 scaffold — not primary intake path)
+│       ├── automation/
+│       │   ├── products/route.ts     # POST — creates draft products from automation pipeline
+│       │   │                         #   Auth: X-Automation-Secret header
+│       │   │                         #   Idempotency: telegramChatId + telegramMessageId
+│       │   │                         #   Returns: { status: "duplicate" } if already exists
+│       │   └── attach-media/route.ts # POST — downloads Telegram file, uploads to Payload media, links to product
+│       │                             #   Steps: getFile API → binary download → payload.create(media) → payload.update(product.images)
 ├── collections/                  # 11 Payload collections (BlogPosts added 2026-03-15)
 │   ├── Products.ts               # Fully rewritten 2026-03-11:
 │   │                             #   beforeValidate: auto-slug (always), auto-SKU (if empty)
@@ -73,11 +97,35 @@ src/
 │   └── AutomationSettings.ts   # Automation/publishing toggles (added 2026-03-15)
 ├── components/
 │   ├── ProductCard.tsx, ProductImages.tsx, ProductGrid.tsx, ContactForm.tsx
-│   └── admin/Dashboard.tsx       # Custom admin dashboard (currently DISABLED in payload.config.ts)
+│   └── admin/
+│       ├── Dashboard.tsx         # Custom admin dashboard (currently DISABLED in payload.config.ts)
+│       ├── ReviewPanel.tsx       # Automation product review panel (shown on edit page for non-admin source products)
+│       ├── SourceBadgeCell.tsx   # Source column badge (Telegram/Otomasyon/Admin) in Products list
+│       └── StatusCell.tsx        # Status column with "Aktif Yap" button + inline error display
 ├── lib/
 │   ├── payload.ts               # Payload singleton getter
-│   └── telegram.ts              # Telegram caption/stock parsers (Phase 2 scaffold)
+│   ├── telegram.ts              # Step 11: Enhanced caption parser + publish-readiness evaluator
+│   │                            #   parseTelegramCaption / evaluatePublishReadiness / parseStockUpdate
+│   ├── automationDecision.ts   # Step 12: Stateless decision layer
+│   │                            #   resolveProductStatus: active vs draft, precedence gates
+│   │                            #   resolveChannelTargets: global capability ∩ product intent
+│   │                            #   resolveContentDecision: blog/image/tryon intent flags
+│   │                            #   fetchAutomationSettings: safe Payload global fetch
+│   └── channelDispatch.ts      # Step 13: Channel adapter scaffolding
+│                                #   ChannelDispatchPayload (adapter contract)
+│                                #   evaluateChannelEligibility: global ∩ product intent (3-gate)
+│                                #   buildDispatchPayload: structured n8n webhook body
+│                                #   dispatchToChannel: POST to n8n or scaffold log
+│                                #   buildChannelWebhookUrl: reads N8N_CHANNEL_*_WEBHOOK
+│                                #   dispatchProductToChannels: orchestrator (afterChange entry point)
 └── styles/
+
+n8n-workflows/                   # Step 14: n8n stub workflow assets (VCS-tracked, importable to n8n)
+│   CHANNEL_DISPATCH_CONTRACT.md # Full adapter contract: payload type, sample, env vars, test checklist
+│   └── stubs/
+│       channel-instagram.json   # Stub: Webhook → Log Payload → Respond 200 (no real Instagram API)
+│       channel-shopier.json     # Stub: same pattern for Shopier
+│       channel-dolap.json       # Stub: same pattern for Dolap
     └── admin-dark.css           # GitHub-inspired dark theme (NOT imported — inactive)
 ```
 
@@ -137,12 +185,14 @@ src/
 - Banners (campaign management: discount/announcement/flash_sale, date ranges, placement)
 - SiteSettings (centralized control: contact info, shipping rules, trust badges, announcement bar)
 
-### Integration Domain (Phase 2 — INFRASTRUCTURE LIVE)
-- **Telegram bot** (`mentix_aibot`): connected via OpenClaw, group mode with allowlisted user IDs
-- **OpenClaw**: AI agent control layer, dashboard at `agent.uygunayakkabi.com`, gateway port 18789
-- **n8n**: workflow engine at `flow.uygunayakkabi.com`, port 5678
-- **Existing code scaffolds**: `src/app/api/telegram/route.ts` (webhook handler), `src/lib/telegram.ts` (caption/stock parsers)
-- **Target**: n8n workflows triggering Payload product creation with toggle-controlled publish, AI image pipeline, multi-channel distribution
+### Integration Domain (Phase 2A — PIPELINE LIVE ✅)
+- **Telegram bot** (`mentix_aibot`): group allowlist `[5450039553, 8049990232]`, mention-only, BotFather Group Privacy OFF
+- **OpenClaw**: AI agent at `agent.uygunayakkabi.com`, mentix-intake skill at `/home/furkan/.openclaw/skills/mentix-intake/SKILL.md`
+- **n8n**: workflow engine at `flow.uygunayakkabi.com`, `Mentix Intake Webhook` workflow active (`POST /webhook/mentix-intake`)
+- **Payload automation endpoints**: `POST /api/automation/products` + `POST /api/automation/attach-media` (X-Automation-Secret auth)
+- **Idempotency**: telegramChatId + telegramMessageId dedup — returns `{ status: "duplicate" }` if same message re-submitted
+- **Publish guard**: beforeChange hook blocks activation if price ≤ 0; storefront 404s for draft slugs
+- **Admin review components**: ReviewPanel, SourceBadgeCell, StatusCell all active in importMap
 
 ### Content & Growth Domain (Phase 2C/3)
 - **BlogPosts**: AI-generated SEO blog posts linked to products, with draft/published states and ai/admin source tracking
@@ -166,12 +216,19 @@ src/
 - SSL fix, reverse media lookup, debug logs removed
 - End-to-end pipeline validated: admin product → storefront confirmed working
 
-### Phase 2A — Controlled Product Intake (ACTIVE ▶️)
-- VPS provisioned: Docker + Caddy + n8n + OpenClaw all running
-- Telegram bot connected via OpenClaw, allowlisted group mode
-- **Target flow**: Telegram Group/DM → OpenClaw → n8n webhook → Payload API → toggle-controlled active/draft
-- Product model expanded: `productFamily`, `productType`, `channelTargets`, `automationFlags`, `sourceMeta`
+### Phase 2A — Controlled Product Intake (STEPS 1–15 COMPLETE ✅ — 2026-03-16)
+- VPS: Docker + Caddy + n8n + OpenClaw all running, Docker network persistent
+- Security rotation complete, Telegram group allowlist active
+- **Live flow**: Telegram mention → OpenClaw mentix-intake skill → curl n8n webhook → Parse Fields → POST /api/automation/products → Neon DB draft → Has Media? → POST /api/automation/attach-media → product.images updated
+- Idempotency, admin review UI, stockQuantity, variant color, publish guard all live
+- Product model expanded: `source`, `channels`, `automationMeta`, `stockQuantity`, `productFamily`, `productType`, `channelTargets`, `automationFlags`, `sourceMeta`
 - AutomationSettings global for centralized toggle control
+- **Step 11**: Enhanced caption parser (tolerant, Turkish+English, heuristic), publish-readiness evaluator, parser metadata stored in automationMeta (rawCaption, parseWarnings, parseConfidence)
+- **Step 12**: Automation decision layer (automationDecision.ts), AutomationSettings wired into route (status/channel/content decisions), autoDecision+Reason in automationMeta, ReviewPanel decision row
+- **Step 13**: Channel adapter scaffolding (channelDispatch.ts), afterChange hook on Products (status→active triggers dispatch), dispatch tracking in sourceMeta (dispatchedChannels/lastDispatchedAt/dispatchNotes), scaffold mode logs intent when webhook env vars absent
+- **Step 14**: n8n stub workflow JSON files (channel-instagram/shopier/dolap), CHANNEL_DISPATCH_CONTRACT.md, ReviewPanel dispatch status section (per-channel result rows), forceRedispatch checkbox (manual re-dispatch, auto-reset), afterChange hook updated for forceRedispatch trigger
+- **Step 15**: Verification pass — env var naming confirmed consistent, `extractMediaUrls()` fixed (relative → absolute URLs using NEXT_PUBLIC_SERVER_URL), `.env.example` updated with all Phase 2 vars, `E2E_TEST_CHECKLIST.md` created (120-line runbook), CHANNEL_DISPATCH_CONTRACT.md extended with media URL behavior + known limitations table
+- **Next**: Step 16 — First real channel integration (Instagram Graph API priority) after E2E stub test passes (operator action)
 
 ### Phase 2B — Multi-Channel Distribution (PLANNED)
 - Website publish (native — already works via active status)

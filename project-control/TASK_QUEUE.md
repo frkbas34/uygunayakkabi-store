@@ -1,6 +1,27 @@
 # TASK QUEUE — Uygunayakkabi
 
-_Last updated: 2026-03-15_
+_Last updated: 2026-03-16 (Step 15 complete + Mentix Intelligence Layer v2 complete — 13 skills, mentix-memory/ system, v2 dashboard)_
+
+## ⚠️ Current Blockers
+
+### Blocker 1: E2E Stub Test (Phase 2 — Step 16)
+**E2E stub test not yet run.** Steps 1–15 are code-complete. Step 16 cannot start until the operator:
+1. Imports and activates the Instagram n8n stub
+2. Sets `N8N_CHANNEL_INSTAGRAM_WEBHOOK` in Vercel + redeploys
+3. Runs the test per `n8n-workflows/E2E_TEST_CHECKLIST.md` and confirms all success signals
+
+### Blocker 2: Mentix Intelligence Layer v2 VPS Deployment
+**12 skill SKILL.md files + full mentix-memory/ system created in repo.** Deployment to VPS requires operator:
+1. `scp -r mentix-skills/* furkan@VPS:/home/furkan/.openclaw/skills/`
+2. `scp -r mentix-memory/* furkan@VPS:/home/furkan/.openclaw/mentix-memory/`
+3. `mkdir -p /home/furkan/.openclaw/skills/agent-memory/data/{incidents,patterns,knowledge,decisions,rewards}`
+4. Add `DATABASE_URI` and `GITHUB_TOKEN` to OpenClaw Docker env
+5. `cd /opt/openclaw && docker compose restart`
+6. Verify skill recognition in gateway logs
+7. Test each Level A skill via Telegram (including product-flow-debugger)
+
+See `mentix-skills/INSTALLATION_MATRIX.md` for full deployment guide + risk register.
+See PROJECT_STATE.md → "Mentix Intelligence Layer v2" for full skill/memory inventory.
 
 ---
 
@@ -97,77 +118,219 @@ npm run dev
 
 ---
 
-### 🔴 Step 1 — Security Rotation (MUST DO FIRST)
-- [ ] Regenerate Telegram bot token via BotFather → update OpenClaw config
-- [ ] Regenerate OpenAI API key → update OpenClaw config
-- [ ] Optionally regenerate OpenClaw gateway token
-- [ ] Update `/home/furkan/.openclaw/openclaw.json` with new values
-- [ ] Restart OpenClaw containers after config update
-- [ ] Verify Telegram bot still responds after token change
-- [ ] Verify OpenAI model calls still work after key change
+### ✅ Step 1 — Security Rotation — COMPLETE (2026-03-15)
+- [x] Telegram bot token regenerated → OpenClaw config updated
+- [x] OpenAI API key regenerated → OpenClaw config updated
+- [x] OpenClaw restarted, Telegram DM verified working
 
-### Step 2 — Persistent Docker Network Fix
-- [ ] Edit OpenClaw `docker-compose.yml` to include `web` external network on the gateway service
-- [ ] Verify Caddy can route to OpenClaw gateway after `docker-compose down && docker-compose up -d`
-- [ ] Confirm no manual `docker network connect` needed after restart
+### ✅ Step 2 — Persistent Docker Network Fix — COMPLETE (2026-03-15)
+- [x] OpenClaw docker-compose.yml updated — gateway bound to `web` external network
+- [x] Caddy routing verified after restart (no manual `docker network connect` needed)
 
-### Step 3 — Telegram Access Policy
-- [x] **DECIDED**: Allowlisted group mode (D-052). Add trusted user IDs to allowlist.
-- [ ] Collect Telegram numeric user IDs for test group members
-- [ ] Add to `channels.telegram.groupAllowFrom` in openclaw.json
-- [ ] Restart OpenClaw and test group messaging
+### ✅ Step 3 — Telegram Group Access Policy — COMPLETE (2026-03-15)
+- [x] `groupAllowFrom: [5450039553, 8049990232]` set in openclaw.json
+- [x] `requireMention: true` via `groups.*.requireMention` field
+- [x] BotFather Group Privacy set to OFF
+- [x] Group tested — bot responds on @mention in allowed group (Mentix Grup Bot)
 
-### Step 4 — OpenClaw → n8n Webhook Contract
-- [ ] Define webhook JSON payload format (see ARCHITECTURE.md for contract spec)
-- [ ] OpenClaw calls n8n webhook URL directly (simplest approach — D-048 role)
-- [ ] n8n webhook endpoint at `flow.uygunayakkabi.com/webhook/product-intake`
-- [ ] Test with sample payload
+### ✅ Step 4 — OpenClaw → n8n Intake Webhook — COMPLETE (2026-03-15)
+- [x] mentix-intake skill at `/home/furkan/.openclaw/skills/mentix-intake/SKILL.md`
+- [x] Skill uses curl to POST to `http://n8n:5678/webhook/mentix-intake`
+- [x] n8n workflow: Webhook → Parse Intake Fields → Respond (3 nodes)
+- [x] Payload schema v1.0 defined, HTTP 200 validated from OpenClaw
 
-### Step 5 — n8n → Payload Product Creation Workflow
-- [ ] n8n workflow receives parsed product data (title, price, SKU, photo URL, productFamily, productType)
-- [ ] n8n downloads photo from Telegram File API (via photo URL)
-- [ ] n8n uploads photo to Payload Media collection (Vercel Blob in production)
-- [ ] n8n reads `AutomationSettings` global to determine product status (active/draft)
-- [ ] n8n creates product via Payload REST API: `POST /api/products` with toggle-controlled status
-- [ ] Sets `channelTargets`, `automationFlags`, `sourceMeta` from webhook payload
-- [ ] Payload API auth: use API key or admin credentials stored in n8n
+### ✅ Step 5 — n8n → Payload Draft Product Creation — COMPLETE (2026-03-15)
+- [x] Custom `POST /api/automation/products` endpoint (X-Automation-Secret header auth)
+- [x] useAPIKey approach reverted (D-062)
+- [x] n8n IF node set to 200 (not 201)
+- [x] Missing DB columns added: product_family, channels_*, source, automation_meta_*
+- [x] Pipeline: Telegram → OpenClaw → n8n → Payload → Neon DB draft product ✅
 
-### Step 6 — End-to-End Test
-- [ ] Send photo + caption from phone → Telegram group
-- [ ] OpenClaw receives → forwards to n8n webhook
-- [ ] n8n creates product in Payload CMS (status per toggle)
-- [ ] If active → product appears on storefront
-- [ ] If draft → admin sees in panel, can activate
-- [ ] Validate full loop: phone → bot → n8n → product → storefront
+### ✅ Step 6 — Media Pipeline — COMPLETE (2026-03-15)
+- [x] `POST /api/automation/attach-media` endpoint created
+- [x] Flow: Telegram getFile API → binary download → payload.create(media) → payload.update(product.images)
+- [x] MIME type normalization for Telegram CDN content-type headers
+- [x] n8n Has Media? branch wired — image_count: 1 confirmed in DB ✅
+
+### ✅ Step 7 — Duplicate Protection / Idempotency — COMPLETE (2026-03-15)
+- [x] `automationMeta.telegramChatId` + `automationMeta.telegramMessageId` stored per product
+- [x] Duplicate check: same chatId + messageId → returns `{ status: "duplicate" }`, no second product created ✅
+- [x] Quick-activate "Aktif Yap" button in Products list also confirmed working
+
+### ✅ Step 8 — Admin Review / Approval Flow Polish — COMPLETE (2026-03-15)
+- [x] `SourceBadgeCell` — Source column in Products list (Telegram/Otomasyon/Admin badges)
+- [x] `StatusCell` — Status column with "Aktif Yap" button
+- [x] `ReviewPanel` — shown on automation products edit page: source info, readiness checklist, "Yayına Hazır" / "Eksikler Var" summary
+- [x] ReviewPanel NOT shown for admin-created products
+
+### ✅ Step 9 — Inventory / Variant Readiness — COMPLETE (2026-03-15)
+- [x] `products.stock_quantity INT NOT NULL DEFAULT 1` added to DB
+- [x] `variants.color VARCHAR` added to DB
+- [x] 3 orphan variants deleted
+- [x] SKU standard: `TG-{PREFIX3}-{msgId}` for automation products (e.g. TG-NIK-9001)
+- [x] ReviewPanel shows "Stok adedi" with zero-stock warning
+- [x] Variant-level stock and InventoryLogs deferred to future phase
 
 ---
 
-### Step 7 — Caption Parser / Data Mapping (after MVP works)
-- [ ] Define caption format: e.g. `Nike Air Max 90\nFiyat: 2199\nKod: AYK-001\nAdet: 3\nKategori: sneaker\nYayın: açık\nSEO: açık`
-- [ ] Map parsed fields to Products collection: title, price, sku, quantity, productFamily, productType
-- [ ] Handle missing fields with sensible defaults
-- [ ] Review existing `src/lib/telegram.ts` parser — reuse or adapt for n8n
+### ✅ Step 10 — Publishing Flow / Commerce Activation — COMPLETE (2026-03-15)
+- [x] State machine: draft → active (no intermediate state — D-064)
+- [x] `products/[slug]/page.tsx`: `notFound()` for draft products — public URL blocked ✅
+- [x] `Products.ts` beforeChange hook: blocks activation if price ≤ 0, exempt for automation creates ✅
+- [x] `StatusCell.tsx`: reads server error response, renders inline error in red ✅
+- [x] Storefront homepage already had `where: { status: { equals: 'active' } }` — confirmed correct ✅
+- [x] Commerce attach points documented in D-064 (Shopier/Instagram/Dolap — afterChange hooks, NOT yet implemented)
+
+---
+
+### ✅ Step 11 — Caption Parser Enhancement — COMPLETE (2026-03-16)
+- [x] Enhanced parseTelegramCaption: Turkish/English label aliases, 2-pass parsing, heuristics
+- [x] Price normalization: handles "1.500", "1500 TL", "₺1500", comma-decimal formats
+- [x] Category normalization: Turkish/English → Products enum values
+- [x] Brand inference from title (known brand list)
+- [x] ProductFamily inference from category/title keywords
+- [x] parseConfidence (0–100), parseWarnings[], rawCaption — always preserved
+- [x] evaluatePublishReadiness: reusable helper with blocking/warning split
+- [x] Products.ts: rawCaption, parseWarnings, parseConfidence added to automationMeta
+- [x] Products.ts: channelTargets multi-select, automationFlags group, sourceMeta group added
+- [x] Products.ts: Step 8-10 regression (staged downgrade) detected and restored
+- [x] route.ts: accepts rawCaption/messageText, merges with parser, returns readiness in response
+- [x] ReviewPanel: parseConfidence badge, parseWarnings list, collapsible raw caption debug view
+- [x] Legacy parseTelegramCaptionLegacy + parseStockUpdate preserved for backward compat
+
+---
+
+### ✅ Step 12 — Automation Settings / Global Toggle Layer — COMPLETE (2026-03-16)
+- [x] AutomationSettings extended: minConfidenceToActivate (number, 0-100), enableTryOn (checkbox)
+- [x] automationDecision.ts: pure stateless decision library
+  - resolveProductStatus: 7-gate precedence chain
+  - resolveChannelTargets: global capability ∩ product intent
+  - resolveContentDecision: blog/image/tryOn intent flags
+  - fetchAutomationSettings: safe fetch with null fallback
+- [x] route.ts: loads settings via fetchAutomationSettings, calls all 3 resolvers
+  - Status: no longer hardcoded — toggle-controlled
+  - Channels: effective targets after global filter
+  - Content: intent flags for n8n downstream use
+- [x] Products.ts automationMeta: autoDecision + autoDecisionReason (readOnly)
+- [x] ReviewPanel: decision row with color-coded status + reason text
+- [x] Response: decision object + channels + content_intent returned to n8n
+
+---
+
+### ✅ Step 13 — Channel Adapter Scaffolding — COMPLETE (2026-03-16)
+- [x] `src/lib/channelDispatch.ts` created — pure dispatch library (374 lines)
+  - `ChannelDispatchPayload` type (adapter contract) + `ChannelDispatchResult` type
+  - `evaluateChannelEligibility()` — global capability ∩ product intent (3-gate)
+  - `buildDispatchPayload()` — structured n8n webhook payload from product doc
+  - `dispatchToChannel()` — POST to webhook, OR scaffold log if env var absent
+  - `buildChannelWebhookUrl()` — reads N8N_CHANNEL_*_WEBHOOK env vars
+  - `dispatchProductToChannels()` — orchestrator called by afterChange hook
+- [x] `Products.ts` afterChange hook: fires on status non-active → active transition only
+  - `req.context.isDispatchUpdate` guard prevents infinite re-trigger loop
+  - Non-fatal: product activation succeeds regardless of dispatch errors
+- [x] `Products.ts` sourceMeta: `dispatchedChannels`, `lastDispatchedAt`, `dispatchNotes` added (readOnly)
+- [x] Scaffold mode: logs full payload intent when webhook URL not configured — zero errors
+- [x] Website excluded from dispatch — works natively via active status (no webhook needed)
+- [x] Env var pattern: `N8N_CHANNEL_INSTAGRAM_WEBHOOK`, `N8N_CHANNEL_SHOPIER_WEBHOOK`, `N8N_CHANNEL_DOLAP_WEBHOOK`
+
+**Deferred from Step 13:**
+- n8n channel workflow stubs (receive + log intent) — VPS config, not Payload code
+- ReviewPanel channel dispatch status display — Step 14 admin polish task
+- Real Instagram/Shopier/Dolap API integrations — Phase 2B Steps
+
+---
+
+### ✅ Step 14 — Channel Workflow Stubs + Admin Dispatch Visibility — COMPLETE (2026-03-16)
+- [x] n8n stub workflow JSONs created (importable):
+  - `n8n-workflows/stubs/channel-instagram.json` — Webhook → Log Payload (Set) → Respond 200
+  - `n8n-workflows/stubs/channel-shopier.json`
+  - `n8n-workflows/stubs/channel-dolap.json`
+  - Each logs: channel, productId, sku, title, price, brand, mediaCount, parseConfidence, triggerReason
+  - No real third-party API calls — scaffold only
+- [x] `n8n-workflows/CHANNEL_DISPATCH_CONTRACT.md` created (222 lines)
+  - Full ChannelDispatchPayload type + sample JSON
+  - Env var setup table (N8N_CHANNEL_*_WEBHOOK)
+  - End-to-end test checklist
+  - Dispatch result schema reference
+  - Manual re-dispatch instructions
+- [x] ReviewPanel: channel dispatch status section added (active products only)
+  - Per-channel rows: eligible/dispatched/webhookConfigured/skippedReason/error/responseStatus
+  - Color-coded by outcome (green=dispatched, yellow=no webhook, grey=skipped)
+  - `lastDispatchedAt` timestamp in section header
+  - `forceRedispatch` "Redispatch bekliyor…" indicator
+  - Collapsible raw dispatchNotes debug block
+  - Hint row for inactive products ("dispatch tetiklenir")
+- [x] `forceRedispatch` checkbox in sourceMeta (Step 14 manual re-dispatch scaffold)
+  - Admin-accessible, not readOnly
+  - afterChange hook: fires on `forceRedispatch === true && status === 'active'`
+  - Auto-reset to `false` in same sourceMeta update as dispatch results
+  - NOT reset on error (admin retries by saving again)
+  - TriggerReason: `manual-redispatch` vs `status-transition`
+
+---
+
+### ✅ Step 15 — E2E Verification Pass + Media URL Hardening — COMPLETE (2026-03-16)
+
+**Code fixes:**
+- [x] `channelDispatch.ts` `extractMediaUrls()`: relative `/media/` paths made absolute using `NEXT_PUBLIC_SERVER_URL` — n8n VPS can now fetch product images even in local dev mode. In production, Vercel Blob URLs are always absolute (already worked).
+- [x] `.env.example` updated: all Phase 2 vars added (AUTOMATION_SECRET, BLOB_READ_WRITE_TOKEN, N8N_INTAKE_WEBHOOK, N8N_CHANNEL_*_WEBHOOK)
+
+**Verification findings:**
+- [x] Env var naming: ✅ consistent across channelDispatch.ts, CHANNEL_DISPATCH_CONTRACT.md, and all 3 stub JSONs
+- [x] Dispatch error handling: ✅ correct — uses `response.ok`, `AbortSignal.timeout(10_000)`, non-throwing
+- [x] afterChange guard: ✅ correct — `req.context.isDispatchUpdate` + forceRedispatch reset behavior both verified
+- [x] Vercel Blob URLs: ✅ publicly accessible — confirmed `*.public.blob.vercel-storage.com` is world-accessible, no auth required
+- [x] `NEXT_PUBLIC_SERVER_URL`: ✅ confirmed in Vercel env (production = `https://uygunayakkabi.com`)
+
+**New docs created:**
+- [x] `n8n-workflows/E2E_TEST_CHECKLIST.md` — step-by-step runbook: n8n import, env setup, test product, log verification, n8n execution check, media URL test, forceRedispatch test, failure mode table, 30-line quick checklist
+- [x] `n8n-workflows/CHANNEL_DISPATCH_CONTRACT.md` — added "Media URL Behavior" section + "Known Limitations" table
+
+**Remaining (operator actions, not code):**
+- [ ] Import `n8n-workflows/stubs/channel-instagram.json` to `flow.uygunayakkabi.com` and activate
+- [ ] Set `N8N_CHANNEL_INSTAGRAM_WEBHOOK` in Vercel → redeploy
+- [ ] Run the E2E test per `n8n-workflows/E2E_TEST_CHECKLIST.md`
+- [ ] After test passes: import shopier + dolap stubs, set their env vars
+
+---
+
+### 🟡 Step 16 — First Real Channel Integration (NEXT PRIORITY)
+After E2E stub test passes:
+- [ ] Decide which channel to integrate first (Instagram likely, given visual product nature)
+- [ ] Instagram: set up Facebook Business Manager + Instagram Business Account + Graph API app
+- [ ] Research Shopier API (if available) or manual listing workflow
+- [ ] Research Dolap API / seller integration
+- [ ] n8n workflow: replace stub "Respond 200" with real channel API call(s)
+- [ ] sourceMeta.externalSyncId: channel worker POSTs listing ID back to `/api/automation/products/{id}/sync`
+- [ ] Add `lastChannelSyncedAt` + per-channel listing URL to sourceMeta for admin visibility
 
 ---
 
 ## PHASE 2B — Multi-Channel Distribution
 
-### Step 8 — Website Auto-Publish
+### Channel Integration — Website
 - [x] **Already works**: Active products appear on storefront (Phase 1 validated)
-- [ ] Confirm automation-created active products also appear correctly
+- [x] Confirmed: automation-created active products also appear (Step 10 validated)
 
-### Step 9 — Instagram Adapter
-- [ ] Instagram Graph API setup / business account connection
-- [ ] n8n workflow: active product → format for Instagram → publish
-- [ ] `publishInstagram` toggle in AutomationSettings controls activation
+### Channel Integration — Instagram (Step 16 — NEXT PRIORITY)
+⚠️ **Blocked on E2E stub test passing first** (see Pending Operator Actions in PROJECT_STATE.md)
+- [ ] Import + activate `n8n-workflows/stubs/channel-instagram.json` in n8n (VPS operator action)
+- [ ] Set `N8N_CHANNEL_INSTAGRAM_WEBHOOK` in Vercel → redeploy (Vercel operator action)
+- [ ] Run E2E test per `n8n-workflows/E2E_TEST_CHECKLIST.md` — confirm all success signals
+- [ ] After E2E passes: replace Instagram stub with real n8n workflow (Instagram Graph API)
+- [ ] Facebook Business Manager + Instagram Business Account + Graph API app setup
+- [ ] `sourceMeta.externalSyncId` write-back from n8n after successful post
+- [ ] `publishInstagram` toggle in AutomationSettings remains the gate
 
-### Step 10 — Shopier Adapter
-- [ ] Shopier API/integration research
+### Channel Integration — Shopier
+- [ ] Import + activate `n8n-workflows/stubs/channel-shopier.json` after Instagram E2E validated
+- [ ] Research Shopier API availability / seller integration
 - [ ] n8n workflow: active product → Shopier listing sync
 - [ ] `publishShopier` toggle controls activation
 
-### Step 11 — Dolap Adapter
-- [ ] Dolap API/integration research
+### Channel Integration — Dolap
+- [ ] Import + activate `n8n-workflows/stubs/channel-dolap.json` after Instagram E2E validated
+- [ ] Research Dolap API / seller integration
 - [ ] n8n workflow: active product → Dolap listing sync
 - [ ] `publishDolap` toggle controls activation
 
@@ -175,7 +338,7 @@ npm run dev
 
 ## PHASE 2C — Content Growth Layer
 
-### Step 12 — AI SEO Blog Engine
+### Step 16 — AI SEO Blog Engine
 - [x] BlogPosts collection created (scaffold — 2026-03-15)
 - [ ] n8n workflow: active product (shoes) + generateBlog flag → AI prompt → blog post → Payload BlogPosts
 - [ ] Blog post template: product-centered but blog-style natural language
@@ -183,7 +346,7 @@ npm run dev
 - [ ] `autoGenerateBlog` / `autoPublishBlog` toggles control behavior
 - [ ] Duplicate prevention: check if blog already exists for product before generating
 
-### Step 13 — Blog Frontend
+### Step 17 — Blog Frontend
 - [ ] `/blog` listing page
 - [ ] `/blog/[slug]` detail page
 - [ ] SEO meta tags from BlogPosts fields
@@ -193,7 +356,7 @@ npm run dev
 
 ## PHASE 3 — Visual & Experience
 
-### Step 14 — Visual Expansion Engine
+### Step 18 — Visual Expansion Engine
 - [ ] Prompt library structure: `/ai-knowledge/prompts/product-visuals/`
 - [ ] Base integrity rules prompt
 - [ ] Per-family angle prompts (shoes, wallets, bags)
@@ -201,7 +364,7 @@ npm run dev
 - [ ] Media type tracking: original / enhanced / generated_angle
 - [ ] Min 2, max 4 additional views per product
 
-### Step 15 — Photo-Based AI Try-On
+### Step 19 — Photo-Based AI Try-On
 - [ ] Product page widget: "Kendi fotoğrafında dene" button
 - [ ] Upload validation (full-body, visible feet)
 - [ ] Try-on API endpoint / async job flow
@@ -233,3 +396,79 @@ Content Engine (if generateBlog + active):
 Visual Engine (if generateExtraViews):
     └─ 2-4 additional product angles → Media collection
 ```
+
+---
+
+## MENTIX INTELLIGENCE LAYER — Skill Stack (2026-03-16)
+
+### ✅ Completed (Design & Creation — v1)
+- [x] Audit current Mentix state (1 skill: mentix-intake, live on VPS)
+- [x] Chose agent-memory over chromadb-memory (see D-071)
+- [x] Designed 3-level activation policy (A/B/C)
+- [x] Created 11 SKILL.md files in `mentix-skills/` directory:
+  - Level A: skill-vetter, browser-automation, sql-toolkit, agent-memory, github-workflow, uptime-kuma
+  - Level B: eachlabs-image-edit, upload-post, research-cog, senior-backend
+  - Level C: learning-engine (observe-only, no auto-modification)
+- [x] Created `mentix-skills/INSTALLATION_MATRIX.md` — full deployment guide
+- [x] Created `mentix-skills/ACTIVATION_CONFIG.md` — per-skill permission matrix
+- [x] Updated DECISIONS.md (D-070 through D-073)
+
+### ✅ Completed (v2 Intelligence Layer Upgrade — 2026-03-16)
+- [x] **product-flow-debugger** added as 7th Level A skill — first-class standalone module
+  - 13-step trace map (Telegram intake → storefront visibility)
+  - 6 diagnostic entry points (A: not visible, B: wrong data, C: image, D: dispatch, E: intake, F: stock)
+  - Confidence × risk gate, capability/permission matrix
+- [x] **Capability vs Permission separation** — all 5 mutable skills updated with ALLOWED/CONFIRM-REQUIRED/DENIED tables
+  - browser-automation: Read=ALLOWED, Click=CONFIRM, Bulk=DENIED
+  - sql-toolkit: SELECT=ALLOWED, UPDATE single=CONFIRM, DELETE=DENIED
+  - upload-post: Draft=ALLOWED, Publish=CONFIRM, Auto-publish=DENIED
+  - github-workflow: Read=ALLOWED, Commit=CONFIRM, Force-push=DENIED
+  - learning-engine: OER separation (outcomes/evaluations/rewards) implemented
+- [x] **Formal Decision Schema** (12 fields) codified in `mentix-memory/policies/DECISION_POLICY.md`
+- [x] **research-cog** reclassified as optional branch (not required pipeline node)
+- [x] **mentix-memory/** directory system created (12 layers):
+  - `identity/MENTIX_IDENTITY.md`
+  - `policies/` — 5 policy files (DECISION, WRITE, PUBLISH, MEMORY, SKILL_GATING)
+  - `runbooks/` — 6 runbooks (product-not-visible, intake-failure, stock-mismatch, image-not-rendering, storefront-desync, price-not-updated)
+  - `traces/TRACE_SCHEMA.json` — full trace template with OER fields
+  - `evals/GOLDEN_CASES.json` — 3 golden regression cases (GC-001, GC-002, GC-003)
+  - `incidents/`, `patterns/`, `decisions/`, `evaluations/`, `rewards/`, `summaries/`, `archive/`
+- [x] **Dashboard rebuilt as v2** — 7-tab interactive HTML at `mentix-skill-stack-dashboard.html` (repo root):
+  - Tab 1 Overview: 6 subsystems + data flow (research-cog as optional branch)
+  - Tab 2 Skills: All 13 skills with explicit permission tables
+  - Tab 3 Product Debugger: 13-step trace + 6 entry points + confidence×risk matrix
+  - Tab 4 Decision Engine: JSON schema + risk matrix + D-070–D-073 decisions
+  - Tab 5 Memory: 12-layer structure + 6 runbook summaries
+  - Tab 6 Learning: OER 3-panel + reward framework + hard limits grid
+  - Tab 7 Deploy: 7-step VPS procedure + risk register
+- [x] `project-control/SYSTEM_PROMPT.md` — repo-level memory governance
+- [x] `project-control/MENTIX_SYSTEM_PROMPT.md` — Mentix-specific governance
+- [x] Updated DECISIONS.md (D-070 through D-073)
+- [x] Updated PROJECT_STATE.md and TASK_QUEUE.md to reflect v2
+
+### ⏳ Pending (VPS Operator Actions)
+- [ ] Deploy 12 skill files to VPS: `scp -r mentix-skills/* furkan@VPS:/home/furkan/.openclaw/skills/`
+- [ ] Deploy mentix-memory/ system: `scp -r mentix-memory/* furkan@VPS:/home/furkan/.openclaw/mentix-memory/`
+- [ ] Create agent-memory data directories on VPS
+- [ ] Configure OpenClaw environment variables (DATABASE_URI, GITHUB_TOKEN)
+- [ ] Restart OpenClaw gateway and verify skill recognition
+- [ ] Investigate OpenClaw skill auto-discovery vs manual registration in openclaw.json
+- [ ] Test Level A skills individually via Telegram:
+  - [ ] skill-vetter: ask to evaluate a skill
+  - [ ] browser-automation: ask to check storefront
+  - [ ] sql-toolkit: ask about database state
+  - [ ] agent-memory: ask to remember something
+  - [ ] github-workflow: ask about repo status
+  - [ ] uptime-kuma: ask for health check
+  - [ ] **product-flow-debugger**: trigger with "ürün neden görünmüyor?" symptom
+
+### 🔮 Future (After Level A Confirmed Working)
+- [ ] Test Level B skills (eachlabs-image-edit, upload-post, research-cog, senior-backend)
+- [ ] Configure image processing API for eachlabs-image-edit
+- [ ] Set up channel APIs for upload-post
+- [ ] Begin learning-engine observation (passive, after 7+ days of Level A operation)
+- [ ] First learning-engine weekly report + golden case regression run (GC-001, GC-002, GC-003)
+- [ ] Evaluate Level B → full activation based on operational data
+- [ ] Evaluate learning-engine upgrade from observe → suggest mode (after 30+ days)
+- [ ] Run Pattern Extractor after 10+ closed incidents
+- [ ] Run Confidence Calibration review after 20+ traces

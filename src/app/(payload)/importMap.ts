@@ -32,6 +32,10 @@ import { NavWrapper as NavWrapper_28 } from '@payloadcms/next/client'
 import { SlugField as SlugField_29 } from '@payloadcms/next/client'
 // Vercel Blob Storage client component
 import { VercelBlobClientUploadHandler as VercelBlobClientUploadHandler_30 } from '@payloadcms/storage-vercel-blob/client'
+// Custom admin components (manually registered — generate:importmap disabled on this env)
+import { ReviewPanel as ReviewPanel_31 } from '@/components/admin/ReviewPanel'
+import { SourceBadgeCell as SourceBadgeCell_32 } from '@/components/admin/SourceBadgeCell'
+import { StatusCell as StatusCell_33 } from '@/components/admin/StatusCell'
 
 export const importMap = {
   "@payloadcms/richtext-lexical/rsc#RscEntryLexicalCell": RscEntryLexicalCell_0,
@@ -65,4 +69,8 @@ export const importMap = {
   "@payloadcms/next/client#NavWrapper": NavWrapper_28,
   "@payloadcms/next/client#SlugField": SlugField_29,
   "@payloadcms/storage-vercel-blob/client#VercelBlobClientUploadHandler": VercelBlobClientUploadHandler_30,
+  // Custom admin components
+  "@/components/admin/ReviewPanel#ReviewPanel": ReviewPanel_31,
+  "@/components/admin/SourceBadgeCell#SourceBadgeCell": SourceBadgeCell_32,
+  "@/components/admin/StatusCell#StatusCell": StatusCell_33,
 }

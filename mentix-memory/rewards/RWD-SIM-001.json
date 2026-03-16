@@ -1,0 +1,25 @@
+{
+  "_sim": true,
+  "reward_id": "RWD-SIM-001",
+  "timestamp": "2026-03-16T16:09:17.015254+00:00",
+  "trace_ref": "TRC-SIM-001",
+  "evaluation_ref": "EVAL-SIM-001",
+  "score": 10,
+  "signals": [
+    {
+      "signal": "correct_root_cause",
+      "score": 5
+    },
+    {
+      "signal": "first_pass_success",
+      "score": 3
+    },
+    {
+      "signal": "minimal_steps",
+      "score": 2
+    }
+  ],
+  "outcome_was": "SUCCESS",
+  "evaluation_was_correct": true,
+  "note": "Score computed from outcome+evaluation combined. Stored separately per D-075."
+}

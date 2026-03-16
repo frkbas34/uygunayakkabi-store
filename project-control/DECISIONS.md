@@ -567,7 +567,7 @@ beforeDelete: [async ({ req, id }) => {
 **Affected:** Telegram bot token, OpenAI API key, OpenClaw gateway token.
 **Reason:** These values were visible in terminal output and chat logs during setup.
 **Rule:** After rotation, update `/home/furkan/.openclaw/openclaw.json` and restart affected containers. Verify functionality after each rotation.
-**Status:** ACTIVE — 🔴 PENDING EXECUTION
+**Status:** ✅ RESOLVED (2026-03-15) — Rotation completed in Step 1. All tokens regenerated and verified.
 
 ---
 
@@ -739,8 +739,8 @@ beforeDelete: [async ({ req, id }) => {
 - n8n activation done via direct SQLite writes (workflow_entity.activeVersionId + workflow_published_version) because `n8n import:workflow` deactivates imported workflows by default
 **Payload schema v1.0 fields:** `schema_version`, `source`, `intent`, `telegram.{user_id, chat_id, chat_type, message_id, username}`, `message.{text, has_media, media_file_id, media_type}`, `parsed.{title, stock_code, price, quantity, notes}`, `timestamp`, `session_id`
 **Validated:** curl from inside OpenClaw container → n8n → 200 `{"status":"received"}` ✅ (exec #5, 8ms)
-**Not yet validated:** Full chain: real Telegram mention → skill triggers → exec runs → n8n receives
-**Status:** ACTIVE — transport layer proven. Next: n8n → Payload product creation (Step 5)
+**Validated:** Full chain confirmed working — real Telegram group @mention → skill triggers → exec curl → n8n → Payload draft product ✅ (2026-03-15)
+**Status:** ACTIVE — full pipeline proven end-to-end
 
 ---
 
@@ -845,3 +845,350 @@ No intermediate "reviewed" state — operator directly activates. Simplicity ove
 - **Recommended trigger**: status transition + channel flag, not every save (to avoid duplicate posts)
 
 **Status:** ACTIVE — publish guard live, storefront protection in place
+
+---
+
+## D-065 — Step 11: Caption Parser Enhancement
+
+**Decision:**
+Implement a structured, tolerant caption parser that extracts product fields from informal Telegram messages without silently inventing values.
+
+**Problem with old parser:**
+- Required exact label format (SKU:, TITLE:, PRICE:) — too rigid for real use
+- Returned `null` on any required field miss — no partial results, no warnings
+- No rawCaption preservation — hard to debug parse failures
+- No confidence score — admin had no signal about parse quality
+- Missing fields for future automation (productFamily, channelTargets, seoRequested)
+
+**New parser behavior (`parseTelegramCaption` in src/lib/telegram.ts):**
+- Accepts Turkish and English label aliases (başlık/title, fiyat/price, adet/quantity, etc.)
+- Two-pass approach: labeled fields first, then heuristic unlabeled line detection
+- Price parsing: handles "1.500", "1500 TL", "₺1500", "1500,50" formats
+- Category normalization: maps Turkish/English text → Products enum values
+- Brand inference: detected from known brand list in title if not labeled
+- ProductFamily inference: from category or title keywords
+- Never returns null on partial parse — always returns result with warnings
+- parseConfidence (0–100): weighted score based on required field coverage
+- parseWarnings: non-blocking list of what was missing or ambiguous
+- rawCaption: always preserved for debugging
+
+**Publish readiness evaluator (`evaluatePublishReadiness`):**
+- Reusable function callable from routes and future automation rules
+- Critical (blocking): title, price > 0, images present, category, brand, stockQuantity > 0
+- Non-critical (warnings): description, productFamily
+- Returns: isReady, missingCritical[], warnings[], score (0–100)
+- NOT a hook — callable explicitly, no side effects
+
+**automationMeta new fields (Products.ts):**
+- rawCaption: preserved original Telegram message
+- parseWarnings: JSON string of warning array
+- parseConfidence: 0–100 integer score
+
+**Route changes (api/automation/products/route.ts):**
+- Accepts rawCaption / messageText / caption in body for automatic parsing
+- Merges parser output with explicit body fields (body always wins)
+- Returns parsed_fields, parse_confidence, parse_warnings, readiness in response
+- n8n can use readiness.is_ready to decide whether to auto-activate
+
+**ReviewPanel changes:**
+- Shows parseConfidence % with color coding (green ≥60, yellow 30–59, red <30)
+- Shows parseWarnings list if present
+- Collapsible raw caption preview for debugging
+
+**Products.ts merges (Step 11 also restores Step 8-10 regression):**
+- A staged but uncommitted downgrade of Products.ts was detected and reversed
+- Restored: reviewPanel UI field, beforeChange publish guard, source field, channels group, automationMeta group, stockQuantity, StatusCell, automation-aware price validation, TG-SKU generation
+- Added: channelTargets multi-select, automationFlags group, sourceMeta group, rawCaption/parseWarnings/parseConfidence in automationMeta
+
+**Backward compatibility:**
+- Old parseTelegramCaptionLegacy function preserved under deprecated name
+- parseStockUpdate unchanged
+- Existing products unaffected — new fields default to null/empty
+- n8n webhook: rawCaption field is optional — if absent, explicit body fields used as before
+
+**Status:** ACTIVE — implemented 2026-03-16
+
+---
+
+## D-066 — Step 12: Automation Settings / Global Toggle Layer
+
+**Decision:**
+Implement a central automation control plane that makes all automation decisions (product status, channel routing, content generation) configurable through Payload admin without code changes.
+
+**Core principle:**
+- Global settings = capability gates (operator decides what the system CAN do)
+- Product-level flags = intent gates (sender/parser declares what a product WANTS)
+- Both must be true for any automation action to fire
+- Safe fallback: when settings unavailable → conservative defaults → draft, no publish
+
+**Files implemented (2026-03-16):**
+
+1. `src/globals/AutomationSettings.ts` — Extended with:
+   - productIntake.minConfidenceToActivate (number, 0-100, default 60)
+   - contentGeneration.enableTryOn (checkbox, default false)
+   - Enriched admin descriptions aligned with decision layer
+
+2. `src/lib/automationDecision.ts` — New pure decision layer:
+   - `AutomationSettingsSnapshot` type (safe partial shape of settings global)
+   - `resolveProductStatus(input, settings)` → 'active' | 'draft' + reason + blockedBy
+   - `resolveChannelTargets(productTargets, settings)` → effective + blocked channels
+   - `resolveContentDecision(productFlags, seoRequested, settings)` → content intent flags
+   - `fetchAutomationSettings(payload)` → safe fetch with null fallback on error
+   - SAFE_DEFAULTS constants: requireAdminReview=true, autoActivate=false, minConfidence=60
+
+3. `src/app/api/automation/products/route.ts` — Route now:
+   - Loads AutomationSettings via fetchAutomationSettings()
+   - Calls resolveProductStatus() for status decision (no more hardcoded 'draft')
+   - Calls resolveChannelTargets() for effective channel list
+   - Calls resolveContentDecision() for blog/image/tryOn intent
+   - Stores autoDecision + autoDecisionReason in automationMeta
+   - Returns full decision object + content_intent in response for n8n
+
+4. `src/collections/Products.ts` — automationMeta extended:
+   - autoDecision (select: active/draft, readOnly)
+   - autoDecisionReason (textarea, readOnly)
+
+5. `src/components/admin/ReviewPanel.tsx` — New decision row:
+   - Shows "Otomasyon kararı: Aktif edildi / Taslak bırakıldı"
+   - Shows autoDecisionReason text
+   - Color: green for active, amber for draft
+
+**Status decision precedence (highest → lowest):**
+1. explicit 'draft' in body → always draft
+2. settings unavailable → draft (safe fallback)
+3. requireAdminReview = true → draft
+4. autoActivateProducts = false → draft (per-product override can override this)
+5. parseConfidence < minConfidenceToActivate → draft
+6. readiness.isReady = false → draft
+7. all gates pass → active
+
+**Channel decision:**
+- Global capability AND product intent both required
+- Website: on by default (publishWebsite defaults true)
+- Instagram/Shopier/Dolap: off by default — no real integration yet (Step 13+)
+- Real publishing scaffolded but not triggered
+
+**Content generation:**
+- Blog: globalEnabled AND (productFlag OR seoRequested from caption)
+- Extra views: globalEnabled AND productFlag (both required)
+- Try-on: globalEnabled AND productFlag (both required)
+- None of these trigger real actions yet — returns intent flags for n8n use
+
+**n8n response enhancements:**
+- product_status: resolved status
+- decision.status / decision.reason / decision.blocked_by
+- channels.effective / channels.blocked_by_global / channels.summary
+- content_intent.generate_blog / generate_extra_views / try_on_enabled
+
+**What is NOT yet implemented (Step 13+):**
+- Real Instagram publish (Graph API)
+- Real Shopier sync
+- Real Dolap sync
+- Real blog post creation trigger
+- Real extra image generation trigger
+- Telegram admin notification when requireAdminReview is true
+- Dashboard review queue widget
+
+**Status:** ACTIVE — implemented 2026-03-16
+
+---
+
+## D-067 — Step 13: Channel Adapter Scaffolding
+
+**Decision:**  
+Implement a pure dispatch library (`src/lib/channelDispatch.ts`) that fires n8n webhook stubs for Instagram, Shopier, and Dolap channels. No real third-party API calls in this step — the adapter contract is established, and n8n will receive the full product payload to act on in future steps.
+
+**Reason:**  
+- Decouples the Payload layer from external API details (Instagram Graph API, Shopier API, Dolap API)
+- n8n is the right orchestration layer for external platform calls — Payload only dispatches the intent
+- Scaffold-first allows the full control flow (eligibility → dispatch → tracking) to be tested before real integrations exist
+- `N8N_CHANNEL_*_WEBHOOK` env vars can be set when real workflows are ready — zero code changes needed
+
+**Key choices:**
+- Website is NOT a dispatch target — it works natively via `status: active` (no webhook needed)
+- Eligibility = global capability (AutomationSettings) ∩ product intent (channelTargets + channels.*)
+- `dispatchProductToChannels()` is the orchestrator — called by afterChange hook on status → active
+- `isDispatchUpdate` context flag prevents infinite re-trigger when writing dispatch tracking to sourceMeta
+- All dispatch failures are non-fatal: product activation succeeds regardless, errors are logged
+- Dispatch tracking stored in `sourceMeta.dispatchedChannels`, `lastDispatchedAt`, `dispatchNotes`
+- `AbortSignal.timeout(10_000)` on fetch calls to prevent hanging on slow webhooks
+
+**Scaffold mode behavior (no env var set):**  
+Logs full payload intent at INFO level with `SCAFFOLD —` prefix. Admin can see which channels would have been targeted. Zero errors — graceful no-op.
+
+**Adapter contract (`ChannelDispatchPayload`):**  
+channel, productId, sku, title, price, originalPrice, brand, category, productFamily, productType, color, description, mediaUrls, channelTargets, triggerReason, dispatchTimestamp, meta (parseConfidence, autoDecision, telegramMessageId, source)
+
+**Deferred to future steps:**
+- Real Instagram Graph API integration
+- Real Shopier listing sync
+- Real Dolap listing sync
+- n8n channel workflow stubs (receive + log intent)
+- ReviewPanel channel dispatch status display
+- Admin "re-dispatch" action
+
+**Status:** ACTIVE — implemented 2026-03-16
+
+---
+
+## D-068 — Step 14: n8n Stub Workflows + Admin Dispatch Visibility
+
+**Decision:**  
+Add three importable n8n stub workflow JSON files (Instagram / Shopier / Dolap), a complete dispatch contract documentation file, dispatch status visibility in ReviewPanel, and a `forceRedispatch` field for admin-triggered manual re-dispatch.
+
+**Reason:**  
+- Stub workflows allow end-to-end testing of the dispatch chain without real third-party APIs
+- Dispatch visibility in ReviewPanel eliminates the "black box" problem — admin can see exactly what happened, which channels were eligible, which were dispatched, and why any were skipped
+- `forceRedispatch` satisfies the retry requirement cleanly: deliberate, one-shot, self-resetting
+- Keeping stubs as importable JSON in repo (not VPS config) means anyone can onboard the n8n side without re-inventing the workflow structure
+
+**Key choices:**
+
+**n8n stub workflow structure (3 nodes each):**
+- Webhook → Log Payload (Set node) → Respond 200
+- Path: `channel-instagram` / `channel-shopier` / `channel-dolap`
+- Respond node echoes: received, channel, productId, sku, title, timestamp, mode: 'stub'
+- No real API calls in any node
+
+**`n8n-workflows/CHANNEL_DISPATCH_CONTRACT.md`:**
+- Full ChannelDispatchPayload type + sample JSON
+- Env var table
+- End-to-end test checklist
+- Dispatch result schema
+- Manual re-dispatch instructions
+
+**ReviewPanel dispatch section:**
+- Only shown when `status === 'active'`
+- Per-channel rows: eligible/dispatched/webhookConfigured/skippedReason/error/responseStatus/timestamp
+- Color-coded: green = dispatched, yellow = eligible but not sent, grey = skipped
+- Collapsible raw `dispatchNotes` debug block
+- Pending dispatch hint on draft products
+
+**`forceRedispatch` checkbox (in sourceMeta group):**
+- Admin-visible, not readOnly
+- afterChange hook fires when `forceRedispatch === true && status === 'active'`
+- Auto-reset to `false` in the same sourceMeta update that writes dispatch results
+- NOT reset on dispatch error (admin can retry by saving again — idempotent intent)
+- Trigger reason logged as `manual-redispatch` vs `status-transition`
+
+**Deferred:**
+- Per-channel listing ID written back to `externalSyncId` after successful real API call
+- Scheduled retry for failed dispatches
+- Admin "re-dispatch single channel" button (current forceRedispatch redispatches all eligible channels)
+
+**Status:** ACTIVE — implemented 2026-03-16
+
+---
+
+## D-069 — Step 15: E2E Verification Pass + Media URL Hardening
+
+**Decision:**  
+No new abstraction layers. Focus on verifying the existing dispatch chain and fixing one real bug: relative `/media/` paths in `extractMediaUrls()` were not accessible from the n8n VPS.
+
+**Findings from inspection pass:**
+1. **Env var naming: ✅ consistent** — `N8N_CHANNEL_INSTAGRAM_WEBHOOK` etc. match exactly across `channelDispatch.ts`, `CHANNEL_DISPATCH_CONTRACT.md`, and all 3 stub JSONs. No fix needed.
+2. **Dispatch logic: ✅ correct** — `dispatchToChannel()` uses `response.ok` (checks 2xx), has `AbortSignal.timeout(10_000)`, catches fetch errors. Non-throwing. Works on Node.js 18 (Vercel default).
+3. **afterChange guard: ✅ correct** — `req.context.isDispatchUpdate` pattern correctly prevents infinite loop. `forceRedispatch` reset-on-success, preserve-on-error is the right behavior.
+4. **Media URLs: ⚠️ BUG FIXED** — `extractMediaUrls()` returned relative `/media/<filename>` paths for local dev media. These are not accessible from n8n (external VPS). Fixed by prepending `NEXT_PUBLIC_SERVER_URL` when constructing the fallback path. In production, all media uses Vercel Blob (absolute URLs), so this only affects dev. Safe non-breaking fix.
+5. **`.env.example`: ⚠️ STALE** — Missing all Phase 2 vars (AUTOMATION_SECRET, BLOB_READ_WRITE_TOKEN, N8N_CHANNEL_*_WEBHOOK, N8N_INTAKE_WEBHOOK). Updated with full set.
+
+**New assets:**
+- `n8n-workflows/E2E_TEST_CHECKLIST.md` — 120-line repeatable runbook: n8n import steps, env var setup, test product creation, expected log lines, n8n execution verification, media URL check, forceRedispatch test, failure mode table, 30-line quick-reference checklist.
+- `n8n-workflows/CHANNEL_DISPATCH_CONTRACT.md` — Added "Media URL Behavior" section (explains Blob vs. local fallback, how to verify), "Known Limitations" table (8 items: no real API, no retry, no history append, etc.).
+
+**Confirmed assumptions:**
+- Vercel Blob `*.public.blob.vercel-storage.com` URLs are publicly accessible worldwide including n8n VPS — no special access needed.
+- `NEXT_PUBLIC_SERVER_URL` is set to `https://uygunayakkabi.com` in Vercel production env — confirmed present in `.env.example` and existing Vercel config.
+- `AbortSignal.timeout()` is Node.js 17.3+ — Vercel runs 18 → not an issue.
+
+**Deferred (require VPS action, not code):**
+- Actual n8n stub import and activation (VPS operation)
+- Setting `N8N_CHANNEL_INSTAGRAM_WEBHOOK` in Vercel (operator action)
+- First real E2E test run (requires both of the above)
+
+**Status:** ACTIVE — implemented 2026-03-16
+
+---
+
+## D-070 — Mentix Intelligence Layer: Full Skill Stack Design
+
+**Decision:**
+Design and create a comprehensive 11-skill stack for Mentix, with 3-level controlled rollout (A: active, B: controlled, C: observe-only).
+
+**Skills added:**
+- Level A (6): skill-vetter, browser-automation, sql-toolkit, agent-memory, github-workflow, uptime-kuma
+- Level B (4): eachlabs-image-edit, upload-post, research-cog, senior-backend
+- Level C (1): learning-engine
+
+**Reason:**
+Mentix needs to evolve from a single-skill intake bot into a full operations assistant capable of debugging product data flows, monitoring infrastructure, managing content, and learning from its own operations. The 3-level activation ensures safe rollout without mass-enabling risky automations.
+
+**Status:** ACTIVE — designed 2026-03-16, pending VPS deployment
+
+---
+
+## D-071 — Memory System: agent-memory (File-Based) Over chromadb-memory (Vector DB)
+
+**Decision:**
+Use structured file-based memory (agent-memory) instead of ChromaDB vector database for Mentix's operational memory.
+
+**Reason:**
+- ChromaDB would require an additional Docker container on VPS, adding complexity
+- Project already uses file-based documentation (ai-knowledge/, project-control/)
+- Structured markdown aligns with existing knowledge architecture
+- Vector search not needed at this stage — categorical retrieval is sufficient
+- Lower resource footprint on VPS
+- Easier to inspect, debug, and version-control
+- Can migrate to ChromaDB later if semantic search becomes necessary
+
+**Status:** ACTIVE — decided 2026-03-16
+
+---
+
+## D-072 — Learning Engine: Observe-First Mode with No Auto-Modification
+
+**Decision:**
+The learning-engine starts in observe-only mode. It may observe, score, detect patterns, summarize, and propose improvements — but it MUST NOT auto-modify any skill, workflow, or system configuration without explicit human review.
+
+**Reason:**
+A self-modifying system in production is dangerous without extensive operational history. The learning engine needs to build trust through accurate observations and useful proposals before earning any autonomous execution rights.
+
+**Upgrade path:** After 30 days of stable observation with positive human approval rate, consider moving to "suggest with auto-apply for LOW risk" mode.
+
+**Status:** ACTIVE — decided 2026-03-16
+
+---
+
+## D-073 — Skill Activation Policy: Draft-First for Publishing, Confirmation for Writes
+
+**Decision:**
+All content publishing skills (upload-post) operate in draft-first mode with no auto-publishing. All database write operations (sql-toolkit) require explicit confirmation. All image processing (eachlabs-image-edit) requires per-operation approval.
+
+**Reason:**
+Publishing wrong content, corrupting data, or overwriting images are high-impact, hard-to-reverse mistakes. The confirmation gates protect against both AI errors and unexpected inputs.
+
+**Status:** ACTIVE — decided 2026-03-16
+
+---
+
+## D-074 — product-flow-debugger as First-Class Skill (Not Embedded in sql-toolkit)
+
+**Decision:**
+`product-flow-debugger` is a standalone Level A skill with its own SKILL.md, separate from `sql-toolkit`. It has its own 13-step trace map, 6 diagnostic entry points, confidence × risk gate, and capability/permission matrix.
+
+**Reason:**
+In v1, product diagnostics were described as a subsection of sql-toolkit. This buried the most business-critical intelligence capability under a generic database tool. Product visibility failures, intake failures, and image rendering bugs are the most common production issues — they deserve their own entry point, their own trace protocol, and their own confidence gate. Separation also allows product-flow-debugger to invoke sql-toolkit as a subordinate tool without conflating their permission models.
+
+**Status:** ACTIVE — implemented 2026-03-16
+
+---
+
+## D-075 — OER Separation: Outcome / Evaluation / Reward Are Three Distinct Records
+
+**Decision:**
+The learning engine stores three strictly separated record types: (1) OUTCOME — what actually happened, stored in `traces/`; (2) EVALUATION — was Mentix's reasoning correct, stored in `evaluations/`; (3) REWARD — score assigned from outcome + evaluation combined, stored in `rewards/`. These are never merged into a single record.
+
+**Reason:**
+Conflating outcome with evaluation creates misleading training signal. A correct diagnosis with a failed outcome (e.g., correct root cause but infra was down) should reward the reasoning, not penalize it. Separating the three allows independent analysis: were the diagnostics correct? did the action work? is the confidence model calibrated? Each question has a different answer and should be stored separately.
+
+**Status:** ACTIVE — implemented 2026-03-16

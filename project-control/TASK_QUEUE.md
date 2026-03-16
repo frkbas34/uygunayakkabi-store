@@ -1,6 +1,6 @@
 # TASK QUEUE — Uygunayakkabi
 
-_Last updated: 2026-03-16 (Step 15 complete + Mentix Intelligence Layer v2 complete — 13 skills, mentix-memory/ system, v2 dashboard)_
+_Last updated: 2026-03-17 (Mentix v2 fully deployed — all 13 skills live, ops group working, Bahriyar added)_
 
 ## ⚠️ Current Blockers
 
@@ -10,18 +10,30 @@ _Last updated: 2026-03-16 (Step 15 complete + Mentix Intelligence Layer v2 compl
 2. Sets `N8N_CHANNEL_INSTAGRAM_WEBHOOK` in Vercel + redeploys
 3. Runs the test per `n8n-workflows/E2E_TEST_CHECKLIST.md` and confirms all success signals
 
-### Blocker 2: Mentix Intelligence Layer v2 VPS Deployment
-**12 skill SKILL.md files + full mentix-memory/ system created in repo.** Deployment to VPS requires operator:
-1. `scp -r mentix-skills/* furkan@VPS:/home/furkan/.openclaw/skills/`
-2. `scp -r mentix-memory/* furkan@VPS:/home/furkan/.openclaw/mentix-memory/`
-3. `mkdir -p /home/furkan/.openclaw/skills/agent-memory/data/{incidents,patterns,knowledge,decisions,rewards}`
-4. Add `DATABASE_URI` and `GITHUB_TOKEN` to OpenClaw Docker env
-5. `cd /opt/openclaw && docker compose restart`
-6. Verify skill recognition in gateway logs
-7. Test each Level A skill via Telegram (including product-flow-debugger)
+### Blocker 2: ~~Mentix VPS Deployment~~ — RESOLVED ✅ (2026-03-17)
+All 13 skills deployed, skills.entries registered, identity updated, ops group live.
 
-See `mentix-skills/INSTALLATION_MATRIX.md` for full deployment guide + risk register.
-See PROJECT_STATE.md → "Mentix Intelligence Layer v2" for full skill/memory inventory.
+### Blocker 3: Git push pending
+Local commits `6258adf → 451389b` not yet pushed to GitHub.
+Run: `git push origin main` from local machine.
+
+---
+
+## 🔜 Immediate Next Actions
+
+### Mentix — Real Ops Tests (priority)
+1. **Product intake test** — send photo + caption + `@Mentix bunu ürüne çevir` to ops group → verify JOB_ID generated, n8n webhook fires, Payload draft product created
+2. **Debug test** — `@Mentix bu ürünün veri akışını debug et` → verify product-flow-debugger activates and traces 13-step flow
+3. **Add DATABASE_URI to OpenClaw Docker env** — needed for sql-toolkit live DB queries
+4. **Add GITHUB_TOKEN to OpenClaw Docker env** — needed for github-workflow
+
+### OpenClaw Env Vars (VPS — `/opt/openclaw/docker-compose.yml`)
+```yaml
+environment:
+  - DATABASE_URI=postgresql://...  # Neon connection string
+  - GITHUB_TOKEN=ghp_...           # Read-only repo access
+```
+Then: `cd /opt/openclaw && docker compose up -d`
 
 ---
 

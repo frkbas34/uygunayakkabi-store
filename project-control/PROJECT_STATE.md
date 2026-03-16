@@ -1,56 +1,75 @@
 # PROJECT STATE — Uygunayakkabi
 
-_Last updated: 2026-03-16 (Step 15 complete + Mentix Intelligence Layer v2 — full memory system, product-flow-debugger, decision engine)_
+_Last updated: 2026-03-17 (Mentix v2 fully deployed to VPS — all 13 skills live, identity set, ops group working)_
 
 ## Current Status
 Phase 1 **COMPLETE** (validated 2026-03-13).
 Phase 2 **ACTIVE** — Steps 1–15 complete. Dispatch chain verified, media URLs hardened, E2E runbook ready. (2026-03-16)
-**Mentix Intelligence Layer v2** — 13-skill stack + full mentix-memory/ system (12 layers, 5 policies, 6 runbooks, trace schema, golden cases). Dashboard rebuilt as v2 (7 tabs). (2026-03-16)
+**Mentix Intelligence Layer v2** — DEPLOYED ✅ (2026-03-17). All 13 skills on VPS, identity updated, ops group live with Bahriyar as 3rd authorized user.
 
 End-to-end pipeline validated:
-- Telegram group mention → OpenClaw (mentix-intake skill) → n8n webhook → Payload draft product → media attach → duplicate guard → admin review
+- Telegram group mention → OpenClaw (mentix-intake v3) → n8n webhook → Payload draft product → media attach → duplicate guard → admin review
 - Security rotation: **DONE**
 - Docker network persistence: **DONE**
-- Telegram group allowlist + mention-only: **DONE**
+- Telegram group allowlist (Furkan + Sabri + Bahriyar): **DONE**
+- Ops group full-capability mention-trigger: **LIVE**
 
 ## Current Phase
 Phase 2 — Automation Backbone (**ACTIVE — Steps 1–15 complete, Step 16 next**)
-Mentix Intelligence Layer v2 — Skill stack + memory system designed, ready for VPS deployment
+Mentix Intelligence Layer v2 — **DEPLOYED AND LIVE** (2026-03-17)
 
 ---
 
-## Mentix Intelligence Layer v2 (2026-03-16)
+## Mentix Intelligence Layer v2 — LIVE STATE (2026-03-17)
 
-### Active Skills on VPS
-| Skill | Status | Location |
-|-------|--------|----------|
-| mentix-intake | ✅ LIVE | VPS: `/home/furkan/.openclaw/skills/mentix-intake/` |
+### VPS Deployment Reality
+- All 13 skills deployed to `/home/furkan/.openclaw/skills/`
+- All skills registered in `openclaw.json` → `skills.entries` (enabled: true)
+- `mentix-memory/` 12-layer directory structure created at `/home/furkan/.openclaw/mentix-memory/`
+- TRACE_SCHEMA.json + GOLDEN_CASES.json copied to VPS
+- `workspace/IDENTITY.md` updated to Mentix v2 identity
+- `workspace/BOOTSTRAP.md` updated with skill loading instructions
+- `workspace/mentix-skills` symlink → `/home/furkan/.openclaw/skills/` (Mentix can read all SKILL.md files)
+- OpenClaw restarted and verified responding
 
-### Designed Skills (Pending VPS Deployment)
-| Skill | Level | Permission Model | Status |
-|-------|-------|-----------------|--------|
-| skill-vetter | A (active) | Full ALLOWED/CONFIRM/DENIED matrix | `mentix-skills/skill-vetter/` |
-| browser-automation | A (read-only) | Read=ALLOWED / Click=CONFIRM / Bulk=DENIED | `mentix-skills/browser-automation/` |
-| sql-toolkit | A (safe diagnostics) | SELECT=ALLOWED / UPDATE=CONFIRM / DELETE=DENIED | `mentix-skills/sql-toolkit/` |
-| agent-memory | A (active) | Full ALLOWED/CONFIRM/DENIED matrix | `mentix-skills/agent-memory/` |
-| github-workflow | A (active) | Read=ALLOWED / Commit=CONFIRM / Force-push=DENIED | `mentix-skills/github-workflow/` |
-| uptime-kuma | A (active) | Full ALLOWED/CONFIRM/DENIED matrix | `mentix-skills/uptime-kuma/` |
-| **product-flow-debugger** | **A (active)** | **First-class module — 13-step trace map** | `mentix-skills/product-flow-debugger/` |
-| eachlabs-image-edit | B (controlled) | Full ALLOWED/CONFIRM/DENIED matrix | `mentix-skills/eachlabs-image-edit/` |
-| upload-post | B (draft-only) | Draft=ALLOWED / Publish=CONFIRM / Auto-publish=DENIED | `mentix-skills/upload-post/` |
-| research-cog | B (optional branch) | Informational only — not a pipeline gate | `mentix-skills/research-cog/` |
-| senior-backend | B (advisory) | Advisory only | `mentix-skills/senior-backend/` |
-| learning-engine | C (observe-only) | OER separation — cannot auto-modify production | `mentix-skills/learning-engine/` |
+### All Skills — Live on VPS
+| Skill | Level | Permission Model | VPS Status |
+|-------|-------|-----------------|------------|
+| mentix-intake | A | Chat-scope v3 routing, job_id, role model | ✅ LIVE v3.0 |
+| product-flow-debugger | A | First-class module — 13-step trace map | ✅ LIVE |
+| skill-vetter | A | Read=ALLOWED / Block=CONFIRM / Auto-block=DENIED | ✅ LIVE |
+| browser-automation | A | Read=ALLOWED / Click=CONFIRM / Bulk=DENIED | ✅ LIVE |
+| sql-toolkit | A | SELECT=ALLOWED / UPDATE=CONFIRM / DELETE=DENIED | ✅ LIVE |
+| agent-memory | A | Store/Retrieve=ALLOWED / Delete=DENIED | ✅ LIVE |
+| github-workflow | A | Read=ALLOWED / Commit=CONFIRM / Force-push=DENIED | ✅ LIVE |
+| uptime-kuma | A | Read=ALLOWED | ✅ LIVE |
+| eachlabs-image-edit | B | Single-image=CONFIRM / Bulk=DENIED | ✅ LIVE |
+| upload-post | B | Draft=ALLOWED / Publish=CONFIRM / Auto-publish=DENIED | ✅ LIVE |
+| research-cog | B | Informational only | ✅ LIVE |
+| senior-backend | B | Advisory only | ✅ LIVE |
+| learning-engine | C | Observe=ALLOWED / Auto-modify=DENIED | ✅ LIVE |
 
-**Total: 12 designed skills + 1 live (mentix-intake) = 13 skills**
+**Total: 13 skills deployed and registered**
 
-### Deployment Commands
-```bash
-scp -r mentix-skills/* furkan@VPS:/home/furkan/.openclaw/skills/
-scp -r mentix-memory/* furkan@VPS:/home/furkan/.openclaw/mentix-memory/
-mkdir -p /home/furkan/.openclaw/skills/agent-memory/data/{incidents,patterns,knowledge,decisions,rewards}
-```
-See `mentix-skills/INSTALLATION_MATRIX.md` for full deployment guide.
+### Chat Scope Policy v3 (LIVE)
+| Context | Trigger | Capability |
+|---------|---------|------------|
+| DM (private) | Every message | Full |
+| Approved ops group | @mention only | Full (same as DM) |
+| Other groups | — | Silent drop |
+
+**Authorized group users:** Furkan (5450039553), Sabri/Bahriyar (8049990232), Bahriyar (5232747260)
+
+### Runtime Validation — Phase 2 Complete (2026-03-17)
+- ✅ Confirmation-completion flow: S2 → AWAITING_CONFIRMATION → resolved, RWD-SIM-002 score=3
+- ✅ Wrong diagnosis: RWD-SIM-004 score=-9 (wrong_diagnosis -5, false_confidence -4)
+- ✅ REPORT_ONLY fix (D-076): DEC-SIM-003 written with final_action=NO_ACTION
+- ✅ Restart persistence: 11 field checks passed from disk reload
+
+### Key Architecture Decisions (this session)
+- **D-074**: product-flow-debugger is first-class module, not sql-toolkit sub-feature
+- **D-075**: OER separation — outcome/evaluation/reward stored separately
+- **D-076**: REPORT_ONLY gate always writes decision record (audit trail)
 
 ### mentix-memory/ System (12 Layers — in repo, pending VPS deployment)
 | Layer | Contents |

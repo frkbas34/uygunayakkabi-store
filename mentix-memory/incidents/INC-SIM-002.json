@@ -2,7 +2,7 @@
   "_sim": true,
   "incident_id": "INC-SIM-002",
   "timestamp": "2026-03-16T16:09:17.029509+00:00",
-  "status": "OPEN",
+  "status": "CLOSED",
   "trace_ref": "TRC-SIM-002",
   "symptom": "Category shows 'Di\u011fer' instead of 'G\u00fcnl\u00fck' on storefront",
   "root_cause": "parseTelegramCaption normalization missed 'g\u00fcnl\u00fck kullan\u0131m' phrase; mapped to fallback category",
@@ -10,5 +10,7 @@
   "confidence": 0.66,
   "risk": "MEDIUM",
   "gate_action": "PROPOSE_CONFIRM",
-  "resolved": false
+  "resolved": true,
+  "resolved_at": "2026-03-16T16:26:44.472398+00:00",
+  "resolution": "Human confirmed: category updated to G\u00fcnl\u00fck via sql-toolkit UPDATE"
 }

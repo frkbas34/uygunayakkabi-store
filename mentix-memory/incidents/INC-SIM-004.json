@@ -1,0 +1,14 @@
+{
+  "_sim": true,
+  "incident_id": "INC-SIM-004",
+  "timestamp": "2026-03-16T16:26:44.487458+00:00",
+  "status": "CLOSED_WRONG",
+  "trace_ref": "TRC-SIM-004",
+  "symptom": "SVG placeholder",
+  "root_cause": "WRONG: Vercel Blob CDN is down",
+  "confidence": 0.85,
+  "risk": "LOW",
+  "resolved": true,
+  "resolution": "Action taken on wrong root cause \u2014 Vercel checked, no CDN issues found",
+  "post_mortem": "Real cause was products.images[] empty \u2014 should have checked DB first (Entry Point C step 1)"
+}

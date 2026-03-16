@@ -1,0 +1,36 @@
+{
+  "_sim": true,
+  "trace_id": "TRC-SIM-004",
+  "timestamp": "2026-03-16T16:26:44.479716+00:00",
+  "triggered_by": "simulation",
+  "incident_ref": "INC-SIM-004",
+  "input": {
+    "raw_query": "G\u00f6rsel yok, Vercel Blob broken diyorum",
+    "context": "product_id=TG-NIK-0055"
+  },
+  "skills_invoked": [
+    "product-flow-debugger",
+    "browser-automation"
+  ],
+  "flow_steps": [
+    {
+      "step": 12,
+      "action": "Browser check storefront",
+      "evidence": "SVG placeholder shown",
+      "decision": "Concluded Vercel Blob is broken \u2014 confidence 0.85"
+    }
+  ],
+  "diagnosis": {
+    "flow_step_failed": 12,
+    "flow_step_name": "Storefront page.tsx",
+    "symptom": "SVG placeholder instead of product image",
+    "root_cause": "WRONG: Vercel Blob CDN is down",
+    "symptom_vs_root_cause": "Incorrect: jumped to CDN without checking DB links",
+    "confidence": 0.85,
+    "evidence_strength": "WEAK"
+  },
+  "decision": null,
+  "outcome": null,
+  "evaluation": null,
+  "reward": null
+}

@@ -1192,3 +1192,18 @@ The learning engine stores three strictly separated record types: (1) OUTCOME �
 Conflating outcome with evaluation creates misleading training signal. A correct diagnosis with a failed outcome (e.g., correct root cause but infra was down) should reward the reasoning, not penalize it. Separating the three allows independent analysis: were the diagnostics correct? did the action work? is the confidence model calibrated? Each question has a different answer and should be stored separately.
 
 **Status:** ACTIVE — implemented 2026-03-16
+
+---
+
+## D-076 — REPORT_ONLY Gate Always Writes a Decision Record
+
+**Decision:**
+When the confidence gate fires as `REPORT_ONLY` (confidence < 0.55), Mentix still writes a decision record to `decisions/` with `gate_action = REPORT_ONLY`, `final_action = NO_ACTION`, and `reason = LOW_CONFIDENCE` or `INSUFFICIENT_EVIDENCE`. No action is taken and no reward is written, but the record is persisted.
+
+**Reason:**
+The original Phase-1 implementation silently skipped writing any decision record for REPORT_ONLY cases. This made low-confidence sessions invisible in the decisions/ layer, breaking three things: (1) audit trail — operators had no way to see that a case was evaluated but deprioritized; (2) confidence calibration — no data to measure how often threshold=0.55 fires and whether it's set correctly; (3) threshold tuning — impossible to answer "kaç vaka report-only oldu?" without these records. The fix is minimal: always write the record, just mark the outcome as NO_ACTION.
+
+**Evidence:**
+Runtime-validated in Phase-2 simulation: `DEC-SIM-003.json` — `confidence=0.47`, `gate_action=REPORT_ONLY`, `final_action=NO_ACTION`. Previously had no corresponding decisions/ entry. Now always written.
+
+**Status:** ACTIVE — implemented 2026-03-16

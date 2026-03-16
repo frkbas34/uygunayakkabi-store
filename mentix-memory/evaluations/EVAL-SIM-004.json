@@ -1,0 +1,15 @@
+{
+  "_sim": true,
+  "evaluation_id": "EVAL-SIM-004",
+  "timestamp": "2026-03-16T16:26:44.499879+00:00",
+  "trace_ref": "TRC-SIM-004",
+  "incident_ref": "INC-SIM-004",
+  "diagnosis_correct": false,
+  "first_pass": false,
+  "unnecessary_steps": 0,
+  "confidence_was": 0.85,
+  "evidence_strength": "WEAK",
+  "evaluator_notes": "High confidence (0.85) on wrong root cause. Should have started with DB check (Entry Point C step 1), not browser check. Missed GC-003 pattern.",
+  "golden_case_ref": "GC-003",
+  "gate_action_was": "PROCEED"
+}

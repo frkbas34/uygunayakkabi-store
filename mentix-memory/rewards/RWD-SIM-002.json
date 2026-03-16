@@ -1,0 +1,23 @@
+{
+  "_sim": true,
+  "reward_id": "RWD-SIM-002",
+  "timestamp": "2026-03-16T16:26:44.475958+00:00",
+  "trace_ref": "TRC-SIM-002",
+  "evaluation_ref": "EVAL-SIM-002",
+  "score": 3,
+  "signals": [
+    {
+      "signal": "correct_root_cause",
+      "score": 5
+    },
+    {
+      "signal": "unnecessary_tool_use",
+      "score": -2
+    }
+  ],
+  "outcome_was": "SUCCESS",
+  "evaluation_was_correct": true,
+  "deferred_reason": "Gate was PROPOSE_CONFIRM \u2014 waited for human approval",
+  "confirmed_at": "2026-03-16T16:26:44.469178+00:00",
+  "note": "Reward written post-confirmation. Stored separately per D-075."
+}

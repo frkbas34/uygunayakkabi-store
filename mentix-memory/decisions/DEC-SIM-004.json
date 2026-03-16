@@ -1,0 +1,23 @@
+{
+  "_sim": true,
+  "decision_id": "DEC-SIM-004",
+  "timestamp": "2026-03-16T16:26:44.493025+00:00",
+  "trace_ref": "TRC-SIM-004",
+  "incident_ref": "INC-SIM-004",
+  "task_type": "diagnostic",
+  "risk_level": "LOW",
+  "requires_write": false,
+  "requires_external_publish": false,
+  "confidence_score": 0.85,
+  "evidence_strength": "WEAK",
+  "human_approval_required": false,
+  "reversible": true,
+  "blast_radius": "LOW",
+  "selected_skills": [
+    "product-flow-debugger",
+    "browser-automation"
+  ],
+  "proposed_action": "Check Vercel Blob CDN status",
+  "final_action": "Check Vercel Blob CDN status",
+  "gate_action": "PROCEED"
+}

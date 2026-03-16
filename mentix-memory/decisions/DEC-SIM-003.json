@@ -1,0 +1,25 @@
+{
+  "_sim": true,
+  "decision_id": "DEC-SIM-003",
+  "timestamp": "2026-03-16T16:26:44.510515+00:00",
+  "trace_ref": "TRC-SIM-003",
+  "incident_ref": "INC-SIM-003",
+  "task_type": "diagnostic",
+  "risk_level": "LOW",
+  "requires_write": false,
+  "requires_external_publish": false,
+  "confidence_score": 0.47,
+  "evidence_strength": "WEAK",
+  "human_approval_required": false,
+  "reversible": true,
+  "blast_radius": "LOW",
+  "selected_skills": [
+    "product-flow-debugger"
+  ],
+  "proposed_action": "None \u2014 insufficient evidence to recommend action",
+  "final_action": "NO_ACTION",
+  "gate_action": "REPORT_ONLY",
+  "reason": "LOW_CONFIDENCE",
+  "report": "4 possible root causes identified. Cannot narrow down without DB evidence. Recommend: check products.images[], then media collection, then Blob URL.",
+  "note": "Decision record always written per D-076. gate=REPORT_ONLY decisions are auditable and included in confidence calibration metrics."
+}

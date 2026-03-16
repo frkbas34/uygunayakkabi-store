@@ -1,0 +1,21 @@
+{
+  "_sim": true,
+  "reward_id": "RWD-SIM-004",
+  "timestamp": "2026-03-16T16:26:44.505517+00:00",
+  "trace_ref": "TRC-SIM-004",
+  "evaluation_ref": "EVAL-SIM-004",
+  "score": -9,
+  "signals": [
+    {
+      "signal": "wrong_diagnosis",
+      "score": -5
+    },
+    {
+      "signal": "false_confidence",
+      "score": -4
+    }
+  ],
+  "outcome_was": "FAILURE",
+  "evaluation_was_correct": false,
+  "note": "Negative reward: wrong_diagnosis + false_confidence penalties applied."
+}

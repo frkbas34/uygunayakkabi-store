@@ -15,32 +15,10 @@ export const Products: CollectionConfig = {
   admin: {
     useAsTitle: 'title',
     group: 'Mağaza',
-    defaultColumns: ['title', 'source', 'status', 'price', 'brand'],
-    description: 'Mağazadaki tüm ürünler (ayakkabı, cüzdan, çanta, aksesuar)',
+    defaultColumns: ['title', 'category', 'brand', 'price', 'status'],
+    description: 'Mağazadaki tüm ayakkabı ürünleri',
   },
   hooks: {
-    beforeChange: [
-      // ── Publish Guard ─────────────────────────────────────────────────────
-      // Prevents incomplete automation-created products from going live.
-      // Only fires when transitioning an existing product to status: 'active'.
-      // Does NOT block automation draft creation (operation === 'create' is exempt).
-      async ({ data, originalDoc, operation }) => {
-        // Only guard on status transitions, not on initial create
-        if (operation === 'update' && data.status === 'active') {
-          const wasAlreadyActive = originalDoc?.status === 'active'
-          if (!wasAlreadyActive) {
-            // Transitioning draft/soldout → active
-            const price = data.price ?? originalDoc?.price
-            if (!price || Number(price) <= 0) {
-              throw new Error(
-                '⚠️ Yayınlamak için geçerli bir fiyat girilmesi zorunludur. Lütfen fiyatı 0\'dan büyük bir değere ayarlayın.',
-              )
-            }
-          }
-        }
-        return data
-      },
-    ],
     beforeValidate: [
       ({ data }) => {
         if (!data) return data
@@ -50,16 +28,9 @@ export const Products: CollectionConfig = {
         }
         // Auto-generate SKU if empty
         if (data.title && !data.sku) {
-          const prefix = data.title.substring(0, 3).toUpperCase().replace(/[^A-Z]/g, 'X')
-          const isAutomation = data.source === 'n8n' || data.source === 'telegram'
-          const msgId = (data.automationMeta as Record<string, string> | undefined)?.telegramMessageId
-          // Automation SKU: TG-{PREFIX3}-{msgId} — traceable back to the Telegram message
-          // Admin/manual SKU: {PREFIX3}-{timestamp36}
-          if (isAutomation && msgId) {
-            data.sku = `TG-${prefix}-${msgId}`
-          } else {
-            data.sku = `${prefix}-${Date.now().toString(36).toUpperCase()}`
-          }
+          const prefix = data.title.substring(0, 3).toUpperCase()
+            .replace(/[^A-Z]/g, 'X')
+          data.sku = `${prefix}-${Date.now().toString(36).toUpperCase()}`
         }
         return data
       },
@@ -102,16 +73,6 @@ export const Products: CollectionConfig = {
     ],
   },
   fields: [
-    // ── Otomasyon Kontrol Paneli (yalnızca otomasyon ürünlerinde görünür) ──
-    {
-      name: 'reviewPanel',
-      type: 'ui',
-      admin: {
-        components: {
-          Field: '@/components/admin/ReviewPanel#ReviewPanel',
-        },
-      },
-    },
     // ── Temel Bilgiler ────────────────────────────────────────
     {
       name: 'title',
@@ -176,32 +137,6 @@ export const Products: CollectionConfig = {
         position: 'sidebar',
       },
     },
-    // ── Ürün Ailesi & Tipi (D-054) ────────────────────────────
-    {
-      name: 'productFamily',
-      type: 'select',
-      label: 'Ürün Ailesi',
-      options: [
-        { label: '👟 Ayakkabı', value: 'shoes' },
-        { label: '👛 Cüzdan', value: 'wallets' },
-        { label: '👜 Çanta', value: 'bags' },
-        { label: '🎒 Aksesuar', value: 'accessories' },
-      ],
-      defaultValue: 'shoes',
-      admin: {
-        position: 'sidebar',
-        description: 'Ana ürün grubu — filtreleme ve kanal yönlendirmede kullanılır',
-      },
-    },
-    {
-      name: 'productType',
-      type: 'text',
-      label: 'Ürün Tipi',
-      admin: {
-        position: 'sidebar',
-        description: 'Detay tip: sneaker, bot, loafer, bifold, cardholder vb.',
-      },
-    },
     {
       name: 'gender',
       type: 'select',
@@ -221,12 +156,7 @@ export const Products: CollectionConfig = {
       type: 'number',
       label: 'Satış Fiyatı (₺)',
       required: true,
-      validate: (value: any, { data }: any) => {
-        // Otomasyon kaynağından gelen draft ürünler için fiyat validasyonu atlanır
-        // (fiyat daha sonra admin panelinden tamamlanır)
-        if (data?.source === 'n8n' || data?.source === 'automation') {
-          return true
-        }
+      validate: (value: any) => {
         if (value === undefined || value === null || value === '') {
           return '⚠️ Satış fiyatı zorunludur.'
         }
@@ -242,25 +172,6 @@ export const Products: CollectionConfig = {
       label: 'Piyasa Fiyatı (₺)',
       admin: {
         description: 'İndirim hesabı için eski fiyat — boş bırakılabilir',
-      },
-    },
-    // ── Stok Adedi (D-063) ─────────────────────────────────────
-    // Product-level stock for products without size variants.
-    // Variant-level stock is tracked separately in the Variants collection.
-    // Automation intake sets this from the Telegram message quantity field.
-    {
-      name: 'stockQuantity',
-      type: 'number',
-      label: 'Stok Adedi',
-      defaultValue: 1,
-      admin: {
-        position: 'sidebar',
-        description: 'Toplam stok — beden varyantı olmayan ürünler için. Varyantsız stok.',
-      },
-      validate: (value: any) => {
-        if (value === undefined || value === null || value === '') return true
-        if (Number(value) < 0) return '⚠️ Stok adedi 0\'dan küçük olamaz.'
-        return true
       },
     },
     // ── Tanımlayıcılar ───────────────────────────────────────
@@ -298,9 +209,6 @@ export const Products: CollectionConfig = {
       ],
       admin: {
         position: 'sidebar',
-        components: {
-          Cell: '@/components/admin/StatusCell#StatusCell',
-        },
       },
     },
     {
@@ -339,165 +247,153 @@ export const Products: CollectionConfig = {
       relationTo: 'variants',
       hasMany: true,
     },
-    // ── Kanal Yayın Kontrolleri (D-055) ────────────────────────
+    // ── Ürün Ailesi (Product Family — D-055) ──────────────────
     {
-      name: 'channels',
-      type: 'group',
-      label: '📢 Yayın Kanalları',
+      name: 'productFamily',
+      type: 'select',
+      label: 'Ürün Ailesi',
+      options: [
+        { label: 'Ayakkabı', value: 'shoes' },
+        { label: 'Cüzdan', value: 'wallets' },
+        { label: 'Çanta', value: 'bags' },
+        { label: 'Kemer', value: 'belts' },
+        { label: 'Aksesuar', value: 'accessories' },
+      ],
+      defaultValue: 'shoes',
       admin: {
-        description: 'Ürünün hangi kanallarda yayınlanacağını seçin',
+        position: 'sidebar',
+        description: 'Ürün ailesi — kategoriyi tamamlayan üst seviye sınıflandırma',
+      },
+    },
+    {
+      name: 'productType',
+      type: 'text',
+      label: 'Ürün Tipi',
+      admin: {
+        position: 'sidebar',
+        description: 'Alt tip: sneaker, loafer, boot, bifold, cardholder vb.',
+      },
+    },
+    // ── Kanal Hedefleri (D-054) ─────────────────────────────
+    {
+      name: 'channelTargets',
+      type: 'select',
+      label: 'Yayın Kanalları',
+      hasMany: true,
+      options: [
+        { label: 'Website', value: 'website' },
+        { label: 'Instagram', value: 'instagram' },
+        { label: 'Shopier', value: 'shopier' },
+        { label: 'Dolap', value: 'dolap' },
+      ],
+      defaultValue: ['website'],
+      admin: {
+        description: 'Bu ürün hangi kanallara yayınlansın? (Global ayarları geçersiz kılabilir)',
+      },
+    },
+    // ── Otomasyon Bayrakları (D-053, D-056, D-057) ──────────
+    {
+      name: 'automationFlags',
+      type: 'group',
+      label: 'Otomasyon Ayarları',
+      admin: {
+        description: 'Ürün bazlı otomasyon kontrolleri',
       },
       fields: [
         {
-          name: 'publishWebsite',
+          name: 'autoActivate',
           type: 'checkbox',
-          label: '🌐 Web Sitesi',
-          defaultValue: true,
+          label: 'Otomatik Aktifleştir',
+          defaultValue: false,
+          admin: { description: 'Global ayarı bu ürün için geçersiz kılar' },
         },
         {
-          name: 'publishInstagram',
+          name: 'generateBlog',
           type: 'checkbox',
-          label: '📸 Instagram',
+          label: 'SEO Blog Üret',
           defaultValue: false,
+          admin: { description: 'Bu ürün aktif olunca otomatik blog yazısı üret' },
         },
         {
-          name: 'publishShopier',
+          name: 'generateExtraViews',
           type: 'checkbox',
-          label: '🛒 Shopier',
+          label: 'Ek Görseller Üret',
           defaultValue: false,
+          admin: { description: 'AI ile ek ürün açıları oluştur (2–4 adet)' },
         },
         {
-          name: 'publishDolap',
+          name: 'enableTryOn',
           type: 'checkbox',
-          label: '👗 Dolap',
+          label: 'Try-On Aktif',
           defaultValue: false,
+          admin: { description: 'Ürün sayfasında sanal deneme özelliği' },
         },
       ],
     },
-    // ── Kaynak (D-056) ──────────────────────────────────────
+    // ── Kaynak Bilgisi (Source Meta) ────────────────────────
     {
-      name: 'source',
-      type: 'select',
-      label: 'Kaynak',
-      defaultValue: 'admin',
-      options: [
-        { label: '🖥️ Admin Paneli', value: 'admin' },
-        { label: '📱 Telegram', value: 'telegram' },
-        { label: '⚙️ n8n Otomasyon', value: 'n8n' },
-        { label: '🔌 API', value: 'api' },
-        { label: '📥 İçe Aktarım', value: 'import' },
-      ],
-      admin: {
-        position: 'sidebar',
-        readOnly: true,
-        description: 'Ürün nereden oluşturuldu',
-        components: {
-          Cell: '@/components/admin/SourceBadgeCell#SourceBadgeCell',
-        },
-      },
-    },
-    // ── Otomasyon Meta (D-057) ──────────────────────────────
-    {
-      name: 'automationMeta',
+      name: 'sourceMeta',
       type: 'group',
-      label: '🤖 Otomasyon Bilgileri',
+      label: 'Kaynak Bilgisi',
       admin: {
-        description: 'Otomasyon pipeline tarafından kullanılan alanlar',
-        condition: (data: any) => {
-          // Only show this group if source is not 'admin' or if createdByAutomation is true
-          return data?.source !== 'admin' || data?.createdByAutomation === true
-        },
+        description: 'Otomasyon kaynak izleme — manuel düzenlemeye gerek yok',
       },
       fields: [
         {
           name: 'telegramChatId',
           type: 'text',
           label: 'Telegram Chat ID',
-          admin: {
-            readOnly: true,
-            description: 'Grup ID\'si (negatif) veya DM kullanıcı ID\'si',
-          },
-        },
-        {
-          name: 'telegramChatType',
-          type: 'text',
-          label: 'Chat Tipi',
-          admin: {
-            readOnly: true,
-            description: 'private / group / supergroup / channel',
-          },
-        },
-        {
-          name: 'telegramMessageId',
-          type: 'text',
-          label: 'Telegram Mesaj ID',
           admin: { readOnly: true },
         },
         {
-          name: 'telegramFromUserId',
+          name: 'telegramSenderId',
           type: 'text',
-          label: 'Gönderen Kullanıcı ID',
-          admin: {
-            readOnly: true,
-            description: 'Grup\'ta ürünü kim gönderdi',
-          },
-        },
-        {
-          name: 'lastSyncedAt',
-          type: 'date',
-          label: 'Son Senkronizasyon',
+          label: 'Telegram Gönderen ID',
           admin: { readOnly: true },
         },
         {
-          name: 'updatedBy',
+          name: 'workflowId',
           type: 'text',
-          label: 'Son Güncelleyen',
-          admin: {
-            readOnly: true,
-            description: 'admin / automation / api',
-          },
+          label: 'n8n Workflow ID',
+          admin: { readOnly: true },
         },
         {
-          name: 'lockFields',
-          type: 'checkbox',
-          label: '🔒 Alanları Kilitle',
-          defaultValue: false,
+          name: 'externalSyncId',
+          type: 'text',
+          label: 'Harici Senkron ID',
           admin: {
-            description: 'Aktifken otomasyon bu ürünü güncelleyemez — sadece admin değiştirebilir',
+            readOnly: true,
+            description: 'Shopier/Dolap/Instagram tarafındaki ürün ID\'si',
           },
         },
       ],
     },
-    // ── Eski Otomasyon Alanları (geriye uyumluluk) ──────────
-    // Yeni kod channels.* ve automationMeta.* kullanmalı
+    // ── Otomasyon (Legacy — backward compat) ────────────────
     {
       name: 'createdByAutomation',
       type: 'checkbox',
-      label: 'Otomasyon ile Eklendi (Eski)',
+      label: 'Otomasyon ile Eklendi',
       defaultValue: false,
       admin: {
         position: 'sidebar',
         readOnly: true,
-        description: '⚠️ Eski alan — yeni ürünler için "Kaynak" alanını kullanın',
       },
     },
     {
       name: 'telegramMessageId',
       type: 'text',
-      label: 'Telegram Mesaj ID (Eski)',
+      label: 'Telegram Mesaj ID',
       admin: {
         position: 'sidebar',
-        description: '⚠️ Eski alan — automationMeta.telegramMessageId kullanın',
       },
     },
     {
       name: 'postToInstagram',
       type: 'checkbox',
-      label: 'Instagram Paylaş (Eski)',
+      label: 'Instagram Paylaş',
       defaultValue: false,
       admin: {
         position: 'sidebar',
-        description: '⚠️ Eski alan — channels.publishInstagram kullanın',
       },
     },
   ],

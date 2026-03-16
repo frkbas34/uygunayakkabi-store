@@ -19,6 +19,7 @@ import { Categories } from "./src/collections/Categories";
 import { Banners } from "./src/collections/Banners";
 import { BlogPosts } from "./src/collections/BlogPosts";
 import { SiteSettings } from "./src/globals/SiteSettings";
+import { AutomationSettings } from "./src/globals/AutomationSettings";
 
 const filename = fileURLToPath(import.meta.url);
 const dirname = path.dirname(filename);
@@ -61,7 +62,7 @@ export default buildConfig({
     Banners,
     BlogPosts,
   ],
-  globals: [SiteSettings],
+  globals: [SiteSettings, AutomationSettings],
   db: postgresAdapter({
     pool: {
       connectionString: process.env.DATABASE_URI!,

@@ -23,7 +23,7 @@ export const StatusCell: React.FC<StatusCellProps> = ({ cellData, rowData }) => 
   const [loading, setLoading] = useState(false)
   const [errorMsg, setErrorMsg] = useState<string | null>(null)
 
-  const productId = rowData?.id
+  const productId = rowData?.id as string | number | undefined
 
   const statusMeta: Record<string, { icon: string; label: string; color: string }> = {
     active:  { icon: '🟢', label: 'Aktif — Sitede görünür',   color: '#22c55e' },

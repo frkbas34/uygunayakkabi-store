@@ -98,7 +98,13 @@ export async function POST(req: NextRequest) {
 
     // Handle PRODUCT CREATION (message with photo and caption)
     if (message.photo || message.media_group_id) {
-      const productData = parseTelegramCaption(text)
+      // parseTelegramCaption returns ParsedCaption (Step 11+ type).
+      // Route still uses legacy ProductData fields at runtime — cast to include them.
+      const productData = parseTelegramCaption(text) as (ReturnType<typeof parseTelegramCaption> & {
+        description?: string
+        postToInstagram?: boolean
+        sizes?: Record<string, number>
+      }) | null
       if (!productData) {
         await sendTelegramMessage(chatId, '❌ Geçersiz ürün formatı. SKU, TITLE ve PRICE zorunludur.')
         return NextResponse.json({ ok: true })
@@ -117,11 +123,11 @@ export async function POST(req: NextRequest) {
       }
 
       // Create slug from title
-      const slug = productData.title
+      const slug = productData.title!
         .toLowerCase()
         .replace(/[^a-z0-9\s-]/g, '')
         .replace(/\s+/g, '-')
-        .concat('-', productData.sku.toLowerCase())
+        .concat('-', productData.sku!.toLowerCase())
 
       // Create product
       const newProduct = await payload.create({
@@ -141,7 +147,7 @@ export async function POST(req: NextRequest) {
       })
 
       // Create variants
-      for (const [size, stock] of Object.entries(productData.sizes)) {
+      for (const [size, stock] of Object.entries(productData.sizes ?? {})) {
         await payload.create({
           collection: 'variants',
           data: {

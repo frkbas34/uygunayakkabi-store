@@ -558,7 +558,7 @@ beforeDelete: [async ({ req, id }) => {
 **Config:** `channels.telegram.groupPolicy: "allowlist"` with empty `allowFrom` list.
 **Reason:** Simplest secure starting point. Group support can be added later by whitelisting specific user IDs.
 **Future:** Consider adding 3 specific user IDs to allowlist for limited shared group usage.
-**Status:** ACTIVE
+**Status:** SUPERSEDED by D-052 — Telegram now uses allowlisted group mode
 
 ---
 
@@ -574,6 +574,92 @@ beforeDelete: [async ({ req, id }) => {
 ## D-051 — Automation Layer Always Creates Draft Products
 **Decision:** Products created via the automation pipeline (Telegram → OpenClaw → n8n → Payload) must always be created with `status: 'draft'`. Admin manually reviews and sets to `active`.
 **Reason:** Prevents unreviewed products from appearing on the live storefront. Admin remains the quality gate.
+**Status:** SUPERSEDED by D-053 — Product status now toggle-controlled, not hardcoded draft
+
+---
+
+## D-052 — Telegram Allowlisted Group Mode
+**Decision:** Telegram bot now supports group messages from allowlisted user IDs, not DM-only.
+**Config:** `channels.telegram.groupPolicy: "allowlist"` with specific user IDs in `allowFrom`.
+**Reason:** Owner and trusted friends need to test product intake from a shared group.
+**Rule:** Only whitelisted Telegram user IDs can trigger product actions in group chats. Unknown users are silently ignored.
+**Supersedes:** D-049 (DM-only policy)
+**Status:** ACTIVE
+
+---
+
+## D-053 — Toggle-Controlled Product Publish (Not Hardcoded Draft)
+**Decision:** Automation-created products respect a configurable toggle rather than always being draft.
+**Implementation:** `AutomationSettings` global in Payload controls `autoActivateProducts`. When true, products are created as `active`; when false, as `draft`.
+**Reason:** Owner wants the flexibility to auto-publish products or require admin review, switchable at any time.
+**Supersedes:** D-051 (always-draft rule)
+**Status:** ACTIVE
+
+---
+
+## D-054 — Multi-Channel Distribution with Per-Channel Toggles
+**Decision:** Product publishing is controlled per-channel via toggles in `AutomationSettings` global.
+**Channels:** Website, Instagram, Shopier, Dolap
+**Toggles:** `publishWebsite`, `publishInstagram`, `publishShopier`, `publishDolap`
+**Per-product override:** Products have `channelTargets` field that can override global defaults.
+**Reason:** Each channel has different readiness levels and business needs. Independent control prevents accidental publishing.
+**Supersedes:** D-012 (now expanded with Dolap + per-channel control)
+**Status:** ACTIVE
+
+---
+
+## D-055 — Product Family Architecture (Beyond Shoes)
+**Decision:** Product data model expands beyond shoes with `productFamily` and `productType` fields.
+**Families:** shoes, wallets, bags, belts, accessories
+**Types:** Family-specific subtypes (e.g., shoes → sneaker/loafer/boot/sandal; wallets → bifold/long/cardholder)
+**Backward compatibility:** Existing `category` field remains untouched. New fields are additive. Storefront and automation should gradually adopt new fields.
+**Reason:** Business will sell wallets and other accessories alongside shoes.
+**Status:** ACTIVE
+
+---
+
+## D-056 — AI SEO Blog Engine
+**Decision:** Active products can trigger AI-generated blog posts for organic SEO traffic.
+**Collection:** `BlogPosts` with fields for title, slug, content, related product, focus keywords, meta fields, source (ai/admin), status.
+**Trigger:** Only when product is `active`, `generateBlog` flag is true, and global `autoGenerateBlog` toggle is on.
+**Separation:** Blog workflow runs independently from product creation workflow — blog failure must not block product publishing.
+**Blog toggles:** `autoGenerateBlog` (trigger generation), `autoPublishBlog` (auto-publish or keep as draft)
+**Status:** ACTIVE
+
+---
+
+## D-057 — Visual Expansion Engine (Non-Destructive Additional Product Images)
+**Decision:** System generates 2–4 additional catalog-quality product images from 1–2 original photos.
+**Core rule:** Original product must be preserved 100% — no redesign, no material/logo/shape alteration.
+**Principle:** "Automation may improve presentation, but must never alter product truth."
+**Pipeline:** Original → integrity check → shot planner → prompt library → generation → validation → approved media set
+**Original always preserved:** Generated images are stored alongside originals, never replace them.
+**Media types:** original, enhanced, generated_angle, channel_optimized
+**Status:** ACTIVE — scaffold phase
+
+---
+
+## D-058 — Photo-Based AI Try-On (Future Phase)
+**Decision:** Product pages will include a photo-based AI try-on feature where customers upload a full-body photo and the system generates the selected product on their feet.
+**Type:** Photo-based generation (not live AR)
+**Phase:** After core commerce, multi-channel, and visual expansion are stable.
+**Privacy:** User photos must have auto-delete policy.
+**Separation:** Try-on engine is completely separate from product creation and publishing pipelines.
+**Status:** PLANNED — scaffold only
+
+---
+
+## D-059 — Payload Remains Single Source of Truth for All Channels
+**Decision:** All product data originates from and is managed in Payload CMS. External channels (Instagram, Shopier, Dolap) publish FROM Payload data, never directly from Telegram or other sources.
+**Reason:** Prevents data fragmentation across channels. Admin always has override control.
+**Status:** ACTIVE
+
+---
+
+## D-060 — AutomationSettings Global for Centralized Toggle Control
+**Decision:** A new Payload global `AutomationSettings` holds all automation and publishing toggles in one place.
+**Toggles include:** autoActivateProducts, publishWebsite, publishInstagram, publishShopier, publishDolap, autoGenerateBlog, autoPublishBlog, autoGenerateExtraViews, telegramGroupEnabled
+**Reason:** Centralized admin control over all automation behavior. No need to modify n8n or code to change behavior.
 **Status:** ACTIVE
 
 ---

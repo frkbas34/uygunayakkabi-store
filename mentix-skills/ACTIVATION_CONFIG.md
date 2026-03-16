@@ -199,3 +199,75 @@ Any skill can be immediately disabled by:
 1. Renaming its SKILL.md to SKILL.md.disabled on the VPS
 2. Restarting OpenClaw gateway
 3. Logging the disable event in agent-memory
+
+---
+
+## Chat Scope Policy v3
+_Updated: 2026-03-17 — replaces v2 controlled-group model_
+
+### Final policy
+
+```yaml
+chat_scope:
+  private_dm:
+    trigger: every_message
+    capability: full
+    confirmation_gates: active
+    memory_writes: full
+
+  approved_ops_group:
+    trigger: mention_or_reply_only
+    capability: full          # same as DM — no restrictions
+    confirmation_gates: active
+    memory_writes: full
+    note: |
+      Ops group is a first-class operational environment.
+      Product intake, debugging, decisions, write operations
+      all happen here. Restricting group capability is wrong —
+      this is NOT a limited "public" group.
+
+  other_groups:
+    trigger: none
+    capability: none
+    memory_writes: none
+    response: silent_drop
+```
+
+### Trigger asymmetry (the ONLY difference between DM and ops group)
+
+```
+DM             → every direct message triggers Mentix
+Ops Group      → ONLY @mention or reply to Mentix triggers Mentix
+Other groups   → always silent
+```
+
+### What "full capability" means in ops group
+
+- All 13 skills available
+- product-flow-debugger: full
+- sql-toolkit: SELECT + WRITE (WRITE requires confirmation)
+- github-workflow: read + write (write requires confirmation)
+- browser-automation: read + write (write requires confirmation)
+- upload-post: draft + publish (publish requires confirmation)
+- learning-engine: full observation + recording
+- agent-memory: full read + write
+- decision engine: full (PROCEED / PROPOSE_CONFIRM / REPORT_ONLY / ESCALATE)
+- memory writes: trace + incident + decision + evaluation + reward
+
+### Job ID protocol
+
+Every activation generates a job_id: `JOB-YYYYMMDD-NNN`
+All trace, incident, decision, evaluation, reward records are linked to job_id.
+Pending jobs survive restarts. source block records chat_type, group_id,
+triggered_by_user_id, approved_by_user_id, role.
+
+### Role model
+
+```yaml
+roles:
+  viewer:     can_ask: true,  can_start_intake: false, can_approve: false
+  operator:   can_ask: true,  can_start_intake: true,  can_approve: false
+  approver:   can_ask: true,  can_start_intake: true,  can_approve: true
+  admin:      can_ask: true,  can_start_intake: true,  can_approve: true, can_destructive: true
+default_role_for_allowlist_users: approver
+```

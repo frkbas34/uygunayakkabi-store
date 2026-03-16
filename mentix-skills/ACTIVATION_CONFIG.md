@@ -216,7 +216,7 @@ chat_scope:
     memory_writes: full
 
   approved_ops_group:
-    trigger: mention_or_reply_only
+    trigger: mention_only  # @Mentix mention required; reply-only is NOT sufficient
     capability: full          # same as DM — no restrictions
     confirmation_gates: active
     memory_writes: full
@@ -237,7 +237,8 @@ chat_scope:
 
 ```
 DM             → every direct message triggers Mentix
-Ops Group      → ONLY @mention or reply to Mentix triggers Mentix
+Ops Group      → ONLY explicit @Mentix mention triggers Mentix
+               → reply-only (without @mention) does NOT trigger
 Other groups   → always silent
 ```
 

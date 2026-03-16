@@ -1,15 +1,26 @@
 {
-  "_schema_version": "1.0",
+  "_schema_version": "2.0",
   "_description": "Template for a Mentix diagnostic trace. Copy this for each diagnostic session.",
   "trace_id": "TRC-2026-03-16-001",
   "timestamp": "2026-03-16T00:00:00Z",
   "triggered_by": "user | schedule | auto-detect",
   "incident_ref": "INC-2026-03-16-001",
+  "source": {
+    "chat_type": "private | group | supergroup",
+    "chat_id": "telegram_chat_id_integer",
+    "message_trigger": "direct_message | mention | reply | command",
+    "sender_id": "telegram_user_id_integer",
+    "mode": "full | controlled",
+    "_note": "mode=full for private DM; mode=controlled for group. Set by mentix-intake on message receipt."
+  },
   "input": {
     "raw_query": "What the user asked or what triggered this trace",
     "context": "Any relevant context provided"
   },
-  "skills_invoked": ["product-flow-debugger", "sql-toolkit"],
+  "skills_invoked": [
+    "product-flow-debugger",
+    "sql-toolkit"
+  ],
   "flow_steps": [
     {
       "step": 1,
@@ -54,5 +65,6 @@
   "reward": {
     "score": 0,
     "signals": []
-  }
+  },
+  "_changelog": "v2.0 — added source block (chat_type, chat_id, message_trigger) for group vs DM audit"
 }

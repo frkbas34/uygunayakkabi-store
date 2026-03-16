@@ -19,8 +19,7 @@ import { Categories } from "./src/collections/Categories";
 import { Banners } from "./src/collections/Banners";
 import { BlogPosts } from "./src/collections/BlogPosts";
 import { SiteSettings } from "./src/globals/SiteSettings";
-// AutomationSettings temporarily disabled — re-enable after payload_locked_documents_rels migration
-// import { AutomationSettings } from "./src/globals/AutomationSettings";
+import { AutomationSettings } from "./src/globals/AutomationSettings";
 
 const filename = fileURLToPath(import.meta.url);
 const dirname = path.dirname(filename);
@@ -63,7 +62,7 @@ export default buildConfig({
     Banners,
     BlogPosts,
   ],
-  globals: [SiteSettings], // AutomationSettings disabled — restore after DB migration completes
+  globals: [SiteSettings, AutomationSettings],
   db: postgresAdapter({
     pool: {
       connectionString: process.env.DATABASE_URI!,

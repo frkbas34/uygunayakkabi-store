@@ -1,0 +1,430 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>UygunAyakkabi — Onion Architecture</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: #0f172a;
+    font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    min-height: 100vh;
+    padding: 24px;
+    color: #e2e8f0;
+  }
+  h1 {
+    font-size: 28px;
+    font-weight: 700;
+    margin-bottom: 6px;
+    letter-spacing: -0.5px;
+    background: linear-gradient(135deg, #38bdf8, #818cf8);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+  }
+  .subtitle {
+    font-size: 13px;
+    color: #94a3b8;
+    margin-bottom: 28px;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+  }
+  .diagram-container {
+    position: relative;
+    width: 820px;
+    height: 820px;
+  }
+
+  /* ── Rings ── */
+  .ring {
+    position: absolute;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: transform 0.3s ease, box-shadow 0.3s ease;
+  }
+  .ring:hover {
+    transform: scale(1.015);
+  }
+
+  /* Layer 5 — Outermost: Experience & Growth */
+  .ring-5 {
+    width: 820px; height: 820px;
+    top: 0; left: 0;
+    background: conic-gradient(
+      from 200deg,
+      #0d9488 0deg,
+      #0d9488 90deg,
+      #7c3aed 90deg,
+      #7c3aed 180deg,
+      #db2777 180deg,
+      #db2777 270deg,
+      #ea580c 270deg,
+      #ea580c 360deg
+    );
+    box-shadow: 0 0 60px rgba(56, 189, 248, 0.15);
+  }
+
+  /* Layer 4: Distribution / Channels */
+  .ring-4 {
+    width: 620px; height: 620px;
+    top: 100px; left: 100px;
+    background: conic-gradient(
+      from 225deg,
+      #2563eb 0deg,
+      #2563eb 90deg,
+      #0891b2 90deg,
+      #0891b2 180deg,
+      #059669 180deg,
+      #059669 270deg,
+      #d97706 270deg,
+      #d97706 360deg
+    );
+    box-shadow: inset 0 0 30px rgba(0,0,0,0.3);
+  }
+
+  /* Layer 3: Infrastructure */
+  .ring-3 {
+    width: 440px; height: 440px;
+    top: 190px; left: 190px;
+    background: linear-gradient(135deg, #334155, #475569);
+    box-shadow: inset 0 0 20px rgba(0,0,0,0.4);
+  }
+
+  /* Layer 2: Application / Orchestration */
+  .ring-2 {
+    width: 290px; height: 290px;
+    top: 265px; left: 265px;
+    background: linear-gradient(135deg, #1e40af, #3b82f6);
+    box-shadow: inset 0 0 20px rgba(0,0,0,0.3);
+  }
+
+  /* Layer 1 — Core: Domain */
+  .ring-1 {
+    width: 160px; height: 160px;
+    top: 330px; left: 330px;
+    background: linear-gradient(135deg, #0ea5e9, #38bdf8);
+    box-shadow: 0 0 40px rgba(56, 189, 248, 0.4);
+  }
+
+  /* ── Labels ── */
+  .label {
+    position: absolute;
+    font-weight: 600;
+    text-align: center;
+    pointer-events: none;
+    text-shadow: 0 1px 4px rgba(0,0,0,0.6);
+    line-height: 1.3;
+  }
+  .label small {
+    display: block;
+    font-weight: 400;
+    font-size: 10px;
+    opacity: 0.8;
+    margin-top: 2px;
+  }
+  .label-core {
+    top: 383px; left: 345px;
+    width: 130px;
+    font-size: 18px;
+    color: #fff;
+  }
+  .label-core small { font-size: 11px; }
+
+  .label-app {
+    top: 280px; left: 290px;
+    width: 240px;
+    font-size: 14px;
+    color: #dbeafe;
+  }
+
+  .label-infra-top {
+    top: 210px; left: 290px;
+    width: 240px;
+    font-size: 13px;
+    color: #cbd5e1;
+  }
+  .label-infra-bottom {
+    top: 570px; left: 290px;
+    width: 240px;
+    font-size: 13px;
+    color: #cbd5e1;
+  }
+
+  /* Distribution channel labels */
+  .label-ch {
+    font-size: 13px;
+    font-weight: 700;
+    color: #fff;
+  }
+  .label-ch-website   { top: 118px; left: 460px; }
+  .label-ch-instagram { top: 460px; left: 640px; transform: rotate(0deg); }
+  .label-ch-shopier   { top: 660px; left: 380px; }
+  .label-ch-dolap     { top: 440px; left: 105px; }
+
+  /* Outer layer labels */
+  .label-outer {
+    font-size: 12px;
+    font-weight: 700;
+    color: #fff;
+  }
+  .label-outer-tryon    { top: 44px; left: 180px; width: 120px; }
+  .label-outer-visual   { top: 44px; left: 530px; width: 120px; }
+  .label-outer-seo      { top: 730px; left: 530px; width: 140px; }
+  .label-outer-blog     { top: 730px; left: 170px; width: 120px; }
+
+  /* ── Arrows ── */
+  .arrow {
+    position: absolute;
+    color: rgba(255,255,255,0.6);
+    font-size: 22px;
+    pointer-events: none;
+  }
+  .arrow-down  { transform: rotate(0deg); }
+  .arrow-up    { transform: rotate(180deg); }
+  .arrow-right { transform: rotate(-90deg); }
+  .arrow-left  { transform: rotate(90deg); }
+
+  /* ── Legend ── */
+  .legend {
+    margin-top: 32px;
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 12px 24px;
+    max-width: 820px;
+    width: 100%;
+  }
+  .legend-item {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    padding: 10px 14px;
+    background: rgba(255,255,255,0.04);
+    border-radius: 8px;
+    border: 1px solid rgba(255,255,255,0.06);
+  }
+  .legend-dot {
+    width: 14px; height: 14px;
+    border-radius: 50%;
+    flex-shrink: 0;
+    margin-top: 2px;
+  }
+  .legend-text { font-size: 12px; }
+  .legend-text strong { display: block; font-size: 13px; margin-bottom: 2px; }
+
+  /* ── Floating badges ── */
+  .badge {
+    position: absolute;
+    background: rgba(15, 23, 42, 0.85);
+    border: 1px solid rgba(255,255,255,0.15);
+    border-radius: 20px;
+    padding: 4px 12px;
+    font-size: 11px;
+    font-weight: 600;
+    color: #e2e8f0;
+    white-space: nowrap;
+    backdrop-filter: blur(4px);
+    pointer-events: none;
+  }
+  .badge-telegram  { top: 10px; left: 350px; border-color: #0ea5e9; color: #38bdf8; }
+  .badge-payload   { top: 390px; left: 358px; }
+  .badge-n8n       { top: 288px; left: 355px; border-color: #818cf8; color: #a5b4fc; }
+
+  /* Flow arrows (SVG overlay) */
+  .flow-svg {
+    position: absolute;
+    top: 0; left: 0;
+    width: 820px;
+    height: 820px;
+    pointer-events: none;
+  }
+
+  .phase-tag {
+    position: absolute;
+    font-size: 9px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 1.5px;
+    padding: 2px 8px;
+    border-radius: 4px;
+    pointer-events: none;
+  }
+  .phase-active { background: #065f46; color: #6ee7b7; }
+  .phase-planned { background: #78350f; color: #fbbf24; }
+  .phase-future { background: #581c87; color: #c084fc; }
+</style>
+</head>
+<body>
+
+<h1>UygunAyakkabi — Proje Mimarisi</h1>
+<div class="subtitle">Onion Architecture &bull; Telegram-First Multi-Channel Commerce Engine</div>
+
+<div class="diagram-container">
+  <!-- SVG Flow Arrows -->
+  <svg class="flow-svg" viewBox="0 0 820 820">
+    <defs>
+      <marker id="arrowhead" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
+        <polygon points="0 0, 8 3, 0 6" fill="rgba(56,189,248,0.7)" />
+      </marker>
+    </defs>
+    <!-- Telegram → Core flow -->
+    <path d="M 410 28 L 410 80" stroke="rgba(56,189,248,0.5)" stroke-width="2" stroke-dasharray="6,4" marker-end="url(#arrowhead)" fill="none"/>
+    <path d="M 410 90 L 410 265" stroke="rgba(56,189,248,0.3)" stroke-width="1.5" stroke-dasharray="4,4" fill="none"/>
+    <!-- Core → Distribution -->
+    <path d="M 500 410 L 615 410" stroke="rgba(255,255,255,0.15)" stroke-width="1.5" stroke-dasharray="4,4" marker-end="url(#arrowhead)" fill="none"/>
+    <path d="M 410 500 L 410 645" stroke="rgba(255,255,255,0.15)" stroke-width="1.5" stroke-dasharray="4,4" marker-end="url(#arrowhead)" fill="none"/>
+    <path d="M 320 410 L 195 410" stroke="rgba(255,255,255,0.15)" stroke-width="1.5" stroke-dasharray="4,4" marker-end="url(#arrowhead)" fill="none"/>
+    <path d="M 410 320 L 410 140" stroke="rgba(255,255,255,0.15)" stroke-width="1.5" stroke-dasharray="4,4" marker-end="url(#arrowhead)" fill="none"/>
+  </svg>
+
+  <!-- Ring 5: Experience & Growth -->
+  <div class="ring ring-5"></div>
+
+  <!-- Ring 4: Distribution -->
+  <div class="ring ring-4"></div>
+
+  <!-- Ring 3: Infrastructure -->
+  <div class="ring ring-3"></div>
+
+  <!-- Ring 2: Application -->
+  <div class="ring ring-2"></div>
+
+  <!-- Ring 1: Core Domain -->
+  <div class="ring ring-1"></div>
+
+  <!-- ── Core Label ── -->
+  <div class="label label-core">
+    Domain<br>
+    <small>Payload CMS<br>Products &bull; Media<br>BlogPosts &bull; Settings</small>
+  </div>
+
+  <!-- ── Application Label ── -->
+  <div class="label label-app">
+    Application Layer<br>
+    <small>OpenClaw AI Agent &bull; n8n Orchestration<br>Webhook Contracts &bull; Caption Parser</small>
+  </div>
+
+  <!-- ── Infrastructure Labels ── -->
+  <div class="label label-infra-top">
+    Infrastructure<br>
+    <small>PostgreSQL &bull; Vercel Blob &bull; Docker &bull; Caddy</small>
+  </div>
+  <div class="label label-infra-bottom">
+    <small>Telegram Bot API &bull; OpenAI API<br>Next.js Runtime &bull; VPS</small>
+  </div>
+
+  <!-- ── Distribution Channel Labels ── -->
+  <div class="label label-ch label-ch-website">
+    Website<br><small>Next.js Storefront</small>
+  </div>
+  <div class="label label-ch label-ch-instagram">
+    Instagram<br><small>Graph API</small>
+  </div>
+  <div class="label label-ch label-ch-shopier">
+    Shopier<br><small>Listing Sync</small>
+  </div>
+  <div class="label label-ch label-ch-dolap">
+    Dolap<br><small>Listing Sync</small>
+  </div>
+
+  <!-- ── Outer Layer Labels ── -->
+  <div class="label label-outer label-outer-tryon">
+    AI Try-On<br><small>Photo-based<br>Virtual Try-On</small>
+  </div>
+  <div class="label label-outer label-outer-visual">
+    Visual Engine<br><small>AI Product<br>Angle Generation</small>
+  </div>
+  <div class="label label-outer label-outer-seo">
+    SEO Engine<br><small>AI Blog &bull; Meta<br>Organic Growth</small>
+  </div>
+  <div class="label label-outer label-outer-blog">
+    Content Layer<br><small>Blog Posts<br>Keywords &bull; Links</small>
+  </div>
+
+  <!-- ── Floating Badges ── -->
+  <div class="badge badge-telegram">Telegram Group / DM</div>
+  <div class="badge badge-n8n">n8n + OpenClaw</div>
+
+  <!-- Phase Tags -->
+  <div class="phase-tag phase-active" style="top: 4px; right: 4px;">Phase 2A Aktif</div>
+  <div class="phase-tag phase-planned" style="bottom: 84px; right: 4px;">Phase 2B Planned</div>
+  <div class="phase-tag phase-future" style="bottom: 4px; left: 4px;">Phase 3 Future</div>
+</div>
+
+<!-- ── Legend ── -->
+<div class="legend">
+  <div class="legend-item">
+    <div class="legend-dot" style="background: #38bdf8;"></div>
+    <div class="legend-text">
+      <strong>Domain (Core)</strong>
+      Payload CMS — tek veri kaynagi. Products, Media, BlogPosts, AutomationSettings, SiteSettings
+    </div>
+  </div>
+  <div class="legend-item">
+    <div class="legend-dot" style="background: #3b82f6;"></div>
+    <div class="legend-text">
+      <strong>Application</strong>
+      OpenClaw AI agent, n8n workflow orchestration, webhook contracts, caption parsing
+    </div>
+  </div>
+  <div class="legend-item">
+    <div class="legend-dot" style="background: #475569;"></div>
+    <div class="legend-text">
+      <strong>Infrastructure</strong>
+      PostgreSQL, Vercel Blob, Docker, Caddy, Telegram Bot API, Next.js runtime
+    </div>
+  </div>
+  <div class="legend-item">
+    <div class="legend-dot" style="background: #2563eb;"></div>
+    <div class="legend-text">
+      <strong>Distribution — Website</strong>
+      Next.js storefront, aktif urunler otomatik gorunur
+    </div>
+  </div>
+  <div class="legend-item">
+    <div class="legend-dot" style="background: #0891b2;"></div>
+    <div class="legend-text">
+      <strong>Distribution — Instagram</strong>
+      Graph API ile otomatik post (toggle-controlled)
+    </div>
+  </div>
+  <div class="legend-item">
+    <div class="legend-dot" style="background: #059669;"></div>
+    <div class="legend-text">
+      <strong>Distribution — Shopier</strong>
+      Urun listeleme senkronizasyonu
+    </div>
+  </div>
+  <div class="legend-item">
+    <div class="legend-dot" style="background: #d97706;"></div>
+    <div class="legend-text">
+      <strong>Distribution — Dolap</strong>
+      Urun listeleme senkronizasyonu
+    </div>
+  </div>
+  <div class="legend-item">
+    <div class="legend-dot" style="background: #7c3aed;"></div>
+    <div class="legend-text">
+      <strong>Visual & Experience</strong>
+      AI gorsel genisleme motoru, photo-based try-on widget
+    </div>
+  </div>
+  <div class="legend-item">
+    <div class="legend-dot" style="background: #db2777;"></div>
+    <div class="legend-text">
+      <strong>Content & Growth</strong>
+      AI SEO blog uretimi, anahtar kelimeler, organik trafik
+    </div>
+  </div>
+</div>
+
+<div style="margin-top: 24px; text-align: center; color: #64748b; font-size: 11px;">
+  UygunAyakkabi &mdash; Telegram-First AI-Assisted Multi-Channel Commerce Engine &bull; 2026-03-15
+</div>
+
+</body>
+</html>

@@ -1,6 +1,6 @@
 # PROJECT STATE — Uygunayakkabi
 
-_Last updated: 2026-03-17 (Mentix v2 fully deployed to VPS — all 13 skills live, identity set, ops group working)_
+_Last updated: 2026-03-17 (Admin panel restored after cascading DB schema migration failures — all issues resolved manually)_
 
 ## Current Status
 Phase 1 **COMPLETE** (validated 2026-03-13).
@@ -111,7 +111,7 @@ All decisions logged with: `task_type`, `risk_level`, `requires_write`, `require
 ## Current Working State
 
 ### Admin Panel (Payload CMS)
-- Admin panel loads correctly at `uygunayakkabi.com/admin` — **CONFIRMED WORKING**
+- Admin panel loads correctly at `uygunayakkabi.com/admin` — **CONFIRMED WORKING (restored 2026-03-17 after DB crisis)**
 - **Default Payload light theme** (dark mode CSS was removed — see D-029)
 - **Turkish language** configured as default (`@payloadcms/translations/languages/tr`)
 - importMap includes: all standard Payload components + VercelBlobClientUploadHandler + ReviewPanel + SourceBadgeCell + StatusCell
@@ -161,9 +161,32 @@ All decisions logged with: `task_type`, `risk_level`, `requires_write`, `require
 
 ### Database (Neon PostgreSQL)
 - Schema sync via `push: true`
-- All collections and fields aligned
+- All collections and fields aligned — **after manual migration crisis recovery on 2026-03-17**
 - SSL: `sslmode=require` removed from DATABASE_URI; `ssl: { rejectUnauthorized: false }` added to pool options in payload.config.ts (fixes pg-connection-string deprecation warning / red error overlay in dev)
 - BLOB_READ_WRITE_TOKEN confirmed set in Vercel env vars
+
+#### ⚠️ DB Migration History (2026-03-17) — RESOLVED
+Drizzle `push: true` failed to complete schema changes on Neon serverless (timeouts/partial failures).
+Three issues required manual SQL fixes in Neon SQL Editor:
+
+1. **`products_channel_targets` — wrong column names**
+   - Table was manually created with `_parent_id` / `_order` (old Payload v2 convention)
+   - Payload v3 Drizzle runtime expects `parent_id` / `order` (no underscore prefix)
+   - Fix: `RENAME COLUMN "_parent_id" TO "parent_id"` + `RENAME COLUMN "_order" TO "order"`
+
+2. **`automation_settings` table missing**
+   - `AutomationSettings` global added to `payload.config.ts` but Drizzle push timed out before creating the table
+   - Also required `automation_settings_id` column in `payload_locked_documents_rels`
+   - Fix: manually `CREATE TABLE automation_settings (...)` + `ADD COLUMN automation_settings_id`
+
+3. **`blog_posts` table missing**
+   - `BlogPosts` collection added but Drizzle push never ran successfully
+   - Required: `blog_posts` table, `blog_posts_rels` table, `blog_posts_id` in `payload_locked_documents_rels`
+   - Fix: manually `CREATE TABLE blog_posts (...)` + FK + indexes + `ADD COLUMN blog_posts_id`
+
+**Root cause:** `push: true` on Neon serverless cannot reliably complete multi-table schema changes in a single cold-start window. Any new collection/global addition risks a partial migration state.
+
+**⚠️ Implication:** Every new collection or global added to `payload.config.ts` MUST be followed by manual SQL verification in Neon. Do NOT assume `push: true` will self-heal.
 
 ### Storefront (Next.js)
 - **UygunApp.jsx**: Full SPA with inline-style token system

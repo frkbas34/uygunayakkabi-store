@@ -1207,3 +1207,43 @@ The original Phase-1 implementation silently skipped writing any decision record
 Runtime-validated in Phase-2 simulation: `DEC-SIM-003.json` — `confidence=0.47`, `gate_action=REPORT_ONLY`, `final_action=NO_ACTION`. Previously had no corresponding decisions/ entry. Now always written.
 
 **Status:** ACTIVE — implemented 2026-03-16
+
+
+---
+
+## D-077 — push:true Is Unreliable for Schema Changes on Neon Serverless
+
+**Decision:**
+Any new Payload collection or global added to `payload.config.ts` MUST be manually verified in Neon after first deployment. Do not rely on Drizzle `push: true` to self-heal schema gaps.
+
+**Reason:**
+On 2026-03-17, three cascading schema failures broke the admin panel for an extended period:
+1. `products_channel_targets` table was created with `_parent_id`/`_order` (Payload v2 naming) but Payload v3 runtime expects `parent_id`/`order`. Drizzle push did not rename them.
+2. `automation_settings` table (for `AutomationSettings` global) was never created — Drizzle push timed out on Neon serverless during cold start.
+3. `blog_posts` table (for `BlogPosts` collection) was never created for the same reason — `blog_posts_id` column was also missing from `payload_locked_documents_rels`.
+
+All three required manual SQL in Neon SQL Editor. Root cause: Neon serverless cold-start window is too short for multi-table schema changes when `push: true` runs at first request time.
+
+**What was fixed manually:**
+- `RENAME COLUMN "_parent_id" TO "parent_id"` and `"_order" TO "order"` on `products_channel_targets`
+- `CREATE TABLE automation_settings (...)` + `ADD COLUMN automation_settings_id` to `payload_locked_documents_rels`
+- `CREATE TABLE blog_posts (...)` + `blog_posts_rels` + `ADD COLUMN blog_posts_id` to `payload_locked_documents_rels`
+
+**Rule going forward:**
+After any commit that adds a collection or global, check Neon Tables view and confirm the new table exists before declaring the deployment stable.
+
+**Alternative considered:** Switch to Payload migrations (`push: false`). Deferred — higher complexity, not yet prioritized.
+
+**Status:** ACTIVE — discovered 2026-03-17
+
+---
+
+## D-078 — Payload v3 Drizzle Join Table Column Naming (parent_id, not _parent_id)
+
+**Decision:**
+When manually creating Payload v3 join tables in SQL (for `select + hasMany:true` fields), use `parent_id` and `order` as column names — NOT `_parent_id` and `_order`.
+
+**Reason:**
+Payload v2 used underscore-prefixed internal columns (`_parent_id`, `_order`). Payload v3 Drizzle adapter removed the underscores. If a join table is created manually (e.g., due to failed `push: true`), using the wrong column names causes `column does not exist` runtime errors. The generated query always references `parent_id` and `order` (no underscore).
+
+**Status:** ACTIVE — confirmed 2026-03-17

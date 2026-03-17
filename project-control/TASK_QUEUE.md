@@ -1,8 +1,13 @@
 # TASK QUEUE — Uygunayakkabi
 
-_Last updated: 2026-03-17 (Mentix v2 fully deployed — all 13 skills live, ops group working, Bahriyar added)_
+_Last updated: 2026-03-17 (Admin panel restored after DB crisis — all 3 schema issues fixed manually)_
 
 ## ⚠️ Current Blockers
+
+### Blocker 0: push:true reliability — ONGOING RISK ⚠️
+`push: true` on Neon serverless cannot reliably complete multi-table migrations.
+**Before adding any new collection or global:** manually verify the new table exists in Neon after first deployment.
+Required tables to check after any schema change: `payload_locked_documents_rels` (new `{slug}_id` column) + new collection table itself.
 
 ### Blocker 1: E2E Stub Test (Phase 2 — Step 16)
 **E2E stub test not yet run.** Steps 1–15 are code-complete. Step 16 cannot start until the operator:

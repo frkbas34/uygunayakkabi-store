@@ -400,9 +400,10 @@ export const Products: CollectionConfig = {
       ],
       admin: {
         position: 'sidebar',
-        components: {
-          Cell: '@/components/admin/StatusCell#StatusCell',
-        },
+        // Cell: temporarily disabled for debugging — re-enable after list view is confirmed working
+        // components: {
+        //   Cell: '@/components/admin/StatusCell#StatusCell',
+        // },
       },
     },
     {
@@ -549,9 +550,10 @@ export const Products: CollectionConfig = {
         position: 'sidebar',
         readOnly: true,
         description: 'Ürün nereden oluşturuldu',
-        components: {
-          Cell: '@/components/admin/SourceBadgeCell#SourceBadgeCell',
-        },
+        // Cell: temporarily disabled for debugging — re-enable after list view is confirmed working
+        // components: {
+        //   Cell: '@/components/admin/SourceBadgeCell#SourceBadgeCell',
+        // },
       },
     },
     // ── Otomasyon Meta ────────────────────────────────────────

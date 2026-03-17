@@ -167,12 +167,15 @@ All decisions logged with: `task_type`, `risk_level`, `requires_write`, `require
 
 #### ⚠️ DB Migration History (2026-03-17) — RESOLVED
 Drizzle `push: true` failed to complete schema changes on Neon serverless (timeouts/partial failures).
-Three issues required manual SQL fixes in Neon SQL Editor:
+Four issues required manual SQL fixes in Neon SQL Editor:
 
-1. **`products_channel_targets` — wrong column names**
+1. **`products_channel_targets` — wrong column names + wrong `id` type (FIXED 2026-03-17)**
    - Table was manually created with `_parent_id` / `_order` (old Payload v2 convention)
    - Payload v3 Drizzle runtime expects `parent_id` / `order` (no underscore prefix)
-   - Fix: `RENAME COLUMN "_parent_id" TO "parent_id"` + `RENAME COLUMN "_order" TO "order"`
+   - Fix #1 (2026-03-17): `RENAME COLUMN "_parent_id" TO "parent_id"` + `RENAME COLUMN "_order" TO "order"`
+   - **`id` column was `character varying NOT NULL` with no default** — Payload/Drizzle (idType='serial') generates INSERT with `DEFAULT` for id, which fails when no sequence exists. Root cause of POST /api/products → 500 error on product save.
+   - Fix #2 (2026-03-17): Dropped PK + dropped varchar id + re-added as `SERIAL PRIMARY KEY`; added FK `parent_id → products.id ON DELETE CASCADE`; added order_idx and parent_idx indexes.
+   - **Key principle: `push: true` does NOT run in production (`NODE_ENV=production`). All schema changes must be applied manually to Neon for production.**
 
 2. **`automation_settings` table missing**
    - `AutomationSettings` global added to `payload.config.ts` but Drizzle push timed out before creating the table

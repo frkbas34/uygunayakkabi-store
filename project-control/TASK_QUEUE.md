@@ -1,11 +1,12 @@
 # TASK QUEUE — Uygunayakkabi
 
-_Last updated: 2026-03-17 (Admin panel restored after DB crisis — all 3 schema issues fixed manually)_
+_Last updated: 2026-03-17 (products_channel_targets id-column fix applied — product save from admin now works)_
 
 ## ⚠️ Current Blockers
 
 ### Blocker 0: push:true reliability — ONGOING RISK ⚠️
 `push: true` on Neon serverless cannot reliably complete multi-table migrations.
+**Critical:** `push: true` does NOT run in production (`NODE_ENV=production` guard in `@payloadcms/db-postgres/dist/connect.js`).
 **Before adding any new collection or global:** manually verify the new table exists in Neon after first deployment.
 Required tables to check after any schema change: `payload_locked_documents_rels` (new `{slug}_id` column) + new collection table itself.
 
@@ -15,12 +16,10 @@ Required tables to check after any schema change: `payload_locked_documents_rels
 2. Sets `N8N_CHANNEL_INSTAGRAM_WEBHOOK` in Vercel + redeploys
 3. Runs the test per `n8n-workflows/E2E_TEST_CHECKLIST.md` and confirms all success signals
 
-### Blocker 2: ~~Mentix VPS Deployment~~ — RESOLVED ✅ (2026-03-17)
-All 13 skills deployed, skills.entries registered, identity updated, ops group live.
-
-### Blocker 3: Git push pending
-Local commits `6258adf → 451389b` not yet pushed to GitHub.
-Run: `git push origin main` from local machine.
+### ~~Blocker 2: Mentix VPS Deployment~~ — RESOLVED ✅ (2026-03-17)
+### ~~Blocker 3: Git push pending~~ — RESOLVED ✅ (2026-03-17)
+### ~~Blocker 4: Product save 500 (products_channel_targets)~~ — RESOLVED ✅ (2026-03-17)
+Root cause: `id` column was `varchar NOT NULL` with no default; Drizzle (idType=serial) inserts `DEFAULT` → NULL → NOT NULL violation. Fix: recreated `id` as `SERIAL PRIMARY KEY` + added FK + indexes.
 
 ---
 

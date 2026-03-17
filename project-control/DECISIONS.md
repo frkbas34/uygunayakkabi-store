@@ -1247,3 +1247,29 @@ When manually creating Payload v3 join tables in SQL (for `select + hasMany:true
 Payload v2 used underscore-prefixed internal columns (`_parent_id`, `_order`). Payload v3 Drizzle adapter removed the underscores. If a join table is created manually (e.g., due to failed `push: true`), using the wrong column names causes `column does not exist` runtime errors. The generated query always references `parent_id` and `order` (no underscore).
 
 **Status:** ACTIVE — confirmed 2026-03-17
+
+---
+
+## D-079 — products_channel_targets.id Must Be SERIAL (Not VARCHAR)
+
+**Decision:**
+When manually creating Payload v3 join tables for `select + hasMany:true` fields, the `id` column must be `SERIAL PRIMARY KEY` — NOT `character varying`. The Payload DB adapter defaults to `idType: 'serial'` (auto-increment integer). Drizzle generates `INSERT ... VALUES (..., DEFAULT)` for the id column, relying on a PostgreSQL sequence to auto-assign.
+
+**Root cause of bug:**
+The `products_channel_targets` table was manually created during a prior schema fix. The `id` column was incorrectly typed as `character varying NOT NULL` (no default, no sequence). This caused every product save with channelTargets to fail with 500: `null value in column "id" violates not-null constraint`.
+
+**Fix applied (2026-03-17):**
+```sql
+ALTER TABLE products_channel_targets DROP CONSTRAINT products_channel_targets_pkey;
+ALTER TABLE products_channel_targets DROP COLUMN id;
+ALTER TABLE products_channel_targets ADD COLUMN id SERIAL PRIMARY KEY;
+-- Also added FK + indexes for completeness:
+ALTER TABLE products_channel_targets ADD CONSTRAINT products_channel_targets_parent_fk FOREIGN KEY (parent_id) REFERENCES products(id) ON DELETE CASCADE;
+CREATE INDEX products_channel_targets_order_idx ON products_channel_targets ("order");
+CREATE INDEX products_channel_targets_parent_idx ON products_channel_targets (parent_id);
+```
+
+**Key discovery:**
+`push: true` does NOT run in production (`NODE_ENV=production` check in `@payloadcms/db-postgres/dist/connect.js`). All Neon schema fixes must be applied manually. There is no auto-heal in production.
+
+**Status:** ACTIVE — confirmed 2026-03-17

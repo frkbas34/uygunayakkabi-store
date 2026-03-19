@@ -1,6 +1,6 @@
 # ARCHITECTURE — Uygunayakkabi
 
-_Last updated: 2026-03-16 (Step 15 complete + Mentix Intelligence Layer v2 — 13 skills, mentix-memory/ system, formal decision engine)_
+_Last updated: 2026-03-18 (Step 16 complete — real Instagram Graph API publish workflow + publishResult write-back chain)_
 
 ## High-Level Overview
 Uygunayakkabi is a **Telegram-first, AI-assisted, multi-channel commerce engine** with integrated content generation, visual expansion, and future try-on capabilities. It is not a simple storefront — it is a central product management system that publishes to multiple channels (website, Instagram, Shopier, Dolap) from a single source of truth (Payload CMS).
@@ -117,15 +117,18 @@ src/
 │                                #   buildDispatchPayload: structured n8n webhook body
 │                                #   dispatchToChannel: POST to n8n or scaffold log
 │                                #   buildChannelWebhookUrl: reads N8N_CHANNEL_*_WEBHOOK
+│                                #   dispatchToChannel: now parses response body → publishResult (Step 16)
 │                                #   dispatchProductToChannels: orchestrator (afterChange entry point)
 └── styles/
 
-n8n-workflows/                   # Step 14: n8n stub workflow assets (VCS-tracked, importable to n8n)
-│   CHANNEL_DISPATCH_CONTRACT.md # Full adapter contract: payload type, sample, env vars, test checklist
+n8n-workflows/                   # Steps 14+16: n8n workflow assets (VCS-tracked, importable to n8n)
+│   CHANNEL_DISPATCH_CONTRACT.md # Full adapter contract: payload type, sample, env vars, Step 16 real IG docs
+│   channel-instagram-real.json  # Step 16: REAL Instagram Graph API v21.0 workflow (13 nodes)
+│   │                            #   Bypass → Creds check → Build Caption → Create Container → Publish → Write-back
 │   └── stubs/
-│       channel-instagram.json   # Stub: Webhook → Log Payload → Respond 200 (no real Instagram API)
-│       channel-shopier.json     # Stub: same pattern for Shopier
-│       channel-dolap.json       # Stub: same pattern for Dolap
+│       channel-instagram.json   # Stub: Webhook → Log Payload → Respond 200 (reference/fallback only)
+│       channel-shopier.json     # Stub: same pattern for Shopier (scaffold only)
+│       channel-dolap.json       # Stub: same pattern for Dolap (scaffold only)
     └── admin-dark.css           # GitHub-inspired dark theme (NOT imported — inactive)
 ```
 
@@ -228,7 +231,8 @@ n8n-workflows/                   # Step 14: n8n stub workflow assets (VCS-tracke
 - **Step 13**: Channel adapter scaffolding (channelDispatch.ts), afterChange hook on Products (status→active triggers dispatch), dispatch tracking in sourceMeta (dispatchedChannels/lastDispatchedAt/dispatchNotes), scaffold mode logs intent when webhook env vars absent
 - **Step 14**: n8n stub workflow JSON files (channel-instagram/shopier/dolap), CHANNEL_DISPATCH_CONTRACT.md, ReviewPanel dispatch status section (per-channel result rows), forceRedispatch checkbox (manual re-dispatch, auto-reset), afterChange hook updated for forceRedispatch trigger
 - **Step 15**: Verification pass — env var naming confirmed consistent, `extractMediaUrls()` fixed (relative → absolute URLs using NEXT_PUBLIC_SERVER_URL), `.env.example` updated with all Phase 2 vars, `E2E_TEST_CHECKLIST.md` created (120-line runbook), CHANNEL_DISPATCH_CONTRACT.md extended with media URL behavior + known limitations table
-- **Next**: Step 16 — First real channel integration (Instagram Graph API priority) after E2E stub test passes (operator action)
+- **Step 16**: Real Instagram integration — `channel-instagram-real.json` (13-node Graph API v21.0 workflow: bypass → creds check → caption build → create container → wait → publish → structured response), `ChannelDispatchResult.publishResult` field added, `dispatchToChannel()` parses response body, Products.ts write-back includes `publishResult`, ReviewPanel shows post ID + permalink + error states. Shopier/Dolap remain scaffold-only.
+- **Next**: Step 17 — Instagram carousel posts (multi-image) OR Instagram token management + monitoring
 
 ### Phase 2B — Multi-Channel Distribution (PLANNED)
 - Website publish (native — already works via active status)

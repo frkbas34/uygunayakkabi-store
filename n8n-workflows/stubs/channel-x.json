@@ -1,0 +1,64 @@
+{
+  "name": "Channel Stub — X (Twitter)",
+  "nodes": [
+    {
+      "parameters": {
+        "path": "channel-x",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "node-wh-x",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [240, 300],
+      "webhookId": "channel-x-stub"
+    },
+    {
+      "parameters": {
+        "mode": "manual",
+        "duplicateItem": false,
+        "assignments": {
+          "assignments": [
+            { "id": "ch", "name": "channel", "value": "x", "type": "string" },
+            { "id": "pid", "name": "productId", "value": "={{ $json.productId }}", "type": "string" },
+            { "id": "sku", "name": "sku", "value": "={{ $json.sku || '(no sku)' }}", "type": "string" },
+            { "id": "t", "name": "title", "value": "={{ $json.title }}", "type": "string" },
+            { "id": "p", "name": "price", "value": "={{ $json.price }}", "type": "number" },
+            { "id": "b", "name": "brand", "value": "={{ $json.brand || '' }}", "type": "string" },
+            { "id": "mc", "name": "mediaCount", "value": "={{ $json.mediaUrls ? $json.mediaUrls.length : 0 }}", "type": "number" },
+            { "id": "pc", "name": "parseConfidence", "value": "={{ $json.meta?.parseConfidence || 0 }}", "type": "number" },
+            { "id": "tr", "name": "triggerReason", "value": "={{ $json.triggerReason }}", "type": "string" }
+          ]
+        },
+        "options": {}
+      },
+      "id": "node-log-x",
+      "name": "Log Payload",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [460, 300]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ received: true, channel: 'x', productId: $json.productId, mode: 'stub', message: 'X channel stub — no real API call made' }) }}",
+        "options": { "responseCode": 200 }
+      },
+      "id": "node-respond-x",
+      "name": "Respond 200",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [680, 300]
+    }
+  ],
+  "connections": {
+    "Webhook": { "main": [[{ "node": "Log Payload", "type": "main", "index": 0 }]] },
+    "Log Payload": { "main": [[{ "node": "Respond 200", "type": "main", "index": 0 }]] }
+  },
+  "active": false,
+  "settings": { "executionOrder": "v1" },
+  "meta": {
+    "description": "STUB — X (Twitter) channel. Receives dispatch payload from Payload CMS, logs it, returns 200. Replace with real X API v2 posting workflow when ready. Requires: X_ACCESS_TOKEN, X_REFRESH_TOKEN in n8n Variables. API: POST https://api.x.com/2/tweets with OAuth 2.0 user token."
+  }
+}

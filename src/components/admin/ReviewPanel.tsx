@@ -10,7 +10,7 @@ type CheckItem = {
   warn?: boolean // yellow (optional but recommended) vs red (blocking)
 }
 
-// ── Step 14: Dispatch result shape (matches ChannelDispatchResult in channelDispatch.ts) ──
+// ── Steps 14+16: Dispatch result shape (matches ChannelDispatchResult in channelDispatch.ts) ──
 type DispatchChannelResult = {
   channel: string
   eligible: boolean
@@ -19,6 +19,12 @@ type DispatchChannelResult = {
   skippedReason?: string
   error?: string
   responseStatus?: number
+  /**
+   * Step 16: Structured result body from the n8n workflow response.
+   * For Instagram real workflow: { mode, success, instagramPostId, instagramPermalink,
+   *   caption, mediaUrl, mediaCount, publishedAt, ... }
+   */
+  publishResult?: Record<string, unknown>
   timestamp?: string
 }
 
@@ -26,6 +32,10 @@ const CHANNEL_LABEL: Record<string, string> = {
   instagram: '📸 Instagram',
   shopier:   '🛒 Shopier',
   dolap:     '👗 Dolap',
+  x:         '𝕏 X (Twitter)',
+  facebook:  '📘 Facebook',
+  linkedin:  '💼 LinkedIn',
+  threads:   '🧵 Threads',
 }
 
 /**
@@ -419,6 +429,55 @@ export const ReviewPanel: React.FC = () => {
                     {r.error && (
                       <div style={{ fontSize: '10px', color: '#f87171', marginTop: '2px', paddingLeft: '120px' }}>
                         ↳ Hata: {r.error}
+                      </div>
+                    )}
+                    {/* Step 16: publishResult — channel-specific publish outcome */}
+                    {!!r.publishResult && r.channel === 'instagram' && (
+                      <div style={{ marginTop: '4px', paddingLeft: '120px' }}>
+                        {r.publishResult.mode === 'published' && (
+                          <div style={{ fontSize: '10px', color: '#4ade80' }}>
+                            ✅ Instagram&apos;a yayınlandı
+                            {!!r.publishResult.instagramPostId && (
+                              <span style={{ color: '#64748b' }}>
+                                {' '}· Post ID: <code style={{ fontSize: '10px', color: '#93c5fd' }}>{String(r.publishResult.instagramPostId)}</code>
+                              </span>
+                            )}
+                            {!!r.publishResult.instagramPermalink && (
+                              <span>
+                                {' '}·{' '}
+                                <a
+                                  href={String(r.publishResult.instagramPermalink)}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  style={{ color: '#818cf8', fontSize: '10px' }}
+                                >
+                                  🔗 Gönderiyi gör
+                                </a>
+                              </span>
+                            )}
+                          </div>
+                        )}
+                        {r.publishResult.mode === 'no-credentials' && (
+                          <div style={{ fontSize: '10px', color: '#f59e0b' }}>
+                            ⚠️ Instagram kimlik bilgileri yapılandırılmamış
+                            {!!r.publishResult.reason && (
+                              <span style={{ color: '#64748b' }}> — {String(r.publishResult.reason)}</span>
+                            )}
+                          </div>
+                        )}
+                        {r.publishResult.mode === 'bypass' && (
+                          <div style={{ fontSize: '10px', color: '#64748b' }}>
+                            ⏸ Instagram yayını bypass modda (INSTAGRAM_BYPASS_PUBLISH=true)
+                          </div>
+                        )}
+                        {r.publishResult.mode === 'api-error' && (
+                          <div style={{ fontSize: '10px', color: '#f87171' }}>
+                            ❌ Instagram API hatası
+                            {!!r.publishResult.apiError && (
+                              <span style={{ color: '#94a3b8' }}> — {String(r.publishResult.apiError)}</span>
+                            )}
+                          </div>
+                        )}
                       </div>
                     )}
                     {/* Timestamp */}

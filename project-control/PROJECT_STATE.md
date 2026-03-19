@@ -1,10 +1,10 @@
 # PROJECT STATE — Uygunayakkabi
 
-_Last updated: 2026-03-17 (Admin panel restored after cascading DB schema migration failures — all issues resolved manually)_
+_Last updated: 2026-03-18 (Step 16 complete — real Instagram Graph API publish workflow implemented)_
 
 ## Current Status
 Phase 1 **COMPLETE** (validated 2026-03-13).
-Phase 2 **ACTIVE** — Steps 1–15 complete. Dispatch chain verified, media URLs hardened, E2E runbook ready. (2026-03-16)
+Phase 2 **ACTIVE** — Steps 1–16 complete. Real Instagram integration live. (2026-03-18)
 **Mentix Intelligence Layer v2** — DEPLOYED ✅ (2026-03-17). All 13 skills on VPS, identity updated, ops group live with Bahriyar as 3rd authorized user.
 
 End-to-end pipeline validated:
@@ -15,8 +15,46 @@ End-to-end pipeline validated:
 - Ops group full-capability mention-trigger: **LIVE**
 
 ## Current Phase
-Phase 2 — Automation Backbone (**ACTIVE — Steps 1–15 complete, Step 16 next**)
+Phase 2 — Automation Backbone (**ACTIVE — Steps 1–16 complete, Step 17 next**)
 Mentix Intelligence Layer v2 — **DEPLOYED AND LIVE** (2026-03-17)
+
+---
+
+## Step 16 — Real Instagram Integration (COMPLETE ✅ — 2026-03-18)
+
+### What was implemented
+- **`n8n-workflows/channel-instagram-real.json`** — Real Instagram Graph API v21.0 publish workflow (13 nodes)
+  - Bypass mode (INSTAGRAM_BYPASS_PUBLISH n8n var) → HTTP 422
+  - Credentials check (INSTAGRAM_ACCESS_TOKEN + INSTAGRAM_USER_ID + valid image URL) → HTTP 422 if missing
+  - Build Instagram caption (title + price + brand + category + hashtags, max 2200 chars)
+  - Create media container: `POST /v21.0/{user_id}/media?image_url=...&caption=...&access_token=...`
+  - Wait 2s (Instagram media processing)
+  - Publish media: `POST /v21.0/{user_id}/media_publish?creation_id=...&access_token=...`
+  - Error routing: create-container error → HTTP 500 with `mode=api-error`; publish error → HTTP 500 with step info
+  - Success: HTTP 200 with `{mode: 'published', instagramPostId, instagramPermalink, publishedAt, ...}`
+- **`src/lib/channelDispatch.ts`** — Extended `ChannelDispatchResult` with `publishResult?: Record<string, unknown>`; `dispatchToChannel()` now parses response body as JSON and stores it
+- **`src/collections/Products.ts`** — Write-back now includes `publishResult` in `dispatchNotes` serialization
+- **`src/components/admin/ReviewPanel.tsx`** — Extended `DispatchChannelResult` type; renders Instagram `publishResult` with post ID, permalink link, bypass/no-creds/error states
+- **`n8n-workflows/CHANNEL_DISPATCH_CONTRACT.md`** — Documented Step 16: real workflow, n8n vars, Graph API prerequisites, full response schema, updated Known Limitations table
+
+### Secrets/Config Required (Operator)
+| Config | Where | Description |
+|---|---|---|
+| `INSTAGRAM_USER_ID` | n8n Settings → Variables | Instagram Business Account numeric user ID |
+| `INSTAGRAM_ACCESS_TOKEN` | n8n Settings → Variables | Long-lived token with `instagram_basic`, `instagram_content_publish` scopes |
+| `INSTAGRAM_BYPASS_PUBLISH` (optional) | n8n Settings → Variables | Set `true` to bypass real publish during testing |
+
+### How write-back works (Step 16)
+1. Payload `afterChange` hook fires → calls `dispatchProductToChannels()`
+2. `dispatchToChannel()` POSTs to n8n webhook
+3. n8n Instagram Real workflow publishes to Graph API + responds with JSON
+4. `dispatchToChannel()` parses response body → `publishResult`
+5. Products.ts `afterChange` hook stores `publishResult` in `sourceMeta.dispatchNotes[].publishResult`
+6. ReviewPanel surfaces: post ID + permalink link (success) or error reason (failure)
+
+### What remains scaffold-only
+- Shopier: `channel-shopier.json` — stub only, no real API
+- Dolap: `channel-dolap.json` — stub only, no real API
 
 ---
 

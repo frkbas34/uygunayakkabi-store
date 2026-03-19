@@ -232,27 +232,167 @@ If `NEXT_PUBLIC_SERVER_URL` is not set, the URL falls back to `/media/filename.j
 
 ---
 
-## Known Limitations (Step 14–15 scope)
+---
+
+## Step 16 — Real Instagram Integration
+
+**Workflow file:** `n8n-workflows/channel-instagram-real.json`
+
+This replaces the Instagram stub with a real Instagram Graph API v21.0 publish flow.
+
+### Required n8n Variables
+
+Set these in n8n UI at **Settings → Variables** before activating the workflow:
+
+| Variable | Required | Description |
+|---|---|---|
+| `INSTAGRAM_USER_ID` | ✅ Yes | Instagram Business Account numeric user ID (not `@username`). Find via: `GET https://graph.facebook.com/me?fields=id,name&access_token={token}` |
+| `INSTAGRAM_ACCESS_TOKEN` | ✅ Yes | Long-lived Page Access Token or System User Token. Required scopes: `instagram_basic`, `instagram_content_publish`, `pages_show_list`, `pages_read_engagement` |
+| `INSTAGRAM_BYPASS_PUBLISH` | ⚙️ Optional | Set to `true` to skip real publish (safe mode). Returns HTTP 422 with `mode=bypass`. Use while credentials are being configured. |
+
+### Facebook App Prerequisites
+
+1. Facebook App must be in **Live Mode** (not Development Mode)
+2. Instagram account must be a **Business or Creator account** (not personal)
+3. Instagram account must be **linked to a Facebook Page**
+4. App must have permissions: `instagram_basic`, `instagram_content_publish`
+5. Long-lived tokens last **60 days** — System User tokens do not expire
+6. All image URLs must be **publicly accessible** (Vercel Blob URLs satisfy this)
+
+### Workflow Logic
+
+```
+Webhook (channel-instagram)
+  → Extract Fields (mediaUrls[0], title, price, brand, category, etc.)
+  → Bypass Mode? (INSTAGRAM_BYPASS_PUBLISH == 'true')
+      ↳ true  → Respond 422 {mode: 'bypass'}
+      ↳ false → Credentials + Image OK? (access_token set + user_id set + firstImageUrl starts with https://)
+                    ↳ false → Respond 422 {mode: 'no-credentials', reason: '...'}
+                    ↳ true  → Build Caption (title + price + brand + category + hashtags, max 2200 chars)
+                               → Create Media Container (POST /v21.0/{user_id}/media?image_url=...&caption=...&access_token=...)
+                                   ↳ error → Respond 500 {mode: 'api-error', step: 'create-container', apiError: ...}
+                                   ↳ ok    → Wait 2s (Instagram media processing time)
+                                              → Publish Media (POST /v21.0/{user_id}/media_publish?creation_id=...&access_token=...)
+                                                  ↳ error → Respond 500 {mode: 'api-error', step: 'media-publish', apiError: ...}
+                                                  ↳ ok    → Respond 200 {mode: 'published', instagramPostId: ..., success: true, ...}
+```
+
+### Response Schema (Step 16 extended)
+
+The n8n workflow now returns a structured JSON body in its HTTP response. Payload parses this and stores it as `publishResult` inside each channel's `dispatchNotes` entry.
+
+**Success (HTTP 200):**
+```json
+{
+  "mode": "published",
+  "success": true,
+  "instagramPostId": "17841405822304914",
+  "instagramUserId": "17841400008460056",
+  "instagramPermalink": "https://www.instagram.com/p/17841405822304914/",
+  "caption": "Nike Air Max 90...",
+  "mediaUrl": "https://xxx.blob.vercel-storage.com/...",
+  "mediaCount": 2,
+  "creationId": "17889455560051444",
+  "publishedAt": "2026-03-16T10:30:02.000Z",
+  "dispatchTimestamp": "2026-03-16T10:30:00.000Z"
+}
+```
+
+**No Credentials / Missing Image (HTTP 422):**
+```json
+{
+  "mode": "no-credentials",
+  "success": false,
+  "reason": "INSTAGRAM_ACCESS_TOKEN is not set in n8n Variables"
+}
+```
+
+**Bypass Mode (HTTP 422):**
+```json
+{
+  "mode": "bypass",
+  "success": false,
+  "reason": "INSTAGRAM_BYPASS_PUBLISH is set to true — real publish skipped"
+}
+```
+
+**Graph API Error (HTTP 500):**
+```json
+{
+  "mode": "api-error",
+  "success": false,
+  "step": "create-container",
+  "apiError": "Invalid OAuth access token",
+  "apiErrorCode": 190
+}
+```
+
+### Payload Write-Back (Extended for Step 16)
+
+`sourceMeta.dispatchNotes` now includes `publishResult` for each channel when available:
+
+```json
+[
+  {
+    "channel": "instagram",
+    "eligible": true,
+    "dispatched": true,
+    "webhookConfigured": true,
+    "responseStatus": 200,
+    "publishResult": {
+      "mode": "published",
+      "success": true,
+      "instagramPostId": "17841405822304914",
+      "instagramPermalink": "https://www.instagram.com/p/17841405822304914/",
+      "publishedAt": "2026-03-16T10:30:02.000Z"
+    },
+    "timestamp": "2026-03-16T10:30:01.123Z"
+  }
+]
+```
+
+The ReviewPanel admin UI now surfaces `publishResult` with:
+- ✅ Published: post ID + direct Instagram link
+- ⚠️ No-credentials: human-readable reason
+- ⏸ Bypass mode: clear indicator
+- ❌ API error: error message from Graph API
+
+### Importing to n8n (Replace Stub)
+
+1. Go to `flow.uygunayakkabi.com` → Workflows
+2. If the stub `Channel Stub — Instagram` is active, **deactivate it first**
+3. Import `n8n-workflows/channel-instagram-real.json`
+4. Configure n8n Variables (Settings → Variables): `INSTAGRAM_USER_ID`, `INSTAGRAM_ACCESS_TOKEN`
+5. Optionally set `INSTAGRAM_BYPASS_PUBLISH=true` first for a dry-run test
+6. **Activate** the workflow
+7. The webhook path is the same (`channel-instagram`) — no Vercel env var change needed
+
+---
+
+## Known Limitations (Steps 14–16)
 
 | Limitation | Status | Future resolution |
 |---|---|---|
-| No real Instagram API call | By design | Phase 2B: Instagram Graph API workflow |
-| No real Shopier API call | By design | Phase 2B: Shopier integration research |
-| No real Dolap API call | By design | Phase 2B: Dolap integration research |
+| ~~No real Instagram API call~~ | **RESOLVED in Step 16** | Instagram Graph API v21.0 real workflow |
+| No real Shopier API call | Scaffold only | Phase 2B: Shopier integration research |
+| No real Dolap API call | Scaffold only | Phase 2B: Dolap integration research |
 | Dispatch history: only latest run stored | By design | Future: append history or log to external store |
 | No per-channel retry scheduler | Deferred | Future: n8n retry workflow or manual re-dispatch |
-| `externalSyncId` not written back on success | Deferred | Future: channel worker sends confirmation back to `/api/automation/products/{id}/sync` |
+| `instagramPostId` stored in `publishResult` but not in `externalSyncId` | Deferred | Future: promote to dedicated `sourceMeta.externalSyncId` field |
+| Instagram only publishes first image (`mediaUrls[0]`) | By design (Step 16) | Step 17: carousel posts for multiple images |
 | No webhook signature verification (inbound) | Deferred | Future: HMAC header on stub response |
 | forceRedispatch re-dispatches ALL eligible channels | By design | Future: per-channel re-dispatch action button |
 | AbortSignal.timeout requires Node.js 17.3+ | Non-issue for Vercel (Node 18+) | N/A |
+| Long-lived tokens expire after 60 days | Ops concern | Ops: use System User token (no expiry) or set up token refresh |
 
 ---
 
 ## What's NOT in scope yet (Phase 2B)
 
-- Real Instagram Graph API publishing
+- Instagram carousel posts (multiple images — currently publishes first image only)
+- Instagram Reels publishing
 - Real Shopier listing sync (API research needed)
 - Real Dolap listing sync (API research needed)
 - Scheduled retry on dispatch failure
-- Per-channel listing ID stored back to `sourceMeta.externalSyncId`
+- `sourceMeta.externalSyncId` promoted from `publishResult.instagramPostId`
 - Webhook signature verification for incoming channel callbacks

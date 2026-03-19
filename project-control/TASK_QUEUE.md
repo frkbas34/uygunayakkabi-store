@@ -1,6 +1,6 @@
 # TASK QUEUE — Uygunayakkabi
 
-_Last updated: 2026-03-17 (products_channel_targets id-column fix applied — product save from admin now works)_
+_Last updated: 2026-03-18 (Step 16 complete — real Instagram Graph API publish workflow)_
 
 ## ⚠️ Current Blockers
 
@@ -10,11 +10,13 @@ _Last updated: 2026-03-17 (products_channel_targets id-column fix applied — pr
 **Before adding any new collection or global:** manually verify the new table exists in Neon after first deployment.
 Required tables to check after any schema change: `payload_locked_documents_rels` (new `{slug}_id` column) + new collection table itself.
 
-### Blocker 1: E2E Stub Test (Phase 2 — Step 16)
-**E2E stub test not yet run.** Steps 1–15 are code-complete. Step 16 cannot start until the operator:
-1. Imports and activates the Instagram n8n stub
-2. Sets `N8N_CHANNEL_INSTAGRAM_WEBHOOK` in Vercel + redeploys
-3. Runs the test per `n8n-workflows/E2E_TEST_CHECKLIST.md` and confirms all success signals
+### Blocker 1: Instagram Credentials (Step 16 — Operator Action Required)
+**Step 16 code is complete.** To go live with real Instagram publishing, the operator must:
+1. Import `n8n-workflows/channel-instagram-real.json` to `flow.uygunayakkabi.com`
+2. Configure n8n Variables: `INSTAGRAM_USER_ID` + `INSTAGRAM_ACCESS_TOKEN` (see CHANNEL_DISPATCH_CONTRACT.md → Step 16)
+3. Optionally set `INSTAGRAM_BYPASS_PUBLISH=true` first for a dry-run (returns 422, no real post)
+4. Activate the `Channel — Instagram (Real v1)` workflow
+5. Test: activate a product with `instagram` in `channelTargets` → verify `dispatchNotes.publishResult.instagramPostId` appears in admin
 
 ### ~~Blocker 2: Mentix VPS Deployment~~ — RESOLVED ✅ (2026-03-17)
 ### ~~Blocker 3: Git push pending~~ — RESOLVED ✅ (2026-03-17)
@@ -310,15 +312,51 @@ npm run dev
 
 ---
 
-### 🟡 Step 16 — First Real Channel Integration (NEXT PRIORITY)
-After E2E stub test passes:
-- [ ] Decide which channel to integrate first (Instagram likely, given visual product nature)
-- [ ] Instagram: set up Facebook Business Manager + Instagram Business Account + Graph API app
-- [ ] Research Shopier API (if available) or manual listing workflow
-- [ ] Research Dolap API / seller integration
-- [ ] n8n workflow: replace stub "Respond 200" with real channel API call(s)
-- [ ] sourceMeta.externalSyncId: channel worker POSTs listing ID back to `/api/automation/products/{id}/sync`
-- [ ] Add `lastChannelSyncedAt` + per-channel listing URL to sourceMeta for admin visibility
+### ✅ Step 16 — First Real Channel Integration — COMPLETE (2026-03-18)
+- [x] `n8n-workflows/channel-instagram-real.json` — 13-node real Instagram Graph API v21.0 workflow
+  - Bypass mode gate (INSTAGRAM_BYPASS_PUBLISH n8n var)
+  - Credentials check (INSTAGRAM_ACCESS_TOKEN + INSTAGRAM_USER_ID + valid https:// image URL)
+  - Caption builder (title + price + brand + category + hashtags, max 2200 chars)
+  - Create media container (POST /v21.0/{user_id}/media)
+  - Wait 2s for Instagram media processing
+  - Publish media (POST /v21.0/{user_id}/media_publish)
+  - Error routing: create-container error → HTTP 500 mode=api-error; publish error → HTTP 500
+  - Success: HTTP 200 with instagramPostId, instagramPermalink, publishedAt
+- [x] `src/lib/channelDispatch.ts`: `ChannelDispatchResult.publishResult` field added; response body parsed as JSON
+- [x] `src/collections/Products.ts`: write-back includes `publishResult` in dispatchNotes
+- [x] `src/components/admin/ReviewPanel.tsx`: renders post ID + permalink link + error/bypass states
+- [x] `n8n-workflows/CHANNEL_DISPATCH_CONTRACT.md`: Step 16 section added (n8n vars, prerequisites, response schema, Known Limitations updated)
+- [x] TypeScript check passes: 0 errors
+
+**Pending operator actions (not code):**
+- [ ] Import `channel-instagram-real.json` to n8n + configure Variables + activate
+- [ ] Run live test: activate product → verify `instagramPostId` in admin
+
+---
+
+### 🟡 Step 17 — Instagram Token Exchange + Hardening (NEXT PRIORITY)
+After Step 16 operator go-live confirmed:
+
+**OAuth Token Exchange (prerequisite for automated token management):**
+- [ ] Set `INSTAGRAM_APP_ID` + `INSTAGRAM_APP_SECRET` in Vercel env vars
+- [ ] Complete token exchange in `/api/auth/instagram/callback/route.ts`:
+  - Validate `state` CSRF token
+  - POST to Graph API `/v21.0/oauth/access_token` → short-lived token
+  - GET `/v21.0/oauth/exchange_token` → long-lived token (60 days)
+  - GET `/v21.0/me?fields=id,name` → get `INSTAGRAM_USER_ID`
+  - Store results → n8n Variables (INSTAGRAM_ACCESS_TOKEN + INSTAGRAM_USER_ID)
+- Callback route already exists: `src/app/api/auth/instagram/callback/route.ts`
+- Register in Meta: `https://uygunayakkabi.com/api/auth/instagram/callback`
+
+**Instagram publish hardening:**
+- [ ] **Instagram carousel posts** — when `mediaUrls.length > 1`, publish all images as carousel
+  - Graph API: create multiple media containers → `media_type=CAROUSEL` + `children[]=` array
+  - n8n workflow extension: loop over mediaUrls → create container for each → publish carousel
+- [ ] **Token expiry monitoring** — long-lived tokens expire after 60 days
+  - Recommend: switch to System User token (no expiry) in Facebook Developer Portal
+  - Optional: n8n workflow to alert (Telegram notification) when token is near expiry
+- [ ] **`sourceMeta.externalSyncId`** — promote `publishResult.instagramPostId` to a dedicated field for cleaner admin display
+- [ ] Research Shopier API availability for Step 18
 
 ---
 
@@ -337,6 +375,55 @@ After E2E stub test passes:
 - [ ] Facebook Business Manager + Instagram Business Account + Graph API app setup
 - [ ] `sourceMeta.externalSyncId` write-back from n8n after successful post
 - [ ] `publishInstagram` toggle in AutomationSettings remains the gate
+
+### Channel Integration — X (Twitter) — SCAFFOLD ✅ (2026-03-19)
+- [x] `SupportedChannel` type extended
+- [x] `N8N_CHANNEL_X_WEBHOOK` env var mapped
+- [x] `AutomationSettings.publishX` toggle added
+- [x] `Products.channels.publishX` flag + `channelTargets` option added
+- [x] `ReviewPanel` label added
+- [x] OAuth callback: `src/app/api/auth/x/callback/route.ts`
+- [x] n8n stub: `n8n-workflows/stubs/channel-x.json`
+- [ ] **Real integration**: X API v2 POST /2/tweets + OAuth 2.0 PKCE token exchange
+- [ ] Token refresh automation (tokens expire ~2hr, refresh valid 6mo)
+- [ ] Character limit: 280 chars (or 25,000 for X Premium long-form)
+
+### Channel Integration — Facebook Page — SCAFFOLD ✅ (2026-03-19)
+- [x] `SupportedChannel` type extended
+- [x] `N8N_CHANNEL_FACEBOOK_WEBHOOK` env var mapped
+- [x] `AutomationSettings.publishFacebook` toggle added
+- [x] `Products.channels.publishFacebook` flag + `channelTargets` option added
+- [x] `ReviewPanel` label added
+- [x] n8n stub: `n8n-workflows/stubs/channel-facebook.json`
+- [ ] **Real integration**: Graph API /{page_id}/photos or /{page_id}/feed
+- [ ] Uses same Meta App as Instagram — reuses INSTAGRAM_APP_ID/SECRET
+- [ ] Needs: FACEBOOK_PAGE_ID + FACEBOOK_PAGE_ACCESS_TOKEN in n8n Variables
+- [ ] Auth: same OAuth flow as Instagram (additional page permissions required)
+
+### Channel Integration — LinkedIn — SCAFFOLD ✅ (2026-03-19)
+- [x] `SupportedChannel` type extended
+- [x] `N8N_CHANNEL_LINKEDIN_WEBHOOK` env var mapped
+- [x] `AutomationSettings.publishLinkedin` toggle added
+- [x] `Products.channels.publishLinkedin` flag + `channelTargets` option added
+- [x] `ReviewPanel` label added
+- [x] OAuth callback: `src/app/api/auth/linkedin/callback/route.ts`
+- [x] n8n stub: `n8n-workflows/stubs/channel-linkedin.json`
+- [ ] **Real integration**: LinkedIn Marketing API POST /rest/posts
+- [ ] Decide: personal posting vs organization/company page posting
+- [ ] Token refresh (access 60 days, refresh ~1 year)
+- [ ] Character limit: 3,000 chars
+
+### Channel Integration — Threads — SCAFFOLD ✅ (2026-03-19)
+- [x] `SupportedChannel` type extended
+- [x] `N8N_CHANNEL_THREADS_WEBHOOK` env var mapped
+- [x] `AutomationSettings.publishThreads` toggle added
+- [x] `Products.channels.publishThreads` flag + `channelTargets` option added
+- [x] `ReviewPanel` label added
+- [x] n8n stub: `n8n-workflows/stubs/channel-threads.json`
+- [ ] **Real integration**: Threads API /{user_id}/threads + /{user_id}/threads_publish
+- [ ] Uses same Meta App as Instagram — reuses INSTAGRAM_APP_ID/SECRET
+- [ ] Needs: THREADS_USER_ID + THREADS_ACCESS_TOKEN + threads_content_publish scope
+- [ ] Character limit: 500 chars
 
 ### Channel Integration — Shopier
 - [ ] Import + activate `n8n-workflows/stubs/channel-shopier.json` after Instagram E2E validated

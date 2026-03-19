@@ -126,6 +126,51 @@ export const AutomationSettings: GlobalConfig = {
               'ileride Dolap API entegrasyonu ile devreye alınacak (Step 13+).',
           },
         },
+        // ── Step 16+: Social Media Channels ──────────────────────
+        {
+          name: 'publishX',
+          type: 'checkbox',
+          label: '𝕏 X (Twitter) Yayını Aktif',
+          defaultValue: false,
+          admin: {
+            description:
+              'X (Twitter) kanalı aktif. n8n workflow + X API v2 gerekli. ' +
+              'Scaffold — gerçek entegrasyon henüz yapılmadı.',
+          },
+        },
+        {
+          name: 'publishFacebook',
+          type: 'checkbox',
+          label: '📘 Facebook Sayfa Yayını Aktif',
+          defaultValue: false,
+          admin: {
+            description:
+              'Facebook Sayfa yayını aktif. Meta Graph API ile Page Post. ' +
+              'Scaffold — gerçek entegrasyon henüz yapılmadı.',
+          },
+        },
+        {
+          name: 'publishLinkedin',
+          type: 'checkbox',
+          label: '💼 LinkedIn Yayını Aktif',
+          defaultValue: false,
+          admin: {
+            description:
+              'LinkedIn yayını aktif. Organization veya kişisel post. ' +
+              'Scaffold — gerçek entegrasyon henüz yapılmadı.',
+          },
+        },
+        {
+          name: 'publishThreads',
+          type: 'checkbox',
+          label: '🧵 Threads Yayını Aktif',
+          defaultValue: false,
+          admin: {
+            description:
+              'Threads yayını aktif. Meta Threads API gerekli. ' +
+              'Scaffold — gerçek entegrasyon henüz yapılmadı.',
+          },
+        },
       ],
     },
     // ── İçerik Üretim Ayarları ────────────────────────────────

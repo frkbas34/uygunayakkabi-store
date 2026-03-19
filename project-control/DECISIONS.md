@@ -1273,3 +1273,96 @@ CREATE INDEX products_channel_targets_parent_idx ON products_channel_targets (pa
 `push: true` does NOT run in production (`NODE_ENV=production` check in `@payloadcms/db-postgres/dist/connect.js`). All Neon schema fixes must be applied manually. There is no auto-heal in production.
 
 **Status:** ACTIVE — confirmed 2026-03-17
+
+---
+
+## D-080 — Step 16: Real Instagram Integration via n8n + Synchronous Response Write-Back
+
+**Decision:**
+For the first real channel integration (Instagram), use **n8n as the orchestrator** that calls Instagram Graph API v21.0, and capture the publish result via the **synchronous webhook response body** rather than an asynchronous write-back endpoint.
+
+**Options considered:**
+1. Synchronous: n8n calls Graph API + responds with `{instagramPostId: ...}` → Payload reads response body → stores in `dispatchNotes.publishResult`
+2. Asynchronous: n8n calls Graph API → POSTs result to `/api/automation/products/{id}/sync` after completion
+
+**Why synchronous (Option 1):**
+- Instagram media_create + media_publish complete in under 5 seconds — within the 10s Payload webhook timeout
+- Simpler: no new API endpoint needed, no auth token management for the write-back call
+- Complete result is visible immediately after dispatch, not after a second async round-trip
+- Aligns with the existing dispatch contract: webhook POST → HTTP 200/4xx/5xx response
+
+**Trade-off documented:**
+If Instagram API takes longer than 10s (e.g., media processing backlog), the Payload timeout fires and the result is lost. In practice, Instagram media container creation + publish complete in 1–3s for single images. The 2s wait node in the workflow is a safety buffer.
+
+**For async in future:**
+If carousel posts or multi-step processing require longer timeouts, implement `/api/automation/products/{id}/sync` endpoint at that point (D-081).
+
+**Status:** ACTIVE — confirmed 2026-03-18
+
+---
+
+## D-081 — Step 16: publishResult Field Added to ChannelDispatchResult (Additive Only)
+
+**Decision:**
+Extend `ChannelDispatchResult` with an optional `publishResult?: Record<string, unknown>` field rather than creating a channel-specific subtype for each channel.
+
+**Reason:**
+- Additive change — zero breaking changes to existing dispatchNotes consumers
+- `Record<string, unknown>` allows each channel workflow to return any structured data without modifying the TypeScript contract
+- ReviewPanel renders per-channel interpretations client-side (Instagram-specific rendering already added for Step 16)
+- Shopier/Dolap can add their own `publishResult` shape when implemented without touching core dispatch types
+
+**Status:** ACTIVE — confirmed 2026-03-18
+
+---
+
+## D-082 — Instagram OAuth Callback: Minimal Safe Handler (Redirect Only, No Token Exchange)
+
+**Decision:**
+Create a minimal `GET /api/auth/instagram/callback` route that safely receives the Meta OAuth redirect and logs it, but defers full token exchange to Step 17.
+
+**Reason:**
+Meta requires a Redirect URL to be registered before the Business Login flow can begin. The callback URL must exist and return a non-error response. The token exchange logic requires `INSTAGRAM_APP_ID` and `INSTAGRAM_APP_SECRET` which are not yet configured. Splitting the two concerns allows the OAuth URL registration to proceed immediately while token exchange is built in Step 17.
+
+**Route:** `src/app/api/auth/instagram/callback/route.ts`
+**Registered callback URLs:**
+- Local: `http://localhost:3000/api/auth/instagram/callback`
+- Production: `https://uygunayakkabi.com/api/auth/instagram/callback`
+
+**On success (code received):** redirects to `/admin?instagram_auth=code_received`
+**On failure (error received):** redirects to `/admin?instagram_auth=error&instagram_error={error}`
+**On invalid call:** returns HTTP 400 JSON
+
+**Status:** ACTIVE — implemented 2026-03-18
+
+---
+
+## D-083 — Multi-Platform Social Posting: Extend channelDispatch, NOT New Architecture
+
+**Decision:**
+Add X, Facebook, LinkedIn, and Threads as new `SupportedChannel` entries in the existing `channelDispatch.ts` → n8n webhook pattern. Do NOT build a separate social media service layer, scheduler, or direct API integration in the Next.js app.
+
+**Reason:**
+The repo already has a mature channel dispatch system: `SupportedChannel` type → 3-gate eligibility → `buildDispatchPayload()` → n8n webhook → `publishResult` write-back. Instagram is already a real integration using this exact pattern. Extending it for 4 new platforms requires only additive changes: type union, env var mappings, admin toggles, product flags, n8n stubs. Zero new dependencies, zero architectural changes.
+
+**What was added:**
+- `SupportedChannel` union: `+ 'x' | 'facebook' | 'linkedin' | 'threads'`
+- `buildChannelWebhookUrl()`: 4 new `N8N_CHANNEL_*_WEBHOOK` env var mappings
+- `AutomationSettings.ts`: 4 new `publishX/Facebook/Linkedin/Threads` toggles
+- `Products.ts`: 4 new channel flags + 4 new `channelTargets` options
+- `automationDecision.ts`: extended `SAFE_DEFAULTS`, `CAPABILITY` map, `AutomationSettingsSnapshot` type
+- `ReviewPanel.tsx`: 4 new `CHANNEL_LABEL` entries
+- OAuth callbacks: `/api/auth/x/callback`, `/api/auth/linkedin/callback` (Facebook/Threads reuse Meta app + Instagram callback)
+- n8n workflow stubs: `channel-x.json`, `channel-facebook.json`, `channel-linkedin.json`, `channel-threads.json`
+- `.env.example`: all new env vars + callback URLs documented
+
+**What remains scaffold-only:**
+All 4 new channels are stub-only. Real n8n workflows with actual API calls are a separate step per platform.
+
+**Auth architecture:**
+- X: OAuth 2.0 PKCE → own callback `/api/auth/x/callback`
+- LinkedIn: OAuth 2.0 → own callback `/api/auth/linkedin/callback`
+- Facebook: same Meta App as Instagram → reuses Instagram OAuth flow
+- Threads: same Meta App as Instagram → reuses Instagram OAuth flow + separate Threads scopes
+
+**Status:** ACTIVE — implemented 2026-03-19

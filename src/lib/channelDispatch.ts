@@ -1,10 +1,10 @@
 /**
- * channelDispatch.ts — Step 13: Channel Adapter Scaffolding
+ * channelDispatch.ts — Step 13 (scaffold) + Step 16 (real Instagram integration)
  *
  * Pure dispatch layer for Instagram / Shopier / Dolap channel adapters.
- * This module is a SCAFFOLD — no real external API calls to third-party platforms.
- * Instead, it fires n8n webhooks (via N8N_CHANNEL_*_WEBHOOK env vars) that will
- * contain the full product payload for future n8n workflow integration.
+ * Fires n8n webhooks (via N8N_CHANNEL_*_WEBHOOK env vars) that orchestrate
+ * real channel publishing.  Instagram is now a real publish workflow (Step 16).
+ * Shopier and Dolap remain scaffold-only until their integrations are built.
  *
  * Architecture:
  *   Products.ts afterChange hook → dispatchProductToChannels()
@@ -28,10 +28,25 @@ import type { AutomationSettingsSnapshot } from './automationDecision'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
-export type SupportedChannel = 'instagram' | 'shopier' | 'dolap'
+export type SupportedChannel =
+  | 'instagram'
+  | 'shopier'
+  | 'dolap'
+  | 'x'
+  | 'facebook'
+  | 'linkedin'
+  | 'threads'
 
 /** All non-website channels that require external dispatch */
-export const SUPPORTED_CHANNELS: SupportedChannel[] = ['instagram', 'shopier', 'dolap']
+export const SUPPORTED_CHANNELS: SupportedChannel[] = [
+  'instagram',
+  'shopier',
+  'dolap',
+  'x',
+  'facebook',
+  'linkedin',
+  'threads',
+]
 
 /**
  * Structured payload sent to each channel's n8n webhook.
@@ -97,6 +112,12 @@ export type ChannelDispatchResult = {
   responseStatus?: number
   /** Error message if dispatch failed */
   error?: string
+  /**
+   * Structured result body returned by the n8n workflow (if available + parseable JSON).
+   * For Instagram (Step 16): includes mode, instagramPostId, success, caption, mediaUrl, etc.
+   * Stored verbatim in sourceMeta.dispatchNotes for admin visibility.
+   */
+  publishResult?: Record<string, unknown>
   /** ISO timestamp of this result */
   timestamp: string
 }
@@ -112,6 +133,10 @@ export function buildChannelWebhookUrl(channel: SupportedChannel): string | unde
     instagram: process.env.N8N_CHANNEL_INSTAGRAM_WEBHOOK,
     shopier:   process.env.N8N_CHANNEL_SHOPIER_WEBHOOK,
     dolap:     process.env.N8N_CHANNEL_DOLAP_WEBHOOK,
+    x:         process.env.N8N_CHANNEL_X_WEBHOOK,
+    facebook:  process.env.N8N_CHANNEL_FACEBOOK_WEBHOOK,
+    linkedin:  process.env.N8N_CHANNEL_LINKEDIN_WEBHOOK,
+    threads:   process.env.N8N_CHANNEL_THREADS_WEBHOOK,
   }
   const url = envMap[channel]
   return url && url.trim().length > 0 ? url.trim() : undefined
@@ -304,18 +329,35 @@ export async function dispatchToChannel(
     })
 
     const ok = response.ok
+
+    // Step 16: Try to parse the response body as JSON to capture channel-specific
+    // publish results (e.g. Instagram post ID from the real publish workflow).
+    // Non-critical — if body is empty or not JSON, we silently skip.
+    let publishResult: Record<string, unknown> | undefined
+    try {
+      const text = await response.text()
+      if (text && text.trim().startsWith('{')) {
+        publishResult = JSON.parse(text) as Record<string, unknown>
+      }
+    } catch {
+      /* Non-critical — body may not be JSON (stub, plain-text errors, etc.) */
+    }
+
     console.log(
       `[channelDispatch] dispatched — channel=${payload.channel} ` +
-        `product=${payload.productId} httpStatus=${response.status} ok=${ok}`,
+        `product=${payload.productId} httpStatus=${response.status} ok=${ok}` +
+        (publishResult?.instagramPostId ? ` instagramPostId=${publishResult.instagramPostId}` : '') +
+        (publishResult?.mode ? ` mode=${publishResult.mode}` : ''),
     )
 
     return {
-      channel:          payload.channel,
-      eligible:         true,
-      dispatched:       ok,
+      channel:           payload.channel,
+      eligible:          true,
+      dispatched:        ok,
       webhookConfigured: true,
-      responseStatus:   response.status,
+      responseStatus:    response.status,
       ...(ok ? {} : { error: `Webhook responded with HTTP ${response.status}` }),
+      ...(publishResult !== undefined ? { publishResult } : {}),
       timestamp,
     }
   } catch (err) {
@@ -324,11 +366,11 @@ export async function dispatchToChannel(
       `[channelDispatch] dispatch error — channel=${payload.channel} product=${payload.productId}: ${message}`,
     )
     return {
-      channel:          payload.channel,
-      eligible:         true,
-      dispatched:       false,
+      channel:           payload.channel,
+      eligible:          true,
+      dispatched:        false,
       webhookConfigured: true,
-      error:            message,
+      error:             message,
       timestamp,
     }
   }

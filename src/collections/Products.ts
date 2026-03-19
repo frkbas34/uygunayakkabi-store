@@ -169,9 +169,11 @@ export const Products: CollectionConfig = {
                         eligible:          r.eligible,
                         dispatched:        r.dispatched,
                         webhookConfigured: r.webhookConfigured,
-                        ...(r.skippedReason !== undefined ? { skippedReason: r.skippedReason } : {}),
-                        ...(r.error         !== undefined ? { error:         r.error }         : {}),
+                        ...(r.skippedReason  !== undefined ? { skippedReason:  r.skippedReason  } : {}),
+                        ...(r.error          !== undefined ? { error:          r.error          } : {}),
                         ...(r.responseStatus !== undefined ? { responseStatus: r.responseStatus } : {}),
+                        // Step 16: capture channel-specific publish result (e.g. Instagram post ID)
+                        ...(r.publishResult  !== undefined ? { publishResult:  r.publishResult  } : {}),
                         timestamp: r.timestamp,
                       })),
                     )
@@ -474,6 +476,31 @@ export const Products: CollectionConfig = {
           label: '👗 Dolap',
           defaultValue: false,
         },
+        // Step 16+: Social media channels
+        {
+          name: 'publishX',
+          type: 'checkbox',
+          label: '𝕏 X (Twitter)',
+          defaultValue: false,
+        },
+        {
+          name: 'publishFacebook',
+          type: 'checkbox',
+          label: '📘 Facebook',
+          defaultValue: false,
+        },
+        {
+          name: 'publishLinkedin',
+          type: 'checkbox',
+          label: '💼 LinkedIn',
+          defaultValue: false,
+        },
+        {
+          name: 'publishThreads',
+          type: 'checkbox',
+          label: '🧵 Threads',
+          defaultValue: false,
+        },
       ],
     },
     // ── Kanal Hedefleri (multi-select, parser output) ─────────
@@ -487,6 +514,10 @@ export const Products: CollectionConfig = {
         { label: 'Instagram', value: 'instagram' },
         { label: 'Shopier', value: 'shopier' },
         { label: 'Dolap', value: 'dolap' },
+        { label: 'X (Twitter)', value: 'x' },
+        { label: 'Facebook', value: 'facebook' },
+        { label: 'LinkedIn', value: 'linkedin' },
+        { label: 'Threads', value: 'threads' },
       ],
       defaultValue: ['website'],
       admin: {

@@ -1366,3 +1366,38 @@ All 4 new channels are stub-only. Real n8n workflows with actual API calls are a
 - Threads: same Meta App as Instagram → reuses Instagram OAuth flow + separate Threads scopes
 
 **Status:** ACTIVE — implemented 2026-03-19
+
+---
+
+## D-084 — Step 17: Instagram Token Exchange Stores Credentials via n8n REST API
+**Decision:**  
+After completing the Meta OAuth flow, write `INSTAGRAM_ACCESS_TOKEN` and `INSTAGRAM_USER_ID` directly to n8n Variables via the n8n REST API (`/api/v1/variables`). Do NOT store tokens in Payload globals, Vercel env vars, or any DB column.
+
+**Reason:**  
+- The `channel-instagram-real.json` workflow already reads `$vars.INSTAGRAM_ACCESS_TOKEN` and `$vars.INSTAGRAM_USER_ID` — this is the single source of truth for n8n credential access.  
+- Writing to n8n Variables via REST API makes the token live immediately for all workflow executions without any manual n8n UI interaction.  
+- Payload globals/DB are not appropriate for secrets — they would be visible to any admin and require a new migration.  
+- Vercel env vars cannot be written at runtime (require a redeploy).
+- The n8n Variables API is a stable, documented REST endpoint that fits the existing architecture.
+
+**Implementation:**  
+- `upsertN8nVariable(key, value)` helper in callback route: `GET /api/v1/variables` to find existing ID, then `PATCH` or `POST` accordingly.  
+- Required env vars: `N8N_API_KEY` (new), `N8N_BASE_URL` (new, defaults to `https://flow.uygunayakkabi.com`).  
+- Route: `src/app/api/auth/instagram/callback/route.ts` (Step 17 rewrite).
+
+**Status:** ACTIVE — implemented 2026-03-19
+
+---
+
+## D-085 — Step 17: CSRF State Cookie Pattern for Instagram OAuth
+**Decision:**  
+Use a random 32-byte hex state stored in a short-lived (10 min) HttpOnly cookie (`ig_oauth_state`), verified in the callback before any token exchange. State is generated in a new `/api/auth/instagram/initiate` route.
+
+**Reason:**  
+- The repo has no Redis or session store. A new Payload collection for state would add a DB migration and unnecessary complexity.  
+- Cookie-based CSRF state is the standard OAuth 2.0 pattern for server-side apps and requires no infrastructure addition.  
+- `sameSite: lax` allows the Meta redirect to carry the cookie back.  
+- The 10-minute TTL is generous for an admin-initiated flow and strictly bounded.  
+- The `ig_oauth_state` cookie is deleted immediately after verification (one-time use).
+
+**Status:** ACTIVE — implemented 2026-03-19

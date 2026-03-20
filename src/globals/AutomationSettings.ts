@@ -225,6 +225,53 @@ export const AutomationSettings: GlobalConfig = {
         },
       ],
     },
+    // ── Instagram Token Storage ───────────────────────────────
+    // Written automatically by /api/auth/instagram/callback after OAuth.
+    // Do NOT edit manually — re-run OAuth to refresh.
+    {
+      name: 'instagramTokens',
+      type: 'group',
+      label: '🔑 Instagram Bağlantı Bilgileri',
+      admin: {
+        description:
+          'OAuth akışı tamamlandığında otomatik doldurulur. ' +
+          'Yenilemek için /api/auth/instagram/initiate adresini ziyaret et.',
+      },
+      fields: [
+        {
+          name: 'accessToken',
+          type: 'textarea',
+          label: 'Access Token (Long-lived)',
+          admin: {
+            description: 'Meta long-lived user access token (~60 gün). OAuth callback tarafından yazılır.',
+          },
+        },
+        {
+          name: 'userId',
+          type: 'text',
+          label: 'Instagram Business Account ID',
+          admin: {
+            description: 'Sayısal Instagram Business Account ID (Facebook User ID değil). Graph API yayınları için gerekli.',
+          },
+        },
+        {
+          name: 'expiresAt',
+          type: 'date',
+          label: 'Token Bitiş Tarihi (yaklaşık)',
+          admin: {
+            description: 'Token süresi dolduysa OAuth akışını yeniden başlat.',
+          },
+        },
+        {
+          name: 'connectedAt',
+          type: 'date',
+          label: 'Bağlandığı Tarih',
+          admin: {
+            description: 'Son başarılı OAuth akışının zamanı.',
+          },
+        },
+      ],
+    },
     // ── Telegram Ayarları ─────────────────────────────────────
     {
       name: 'telegram',

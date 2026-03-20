@@ -85,6 +85,14 @@ export type ChannelDispatchPayload = {
   triggerReason: string
   /** ISO timestamp when dispatch was initiated */
   dispatchTimestamp: string
+  /**
+   * Instagram credentials — injected by Products.ts from AutomationSettings global.
+   * Only present when channel === 'instagram'.
+   * n8n workflow reads these from $json.instagramAccessToken / $json.instagramUserId
+   * instead of $vars.* (n8n Variables are locked on current plan).
+   */
+  instagramAccessToken?: string
+  instagramUserId?: string
   /** Automation pipeline metadata for traceability */
   meta: {
     parseConfidence?: number
@@ -243,15 +251,20 @@ export function evaluateChannelEligibility(
 /**
  * Build the structured ChannelDispatchPayload for a given channel.
  * This is the adapter contract — n8n workflows will receive this exact shape.
+ *
+ * @param instagramTokens — Optional Instagram credentials from AutomationSettings.
+ *   Injected by Products.ts when dispatching to the instagram channel.
+ *   This replaces the n8n Variables approach (locked on current plan).
  */
 export function buildDispatchPayload(
   product: Record<string, unknown>,
   channel: SupportedChannel,
   triggerReason: string,
+  instagramTokens?: { accessToken?: string | null; userId?: string | null },
 ): ChannelDispatchPayload {
   const automationMeta = product.automationMeta as Record<string, unknown> | undefined
 
-  return {
+  const payload: ChannelDispatchPayload = {
     channel,
     productId: product.id as string | number,
     sku:           product.sku           as string | undefined,
@@ -275,6 +288,16 @@ export function buildDispatchPayload(
       source:             product.source                      as string | undefined,
     },
   }
+
+  // Inject Instagram credentials into webhook body for the instagram channel.
+  // n8n workflow reads $json.instagramAccessToken / $json.instagramUserId
+  // instead of $vars.* (n8n Variables are locked on current plan).
+  if (channel === 'instagram' && instagramTokens) {
+    if (instagramTokens.accessToken) payload.instagramAccessToken = instagramTokens.accessToken
+    if (instagramTokens.userId)      payload.instagramUserId      = instagramTokens.userId
+  }
+
+  return payload
 }
 
 /**
@@ -397,6 +420,15 @@ export async function dispatchProductToChannels(
 }> {
   const { eligible, skipped } = evaluateChannelEligibility(product, settings)
 
+  // Extract Instagram tokens from settings snapshot so they can be injected
+  // into the webhook payload body (replaces n8n Variables, which are locked).
+  const instagramTokens = settings?.instagramTokens
+    ? {
+        accessToken: settings.instagramTokens.accessToken ?? null,
+        userId:      settings.instagramTokens.userId      ?? null,
+      }
+    : undefined
+
   const results: ChannelDispatchResult[] = []
 
   // Record skipped channels
@@ -415,7 +447,7 @@ export async function dispatchProductToChannels(
   const dispatchedChannels: SupportedChannel[] = []
   for (const channel of eligible) {
     const webhookUrl    = buildChannelWebhookUrl(channel)
-    const dispatchPayload = buildDispatchPayload(product, channel, triggerReason)
+    const dispatchPayload = buildDispatchPayload(product, channel, triggerReason, instagramTokens)
     const result        = await dispatchToChannel(dispatchPayload, webhookUrl)
     results.push(result)
     if (result.dispatched) {

@@ -11,7 +11,10 @@
       "name": "Webhook",
       "type": "n8n-nodes-base.webhook",
       "typeVersion": 2,
-      "position": [240, 300],
+      "position": [
+        240,
+        300
+      ],
       "webhookId": "channel-instagram-real"
     },
     {
@@ -100,7 +103,10 @@
       "name": "Extract Fields",
       "type": "n8n-nodes-base.set",
       "typeVersion": 3.4,
-      "position": [460, 300]
+      "position": [
+        460,
+        300
+      ]
     },
     {
       "parameters": {
@@ -113,7 +119,7 @@
           "conditions": [
             {
               "id": "check-bypass",
-              "leftValue": "={{ $vars.INSTAGRAM_BYPASS_PUBLISH || '' }}",
+              "leftValue": "={{ $('Webhook').item.json.instagramBypassPublish || '' }}",
               "rightValue": "true",
               "operator": {
                 "type": "string",
@@ -128,7 +134,10 @@
       "name": "Bypass Mode?",
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.2,
-      "position": [680, 300]
+      "position": [
+        680,
+        300
+      ]
     },
     {
       "parameters": {
@@ -142,7 +151,10 @@
       "name": "Respond — Bypass",
       "type": "n8n-nodes-base.respondToWebhook",
       "typeVersion": 1,
-      "position": [900, 160]
+      "position": [
+        900,
+        160
+      ]
     },
     {
       "parameters": {
@@ -155,7 +167,7 @@
           "conditions": [
             {
               "id": "check-token",
-              "leftValue": "={{ ($vars.INSTAGRAM_ACCESS_TOKEN || '').length > 0 ? 'yes' : 'no' }}",
+              "leftValue": "={{ ($('Webhook').item.json.instagramAccessToken || '').length > 0 ? 'yes' : 'no' }}",
               "rightValue": "yes",
               "operator": {
                 "type": "string",
@@ -164,7 +176,7 @@
             },
             {
               "id": "check-user-id",
-              "leftValue": "={{ ($vars.INSTAGRAM_USER_ID || '').length > 0 ? 'yes' : 'no' }}",
+              "leftValue": "={{ ($('Webhook').item.json.instagramUserId || '').length > 0 ? 'yes' : 'no' }}",
               "rightValue": "yes",
               "operator": {
                 "type": "string",
@@ -188,12 +200,15 @@
       "name": "Credentials + Image OK?",
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.2,
-      "position": [900, 340]
+      "position": [
+        900,
+        340
+      ]
     },
     {
       "parameters": {
         "respondWith": "json",
-        "responseBody": "={{ JSON.stringify({ received: true, channel: 'instagram', productId: $('Webhook').item.json.productId, mode: 'no-credentials', success: false, reason: !($vars.INSTAGRAM_ACCESS_TOKEN || '').length ? 'INSTAGRAM_ACCESS_TOKEN is not set in n8n Variables' : !($vars.INSTAGRAM_USER_ID || '').length ? 'INSTAGRAM_USER_ID is not set in n8n Variables' : 'No valid https:// image URL found in mediaUrls', timestamp: new Date().toISOString() }) }}",
+        "responseBody": "={{ JSON.stringify({ received: true, channel: 'instagram', productId: $('Webhook').item.json.productId, mode: 'no-credentials', success: false, reason: !($('Webhook').item.json.instagramAccessToken || '').length ? 'INSTAGRAM_ACCESS_TOKEN is not set in n8n Variables' : !($('Webhook').item.json.instagramUserId || '').length ? 'INSTAGRAM_USER_ID is not set in n8n Variables' : 'No valid https:// image URL found in mediaUrls', timestamp: new Date().toISOString() }) }}",
         "options": {
           "responseCode": 422
         }
@@ -202,7 +217,10 @@
       "name": "Respond — No Credentials",
       "type": "n8n-nodes-base.respondToWebhook",
       "typeVersion": 1,
-      "position": [1120, 480]
+      "position": [
+        1120,
+        480
+      ]
     },
     {
       "parameters": {
@@ -224,12 +242,15 @@
       "name": "Build Caption",
       "type": "n8n-nodes-base.set",
       "typeVersion": 3.4,
-      "position": [1120, 300]
+      "position": [
+        1120,
+        300
+      ]
     },
     {
       "parameters": {
         "method": "POST",
-        "url": "=https://graph.facebook.com/v21.0/{{ $vars.INSTAGRAM_USER_ID }}/media",
+        "url": "=https://graph.facebook.com/v21.0/{{ $('Webhook').item.json.instagramUserId }}/media",
         "authentication": "none",
         "sendQuery": true,
         "queryParameters": {
@@ -244,7 +265,7 @@
             },
             {
               "name": "access_token",
-              "value": "={{ $vars.INSTAGRAM_ACCESS_TOKEN }}"
+              "value": "={{ $('Webhook').item.json.instagramAccessToken }}"
             }
           ]
         },
@@ -261,7 +282,10 @@
       "name": "Create Media Container",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [1340, 300],
+      "position": [
+        1340,
+        300
+      ],
       "onError": "continueErrorOutput"
     },
     {
@@ -276,7 +300,10 @@
       "name": "Respond — Create Error",
       "type": "n8n-nodes-base.respondToWebhook",
       "typeVersion": 1,
-      "position": [1560, 480]
+      "position": [
+        1560,
+        480
+      ]
     },
     {
       "parameters": {
@@ -287,12 +314,15 @@
       "name": "Wait 2s (Media Processing)",
       "type": "n8n-nodes-base.wait",
       "typeVersion": 1.1,
-      "position": [1560, 300]
+      "position": [
+        1560,
+        300
+      ]
     },
     {
       "parameters": {
         "method": "POST",
-        "url": "=https://graph.facebook.com/v21.0/{{ $vars.INSTAGRAM_USER_ID }}/media_publish",
+        "url": "=https://graph.facebook.com/v21.0/{{ $('Webhook').item.json.instagramUserId }}/media_publish",
         "authentication": "none",
         "sendQuery": true,
         "queryParameters": {
@@ -303,7 +333,7 @@
             },
             {
               "name": "access_token",
-              "value": "={{ $vars.INSTAGRAM_ACCESS_TOKEN }}"
+              "value": "={{ $('Webhook').item.json.instagramAccessToken }}"
             }
           ]
         },
@@ -320,7 +350,10 @@
       "name": "Publish Media",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [1780, 300],
+      "position": [
+        1780,
+        300
+      ],
       "onError": "continueErrorOutput"
     },
     {
@@ -335,12 +368,15 @@
       "name": "Respond — Publish Error",
       "type": "n8n-nodes-base.respondToWebhook",
       "typeVersion": 1,
-      "position": [2000, 480]
+      "position": [
+        2000,
+        480
+      ]
     },
     {
       "parameters": {
         "respondWith": "json",
-        "responseBody": "={{ JSON.stringify({ received: true, channel: 'instagram', productId: $('Webhook').item.json.productId, mode: 'published', success: true, instagramPostId: $json.id, instagramUserId: $vars.INSTAGRAM_USER_ID, instagramPermalink: $vars.INSTAGRAM_USER_ID ? 'https://www.instagram.com/p/' + $json.id + '/' : null, caption: $('Build Caption').item.json.caption.substring(0, 100) + '...', mediaUrl: $('Extract Fields').item.json.firstImageUrl, mediaCount: $('Extract Fields').item.json.mediaCount, creationId: $('Create Media Container').item.json.id, publishedAt: new Date().toISOString(), dispatchTimestamp: $('Webhook').item.json.dispatchTimestamp }) }}",
+        "responseBody": "={{ JSON.stringify({ received: true, channel: 'instagram', productId: $('Webhook').item.json.productId, mode: 'published', success: true, instagramPostId: $json.id, instagramUserId: $('Webhook').item.json.instagramUserId, instagramPermalink: $('Webhook').item.json.instagramUserId ? 'https://www.instagram.com/p/' + $json.id + '/' : null, caption: $('Build Caption').item.json.caption.substring(0, 100) + '...', mediaUrl: $('Extract Fields').item.json.firstImageUrl, mediaCount: $('Extract Fields').item.json.mediaCount, creationId: $('Create Media Container').item.json.id, publishedAt: new Date().toISOString(), dispatchTimestamp: $('Webhook').item.json.dispatchTimestamp }) }}",
         "options": {
           "responseCode": 200
         }
@@ -349,52 +385,127 @@
       "name": "Respond — Published",
       "type": "n8n-nodes-base.respondToWebhook",
       "typeVersion": 1,
-      "position": [2000, 300]
+      "position": [
+        2000,
+        300
+      ]
     }
   ],
   "connections": {
     "Webhook": {
       "main": [
-        [{ "node": "Extract Fields", "type": "main", "index": 0 }]
+        [
+          {
+            "node": "Extract Fields",
+            "type": "main",
+            "index": 0
+          }
+        ]
       ]
     },
     "Extract Fields": {
       "main": [
-        [{ "node": "Bypass Mode?", "type": "main", "index": 0 }]
+        [
+          {
+            "node": "Bypass Mode?",
+            "type": "main",
+            "index": 0
+          }
+        ]
       ]
     },
     "Bypass Mode?": {
       "main": [
-        [{ "node": "Respond — Bypass", "type": "main", "index": 0 }],
-        [{ "node": "Credentials + Image OK?", "type": "main", "index": 0 }]
+        [
+          {
+            "node": "Respond — Bypass",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Credentials + Image OK?",
+            "type": "main",
+            "index": 0
+          }
+        ]
       ]
     },
     "Credentials + Image OK?": {
       "main": [
-        [{ "node": "Respond — No Credentials", "type": "main", "index": 0 }],
-        [{ "node": "Build Caption", "type": "main", "index": 0 }]
+        [
+          {
+            "node": "Respond — No Credentials",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Build Caption",
+            "type": "main",
+            "index": 0
+          }
+        ]
       ]
     },
     "Build Caption": {
       "main": [
-        [{ "node": "Create Media Container", "type": "main", "index": 0 }]
+        [
+          {
+            "node": "Create Media Container",
+            "type": "main",
+            "index": 0
+          }
+        ]
       ]
     },
     "Create Media Container": {
       "main": [
-        [{ "node": "Wait 2s (Media Processing)", "type": "main", "index": 0 }],
-        [{ "node": "Respond — Create Error", "type": "main", "index": 0 }]
+        [
+          {
+            "node": "Wait 2s (Media Processing)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Respond — Create Error",
+            "type": "main",
+            "index": 0
+          }
+        ]
       ]
     },
     "Wait 2s (Media Processing)": {
       "main": [
-        [{ "node": "Publish Media", "type": "main", "index": 0 }]
+        [
+          {
+            "node": "Publish Media",
+            "type": "main",
+            "index": 0
+          }
+        ]
       ]
     },
     "Publish Media": {
       "main": [
-        [{ "node": "Respond — Published", "type": "main", "index": 0 }],
-        [{ "node": "Respond — Publish Error", "type": "main", "index": 0 }]
+        [
+          {
+            "node": "Respond — Published",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Respond — Publish Error",
+            "type": "main",
+            "index": 0
+          }
+        ]
       ]
     }
   },
@@ -404,7 +515,7 @@
     "timeout": 30
   },
   "meta": {
-    "description": "REAL Instagram publish workflow (Step 16). Receives channel dispatch from Payload, validates credentials, calls Instagram Graph API v21.0 to create and publish a media container, returns structured result including instagramPostId. Requires n8n Variables: INSTAGRAM_ACCESS_TOKEN, INSTAGRAM_USER_ID. Optional: INSTAGRAM_BYPASS_PUBLISH=true to skip real publish in safe mode. REPLACES: channel-instagram.json (stub). KEEP stub imported separately as fallback reference."
+    "description": "REAL Instagram publish workflow (Step 17 updated). Receives channel dispatch from Payload. Credentials (instagramAccessToken, instagramUserId) are now passed in the webhook request body ($json.instagramAccessToken / $json.instagramUserId) — NOT from n8n Variables (Variables are locked on current plan). Tokens are stored in Payload AutomationSettings global and injected by Products.ts dispatchProductToChannels() at dispatch time. Optional: pass instagramBypassPublish=true in payload to skip real publish (safe mode)."
   },
   "_step16_setup_required": {
     "description": "Before activating this workflow, you MUST configure the following n8n Variables (Settings → Variables in n8n UI):",
@@ -468,5 +579,30 @@
         "apiErrorCode": 190
       }
     }
+  },
+  "_step17_setup_required": {
+    "description": "No n8n Variables needed. Credentials are injected in the webhook payload by Payload CMS.",
+    "source": "Tokens stored in: Payload Admin → Otomasyon Ayarları → Instagram Bağlantı Bilgileri",
+    "how_to_connect": "Navigate to https://uygunayakkabi.com/api/auth/instagram/initiate and complete OAuth flow.",
+    "payload_fields": [
+      {
+        "name": "instagramAccessToken",
+        "source": "$json.instagramAccessToken (from webhook body)"
+      },
+      {
+        "name": "instagramUserId",
+        "source": "$json.instagramUserId (from webhook body) — Instagram Business Account ID"
+      },
+      {
+        "name": "instagramBypassPublish",
+        "source": "$json.instagramBypassPublish — set true to skip publish"
+      }
+    ],
+    "requirements": [
+      "Instagram account must be a Business or Creator account linked to a Facebook Page",
+      "Meta App must be in Live Mode to publish (Development Mode = only app roles)",
+      "OAuth flow must be completed at /api/auth/instagram/initiate",
+      "Image URL must be publicly accessible (Vercel Blob satisfies this)"
+    ]
   }
 }

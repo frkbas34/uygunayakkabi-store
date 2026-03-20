@@ -7,124 +7,82 @@
  *   1. Validate CSRF state (cookie vs query param)
  *   2. Exchange authorization code for short-lived user access token
  *   3. Exchange short-lived token for long-lived token (~60 days)
- *   4. Retrieve Instagram Business Account numeric user ID via /me
- *   5. Write INSTAGRAM_ACCESS_TOKEN + INSTAGRAM_USER_ID to n8n Variables
+ *   4. Retrieve Instagram Business Account ID via /me/accounts
+ *      (NOT /me — that returns the Facebook User ID, which is different)
+ *   5. Store accessToken + instagramUserId in AutomationSettings Payload global
  *   6. Redirect admin to /admin?instagram_auth=connected
  *
  * All steps are server-side only. The token is never exposed to the browser.
  * Errors redirect to /admin?instagram_auth=error&instagram_error={code}.
  *
- * ── Registered redirect URI in Meta Developer Portal ─────────────────────────
+ * ── Why /me/accounts, not /me ─────────────────────────────────────────────
+ *   /me?fields=id returns the Facebook USER ID.
+ *   The Instagram Graph API (/{ig-user-id}/media) requires the INSTAGRAM
+ *   BUSINESS ACCOUNT ID, which lives at:
+ *     GET /me/accounts?fields=instagram_business_account
+ *   → page.instagram_business_account.id  ← this is what n8n needs
+ *
+ * ── Storage: Payload AutomationSettings global ────────────────────────────
+ *   Replaces n8n Variables (locked on current plan).
+ *   Written to: automation-settings.instagramTokens.{accessToken, userId, ...}
+ *   Read by: Products.ts afterChange → buildDispatchPayload → n8n webhook body
+ *   n8n workflow reads: $json.instagramAccessToken / $json.instagramUserId
+ *
+ * ── Registered redirect URI in Meta Developer Portal ─────────────────────
  *   Local:       http://localhost:3000/api/auth/instagram/callback
  *   Production:  https://uygunayakkabi.com/api/auth/instagram/callback
  *
- * ── Required env vars ────────────────────────────────────────────────────────
+ * ── Required env vars ────────────────────────────────────────────────────
  *   INSTAGRAM_APP_ID       — Facebook App ID (Settings → Basic in Meta portal)
- *   INSTAGRAM_APP_SECRET   — Facebook App Secret (Settings → Basic in Meta portal)
- *   N8N_API_KEY            — n8n REST API key (n8n UI: Settings → API → Create API key)
- *   N8N_BASE_URL           — n8n instance base URL (default: https://flow.uygunayakkabi.com)
- *   NEXT_PUBLIC_SERVER_URL — Used to construct redirect_uri (must match Meta registration)
+ *   INSTAGRAM_APP_SECRET   — Facebook App Secret
+ *   NEXT_PUBLIC_SERVER_URL — Used to construct redirect_uri
  *
- * ── n8n Variables written ────────────────────────────────────────────────────
- *   INSTAGRAM_ACCESS_TOKEN  — Long-lived token (~60 days); read by channel-instagram-real.json
- *   INSTAGRAM_USER_ID       — Numeric Instagram Business Account ID; read by channel-instagram-real.json
- *
- * ── Token lifespan ───────────────────────────────────────────────────────────
- *   Short-lived user token:  ~1 hour
- *   Long-lived token:        ~60 days (expires_in logged at token exchange time)
- *   System User token:       No expiry — recommended for production; generate in Meta Business Suite
- *
- * ── Initiating the OAuth flow ────────────────────────────────────────────────
- *   Navigate to: https://uygunayakkabi.com/api/auth/instagram/initiate
- *   (generates CSRF state cookie + redirects to Meta consent screen)
- *
- * ── CSRF protection ──────────────────────────────────────────────────────────
- *   State is generated in /initiate and stored in ig_oauth_state HttpOnly cookie.
- *   Verified here before any token exchange. Cookie deleted immediately after check.
+ * ── CSRF protection ──────────────────────────────────────────────────────
+ *   State generated in /initiate, stored in ig_oauth_state HttpOnly cookie.
+ *   Verified here before any token exchange. Cookie deleted immediately after.
  */
 
+import { getPayload } from 'payload'
+import config from '@payload-config'
 import { NextRequest, NextResponse } from 'next/server'
 
-// ── n8n Variable upsert ───────────────────────────────────────────────────────
+// ── Payload global write ──────────────────────────────────────────────────────
 /**
- * Write a key=value pair to n8n Variables via the n8n REST API.
- * Creates the variable if it doesn't exist; updates it if it does.
+ * Persist the Instagram access token and user ID into the AutomationSettings
+ * Payload global. This replaces the previous n8n Variables write-back
+ * (n8n Variables are locked on the current plan).
  *
- * n8n REST API:
- *   GET  /api/v1/variables          — list all (to find existing IDs)
- *   POST /api/v1/variables          — create { key, value }
- *   PATCH /api/v1/variables/{id}    — update { value }
- *
- * channel-instagram-real.json reads these as $vars.INSTAGRAM_ACCESS_TOKEN
- * and $vars.INSTAGRAM_USER_ID — writing here makes the token live immediately.
+ * The tokens are then injected into the webhook dispatch payload by
+ * Products.ts → buildDispatchPayload(), so n8n reads them from $json,
+ * not from $vars.
  */
-async function upsertN8nVariable(key: string, value: string): Promise<void> {
-  const n8nBase = (
-    process.env.N8N_BASE_URL ?? 'https://flow.uygunayakkabi.com'
-  ).replace(/\/$/, '')
+async function storeTokensInPayload(
+  accessToken: string,
+  userId: string,
+  expiresIn: number | null,
+): Promise<void> {
+  const payload = await getPayload({ config })
 
-  const apiKey = process.env.N8N_API_KEY
-  if (!apiKey) {
-    throw new Error(
-      'N8N_API_KEY env var is not set — cannot write to n8n Variables. ' +
-        'Generate one at: n8n UI → Settings → API → Create an API key',
-    )
-  }
+  const expiresAt = expiresIn
+    ? new Date(Date.now() + expiresIn * 1000).toISOString()
+    : null
 
-  const headers: Record<string, string> = {
-    'X-N8N-API-KEY': apiKey,
-    'Content-Type':  'application/json',
-  }
-
-  // List existing variables to find the ID for this key (needed for PATCH)
-  const listRes = await fetch(`${n8nBase}/api/v1/variables`, {
-    headers,
-    signal: AbortSignal.timeout(8_000),
+  await payload.updateGlobal({
+    slug: 'automation-settings',
+    data: {
+      instagramTokens: {
+        accessToken,
+        userId,
+        connectedAt: new Date().toISOString(),
+        ...(expiresAt ? { expiresAt } : {}),
+      },
+    } as Record<string, unknown>,
   })
 
-  if (!listRes.ok) {
-    const body = await listRes.text()
-    throw new Error(
-      `n8n Variables API list failed: HTTP ${listRes.status} — ${body.slice(0, 200)}`,
-    )
-  }
-
-  const listData = (await listRes.json()) as {
-    data?: Array<{ id: string; key: string }>
-  }
-  const existing = listData.data?.find((v) => v.key === key)
-
-  if (existing) {
-    // Update existing variable value (keep its id, type, etc.)
-    const patchRes = await fetch(`${n8nBase}/api/v1/variables/${existing.id}`, {
-      method:  'PATCH',
-      headers,
-      body:    JSON.stringify({ value }),
-      signal:  AbortSignal.timeout(8_000),
-    })
-    if (!patchRes.ok) {
-      const body = await patchRes.text()
-      throw new Error(
-        `n8n Variables PATCH failed for key="${key}": HTTP ${patchRes.status} — ${body.slice(0, 200)}`,
-      )
-    }
-    console.log(`[instagram/callback] n8n Variable updated — key=${key} (id=${existing.id})`)
-  } else {
-    // Create new variable
-    const createRes = await fetch(`${n8nBase}/api/v1/variables`, {
-      method:  'POST',
-      headers,
-      body:    JSON.stringify({ key, value }),
-      signal:  AbortSignal.timeout(8_000),
-    })
-    if (!createRes.ok) {
-      const body = await createRes.text()
-      throw new Error(
-        `n8n Variables POST failed for key="${key}": HTTP ${createRes.status} — ${body.slice(0, 200)}`,
-      )
-    }
-    console.log(`[instagram/callback] n8n Variable created — key=${key}`)
-  }
+  console.log(
+    `[instagram/callback] Tokens stored in Payload AutomationSettings — ` +
+      `userId=${userId} expiresAt=${expiresAt ?? 'unknown'}`,
+  )
 }
 
 // ── Error redirect helper ─────────────────────────────────────────────────────
@@ -200,7 +158,6 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     return errorRedirect(adminUrl, 'state_mismatch', true)
   }
 
-  // State valid — log and proceed
   console.log('[instagram/callback] State validated. Starting Meta token exchange...')
 
   // ── Guard: app credentials ─────────────────────────────────────────────────
@@ -217,8 +174,6 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
 
   try {
     // ── Step 2: code → short-lived user access token ──────────────────────
-    // POST https://graph.facebook.com/v21.0/oauth/access_token
-    // Returns: { access_token, token_type }  (valid ~1 hour)
     const shortParams = new URLSearchParams({
       client_id:     appId,
       client_secret: appSecret,
@@ -244,8 +199,6 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     console.log('[instagram/callback] Short-lived token obtained. Exchanging for long-lived...')
 
     // ── Step 3: short-lived → long-lived token ────────────────────────────
-    // GET https://graph.facebook.com/v21.0/oauth/exchange_token
-    // Returns: { access_token, token_type, expires_in }  (~60 days)
     const longParams = new URLSearchParams({
       grant_type:        'fb_exchange_token',
       client_id:         appId,
@@ -272,66 +225,89 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
 
     console.log(
       `[instagram/callback] Long-lived token obtained — ` +
-        `expires_in=${expiresIn ?? 'unknown'}s (~${expiresIn ? Math.round(expiresIn / 86400) : '?'} days). ` +
-        'Tip: use a System User token in Meta Business Suite for non-expiring access.',
+        `expires_in=${expiresIn ?? 'unknown'}s (~${expiresIn ? Math.round(expiresIn / 86400) : '?'} days).`,
     )
 
-    // ── Step 4: retrieve Instagram Business Account numeric User ID ───────
-    // GET https://graph.facebook.com/v21.0/me?fields=id,name
-    // Returns: { id, name }  — `id` is the numeric INSTAGRAM_USER_ID for the n8n workflow
-    const meParams = new URLSearchParams({
-      fields:       'id,name',
+    // ── Step 4: get Instagram Business Account ID via /me/accounts ────────
+    //
+    // IMPORTANT: /me?fields=id returns the FACEBOOK User ID, which is NOT
+    // what the Instagram Graph API needs. The Instagram Business Account ID
+    // is a separate numeric ID found by traversing:
+    //   user → Facebook Pages → instagram_business_account.id
+    //
+    // The n8n workflow calls:
+    //   POST /{ig-user-id}/media          (Instagram Graph API)
+    //   POST /{ig-user-id}/media_publish
+    // ...where {ig-user-id} must be the Instagram Business Account ID.
+    const accountsParams = new URLSearchParams({
+      fields:       'name,access_token,instagram_business_account',
       access_token: longLivedToken,
     })
 
-    const meRes  = await fetch(
-      `https://graph.facebook.com/v21.0/me?${meParams.toString()}`,
+    const accountsRes  = await fetch(
+      `https://graph.facebook.com/v21.0/me/accounts?${accountsParams.toString()}`,
       { signal: AbortSignal.timeout(10_000) },
     )
-    const meData = (await meRes.json()) as Record<string, unknown>
+    const accountsData = (await accountsRes.json()) as Record<string, unknown>
 
-    if (!meRes.ok || typeof meData.id !== 'string') {
-      const apiErr = meData.error as Record<string, unknown> | undefined
+    if (!accountsRes.ok) {
+      const apiErr = accountsData.error as Record<string, unknown> | undefined
       throw new Error(
-        `Instagram /me request failed (HTTP ${meRes.status}): ` +
-          String(apiErr?.message ?? JSON.stringify(meData).slice(0, 300)),
+        `/me/accounts failed (HTTP ${accountsRes.status}): ` +
+          String(apiErr?.message ?? JSON.stringify(accountsData).slice(0, 300)),
       )
     }
 
-    const instagramUserId = meData.id
-    const instagramName   = typeof meData.name === 'string' ? meData.name : undefined
+    // Find the first Facebook Page that has a linked Instagram Business Account
+    const pages = accountsData.data as Array<{
+      id?: string
+      name?: string
+      access_token?: string
+      instagram_business_account?: { id: string }
+    }> | undefined
+
+    const linkedPage = pages?.find((p) => p.instagram_business_account?.id)
+
+    if (!linkedPage?.instagram_business_account?.id) {
+      throw new Error(
+        'No Instagram Business Account linked to any Facebook Page on this account. ' +
+          `Pages found: ${pages?.length ?? 0}. ` +
+          'Make sure your Instagram account is a Business or Creator account linked to a Facebook Page.',
+      )
+    }
+
+    const instagramUserId = linkedPage.instagram_business_account.id
+    const pageName        = linkedPage.name ?? '(unknown page)'
 
     console.log(
-      `[instagram/callback] Instagram user resolved — id=${instagramUserId} name=${instagramName ?? '(unknown)'}`,
+      `[instagram/callback] Instagram Business Account resolved — ` +
+        `instagramUserId=${instagramUserId} via page="${pageName}"`,
     )
 
-    // ── Step 5: write to n8n Variables ────────────────────────────────────
-    // channel-instagram-real.json reads $vars.INSTAGRAM_ACCESS_TOKEN + $vars.INSTAGRAM_USER_ID
-    // Writing here activates real publishing immediately — no manual n8n config needed
-    await upsertN8nVariable('INSTAGRAM_ACCESS_TOKEN', longLivedToken)
-    await upsertN8nVariable('INSTAGRAM_USER_ID', instagramUserId)
+    // ── Step 5: store in Payload AutomationSettings global ────────────────
+    // Replaces n8n Variables write-back (Variables are locked on current plan).
+    // Products.ts dispatch reads these from settings snapshot and injects them
+    // into the n8n webhook payload body so n8n reads $json.instagramAccessToken.
+    await storeTokensInPayload(longLivedToken, instagramUserId, expiresIn)
 
     console.log(
       `[instagram/callback] ✅ Step 17 complete — ` +
-        `INSTAGRAM_ACCESS_TOKEN and INSTAGRAM_USER_ID written to n8n Variables. ` +
-        `user_id=${instagramUserId}`,
+        `tokens stored in Payload global. instagramUserId=${instagramUserId}`,
     )
 
     // ── Step 6: redirect admin to success ────────────────────────────────
     const successUrl = new URL(adminUrl)
     successUrl.searchParams.set('instagram_auth', 'connected')
     successUrl.searchParams.set('instagram_user_id', instagramUserId)
-    if (instagramName) successUrl.searchParams.set('instagram_name', instagramName)
+    successUrl.searchParams.set('instagram_page', pageName)
 
     const finalRes = NextResponse.redirect(successUrl.toString())
     finalRes.cookies.delete('ig_oauth_state')
     return finalRes
 
   } catch (err) {
-    // Log full error server-side — never expose raw message to browser
     const message = err instanceof Error ? err.message : String(err)
     console.error(`[instagram/callback] Token exchange failed — ${message}`)
-
     return errorRedirect(adminUrl, 'token_exchange_failed', true)
   }
 }

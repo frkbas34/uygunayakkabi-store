@@ -48,6 +48,13 @@ export type AutomationSettingsSnapshot = {
     autoGenerateExtraViews?: boolean | null
     enableTryOn?: boolean | null
   }
+  /** Instagram OAuth tokens — written by /api/auth/instagram/callback */
+  instagramTokens?: {
+    accessToken?: string | null
+    userId?: string | null
+    expiresAt?: string | null
+    connectedAt?: string | null
+  }
 }
 
 /** Input to the status decision function */

@@ -207,7 +207,7 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     })
 
     const longRes  = await fetch(
-      `https://graph.facebook.com/v21.0/oauth/exchange_token?${longParams.toString()}`,
+      `https://graph.facebook.com/v21.0/oauth/access_token?${longParams.toString()}`,
       { signal: AbortSignal.timeout(10_000) },
     )
     const longData = (await longRes.json()) as Record<string, unknown>

@@ -20,6 +20,7 @@ import { Banners } from "./src/collections/Banners";
 import { BlogPosts } from "./src/collections/BlogPosts";
 import { SiteSettings } from "./src/globals/SiteSettings";
 import { AutomationSettings } from "./src/globals/AutomationSettings";
+import { shopierSyncTask } from "./src/jobs/shopierSyncTask";
 
 const filename = fileURLToPath(import.meta.url);
 const dirname = path.dirname(filename);
@@ -63,6 +64,48 @@ export default buildConfig({
     BlogPosts,
   ],
   globals: [SiteSettings, AutomationSettings],
+
+  // ── Step 20: Shopier Jobs Queue ──────────────────────────────────────────────
+  //
+  // Payload creates a `payload-jobs` collection in the DB to persist jobs.
+  // Jobs are processed when GET /api/payload-jobs/run is called.
+  // (GET — not POST — by Payload design, to allow direct Vercel Cron invocation.)
+  //
+  // LOCAL DEV:
+  //   curl "http://localhost:3000/api/payload-jobs/run"
+  //   (No Authorization header needed locally when CRON_SECRET is unset.)
+  //
+  // PRODUCTION — see DECISIONS.md Step 20 for full options. Summary:
+  //   • Vercel Pro  → vercel.json cron hitting GET /api/payload-jobs/run (every minute)
+  //   • Vercel Hobby → daily cron only; use an external scheduler (see below)
+  //   • External    → cron-job.org or GitHub Actions calling the endpoint every 5 min
+  //
+  // SECURITY: Vercel injects  Authorization: Bearer <CRON_SECRET>  on cron calls.
+  // Set CRON_SECRET in Vercel env vars; the access.run fn below enforces it.
+  // Locally, leave CRON_SECRET unset — the check falls back to open access.
+  jobs: {
+    tasks: [shopierSyncTask],
+
+    // Protect the GET /api/payload-jobs/run endpoint.
+    // Pattern from Payload docs: check Authorization: Bearer <CRON_SECRET>.
+    // Vercel Cron automatically attaches this header when CRON_SECRET is set
+    // in the project's environment variables.
+    access: {
+      run: ({ req }) => {
+        const secret = process.env.CRON_SECRET
+        // If CRON_SECRET is not set (local dev), allow all requests.
+        if (!secret) return true
+        const auth = req.headers.get('authorization')
+        return auth === `Bearer ${secret}`
+      },
+    },
+
+    // autoRun is intentionally NOT used:
+    //   - Serverless (Vercel) Lambda functions are ephemeral — setInterval-based
+    //     autoRun fires once per cold start and then dies. Unreliable.
+    //   - Use GET /api/payload-jobs/run via external cron instead.
+  },
+
   db: postgresAdapter({
     pool: {
       connectionString: process.env.DATABASE_URI!,

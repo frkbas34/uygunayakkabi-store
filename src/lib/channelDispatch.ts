@@ -457,6 +457,92 @@ async function publishInstagramDirectly(
   }
 }
 
+// ── Shopier Direct Publish ───────────────────────────────────────────────────
+
+/**
+ * Publish a product to Shopier directly via the Shopier REST API — no n8n required.
+ *
+ * Uses src/lib/shopierSync.ts to:
+ *  1. Build the Shopier product body from the Payload product
+ *  2. Create or update the product in Shopier
+ *  3. Return the Shopier product ID + URL
+ *
+ * Note: This function does NOT write back to Payload (the caller/hook handles that).
+ * It only calls the Shopier API and returns the result as a ChannelDispatchResult.
+ */
+async function publishShopierDirectly(
+  payload: ChannelDispatchPayload,
+  product: Record<string, unknown>,
+): Promise<ChannelDispatchResult> {
+  const timestamp = new Date().toISOString()
+
+  try {
+    // Dynamic import to avoid circular dependency at module load time
+    const { publishProductToShopier } = await import('./shopierSync')
+
+    const result = await publishProductToShopier(product)
+
+    if (!result.success) {
+      console.error(`[channelDispatch] Shopier publish failed for product=${payload.productId}: ${result.error}`)
+      return {
+        channel: 'shopier',
+        eligible: true,
+        dispatched: false,
+        webhookConfigured: false,
+        error: result.error ?? 'Shopier sync failed',
+        publishResult: {
+          mode: 'direct',
+          success: false,
+          error: result.error,
+          details: result.details,
+          timestamp: new Date().toISOString(),
+        },
+        timestamp,
+      }
+    }
+
+    console.log(
+      `[channelDispatch] Shopier direct publish success — product=${payload.productId} ` +
+        `shopierProductId=${result.shopierProductId} url=${result.shopierProductUrl}`,
+    )
+
+    return {
+      channel: 'shopier',
+      eligible: true,
+      dispatched: true,
+      webhookConfigured: false,
+      responseStatus: 200,
+      publishResult: {
+        received: true,
+        channel: 'shopier',
+        mode: 'direct',
+        success: true,
+        shopierProductId: result.shopierProductId,
+        shopierProductUrl: result.shopierProductUrl,
+        timestamp: new Date().toISOString(),
+      },
+      timestamp,
+    }
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err)
+    console.error(`[channelDispatch] Shopier direct publish error:`, message)
+    return {
+      channel: 'shopier',
+      eligible: true,
+      dispatched: false,
+      webhookConfigured: false,
+      error: `Shopier publish threw: ${message}`,
+      publishResult: {
+        mode: 'direct',
+        success: false,
+        thrownError: message,
+        timestamp: new Date().toISOString(),
+      },
+      timestamp,
+    }
+  }
+}
+
 // ── Core Functions ────────────────────────────────────────────────────────────
 
 /**
@@ -744,6 +830,22 @@ export async function dispatchProductToChannels(
         instagramTokens.facebookPageId,
         instagramTokens.accessToken,
       )
+    } else if (
+      channel === 'shopier' &&
+      process.env.SHOPIER_PAT
+    ) {
+      // Shopier sync is handled non-blocking via the Payload Jobs Queue (Step 20).
+      // Products.ts afterChange hook calls req.payload.jobs.queue() after this
+      // function returns. publishShopierDirectly() is no longer called here.
+      // The job transitions status: queued → syncing → synced | error.
+      result = {
+        channel: 'shopier',
+        eligible: true,
+        dispatched: false,
+        skippedReason: 'queued-via-jobs-queue',
+        webhookConfigured: false,
+        timestamp: new Date().toISOString(),
+      }
     } else {
       const webhookUrl = buildChannelWebhookUrl(channel)
       result           = await dispatchToChannel(dispatchPayload, webhookUrl)

@@ -153,14 +153,26 @@ export const Products: CollectionConfig = {
             triggerReason,
           )
 
-          // Write dispatch results + reset forceRedispatch flag
+          // ── Step 20: Determine if Shopier sync should be queued ─────────────
+          // channelDispatch returns eligible=true + skippedReason='queued-via-jobs-queue'
+          // for Shopier when SHOPIER_PAT is set. We queue the job here, after the
+          // main dispatch, so it runs non-blocking outside this request lifecycle.
+          const shopierDispatchResult = results.find((r) => r.channel === 'shopier')
+          const shouldQueueShopier =
+            shopierDispatchResult?.eligible === true &&
+            shopierDispatchResult?.skippedReason === 'queued-via-jobs-queue' &&
+            Boolean(process.env.SHOPIER_PAT)
+
+          // Write dispatch results + reset forceRedispatch flag.
           // Set context flag BEFORE calling payload.update() to prevent
-          // this afterChange hook from re-triggering on the sourceMeta write
+          // this afterChange hook from re-triggering on the sourceMeta write.
           if (!req.context) req.context = {}
           ;(req.context as Record<string, unknown>).isDispatchUpdate = true
 
           // Build the sourceMeta update — always write (even if results is empty)
-          // to ensure forceRedispatch is always reset after this hook fires
+          // to ensure forceRedispatch is always reset after this hook fires.
+          // If Shopier is being queued, set shopierSyncStatus = 'queued' immediately
+          // so the admin UI shows the pending state before the job runs.
           await req.payload.update({
             collection: 'products',
             id: doc.id,
@@ -189,15 +201,31 @@ export const Products: CollectionConfig = {
                   : (sourceMeta.dispatchNotes as string | undefined) ?? '[]',
                 // Step 14: always auto-reset forceRedispatch flag after handling
                 forceRedispatch: false,
+                // Step 20: set Shopier status to 'queued' immediately if job is being enqueued
+                ...(shouldQueueShopier ? { shopierSyncStatus: 'queued' } : {}),
               },
             },
             req,
           })
 
+          // Step 20: Enqueue the Shopier sync job (non-blocking DB insert).
+          // The job runner (GET /api/payload-jobs/run) will pick it up and run
+          // syncProductToShopier(), transitioning status: queued → syncing → synced/error.
+          if (shouldQueueShopier) {
+            await req.payload.jobs.queue({
+              task: 'shopier-sync',
+              input: { productId: String(doc.id) },
+              req,
+              overrideAccess: true,
+            })
+            console.log(`[Products] Shopier sync job queued — product=${doc.id}`)
+          }
+
           console.log(
             `[Products] afterChange dispatch — product=${doc.id} ` +
               `trigger=${isForceRedispatch ? 'force-redispatch' : 'activation'} ` +
               `dispatched=[${dispatchedChannels.join(',')}] ` +
+              `shopierQueued=${shouldQueueShopier} ` +
               `total=${results.length} channels evaluated`,
           )
         } catch (err) {
@@ -788,6 +816,62 @@ export const Products: CollectionConfig = {
             description:
               'İşaretleyip kaydedin → dispatch yeniden tetiklenir. ' +
               'Otomatik sıfırlanır. Sadece aktif ürünlerde çalışır.',
+          },
+        },
+        // ── Step 20: Shopier Sync Metadata ──────────────────
+        // Written by shopierSync.ts after product publish/update.
+        // Stored in sourceMeta to avoid Neon DB column migration (D-077 pattern).
+        {
+          name: 'shopierProductId',
+          type: 'text',
+          label: '🛒 Shopier Ürün ID',
+          admin: {
+            readOnly: true,
+            description: 'Shopier tarafındaki ürün ID\'si — sync tarafından yazılır',
+          },
+        },
+        {
+          name: 'shopierProductUrl',
+          type: 'text',
+          label: '🔗 Shopier URL',
+          admin: {
+            readOnly: true,
+            description: 'Shopier ürün sayfası linki (ör. https://www.shopier.com/123456)',
+          },
+        },
+        {
+          name: 'shopierSyncStatus',
+          type: 'select',
+          label: '📊 Shopier Sync Durumu',
+          options: [
+            { label: '⬜ Senkron Edilmedi', value: 'not_synced' },
+            { label: '🔄 Kuyrukta', value: 'queued' },
+            { label: '⏳ Senkronlanıyor', value: 'syncing' },
+            { label: '✅ Senkron', value: 'synced' },
+            { label: '❌ Hata', value: 'error' },
+          ],
+          defaultValue: 'not_synced',
+          admin: {
+            readOnly: true,
+            description: 'Shopier senkron durumu — otomatik güncellenir',
+          },
+        },
+        {
+          name: 'shopierLastSyncAt',
+          type: 'date',
+          label: '🕐 Son Shopier Sync',
+          admin: {
+            readOnly: true,
+            description: 'Son başarılı/başarısız sync zamanı',
+          },
+        },
+        {
+          name: 'shopierLastError',
+          type: 'textarea',
+          label: '❗ Shopier Son Hata',
+          admin: {
+            readOnly: true,
+            description: 'Son sync hatası — başarılı sync\'te temizlenir',
           },
         },
       ],

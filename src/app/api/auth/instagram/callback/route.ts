@@ -236,11 +236,33 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
   // ── Step 4: get Instagram Business Account ID ────────────────────────────
   //
   // Strategy (handles both classic and New Pages Experience):
+  //   4-bypass: If INSTAGRAM_USER_ID env var is set, skip page discovery entirely.
   //   4a. GET /me/accounts?fields=name,access_token,instagram_business_account
   //   4b. If 0 pages returned (NPE pages sometimes absent from /me/accounts),
   //       fall back to GET /me?fields=accounts{id,name,access_token,instagram_business_account}
   //   4c. If env var INSTAGRAM_PAGE_ID is set, try a direct page lookup as last resort.
   //
+
+  // 4-bypass — skip all page discovery if Instagram user ID is already known
+  if (process.env.INSTAGRAM_USER_ID) {
+    const bypassId = process.env.INSTAGRAM_USER_ID
+    console.log(`[instagram/callback] Step 4 bypass — using INSTAGRAM_USER_ID env var: ${bypassId}`)
+    try {
+      await storeTokensInPayload(longLivedToken, bypassId, expiresIn)
+    } catch (err) {
+      console.error(`[instagram/callback] Step 5 (bypass) Payload storage failed — ${String(err)}`)
+      return errorRedirect(adminUrl, 'step5_payload_storage_failed', true)
+    }
+    console.log(`[instagram/callback] ✅ Step 17 complete (bypass) — instagramUserId=${bypassId}`)
+    const bypassSuccessUrl = new URL(adminUrl)
+    bypassSuccessUrl.searchParams.set('instagram_auth', 'connected')
+    bypassSuccessUrl.searchParams.set('instagram_user_id', bypassId)
+    bypassSuccessUrl.searchParams.set('instagram_page', 'bypass')
+    const bypassRes = NextResponse.redirect(bypassSuccessUrl.toString())
+    bypassRes.cookies.delete('ig_oauth_state')
+    return bypassRes
+  }
+
   type PageEntry = {
     id?: string
     name?: string

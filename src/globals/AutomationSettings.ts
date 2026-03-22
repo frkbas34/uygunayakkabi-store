@@ -270,17 +270,6 @@ export const AutomationSettings: GlobalConfig = {
             description: 'Son başarılı OAuth akışının zamanı.',
           },
         },
-        {
-          name: 'facebookPageId',
-          type: 'text',
-          label: 'Facebook Sayfa ID',
-          admin: {
-            description:
-              'Sayısal Facebook Sayfa ID (örn: 61576525131424). ' +
-              'Fotoğraf yayınlamak için gerekli. ' +
-              'OAuth akışı bu alanı doldurmaz — elle girilmeli.',
-          },
-        },
       ],
     },
     // ── Telegram Ayarları ─────────────────────────────────────

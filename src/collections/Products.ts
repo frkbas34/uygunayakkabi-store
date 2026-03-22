@@ -138,6 +138,15 @@ export const Products: CollectionConfig = {
         try {
           const settings = await fetchAutomationSettings(req.payload)
 
+          // Inject Facebook Page ID from env var into the settings snapshot.
+          // The INSTAGRAM_PAGE_ID env var holds the numeric Facebook Page ID
+          // (61576525131424) and is already set in Vercel production.
+          // Storing it in AutomationSettings DB would require a Neon column
+          // migration (D-077 risk), so we inject it at the call site instead.
+          if (settings?.instagramTokens && process.env.INSTAGRAM_PAGE_ID) {
+            settings.instagramTokens.facebookPageId = process.env.INSTAGRAM_PAGE_ID
+          }
+
           const { results, dispatchedChannels } = await dispatchProductToChannels(
             doc as Record<string, unknown>,
             settings,

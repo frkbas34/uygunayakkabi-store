@@ -179,8 +179,10 @@ function extractMediaUrls(product: Record<string, unknown>): string[] {
     .map((img) => {
       const media = img?.image
       if (!media) return null
-      // Vercel Blob URL — already absolute and publicly accessible
-      if (media.url) return media.url
+      // Absolute URL (Vercel Blob or external CDN) — use as-is
+      if (media.url && media.url.startsWith('http')) return media.url
+      // Relative Payload URL (e.g. /api/media/file/x.webp) — make absolute
+      if (media.url) return serverUrl ? `${serverUrl}${media.url}` : media.url
       // Local dev path — make absolute so VPS-side workers can fetch it
       if (media.filename) {
         const relativePath = `/media/${media.filename}`

@@ -94,15 +94,34 @@ export async function GET(): Promise<NextResponse> {
     envPageProbe = await epRes.json()
   }
 
+  // Test the legacy/ad-center page ID 1040379692491003 — this might be the
+  // Graph API-compatible ID that corresponds to profile.php?id=61576525131424
+  const legacyPageId = '1040379692491003'
+  const legacyProbeRes = await fetch(
+    `https://graph.facebook.com/v21.0/${legacyPageId}?fields=id,name,access_token,fan_count&access_token=${token}`,
+    { signal: AbortSignal.timeout(10_000) },
+  )
+  const legacyProbe = await legacyProbeRes.json()
+
+  // Also try POSTing to legacy ID to see if we get a better error
+  const legacyPostParams = new URLSearchParams({
+    url: 'https://uygunayakkabi.com/api/media/file/33.webp',
+    message: 'Test post via legacy page ID',
+    access_token: token,
+    published: 'true',
+  })
+  const legacyPostRes = await fetch(
+    `https://graph.facebook.com/v21.0/${legacyPageId}/photos?${legacyPostParams.toString()}`,
+    { method: 'POST', signal: AbortSignal.timeout(15_000) },
+  )
+  const legacyPostData = await legacyPostRes.json()
+
   return NextResponse.json({
     me: meData,
     pages_via_me_accounts: data,
-    pages_via_npe_fallback: npeData,
     ig_probe: igProbe,
-    ig_linked_page: igLinkedPage,
-    business_pages: businessPages,
-    page_by_ig_slug: pageBySlug,
     env_page_id_probe: envPageProbe,
+    legacy_page_id_probe: { id: legacyPageId, get: legacyProbe, post: legacyPostData, postStatus: legacyPostRes.status },
     igUserId: igUserId ?? '(not set)',
     currentEnvPageId: process.env.INSTAGRAM_PAGE_ID ?? '(not set)',
   })

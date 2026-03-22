@@ -1464,3 +1464,33 @@ Instagram posts are published directly from `src/lib/channelDispatch.ts` via the
 **Verified:** 2026-03-22 — post ID `18115629052647099` on `@uygunayakkabi342026`, result: `{ mode: "direct", dispatched: true, success: true }`
 
 **Status:** ACTIVE — implemented + verified 2026-03-22
+
+---
+
+## D-089 — Step 19: Facebook Page Published Directly from Payload (Graph API)
+**Decision:**
+Facebook Page posts are published directly from `src/lib/channelDispatch.ts` via the Facebook Graph API v21.0, using the same user token as Instagram but exchanged for a Page Access Token first.
+
+**Reason:**
+- Same architecture as Instagram direct publish (D-088) — keeps all channel publishing inside Payload, no n8n dependency
+- `pages_manage_posts` scope required; obtained via Business Login OAuth
+- Page token exchange is required because posting to `/{pageId}/photos` with only a user token fails with error 200 "not allowed to publish to other users' timelines"
+
+**Key Discovery — NPE Page ID:**
+The UygunAyakkabı Facebook Page is a New Pages Experience (NPE) page with two numeric IDs:
+- `61576525131424` — the profile.php-style "entity ID" visible in Facebook URLs. Graph API returns error 100/33 for this ID.
+- `1040379692491003` — the internal legacy "Page ID" shown in ad center URLs. This is the correct Graph API page ID.
+The two IDs redirect to each other in the browser but behave differently in the Graph API. `INSTAGRAM_PAGE_ID` env var updated to `1040379692491003`.
+
+**Implementation:**
+- `publishFacebookDirectly(payload, pageId, userAccessToken)` in `channelDispatch.ts`:
+  1. GET `/{pageId}?fields=access_token,name,id` with user token → Page Access Token
+  2. POST `/{pageId}/photos?url=...&message=...&access_token={pageToken}&published=true`
+  - NPE fallback: if step 1 returns error 100/33, uses user token directly (for future NPE pages)
+- `dispatchProductToChannels()` routes facebook channel when `instagramTokens.facebookPageId` + `accessToken` present and valid image URL exists
+- `Products.ts` injects `process.env.INSTAGRAM_PAGE_ID` into `settings.instagramTokens.facebookPageId` (env var, not Payload schema field — avoids D-077 Neon migration risk)
+- `pages_manage_posts` added to OAuth scope in `initiate/route.ts`
+
+**Verified:** 2026-03-22 — facebookPostId `122093848160884171`, pageId `1040379692491003`, `tokenMode: "page-token"`, `{ mode: "direct", dispatched: true, success: true }`
+
+**Status:** ACTIVE — implemented + verified 2026-03-22

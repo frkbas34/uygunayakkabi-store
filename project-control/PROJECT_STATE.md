@@ -1,10 +1,45 @@
 # PROJECT STATE — Uygunayakkabi
 
-_Last updated: 2026-03-22 (Step 18 complete — Instagram publishes directly via Graph API, bypassing n8n. End-to-end verified: post ID 18115629052647099)_
+_Last updated: 2026-03-22 (Step 19 complete — Facebook Page publishes directly via Graph API. End-to-end verified: facebookPostId 122093848160884171)_
 
 ## Current Status
 Phase 1 **COMPLETE** (validated 2026-03-13).
-Phase 2 **ACTIVE** — Steps 1–18 complete. Instagram pipeline fully live via direct Graph API publish. (2026-03-22)
+Phase 2 **ACTIVE** — Steps 1–19 complete. Instagram + Facebook pipelines fully live via direct Graph API publish. (2026-03-22)
+
+## Step 19 — Facebook Page Direct Publish (COMPLETE ✅ — 2026-03-22)
+
+### Problem
+Facebook Page posting failed with "(#200) This app is not allowed to publish to other users' timelines." Root causes (two separate issues):
+1. **Wrong page ID**: `INSTAGRAM_PAGE_ID` env var was `61576525131424` (the public `profile.php?id=` style ID for New Pages Experience pages). The Graph API doesn't accept this ID — it returns error 100/33 "does not exist".
+2. **Missing scope**: The initial OAuth token lacked `pages_manage_posts`. Added in the initiate route and re-ran OAuth flow.
+
+### Root Cause Investigation
+The UygunAyakkabı Facebook Page is a **New Pages Experience (NPE) page** with two numeric IDs:
+- `61576525131424` — the "profile entity" ID shown in `profile.php` URLs (does NOT work with Graph API)
+- `1040379692491003` — the internal legacy Page ID shown in the ad center URL (`page_id=` param). This IS the correct Graph API page ID.
+
+Confirmed by: GET `/1040379692491003?fields=id,name,access_token` → returned page name + valid Page Access Token.
+
+### Solution
+1. Updated `INSTAGRAM_PAGE_ID` Vercel env var from `61576525131424` → `1040379692491003`
+2. Added `pages_manage_posts` to OAuth scope in `src/app/api/auth/instagram/initiate/route.ts` and re-ran OAuth
+3. `publishFacebookDirectly()` step 1 now successfully exchanges for a Page Access Token using the correct ID
+4. Added NPE fallback in `publishFacebookDirectly()` — detects error 100/33 and uses user token (for future-proofing), but with correct ID this path is not needed
+
+### What was implemented
+- **`src/lib/channelDispatch.ts`** — Added `publishFacebookDirectly()` function:
+  - Step 1: GET `/{pageId}?fields=access_token,name,id` → obtains Page Access Token
+  - Step 2: POST `/{pageId}/photos?url=...&message=...&access_token=...&published=true` → creates photo post
+  - Returns `ChannelDispatchResult` with `publishResult: { mode: 'direct', facebookPostId, pageId, tokenMode }`
+  - `tokenMode` field: `"page-token"` (normal) or `"user-token-npe"` (NPE fallback)
+- **`src/collections/Products.ts`** — Injects `process.env.INSTAGRAM_PAGE_ID` into `settings.instagramTokens.facebookPageId`
+- **`src/app/api/auth/instagram/initiate/route.ts`** — Added `pages_manage_posts` to OAuth scope
+- **`src/globals/AutomationSettings.ts`** — `facebookPageId` NOT added as Payload schema field (D-077 risk). Injected from env var instead.
+- **`INSTAGRAM_PAGE_ID`** Vercel env var: updated to `1040379692491003`
+
+### End-to-End Verification
+- `forceRedispatch: true` on product 25 (test3-instagram) triggered fresh dispatch at `2026-03-22T18:48:02.122Z`
+- Result: `dispatched: true`, `mode: "direct"`, `success: true`, `facebookPostId: "122093848160884171"`, `pageId: "1040379692491003"`, `tokenMode: "page-token"`
 
 ## Step 18 — Instagram Direct Publish (Bypass n8n) (COMPLETE ✅ — 2026-03-22)
 
@@ -38,6 +73,7 @@ n8n `channel-instagram-real.json` workflow still exists in repo as reference/fal
 **Mentix Intelligence Layer v2** — DEPLOYED ✅ (2026-03-17). All 13 skills on VPS, identity updated, ops group live with Bahriyar as 3rd authorized user.
 **Instagram OAuth** — VERIFIED WORKING ✅ (2026-03-22). Long-lived token stored in Payload CMS AutomationSettings.
 **Instagram Direct Publish** — VERIFIED WORKING ✅ (2026-03-22). `mode: "direct"`, post ID confirmed. n8n bypassed permanently.
+**Facebook Page Direct Publish** — VERIFIED WORKING ✅ (2026-03-22). `mode: "direct"`, `tokenMode: "page-token"`, facebookPostId `122093848160884171`. Page: UygunAyakkabı (`1040379692491003`).
 
 End-to-end pipeline validated:
 - Telegram group mention → OpenClaw (mentix-intake v3) → n8n webhook → Payload draft product → media attach → duplicate guard → admin review

@@ -233,39 +233,94 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
   const expiresIn      = typeof longData.expires_in === 'number' ? longData.expires_in : null
   console.log(`[instagram/callback] Step 3 ✅ Long-lived token obtained (~${expiresIn ? Math.round(expiresIn / 86400) : '?'} days).`)
 
-  // ── Step 4: get Instagram Business Account ID via /me/accounts ──────────
-  const accountsParams = new URLSearchParams({
-    fields:       'name,access_token,instagram_business_account',
-    access_token: longLivedToken,
-  })
-
-  let accountsData: Record<string, unknown>
-  try {
-    const accountsRes = await fetch(
-      `https://graph.facebook.com/v21.0/me/accounts?${accountsParams.toString()}`,
-      { signal: AbortSignal.timeout(10_000) },
-    )
-    accountsData = (await accountsRes.json()) as Record<string, unknown>
-
-    if (!accountsRes.ok) {
-      const apiErr = accountsData.error as Record<string, unknown> | undefined
-      const msg = String(apiErr?.message ?? JSON.stringify(accountsData).slice(0, 200))
-      console.error(`[instagram/callback] Step 4 /me/accounts failed — ${msg}`)
-      return errorRedirect(adminUrl, `step4_accounts_${String(apiErr?.code ?? 'failed')}`, true)
-    }
-  } catch (err) {
-    console.error(`[instagram/callback] Step 4 network error — ${String(err)}`)
-    return errorRedirect(adminUrl, 'step4_network_error', true)
-  }
-
-  const pages = accountsData.data as Array<{
+  // ── Step 4: get Instagram Business Account ID ────────────────────────────
+  //
+  // Strategy (handles both classic and New Pages Experience):
+  //   4a. GET /me/accounts?fields=name,access_token,instagram_business_account
+  //   4b. If 0 pages returned (NPE pages sometimes absent from /me/accounts),
+  //       fall back to GET /me?fields=accounts{id,name,access_token,instagram_business_account}
+  //   4c. If env var INSTAGRAM_PAGE_ID is set, try a direct page lookup as last resort.
+  //
+  type PageEntry = {
     id?: string
     name?: string
     access_token?: string
     instagram_business_account?: { id: string }
-  }> | undefined
+  }
 
-  console.log(`[instagram/callback] Step 4 /me/accounts returned ${pages?.length ?? 0} page(s).`)
+  async function fetchAccounts(url: string): Promise<{ pages: PageEntry[] | undefined; error: string | null }> {
+    try {
+      const res  = await fetch(url, { signal: AbortSignal.timeout(10_000) })
+      const data = (await res.json()) as Record<string, unknown>
+      console.log(`[instagram/callback] Step 4 raw response from ${url.split('?')[0]} — ` +
+        JSON.stringify(data).slice(0, 500))
+      if (!res.ok) {
+        const apiErr = data.error as Record<string, unknown> | undefined
+        return { pages: undefined, error: String(apiErr?.code ?? 'failed') }
+      }
+      // /me/accounts returns { data: [...] }
+      // /me?fields=accounts{...} returns { id, accounts: { data: [...] } }
+      const direct  = data.data as PageEntry[] | undefined
+      const nested  = (data.accounts as { data?: PageEntry[] } | undefined)?.data
+      return { pages: direct ?? nested ?? [], error: null }
+    } catch (err) {
+      return { pages: undefined, error: String(err) }
+    }
+  }
+
+  // 4a — primary: /me/accounts
+  const primary = await fetchAccounts(
+    `https://graph.facebook.com/v21.0/me/accounts?${new URLSearchParams({
+      fields:       'id,name,access_token,instagram_business_account',
+      access_token: longLivedToken,
+      limit:        '100',
+    }).toString()}`
+  )
+  console.log(`[instagram/callback] Step 4a /me/accounts returned ${primary.pages?.length ?? 'err'} page(s).`)
+
+  let pages: PageEntry[] | undefined = primary.pages
+
+  // 4b — fallback for NPE pages: /me?fields=accounts{...}
+  if (!primary.error && (primary.pages?.length ?? 0) === 0) {
+    console.log('[instagram/callback] Step 4b — /me/accounts empty, trying /me?fields=accounts{...}')
+    const fallback = await fetchAccounts(
+      `https://graph.facebook.com/v21.0/me?${new URLSearchParams({
+        fields:       'id,name,accounts.limit(100){id,name,access_token,instagram_business_account}',
+        access_token: longLivedToken,
+      }).toString()}`
+    )
+    console.log(`[instagram/callback] Step 4b /me?fields=accounts{...} returned ${fallback.pages?.length ?? 'err'} page(s).`)
+    if (!fallback.error && (fallback.pages?.length ?? 0) > 0) {
+      pages = fallback.pages
+    }
+  }
+
+  // 4c — last resort: direct page lookup via INSTAGRAM_PAGE_ID env var
+  //      /{page-id} returns a single object, NOT { data: [...] }, so we call fetch inline.
+  if ((pages?.length ?? 0) === 0 && process.env.INSTAGRAM_PAGE_ID) {
+    const pageId = process.env.INSTAGRAM_PAGE_ID
+    console.log(`[instagram/callback] Step 4c — trying direct page lookup for pageId=${pageId}`)
+    try {
+      const pageRes  = await fetch(
+        `https://graph.facebook.com/v21.0/${pageId}?${new URLSearchParams({
+          fields:       'id,name,access_token,instagram_business_account',
+          access_token: longLivedToken,
+        }).toString()}`,
+        { signal: AbortSignal.timeout(10_000) },
+      )
+      const pageData = (await pageRes.json()) as Record<string, unknown>
+      console.log(`[instagram/callback] Step 4c raw — ${JSON.stringify(pageData).slice(0, 300)}`)
+      const entry = pageData as PageEntry
+      if (pageRes.ok && entry.id) pages = [entry]
+    } catch (err) {
+      console.error(`[instagram/callback] Step 4c network error — ${String(err)}`)
+    }
+    console.log(`[instagram/callback] Step 4c result — hasIG=${!!(pages?.[0]?.instagram_business_account?.id)}`)
+  }
+
+  if (primary.error && (pages?.length ?? 0) === 0) {
+    return errorRedirect(adminUrl, `step4_accounts_${primary.error}`, true)
+  }
 
   const linkedPage = pages?.find((p) => p.instagram_business_account?.id)
 

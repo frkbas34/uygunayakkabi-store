@@ -172,142 +172,132 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     return errorRedirect(adminUrl, 'app_credentials_missing', true)
   }
 
-  try {
-    // ── Step 2: code → short-lived user access token ──────────────────────
-    const shortParams = new URLSearchParams({
-      client_id:     appId,
-      client_secret: appSecret,
-      redirect_uri:  redirectUri,
-      code,
-    })
+  // ── Step 2: code → short-lived user access token ────────────────────────
+  const shortParams = new URLSearchParams({
+    client_id:     appId,
+    client_secret: appSecret,
+    redirect_uri:  redirectUri,
+    code,
+  })
 
-    const shortRes  = await fetch(
+  let shortData: Record<string, unknown>
+  try {
+    const shortRes = await fetch(
       `https://graph.facebook.com/v21.0/oauth/access_token?${shortParams.toString()}`,
       { signal: AbortSignal.timeout(10_000) },
     )
-    const shortData = (await shortRes.json()) as Record<string, unknown>
+    shortData = (await shortRes.json()) as Record<string, unknown>
 
     if (!shortRes.ok || typeof shortData.access_token !== 'string') {
       const apiErr = shortData.error as Record<string, unknown> | undefined
-      throw new Error(
-        `Short-lived token exchange failed (HTTP ${shortRes.status}): ` +
-          String(apiErr?.message ?? JSON.stringify(shortData).slice(0, 300)),
-      )
+      const msg = String(apiErr?.message ?? JSON.stringify(shortData).slice(0, 200))
+      console.error(`[instagram/callback] Step 2 failed — ${msg}`)
+      return errorRedirect(adminUrl, `step2_${String(apiErr?.code ?? 'failed')}`, true)
     }
+  } catch (err) {
+    console.error(`[instagram/callback] Step 2 network error — ${String(err)}`)
+    return errorRedirect(adminUrl, 'step2_network_error', true)
+  }
 
-    const shortLivedToken = shortData.access_token
-    console.log('[instagram/callback] Short-lived token obtained. Exchanging for long-lived...')
+  const shortLivedToken = shortData.access_token as string
+  console.log('[instagram/callback] Step 2 ✅ Short-lived token obtained.')
 
-    // ── Step 3: short-lived → long-lived token ────────────────────────────
-    const longParams = new URLSearchParams({
-      grant_type:        'fb_exchange_token',
-      client_id:         appId,
-      client_secret:     appSecret,
-      fb_exchange_token: shortLivedToken,
-    })
+  // ── Step 3: short-lived → long-lived token ──────────────────────────────
+  const longParams = new URLSearchParams({
+    grant_type:        'fb_exchange_token',
+    client_id:         appId,
+    client_secret:     appSecret,
+    fb_exchange_token: shortLivedToken,
+  })
 
-    const longRes  = await fetch(
+  let longData: Record<string, unknown>
+  try {
+    const longRes = await fetch(
       `https://graph.facebook.com/v21.0/oauth/access_token?${longParams.toString()}`,
       { signal: AbortSignal.timeout(10_000) },
     )
-    const longData = (await longRes.json()) as Record<string, unknown>
+    longData = (await longRes.json()) as Record<string, unknown>
 
     if (!longRes.ok || typeof longData.access_token !== 'string') {
       const apiErr = longData.error as Record<string, unknown> | undefined
-      throw new Error(
-        `Long-lived token exchange failed (HTTP ${longRes.status}): ` +
-          String(apiErr?.message ?? JSON.stringify(longData).slice(0, 300)),
-      )
+      const msg = String(apiErr?.message ?? JSON.stringify(longData).slice(0, 200))
+      console.error(`[instagram/callback] Step 3 failed — ${msg}`)
+      return errorRedirect(adminUrl, `step3_${String(apiErr?.code ?? 'failed')}`, true)
     }
+  } catch (err) {
+    console.error(`[instagram/callback] Step 3 network error — ${String(err)}`)
+    return errorRedirect(adminUrl, 'step3_network_error', true)
+  }
 
-    const longLivedToken = longData.access_token
-    const expiresIn      = typeof longData.expires_in === 'number' ? longData.expires_in : null
+  const longLivedToken = longData.access_token as string
+  const expiresIn      = typeof longData.expires_in === 'number' ? longData.expires_in : null
+  console.log(`[instagram/callback] Step 3 ✅ Long-lived token obtained (~${expiresIn ? Math.round(expiresIn / 86400) : '?'} days).`)
 
-    console.log(
-      `[instagram/callback] Long-lived token obtained — ` +
-        `expires_in=${expiresIn ?? 'unknown'}s (~${expiresIn ? Math.round(expiresIn / 86400) : '?'} days).`,
-    )
+  // ── Step 4: get Instagram Business Account ID via /me/accounts ──────────
+  const accountsParams = new URLSearchParams({
+    fields:       'name,access_token,instagram_business_account',
+    access_token: longLivedToken,
+  })
 
-    // ── Step 4: get Instagram Business Account ID via /me/accounts ────────
-    //
-    // IMPORTANT: /me?fields=id returns the FACEBOOK User ID, which is NOT
-    // what the Instagram Graph API needs. The Instagram Business Account ID
-    // is a separate numeric ID found by traversing:
-    //   user → Facebook Pages → instagram_business_account.id
-    //
-    // The n8n workflow calls:
-    //   POST /{ig-user-id}/media          (Instagram Graph API)
-    //   POST /{ig-user-id}/media_publish
-    // ...where {ig-user-id} must be the Instagram Business Account ID.
-    const accountsParams = new URLSearchParams({
-      fields:       'name,access_token,instagram_business_account',
-      access_token: longLivedToken,
-    })
-
-    const accountsRes  = await fetch(
+  let accountsData: Record<string, unknown>
+  try {
+    const accountsRes = await fetch(
       `https://graph.facebook.com/v21.0/me/accounts?${accountsParams.toString()}`,
       { signal: AbortSignal.timeout(10_000) },
     )
-    const accountsData = (await accountsRes.json()) as Record<string, unknown>
+    accountsData = (await accountsRes.json()) as Record<string, unknown>
 
     if (!accountsRes.ok) {
       const apiErr = accountsData.error as Record<string, unknown> | undefined
-      throw new Error(
-        `/me/accounts failed (HTTP ${accountsRes.status}): ` +
-          String(apiErr?.message ?? JSON.stringify(accountsData).slice(0, 300)),
-      )
+      const msg = String(apiErr?.message ?? JSON.stringify(accountsData).slice(0, 200))
+      console.error(`[instagram/callback] Step 4 /me/accounts failed — ${msg}`)
+      return errorRedirect(adminUrl, `step4_accounts_${String(apiErr?.code ?? 'failed')}`, true)
     }
-
-    // Find the first Facebook Page that has a linked Instagram Business Account
-    const pages = accountsData.data as Array<{
-      id?: string
-      name?: string
-      access_token?: string
-      instagram_business_account?: { id: string }
-    }> | undefined
-
-    const linkedPage = pages?.find((p) => p.instagram_business_account?.id)
-
-    if (!linkedPage?.instagram_business_account?.id) {
-      throw new Error(
-        'No Instagram Business Account linked to any Facebook Page on this account. ' +
-          `Pages found: ${pages?.length ?? 0}. ` +
-          'Make sure your Instagram account is a Business or Creator account linked to a Facebook Page.',
-      )
-    }
-
-    const instagramUserId = linkedPage.instagram_business_account.id
-    const pageName        = linkedPage.name ?? '(unknown page)'
-
-    console.log(
-      `[instagram/callback] Instagram Business Account resolved — ` +
-        `instagramUserId=${instagramUserId} via page="${pageName}"`,
-    )
-
-    // ── Step 5: store in Payload AutomationSettings global ────────────────
-    // Replaces n8n Variables write-back (Variables are locked on current plan).
-    // Products.ts dispatch reads these from settings snapshot and injects them
-    // into the n8n webhook payload body so n8n reads $json.instagramAccessToken.
-    await storeTokensInPayload(longLivedToken, instagramUserId, expiresIn)
-
-    console.log(
-      `[instagram/callback] ✅ Step 17 complete — ` +
-        `tokens stored in Payload global. instagramUserId=${instagramUserId}`,
-    )
-
-    // ── Step 6: redirect admin to success ────────────────────────────────
-    const successUrl = new URL(adminUrl)
-    successUrl.searchParams.set('instagram_auth', 'connected')
-    successUrl.searchParams.set('instagram_user_id', instagramUserId)
-    successUrl.searchParams.set('instagram_page', pageName)
-
-    const finalRes = NextResponse.redirect(successUrl.toString())
-    finalRes.cookies.delete('ig_oauth_state')
-    return finalRes
-
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err)
-    console.error(`[instagram/callback] Token exchange failed — ${message}`)
-    return errorRedirect(adminUrl, 'token_exchange_failed', true)
+    console.error(`[instagram/callback] Step 4 network error — ${String(err)}`)
+    return errorRedirect(adminUrl, 'step4_network_error', true)
   }
+
+  const pages = accountsData.data as Array<{
+    id?: string
+    name?: string
+    access_token?: string
+    instagram_business_account?: { id: string }
+  }> | undefined
+
+  console.log(`[instagram/callback] Step 4 /me/accounts returned ${pages?.length ?? 0} page(s).`)
+
+  const linkedPage = pages?.find((p) => p.instagram_business_account?.id)
+
+  if (!linkedPage?.instagram_business_account?.id) {
+    console.error(
+      `[instagram/callback] Step 4 failed — No linked Instagram Business Account. ` +
+        `Pages: ${JSON.stringify(pages?.map(p => ({ name: p.name, hasIG: !!p.instagram_business_account })))}`
+    )
+    return errorRedirect(adminUrl, `step4_no_ig_account_pages${pages?.length ?? 0}`, true)
+  }
+
+  const instagramUserId = linkedPage.instagram_business_account.id
+  const pageName        = linkedPage.name ?? '(unknown page)'
+  console.log(`[instagram/callback] Step 4 ✅ Instagram Business Account resolved — userId=${instagramUserId} page="${pageName}"`)
+
+  // ── Step 5: store in Payload AutomationSettings global ──────────────────
+  try {
+    await storeTokensInPayload(longLivedToken, instagramUserId, expiresIn)
+  } catch (err) {
+    console.error(`[instagram/callback] Step 5 Payload storage failed — ${String(err)}`)
+    return errorRedirect(adminUrl, 'step5_payload_storage_failed', true)
+  }
+
+  console.log(`[instagram/callback] ✅ Step 17 complete — tokens stored. instagramUserId=${instagramUserId}`)
+
+  // ── Step 6: redirect admin to success ────────────────────────────────────
+  const successUrl = new URL(adminUrl)
+  successUrl.searchParams.set('instagram_auth', 'connected')
+  successUrl.searchParams.set('instagram_user_id', instagramUserId)
+  successUrl.searchParams.set('instagram_page', pageName)
+
+  const finalRes = NextResponse.redirect(successUrl.toString())
+  finalRes.cookies.delete('ig_oauth_state')
+  return finalRes
 }

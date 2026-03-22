@@ -48,12 +48,14 @@ export type AutomationSettingsSnapshot = {
     autoGenerateExtraViews?: boolean | null
     enableTryOn?: boolean | null
   }
-  /** Instagram OAuth tokens — written by /api/auth/instagram/callback */
+  /** Instagram + Facebook OAuth tokens — written by /api/auth/instagram/callback + admin */
   instagramTokens?: {
     accessToken?: string | null
     userId?: string | null
     expiresAt?: string | null
     connectedAt?: string | null
+    /** Facebook Page numeric ID — set manually in AutomationSettings admin */
+    facebookPageId?: string | null
   }
 }
 

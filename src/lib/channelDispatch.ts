@@ -215,6 +215,111 @@ function buildInstagramCaption(payload: ChannelDispatchPayload): string {
 }
 
 /**
+ * Publish a photo post to a Facebook Page directly via the Graph API — no n8n required.
+ *
+ * Steps:
+ *  1. Exchange user access token for Page Access Token  (GET /{pageId}?fields=access_token)
+ *  2. POST image to /{pageId}/photos with the Page Access Token
+ *
+ * The user token stored in AutomationSettings.instagramTokens.accessToken is a Meta
+ * long-lived user token that covers both Instagram and Facebook on the same account.
+ * Posting to the page requires pages_manage_posts scope.  If the exchange fails (scope
+ * not present), the function tries again with the user token directly as a fallback.
+ */
+async function publishFacebookDirectly(
+  payload: ChannelDispatchPayload,
+  pageId: string,
+  userAccessToken: string,
+): Promise<ChannelDispatchResult> {
+  const timestamp = new Date().toISOString()
+  const imageUrl  = payload.mediaUrls[0]
+
+  if (!imageUrl || !imageUrl.startsWith('https://')) {
+    return {
+      channel: 'facebook', eligible: true, dispatched: false,
+      webhookConfigured: false,
+      error: 'No valid https:// image URL found in mediaUrls',
+      timestamp,
+    }
+  }
+
+  try {
+    const caption = buildInstagramCaption(payload)
+
+    // ── Step 1: Get Page Access Token ─────────────────────────────────────────
+    let pageAccessToken = userAccessToken  // fallback: try user token directly
+    const pageTokenRes = await fetch(
+      `https://graph.facebook.com/v21.0/${pageId}?fields=access_token&access_token=${userAccessToken}`,
+      { signal: AbortSignal.timeout(10_000) },
+    )
+    const pageTokenData = await pageTokenRes.json() as Record<string, unknown>
+    if (pageTokenData.access_token && typeof pageTokenData.access_token === 'string') {
+      pageAccessToken = pageTokenData.access_token
+      console.log(`[channelDispatch] Facebook: obtained page access token for page=${pageId}`)
+    } else {
+      console.warn(
+        `[channelDispatch] Facebook: could not get page access token (will try user token directly):`,
+        pageTokenData,
+      )
+    }
+
+    // ── Step 2: Post photo to page feed ───────────────────────────────────────
+    const postParams = new URLSearchParams({
+      url:          imageUrl,
+      message:      caption,
+      access_token: pageAccessToken,
+      published:    'true',
+    })
+    const postRes  = await fetch(
+      `https://graph.facebook.com/v21.0/${pageId}/photos?${postParams.toString()}`,
+      { method: 'POST', signal: AbortSignal.timeout(20_000) },
+    )
+    const postData = await postRes.json() as Record<string, unknown>
+
+    const postId = (postData.id ?? postData.post_id) as string | undefined
+    if (!postId) {
+      console.error(`[channelDispatch] Facebook post failed:`, postData)
+      return {
+        channel: 'facebook', eligible: true, dispatched: false,
+        webhookConfigured: false,
+        error: `Facebook post failed (HTTP ${postRes.status})`,
+        publishResult: {
+          mode: 'api-error', success: false,
+          apiError: JSON.stringify(postData.error ?? postData),
+          apiErrorCode: postData.error ? (postData.error as Record<string, unknown>).code : undefined,
+          timestamp: new Date().toISOString(),
+        },
+        timestamp,
+      }
+    }
+
+    console.log(`[channelDispatch] Facebook direct publish success — product=${payload.productId} postId=${postId}`)
+    return {
+      channel: 'facebook', eligible: true, dispatched: true,
+      webhookConfigured: false,
+      responseStatus: 200,
+      publishResult: {
+        received: true, channel: 'facebook', mode: 'direct',
+        success: true, facebookPostId: postId, pageId,
+        mediaUrl: imageUrl, caption: caption.substring(0, 80) + '…',
+        timestamp: new Date().toISOString(),
+      },
+      timestamp,
+    }
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err)
+    console.error(`[channelDispatch] Facebook direct publish error:`, message)
+    return {
+      channel: 'facebook', eligible: true, dispatched: false,
+      webhookConfigured: false,
+      error: `Facebook publish threw: ${message}`,
+      publishResult: { mode: 'api-error', success: false, thrownError: message, timestamp: new Date().toISOString() },
+      timestamp,
+    }
+  }
+}
+
+/**
  * Publish an Instagram post directly via the Graph API — no n8n required.
  *
  * Steps:
@@ -542,12 +647,14 @@ export async function dispatchProductToChannels(
 }> {
   const { eligible, skipped } = evaluateChannelEligibility(product, settings)
 
-  // Extract Instagram tokens from settings snapshot so they can be injected
-  // into the webhook payload body (replaces n8n Variables, which are locked).
+  // Extract Instagram/Facebook tokens from settings snapshot.
+  // The same Meta long-lived user token covers both Instagram and Facebook.
+  // facebookPageId is set manually in AutomationSettings admin.
   const instagramTokens = settings?.instagramTokens
     ? {
-        accessToken: settings.instagramTokens.accessToken ?? null,
-        userId:      settings.instagramTokens.userId      ?? null,
+        accessToken:    settings.instagramTokens.accessToken    ?? null,
+        userId:         settings.instagramTokens.userId         ?? null,
+        facebookPageId: settings.instagramTokens.facebookPageId ?? null,
       }
     : undefined
 
@@ -570,8 +677,9 @@ export async function dispatchProductToChannels(
   for (const channel of eligible) {
     const dispatchPayload = buildDispatchPayload(product, channel, triggerReason, instagramTokens)
 
-    // Instagram: prefer direct Graph API publish over n8n webhook.
-    // This bypasses the n8n VPS dependency and is more reliable.
+    // Instagram: direct Graph API publish (bypasses n8n — D-088).
+    // Facebook:  direct Graph API photo post (same Meta user token — D-089).
+    // All other channels: fall through to n8n webhook.
     let result: ChannelDispatchResult
     if (
       channel === 'instagram' &&
@@ -583,6 +691,18 @@ export async function dispatchProductToChannels(
       result = await publishInstagramDirectly(
         dispatchPayload,
         instagramTokens.userId,
+        instagramTokens.accessToken,
+      )
+    } else if (
+      channel === 'facebook' &&
+      instagramTokens?.accessToken &&
+      instagramTokens?.facebookPageId &&
+      dispatchPayload.mediaUrls.length > 0 &&
+      dispatchPayload.mediaUrls[0].startsWith('https://')
+    ) {
+      result = await publishFacebookDirectly(
+        dispatchPayload,
+        instagramTokens.facebookPageId,
         instagramTokens.accessToken,
       )
     } else {

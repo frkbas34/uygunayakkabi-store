@@ -44,22 +44,42 @@ export async function GET(): Promise<NextResponse> {
   )
   const npeData = await npeRes.json()
 
-  // Look up the Facebook Page linked to the stored Instagram Business Account
+  // Probe the IG user object — try various fields to understand what it is
   const igUserId = process.env.INSTAGRAM_USER_ID
+  let igProbe: unknown = null
   let igLinkedPage: unknown = null
+  let businessPages: unknown = null
+
   if (igUserId) {
+    // What fields exist on this object?
+    const igProbeRes = await fetch(
+      `https://graph.facebook.com/v21.0/${igUserId}?fields=id,name,username,biography,followers_count,media_count,website&access_token=${token}`,
+      { signal: AbortSignal.timeout(10_000) },
+    )
+    igProbe = await igProbeRes.json()
+
+    // Try page field with explicit permission
     const igPageRes = await fetch(
-      `https://graph.facebook.com/v21.0/${igUserId}?fields=page{id,name}&access_token=${token}`,
+      `https://graph.facebook.com/v21.0/${igUserId}?fields=page&access_token=${token}`,
       { signal: AbortSignal.timeout(10_000) },
     )
     igLinkedPage = await igPageRes.json()
   }
 
+  // Check if this user has business accounts via business_management
+  const bizRes = await fetch(
+    `https://graph.facebook.com/v21.0/me?fields=businesses{id,name,owned_pages{id,name,instagram_business_account}}&access_token=${token}`,
+    { signal: AbortSignal.timeout(10_000) },
+  )
+  businessPages = await bizRes.json()
+
   return NextResponse.json({
     me: meData,
     pages_via_me_accounts: data,
     pages_via_npe_fallback: npeData,
+    ig_probe: igProbe,
     ig_linked_page: igLinkedPage,
+    business_pages: businessPages,
     igUserId: igUserId ?? '(not set)',
     currentEnvPageId: process.env.INSTAGRAM_PAGE_ID ?? '(not set)',
   })

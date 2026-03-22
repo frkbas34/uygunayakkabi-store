@@ -1,12 +1,43 @@
 # PROJECT STATE — Uygunayakkabi
 
-_Last updated: 2026-03-22 (Step 17 complete — Instagram OAuth fully working, tokens stored in Payload CMS)_
+_Last updated: 2026-03-22 (Step 18 complete — Instagram publishes directly via Graph API, bypassing n8n. End-to-end verified: post ID 18115629052647099)_
 
 ## Current Status
 Phase 1 **COMPLETE** (validated 2026-03-13).
-Phase 2 **ACTIVE** — Steps 1–17 complete. Instagram OAuth + Graph API publish pipeline live. (2026-03-22)
+Phase 2 **ACTIVE** — Steps 1–18 complete. Instagram pipeline fully live via direct Graph API publish. (2026-03-22)
+
+## Step 18 — Instagram Direct Publish (Bypass n8n) (COMPLETE ✅ — 2026-03-22)
+
+### Problem
+n8n Instagram publish workflow failed consistently with error 100/subcode 33 "Object with ID 'media' does not exist". Root cause: n8n's running workflow used `$vars.INSTAGRAM_USER_ID` (locked/empty on current plan) → URL path became `/v21.0//media` → normalized to `/v21.0/media` → Instagram treated 'media' as the object ID.
+
+### Solution
+Moved Instagram publishing entirely out of n8n into `src/lib/channelDispatch.ts`. When `instagramTokens.userId` and `instagramTokens.accessToken` are available and a valid `https://` image URL exists, `dispatchProductToChannels()` calls `publishInstagramDirectly()` instead of the n8n webhook.
+
+### What was implemented
+- **`src/lib/channelDispatch.ts`** — Added two new functions:
+  - `buildInstagramCaption(payload)` — mirrors the n8n "Build Caption" node logic: title + price (💰) + originalPrice + brand (🏷️) + category + color (🎨) + description (truncated 200) + hashtags. Max 2200 chars.
+  - `publishInstagramDirectly(payload, userId, accessToken)` — 3-step direct Graph API publish:
+    1. POST `https://graph.facebook.com/v21.0/{userId}/media` with `image_url`, `caption`, `access_token` as URLSearchParams → returns `containerId`
+    2. Wait 2 seconds (Instagram media processing)
+    3. POST `https://graph.facebook.com/v21.0/{userId}/media_publish` with `creation_id`, `access_token` → returns `instagramPostId`
+    - Returns `ChannelDispatchResult` with `publishResult: { mode: 'direct', success: true, instagramPostId, containerId, mediaUrl, caption }`
+- **`dispatchProductToChannels()` loop** — Instagram channel now routes to `publishInstagramDirectly()` when tokens + valid URL are present; n8n webhook used only as fallback when tokens absent
+- Commit: `d42f2d1` ("feat(instagram): bypass n8n — publish directly via Graph API")
+- Deployment: Vercel `EKURRtLYY` — Ready + Current as of 2026-03-22
+
+### End-to-End Verification
+- `forceRedispatch: true` on product 25 (test3-instagram) triggered fresh dispatch
+- Result: `dispatched: true`, `mode: "direct"`, `success: true`, `instagramPostId: "18115629052647099"`, timestamp: `2026-03-22T06:46:26.604Z`
+- Post confirmed live on Instagram account `@uygunayakkabi342026`
+
+### Architecture Note
+n8n `channel-instagram-real.json` workflow still exists in repo as reference/fallback, but is no longer the primary path. The `N8N_CHANNEL_INSTAGRAM_WEBHOOK` env var is still read — if `instagramTokens` are absent, dispatch falls back to the n8n webhook. See D-088.
+
+---
 **Mentix Intelligence Layer v2** — DEPLOYED ✅ (2026-03-17). All 13 skills on VPS, identity updated, ops group live with Bahriyar as 3rd authorized user.
 **Instagram OAuth** — VERIFIED WORKING ✅ (2026-03-22). Long-lived token stored in Payload CMS AutomationSettings.
+**Instagram Direct Publish** — VERIFIED WORKING ✅ (2026-03-22). `mode: "direct"`, post ID confirmed. n8n bypassed permanently.
 
 End-to-end pipeline validated:
 - Telegram group mention → OpenClaw (mentix-intake v3) → n8n webhook → Payload draft product → media attach → duplicate guard → admin review

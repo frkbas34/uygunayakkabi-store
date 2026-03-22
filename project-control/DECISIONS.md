@@ -1438,3 +1438,29 @@ Store Instagram OAuth tokens (accessToken, userId, expiresAt, connectedAt) in Pa
 n8n `INSTAGRAM_ACCESS_TOKEN` and `INSTAGRAM_USER_ID` Variables must be set manually (or via a sync mechanism) from Payload CMS values. This is a one-time operator action.
 
 **Status:** ACTIVE — implemented 2026-03-22
+
+---
+
+## D-088 — Step 18: Instagram Published Directly from Payload (n8n Bypassed)
+**Decision:**
+Instagram posts are published directly from `src/lib/channelDispatch.ts` via the Instagram Graph API v21.0, bypassing the n8n `channel-instagram-real.json` workflow entirely.
+
+**Reason:**
+- n8n Instagram publish workflow consistently failed with error 100/subcode 33 ("Object with ID 'media' does not exist")
+- Root cause: n8n's running workflow used `$vars.INSTAGRAM_USER_ID` (empty — n8n Variables are locked on current VPS plan) → URL path became `/v21.0//media` → Instagram treated literal 'media' as an object ID
+- The fix cannot be applied to n8n without upgrading the plan or re-deploying the workflow with credentials hardcoded in the workflow JSON (bad practice)
+- Moving publish logic into `channelDispatch.ts` eliminates the VPS dependency, removes n8n as a failure point, and keeps credentials inside Payload CMS (the source of truth)
+- Direct publish was already tested manually and confirmed working before this decision
+
+**Implementation:**
+- `publishInstagramDirectly(payload, userId, accessToken)` in `channelDispatch.ts` implements the 3-step Graph API flow:
+  1. POST `/{userId}/media` (create container)
+  2. Wait 2 seconds
+  3. POST `/{userId}/media_publish` (publish)
+- `dispatchProductToChannels()` routes instagram to this function when tokens available; falls back to n8n webhook if no tokens (e.g. during development/testing)
+- `buildInstagramCaption()` mirrors the n8n caption node exactly
+- n8n workflow file preserved in repo for reference; `N8N_CHANNEL_INSTAGRAM_WEBHOOK` env var still read as fallback
+
+**Verified:** 2026-03-22 — post ID `18115629052647099` on `@uygunayakkabi342026`, result: `{ mode: "direct", dispatched: true, success: true }`
+
+**Status:** ACTIVE — implemented + verified 2026-03-22

@@ -1,6 +1,6 @@
 # TASK QUEUE — Uygunayakkabi
 
-_Last updated: 2026-03-22 (Instagram OAuth VERIFIED WORKING — tokens stored in Payload CMS)_
+_Last updated: 2026-03-22 (Step 18 complete — Instagram direct publish verified. Post ID 18115629052647099 confirmed live)_
 
 ## ⚠️ Current Blockers
 
@@ -16,8 +16,12 @@ OAuth completed successfully. Long-lived token stored in Payload CMS `Automation
 - `INSTAGRAM_ACCESS_TOKEN` — stored in Payload CMS (expires 2026-05-20)
 - `INSTAGRAM_APP_ID`, `INSTAGRAM_APP_SECRET`, `INSTAGRAM_PAGE_ID`, `INSTAGRAM_USER_ID` — all set in Vercel
 - NPE page workaround: `INSTAGRAM_USER_ID` env var bypasses `/me/accounts` which returns 0 pages for NPE Facebook Pages
-- **Remaining:** Set `INSTAGRAM_USER_ID` + `INSTAGRAM_ACCESS_TOKEN` as n8n Variables for the publish workflow
+- ~~Remaining: Set INSTAGRAM_USER_ID + INSTAGRAM_ACCESS_TOKEN as n8n Variables~~ — **NO LONGER NEEDED** (Step 18: direct publish from Payload, n8n bypassed — see D-088)
 - **Token refresh:** Re-run `https://uygunayakkabi.com/api/auth/instagram/initiate` before 2026-05-20
+
+### ~~Blocker 5: Instagram publish error 100/33~~ — RESOLVED ✅ (2026-03-22)
+n8n URL template used `$vars.INSTAGRAM_USER_ID` (locked/empty) → `/v21.0//media` → Instagram error.
+**Fix:** `publishInstagramDirectly()` in `channelDispatch.ts` bypasses n8n entirely. Verified with post ID `18115629052647099`.
 
 ### ~~Blocker 2: Mentix VPS Deployment~~ — RESOLVED ✅ (2026-03-17)
 ### ~~Blocker 3: Git push pending~~ — RESOLVED ✅ (2026-03-17)

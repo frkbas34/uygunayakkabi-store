@@ -193,6 +193,126 @@ function extractMediaUrls(product: Record<string, unknown>): string[] {
     .filter((url): url is string => url !== null)
 }
 
+// ── Instagram Direct Publish ──────────────────────────────────────────────────
+
+/**
+ * Build an Instagram caption from a product payload.
+ * Mirrors the logic in the n8n "Build Caption" node so output is consistent.
+ */
+function buildInstagramCaption(payload: ChannelDispatchPayload): string {
+  let c = payload.title
+  if (payload.price)         c += '\n\n💰 ' + payload.price + ' TL'
+  if (payload.originalPrice) c += '  (Normal: ' + payload.originalPrice + ' TL)'
+  if (payload.brand)         c += '\n🏷️ ' + payload.brand
+  if (payload.category)      c += '  ·  ' + payload.category
+  if (payload.color)         c += '\n🎨 ' + payload.color
+  if (payload.description && payload.description.length > 0)
+    c += '\n\n' + payload.description.substring(0, 200)
+  c += '\n\n#uygunayakkabi #ayakkabi'
+  if (payload.brand)    c += ' #' + payload.brand.toLowerCase().replace(/\s+/g, '').replace(/[^a-z0-9]/g, '')
+  if (payload.category) c += ' #' + payload.category.toLowerCase().replace(/\s+/g, '').replace(/[^a-z0-9]/g, '')
+  return c.substring(0, 2200)
+}
+
+/**
+ * Publish an Instagram post directly via the Graph API — no n8n required.
+ *
+ * Steps:
+ *  1. Create a media container (POST /{userId}/media)
+ *  2. Wait 2 s for Instagram to process the image
+ *  3. Publish the container  (POST /{userId}/media_publish)
+ *
+ * This is the preferred path when instagramTokens are available in the payload.
+ * The n8n webhook is used as a fallback only when tokens are absent.
+ */
+async function publishInstagramDirectly(
+  payload: ChannelDispatchPayload,
+  userId: string,
+  accessToken: string,
+): Promise<ChannelDispatchResult> {
+  const timestamp = new Date().toISOString()
+  const imageUrl = payload.mediaUrls[0]
+
+  if (!imageUrl || !imageUrl.startsWith('https://')) {
+    return {
+      channel: 'instagram', eligible: true, dispatched: false,
+      webhookConfigured: false,
+      error: 'No valid https:// image URL found in mediaUrls',
+      timestamp,
+    }
+  }
+
+  try {
+    const caption = buildInstagramCaption(payload)
+
+    // ── Step 1: Create media container ────────────────────────────────────────
+    const createParams = new URLSearchParams({ image_url: imageUrl, caption, access_token: accessToken })
+    const createRes  = await fetch(
+      `https://graph.facebook.com/v21.0/${userId}/media?${createParams.toString()}`,
+      { method: 'POST', signal: AbortSignal.timeout(20_000) },
+    )
+    const createData = await createRes.json() as Record<string, unknown>
+
+    if (!createData.id) {
+      console.error(`[channelDispatch] Instagram container creation failed:`, createData)
+      return {
+        channel: 'instagram', eligible: true, dispatched: false,
+        webhookConfigured: false,
+        error: `Container creation failed (HTTP ${createRes.status})`,
+        publishResult: { step: 'create-container', mode: 'direct-api-error', success: false, apiError: JSON.stringify(createData), timestamp: new Date().toISOString() },
+        timestamp,
+      }
+    }
+
+    const containerId = createData.id as string
+    console.log(`[channelDispatch] Instagram container created — product=${payload.productId} containerId=${containerId}`)
+
+    // ── Step 2: Wait for media processing ─────────────────────────────────────
+    await new Promise((r) => setTimeout(r, 2000))
+
+    // ── Step 3: Publish ────────────────────────────────────────────────────────
+    const publishParams = new URLSearchParams({ creation_id: containerId, access_token: accessToken })
+    const publishRes  = await fetch(
+      `https://graph.facebook.com/v21.0/${userId}/media_publish?${publishParams.toString()}`,
+      { method: 'POST', signal: AbortSignal.timeout(20_000) },
+    )
+    const publishData = await publishRes.json() as Record<string, unknown>
+    const postId = publishData.id as string | undefined
+
+    if (!postId) {
+      console.error(`[channelDispatch] Instagram publish failed:`, publishData)
+      return {
+        channel: 'instagram', eligible: true, dispatched: false,
+        webhookConfigured: false,
+        error: `Publish failed (HTTP ${publishRes.status})`,
+        publishResult: { step: 'publish', mode: 'direct-api-error', success: false, containerId, apiError: JSON.stringify(publishData), timestamp: new Date().toISOString() },
+        timestamp,
+      }
+    }
+
+    console.log(`[channelDispatch] Instagram direct publish success — product=${payload.productId} postId=${postId}`)
+    return {
+      channel: 'instagram', eligible: true, dispatched: true,
+      webhookConfigured: false,
+      responseStatus: 200,
+      publishResult: {
+        received: true, channel: 'instagram', mode: 'direct',
+        success: true, instagramPostId: postId, containerId,
+        mediaUrl: imageUrl, caption: caption.substring(0, 80) + '…',
+        timestamp: new Date().toISOString(),
+      },
+      timestamp,
+    }
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err)
+    console.error(`[channelDispatch] Instagram direct publish error:`, message)
+    return {
+      channel: 'instagram', eligible: true, dispatched: false,
+      webhookConfigured: false, error: `Direct publish error: ${message}`, timestamp,
+    }
+  }
+}
+
 // ── Core Functions ────────────────────────────────────────────────────────────
 
 /**
@@ -448,9 +568,28 @@ export async function dispatchProductToChannels(
   // Dispatch eligible channels
   const dispatchedChannels: SupportedChannel[] = []
   for (const channel of eligible) {
-    const webhookUrl    = buildChannelWebhookUrl(channel)
     const dispatchPayload = buildDispatchPayload(product, channel, triggerReason, instagramTokens)
-    const result        = await dispatchToChannel(dispatchPayload, webhookUrl)
+
+    // Instagram: prefer direct Graph API publish over n8n webhook.
+    // This bypasses the n8n VPS dependency and is more reliable.
+    let result: ChannelDispatchResult
+    if (
+      channel === 'instagram' &&
+      instagramTokens?.accessToken &&
+      instagramTokens?.userId &&
+      dispatchPayload.mediaUrls.length > 0 &&
+      dispatchPayload.mediaUrls[0].startsWith('https://')
+    ) {
+      result = await publishInstagramDirectly(
+        dispatchPayload,
+        instagramTokens.userId,
+        instagramTokens.accessToken,
+      )
+    } else {
+      const webhookUrl = buildChannelWebhookUrl(channel)
+      result           = await dispatchToChannel(dispatchPayload, webhookUrl)
+    }
+
     results.push(result)
     if (result.dispatched) {
       dispatchedChannels.push(channel)

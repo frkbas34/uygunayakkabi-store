@@ -247,21 +247,39 @@ async function publishFacebookDirectly(
     const caption = buildInstagramCaption(payload)
 
     // ── Step 1: Get Page Access Token ─────────────────────────────────────────
-    let pageAccessToken = userAccessToken  // fallback: try user token directly
     const pageTokenRes = await fetch(
-      `https://graph.facebook.com/v21.0/${pageId}?fields=access_token&access_token=${userAccessToken}`,
+      `https://graph.facebook.com/v21.0/${pageId}?fields=access_token,name,id&access_token=${userAccessToken}`,
       { signal: AbortSignal.timeout(10_000) },
     )
     const pageTokenData = await pageTokenRes.json() as Record<string, unknown>
-    if (pageTokenData.access_token && typeof pageTokenData.access_token === 'string') {
-      pageAccessToken = pageTokenData.access_token
-      console.log(`[channelDispatch] Facebook: obtained page access token for page=${pageId}`)
-    } else {
-      console.warn(
-        `[channelDispatch] Facebook: could not get page access token (will try user token directly):`,
-        pageTokenData,
+
+    if (!pageTokenRes.ok || !pageTokenData.access_token || typeof pageTokenData.access_token !== 'string') {
+      // Step 1 failed — do NOT fall back to user token (it will always fail with code 200).
+      // Surface the exact step 1 response so the dispatch log can diagnose the root cause.
+      const step1Error = pageTokenData.error ?? pageTokenData
+      console.error(
+        `[channelDispatch] Facebook: step 1 (page access token) FAILED for page=${pageId}:`,
+        step1Error,
       )
+      return {
+        channel: 'facebook', eligible: true, dispatched: false,
+        webhookConfigured: false,
+        error: `Facebook step 1 failed (HTTP ${pageTokenRes.status}): could not obtain page access token`,
+        publishResult: {
+          mode:           'api-error',
+          success:        false,
+          step:           'page-token-exchange',
+          pageId,
+          step1HttpStatus: pageTokenRes.status,
+          step1Response:   JSON.stringify(step1Error).slice(0, 500),
+          timestamp:       new Date().toISOString(),
+        },
+        timestamp,
+      }
     }
+
+    const pageAccessToken = pageTokenData.access_token
+    console.log(`[channelDispatch] Facebook: step 1 ✅ page access token obtained — page="${pageTokenData.name ?? pageId}" id=${pageTokenData.id ?? pageId}`)
 
     // ── Step 2: Post photo to page feed ───────────────────────────────────────
     const postParams = new URLSearchParams({

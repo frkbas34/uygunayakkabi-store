@@ -1,11 +1,12 @@
 # PROJECT STATE — Uygunayakkabi
 
-_Last updated: 2026-03-18 (Step 16 complete — real Instagram Graph API publish workflow implemented)_
+_Last updated: 2026-03-22 (Step 17 complete — Instagram OAuth fully working, tokens stored in Payload CMS)_
 
 ## Current Status
 Phase 1 **COMPLETE** (validated 2026-03-13).
-Phase 2 **ACTIVE** — Steps 1–16 complete. Real Instagram integration live. (2026-03-18)
+Phase 2 **ACTIVE** — Steps 1–17 complete. Instagram OAuth + Graph API publish pipeline live. (2026-03-22)
 **Mentix Intelligence Layer v2** — DEPLOYED ✅ (2026-03-17). All 13 skills on VPS, identity updated, ops group live with Bahriyar as 3rd authorized user.
+**Instagram OAuth** — VERIFIED WORKING ✅ (2026-03-22). Long-lived token stored in Payload CMS AutomationSettings.
 
 End-to-end pipeline validated:
 - Telegram group mention → OpenClaw (mentix-intake v3) → n8n webhook → Payload draft product → media attach → duplicate guard → admin review
@@ -15,8 +16,47 @@ End-to-end pipeline validated:
 - Ops group full-capability mention-trigger: **LIVE**
 
 ## Current Phase
-Phase 2 — Automation Backbone (**ACTIVE — Steps 1–16 complete, Step 17 next**)
+Phase 2 — Automation Backbone (**ACTIVE — Steps 1–17 complete**)
 Mentix Intelligence Layer v2 — **DEPLOYED AND LIVE** (2026-03-17)
+
+---
+
+## Step 17 — Instagram OAuth Token Exchange (COMPLETE ✅ — 2026-03-22)
+
+### What was implemented
+- **`src/app/api/auth/instagram/initiate/route.ts`** — Starts Meta OAuth flow with scopes: `instagram_basic`, `instagram_content_publish`, `pages_show_list`, `pages_read_engagement`
+- **`src/app/api/auth/instagram/callback/route.ts`** — Multi-level callback with:
+  - Step 1: State validation (CSRF)
+  - Step 2: Exchange code for short-lived token
+  - Step 3: Exchange for long-lived token (~60 days)
+  - Step 4-bypass: If `INSTAGRAM_USER_ID` env var is set, skip all `/me/accounts` page discovery (NPE workaround)
+  - Step 4a/4b/4c: Fallback strategies for page discovery (not needed when bypass active)
+  - Step 5: Store tokens in Payload CMS `AutomationSettings` global (`instagramTokens.*`)
+- **Bypass was necessary** because UygunAyakkabı is a New Pages Experience (NPE) Facebook Page — `/me/accounts` Graph API consistently returns 0 pages for NPE pages regardless of permissions
+
+### Instagram Credentials — VERIFIED WORKING
+| Config | Value | Where |
+|---|---|---|
+| `INSTAGRAM_USER_ID` | `43139245629` | Vercel env var + Payload CMS |
+| `INSTAGRAM_ACCESS_TOKEN` | `EAAUovIaOuYcBRK1Hi...` (long-lived, ~60 days) | Payload CMS `automation-settings.instagramTokens.accessToken` |
+| Token Expiry | `2026-05-20` | Payload CMS `automation-settings.instagramTokens.expiresAt` |
+| Connected At | `2026-03-22` | Payload CMS `automation-settings.instagramTokens.connectedAt` |
+| `INSTAGRAM_APP_ID` | `1452165060016519` | Vercel env var |
+| `INSTAGRAM_APP_SECRET` | Set in Vercel | Vercel env var |
+| `INSTAGRAM_PAGE_ID` | `61576525131424` | Vercel env var (NPE page ID, used as 4c fallback) |
+| Instagram Username | `@uygunayakkabi342026` | Professional account on Instagram |
+| Facebook Page | UygunAyakkabı (NPE) | `facebook.com/profile.php?id=61576525131424` |
+
+### n8n Variables Required
+For the n8n Instagram publish workflow (`channel-instagram-real.json`) to work:
+| Variable | Value |
+|---|---|
+| `INSTAGRAM_USER_ID` | `43139245629` |
+| `INSTAGRAM_ACCESS_TOKEN` | (copy from Payload CMS or re-run OAuth) |
+| `INSTAGRAM_BYPASS_PUBLISH` | `true` for dry-run, remove/`false` for live |
+
+### Token Refresh
+Long-lived tokens expire ~60 days. To refresh: navigate to `https://uygunayakkabi.com/api/auth/instagram/initiate` and approve the Meta consent screen. Callback automatically overwrites tokens in Payload CMS.
 
 ---
 
@@ -250,7 +290,7 @@ Four issues required manual SQL fixes in Neon SQL Editor:
 ### Production Environment (Vercel)
 - Deployment: **READY and functional**
 - URL: uygunayakkabi.com
-- Env vars set: DATABASE_URI, PAYLOAD_SECRET, NEXT_PUBLIC_SERVER_URL, NEXT_PUBLIC_WHATSAPP_NUMBER, BLOB_READ_WRITE_TOKEN, AUTOMATION_SECRET, N8N_INTAKE_WEBHOOK
+- Env vars set: DATABASE_URI, PAYLOAD_SECRET, NEXT_PUBLIC_SERVER_URL, NEXT_PUBLIC_WHATSAPP_NUMBER, BLOB_READ_WRITE_TOKEN, AUTOMATION_SECRET, N8N_INTAKE_WEBHOOK, INSTAGRAM_APP_ID, INSTAGRAM_APP_SECRET, INSTAGRAM_PAGE_ID, INSTAGRAM_USER_ID
 - Env vars **NOT YET SET** (pending operator): `N8N_CHANNEL_INSTAGRAM_WEBHOOK`, `N8N_CHANNEL_SHOPIER_WEBHOOK`, `N8N_CHANNEL_DOLAP_WEBHOOK`
 - Next.js: **16.2.0-canary.81** (required for Payload CMS 3.79.0 compatibility)
 

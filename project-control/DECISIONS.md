@@ -1390,14 +1390,51 @@ After completing the Meta OAuth flow, write `INSTAGRAM_ACCESS_TOKEN` and `INSTAG
 ---
 
 ## D-085 — Step 17: CSRF State Cookie Pattern for Instagram OAuth
-**Decision:**  
+**Decision:**
 Use a random 32-byte hex state stored in a short-lived (10 min) HttpOnly cookie (`ig_oauth_state`), verified in the callback before any token exchange. State is generated in a new `/api/auth/instagram/initiate` route.
 
-**Reason:**  
-- The repo has no Redis or session store. A new Payload collection for state would add a DB migration and unnecessary complexity.  
-- Cookie-based CSRF state is the standard OAuth 2.0 pattern for server-side apps and requires no infrastructure addition.  
-- `sameSite: lax` allows the Meta redirect to carry the cookie back.  
-- The 10-minute TTL is generous for an admin-initiated flow and strictly bounded.  
+**Reason:**
+- The repo has no Redis or session store. A new Payload collection for state would add a DB migration and unnecessary complexity.
+- Cookie-based CSRF state is the standard OAuth 2.0 pattern for server-side apps and requires no infrastructure addition.
+- `sameSite: lax` allows the Meta redirect to carry the cookie back.
+- The 10-minute TTL is generous for an admin-initiated flow and strictly bounded.
 - The `ig_oauth_state` cookie is deleted immediately after verification (one-time use).
 
 **Status:** ACTIVE — implemented 2026-03-19
+
+---
+
+## D-086 — Instagram OAuth: INSTAGRAM_USER_ID Bypass for NPE Facebook Pages
+**Decision:**
+Add `INSTAGRAM_USER_ID` env var bypass to the OAuth callback that skips all `/me/accounts` page discovery (Steps 4a/4b/4c) when set. The bypass stores the long-lived token directly into Payload CMS with the pre-known Instagram user ID.
+
+**Reason:**
+- UygunAyakkabı is a New Pages Experience (NPE) Facebook Page (`facebook.com/profile.php?id=61576525131424`)
+- NPE pages consistently return 0 results from `GET /me/accounts` Graph API, regardless of permissions granted
+- Three fallback strategies (4a: `/me/accounts`, 4b: `/me?fields=accounts`, 4c: direct `/{page_id}`) all failed for NPE pages
+- The Instagram numeric user ID (`43139245629`) was extracted via Instagram's internal API (`/api/v1/users/web_profile_info/`)
+- Setting this as an env var is the most reliable workaround for NPE pages
+
+**Alternatives considered:**
+1. Migrate to a classic Facebook Page — rejected (destructive, loses existing followers/content)
+2. Use Facebook Business Suite System User token — viable future option but more complex setup
+3. Use Instagram Basic Display API — rejected (doesn't support `instagram_content_publish`)
+
+**Status:** ACTIVE — implemented 2026-03-22, VERIFIED WORKING
+
+---
+
+## D-087 — Instagram Tokens Stored in Payload CMS Instead of n8n Variables
+**Decision:**
+Store Instagram OAuth tokens (accessToken, userId, expiresAt, connectedAt) in Payload CMS `AutomationSettings` global (`instagramTokens.*` fields) instead of writing to n8n Variables via REST API.
+
+**Reason:**
+- The original Step 17 design wrote tokens to n8n Variables via `N8N_API_KEY` + REST API
+- The bypass approach (D-086) simplifies the flow — tokens go directly to Payload CMS which is the source of truth
+- n8n workflow can read tokens from Payload API or they can be manually copied to n8n Variables
+- Reduces dependency on n8n REST API availability during OAuth callback
+
+**Implication:**
+n8n `INSTAGRAM_ACCESS_TOKEN` and `INSTAGRAM_USER_ID` Variables must be set manually (or via a sync mechanism) from Payload CMS values. This is a one-time operator action.
+
+**Status:** ACTIVE — implemented 2026-03-22

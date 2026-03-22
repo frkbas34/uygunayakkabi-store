@@ -1,6 +1,6 @@
 # TASK QUEUE — Uygunayakkabi
 
-_Last updated: 2026-03-19 (Step 17 complete — Instagram OAuth token exchange + n8n Variable write-back)_
+_Last updated: 2026-03-22 (Instagram OAuth VERIFIED WORKING — tokens stored in Payload CMS)_
 
 ## ⚠️ Current Blockers
 
@@ -10,15 +10,14 @@ _Last updated: 2026-03-19 (Step 17 complete — Instagram OAuth token exchange +
 **Before adding any new collection or global:** manually verify the new table exists in Neon after first deployment.
 Required tables to check after any schema change: `payload_locked_documents_rels` (new `{slug}_id` column) + new collection table itself.
 
-### Blocker 1: Instagram Credentials — OPERATOR ACTION REQUIRED (simplified by Step 17)
-**Step 16+17 code is complete.** Token exchange is now automated via the OAuth flow. To go live:
-1. Set `INSTAGRAM_APP_ID`, `INSTAGRAM_APP_SECRET`, `N8N_API_KEY` in Vercel env vars
-2. Import `n8n-workflows/channel-instagram-real.json` to `flow.uygunayakkabi.com`, activate it
-3. Optionally set `INSTAGRAM_BYPASS_PUBLISH=true` in n8n Variables for a safe dry-run first
-4. Complete Instagram OAuth: navigate to `https://uygunayakkabi.com/api/auth/instagram/initiate`
-5. Approve the Meta consent screen → callback writes `INSTAGRAM_ACCESS_TOKEN` + `INSTAGRAM_USER_ID` to n8n Variables automatically
-6. Test: activate a product with `instagram` in `channelTargets` → verify `dispatchNotes.publishResult.instagramPostId` appears in admin
-Note: long-lived tokens expire after ~60 days. Repeat step 4 to refresh, or switch to a System User token in Meta Business Suite (no expiry).
+### ~~Blocker 1: Instagram Credentials~~ — RESOLVED ✅ (2026-03-22)
+OAuth completed successfully. Long-lived token stored in Payload CMS `AutomationSettings.instagramTokens`.
+- `INSTAGRAM_USER_ID=43139245629` — set in Vercel env vars + stored in Payload
+- `INSTAGRAM_ACCESS_TOKEN` — stored in Payload CMS (expires 2026-05-20)
+- `INSTAGRAM_APP_ID`, `INSTAGRAM_APP_SECRET`, `INSTAGRAM_PAGE_ID`, `INSTAGRAM_USER_ID` — all set in Vercel
+- NPE page workaround: `INSTAGRAM_USER_ID` env var bypasses `/me/accounts` which returns 0 pages for NPE Facebook Pages
+- **Remaining:** Set `INSTAGRAM_USER_ID` + `INSTAGRAM_ACCESS_TOKEN` as n8n Variables for the publish workflow
+- **Token refresh:** Re-run `https://uygunayakkabi.com/api/auth/instagram/initiate` before 2026-05-20
 
 ### ~~Blocker 2: Mentix VPS Deployment~~ — RESOLVED ✅ (2026-03-17)
 ### ~~Blocker 3: Git push pending~~ — RESOLVED ✅ (2026-03-17)

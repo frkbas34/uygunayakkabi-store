@@ -253,33 +253,53 @@ async function publishFacebookDirectly(
     )
     const pageTokenData = await pageTokenRes.json() as Record<string, unknown>
 
-    if (!pageTokenRes.ok || !pageTokenData.access_token || typeof pageTokenData.access_token !== 'string') {
-      // Step 1 failed — do NOT fall back to user token (it will always fail with code 200).
-      // Surface the exact step 1 response so the dispatch log can diagnose the root cause.
-      const step1Error = pageTokenData.error ?? pageTokenData
-      console.error(
-        `[channelDispatch] Facebook: step 1 (page access token) FAILED for page=${pageId}:`,
-        step1Error,
-      )
-      return {
-        channel: 'facebook', eligible: true, dispatched: false,
-        webhookConfigured: false,
-        error: `Facebook step 1 failed (HTTP ${pageTokenRes.status}): could not obtain page access token`,
-        publishResult: {
-          mode:           'api-error',
-          success:        false,
-          step:           'page-token-exchange',
-          pageId,
-          step1HttpStatus: pageTokenRes.status,
-          step1Response:   JSON.stringify(step1Error).slice(0, 500),
-          timestamp:       new Date().toISOString(),
-        },
-        timestamp,
-      }
-    }
+    // Determine which token to use for the post
+    let pageAccessToken: string
+    let tokenMode: string
 
-    const pageAccessToken = pageTokenData.access_token
-    console.log(`[channelDispatch] Facebook: step 1 ✅ page access token obtained — page="${pageTokenData.name ?? pageId}" id=${pageTokenData.id ?? pageId}`)
+    const step1ErrCode   = (pageTokenData.error as Record<string, unknown> | undefined)?.code
+    const step1ErrSubcode = (pageTokenData.error as Record<string, unknown> | undefined)?.error_subcode
+    const isNPEPage = step1ErrCode === 100 && step1ErrSubcode === 33
+
+    if (!pageTokenRes.ok || !pageTokenData.access_token || typeof pageTokenData.access_token !== 'string') {
+      if (isNPEPage) {
+        // New Pages Experience (NPE) — these pages don't expose access_token via
+        // GET /{page-id}?fields=access_token.  For NPE pages the user access token
+        // with pages_manage_posts scope is the correct credential to use directly.
+        console.log(
+          `[channelDispatch] Facebook: step 1 → NPE page detected (err 100/33). ` +
+          `Falling back to user token with pages_manage_posts for page=${pageId}`,
+        )
+        pageAccessToken = userAccessToken
+        tokenMode = 'user-token-npe'
+      } else {
+        // Some other step 1 failure — surface it for diagnosis
+        const step1Error = pageTokenData.error ?? pageTokenData
+        console.error(
+          `[channelDispatch] Facebook: step 1 FAILED (non-NPE) for page=${pageId}:`,
+          step1Error,
+        )
+        return {
+          channel: 'facebook', eligible: true, dispatched: false,
+          webhookConfigured: false,
+          error: `Facebook step 1 failed (HTTP ${pageTokenRes.status}): could not obtain page access token`,
+          publishResult: {
+            mode:           'api-error',
+            success:        false,
+            step:           'page-token-exchange',
+            pageId,
+            step1HttpStatus: pageTokenRes.status,
+            step1Response:   JSON.stringify(step1Error).slice(0, 500),
+            timestamp:       new Date().toISOString(),
+          },
+          timestamp,
+        }
+      }
+    } else {
+      pageAccessToken = pageTokenData.access_token
+      tokenMode = 'page-token'
+      console.log(`[channelDispatch] Facebook: step 1 ✅ page access token obtained — page="${pageTokenData.name ?? pageId}" id=${pageTokenData.id ?? pageId}`)
+    }
 
     // ── Step 2: Post photo to page feed ───────────────────────────────────────
     const postParams = new URLSearchParams({
@@ -296,13 +316,14 @@ async function publishFacebookDirectly(
 
     const postId = (postData.id ?? postData.post_id) as string | undefined
     if (!postId) {
-      console.error(`[channelDispatch] Facebook post failed:`, postData)
+      console.error(`[channelDispatch] Facebook post failed (tokenMode=${tokenMode}):`, postData)
       return {
         channel: 'facebook', eligible: true, dispatched: false,
         webhookConfigured: false,
         error: `Facebook post failed (HTTP ${postRes.status})`,
         publishResult: {
           mode: 'api-error', success: false,
+          tokenMode,
           apiError: JSON.stringify(postData.error ?? postData),
           apiErrorCode: postData.error ? (postData.error as Record<string, unknown>).code : undefined,
           timestamp: new Date().toISOString(),
@@ -311,14 +332,14 @@ async function publishFacebookDirectly(
       }
     }
 
-    console.log(`[channelDispatch] Facebook direct publish success — product=${payload.productId} postId=${postId}`)
+    console.log(`[channelDispatch] Facebook direct publish success — product=${payload.productId} postId=${postId} tokenMode=${tokenMode}`)
     return {
       channel: 'facebook', eligible: true, dispatched: true,
       webhookConfigured: false,
       responseStatus: 200,
       publishResult: {
         received: true, channel: 'facebook', mode: 'direct',
-        success: true, facebookPostId: postId, pageId,
+        success: true, facebookPostId: postId, pageId, tokenMode,
         mediaUrl: imageUrl, caption: caption.substring(0, 80) + '…',
         timestamp: new Date().toISOString(),
       },

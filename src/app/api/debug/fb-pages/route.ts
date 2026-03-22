@@ -73,6 +73,27 @@ export async function GET(): Promise<NextResponse> {
   )
   businessPages = await bizRes.json()
 
+  // Try to find Facebook Page by IG username (slug lookup)
+  let pageBySlug: unknown = null
+  if (igProbe && typeof (igProbe as Record<string, unknown>).username === 'string') {
+    const slug = (igProbe as Record<string, unknown>).username as string
+    const slugRes = await fetch(
+      `https://graph.facebook.com/v21.0/${slug}?fields=id,name,instagram_business_account,fan_count&access_token=${token}`,
+      { signal: AbortSignal.timeout(10_000) },
+    )
+    pageBySlug = await slugRes.json()
+  }
+
+  // Try looking up the current env page ID with the token's available fields
+  let envPageProbe: unknown = null
+  {
+    const epRes = await fetch(
+      `https://graph.facebook.com/v21.0/${process.env.INSTAGRAM_PAGE_ID ?? '0'}?fields=id,name,fan_count&access_token=${token}`,
+      { signal: AbortSignal.timeout(10_000) },
+    )
+    envPageProbe = await epRes.json()
+  }
+
   return NextResponse.json({
     me: meData,
     pages_via_me_accounts: data,
@@ -80,6 +101,8 @@ export async function GET(): Promise<NextResponse> {
     ig_probe: igProbe,
     ig_linked_page: igLinkedPage,
     business_pages: businessPages,
+    page_by_ig_slug: pageBySlug,
+    env_page_id_probe: envPageProbe,
     igUserId: igUserId ?? '(not set)',
     currentEnvPageId: process.env.INSTAGRAM_PAGE_ID ?? '(not set)',
   })

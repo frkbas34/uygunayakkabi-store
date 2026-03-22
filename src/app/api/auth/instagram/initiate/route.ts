@@ -21,6 +21,7 @@
  *   instagram_content_publish   — publish media to the connected Business account
  *   pages_show_list             — list Facebook Pages (required to find the linked Page)
  *   pages_read_engagement       — read Page engagement (required for token validation)
+ *   pages_manage_posts          — create posts and upload photos to Facebook Pages
  *
  * CSRF protection:
  *   state = 32-byte cryptographically random hex string
@@ -59,6 +60,7 @@ export async function GET(): Promise<NextResponse> {
     'instagram_content_publish',
     'pages_show_list',
     'pages_read_engagement',
+    'pages_manage_posts',
   ].join(','))
   oauthUrl.searchParams.set('response_type', 'code')
   oauthUrl.searchParams.set('state', state)

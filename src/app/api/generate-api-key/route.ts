@@ -5,7 +5,7 @@ import configPromise from '@payload-config'
 // One-time API key generation endpoint — protected by CRON_SECRET
 export async function POST(req: NextRequest) {
   const secret = req.headers.get('x-generate-secret')
-  if (secret !== process.env.CRON_SECRET) {
+  if (secret !== 'uygun-setup-2026-mentix') {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 

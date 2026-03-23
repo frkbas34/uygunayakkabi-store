@@ -287,7 +287,7 @@ async function buildShopierProductBody(
 
   const body: ShopierCreateProductBody = {
     title,
-    description: (product.description as string | undefined) ?? '',
+    description: (product.description as string | undefined) || (title + ' — UygunAyakkabı'),
     type: 'physical',
     media,
     priceData: {

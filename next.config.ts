@@ -17,3 +17,4 @@ const nextConfig: NextConfig = {
 };
 
 export default withPayload(nextConfig);
+// build-bust: 20a7de4 categoryId fix

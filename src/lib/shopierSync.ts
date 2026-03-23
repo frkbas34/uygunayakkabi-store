@@ -255,7 +255,7 @@ async function resolveShopierCategories(
   const catId = await ensureCategory(localCategory)
   if (!catId) return []
 
-  return [{ id: catId }]
+  return [{ categoryId: catId }]
 }
 
 /**

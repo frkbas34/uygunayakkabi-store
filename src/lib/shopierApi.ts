@@ -44,7 +44,7 @@ export interface ShopierVariantInput {
 }
 
 export interface ShopierCategoryRef {
-  id: string
+  categoryId: string
 }
 
 export interface ShopierOptionInput {

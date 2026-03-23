@@ -45,16 +45,18 @@ export async function POST(req: NextRequest) {
     )
 
     // ── 2. Verify signature ───────────────────────────────────────────────────
-    const webhookToken = process.env.SHOPIER_WEBHOOK_TOKEN
-    if (webhookToken) {
-      const expectedHash = crypto
-        .createHmac('sha256', webhookToken)
-        .update(JSON.stringify(body)) // Shopier signs JSON.stringify(body)
-        .digest('hex')
-
-      if (expectedHash !== shopierSignature) {
+    // SHOPIER_WEBHOOK_TOKEN may be a single token or comma-separated list
+    // (each webhook registration returns its own token, so we try all of them)
+    const webhookTokenEnv = process.env.SHOPIER_WEBHOOK_TOKEN
+    if (webhookTokenEnv) {
+      const tokens = webhookTokenEnv.split(',').map((t) => t.trim()).filter(Boolean)
+      const bodyStr = JSON.stringify(body)
+      const signatureValid = tokens.some((tok) =>
+        crypto.createHmac('sha256', tok).update(bodyStr).digest('hex') === shopierSignature,
+      )
+      if (!signatureValid) {
         console.warn(
-          `[webhook/shopier] signature mismatch — expected=${expectedHash.slice(0, 16)}... ` +
+          `[webhook/shopier] signature mismatch — tried ${tokens.length} token(s), ` +
             `received=${shopierSignature.slice(0, 16)}...`,
         )
         return NextResponse.json({ error: 'Invalid signature' }, { status: 401 })

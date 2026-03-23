@@ -248,14 +248,30 @@ async function buildShopierVariants(
  */
 async function resolveShopierCategories(
   product: Record<string, unknown>,
-): Promise<Array<{ id: string }>> {
+): Promise<Array<{ categoryId: string }>> {
   const localCategory = product.category as string | undefined
-  if (!localCategory) return []
+  const mappings = await getShopierMappings()
 
-  const catId = await ensureCategory(localCategory)
-  if (!catId) return []
+  // Try exact match first
+  if (localCategory) {
+    const catId = mappings.categories.get(localCategory)
+    if (catId) return [{ categoryId: catId }]
+  }
 
-  return [{ categoryId: catId }]
+  // Fall back to first available Shopier category (store has one: Günlük)
+  const firstCatId = [...mappings.categories.values()][0]
+  if (firstCatId) {
+    console.warn(`[shopierSync] category "${localCategory}" not matched, using first available: ${firstCatId}`)
+    return [{ categoryId: firstCatId }]
+  }
+
+  // Last resort: ensure/create category by title
+  if (localCategory) {
+    const catId = await ensureCategory(localCategory)
+    if (catId) return [{ categoryId: catId }]
+  }
+
+  return []
 }
 
 /**

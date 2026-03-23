@@ -42,6 +42,7 @@ export const InventoryLogs: CollectionConfig = {
         { label: 'Telegram', value: 'telegram' },
         { label: 'Admin', value: 'admin' },
         { label: 'System', value: 'system' },
+        { label: '🛍️ Shopier', value: 'shopier' },
       ],
       admin: { position: 'sidebar' },
     },

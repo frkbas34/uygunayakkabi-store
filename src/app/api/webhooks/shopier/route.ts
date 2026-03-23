@@ -228,6 +228,9 @@ async function handleOrderCreated(
     })
 
     console.log(`[webhook/shopier] order.created — Payload Order created for shopierOrderId=${shopierOrderId}`)
+
+    // ── Stock decrement + InventoryLog per item ────────────────────────────
+    await decrementStockForOrder(payload, items, shopierOrderId)
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err)
     console.error(`[webhook/shopier] order.created — failed to create Payload Order: ${msg}`)
@@ -344,6 +347,70 @@ async function handleRefundUpdated(
     await sendTelegramNotification(telegramChatId, telegramMsg)
   }
   console.log(`[webhook/shopier] refund.updated — refundId=${refundId} status=${refundStatus}`)
+}
+
+// ── Stock decrement + InventoryLog per order item ────────────────────────────
+
+async function decrementStockForOrder(
+  payload: Awaited<ReturnType<typeof getPayload>>,
+  items: Array<Record<string, unknown>>,
+  shopierOrderId: string,
+): Promise<void> {
+  for (const item of items) {
+    const shopierProductId = item.id ? String(item.id) : null
+    const qty = (item.quantity as number) ?? 1
+    const size = (item.selectedOptions as string) ?? 'N/A'
+
+    if (!shopierProductId) continue
+
+    try {
+      // Find local product by Shopier product ID
+      const productMatch = await payload.find({
+        collection: 'products',
+        where: { 'sourceMeta.shopierProductId': { equals: shopierProductId } },
+        limit: 1,
+      })
+
+      if (productMatch.docs.length === 0) {
+        console.warn(`[webhook/shopier] stock — no local product for shopierProductId=${shopierProductId}`)
+        continue
+      }
+
+      const product = productMatch.docs[0]
+      const productId = product.id as number
+      const sku = (product.sku as string) ?? `shopier-${shopierProductId}`
+      const currentStock = (product.stockQuantity as number) ?? 0
+      const newStock = Math.max(0, currentStock - qty)
+
+      // Decrement stock
+      await payload.update({
+        collection: 'products',
+        id: productId,
+        data: { stockQuantity: newStock },
+      })
+
+      // Create InventoryLog entry
+      await payload.create({
+        collection: 'inventory-logs',
+        data: {
+          sku,
+          size,
+          change: -qty,
+          reason: `Shopier sipariş: ${shopierOrderId}`,
+          source: 'shopier',
+          timestamp: new Date().toISOString(),
+        },
+      })
+
+      console.log(
+        `[webhook/shopier] stock — product ${productId} (${sku}) ` +
+          `stock: ${currentStock} → ${newStock} (−${qty}), InventoryLog created`,
+      )
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      console.error(`[webhook/shopier] stock — failed for shopierProductId=${shopierProductId}: ${msg}`)
+    }
+  }
 }
 
 // ── Telegram notification helper ────────────────────────────────────────────

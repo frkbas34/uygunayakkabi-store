@@ -1,7 +1,8 @@
 # Admin → Storefront Product Visibility Debug Guide
 
 _Created: 2026-03-13_
-_Trigger: User confirmed products uploaded via admin panel not appearing on storefront_
+_Status: ⚠️ RESOLVED — Issue fixed 2026-03-13. Kept as historical reference only._
+_The admin→storefront pipeline has been validated and is working as of 2026-03-13._
 
 ---
 

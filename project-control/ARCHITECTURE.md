@@ -1,6 +1,6 @@
 # ARCHITECTURE — Uygunayakkabi
 
-_Last updated: 2026-03-18 (Step 16 complete — real Instagram Graph API publish workflow + publishResult write-back chain)_
+_Last updated: 2026-03-23 (Consolidated — Steps 1-19 complete, Instagram+Facebook direct publish live)_
 
 ## High-Level Overview
 Uygunayakkabi is a **Telegram-first, AI-assisted, multi-channel commerce engine** with integrated content generation, visual expansion, and future try-on capabilities. It is not a simple storefront — it is a central product management system that publishes to multiple channels (website, Instagram, Shopier, Dolap) from a single source of truth (Payload CMS).
@@ -76,6 +76,10 @@ src/
 │       │   │                         #   Returns: { status: "duplicate" } if already exists
 │       │   └── attach-media/route.ts # POST — downloads Telegram file, uploads to Payload media, links to product
 │       │                             #   Steps: getFile API → binary download → payload.create(media) → payload.update(product.images)
+│       └── auth/
+│           └── instagram/
+│               ├── initiate/route.ts  # Starts Meta OAuth flow
+│               └── callback/route.ts  # Multi-step token exchange + store in AutomationSettings
 ├── collections/                  # 11 Payload collections (BlogPosts added 2026-03-15)
 │   ├── Products.ts               # Fully rewritten 2026-03-11:
 │   │                             #   beforeValidate: auto-slug (always), auto-SKU (if empty)
@@ -111,14 +115,17 @@ src/
 │   │                            #   resolveChannelTargets: global capability ∩ product intent
 │   │                            #   resolveContentDecision: blog/image/tryon intent flags
 │   │                            #   fetchAutomationSettings: safe Payload global fetch
-│   └── channelDispatch.ts      # Step 13: Channel adapter scaffolding
+│   └── channelDispatch.ts      # Step 13: Channel adapter scaffolding (Steps 1-19 expanded)
 │                                #   ChannelDispatchPayload (adapter contract)
 │                                #   evaluateChannelEligibility: global ∩ product intent (3-gate)
 │                                #   buildDispatchPayload: structured n8n webhook body
 │                                #   dispatchToChannel: POST to n8n or scaffold log
 │                                #   buildChannelWebhookUrl: reads N8N_CHANNEL_*_WEBHOOK
-│                                #   dispatchToChannel: now parses response body → publishResult (Step 16)
+│                                #   dispatchToChannel: parses response body → publishResult (Step 16)
 │                                #   dispatchProductToChannels: orchestrator (afterChange entry point)
+│                                #   publishInstagramDirectly() — 3-step direct Graph API publish (container → wait → publish)
+│                                #   publishFacebookDirectly() — Page Access Token exchange → photo post
+│                                #   buildInstagramCaption() — mirrors n8n caption builder
 └── styles/
 
 n8n-workflows/                   # Steps 14+16: n8n workflow assets (VCS-tracked, importable to n8n)
@@ -163,6 +170,20 @@ n8n-workflows/                   # Steps 14+16: n8n workflow assets (VCS-tracked
 3. Hook queries all variants where `variant.product = id` → sets each to `product: null`
 4. Hook queries all media where `media.product = id` → sets each to `product: null`
 5. Product deletion proceeds without FK constraint violation
+
+### Instagram/Facebook Publish Flow
+1. Product activated (status → active) or forceRedispatch checkbox ticked
+2. afterChange hook on Products triggers `dispatchProductToChannels()`
+3. Instagram: if instagramTokens present + valid https:// image → `publishInstagramDirectly()`
+   - Direct Graph API call (bypasses n8n)
+   - 3-step: create container → wait for processing → publish
+   - Caption built via `buildInstagramCaption()` (mirrors n8n logic)
+   - Result written to sourceMeta.dispatchNotes with publishResult (post ID, permalink, errors)
+4. Facebook: if facebookPageId present → `publishFacebookDirectly()`
+   - Page Access Token exchange
+   - Photo post via graph.facebook.com/{pageId}/photos
+   - Result written to sourceMeta.dispatchNotes with publishResult
+5. Fallback: n8n webhook if tokens absent (legacy behavior preserved)
 
 ### Slug & SKU Auto-Generation Flow
 1. Admin saves a product
@@ -219,7 +240,7 @@ n8n-workflows/                   # Steps 14+16: n8n workflow assets (VCS-tracked
 - SSL fix, reverse media lookup, debug logs removed
 - End-to-end pipeline validated: admin product → storefront confirmed working
 
-### Phase 2A — Controlled Product Intake (STEPS 1–15 COMPLETE ✅ — 2026-03-16)
+### Phase 2A — Controlled Product Intake (STEPS 1–19 COMPLETE ✅ — 2026-03-23)
 - VPS: Docker + Caddy + n8n + OpenClaw all running, Docker network persistent
 - Security rotation complete, Telegram group allowlist active
 - **Live flow**: Telegram mention → OpenClaw mentix-intake skill → curl n8n webhook → Parse Fields → POST /api/automation/products → Neon DB draft → Has Media? → POST /api/automation/attach-media → product.images updated
@@ -232,14 +253,18 @@ n8n-workflows/                   # Steps 14+16: n8n workflow assets (VCS-tracked
 - **Step 14**: n8n stub workflow JSON files (channel-instagram/shopier/dolap), CHANNEL_DISPATCH_CONTRACT.md, ReviewPanel dispatch status section (per-channel result rows), forceRedispatch checkbox (manual re-dispatch, auto-reset), afterChange hook updated for forceRedispatch trigger
 - **Step 15**: Verification pass — env var naming confirmed consistent, `extractMediaUrls()` fixed (relative → absolute URLs using NEXT_PUBLIC_SERVER_URL), `.env.example` updated with all Phase 2 vars, `E2E_TEST_CHECKLIST.md` created (120-line runbook), CHANNEL_DISPATCH_CONTRACT.md extended with media URL behavior + known limitations table
 - **Step 16**: Real Instagram integration — `channel-instagram-real.json` (13-node Graph API v21.0 workflow: bypass → creds check → caption build → create container → wait → publish → structured response), `ChannelDispatchResult.publishResult` field added, `dispatchToChannel()` parses response body, Products.ts write-back includes `publishResult`, ReviewPanel shows post ID + permalink + error states. Shopier/Dolap remain scaffold-only.
-- **Next**: Step 17 — Instagram carousel posts (multi-image) OR Instagram token management + monitoring
+- **Step 17**: Instagram OAuth token exchange — `initiate/route.ts` + `callback/route.ts` (src/app/api/auth/instagram/), long-lived token acquisition, NPE bypass protocol, token storage in AutomationSettings global
+- **Step 18**: Instagram direct publish — bypass n8n, `publishInstagramDirectly()` in channelDispatch.ts, 3-step workflow (create container → wait for processing → publish), caption builder mirrors n8n logic
+- **Step 19**: Facebook Page direct publish — `publishFacebookDirectly()` in channelDispatch.ts, Page Access Token exchange, correct page ID discovery via graph.facebook.com/me/accounts
+- **Step 20**: Shopier product sync — `src/lib/shopierApi.ts` (REST v1 client, Bearer JWT), `src/lib/shopierSync.ts` (Payload jobs queue), `src/app/api/webhooks/shopier/route.ts` (HMAC-SHA256 multi-token verification), `src/app/api/payload-jobs/run/route.ts` (jobs runner). GitHub Actions cron every 5 min (`process-jobs.yml`). 4 webhooks registered (order.created, order.fulfilled, refund.requested, refund.updated). Smoke test: Product 11 → Shopier ID `45456186` ✅. `payload_jobs` table + `source_meta_shopier_*` columns created manually in Neon. Shopier PAT expires 2031-03-23.
 
-### Phase 2B — Multi-Channel Distribution (PLANNED)
-- Website publish (native — already works via active status)
-- Instagram adapter (Graph API)
-- Shopier adapter (listing sync)
-- Dolap adapter (listing sync)
-- Per-channel independent toggles
+### Phase 2B — Multi-Channel Distribution (PARTIALLY LIVE ✅ — 2026-03-23)
+- Website publish (native — already works via active status) ✅
+- Instagram adapter (Graph API — LIVE, bypasses n8n via publishInstagramDirectly) ✅
+- Facebook Page adapter (LIVE, publishFacebookDirectly) ✅
+- **Shopier adapter (LIVE — Step 20, non-blocking jobs queue, 5-min GitHub Actions cron)** ✅
+- Dolap adapter (listing sync — PLANNED, API research needed)
+- Per-channel independent toggles ✅
 
 ### Phase 2C — Content Growth Layer (PLANNED)
 - BlogPosts collection with AI/admin source tracking
@@ -338,5 +363,6 @@ Content Engine (if active + generateBlog):
 - Next.js **16.2.0-canary.81** — do not downgrade (Payload 3.x incompatible with 15.5–16.1.x)
 - importMap must be manually maintained (no generate:importmap in Linux VM)
 - `push: true` in DB adapter — safe for dev, switch to migrations before Phase 2 hardening
+- `push: true` does NOT run in production (NODE_ENV=production guard in connect.js)
 - `<img>` tags only — next/image blocked by remotePatterns for dynamic Blob/Unsplash URLs
 - SSL via pool options only — not in DATABASE_URI string (pg-connection-string deprecation)

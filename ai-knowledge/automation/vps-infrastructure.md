@@ -1,6 +1,7 @@
 # VPS Infrastructure Reference
 
 _Created: 2026-03-14_
+_Updated: 2026-03-23 — Docker network persistence now resolved. Mentix v2 (13 skills) deployed._
 _Purpose: Reusable reference for the Netcup VPS automation stack_
 
 ---

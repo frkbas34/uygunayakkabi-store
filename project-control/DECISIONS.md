@@ -664,36 +664,26 @@ beforeDelete: [async ({ req, id }) => {
 
 ---
 
-## D-052 — Media Collection Requires Public Read Access
+## D-090 — Media Collection Requires Public Read Access
 **Decision:** The Media collection must have `access: { read: () => true }` to allow unauthenticated visitors to view product images.
-**Reason:** Payload CMS defaults to requiring authentication for all collection operations. Without explicit public read access, all image URLs served via `/api/media/file/...` return 403 for storefront visitors. The issue was masked during development because the developer was logged into the admin panel (browser had session cookie).
+**Reason:** Payload CMS defaults to requiring authentication for all collection operations. Without explicit public read access, all image URLs served via `/api/media/file/...` return 403 for storefront visitors.
 **Implementation:** Added `access: { read: () => true }` to `src/collections/Media.ts`.
-**Lesson:** Any collection whose data must be publicly accessible (media, products via API, etc.) needs explicit `read: () => true` in its access config.
+**Lesson:** Any collection whose data must be publicly accessible needs explicit `read: () => true`.
 **Status:** ACTIVE — FIXED 2026-03-11
+**Note:** Originally mislabeled as D-052 (ID collision). Renumbered 2026-03-23.
 
 ---
 
-## D-053 — Always Upload Media via Production Admin for Multi-PC Workflows
+## D-091 — Always Upload Media via Production Admin for Multi-PC Workflows
 **Decision:** When developing across multiple PCs, always upload product images through the **production admin** (`uygunayakkabi.com/admin`), never through local dev (`localhost:3000/admin`).
-**Reason:** Local uploads go to `public/media/` on the local filesystem, which is not synced between machines or to production. Production uploads go to Vercel Blob Storage, which is cloud-hosted and accessible from anywhere.
-**Diagnostic:** If image URLs in the DB are `/api/media/file/...` → uploaded locally. If URLs are `https://...blob.vercel-storage.com/...` → uploaded via production (correct).
+**Reason:** Local uploads go to `public/media/` on the local filesystem. Production uploads go to Vercel Blob Storage.
+**Diagnostic:** `/api/media/file/...` = local (wrong). `https://...blob.vercel-storage.com/...` = production (correct).
 **Status:** ACTIVE — OPERATIONAL RULE
+**Note:** Originally mislabeled as D-053 (ID collision). Renumbered 2026-03-23.
 
 ---
 
-## D-054 — Product Family Architecture (Beyond Shoes)
-**Decision:** Products are no longer exclusively shoes. The system must support multiple product families (shoes, wallets, bags, accessories, etc.) without breaking the existing shoe-centric UI or data.
-**Implementation:** Add `productFamily` (select: shoes, wallets, bags, accessories) and `productType` (text, free-form: sneaker, boot, loafer, bifold, cardholder, etc.) as new additive fields. The existing `category` select field is preserved as-is for backward compatibility with the current storefront filtering.
-**Rule:** Do NOT replace or remove the existing `category` field. New fields are additive.
-**Status:** ACTIVE
-
----
-
-## D-055 — Multi-Channel Publishing Toggles
-**Decision:** Products must have per-channel publish controls. Each channel (website, Instagram, Shopier, Dolap) gets an independent toggle.
-**Implementation:** Add a `channels` group on Products with checkbox fields: `publishWebsite` (default true), `publishInstagram`, `publishShopier`, `publishDolap`. The existing `postToInstagram` field is superseded by `channels.publishInstagram` but kept for backward compatibility.
-**Reason:** The business needs fine-grained control over which channels each product is published to. Automation should set these flags; admin can override.
-**Status:** ACTIVE
+_D-054 (duplicate) and D-055 (duplicate) removed 2026-03-23 — content already covered by D-054 (Multi-Channel Toggles) and D-055 (Product Family Architecture) in the canonical sequence above._
 
 ---
 
@@ -728,22 +718,6 @@ beforeDelete: [async ({ req, id }) => {
 
 ---
 
-## D-062 — OpenClaw → n8n Transport: exec + curl via Internal Docker Network
-**Decision:** OpenClaw forwards product intake data to n8n using its native `exec` tool to run `curl`, targeting n8n directly via the internal Docker network (`http://n8n:5678/webhook/mentix-intake`), not via the public Caddy URL.
-**Implementation:**
-- Transport: `exec` tool → `curl -X POST http://n8n:5678/webhook/mentix-intake`
-- Internal path avoids TLS overhead and Caddy dependency; ~8ms round-trip confirmed
-- n8n workflow: `Mentix Intake Webhook` (ID: `WOv8kRkN00Jo8g2D`) — Webhook → Parse Fields → Respond to Webhook
-- OpenClaw skill: `/home/furkan/.openclaw/skills/mentix-intake/SKILL.md` (mounted into container)
-- `skills.load.watch: true` — file edits reload the skill without container restart
-- n8n activation done via direct SQLite writes (workflow_entity.activeVersionId + workflow_published_version) because `n8n import:workflow` deactivates imported workflows by default
-**Payload schema v1.0 fields:** `schema_version`, `source`, `intent`, `telegram.{user_id, chat_id, chat_type, message_id, username}`, `message.{text, has_media, media_file_id, media_type}`, `parsed.{title, stock_code, price, quantity, notes}`, `timestamp`, `session_id`
-**Validated:** curl from inside OpenClaw container → n8n → 200 `{"status":"received"}` ✅ (exec #5, 8ms)
-**Validated:** Full chain confirmed working — real Telegram group @mention → skill triggers → exec curl → n8n → Payload draft product ✅ (2026-03-15)
-**Status:** ACTIVE — full pipeline proven end-to-end
-
----
-
 ## D-061 — Telegram Group Access Policy: Restricted Allowlist + Mention-Only
 **Decision:** Enable OpenClaw group messaging for a limited allowlist of approved Telegram user IDs, with mention-only response behavior in groups. DM behavior unchanged.
 **Implementation:**
@@ -761,10 +735,27 @@ beforeDelete: [async ({ req, id }) => {
 
 ---
 
-## D-060 — Try-On Is UX Layer Only
+## D-062 — OpenClaw → n8n Transport: exec + curl via Internal Docker Network
+**Decision:** OpenClaw forwards product intake data to n8n using its native `exec` tool to run `curl`, targeting n8n directly via the internal Docker network (`http://n8n:5678/webhook/mentix-intake`), not via the public Caddy URL.
+**Implementation:**
+- Transport: `exec` tool → `curl -X POST http://n8n:5678/webhook/mentix-intake`
+- Internal path avoids TLS overhead and Caddy dependency; ~8ms round-trip confirmed
+- n8n workflow: `Mentix Intake Webhook` (ID: `WOv8kRkN00Jo8g2D`) — Webhook → Parse Fields → Respond to Webhook
+- OpenClaw skill: `/home/furkan/.openclaw/skills/mentix-intake/SKILL.md` (mounted into container)
+- `skills.load.watch: true` — file edits reload the skill without container restart
+- n8n activation done via direct SQLite writes (workflow_entity.activeVersionId + workflow_published_version) because `n8n import:workflow` deactivates imported workflows by default
+**Payload schema v1.0 fields:** `schema_version`, `source`, `intent`, `telegram.{user_id, chat_id, chat_type, message_id, username}`, `message.{text, has_media, media_file_id, media_type}`, `parsed.{title, stock_code, price, quantity, notes}`, `timestamp`, `session_id`
+**Validated:** curl from inside OpenClaw container → n8n → 200 `{"status":"received"}` ✅ (exec #5, 8ms)
+**Validated:** Full chain confirmed working — real Telegram group @mention → skill triggers → exec curl → n8n → Payload draft product ✅ (2026-03-15)
+**Status:** ACTIVE — full pipeline proven end-to-end
+
+---
+
+## D-093 — Try-On Is UX Layer Only
 **Decision:** The future try-on system is a frontend UX feature on product pages. It does not affect the product data model, media pipeline, or catalog source images.
 **Implementation:** When ready, add a client-side component that loads on product detail pages. No new collections or fields needed now.
 **Status:** PLANNED — No implementation yet
+**Note:** Originally D-060 (ID collision), briefly D-087 (also taken). Renumbered to D-093 on 2026-03-23.
 
 ---
 

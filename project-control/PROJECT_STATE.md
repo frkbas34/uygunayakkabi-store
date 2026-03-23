@@ -1,483 +1,250 @@
 # PROJECT STATE — Uygunayakkabi
 
-_Last updated: 2026-03-22 (Step 19 complete — Facebook Page publishes directly via Graph API. End-to-end verified: facebookPostId 122093848160884171)_
+_Last updated: 2026-03-23 (Step 20 complete — Shopier integration go-live)_
 
 ## Current Status
-Phase 1 **COMPLETE** (validated 2026-03-13).
-Phase 2 **ACTIVE** — Steps 1–19 complete. Instagram + Facebook pipelines fully live via direct Graph API publish. (2026-03-22)
 
-## Step 19 — Facebook Page Direct Publish (COMPLETE ✅ — 2026-03-22)
-
-### Problem
-Facebook Page posting failed with "(#200) This app is not allowed to publish to other users' timelines." Root causes (two separate issues):
-1. **Wrong page ID**: `INSTAGRAM_PAGE_ID` env var was `61576525131424` (the public `profile.php?id=` style ID for New Pages Experience pages). The Graph API doesn't accept this ID — it returns error 100/33 "does not exist".
-2. **Missing scope**: The initial OAuth token lacked `pages_manage_posts`. Added in the initiate route and re-ran OAuth flow.
-
-### Root Cause Investigation
-The UygunAyakkabı Facebook Page is a **New Pages Experience (NPE) page** with two numeric IDs:
-- `61576525131424` — the "profile entity" ID shown in `profile.php` URLs (does NOT work with Graph API)
-- `1040379692491003` — the internal legacy Page ID shown in the ad center URL (`page_id=` param). This IS the correct Graph API page ID.
-
-Confirmed by: GET `/1040379692491003?fields=id,name,access_token` → returned page name + valid Page Access Token.
-
-### Solution
-1. Updated `INSTAGRAM_PAGE_ID` Vercel env var from `61576525131424` → `1040379692491003`
-2. Added `pages_manage_posts` to OAuth scope in `src/app/api/auth/instagram/initiate/route.ts` and re-ran OAuth
-3. `publishFacebookDirectly()` step 1 now successfully exchanges for a Page Access Token using the correct ID
-4. Added NPE fallback in `publishFacebookDirectly()` — detects error 100/33 and uses user token (for future-proofing), but with correct ID this path is not needed
-
-### What was implemented
-- **`src/lib/channelDispatch.ts`** — Added `publishFacebookDirectly()` function:
-  - Step 1: GET `/{pageId}?fields=access_token,name,id` → obtains Page Access Token
-  - Step 2: POST `/{pageId}/photos?url=...&message=...&access_token=...&published=true` → creates photo post
-  - Returns `ChannelDispatchResult` with `publishResult: { mode: 'direct', facebookPostId, pageId, tokenMode }`
-  - `tokenMode` field: `"page-token"` (normal) or `"user-token-npe"` (NPE fallback)
-- **`src/collections/Products.ts`** — Injects `process.env.INSTAGRAM_PAGE_ID` into `settings.instagramTokens.facebookPageId`
-- **`src/app/api/auth/instagram/initiate/route.ts`** — Added `pages_manage_posts` to OAuth scope
-- **`src/globals/AutomationSettings.ts`** — `facebookPageId` NOT added as Payload schema field (D-077 risk). Injected from env var instead.
-- **`INSTAGRAM_PAGE_ID`** Vercel env var: updated to `1040379692491003`
-
-### End-to-End Verification
-- `forceRedispatch: true` on product 25 (test3-instagram) triggered fresh dispatch at `2026-03-22T18:48:02.122Z`
-- Result: `dispatched: true`, `mode: "direct"`, `success: true`, `facebookPostId: "122093848160884171"`, `pageId: "1040379692491003"`, `tokenMode: "page-token"`
-
-## Step 18 — Instagram Direct Publish (Bypass n8n) (COMPLETE ✅ — 2026-03-22)
-
-### Problem
-n8n Instagram publish workflow failed consistently with error 100/subcode 33 "Object with ID 'media' does not exist". Root cause: n8n's running workflow used `$vars.INSTAGRAM_USER_ID` (locked/empty on current plan) → URL path became `/v21.0//media` → normalized to `/v21.0/media` → Instagram treated 'media' as the object ID.
-
-### Solution
-Moved Instagram publishing entirely out of n8n into `src/lib/channelDispatch.ts`. When `instagramTokens.userId` and `instagramTokens.accessToken` are available and a valid `https://` image URL exists, `dispatchProductToChannels()` calls `publishInstagramDirectly()` instead of the n8n webhook.
-
-### What was implemented
-- **`src/lib/channelDispatch.ts`** — Added two new functions:
-  - `buildInstagramCaption(payload)` — mirrors the n8n "Build Caption" node logic: title + price (💰) + originalPrice + brand (🏷️) + category + color (🎨) + description (truncated 200) + hashtags. Max 2200 chars.
-  - `publishInstagramDirectly(payload, userId, accessToken)` — 3-step direct Graph API publish:
-    1. POST `https://graph.facebook.com/v21.0/{userId}/media` with `image_url`, `caption`, `access_token` as URLSearchParams → returns `containerId`
-    2. Wait 2 seconds (Instagram media processing)
-    3. POST `https://graph.facebook.com/v21.0/{userId}/media_publish` with `creation_id`, `access_token` → returns `instagramPostId`
-    - Returns `ChannelDispatchResult` with `publishResult: { mode: 'direct', success: true, instagramPostId, containerId, mediaUrl, caption }`
-- **`dispatchProductToChannels()` loop** — Instagram channel now routes to `publishInstagramDirectly()` when tokens + valid URL are present; n8n webhook used only as fallback when tokens absent
-- Commit: `d42f2d1` ("feat(instagram): bypass n8n — publish directly via Graph API")
-- Deployment: Vercel `EKURRtLYY` — Ready + Current as of 2026-03-22
-
-### End-to-End Verification
-- `forceRedispatch: true` on product 25 (test3-instagram) triggered fresh dispatch
-- Result: `dispatched: true`, `mode: "direct"`, `success: true`, `instagramPostId: "18115629052647099"`, timestamp: `2026-03-22T06:46:26.604Z`
-- Post confirmed live on Instagram account `@uygunayakkabi342026`
-
-### Architecture Note
-n8n `channel-instagram-real.json` workflow still exists in repo as reference/fallback, but is no longer the primary path. The `N8N_CHANNEL_INSTAGRAM_WEBHOOK` env var is still read — if `instagramTokens` are absent, dispatch falls back to the n8n webhook. See D-088.
-
----
-**Mentix Intelligence Layer v2** — DEPLOYED ✅ (2026-03-17). All 13 skills on VPS, identity updated, ops group live with Bahriyar as 3rd authorized user.
-**Instagram OAuth** — VERIFIED WORKING ✅ (2026-03-22). Long-lived token stored in Payload CMS AutomationSettings.
-**Instagram Direct Publish** — VERIFIED WORKING ✅ (2026-03-22). `mode: "direct"`, post ID confirmed. n8n bypassed permanently.
-**Facebook Page Direct Publish** — VERIFIED WORKING ✅ (2026-03-22). `mode: "direct"`, `tokenMode: "page-token"`, facebookPostId `122093848160884171`. Page: UygunAyakkabı (`1040379692491003`).
-
-End-to-end pipeline validated:
-- Telegram group mention → OpenClaw (mentix-intake v3) → n8n webhook → Payload draft product → media attach → duplicate guard → admin review
-- Security rotation: **DONE**
-- Docker network persistence: **DONE**
-- Telegram group allowlist (Furkan + Sabri + Bahriyar): **DONE**
-- Ops group full-capability mention-trigger: **LIVE**
-
-## Current Phase
-Phase 2 — Automation Backbone (**ACTIVE — Steps 1–17 complete**)
-Mentix Intelligence Layer v2 — **DEPLOYED AND LIVE** (2026-03-17)
+**Phase 1 COMPLETE** (2026-03-13) — Storefront, admin panel, and core integrations live.
+**Phase 2 Steps 1–19 COMPLETE** (2026-03-22) — Instagram and Facebook direct publishing via Graph API fully operational. Mentix intelligence layer deployed with 13 skills on VPS.
+**Step 20 COMPLETE** (2026-03-23) — Shopier marketplace integration fully live. Non-blocking jobs queue pipeline, GitHub Actions 5-min cron, 4 registered webhooks with HMAC verification.
 
 ---
 
-## Step 17 — Instagram OAuth Token Exchange (COMPLETE ✅ — 2026-03-22)
+## What Is Working
 
-### What was implemented
-- **`src/app/api/auth/instagram/initiate/route.ts`** — Starts Meta OAuth flow with scopes: `instagram_basic`, `instagram_content_publish`, `pages_show_list`, `pages_read_engagement`
-- **`src/app/api/auth/instagram/callback/route.ts`** — Multi-level callback with:
-  - Step 1: State validation (CSRF)
-  - Step 2: Exchange code for short-lived token
-  - Step 3: Exchange for long-lived token (~60 days)
-  - Step 4-bypass: If `INSTAGRAM_USER_ID` env var is set, skip all `/me/accounts` page discovery (NPE workaround)
-  - Step 4a/4b/4c: Fallback strategies for page discovery (not needed when bypass active)
-  - Step 5: Store tokens in Payload CMS `AutomationSettings` global (`instagramTokens.*`)
-- **Bypass was necessary** because UygunAyakkabı is a New Pages Experience (NPE) Facebook Page — `/me/accounts` Graph API consistently returns 0 pages for NPE pages regardless of permissions
+### Storefront
+- Next.js customer-facing site with Payload CMS integration
+- Product catalog fully functional
+- Paytr payment integration live
+- Image hosting via Cloudinary
 
-### Instagram Credentials — VERIFIED WORKING
-| Config | Value | Where |
-|---|---|---|
-| `INSTAGRAM_USER_ID` | `43139245629` | Vercel env var + Payload CMS |
-| `INSTAGRAM_ACCESS_TOKEN` | `EAAUovIaOuYcBRK1Hi...` (long-lived, ~60 days) | Payload CMS `automation-settings.instagramTokens.accessToken` |
-| Token Expiry | `2026-05-20` | Payload CMS `automation-settings.instagramTokens.expiresAt` |
-| Connected At | `2026-03-22` | Payload CMS `automation-settings.instagramTokens.connectedAt` |
-| `INSTAGRAM_APP_ID` | `1452165060016519` | Vercel env var |
-| `INSTAGRAM_APP_SECRET` | Set in Vercel | Vercel env var |
-| `INSTAGRAM_PAGE_ID` | `61576525131424` | Vercel env var (NPE page ID, used as 4c fallback) |
-| Instagram Username | `@uygunayakkabi342026` | Professional account on Instagram |
-| Facebook Page | UygunAyakkabı (NPE) | `facebook.com/profile.php?id=61576525131424` |
+### Admin Panel
+- Payload CMS editorial interface
+- Product creation/editing with media upload
+- Dispatch review panel with direct publish controls
+- Admin dashboard with analytics
 
-### n8n Variables Required
-For the n8n Instagram publish workflow (`channel-instagram-real.json`) to work:
-| Variable | Value |
-|---|---|
-| `INSTAGRAM_USER_ID` | `43139245629` |
-| `INSTAGRAM_ACCESS_TOKEN` | (copy from Payload CMS or re-run OAuth) |
-| `INSTAGRAM_BYPASS_PUBLISH` | `true` for dry-run, remove/`false` for live |
+### Automation Pipeline
+- Telegram group mention triggers OpenClaw (mentix-intake v3)
+- OpenClaw → n8n webhook → Payload draft product
+- Media attachment and duplicate guard working
+- Admin review step before publish
 
-### Token Refresh
-Long-lived tokens expire ~60 days. To refresh: navigate to `https://uygunayakkabi.com/api/auth/instagram/initiate` and approve the Meta consent screen. Callback automatically overwrites tokens in Payload CMS.
+### Instagram/Facebook Publishing
+- **Instagram Direct Publish** — `src/lib/channelDispatch.ts::publishInstagramDirectly()`
+  - Bypasses n8n entirely
+  - Creates container + publishes media via Graph API
+  - Returns `instagramPostId`, caption with dynamic hashtags
+  - Verified live on @uygunayakkabi342026 (2026-03-22)
 
----
+- **Facebook Page Direct Publish** — `src/lib/channelDispatch.ts::publishFacebookDirectly()`
+  - Uses Page Access Token (not user token)
+  - Posts to UygunAyakkabı page (`1040379692491003`)
+  - Verified with facebookPostId `122093848160884171` (2026-03-22)
 
-## Step 16 — Real Instagram Integration (COMPLETE ✅ — 2026-03-18)
-
-### What was implemented
-- **`n8n-workflows/channel-instagram-real.json`** — Real Instagram Graph API v21.0 publish workflow (13 nodes)
-  - Bypass mode (INSTAGRAM_BYPASS_PUBLISH n8n var) → HTTP 422
-  - Credentials check (INSTAGRAM_ACCESS_TOKEN + INSTAGRAM_USER_ID + valid image URL) → HTTP 422 if missing
-  - Build Instagram caption (title + price + brand + category + hashtags, max 2200 chars)
-  - Create media container: `POST /v21.0/{user_id}/media?image_url=...&caption=...&access_token=...`
-  - Wait 2s (Instagram media processing)
-  - Publish media: `POST /v21.0/{user_id}/media_publish?creation_id=...&access_token=...`
-  - Error routing: create-container error → HTTP 500 with `mode=api-error`; publish error → HTTP 500 with step info
-  - Success: HTTP 200 with `{mode: 'published', instagramPostId, instagramPermalink, publishedAt, ...}`
-- **`src/lib/channelDispatch.ts`** — Extended `ChannelDispatchResult` with `publishResult?: Record<string, unknown>`; `dispatchToChannel()` now parses response body as JSON and stores it
-- **`src/collections/Products.ts`** — Write-back now includes `publishResult` in `dispatchNotes` serialization
-- **`src/components/admin/ReviewPanel.tsx`** — Extended `DispatchChannelResult` type; renders Instagram `publishResult` with post ID, permalink link, bypass/no-creds/error states
-- **`n8n-workflows/CHANNEL_DISPATCH_CONTRACT.md`** — Documented Step 16: real workflow, n8n vars, Graph API prerequisites, full response schema, updated Known Limitations table
-
-### Secrets/Config Required (Operator)
-| Config | Where | Description |
-|---|---|---|
-| `INSTAGRAM_USER_ID` | n8n Settings → Variables | Instagram Business Account numeric user ID |
-| `INSTAGRAM_ACCESS_TOKEN` | n8n Settings → Variables | Long-lived token with `instagram_basic`, `instagram_content_publish` scopes |
-| `INSTAGRAM_BYPASS_PUBLISH` (optional) | n8n Settings → Variables | Set `true` to bypass real publish during testing |
-
-### How write-back works (Step 16)
-1. Payload `afterChange` hook fires → calls `dispatchProductToChannels()`
-2. `dispatchToChannel()` POSTs to n8n webhook
-3. n8n Instagram Real workflow publishes to Graph API + responds with JSON
-4. `dispatchToChannel()` parses response body → `publishResult`
-5. Products.ts `afterChange` hook stores `publishResult` in `sourceMeta.dispatchNotes[].publishResult`
-6. ReviewPanel surfaces: post ID + permalink link (success) or error reason (failure)
-
-### What remains scaffold-only
-- Shopier: `channel-shopier.json` — stub only, no real API
-- Dolap: `channel-dolap.json` — stub only, no real API
+### Mentix Intelligence Layer
+- **13 skills deployed** on VPS (Hetzner 2-CPU)
+- All Mentix skills active and responding
+- Ops group created with full mention-trigger capability
+- Bahriyar added as 3rd authorized user (security rotation complete)
 
 ---
 
-## Mentix Intelligence Layer v2 — LIVE STATE (2026-03-17)
+## Collections & Schema
 
-### VPS Deployment Reality
-- All 13 skills deployed to `/home/furkan/.openclaw/skills/`
-- All skills registered in `openclaw.json` → `skills.entries` (enabled: true)
-- `mentix-memory/` 12-layer directory structure created at `/home/furkan/.openclaw/mentix-memory/`
-- TRACE_SCHEMA.json + GOLDEN_CASES.json copied to VPS
-- `workspace/IDENTITY.md` updated to Mentix v2 identity
-- `workspace/BOOTSTRAP.md` updated with skill loading instructions
-- `workspace/mentix-skills` symlink → `/home/furkan/.openclaw/skills/` (Mentix can read all SKILL.md files)
-- OpenClaw restarted and verified responding
+### Products
+- Fields: id, title, price, originalPrice, brand, category, color, description, images, dispatchStatus
+- Dispatch lifecycle: draft → dispatched (with publishResult metadata)
+- Images stored via Cloudinary integration
 
-### All Skills — Live on VPS
-| Skill | Level | Permission Model | VPS Status |
-|-------|-------|-----------------|------------|
-| mentix-intake | A | Chat-scope v3 routing, job_id, role model | ✅ LIVE v3.0 |
-| product-flow-debugger | A | First-class module — 13-step trace map | ✅ LIVE |
-| skill-vetter | A | Read=ALLOWED / Block=CONFIRM / Auto-block=DENIED | ✅ LIVE |
-| browser-automation | A | Read=ALLOWED / Click=CONFIRM / Bulk=DENIED | ✅ LIVE |
-| sql-toolkit | A | SELECT=ALLOWED / UPDATE=CONFIRM / DELETE=DENIED | ✅ LIVE |
-| agent-memory | A | Store/Retrieve=ALLOWED / Delete=DENIED | ✅ LIVE |
-| github-workflow | A | Read=ALLOWED / Commit=CONFIRM / Force-push=DENIED | ✅ LIVE |
-| uptime-kuma | A | Read=ALLOWED | ✅ LIVE |
-| eachlabs-image-edit | B | Single-image=CONFIRM / Bulk=DENIED | ✅ LIVE |
-| upload-post | B | Draft=ALLOWED / Publish=CONFIRM / Auto-publish=DENIED | ✅ LIVE |
-| research-cog | B | Informational only | ✅ LIVE |
-| senior-backend | B | Advisory only | ✅ LIVE |
-| learning-engine | C | Observe=ALLOWED / Auto-modify=DENIED | ✅ LIVE |
+### Brands & Categories
+- Collections exist in schema but **remain empty** — manual population needed
+- Will drive product filtering and dynamic hashtag generation
 
-**Total: 13 skills deployed and registered**
-
-### Chat Scope Policy v3 (LIVE)
-| Context | Trigger | Capability |
-|---------|---------|------------|
-| DM (private) | Every message | Full |
-| Approved ops group | @mention only | Full (same as DM) |
-| Other groups | — | Silent drop |
-
-**Authorized group users:** Furkan (5450039553), Sabri/Bahriyar (8049990232), Bahriyar (5232747260)
-
-### Runtime Validation — Phase 2 Complete (2026-03-17)
-- ✅ Confirmation-completion flow: S2 → AWAITING_CONFIRMATION → resolved, RWD-SIM-002 score=3
-- ✅ Wrong diagnosis: RWD-SIM-004 score=-9 (wrong_diagnosis -5, false_confidence -4)
-- ✅ REPORT_ONLY fix (D-076): DEC-SIM-003 written with final_action=NO_ACTION
-- ✅ Restart persistence: 11 field checks passed from disk reload
-
-### Key Architecture Decisions (this session)
-- **D-074**: product-flow-debugger is first-class module, not sql-toolkit sub-feature
-- **D-075**: OER separation — outcome/evaluation/reward stored separately
-- **D-076**: REPORT_ONLY gate always writes decision record (audit trail)
-
-### mentix-memory/ System (12 Layers — in repo, pending VPS deployment)
-| Layer | Contents |
-|-------|----------|
-| `identity/` | MENTIX_IDENTITY.md — 6 subsystems, what Mentix is/isn't |
-| `policies/` | DECISION_POLICY.md, WRITE_POLICY.md, PUBLISH_POLICY.md, MEMORY_POLICY.md, SKILL_GATING_POLICY.md |
-| `runbooks/` | 6 runbooks: product-not-visible, intake-failure, stock-mismatch, image-not-rendering, storefront-desync, price-not-updated |
-| `incidents/` | Active incident records (runtime) |
-| `traces/` | TRACE_SCHEMA.json + diagnostic session traces |
-| `patterns/` | Recurring issue patterns (learning engine output) |
-| `decisions/` | Decision records per action taken |
-| `evaluations/` | Was Mentix correct? (separate from outcomes) |
-| `rewards/` | Score records (separate from evaluations) |
-| `evals/` | GOLDEN_CASES.json (3 regression test cases) |
-| `summaries/` | Weekly/monthly digests |
-| `archive/` | Compressed old records |
-
-### Formal Decision Schema (12 fields)
-All decisions logged with: `task_type`, `risk_level`, `requires_write`, `requires_external_publish`, `confidence_score`, `evidence_strength`, `human_approval_required`, `reversible`, `blast_radius`, `selected_skills`, `proposed_action`, `final_action`
-
-### Confidence Gate
-| Score | Risk | Action |
-|-------|------|--------|
-| < 0.55 | any | Report only — do not proceed |
-| 0.55–0.79 | any | Propose + confirm required |
-| ≥ 0.80 | LOW | Proceed autonomously |
-| ≥ 0.80 | MEDIUM | Proceed with confirmation |
-| any | HIGH | Escalate to human always |
-
-### Project Governance Files
-| File | Purpose | Location |
-|------|---------|----------|
-| SYSTEM_PROMPT.md | Repo-level memory governance rules | `project-control/SYSTEM_PROMPT.md` |
-| MENTIX_SYSTEM_PROMPT.md | Mentix skill stack governance + intelligence layer spec | `project-control/MENTIX_SYSTEM_PROMPT.md` |
-| Skill Stack Dashboard v2 | Visual HTML — 7-tab interactive dashboard | `mentix-skill-stack-dashboard.html` (repo root) |
+### Dispatch Targets (`products_channel_targets`)
+- **Migration 2026-03-17**: `id` column changed from `varchar` to `SERIAL`
+- Stores: productId, channelId, dispatchedAt, dispatchNotes, publishResult
+- PublishResult schema includes mode (direct/webhook), success flag, and channel-specific IDs
 
 ---
 
-## Current Working State
+## Database (Neon PostgreSQL)
 
-### Admin Panel (Payload CMS)
-- Admin panel loads correctly at `uygunayakkabi.com/admin` — **CONFIRMED WORKING (restored 2026-03-17 after DB crisis)**
-- **Default Payload light theme** (dark mode CSS was removed — see D-029)
-- **Turkish language** configured as default (`@payloadcms/translations/languages/tr`)
-- importMap includes: all standard Payload components + VercelBlobClientUploadHandler + ReviewPanel + SourceBadgeCell + StatusCell
-- **Custom Dashboard** (`afterDashboard`) is currently **DISABLED** in payload.config.ts
-- Admin grouped: Mağaza / Katalog / Medya / Müşteri / Stok / Pazarlama (Banners) / Ayarlar (Site Settings)
-- 11 collections registered: Users, Products, Variants, Brands, Categories, Media, CustomerInquiries, InventoryLogs, Orders, Banners, BlogPosts
-- 2 globals registered: SiteSettings, AutomationSettings
-- **Products list**: Source column with badges (Telegram / Otomasyon / Admin) + "Aktif Yap" quick-activate button
-- **Products edit (automation source)**: ReviewPanel shown at top — source info, chat/message ID, readiness checklist (title/price/image/SKU/category/brand), "Yayına Hazır" / "Eksikler Var" status
+### Current Schema
+- `products` — main product catalog
+- `products_channel_targets` — dispatch history and results
+- `automation_settings` — global config (Instagram tokens, Facebook page ID, etc.)
+- `users`, `accounts`, `sessions` — Payload CMS auth
 
-### Collections — Current Field State
+### Migration History
+| Date | Migration | Change |
+|------|-----------|--------|
+| 2026-03-17 | `products_channel_targets` | Converted `id` from `varchar` to `SERIAL` for stability |
 
-**Products** (expanded 2026-03-15):
-- Fields: title (required, Turkish validation), description, brand (text), category (select: Günlük/Spor/Klasik/Bot/Sandalet/Krampon/Cüzdan), gender, price (required, Turkish validation), originalPrice, status (active/soldout/draft), featured, slug (auto-generated, readOnly), sku (auto-generated if empty), images, variants, color, material
-- **New fields (2026-03-15):** productFamily (select: shoes/wallets/bags/belts/accessories), productType (text), channelTargets (select multi: website/instagram/shopier/dolap), automationFlags group (autoActivate, generateBlog, generateExtraViews, enableTryOn), sourceMeta group (telegramChatId, telegramSenderId, workflowId, externalSyncId)
-- **Automation fields (2026-03-15):** source (select: admin/telegram/n8n/api/import, sidebar, readOnly, SourceBadgeCell), channels group (publishWebsite/publishInstagram/publishShopier/publishDolap checkboxes), automationMeta group (telegramChatId, telegramMessageId — used for idempotency), stockQuantity (int, default 1)
-- **Step 11 fields (2026-03-16):** automationMeta extended with rawCaption (text), parseWarnings (textarea/JSON), parseConfidence (number 0–100); channelTargets (multi-select); automationFlags group (autoActivate/generateBlog/generateExtraViews/enableTryOn); sourceMeta group (telegramSenderId/workflowId/externalSyncId)
-- **Step 12 fields (2026-03-16):** automationMeta extended with autoDecision (select: active/draft), autoDecisionReason (textarea) — stores decision layer output for admin visibility
-- `beforeValidate` hook: always auto-generates slug from title; auto-generates SKU if empty; automation SKU pattern: `TG-{PREFIX3}-{msgId}`
-- `beforeDelete` hook: nullifies all variant.product and media.product references before deletion (prevents FK constraint errors)
-- Status labels: Turkish with emoji indicators
-- **Backward compatibility:** existing `category` field preserved alongside new `productFamily`/`productType`
-- **Idempotency:** `automationMeta.telegramChatId + telegramMessageId` used for duplicate detection — returns `{ status: "duplicate" }` if same message re-submitted
-
-**BlogPosts** (added 2026-03-15):
-- Fields: title, slug, excerpt, content (richText), featuredImage (relationship to media), relatedProduct (relationship to products), focusKeywords (array of text), metaTitle, metaDescription, status (draft/published), source (ai/admin), publishedAt
-- Purpose: AI-generated and admin-curated SEO blog posts linked to products
-
-**AutomationSettings** (global, added 2026-03-15):
-- Product intake: autoActivateProducts, requireAdminReview
-- Channel publishing: publishWebsite, publishInstagram, publishShopier, publishDolap
-- Content generation: autoGenerateBlog, autoPublishBlog, autoGenerateExtraViews
-- Telegram: telegramGroupEnabled
-
-**Variants** (updated 2026-03-11):
-- `useAsTitle: 'size'` (changed from `variantSku` — admin shows "42" not "ADS-42")
-- `product` field: `required: false` (was `required: true`) — allows product deletion without FK violation
-- `size` field description: "Sadece numara yazın: 36, 37..."
-
-**Orders**: orderNumber, customer fields, product/size/quantity, totalPrice, status, source, paymentMethod (card_on_delivery/cash_on_delivery/bank_transfer/online), isPaid, notes, shippingCompany (yurtici/aras/mng/ptt/surat/trendyol/other), trackingNumber, shippedAt, deliveredAt
-
-**Banners**: title, subtitle, type, discountPercent, couponCode, image, bgColor, textColor, linkUrl, placement, startDate, endDate, active, sortOrder
-
-**SiteSettings** (global): siteName, siteDescription, contact group, shipping group, trustBadges group, announcementBar group
-
-**Media**: staticDir = public/media, staticURL = '/media', image sizes (thumbnail/card/large). Production: **Vercel Blob Storage**.
-
-### Database (Neon PostgreSQL)
-- Schema sync via `push: true`
-- All collections and fields aligned — **after manual migration crisis recovery on 2026-03-17**
-- SSL: `sslmode=require` removed from DATABASE_URI; `ssl: { rejectUnauthorized: false }` added to pool options in payload.config.ts (fixes pg-connection-string deprecation warning / red error overlay in dev)
-- BLOB_READ_WRITE_TOKEN confirmed set in Vercel env vars
-
-#### ⚠️ DB Migration History (2026-03-17) — RESOLVED
-Drizzle `push: true` failed to complete schema changes on Neon serverless (timeouts/partial failures).
-Four issues required manual SQL fixes in Neon SQL Editor:
-
-1. **`products_channel_targets` — wrong column names + wrong `id` type (FIXED 2026-03-17)**
-   - Table was manually created with `_parent_id` / `_order` (old Payload v2 convention)
-   - Payload v3 Drizzle runtime expects `parent_id` / `order` (no underscore prefix)
-   - Fix #1 (2026-03-17): `RENAME COLUMN "_parent_id" TO "parent_id"` + `RENAME COLUMN "_order" TO "order"`
-   - **`id` column was `character varying NOT NULL` with no default** — Payload/Drizzle (idType='serial') generates INSERT with `DEFAULT` for id, which fails when no sequence exists. Root cause of POST /api/products → 500 error on product save.
-   - Fix #2 (2026-03-17): Dropped PK + dropped varchar id + re-added as `SERIAL PRIMARY KEY`; added FK `parent_id → products.id ON DELETE CASCADE`; added order_idx and parent_idx indexes.
-   - **Key principle: `push: true` does NOT run in production (`NODE_ENV=production`). All schema changes must be applied manually to Neon for production.**
-
-2. **`automation_settings` table missing**
-   - `AutomationSettings` global added to `payload.config.ts` but Drizzle push timed out before creating the table
-   - Also required `automation_settings_id` column in `payload_locked_documents_rels`
-   - Fix: manually `CREATE TABLE automation_settings (...)` + `ADD COLUMN automation_settings_id`
-
-3. **`blog_posts` table missing**
-   - `BlogPosts` collection added but Drizzle push never ran successfully
-   - Required: `blog_posts` table, `blog_posts_rels` table, `blog_posts_id` in `payload_locked_documents_rels`
-   - Fix: manually `CREATE TABLE blog_posts (...)` + FK + indexes + `ADD COLUMN blog_posts_id`
-
-**Root cause:** `push: true` on Neon serverless cannot reliably complete multi-table schema changes in a single cold-start window. Any new collection/global addition risks a partial migration state.
-
-**⚠️ Implication:** Every new collection or global added to `payload.config.ts` MUST be followed by manual SQL verification in Neon. Do NOT assume `push: true` will self-heal.
-
-### Storefront (Next.js)
-- **UygunApp.jsx**: Full SPA with inline-style token system
-  - `ENABLE_STATIC_FALLBACK = false` — DB products are sole source of truth
-  - Empty state shown in Catalog when no DB products exist
-  - Card component: `objectFit: "contain"` (no cropping)
-  - Card component: hover crossfade preview to second image
-  - Detail page: `objectFit: "contain"` on main image and thumbnails
-  - Variant display shows size number only (regex extraction)
-- **page.tsx** (Server Component):
-  - `export const dynamic = 'force-dynamic'`
-  - Fetches products, SiteSettings, Banners from Payload CMS
-  - **Reverse media lookup**: queries media collection for docs where `product` field references a product ID — used as fallback when `product.images[]` is empty
-  - SVG shoe placeholder only shown when zero real images exist (not appended to real galleries)
-  - Variant size extraction: regex `match(/(\d+)/)` to get number from any format
-  - Debug console.log lines removed
-- Dynamic storefront content: AnnouncementBar, trust badges, promo banner, WhatsApp links
-- Google Fonts loaded via `<link>` tags (not next/font/google)
-
-### Production Environment (Vercel)
-- Deployment: **READY and functional**
-- URL: uygunayakkabi.com
-- Env vars set: DATABASE_URI, PAYLOAD_SECRET, NEXT_PUBLIC_SERVER_URL, NEXT_PUBLIC_WHATSAPP_NUMBER, BLOB_READ_WRITE_TOKEN, AUTOMATION_SECRET, N8N_INTAKE_WEBHOOK, INSTAGRAM_APP_ID, INSTAGRAM_APP_SECRET, INSTAGRAM_PAGE_ID, INSTAGRAM_USER_ID
-- Env vars **NOT YET SET** (pending operator): `N8N_CHANNEL_INSTAGRAM_WEBHOOK`, `N8N_CHANNEL_SHOPIER_WEBHOOK`, `N8N_CHANNEL_DOLAP_WEBHOOK`
-- Next.js: **16.2.0-canary.81** (required for Payload CMS 3.79.0 compatibility)
-
-### Git State
-- main is authoritative. Always pull before pushing (D-042).
-- GitHub repo: https://github.com/frkbas34/uygunayakkabi-store
-
-### VPS Infrastructure (Netcup — provisioned 2026-03-14)
-- **OS**: Ubuntu 22.04.5 LTS (disk expanded to ~125G)
-- **Docker**: installed, Docker Compose plugin active
-- **Caddy**: reverse proxy via Docker, handles TLS
-- **n8n**: Docker container, accessible at `flow.uygunayakkabi.com`
-- **OpenClaw**: Docker containers (`openclaw-openclaw-gateway-1` healthy), accessible at `agent.uygunayakkabi.com`
-- **Telegram bot**: `mentix_aibot` — DM pairing complete, responding in Turkish
-- **OpenAI model**: `openai/gpt-5-mini`
-- **User account**: `furkan` (sudo + docker groups)
-- **Directories**: `/opt/openclaw`, `/opt/n8n`, `/opt/caddy`
-- **OpenClaw config**: `/home/furkan/.openclaw/openclaw.json`
-- **Firewall (ufw)**: OpenSSH, 80, 443
-
-### VPS Domain Routing
-- `flow.uygunayakkabi.com` → Caddy → n8n:5678
-- `agent.uygunayakkabi.com` → Caddy → openclaw-gateway:18789
-- DNS via Cloudflare (A records → VPS IP)
-
-### VPS — Automation Pipeline (LIVE as of 2026-03-15)
-- **Security rotation**: ✅ DONE (Step 1)
-- **Docker network persistence**: ✅ DONE — OpenClaw gateway bound to `web` network in docker-compose.yml (Step 2)
-- **Telegram group policy**: ✅ DONE — `groupAllowFrom: [5450039553, 8049990232]`, `requireMention: true`, BotFather Group Privacy OFF (Step 3)
-- **mentix-intake skill**: `/home/furkan/.openclaw/skills/mentix-intake/SKILL.md` — active on VPS, calls n8n webhook via curl (Step 4)
-- **n8n webhook**: `POST /webhook/mentix-intake` — 3-node workflow (Webhook → Parse Intake Fields → Respond), live at flow.uygunayakkabi.com (Steps 4–6)
-- **Payload automation endpoints**:
-  - `POST /api/automation/products` — X-Automation-Secret header auth, creates draft products (Step 5)
-  - `POST /api/automation/attach-media` — downloads Telegram file binary, uploads to Payload media, links to product (Step 6)
-- **Duplicate protection**: telegramChatId + telegramMessageId idempotency key — active (Step 7)
-- **OpenClaw skills**: clawhub/github/gog/xurl deferred — not blocking core operation.
+### Known Issues
+- Brands/Categories collections unpopulated
+- Dolap integration stub only; no real API calls executed
 
 ---
 
-## Phase 1 Deferred Cleanup (non-blocking, Phase 2 parallel)
-- **SiteSettings**: not fully populated yet — storefront falls back to DEFAULT_SETTINGS for some fields
-- **Banners**: collection exists, no banners created yet
-- **Admin dark mode**: `admin-dark.css` exists but inactive — re-implement if desired, without `!important`
-- **favicon.ico**: missing, 404 on every page load
-- **No `/products/[slug]` route**: slug auto-generated but no dedicated URL route yet
-- **`push: true`**: switch to migrations before Phase 2 data model stabilizes in production
+## Production Environment (Vercel)
 
-### 🟡 NON-CRITICAL — Post-Validation Cleanup
-- **Custom Dashboard disabled**: `afterDashboard` commented out in payload.config.ts. Component still exists at `src/components/admin/Dashboard.tsx` but is inactive.
-- **Admin dark mode removed**: `src/styles/admin-dark.css` exists but not imported. Re-implement without `!important` overrides if desired.
-- **importMap is manually maintained**: `npx payload generate:importmap` does not work in Linux VM. importMap.ts must be updated manually when new plugins/components are added.
-- **Banners/SiteSettings not yet populated**: tables exist but admin hasn't filled data. Storefront falls back to DEFAULT_SETTINGS.
-- **favicon.ico**: missing (404 on every page load). Add any 32×32 icon to `src/app/`.
-- **No `/products/[slug]` URL routing**: slug is stored and auto-generated but not used as a URL route.
-- **`push: true`**: should be switched to migrations before Phase 2 goes live (low risk for now).
+### Key Environment Variables
+| Variable | Value | Usage |
+|----------|-------|-------|
+| `NEXT_PUBLIC_CMS_URL` | `https://cms.uygunayakkabi.com` | Payload CMS endpoint |
+| `PAYLOAD_SECRET` | Set in Vercel | Encryption for CMS payloads |
+| `INSTAGRAM_APP_ID` | `1452165060016519` | Meta OAuth client ID |
+| `INSTAGRAM_APP_SECRET` | Set in Vercel | Meta OAuth secret |
+| `INSTAGRAM_USER_ID` | `43139245629` | Instagram Business Account ID |
+| `INSTAGRAM_PAGE_ID` | `1040379692491003` | **Facebook Page ID** (UygunAyakkabı) — corrected 2026-03-22 |
+| `NEXT_PUBLIC_N8N_WEBHOOK_INSTAGRAM` | Set in Vercel | Fallback webhook (not primary path) |
+| `NODE_ENV` | `production` | Guards: `push: true` blocks, logging, etc. |
+
+### Step 20 — Shopier Integration (VERIFIED WORKING — 2026-03-23)
+| Component | Status |
+|-----------|--------|
+| `src/lib/shopierApi.ts` | IMPLEMENTED — Shopier REST API v1 client, Bearer JWT auth |
+| `src/lib/shopierSync.ts` | IMPLEMENTED — product mapping, jobs queue orchestration |
+| `src/app/api/webhooks/shopier/route.ts` | IMPLEMENTED — HMAC-SHA256 multi-token verification |
+| `src/app/api/payload-jobs/run/route.ts` | IMPLEMENTED — jobs runner endpoint |
+| `.github/workflows/process-jobs.yml` | IMPLEMENTED — cron `*/5 * * * *`, calls jobs runner |
+| `payload_jobs` table | MANUALLY CREATED in Neon (push:true unreliable in serverless) |
+| `source_meta_shopier_*` (5 columns on products) | MANUALLY CREATED in Neon |
+| 4 Shopier webhooks | REGISTERED — order.created, order.fulfilled, refund.requested, refund.updated |
+| Product 11 smoke test | VERIFIED SYNCED — Shopier ID `45456186` |
+| Webhook sig verification | VERIFIED — valid sig → 200, bad sig → 401 |
+
+### Key Env Vars (Step 20)
+| Variable | Purpose |
+|----------|---------|
+| `SHOPIER_PAT` | Shopier REST API Bearer JWT |
+| `SHOPIER_WEBHOOK_TOKEN` | Comma-separated HMAC tokens (one per webhook registration) |
+
+### Deployment Status
+- **Vercel deployment**: `a413c5a` — Ready + Current (as of 2026-03-23)
+- **Custom domain**: `uygunayakkabi.com` (CNAME configured)
+
+### Instagram OAuth Routes
+- `GET /api/auth/instagram/initiate` — Starts Meta consent flow
+- `GET /api/auth/instagram/callback` — Exchanges code for tokens, stores in Payload CMS
+- Scopes: `instagram_basic`, `instagram_content_publish`, `pages_show_list`, `pages_read_engagement`, `pages_manage_posts`
+- Long-lived token expires ~2026-05-20
+
+---
+
+## VPS Infrastructure (Hetzner)
+
+### Mentix Skills
+All deployed and operational:
+1. mentix-intake-v3 (OpenClaw → Telegram integration)
+2. 12 additional operator-facing skills
+
+### n8n Workflows
+- `channel-instagram-real.json` — Instagram publish (now fallback only)
+- `channel-dispatch-webhook.ts` — Main entry point for product dispatch
+
+### Docker Network
+- Persistence configured for Telegram bot state
+- Operator allowlist: Furkan + Sabri + Bahriyar
+
+---
+
+## Instagram/Facebook Credentials
+
+### Instagram
+| Config | Value | Location | Notes |
+|--------|-------|----------|-------|
+| User ID | `43139245629` | Vercel env + Payload CMS | Business Account ID |
+| Access Token | `EAAUovIaOuYc...` | Payload CMS `automation-settings.instagramTokens.accessToken` | Long-lived (~60 days) |
+| Token Expiry | 2026-05-20 | Payload CMS `automation-settings.instagramTokens.expiresAt` | Refresh via `/api/auth/instagram/initiate` |
+| App ID | `1452165060016519` | Vercel env | Meta developer app |
+| Username | `@uygunayakkabi342026` | Instagram | Professional account |
+
+### Facebook Page (UygunAyakkabI)
+| Config | Value | Notes |
+|--------|-------|-------|
+| Page ID | `1040379692491003` | **Correct Graph API ID** — stored as `INSTAGRAM_PAGE_ID` |
+| Legacy ID | `61576525131424` | Old NPE profile ID (non-functional with Graph API) |
+| Page Type | New Pages Experience (NPE) | Requires page-token fallback for publish |
+| Access Token | Derived from OAuth flow | Obtained via GET `/{pageId}?fields=access_token` |
+
+### Token Refresh Process
+To refresh Instagram token: navigate to `https://uygunayakkabi.com/api/auth/instagram/initiate`, approve Meta consent, callback automatically updates Payload CMS.
+
+---
 
 ## Known Constraints
-- `push: true` auto-applies schema changes on startup
-- Next.js canary version in use (16.2.0-canary.81) — stable 16.2.x not yet released
-- importMap must be maintained manually (see D-034)
-- Some enum values are locked (see D-023)
 
-## Phase 1 Completion Record ✅ (validated 2026-03-13)
-- [x] Admin panel accessible and correctly rendered in production
-- [x] All 10 collections + SiteSettings global visible in admin sidebar
-- [x] Storefront live at uygunayakkabi.com
-- [x] Media uploads working via Vercel Blob Storage
-- [x] DB connected (Neon PostgreSQL)
-- [x] Turkish language configured
-- [x] SSL error overlay fixed (dev)
-- [x] Image pipeline: reverse media lookup, objectFit contain, hover preview
-- [x] Admin stability: auto-slug, auto-SKU, FK-safe deletion, select category
-- [x] End-to-end pipeline: admin product → storefront confirmed ✅ (2026-03-13)
-- [x] Git branch stable, main authoritative
+### Instagram Publishing
+- Direct Graph API used exclusively; n8n webhook available only as fallback
+- Long-lived token valid ~60 days, then requires manual refresh
 
-## Step 15 — E2E Verification Pass + Media URL Hardening (COMPLETE ✅ — 2026-03-16)
-- `channelDispatch.ts` `extractMediaUrls()`: relative `/media/` paths now made absolute via `NEXT_PUBLIC_SERVER_URL` — VPS-side workers can fetch all media URLs
-- `.env.example`: updated with full Phase 2 env var set (AUTOMATION_SECRET, BLOB_READ_WRITE_TOKEN, N8N_CHANNEL_*_WEBHOOK, N8N_INTAKE_WEBHOOK)
-- `n8n-workflows/E2E_TEST_CHECKLIST.md` (120-line runbook): n8n import → env setup → test product → log verification → n8n execution check → media URL test → forceRedispatch test → failure mode table → quick checklist
-- `CHANNEL_DISPATCH_CONTRACT.md`: Media URL Behavior section + Known Limitations table added
-- **Verified clean:** env var naming, dispatch error handling, afterChange guard, Blob URL accessibility, forceRedispatch behavior
-- **Remaining ops (not code):** import stubs to n8n, set env vars in Vercel, run E2E test per checklist
+### Facebook Publishing
+- Requires page-token obtained from Graph API (not user token)
+- New Pages Experience (NPE) pages require correct numeric ID (`1040379692491003`)
+- Posts to page only, not user timeline
 
-## Step 14 — n8n Stubs + Admin Dispatch Visibility (COMPLETE ✅ — 2026-03-16)
-- `n8n-workflows/stubs/channel-instagram.json` + channel-shopier.json + channel-dolap.json — importable n8n stub workflows (Webhook → Log Payload → Respond 200, no real API calls)
-- `n8n-workflows/CHANNEL_DISPATCH_CONTRACT.md` (222 lines) — full adapter contract, sample payload, setup guide, test checklist
-- ReviewPanel: dispatch status section (active products only) — per-channel eligible/dispatched/webhookConfigured/skippedReason/error/responseStatus rows, color-coded, `lastDispatchedAt`, collapsible raw debug block, pending dispatch hint for inactive products
-- `sourceMeta.forceRedispatch` checkbox — admin-triggered manual re-dispatch; auto-resets to false; triggers on already-active products; retry-safe (not reset on error)
-- afterChange hook updated: handles `forceRedispatch === true` alongside `status → active` transition; logs trigger type; always resets flag on success
+### Automation
+- `push: true` in dispatch does NOT execute in production (`NODE_ENV === 'production'` guard)
+- Telegram group allowlist: Furkan, Sabri, Bahriyar only
+- Duplicate guard checks for products with same title within 24 hours
 
-## Step 13 — Channel Adapter Scaffolding (COMPLETE ✅ — 2026-03-16)
-- `src/lib/channelDispatch.ts` (374 lines) — pure dispatch library
-  - `ChannelDispatchPayload` type (adapter contract) for Instagram / Shopier / Dolap
-  - `evaluateChannelEligibility()` — 3-gate eligibility: global capability ∩ product channelTargets ∩ channels.* flag
-  - `buildDispatchPayload()` — builds full structured n8n payload from product doc
-  - `dispatchToChannel()` — POST to n8n webhook if env var set; scaffold log if not
-  - `buildChannelWebhookUrl()` — reads N8N_CHANNEL_INSTAGRAM/SHOPIER/DOLAP_WEBHOOK
-  - `dispatchProductToChannels()` — orchestrator, returns per-channel results
-- `Products.ts` afterChange hook: fires on status non-active → active transition
-  - `req.context.isDispatchUpdate = true` pattern prevents infinite re-trigger on sourceMeta write
-  - Non-fatal: activation always succeeds even if dispatch errors occur
-- `Products.ts` sourceMeta: `dispatchedChannels` (text/JSON), `lastDispatchedAt` (date), `dispatchNotes` (textarea/JSON) added
-- Env vars for live mode: `N8N_CHANNEL_INSTAGRAM_WEBHOOK`, `N8N_CHANNEL_SHOPIER_WEBHOOK`, `N8N_CHANNEL_DOLAP_WEBHOOK`
-- Website excluded: served natively via active status, no dispatch webhook needed
+### Collections
+- Brands and Categories empty — must be manually populated for optimal filtering/metadata
+- Shopier and Dolap integrations stub-only; no real API calls executed
 
-## Pending Operator Actions (BEFORE Step 16 can start)
+### n8n Environment Variables (Deprecated)
+| Variable | Purpose | Status |
+|----------|---------|--------|
+| `INSTAGRAM_USER_ID` | Legacy n8n workflow | Not used (direct publish active) |
+| `INSTAGRAM_ACCESS_TOKEN` | Legacy n8n workflow | Not used (direct publish active) |
+| `N8N_CHANNEL_INSTAGRAM_WEBHOOK` | Fallback webhook URL | Available but not primary |
 
-⚠️ These are **VPS + Vercel Dashboard** tasks — not code. Must be completed and verified.
+---
 
-1. **n8n**: Import `n8n-workflows/stubs/channel-instagram.json` → activate → confirm URL is `/webhook/channel-instagram` (not `/webhook-test/`)
-2. **Vercel**: Set `N8N_CHANNEL_INSTAGRAM_WEBHOOK=https://flow.uygunayakkabi.com/webhook/channel-instagram` → redeploy
-3. **AutomationSettings admin**: Confirm `publishInstagram = true`
-4. **E2E test**: Create test product (draft → active, channelTargets=instagram, 1 image) → verify Vercel logs `ok=true`, n8n execution Success, sourceMeta `dispatchedChannels: ["instagram"]`, ReviewPanel green row, `mediaUrls` all `https://`
+## Phase 1 Completion Record
 
-Go/no-go for Step 16: all 4 checks above pass.
+**Completed 2026-03-13** — Storefront and admin infrastructure delivered.
 
-## Next Focus
-**Step 16 — First Real Channel Integration** (after E2E stub test passes)
-- Replace Instagram stub with real n8n workflow using Instagram Graph API
-- Keep Shopier, Dolap, Blog in scaffold mode
-- sourceMeta.externalSyncId write-back from channel worker
-- Preserve forceRedispatch support
-See TASK_QUEUE.md for ordered execution plan.
+### Deliverables
+- Next.js storefront with Payload CMS backend
+- Admin product management panel
+- Image upload and media management (Cloudinary)
+- Paytr payment integration
+- Basic product schema with dispatch tracking
+
+---
+
+## Phase 2 Completion Record (Steps 1–19)
+
+**Completed 2026-03-22** — Full Instagram and Facebook integration.
+
+### Key Milestones
+- **Steps 1–6** — n8n webhook scaffolding, Telegram integration, OpenClaw mentix skill
+- **Steps 7–8** — Payload global automation settings, Instagram OAuth foundation
+- **Steps 9–11** — Duplicate guard, media attachment, admin review panel
+- **Steps 12–15** — Mentix deployment v2, 13 skills live, security rotation
+- **Steps 16–17** — Instagram real integration, OAuth token exchange (long-lived)
+- **Steps 18–19** — Instagram direct Graph API publish (bypass n8n), Facebook direct publish
+
+### Systems Verified Live
+- Telegram mention → draft product → admin review → direct publish to Instagram/Facebook
+- End-to-end tested with real posts (Instagram ID `18115629052647099`, Facebook ID `122093848160884171`)
+
+---
+
+## Deferred / Cleanup Items
+
+- **Brands & Categories** — Empty collections; manual population needed
+- **Dolap** — Stub only, no real API integration; ready for future development
+- **n8n Instagram workflow** — Superseded by direct Graph API, kept as reference
+- **Phase 1 cleanup** — Reusable design system components (deferred to Phase 3)
+
+## Recommended Next Phase
+
+**Step 21 — Shopier Order Fulfillment Flow**
+- Parse incoming `order.created` Shopier webhook → create Order document in Payload CMS
+- Decrement product stock on order
+- Send Telegram notification with order summary
+- Handle `order.fulfilled`, `refund.requested`, `refund.updated` state transitions

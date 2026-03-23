@@ -105,8 +105,22 @@ export const Orders: CollectionConfig = {
         { label: '📲 Telegram', value: 'telegram' },
         { label: '📞 Telefon', value: 'phone' },
         { label: '📸 Instagram', value: 'instagram' },
+        { label: '🛍️ Shopier', value: 'shopier' },
       ],
       admin: { position: 'sidebar' },
+    },
+    // ── Shopier Entegrasyonu ──────────────────────────────────
+    {
+      name: 'shopierOrderId',
+      type: 'text',
+      label: 'Shopier Sipariş ID',
+      unique: false,
+      admin: {
+        position: 'sidebar',
+        description: 'Shopier\'den gelen sipariş IDsi — otomatik doldurulur',
+        readOnly: true,
+        condition: (data) => data?.source === 'shopier',
+      },
     },
     // ── Ödeme ─────────────────────────────────────────────────
     {

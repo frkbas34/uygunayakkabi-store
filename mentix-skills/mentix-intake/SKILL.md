@@ -144,8 +144,43 @@ Aynı mesaja reply ile gönder, devam edeyim.
 - Missing fields → ASK_FOR_MISSING_DATA
 - Low confidence → REPORT_ONLY
 
-**4.6 Route to n8n webhook** (on confirm):
-`POST https://uygunayakkabi.com/api/automation/products`
+**4.6 POST to Payload automation endpoint** (on confirm):
+
+```
+POST https://www.uygunayakkabi.com/api/automation/products
+Header: X-Automation-Secret: <value of AUTOMATION_SECRET env var>
+Header: Content-Type: application/json
+```
+
+**Request body:**
+```json
+{
+  "title": "<product_name>",
+  "price": <number>,
+  "source": "telegram",
+  "stockQuantity": <number>,
+  "sku": "<sku or generated>",
+  "category": "<one of: Günlük | Spor | Klasik | Bot | Sandalet | Krampon | Cüzdan>",
+  "automationMeta": {
+    "telegramChatId": "<chat_id as string>",
+    "telegramMessageId": "<message_id as string>"
+  },
+  "rawCaption": "<original caption text>"
+}
+```
+
+**On HTTP 201 response:** report `product_id`, `slug`, `product_status` to user.
+**On HTTP 400/422:** report the `error` field and ask user to correct the data.
+**On HTTP 401:** AUTOMATION_SECRET is wrong — alert operator.
+
+**Category mapping:**
+- Deri ayakkabı / klasik → `Klasik`
+- Spor / koşu / sneaker → `Spor`
+- Günlük / casual → `Günlük`
+- Bot / bot çizme → `Bot`
+- Sandalet → `Sandalet`
+- Krampon / futbol → `Krampon`
+- Cüzdan / kemer → `Cüzdan`
 
 ---
 

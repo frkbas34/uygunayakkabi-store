@@ -1,12 +1,149 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getPayload } from '@/lib/payload'
 import { parseTelegramCaption, parseStockUpdate } from '@/lib/telegram'
+import {
+  fetchAutomationSettings,
+  resolveProductStatus,
+  resolveChannelTargets,
+} from '@/lib/automationDecision'
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Helpers
+// ─────────────────────────────────────────────────────────────────────────────
+
+async function sendTelegramMessage(chatId: number, text: string): Promise<void> {
+  const token = process.env.TELEGRAM_BOT_TOKEN
+  if (!token) return
+  await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ chat_id: chatId, text, parse_mode: 'HTML' }),
+  })
+}
+
+/** Türkçe karakterleri ASCII'ye çevir + URL-safe slug üret */
+function slugify(text: string): string {
+  return text
+    .toLowerCase()
+    .replace(/ğ/g, 'g').replace(/ü/g, 'u').replace(/ş/g, 's')
+    .replace(/ı/g, 'i').replace(/ö/g, 'o').replace(/ç/g, 'c')
+    .replace(/[^a-z0-9\s-]/g, '')
+    .replace(/\s+/g, '-')
+    .replace(/-+/g, '-')
+    .trim()
+}
+
+/** Telegram file_id → { buffer, ext, contentType } */
+async function downloadTelegramFile(fileId: string): Promise<{
+  buffer: Buffer
+  ext: string
+  contentType: string
+} | null> {
+  const token = process.env.TELEGRAM_BOT_TOKEN
+  if (!token) return null
+
+  const infoRes = await fetch(
+    `https://api.telegram.org/bot${token}/getFile?file_id=${encodeURIComponent(fileId)}`,
+  )
+  const info = await infoRes.json()
+  if (!info.ok || !info.result?.file_path) return null
+
+  const filePath: string = info.result.file_path
+  const ext = filePath.split('.').pop()?.toLowerCase() || 'jpg'
+  const EXT_MIME: Record<string, string> = {
+    jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png',
+    webp: 'image/webp', gif: 'image/gif',
+  }
+
+  const imgRes = await fetch(`https://api.telegram.org/file/bot${token}/${filePath}`)
+  if (!imgRes.ok) return null
+
+  const rawMime = (imgRes.headers.get('content-type') || '').split(';')[0].trim()
+  const ALLOWED = ['image/jpeg', 'image/png', 'image/webp', 'image/gif']
+  const contentType = ALLOWED.includes(rawMime) ? rawMime : (EXT_MIME[ext] ?? 'image/jpeg')
+  const buffer = Buffer.from(await imgRes.arrayBuffer())
+
+  return { buffer, ext, contentType }
+}
+
+/**
+ * Claude Vision ile fotoğrafı analiz et.
+ * Fotoğrafa bakıp ürün bilgilerini JSON olarak döndürür.
+ * ANTHROPIC_API_KEY yoksa null döner.
+ */
+async function analyzeProductWithVision(imageBuffer: Buffer, contentType: string): Promise<{
+  title?: string
+  category?: string
+  brand?: string
+  productType?: string
+} | null> {
+  const apiKey = process.env.ANTHROPIC_API_KEY
+  if (!apiKey) return null
+
+  const base64 = imageBuffer.toString('base64')
+
+  const prompt = `Bu fotoğrafta bir ürün var. Lütfen aşağıdaki bilgileri Türkçe olarak JSON formatında döndür:
+
+{
+  "title": "Ürünün kısa açıklayıcı adı (örn: Nike Air Max 90 Spor Ayakkabı)",
+  "category": "Şu değerlerden biri: Günlük | Spor | Klasik | Bot | Sandalet | Krampon | Cüzdan",
+  "brand": "Marka adı (görünüyorsa, yoksa null)",
+  "productType": "Alt kategori (sneaker/bot/sandalet/loafer/cüzdan/vs)"
+}
+
+Sadece JSON döndür, başka açıklama ekleme.`
+
+  try {
+    const res = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': apiKey,
+        'anthropic-version': '2023-06-01',
+      },
+      body: JSON.stringify({
+        model: 'claude-opus-4-6',
+        max_tokens: 512,
+        messages: [{
+          role: 'user',
+          content: [
+            {
+              type: 'image',
+              source: {
+                type: 'base64',
+                media_type: contentType as 'image/jpeg' | 'image/png' | 'image/webp' | 'image/gif',
+                data: base64,
+              },
+            },
+            { type: 'text', text: prompt },
+          ],
+        }],
+      }),
+    })
+
+    if (!res.ok) return null
+    const data = await res.json()
+    const rawText: string = data?.content?.[0]?.text ?? ''
+
+    // JSON parse — block içinde veya düz metin olabilir
+    const jsonMatch = rawText.match(/\{[\s\S]*\}/)
+    if (!jsonMatch) return null
+    return JSON.parse(jsonMatch[0])
+  } catch {
+    return null
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Webhook handler
+// ─────────────────────────────────────────────────────────────────────────────
 
 export async function POST(req: NextRequest) {
   try {
-    // Verify webhook secret
+    // Webhook secret doğrulama
+    // TELEGRAM_WEBHOOK_SECRET boşsa atla (ilk kurulum / test için)
     const secret = req.headers.get('X-Telegram-Bot-Api-Secret-Token')
-    if (secret !== process.env.TELEGRAM_WEBHOOK_SECRET) {
+    if (process.env.TELEGRAM_WEBHOOK_SECRET && secret !== process.env.TELEGRAM_WEBHOOK_SECRET) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
@@ -17,10 +154,201 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: true })
     }
 
-    const text = message.text || message.caption || ''
-    const chatId = message.chat?.id
+    const text: string = message.text || message.caption || ''
+    const chatId: number = message.chat?.id
+    const messageId: number = message.message_id
 
     const payload = await getPayload()
+
+    // ── "bunu ürüne çevir" otomatik intake ────────────────────────────────────
+    const isBunuUruneCevir =
+      /bunu\s+[uü]r[uü]ne\s+[cç]evir/i.test(text) ||
+      /[uü]r[uü]ne\s+[cç]evir/i.test(text)
+
+    if (isBunuUruneCevir && message.photo) {
+      await sendTelegramMessage(chatId, '⏳ Ürün oluşturuluyor, lütfen bekleyin...')
+
+      try {
+        // 1. En yüksek çözünürlüklü fotoğrafı seç
+        const photo = (message.photo as Array<{ file_id: string; width: number; height: number }>)
+          .sort((a, b) => b.width - a.width)[0]
+        const fileId = photo.file_id
+
+        // 2. Caption temizle — "@Mentix bunu ürüne çevir" kısmını sil
+        const cleanCaption = text
+          .replace(/bunu\s+[uü]r[uü]ne\s+[cç]evir/gi, '')
+          .replace(/[uü]r[uü]ne\s+[cç]evir/gi, '')
+          .replace(/@\w+/g, '')
+          .trim()
+
+        // 3. Caption'dan ürün bilgisi parse et
+        const parsedCaption = cleanCaption ? parseTelegramCaption(cleanCaption) : null
+
+        // 4. Fotoğrafı indir
+        const fileData = await downloadTelegramFile(fileId)
+        if (!fileData) {
+          await sendTelegramMessage(chatId, '❌ Fotoğraf indirilemedi. Lütfen tekrar deneyin.')
+          return NextResponse.json({ ok: true })
+        }
+
+        // 5. Claude Vision analizi (ANTHROPIC_API_KEY varsa)
+        let visionData: Awaited<ReturnType<typeof analyzeProductWithVision>> = null
+        if (process.env.ANTHROPIC_API_KEY) {
+          visionData = await analyzeProductWithVision(fileData.buffer, fileData.contentType)
+        }
+
+        // 6. Bilgileri birleştir: caption > vision > default
+        const title =
+          parsedCaption?.title ||
+          visionData?.title ||
+          `Telegram Ürünü ${new Date().toLocaleDateString('tr-TR')}`
+
+        const price = parsedCaption?.price ?? 0
+        const category = parsedCaption?.category || (visionData?.category as string | undefined) || undefined
+        const brand = parsedCaption?.brand || visionData?.brand || undefined
+        const productType = parsedCaption?.productType || visionData?.productType || undefined
+        const stockQty = parsedCaption?.quantity ?? 1
+
+        // SKU: explicit > timestamp-based
+        const sku = parsedCaption?.sku || `TG-${Date.now()}`
+
+        // Slug: unique by appending sku
+        const slug = slugify(title) + '-' + sku.toLowerCase().replace(/[^a-z0-9-]/g, '')
+
+        // 7. Idempotency check: aynı mesaj daha önce işlendi mi?
+        const tgChatId = String(chatId)
+        const tgMsgId = String(messageId)
+        const existing = await payload.find({
+          collection: 'products',
+          where: {
+            and: [
+              { 'automationMeta.telegramChatId': { equals: tgChatId } },
+              { 'automationMeta.telegramMessageId': { equals: tgMsgId } },
+            ],
+          },
+          limit: 1,
+        })
+        if (existing.docs.length > 0) {
+          const dup = existing.docs[0] as Record<string, unknown>
+          await sendTelegramMessage(
+            chatId,
+            `ℹ️ Bu mesajdan zaten bir ürün oluşturulmuş:\n<b>${dup.title}</b>\nID: ${dup.id}`,
+          )
+          return NextResponse.json({ ok: true })
+        }
+
+        // 8. AutomationSettings + status kararı
+        const automationSettings = await fetchAutomationSettings(payload)
+        const statusDecision = resolveProductStatus(
+          {
+            parseConfidence: parsedCaption?.parseConfidence ?? null,
+            readiness: {
+              isReady: false,
+              missingCritical: price === 0 ? ['Fiyat girilmemiş'] : [],
+              warnings: [],
+              score: parsedCaption?.parseConfidence ?? 30,
+            },
+            productAutoActivateOverride: null,
+            explicitStatus: null,
+          },
+          automationSettings,
+        )
+
+        const channelDecision = resolveChannelTargets(['website'], automationSettings)
+
+        // 9. Ürün oluştur
+        const product = await payload.create({
+          collection: 'products',
+          data: {
+            title,
+            slug,
+            sku,
+            price,
+            status: statusDecision.status,
+            stockQuantity: stockQty,
+            source: 'telegram',
+            ...(category ? { category } : {}),
+            ...(brand ? { brand } : {}),
+            ...(productType ? { productType } : {}),
+            channelTargets: channelDecision.effectiveTargets as any,
+            channels: {
+              publishWebsite: channelDecision.effectiveTargets.includes('website'),
+              publishInstagram: false,
+              publishShopier: false,
+              publishDolap: false,
+            },
+            automationMeta: {
+              telegramChatId: tgChatId,
+              telegramMessageId: tgMsgId,
+              rawCaption: cleanCaption || text,
+              parseConfidence: parsedCaption?.parseConfidence ?? 0,
+              parseWarnings: JSON.stringify(parsedCaption?.parseWarnings ?? []),
+              autoDecision: statusDecision.status,
+              autoDecisionReason: statusDecision.reason,
+              visionUsed: !!visionData,
+            },
+          },
+        })
+
+        const productId = product.id as number
+
+        // 10. Fotoğrafı Media koleksiyonuna yükle + ürüne ekle
+        const filename = `tg-${productId}-${Date.now()}.${fileData.ext}`
+        const media = await payload.create({
+          collection: 'media',
+          data: {
+            altText: title,
+            product: productId,
+            type: 'original',
+          },
+          file: {
+            data: fileData.buffer,
+            mimetype: fileData.contentType,
+            name: filename,
+            size: fileData.buffer.length,
+          },
+        })
+
+        await payload.update({
+          collection: 'products',
+          id: productId,
+          data: {
+            images: [{ image: media.id }],
+          },
+        })
+
+        // 11. Telegram'a başarı bildirimi
+        const statusEmoji = statusDecision.status === 'active' ? '🟢' : '📋'
+        const statusLabel = statusDecision.status === 'active' ? 'Yayında' : 'Taslak'
+        const priceLabel = price > 0 ? `${price} ₺` : '⚠️ Fiyat girilmemiş'
+        const categoryLabel = category || '—'
+        const brandLabel = brand || '—'
+        const visionLabel = visionData ? ' (🤖 Vision)' : ''
+
+        await sendTelegramMessage(
+          chatId,
+          `✅ <b>Ürün oluşturuldu${visionLabel}</b>\n\n` +
+          `📦 <b>${title}</b>\n` +
+          `SKU: ${sku}\n` +
+          `Fiyat: ${priceLabel}\n` +
+          `Kategori: ${categoryLabel}\n` +
+          `Marka: ${brandLabel}\n` +
+          `Stok: ${stockQty} adet\n` +
+          `Durum: ${statusEmoji} ${statusLabel}\n\n` +
+          `🔗 Admin: https://www.uygunayakkabi.com/admin/collections/products/${productId}`,
+        )
+
+        return NextResponse.json({ ok: true })
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err)
+        console.error('[telegram/webhook] bunu-urune-cevir failed:', msg)
+        await sendTelegramMessage(
+          chatId,
+          `❌ Ürün oluşturulurken hata oluştu:\n<code>${msg.slice(0, 200)}</code>`,
+        )
+        return NextResponse.json({ ok: true })
+      }
+    }
 
     // ── /shopier commands ─────────────────────────────────────────────────────
     if (text.startsWith('/shopier')) {
@@ -28,14 +356,13 @@ export async function POST(req: NextRequest) {
       const subCommand = parts[1]?.toLowerCase()
       const arg = parts[2]
 
-      // /shopier publish <productId> — Queue product sync to Shopier
+      // /shopier publish <productId>
       if (subCommand === 'publish' && arg) {
         try {
           if (!process.env.SHOPIER_PAT) {
             await sendTelegramMessage(chatId, '❌ SHOPIER_PAT tanımlı değil — Shopier sync devre dışı')
             return NextResponse.json({ ok: true })
           }
-          // Set status to 'queued' first so admin UI shows pending state immediately
           const { docs: pDocs } = await payload.find({
             collection: 'products',
             where: { id: { equals: arg } },
@@ -54,7 +381,6 @@ export async function POST(req: NextRequest) {
             data: { sourceMeta: { ...pMeta, shopierSyncStatus: 'queued' } },
             context: { isDispatchUpdate: true },
           })
-          // Enqueue the job — completion notification sent by the task via syncProductToShopier
           await payload.jobs.queue({
             task: 'shopier-sync',
             input: { productId: arg, notifyTelegramChatId: chatId },
@@ -71,7 +397,7 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ ok: true })
       }
 
-      // /shopier republish <productId> — Force full resync via jobs queue
+      // /shopier republish <productId>
       if (subCommand === 'republish' && arg) {
         try {
           if (!process.env.SHOPIER_PAT) {
@@ -112,7 +438,7 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ ok: true })
       }
 
-      // /shopier status <productId> — Show sync status
+      // /shopier status <productId>
       if (subCommand === 'status' && arg) {
         try {
           const { docs } = await payload.find({
@@ -134,11 +460,7 @@ export async function POST(req: NextRequest) {
             await sendTelegramMessage(
               chatId,
               `📊 Shopier Durumu — ${p.title}\n\n` +
-                `Durum: ${status}\n` +
-                `Shopier ID: ${shopId}\n` +
-                `URL: ${shopUrl}\n` +
-                `Son Sync: ${lastSync}\n` +
-                `Son Hata: ${lastErr}`,
+                `Durum: ${status}\nShopier ID: ${shopId}\nURL: ${shopUrl}\nSon Sync: ${lastSync}\nSon Hata: ${lastErr}`,
             )
           }
         } catch (err) {
@@ -148,7 +470,7 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ ok: true })
       }
 
-      // /shopier url <productId> — Get Shopier URL
+      // /shopier url <productId>
       if (subCommand === 'url' && arg) {
         try {
           const { docs } = await payload.find({
@@ -170,7 +492,7 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ ok: true })
       }
 
-      // /shopier publish-ready — Bulk publish all ready products
+      // /shopier publish-ready
       if (subCommand === 'publish-ready') {
         try {
           const { docs } = await payload.find({
@@ -184,24 +506,18 @@ export async function POST(req: NextRequest) {
             depth: 0,
             limit: 50,
           })
-
-          // Filter out already-synced products
           const toSync = docs.filter((d: Record<string, unknown>) => {
             const sm = (d.sourceMeta as Record<string, unknown>) ?? {}
             return !sm.shopierProductId
           })
-
           if (toSync.length === 0) {
             await sendTelegramMessage(chatId, '✅ Shopier\'e yayınlanacak yeni ürün yok.')
             return NextResponse.json({ ok: true })
           }
-
           await sendTelegramMessage(chatId, `⏳ ${toSync.length} ürün Shopier sync kuyruğuna alınıyor...`)
-
           let queued = 0
           for (const p of toSync) {
             const pMeta = ((p as Record<string, unknown>).sourceMeta as Record<string, unknown>) ?? {}
-            // Mark each product as queued before enqueuing
             await payload.update({
               collection: 'products',
               id: p.id,
@@ -215,10 +531,9 @@ export async function POST(req: NextRequest) {
             })
             queued++
           }
-
           await sendTelegramMessage(
             chatId,
-            `✅ ${queued} ürün Shopier sync kuyruğuna alındı.\nSync tamamlandıkça ürün durumları güncellenir.\n\nDurumları kontrol etmek için: /shopier status <id>`,
+            `✅ ${queued} ürün Shopier sync kuyruğuna alındı.\n\nDurumları kontrol etmek için: /shopier status <id>`,
           )
         } catch (err) {
           const msg = err instanceof Error ? err.message : String(err)
@@ -227,19 +542,16 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ ok: true })
       }
 
-      // /shopier errors — List recent sync errors
+      // /shopier errors
       if (subCommand === 'errors') {
         try {
           const { docs } = await payload.find({
             collection: 'products',
-            where: {
-              'sourceMeta.shopierSyncStatus': { equals: 'error' },
-            },
+            where: { 'sourceMeta.shopierSyncStatus': { equals: 'error' } },
             depth: 0,
             limit: 10,
             sort: '-updatedAt',
           })
-
           if (docs.length === 0) {
             await sendTelegramMessage(chatId, '✅ Shopier sync hatası yok.')
           } else {
@@ -255,7 +567,6 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ ok: true })
       }
 
-      // Unknown /shopier subcommand
       await sendTelegramMessage(
         chatId,
         '📋 Shopier komutları:\n\n' +
@@ -269,7 +580,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: true })
     }
 
-    // Handle STOCK UPDATE command
+    // ── STOCK UPDATE komutu ────────────────────────────────────────────────────
     if (text.startsWith('STOCK SKU:')) {
       const stockUpdate = parseStockUpdate(text)
       if (!stockUpdate) {
@@ -279,7 +590,6 @@ export async function POST(req: NextRequest) {
 
       const { sku, changes } = stockUpdate
 
-      // Find product
       const { docs: products } = await payload.find({
         collection: 'products',
         where: { sku: { equals: sku } },
@@ -293,9 +603,8 @@ export async function POST(req: NextRequest) {
       }
 
       const product = products[0]
-
-      // Update each size variant
       const results: string[] = []
+
       for (const { size, delta } of changes) {
         const { docs: variants } = await payload.find({
           collection: 'variants',
@@ -316,8 +625,6 @@ export async function POST(req: NextRequest) {
             id: variant.id,
             data: { stock: newStock },
           })
-
-          // Log inventory change
           await payload.create({
             collection: 'inventory-logs',
             data: {
@@ -329,35 +636,29 @@ export async function POST(req: NextRequest) {
               timestamp: new Date().toISOString(),
             },
           })
-
           results.push(`Beden ${size}: ${variant.stock} → ${newStock}`)
         } else {
           results.push(`Beden ${size}: bulunamadı`)
         }
       }
 
-      await sendTelegramMessage(
-        chatId,
-        `✅ Stok güncellendi (${sku}):\n${results.join('\n')}`
-      )
+      await sendTelegramMessage(chatId, `✅ Stok güncellendi (${sku}):\n${results.join('\n')}`)
       return NextResponse.json({ ok: true })
     }
 
-    // Handle PRODUCT CREATION (message with photo and caption)
+    // ── Eski ürün oluşturma (legacy format, geriye dönük uyumluluk) ───────────
     if (message.photo || message.media_group_id) {
-      // parseTelegramCaption returns ParsedCaption (Step 11+ type).
-      // Route still uses legacy ProductData fields at runtime — cast to include them.
       const productData = parseTelegramCaption(text) as (ReturnType<typeof parseTelegramCaption> & {
         description?: string
         postToInstagram?: boolean
         sizes?: Record<string, number>
       }) | null
-      if (!productData) {
-        await sendTelegramMessage(chatId, '❌ Geçersiz ürün formatı. SKU, TITLE ve PRICE zorunludur.')
+
+      if (!productData || !productData.title || !productData.sku) {
+        // Legacy formatta değil — sessizce geç
         return NextResponse.json({ ok: true })
       }
 
-      // Check for duplicate SKU
       const { docs: existing } = await payload.find({
         collection: 'products',
         where: { sku: { equals: productData.sku } },
@@ -369,14 +670,8 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ ok: true })
       }
 
-      // Create slug from title
-      const slug = productData.title!
-        .toLowerCase()
-        .replace(/[^a-z0-9\s-]/g, '')
-        .replace(/\s+/g, '-')
-        .concat('-', productData.sku!.toLowerCase())
+      const slug = slugify(productData.title) + '-' + productData.sku.toLowerCase()
 
-      // Create product
       const newProduct = await payload.create({
         collection: 'products',
         data: {
@@ -389,11 +684,9 @@ export async function POST(req: NextRequest) {
           description: productData.description,
           status: 'active',
           createdByAutomation: true,
-          postToInstagram: productData.postToInstagram,
         },
       })
 
-      // Create variants
       for (const [size, stock] of Object.entries(productData.sizes ?? {})) {
         await payload.create({
           collection: 'variants',
@@ -404,8 +697,6 @@ export async function POST(req: NextRequest) {
             variantSku: `${productData.sku}-${size}`,
           },
         })
-
-        // Log initial inventory
         await payload.create({
           collection: 'inventory-logs',
           data: {
@@ -421,7 +712,7 @@ export async function POST(req: NextRequest) {
 
       await sendTelegramMessage(
         chatId,
-        `✅ Ürün oluşturuldu!\n\n📦 ${productData.title}\nSKU: ${productData.sku}\nFiyat: ${productData.price} ₺\nURL: /products/${slug}`
+        `✅ Ürün oluşturuldu!\n\n📦 ${productData.title}\nSKU: ${productData.sku}\nFiyat: ${productData.price} ₺`,
       )
       return NextResponse.json({ ok: true })
     }
@@ -431,15 +722,4 @@ export async function POST(req: NextRequest) {
     console.error('Telegram webhook error:', error)
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
   }
-}
-
-async function sendTelegramMessage(chatId: number, text: string): Promise<void> {
-  const token = process.env.TELEGRAM_BOT_TOKEN
-  if (!token) return
-
-  await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ chat_id: chatId, text }),
-  })
 }

@@ -1,0 +1,22 @@
+name: Process Payload Jobs
+
+on:
+  schedule:
+    # Every 5 minutes — processes queued Shopier sync jobs
+    - cron: '*/5 * * * *'
+  workflow_dispatch: # allow manual trigger
+
+jobs:
+  run-jobs:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger Payload job runner
+        run: |
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
+            -X GET "https://uygunayakkabi-store.vercel.app/api/payload-jobs/run" \
+            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}")
+          echo "Response status: $STATUS"
+          if [ "$STATUS" != "200" ]; then
+            echo "Job runner returned non-200: $STATUS"
+            exit 1
+          fi

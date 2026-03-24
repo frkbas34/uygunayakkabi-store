@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from 'next/server'
+import { NextRequest, NextResponse, after } from 'next/server'
 import { getPayload } from '@/lib/payload'
 import { parseTelegramCaption, parseStockUpdate } from '@/lib/telegram'
 import {
@@ -193,14 +193,23 @@ export async function POST(req: NextRequest) {
         const photo = photoArray.sort((a, b) => b.width - a.width)[0]
         const fileId = photo.file_id
 
-        // 2. Caption temizle — bot mentions + trigger phrases + görsel hashtag'leri sil
-        //    Kaynak: kendi caption'ı + reply edilen mesajın caption'ı (reply senaryosu)
+        // 2. Görsel mod tag'ini tespit et (caption temizlenmeden önce)
+        //    "bunu ürüne çevir #hizli 1755 TL" → mod = 'hizli', otomatik image-gen kuyruğa alınır
+        const combinedRaw = text + (replyCaption ? '\n' + replyCaption : '')
+        const autoGenMode: 'hizli' | 'dengeli' | 'premium' | 'karma' | null =
+          /#karma/i.test(combinedRaw)   ? 'karma'   :
+          /#premium/i.test(combinedRaw) ? 'premium' :
+          /#dengeli/i.test(combinedRaw) ? 'dengeli' :
+          /#hizli/i.test(combinedRaw)   ? 'hizli'   :
+          null
+
+        // Caption temizle — bot mentions + trigger phrases + görsel hashtag'leri sil
         //    #hizli / #dengeli / #premium / #karma / #gorsel gibi görsel mod tag'leri de
         //    çıkarılır — "bunu ürüne çevir #hizli 1755 TL" gibi kullanımlarda
         //    parseTelegramCaption'ı bozmasın
         const BOT_MENTIONS = /(@Uygunops_bot|@uygunops_bot|@mentix_aibot|@Mentix)/gi
         const GORSEL_TAGS  = /#(gorsel|hizli|dengeli|premium|karma)\b/gi
-        const combinedText = text + (replyCaption ? '\n' + replyCaption : '')
+        const combinedText = combinedRaw
         const cleanCaption = combinedText
           .replace(/bunu\s+[uü]r[uü]ne\s+[cç]evir/gi, '')
           .replace(/[uü]r[uü]ne\s+[cç]evir/gi, '')
@@ -367,6 +376,42 @@ export async function POST(req: NextRequest) {
           ? ` (${parsedCaption.parseConfidence}% güven)`
           : ''
 
+        // 12. Görsel mod tag'i varsa → otomatik image-gen job kuyruğa al
+        let autoGenJobId: string | null = null
+        if (autoGenMode) {
+          try {
+            const modeLabelMap: Record<string, string> = {
+              hizli: '⚡ Hızlı', dengeli: '⚖️ Dengeli', premium: '💎 Premium', karma: '🌈 Karma',
+            }
+            const autoJobDoc = await payload.create({
+              collection: 'image-generation-jobs',
+              data: {
+                jobTitle: `${title} — ${modeLabelMap[autoGenMode]}`,
+                product: productId,
+                mode: autoGenMode,
+                status: 'queued',
+                telegramChatId: tgChatId,
+                requestedByUserId: String(message.from?.id ?? ''),
+              },
+            })
+            await payload.jobs.queue({
+              task: 'image-gen',
+              input: { jobId: String(autoJobDoc.id) },
+              overrideAccess: true,
+            })
+            autoGenJobId = String(autoJobDoc.id)
+          } catch (err) {
+            console.error('[telegram/webhook] auto image-gen queue failed:', err)
+          }
+        }
+
+        const modeEmojiMap: Record<string, string> = {
+          hizli: '⚡', dengeli: '⚖️', premium: '💎', karma: '🌈',
+        }
+        const gorselLine = autoGenJobId && autoGenMode
+          ? `\n\n${modeEmojiMap[autoGenMode]} <b>Görsel üretimi başlatıldı</b> (${autoGenMode}) — tamamlanınca bildirim gelecek`
+          : ''
+
         await sendTelegramMessage(
           chatId,
           `✅ <b>Ürün oluşturuldu${visionLabel}${confidenceBar}</b>\n\n` +
@@ -378,8 +423,20 @@ export async function POST(req: NextRequest) {
           `Stok: ${stockQty} adet\n` +
           `Durum: ${statusEmoji} ${statusLabel}` +
           missingBlock +
+          gorselLine +
           `\n\n🔗 <a href="https://www.uygunayakkabi.com/admin/collections/products/${productId}">Admin'de aç</a>`,
         )
+
+        // Job runner — response gönderildikten sonra çalıştır (after ile timeout yok)
+        if (autoGenJobId) {
+          after(async () => {
+            try {
+              await payload.jobs.run({ limit: 1, overrideAccess: true })
+            } catch (err) {
+              console.error('[telegram/webhook] after() jobs.run failed:', err)
+            }
+          })
+        }
 
         return NextResponse.json({ ok: true })
       } catch (err) {
@@ -484,14 +541,21 @@ export async function POST(req: NextRequest) {
       }
       await sendTelegramMessage(
         chatId,
-        `${modeEmoji[genMode] ?? '🎨'} <b>Görsel üretimi kuyruğa alındı!</b>\n\n` +
+        `${modeEmoji[genMode] ?? '🎨'} <b>Görsel üretimi başlatıldı!</b>\n\n` +
         `📦 Ürün: <b>${gorselProduct.title}</b>\n` +
         `🔧 Mod: ${modeLabelMap[genMode]}\n` +
         `🖼️ 5 farklı konsept görsel üretilecek\n\n` +
-        `<i>Üretim tamamlanınca bildirim gelecek. ` +
-        `İş koşturucunun (<code>/api/payload-jobs/run</code>) ` +
-        `aktif olduğundan emin ol.</i>`,
+        `<i>Tamamlanınca bildirim gelecek.</i>`,
       )
+
+      // Job runner — response gönderildikten sonra çalıştır (after ile timeout yok)
+      after(async () => {
+        try {
+          await payload.jobs.run({ limit: 1, overrideAccess: true })
+        } catch (err) {
+          console.error('[telegram/webhook] after() #gorsel jobs.run failed:', err)
+        }
+      })
 
       return NextResponse.json({ ok: true })
     }

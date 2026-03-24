@@ -161,24 +161,34 @@ export async function POST(req: NextRequest) {
     const payload = await getPayload()
 
     // ── "bunu ürüne çevir" otomatik intake ────────────────────────────────────
+    // Destek: (A) fotoğraf + caption, (B) metin reply → fotoğraf mesajına
     const isBunuUruneCevir =
       /bunu\s+[uü]r[uü]ne\s+[cç]evir/i.test(text) ||
       /[uü]r[uü]ne\s+[cç]evir/i.test(text)
 
-    if (isBunuUruneCevir && message.photo) {
+    // Reply senaryosu: text mesajı fotoğraflı bir mesajı reply ediyor
+    const replyPhoto = message.reply_to_message?.photo
+    const activePhoto = message.photo || (isBunuUruneCevir ? replyPhoto : null)
+
+    if (isBunuUruneCevir && activePhoto) {
+      // Reply senaryosunda caption, reply edilen mesajın caption'ından da alınabilir
+      const replyCaption = message.reply_to_message?.caption || ''
       await sendTelegramMessage(chatId, '⏳ Ürün oluşturuluyor, lütfen bekleyin...')
 
       try {
-        // 1. En yüksek çözünürlüklü fotoğrafı seç
-        const photo = (message.photo as Array<{ file_id: string; width: number; height: number }>)
-          .sort((a, b) => b.width - a.width)[0]
+        // 1. En yüksek çözünürlüklü fotoğrafı seç (activePhoto = direkt veya reply'daki foto)
+        const photoArray = activePhoto as Array<{ file_id: string; width: number; height: number }>
+        const photo = photoArray.sort((a, b) => b.width - a.width)[0]
         const fileId = photo.file_id
 
-        // 2. Caption temizle — "@Mentix bunu ürüne çevir" kısmını sil
-        const cleanCaption = text
+        // 2. Caption temizle — sadece bot username'lerini sil, ürün kelimelerini koru
+        //    Kaynak: kendi caption'ı + reply edilen mesajın caption'ı (reply senaryosu)
+        const BOT_MENTIONS = /(@Uygunops_bot|@uygunops_bot|@mentix_aibot|@Mentix)/gi
+        const combinedText = text + (replyCaption ? '\n' + replyCaption : '')
+        const cleanCaption = combinedText
           .replace(/bunu\s+[uü]r[uü]ne\s+[cç]evir/gi, '')
           .replace(/[uü]r[uü]ne\s+[cç]evir/gi, '')
-          .replace(/@\w+/g, '')
+          .replace(BOT_MENTIONS, '')
           .trim()
 
         // 3. Caption'dan ürün bilgisi parse et

@@ -10,9 +10,9 @@
  *  - Be configurable: model names overridable via env vars
  *
  * Supported providers:
- *  - Gemini Flash   → GEMINI_API_KEY (fast, cheap, #hizli mode)
- *  - GPT Image      → OPENAI_API_KEY (balanced quality, #dengeli mode)
- *  - Gemini Pro     → GEMINI_API_KEY (high quality via Imagen, #premium mode)
+ *  - Gemini Flash   → GEMINI_API_KEY (fast, cheap, #hizli mode) [gemini-2.0-flash-exp-image-generation]
+ *  - GPT Image      → OPENAI_API_KEY (balanced quality, #dengeli mode) [gpt-image-1]
+ *  - Gemini Pro     → GEMINI_API_KEY (high quality via Imagen 4 Ultra, #premium mode) [imagen-4.0-ultra-generate-001]
  *
  * Mode routing:
  *  - #hizli    → generateWithGeminiFlash()
@@ -53,7 +53,7 @@ async function callGeminiFlash(
 ): Promise<Buffer | null> {
   const model =
     process.env.GEMINI_FLASH_MODEL ||
-    'gemini-2.0-flash-preview-image-generation'
+    'gemini-2.0-flash-exp-image-generation'
 
   try {
     const res = await fetch(
@@ -95,8 +95,8 @@ async function callGeminiFlash(
 }
 
 /**
- * Gemini Pro / Imagen 3 — high-quality image generation via Imagen API.
- * Model: imagen-3.0-generate-001 (overridable)
+ * Gemini Pro / Imagen 4 Ultra — highest quality image generation via Imagen API.
+ * Model: imagen-4.0-ultra-generate-001 (overridable via GEMINI_PRO_MODEL)
  * Uses the /predict endpoint which supports sampleCount batching.
  * Returns one Buffer per prompt.
  */
@@ -105,7 +105,7 @@ async function callGeminiPro(
   apiKey: string,
 ): Promise<Buffer | null> {
   const model =
-    process.env.GEMINI_PRO_MODEL || 'imagen-3.0-generate-001'
+    process.env.GEMINI_PRO_MODEL || 'imagen-4.0-ultra-generate-001'
 
   try {
     const res = await fetch(

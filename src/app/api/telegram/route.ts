@@ -231,7 +231,7 @@ export async function POST(req: NextRequest) {
         const title =
           parsedCaption?.title ||
           visionData?.title ||
-          `Taslak Ürün ${dateStr}-${tgMsgId}`
+          `Taslak Ürün ${dateStr}-${messageId}`
 
         const price = parsedCaption?.price ?? 0
         const category = parsedCaption?.category || (visionData?.category as string | undefined) || undefined

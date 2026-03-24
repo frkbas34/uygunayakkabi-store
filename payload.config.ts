@@ -18,9 +18,11 @@ import { Brands } from "./src/collections/Brands";
 import { Categories } from "./src/collections/Categories";
 import { Banners } from "./src/collections/Banners";
 import { BlogPosts } from "./src/collections/BlogPosts";
+import { ImageGenerationJobs } from "./src/collections/ImageGenerationJobs";
 import { SiteSettings } from "./src/globals/SiteSettings";
 import { AutomationSettings } from "./src/globals/AutomationSettings";
 import { shopierSyncTask } from "./src/jobs/shopierSyncTask";
+import { imageGenTask } from "./src/jobs/imageGenTask";
 
 const filename = fileURLToPath(import.meta.url);
 const dirname = path.dirname(filename);
@@ -62,6 +64,7 @@ export default buildConfig({
     Orders,
     Banners,
     BlogPosts,
+    ImageGenerationJobs,
   ],
   globals: [SiteSettings, AutomationSettings],
 
@@ -84,7 +87,7 @@ export default buildConfig({
   // Set CRON_SECRET in Vercel env vars; the access.run fn below enforces it.
   // Locally, leave CRON_SECRET unset — the check falls back to open access.
   jobs: {
-    tasks: [shopierSyncTask],
+    tasks: [shopierSyncTask, imageGenTask],
 
     // Protect the GET /api/payload-jobs/run endpoint.
     // Pattern from Payload docs: check Authorization: Bearer <CRON_SECRET>.

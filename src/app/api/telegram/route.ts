@@ -387,6 +387,109 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    // ── #gorsel — AI Product Image Generation ────────────────────────────────
+    // Triggers: "#gorsel", "bunu görsel üret", "görsel üret"
+    // Mode tags: #hizli (default), #dengeli, #premium, #karma
+    // Product discovery:
+    //   A) Reply to the bot's product creation message → extracts product ID from URL
+    //   B) Explicit: "#gorsel 42" or "#gorsel 42 #premium"
+    const isGorselTrigger =
+      /#gorsel/i.test(text) ||
+      /bunu\s+g[oö]rsel\s+[uü]ret/i.test(text) ||
+      /g[oö]rsel\s+[uü]ret/i.test(text)
+
+    if (isGorselTrigger) {
+      // Detect generation mode from hashtags in message text
+      const genMode: 'hizli' | 'dengeli' | 'premium' | 'karma' =
+        /#karma/i.test(text)   ? 'karma'   :
+        /#premium/i.test(text) ? 'premium' :
+        /#dengeli/i.test(text) ? 'dengeli' :
+        'hizli'
+
+      // Find product ID:
+      // Option A — bot's confirmation message (reply contains /products/<id> URL)
+      const replyText =
+        message.reply_to_message?.text ||
+        message.reply_to_message?.caption ||
+        ''
+      const urlMatch = replyText.match(/\/products\/(\d+)/)
+      let gorselProductId: number | null = urlMatch ? parseInt(urlMatch[1]) : null
+
+      // Option B — explicit ID in the command: "#gorsel 42" or "#gorsel 42 #premium"
+      if (!gorselProductId) {
+        const idMatch = text.match(/#gorsel\s+(\d+)/i)
+        if (idMatch) gorselProductId = parseInt(idMatch[1])
+      }
+
+      if (!gorselProductId) {
+        await sendTelegramMessage(
+          chatId,
+          '🎨 <b>Görsel üretimi için ürün gerekli.</b>\n\n' +
+          'İki yöntemden biri:\n' +
+          '1️⃣ Ürün oluşturma mesajını <b>reply</b> edip yaz: <code>#gorsel</code>\n' +
+          '2️⃣ Ürün ID ile yaz: <code>#gorsel 42</code>\n\n' +
+          'Mod seçimi (opsiyonel):\n' +
+          '<code>#gorsel #hizli</code>   — ⚡ Gemini Flash (hızlı)\n' +
+          '<code>#gorsel #dengeli</code> — ⚖️ GPT Image (dengeli)\n' +
+          '<code>#gorsel #premium</code> — 💎 Gemini Pro (yüksek kalite)\n' +
+          '<code>#gorsel #karma</code>   — 🌈 Tüm motorlar (5 farklı açı)',
+        )
+        return NextResponse.json({ ok: true })
+      }
+
+      // Verify product exists
+      const { docs: gorselDocs } = await payload.find({
+        collection: 'products',
+        where: { id: { equals: gorselProductId } },
+        limit: 1,
+        depth: 0,
+      })
+      if (gorselDocs.length === 0) {
+        await sendTelegramMessage(chatId, `❌ Ürün bulunamadı: #${gorselProductId}`)
+        return NextResponse.json({ ok: true })
+      }
+      const gorselProduct = gorselDocs[0] as Record<string, unknown>
+
+      // Create ImageGenerationJob record
+      const modeLabelMap: Record<string, string> = {
+        hizli: '⚡ Hızlı', dengeli: '⚖️ Dengeli', premium: '💎 Premium', karma: '🌈 Karma',
+      }
+      const jobDoc = await payload.create({
+        collection: 'image-generation-jobs',
+        data: {
+          jobTitle: `${gorselProduct.title} — ${modeLabelMap[genMode] ?? genMode}`,
+          product: gorselProductId,
+          mode: genMode,
+          status: 'queued',
+          telegramChatId: String(chatId),
+          requestedByUserId: String(message.from?.id ?? ''),
+        },
+      })
+
+      // Queue the image generation job
+      await payload.jobs.queue({
+        task: 'image-gen',
+        input: { jobId: String(jobDoc.id) },
+        overrideAccess: true,
+      })
+
+      const modeEmoji: Record<string, string> = {
+        hizli: '⚡', dengeli: '⚖️', premium: '💎', karma: '🌈',
+      }
+      await sendTelegramMessage(
+        chatId,
+        `${modeEmoji[genMode] ?? '🎨'} <b>Görsel üretimi kuyruğa alındı!</b>\n\n` +
+        `📦 Ürün: <b>${gorselProduct.title}</b>\n` +
+        `🔧 Mod: ${modeLabelMap[genMode]}\n` +
+        `🖼️ 5 farklı konsept görsel üretilecek\n\n` +
+        `<i>Üretim tamamlanınca bildirim gelecek. ` +
+        `İş koşturucunun (<code>/api/payload-jobs/run</code>) ` +
+        `aktif olduğundan emin ol.</i>`,
+      )
+
+      return NextResponse.json({ ok: true })
+    }
+
     // ── /shopier commands ─────────────────────────────────────────────────────
     if (text.startsWith('/shopier')) {
       const parts = text.trim().split(/\s+/)

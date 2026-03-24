@@ -193,14 +193,19 @@ export async function POST(req: NextRequest) {
         const photo = photoArray.sort((a, b) => b.width - a.width)[0]
         const fileId = photo.file_id
 
-        // 2. Caption temizle — sadece bot username'lerini sil, ürün kelimelerini koru
+        // 2. Caption temizle — bot mentions + trigger phrases + görsel hashtag'leri sil
         //    Kaynak: kendi caption'ı + reply edilen mesajın caption'ı (reply senaryosu)
+        //    #hizli / #dengeli / #premium / #karma / #gorsel gibi görsel mod tag'leri de
+        //    çıkarılır — "bunu ürüne çevir #hizli 1755 TL" gibi kullanımlarda
+        //    parseTelegramCaption'ı bozmasın
         const BOT_MENTIONS = /(@Uygunops_bot|@uygunops_bot|@mentix_aibot|@Mentix)/gi
+        const GORSEL_TAGS  = /#(gorsel|hizli|dengeli|premium|karma)\b/gi
         const combinedText = text + (replyCaption ? '\n' + replyCaption : '')
         const cleanCaption = combinedText
           .replace(/bunu\s+[uü]r[uü]ne\s+[cç]evir/gi, '')
           .replace(/[uü]r[uü]ne\s+[cç]evir/gi, '')
           .replace(BOT_MENTIONS, '')
+          .replace(GORSEL_TAGS, '')
           .trim()
 
         // 3. Caption'dan ürün bilgisi parse et
@@ -220,12 +225,13 @@ export async function POST(req: NextRequest) {
         }
 
         // 6. Bilgileri birleştir: caption > vision > default
-        // Başlık: caption > vision > "Taslak DD.MM" formatında kısa fallback
+        // Başlık: caption > vision > fallback (mesaj ID'si ile unique — aynı günde
+        // birden fazla isimsiz ürün oluşturulduğunda slug unique constraint kırılmasın)
         const dateStr = new Date().toLocaleDateString('tr-TR', { day: '2-digit', month: '2-digit' })
         const title =
           parsedCaption?.title ||
           visionData?.title ||
-          `Taslak Ürün ${dateStr}`
+          `Taslak Ürün ${dateStr}-${tgMsgId}`
 
         const price = parsedCaption?.price ?? 0
         const category = parsedCaption?.category || (visionData?.category as string | undefined) || undefined

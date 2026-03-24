@@ -170,6 +170,18 @@ export async function POST(req: NextRequest) {
     const replyPhoto = message.reply_to_message?.photo
     const activePhoto = message.photo || (isBunuUruneCevir ? replyPhoto : null)
 
+    // Trigger var ama fotoğraf yok — kullanıcıya rehberlik et
+    if (isBunuUruneCevir && !activePhoto) {
+      await sendTelegramMessage(
+        chatId,
+        '📸 Ürün oluşturmak için <b>fotoğraf gerekli</b>.\n\n' +
+        'İki yöntemden birini kullan:\n' +
+        '1️⃣ Fotoğrafı gönder, caption\'a yaz: <code>bunu ürüne çevir</code>\n' +
+        '2️⃣ Önce fotoğraf gönder, sonra o mesajı <b>reply</b> edip yaz: <code>bunu ürüne çevir</code>',
+      )
+      return NextResponse.json({ ok: true })
+    }
+
     if (isBunuUruneCevir && activePhoto) {
       // Reply senaryosunda caption, reply edilen mesajın caption'ından da alınabilir
       const replyCaption = message.reply_to_message?.caption || ''
@@ -208,10 +220,12 @@ export async function POST(req: NextRequest) {
         }
 
         // 6. Bilgileri birleştir: caption > vision > default
+        // Başlık: caption > vision > "Taslak DD.MM" formatında kısa fallback
+        const dateStr = new Date().toLocaleDateString('tr-TR', { day: '2-digit', month: '2-digit' })
         const title =
           parsedCaption?.title ||
           visionData?.title ||
-          `Telegram Ürünü ${new Date().toLocaleDateString('tr-TR')}`
+          `Taslak Ürün ${dateStr}`
 
         const price = parsedCaption?.price ?? 0
         const category = parsedCaption?.category || (visionData?.category as string | undefined) || undefined
@@ -327,25 +341,38 @@ export async function POST(req: NextRequest) {
           },
         })
 
-        // 11. Telegram'a başarı bildirimi
+        // 11. Telegram'a başarı bildirimi — eksik alanları açıkça göster
         const statusEmoji = statusDecision.status === 'active' ? '🟢' : '📋'
         const statusLabel = statusDecision.status === 'active' ? 'Yayında' : 'Taslak'
-        const priceLabel = price > 0 ? `${price} ₺` : '⚠️ Fiyat girilmemiş'
-        const categoryLabel = category || '—'
-        const brandLabel = brand || '—'
-        const visionLabel = visionData ? ' (🤖 Vision)' : ''
+        const visionLabel = visionData ? ' 🤖' : ''
+
+        // Eksik kritik alanları listele
+        const missing: string[] = []
+        if (price === 0) missing.push('Fiyat')
+        if (!category) missing.push('Kategori')
+        if (!brand) missing.push('Marka')
+
+        const missingBlock = missing.length > 0
+          ? `\n⚠️ <b>Eksik alanlar:</b> ${missing.join(', ')}\n` +
+            `<i>Admin panelden tamamla: /admin/collections/products/${productId}</i>`
+          : ''
+
+        const confidenceBar = parsedCaption?.parseConfidence
+          ? ` (${parsedCaption.parseConfidence}% güven)`
+          : ''
 
         await sendTelegramMessage(
           chatId,
-          `✅ <b>Ürün oluşturuldu${visionLabel}</b>\n\n` +
+          `✅ <b>Ürün oluşturuldu${visionLabel}${confidenceBar}</b>\n\n` +
           `📦 <b>${title}</b>\n` +
-          `SKU: ${sku}\n` +
-          `Fiyat: ${priceLabel}\n` +
-          `Kategori: ${categoryLabel}\n` +
-          `Marka: ${brandLabel}\n` +
+          `SKU: <code>${sku}</code>\n` +
+          `Fiyat: ${price > 0 ? `${price} ₺` : '—'}\n` +
+          `Kategori: ${category || '—'}\n` +
+          `Marka: ${brand || '—'}\n` +
           `Stok: ${stockQty} adet\n` +
-          `Durum: ${statusEmoji} ${statusLabel}\n\n` +
-          `🔗 Admin: https://www.uygunayakkabi.com/admin/collections/products/${productId}`,
+          `Durum: ${statusEmoji} ${statusLabel}` +
+          missingBlock +
+          `\n\n🔗 <a href="https://www.uygunayakkabi.com/admin/collections/products/${productId}">Admin'de aç</a>`,
         )
 
         return NextResponse.json({ ok: true })

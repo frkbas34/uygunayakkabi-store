@@ -12,6 +12,10 @@
  *  5. worn_lifestyle    — Worn in a real-world setting
  *
  * All prompts are in English (better results with image generation APIs).
+ *
+ * When a reference image is available, prompts switch to image-to-image mode:
+ * the model is instructed to reproduce the EXACT product from the reference
+ * photo and only change angle/background/lighting per concept.
  */
 
 export type ProductContext = {
@@ -64,13 +68,25 @@ function categoryLabel(category?: string | null): string {
 }
 
 /**
+ * Detects auto-generated placeholder titles from Telegram intake.
+ * These titles carry zero product information and should NOT be used in prompts.
+ * Examples: "Telegram Ürünü 24.03.2026", "Telegram Ürünü 24.03.2026 12:30"
+ */
+function isPlaceholderTitle(title: string): boolean {
+  return /^Telegram\s+[ÜUüu]r[üu]n[üu]/i.test(title)
+}
+
+/**
  * Builds the base description string from product context.
  * Example: "Nike, Air Max 90, black leather sneaker"
+ *
+ * Skips the title if it's a Telegram placeholder (e.g. "Telegram Ürünü 24.03.2026")
+ * to prevent the AI from generating a literal label with that text.
  */
 function buildBase(product: ProductContext): string {
   const parts = [
     product.brand,
-    product.title,
+    isPlaceholderTitle(product.title) ? null : product.title,
     product.color,
     product.material,
   ].filter(Boolean)
@@ -81,24 +97,52 @@ function buildBase(product: ProductContext): string {
  * Returns 5 concept prompts for the given product context.
  * Safe for all product categories (shoes, wallets, bags, etc.).
  *
- * When hasReferenceImage is true, each prompt is prefixed with a strong
- * instruction to treat the reference photo as the ground truth product.
- * This dramatically improves visual consistency across the generated set.
+ * When hasReferenceImage is true, prompts are rebuilt to:
+ * 1. Instruct the model to reproduce the EXACT product from the reference photo
+ * 2. Emphasize color fidelity (prevents brown/red when the product is black)
+ * 3. Use "the product shown in the reference image" as description when text
+ *    metadata is too sparse (e.g. Telegram intake with no brand/color/material)
  */
 export function buildPromptSet(product: ProductContext, hasReferenceImage = false): ImagePrompt[] {
   const base = buildBase(product)
   const catLabel = categoryLabel(product.category)
   const genLabel = genderLabel(product.gender)
-  const fullDesc = [genLabel, base, catLabel].filter(Boolean).join(' ')
 
-  // When a reference image is provided, the model must preserve every product
-  // detail — only the scene/angle/lighting should change per concept.
+  // If we have real text metadata, use it; otherwise fall back to category label
+  const textParts = [genLabel, base, catLabel].filter(Boolean)
+  const hasRealMetadata = base.length > 0
+
+  // Product description used in prompts:
+  // - With reference + weak metadata: "the exact product shown in the reference image"
+  // - With reference + good metadata: text description + note about reference
+  // - Without reference: text description (best effort)
+  let fullDesc: string
+  if (hasReferenceImage && !hasRealMetadata) {
+    // No useful text — rely entirely on the reference photo
+    fullDesc = `the exact ${catLabel} shown in the reference image`
+  } else if (hasReferenceImage && hasRealMetadata) {
+    // Good text metadata + reference image — use both
+    fullDesc = textParts.join(' ')
+  } else {
+    // No reference image — text-only (legacy behavior)
+    fullDesc = textParts.join(' ')
+  }
+
+  // ── Reference image prefix ──────────────────────────────────────────────
+  // When a reference image is provided, every prompt starts with this block.
+  // It's intentionally strong/repetitive because image generation models tend
+  // to "drift" from the reference if not heavily constrained.
   const refPrefix = hasReferenceImage
-    ? `CRITICAL: Use the reference image as the EXACT product. ` +
-      `Reproduce the identical model, colorway, logo placement, sole design, ` +
-      `stitching, and all material details with 100% fidelity. ` +
-      `Do NOT invent, alter, or substitute any part of the product. ` +
-      `Only the shooting angle, background, and lighting should change. `
+    ? `CRITICAL INSTRUCTION — REFERENCE IMAGE FIDELITY: ` +
+      `The attached reference image shows the EXACT product to photograph. ` +
+      `You MUST reproduce this IDENTICAL product with 100% visual fidelity: ` +
+      `same exact colors (if the product is black, it MUST be black — do NOT change to brown or any other color), ` +
+      `same exact shape, same model, same logo placement, same sole design, ` +
+      `same stitching pattern, same material texture, same proportions. ` +
+      `Do NOT invent, alter, recolor, or substitute ANY part of the product. ` +
+      `The reference image is the absolute ground truth. ` +
+      `Only the camera angle, background/scene, and lighting should change as described below. ` +
+      `Do NOT add any text, labels, or watermarks to the image. `
     : ''
 
   return [
@@ -111,7 +155,7 @@ export function buildPromptSet(product: ProductContext, hasReferenceImage = fals
         `High-resolution professional product photograph of ${fullDesc}, ` +
         `straight front view, centered on a pure white background, ` +
         `clean studio lighting with soft shadows, sharp focus, ` +
-        `commercial e-commerce product photography style, no text, ` +
+        `commercial e-commerce product photography style, no text or labels, ` +
         `4K quality, isolated product`,
     },
 
@@ -124,7 +168,7 @@ export function buildPromptSet(product: ProductContext, hasReferenceImage = fals
         `Professional product studio photograph of ${fullDesc}, ` +
         `45-degree side angle view, white or light grey seamless background, ` +
         `soft-box studio lighting, fine detail visible, ` +
-        `commercial product photography, no shadows on background, high resolution`,
+        `commercial product photography, no shadows on background, high resolution, no text`,
     },
 
     // ── 3. Detail Closeup ────────────────────────────────────────────────────
@@ -134,9 +178,10 @@ export function buildPromptSet(product: ProductContext, hasReferenceImage = fals
       prompt:
         refPrefix +
         `Extreme close-up macro product photography showing the texture and material ` +
-        `of ${base}, shallow depth of field, sharp focus on surface details, ` +
+        `of ${hasReferenceImage ? 'the product from the reference image' : base || catLabel}, ` +
+        `shallow depth of field, sharp focus on surface details, ` +
         `professional product photography, warm soft lighting, ` +
-        `luxury fashion editorial style, no background distractions`,
+        `luxury fashion editorial style, no background distractions, no text`,
     },
 
     // ── 4. Tabletop Editorial ────────────────────────────────────────────────
@@ -149,7 +194,7 @@ export function buildPromptSet(product: ProductContext, hasReferenceImage = fals
         `artfully placed on a clean marble or light oak wooden surface, ` +
         `natural daylight from the side, minimal Scandinavian composition, ` +
         `fashion magazine editorial style, soft shadows, muted tones, ` +
-        `professional photography`,
+        `professional photography, no text`,
     },
 
     // ── 5. Worn Lifestyle ────────────────────────────────────────────────────
@@ -162,7 +207,7 @@ export function buildPromptSet(product: ProductContext, hasReferenceImage = fals
         `urban or nature outdoor setting, natural golden-hour lighting, ` +
         `contemporary fashion editorial style, only feet/hands/accessory visible, ` +
         `authentic lifestyle mood, professional photography, ` +
-        `no face shown, fashion magazine quality`,
+        `no face shown, fashion magazine quality, no text`,
     },
   ]
 }

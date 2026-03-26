@@ -44,11 +44,7 @@ export const Products: CollectionConfig = {
     beforeValidate: [
       ({ data }) => {
         if (!data) return data
-        // Auto-generate slug from title (always regenerate on save)
-        if (data.title) {
-          data.slug = toSlug(data.title)
-        }
-        // Auto-generate SKU if empty
+        // Auto-generate SKU if empty (must run BEFORE slug so slug can use it)
         if (data.title && !data.sku) {
           const prefix = data.title.substring(0, 3).toUpperCase().replace(/[^A-Z]/g, 'X')
           const isAutomation = data.source === 'n8n' || data.source === 'telegram'
@@ -60,6 +56,14 @@ export const Products: CollectionConfig = {
           } else {
             data.sku = `${prefix}-${Date.now().toString(36).toUpperCase()}`
           }
+        }
+        // Auto-generate slug from title + SKU suffix (ensures uniqueness)
+        if (data.title) {
+          const baseSlug = toSlug(data.title)
+          const skuSuffix = data.sku
+            ? '-' + data.sku.toLowerCase().replace(/[^a-z0-9-]/g, '')
+            : '-' + Date.now().toString(36)
+          data.slug = baseSlug + skuSuffix
         }
         return data
       },

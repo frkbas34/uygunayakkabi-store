@@ -19,6 +19,87 @@ import type { CollectionConfig } from 'payload'
 
 export const ImageGenerationJobs: CollectionConfig = {
   slug: 'image-generation-jobs',
+
+  // ── Hooks ────────────────────────────────────────────────────────────────
+  hooks: {
+    afterChange: [
+      /**
+       * When an admin sets status → 'approved', automatically append all
+       * generatedImages to the product's images array.
+       * This removes the manual drag-and-drop step from the workflow.
+       */
+      async ({ doc, previousDoc, req, operation }) => {
+        // Only fire on updates when status just became 'approved'
+        if (
+          operation !== 'update' ||
+          doc.status !== 'approved' ||
+          previousDoc?.status === 'approved'
+        ) {
+          return
+        }
+
+        const payload = req.payload
+
+        // Resolve product ID
+        const productRef = doc.product as { id: number } | number | null
+        if (!productRef) {
+          console.warn('[ImageGenerationJobs] afterChange: no product on job, skipping')
+          return
+        }
+        const productId =
+          typeof productRef === 'object' ? productRef.id : productRef
+
+        // Resolve generated image IDs
+        const generatedImages = doc.generatedImages as
+          | Array<{ id: number } | number>
+          | undefined
+        if (!generatedImages || generatedImages.length === 0) {
+          console.warn('[ImageGenerationJobs] afterChange: no generatedImages, skipping')
+          return
+        }
+        const newMediaIds = generatedImages.map((img) =>
+          typeof img === 'object' ? img.id : img,
+        )
+
+        try {
+          // Fetch current product images (depth:0 to get raw IDs)
+          const productDoc = await payload.findByID({
+            collection: 'products',
+            id: productId,
+            depth: 0,
+          })
+
+          const existingImages = (
+            productDoc.images as Array<{ image: number }> | undefined
+          ) ?? []
+
+          // Build the merged images array (existing + newly approved AI images)
+          const updatedImages = [
+            ...existingImages,
+            ...newMediaIds.map((id) => ({ image: id })),
+          ]
+
+          await payload.update({
+            collection: 'products',
+            id: productId,
+            data: { images: updatedImages },
+          })
+
+          console.log(
+            `[ImageGenerationJobs] auto-pushed ${newMediaIds.length} AI images ` +
+              `to product ${productId} (total images: ${updatedImages.length})`,
+          )
+        } catch (err) {
+          // Non-fatal: log but don't crash the admin save
+          console.error(
+            '[ImageGenerationJobs] afterChange hook failed — images NOT pushed to product:',
+            err,
+          )
+        }
+      },
+    ],
+  },
+
   admin: {
     useAsTitle: 'jobTitle',
     group: 'Otomasyon',

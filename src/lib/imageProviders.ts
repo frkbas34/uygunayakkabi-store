@@ -45,15 +45,30 @@ function sleep(ms: number): Promise<void> {
 /**
  * Gemini Flash (generateContent) — image generation via Gemini API.
  * Model: gemini-2.5-flash-image (overridable via GEMINI_FLASH_MODEL)
+ * Supports optional referenceImage Buffer for image-to-image consistency.
  * Returns a single image Buffer per prompt, or null if the call fails.
  */
 async function callGeminiFlash(
   prompt: string,
   apiKey: string,
+  referenceImage?: Buffer,
+  referenceImageMime?: string,
 ): Promise<Buffer | null> {
   const model =
     process.env.GEMINI_FLASH_MODEL ||
     'gemini-2.5-flash-image'
+
+  // Build parts array: reference image first (if provided), then text prompt
+  const parts: Array<Record<string, unknown>> = []
+  if (referenceImage) {
+    parts.push({
+      inlineData: {
+        mimeType: referenceImageMime || 'image/jpeg',
+        data: referenceImage.toString('base64'),
+      },
+    })
+  }
+  parts.push({ text: prompt })
 
   try {
     const res = await fetch(
@@ -62,7 +77,7 @@ async function callGeminiFlash(
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          contents: [{ parts: [{ text: prompt }] }],
+          contents: [{ parts }],
           generationConfig: { responseModalities: ['IMAGE', 'TEXT'] },
         }),
       },
@@ -206,10 +221,15 @@ async function callGPTImage(
 /**
  * Generate images with Gemini Flash (fast, cheap).
  * Runs prompts sequentially to respect rate limits.
+ * When referenceImage is provided, each call uses image-to-image mode —
+ * the reference photo is sent alongside the prompt so the model keeps
+ * the same product design across all generated images.
  * Returns ProviderResult with buffers for successfully generated images.
  */
 export async function generateWithGeminiFlash(
   prompts: string[],
+  referenceImage?: Buffer,
+  referenceImageMime?: string,
 ): Promise<ProviderResult> {
   const apiKey = process.env.GEMINI_API_KEY
   const result: ProviderResult = {
@@ -228,7 +248,7 @@ export async function generateWithGeminiFlash(
   }
 
   for (let i = 0; i < prompts.length; i++) {
-    const buf = await callGeminiFlash(prompts[i], apiKey)
+    const buf = await callGeminiFlash(prompts[i], apiKey, referenceImage, referenceImageMime)
     if (buf) {
       result.buffers.push(buf)
       result.successCount++
@@ -240,7 +260,8 @@ export async function generateWithGeminiFlash(
   }
 
   console.log(
-    `[GeminiFlash] completed — ${result.successCount}/${result.promptCount} images generated`,
+    `[GeminiFlash] completed — ${result.successCount}/${result.promptCount} images generated` +
+    (referenceImage ? ' (image-to-image mode)' : ''),
   )
   return result
 }
@@ -334,17 +355,20 @@ export async function generateWithGPTImage(
  *
  * Runs providers in parallel for speed.
  * Falls back gracefully if a provider is unavailable (no API key).
+ * referenceImage is forwarded to Gemini Flash for image-to-image consistency.
  */
 export async function generateHybridSet(
   prompts: string[],
+  referenceImage?: Buffer,
+  referenceImageMime?: string,
 ): Promise<{ results: ProviderResult[]; buffers: Buffer[] }> {
   const flashPrompts = prompts.slice(0, 2)
   const gptPrompts = prompts.slice(2, 4)
   const proPrompts = prompts.slice(4)
 
-  // Run all three providers in parallel
+  // Run all three providers in parallel; pass reference image to Flash
   const [flashResult, gptResult, proResult] = await Promise.all([
-    generateWithGeminiFlash(flashPrompts),
+    generateWithGeminiFlash(flashPrompts, referenceImage, referenceImageMime),
     generateWithGPTImage(gptPrompts),
     generateWithGeminiPro(proPrompts),
   ])
@@ -373,26 +397,34 @@ export async function generateHybridSet(
 /**
  * Convenience: route to the correct provider(s) based on mode string.
  * Returns { results, buffers } — results is array (single or multi for karma).
+ *
+ * referenceImage / referenceImageMime are forwarded to providers that support
+ * image-to-image input (currently Gemini Flash). When provided, the model uses
+ * the reference photo to keep the generated images consistent with the original.
  */
 export async function generateByMode(
   mode: 'hizli' | 'dengeli' | 'premium' | 'karma',
   prompts: string[],
+  referenceImage?: Buffer,
+  referenceImageMime?: string,
 ): Promise<{ results: ProviderResult[]; buffers: Buffer[] }> {
   switch (mode) {
     case 'dengeli': {
+      // GPT Image does not use reference image in this integration
       const r = await generateWithGPTImage(prompts)
       return { results: [r], buffers: r.buffers }
     }
     case 'premium': {
+      // Gemini Pro / Imagen uses text-only predict endpoint
       const r = await generateWithGeminiPro(prompts)
       return { results: [r], buffers: r.buffers }
     }
     case 'karma': {
-      return generateHybridSet(prompts)
+      return generateHybridSet(prompts, referenceImage, referenceImageMime)
     }
     case 'hizli':
     default: {
-      const r = await generateWithGeminiFlash(prompts)
+      const r = await generateWithGeminiFlash(prompts, referenceImage, referenceImageMime)
       return { results: [r], buffers: r.buffers }
     }
   }

@@ -116,13 +116,13 @@ export const imageGenTask: TaskConfig<{
       },
     })
 
-    // ── Step 2: Fetch product details ───────────────────────────────────────
+    // ── Step 2: Fetch product details (depth:1 to get populated image URLs) ──
     let productDoc: Record<string, unknown>
     try {
       productDoc = await payload.findByID({
         collection: 'products',
         id: productId,
-        depth: 0,
+        depth: 1,
       }) as Record<string, unknown>
     } catch (err) {
       throw new Error(`Ürün bulunamadı: ${productId}`)
@@ -138,9 +138,47 @@ export const imageGenTask: TaskConfig<{
       gender: productDoc.gender as string | undefined,
     }
 
+    // ── Step 2b: Load first product image as reference for consistency ───────
+    // If the product already has photos, we pass the first one as a reference
+    // image so the AI keeps the exact same product design across all 5 shots.
+    let referenceImage: Buffer | undefined
+    let referenceImageMime: string | undefined
+
+    const imagesArr = productDoc.images as
+      | Array<{ image: { url?: string; mimeType?: string } | number }>
+      | undefined
+
+    if (imagesArr && imagesArr.length > 0) {
+      const firstEntry = imagesArr[0]
+      const firstMedia = firstEntry?.image
+      if (firstMedia && typeof firstMedia === 'object' && firstMedia.url) {
+        try {
+          const imgRes = await fetch(firstMedia.url)
+          if (imgRes.ok) {
+            referenceImage = Buffer.from(await imgRes.arrayBuffer())
+            referenceImageMime = firstMedia.mimeType || 'image/jpeg'
+            console.log(
+              `[imageGenTask] reference image loaded — ` +
+                `url=${firstMedia.url} size=${referenceImage.length} mime=${referenceImageMime}`,
+            )
+          } else {
+            console.warn(
+              `[imageGenTask] reference image fetch failed (HTTP ${imgRes.status}) — text-only mode`,
+            )
+          }
+        } catch (err) {
+          console.warn('[imageGenTask] Could not load reference image — text-only mode:', err)
+        }
+      }
+    }
+
+    if (!referenceImage) {
+      console.log('[imageGenTask] No reference image available — using text-only prompts')
+    }
+
     // ── Step 3: Build prompts ───────────────────────────────────────────────
     const { buildPromptSet } = await import('../lib/imagePromptBuilder')
-    const promptSet = buildPromptSet(productContext)
+    const promptSet = buildPromptSet(productContext, !!referenceImage)
     const promptTexts = promptSet.map((p) => p.prompt)
 
     await payload.update({
@@ -163,6 +201,8 @@ export const imageGenTask: TaskConfig<{
       const { results, buffers } = await generateByMode(
         mode as 'hizli' | 'dengeli' | 'premium' | 'karma',
         promptTexts,
+        referenceImage,
+        referenceImageMime,
       )
       generatedBuffers = buffers
       providerResultsSummary = results.map((r) => ({

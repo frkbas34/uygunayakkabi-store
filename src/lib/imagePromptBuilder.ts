@@ -80,12 +80,26 @@ function buildBase(product: ProductContext): string {
 /**
  * Returns 5 concept prompts for the given product context.
  * Safe for all product categories (shoes, wallets, bags, etc.).
+ *
+ * When hasReferenceImage is true, each prompt is prefixed with a strong
+ * instruction to treat the reference photo as the ground truth product.
+ * This dramatically improves visual consistency across the generated set.
  */
-export function buildPromptSet(product: ProductContext): ImagePrompt[] {
+export function buildPromptSet(product: ProductContext, hasReferenceImage = false): ImagePrompt[] {
   const base = buildBase(product)
   const catLabel = categoryLabel(product.category)
   const genLabel = genderLabel(product.gender)
   const fullDesc = [genLabel, base, catLabel].filter(Boolean).join(' ')
+
+  // When a reference image is provided, the model must preserve every product
+  // detail — only the scene/angle/lighting should change per concept.
+  const refPrefix = hasReferenceImage
+    ? `CRITICAL: Use the reference image as the EXACT product. ` +
+      `Reproduce the identical model, colorway, logo placement, sole design, ` +
+      `stitching, and all material details with 100% fidelity. ` +
+      `Do NOT invent, alter, or substitute any part of the product. ` +
+      `Only the shooting angle, background, and lighting should change. `
+    : ''
 
   return [
     // ── 1. Commerce Front ────────────────────────────────────────────────────
@@ -93,6 +107,7 @@ export function buildPromptSet(product: ProductContext): ImagePrompt[] {
       concept: 'commerce_front',
       label: 'Ürün — Ön Görünüm (Beyaz Fon)',
       prompt:
+        refPrefix +
         `High-resolution professional product photograph of ${fullDesc}, ` +
         `straight front view, centered on a pure white background, ` +
         `clean studio lighting with soft shadows, sharp focus, ` +
@@ -105,6 +120,7 @@ export function buildPromptSet(product: ProductContext): ImagePrompt[] {
       concept: 'side_angle',
       label: 'Ürün — Yan Açı (Stüdyo)',
       prompt:
+        refPrefix +
         `Professional product studio photograph of ${fullDesc}, ` +
         `45-degree side angle view, white or light grey seamless background, ` +
         `soft-box studio lighting, fine detail visible, ` +
@@ -116,6 +132,7 @@ export function buildPromptSet(product: ProductContext): ImagePrompt[] {
       concept: 'detail_closeup',
       label: 'Detay — Malzeme Dokusu',
       prompt:
+        refPrefix +
         `Extreme close-up macro product photography showing the texture and material ` +
         `of ${base}, shallow depth of field, sharp focus on surface details, ` +
         `professional product photography, warm soft lighting, ` +
@@ -127,6 +144,7 @@ export function buildPromptSet(product: ProductContext): ImagePrompt[] {
       concept: 'tabletop_editorial',
       label: 'Editoryal — Masa Üstü Yaşam',
       prompt:
+        refPrefix +
         `Lifestyle editorial product photography of ${fullDesc}, ` +
         `artfully placed on a clean marble or light oak wooden surface, ` +
         `natural daylight from the side, minimal Scandinavian composition, ` +
@@ -139,6 +157,7 @@ export function buildPromptSet(product: ProductContext): ImagePrompt[] {
       concept: 'worn_lifestyle',
       label: 'Yaşam — Giyim Tarzı',
       prompt:
+        refPrefix +
         `Lifestyle fashion photography showing ${fullDesc} being worn, ` +
         `urban or nature outdoor setting, natural golden-hour lighting, ` +
         `contemporary fashion editorial style, only feet/hands/accessory visible, ` +

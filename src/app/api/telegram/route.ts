@@ -21,6 +21,37 @@ async function sendTelegramMessage(chatId: number, text: string): Promise<void> 
   })
 }
 
+/** Send a message with Telegram inline keyboard buttons */
+async function sendTelegramMessageWithKeyboard(
+  chatId: number,
+  text: string,
+  keyboard: Array<Array<{ text: string; callback_data: string }>>,
+): Promise<void> {
+  const token = process.env.TELEGRAM_BOT_TOKEN
+  if (!token) return
+  await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      chat_id: chatId,
+      text,
+      parse_mode: 'HTML',
+      reply_markup: { inline_keyboard: keyboard },
+    }),
+  })
+}
+
+/** Dismiss the loading spinner on a Telegram button after user clicks it */
+async function answerCallbackQuery(callbackQueryId: string, text?: string): Promise<void> {
+  const token = process.env.TELEGRAM_BOT_TOKEN
+  if (!token) return
+  await fetch(`https://api.telegram.org/bot${token}/answerCallbackQuery`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ callback_query_id: callbackQueryId, ...(text ? { text } : {}) }),
+  })
+}
+
 /** Türkçe karakterleri ASCII'ye çevir + URL-safe slug üret */
 function slugify(text: string): string {
   return text
@@ -148,6 +179,87 @@ export async function POST(req: NextRequest) {
     }
 
     const body = await req.json()
+
+    // ── Inline keyboard button clicks ─────────────────────────────────────
+    // Handles clicks on mode-selection buttons sent after product creation.
+    // callback_data format: "imagegen:{productId}:{mode|skip}"
+    const callbackQuery = body?.callback_query
+    if (callbackQuery) {
+      const cbChatId: number = callbackQuery.message?.chat?.id
+      const cbQueryId: string = callbackQuery.id
+      const cbData: string = callbackQuery.data || ''
+
+      if (cbData.startsWith('imagegen:')) {
+        const parts = cbData.split(':')
+        const cbProductId = parseInt(parts[1])
+        const cbMode = parts[2] as 'hizli' | 'dengeli' | 'premium' | 'karma' | 'skip'
+
+        if (cbMode === 'skip') {
+          await answerCallbackQuery(cbQueryId, '✅ Tamam, sadece ürün kaydedildi')
+          return NextResponse.json({ ok: true })
+        }
+
+        const cbPayload = await getPayload()
+        const { docs: cbDocs } = await cbPayload.find({
+          collection: 'products',
+          where: { id: { equals: cbProductId } },
+          limit: 1,
+          depth: 0,
+        })
+        if (cbDocs.length === 0) {
+          await answerCallbackQuery(cbQueryId, '❌ Ürün bulunamadı')
+          return NextResponse.json({ ok: true })
+        }
+        const cbProduct = cbDocs[0] as Record<string, unknown>
+
+        const modeLabelMap: Record<string, string> = {
+          hizli: '⚡ Hızlı', dengeli: '⚖️ Dengeli', premium: '💎 Premium', karma: '🌈 Karma',
+        }
+        const modeEmojiMap: Record<string, string> = {
+          hizli: '⚡', dengeli: '⚖️', premium: '💎', karma: '🌈',
+        }
+
+        const cbJobDoc = await cbPayload.create({
+          collection: 'image-generation-jobs',
+          data: {
+            jobTitle: `${cbProduct.title} — ${modeLabelMap[cbMode]}`,
+            product: cbProductId,
+            mode: cbMode,
+            status: 'queued',
+            telegramChatId: String(cbChatId),
+            requestedByUserId: String(callbackQuery.from?.id ?? ''),
+          },
+        })
+
+        await cbPayload.jobs.queue({
+          task: 'image-gen',
+          input: { jobId: String(cbJobDoc.id) },
+          overrideAccess: true,
+        })
+
+        await answerCallbackQuery(cbQueryId, '🎨 Görsel üretimi başlatıldı!')
+        await sendTelegramMessage(
+          cbChatId,
+          `${modeEmojiMap[cbMode]} <b>Görsel üretimi başlatıldı!</b>\n\n` +
+          `📦 Ürün: <b>${cbProduct.title}</b>\n` +
+          `🔧 Mod: ${modeLabelMap[cbMode]}\n` +
+          `🖼️ 5 farklı konsept görsel üretilecek\n\n` +
+          `<i>Tamamlanınca bildirim gelecek.</i>`,
+        )
+
+        after(async () => {
+          try {
+            await cbPayload.jobs.run({ limit: 1, overrideAccess: true })
+          } catch (err) {
+            console.error('[telegram/webhook] callback_query jobs.run failed:', err)
+          }
+        })
+      }
+
+      return NextResponse.json({ ok: true })
+    }
+
+    // ── Regular message handling ───────────────────────────────────────────
     const message = body?.message
 
     if (!message) {
@@ -160,29 +272,21 @@ export async function POST(req: NextRequest) {
 
     const payload = await getPayload()
 
-    // ── "bunu ürüne çevir" otomatik intake ────────────────────────────────────
-    // Destek: (A) fotoğraf + caption, (B) metin reply → fotoğraf mesajına
+    // ── Fotoğraf → otomatik ürün oluştur ──────────────────────────────────────
+    // Artık "bunu ürüne çevir" yazmak GEREKM. Her fotoğraf otomatik ürüne dönüşür.
+    // Fotoğraf gönderilince ürün oluşturulur, ardından mod seçimi için butonlar
+    // gösterilir (caption'da #hizli/#dengeli/#premium/#karma varsa direkt başlar).
+    //
+    // Geriye dönük uyumluluk: "bunu ürüne çevir" + reply senaryosu da çalışır.
     const isBunuUruneCevir =
       /bunu\s+[uü]r[uü]ne\s+[cç]evir/i.test(text) ||
       /[uü]r[uü]ne\s+[cç]evir/i.test(text)
 
-    // Reply senaryosu: text mesajı fotoğraflı bir mesajı reply ediyor
     const replyPhoto = message.reply_to_message?.photo
+    // Photo trigger: direct photo OR reply-to-photo (with or without trigger phrase)
     const activePhoto = message.photo || (isBunuUruneCevir ? replyPhoto : null)
 
-    // Trigger var ama fotoğraf yok — kullanıcıya rehberlik et
-    if (isBunuUruneCevir && !activePhoto) {
-      await sendTelegramMessage(
-        chatId,
-        '📸 Ürün oluşturmak için <b>fotoğraf gerekli</b>.\n\n' +
-        'İki yöntemden birini kullan:\n' +
-        '1️⃣ Fotoğrafı gönder, caption\'a yaz: <code>bunu ürüne çevir</code>\n' +
-        '2️⃣ Önce fotoğraf gönder, sonra o mesajı <b>reply</b> edip yaz: <code>bunu ürüne çevir</code>',
-      )
-      return NextResponse.json({ ok: true })
-    }
-
-    if (isBunuUruneCevir && activePhoto) {
+    if (activePhoto) {
       // Reply senaryosunda caption, reply edilen mesajın caption'ından da alınabilir
       const replyCaption = message.reply_to_message?.caption || ''
       await sendTelegramMessage(chatId, '⏳ Ürün oluşturuluyor, lütfen bekleyin...')
@@ -408,12 +512,8 @@ export async function POST(req: NextRequest) {
         const modeEmojiMap: Record<string, string> = {
           hizli: '⚡', dengeli: '⚖️', premium: '💎', karma: '🌈',
         }
-        const gorselLine = autoGenJobId && autoGenMode
-          ? `\n\n${modeEmojiMap[autoGenMode]} <b>Görsel üretimi başlatıldı</b> (${autoGenMode}) — tamamlanınca bildirim gelecek`
-          : ''
 
-        await sendTelegramMessage(
-          chatId,
+        const productSummary =
           `✅ <b>Ürün oluşturuldu${visionLabel}${confidenceBar}</b>\n\n` +
           `📦 <b>${title}</b>\n` +
           `SKU: <code>${sku}</code>\n` +
@@ -423,9 +523,35 @@ export async function POST(req: NextRequest) {
           `Stok: ${stockQty} adet\n` +
           `Durum: ${statusEmoji} ${statusLabel}` +
           missingBlock +
-          gorselLine +
-          `\n\n🔗 <a href="https://www.uygunayakkabi.com/admin/collections/products/${productId}">Admin'de aç</a>`,
-        )
+          `\n\n🔗 <a href="https://www.uygunayakkabi.com/admin/collections/products/${productId}">Admin'de aç</a>`
+
+        if (autoGenJobId && autoGenMode) {
+          // Mode was pre-selected in caption — show plain confirmation
+          await sendTelegramMessage(
+            chatId,
+            productSummary +
+            `\n\n${modeEmojiMap[autoGenMode]} <b>Görsel üretimi başlatıldı</b> (${autoGenMode}) — tamamlanınca bildirim gelecek`,
+          )
+        } else {
+          // No mode selected — show inline keyboard for one-tap mode selection
+          await sendTelegramMessageWithKeyboard(
+            chatId,
+            productSummary + `\n\n🎨 <b>Görsel üretmek ister misiniz?</b>`,
+            [
+              [
+                { text: '⚡ Hızlı', callback_data: `imagegen:${productId}:hizli` },
+                { text: '⚖️ Dengeli', callback_data: `imagegen:${productId}:dengeli` },
+              ],
+              [
+                { text: '💎 Premium', callback_data: `imagegen:${productId}:premium` },
+                { text: '🌈 Karma (5 açı)', callback_data: `imagegen:${productId}:karma` },
+              ],
+              [
+                { text: '❌ Hayır, sadece kaydet', callback_data: `imagegen:${productId}:skip` },
+              ],
+            ],
+          )
+        }
 
         // Job runner — response gönderildikten sonra çalıştır (after ile timeout yok)
         if (autoGenJobId) {

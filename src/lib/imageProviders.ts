@@ -10,7 +10,7 @@
  *  - Be configurable: model names overridable via env vars
  *
  * Supported providers:
- *  - Gemini Flash   → GEMINI_API_KEY (fast, cheap, #hizli mode) [gemini-2.0-flash-exp-image-generation]
+ *  - Gemini Flash   → GEMINI_API_KEY (fast, cheap, #hizli mode) [gemini-2.5-flash-image]
  *  - GPT Image      → OPENAI_API_KEY (balanced quality, #dengeli mode) [gpt-image-1]
  *  - Gemini Pro     → GEMINI_API_KEY (high quality via Imagen 4 Ultra, #premium mode) [imagen-4.0-ultra-generate-001]
  *
@@ -44,7 +44,7 @@ function sleep(ms: number): Promise<void> {
 
 /**
  * Gemini Flash (generateContent) — image generation via Gemini API.
- * Model: gemini-2.0-flash-preview-image-generation (overridable)
+ * Model: gemini-2.5-flash-image (overridable via GEMINI_FLASH_MODEL)
  * Returns a single image Buffer per prompt, or null if the call fails.
  */
 async function callGeminiFlash(
@@ -53,7 +53,7 @@ async function callGeminiFlash(
 ): Promise<Buffer | null> {
   const model =
     process.env.GEMINI_FLASH_MODEL ||
-    'gemini-2.0-flash-exp-image-generation'
+    'gemini-2.5-flash-image'
 
   try {
     const res = await fetch(
@@ -63,7 +63,7 @@ async function callGeminiFlash(
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           contents: [{ parts: [{ text: prompt }] }],
-          generationConfig: { responseModalities: ['IMAGE'] },
+          generationConfig: { responseModalities: ['IMAGE', 'TEXT'] },
         }),
       },
     )

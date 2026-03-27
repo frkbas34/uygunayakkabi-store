@@ -1,12 +1,14 @@
 # PROJECT STATE — Uygunayakkabi
 
-_Last updated: 2026-03-23 (Step 20 complete — Shopier integration go-live)_
+_Last updated: 2026-03-28 (Steps 22–24 complete — Telegram bot + AI image generation pipeline live)_
 
 ## Current Status
 
 **Phase 1 COMPLETE** (2026-03-13) — Storefront, admin panel, and core integrations live.
 **Phase 2 Steps 1–19 COMPLETE** (2026-03-22) — Instagram and Facebook direct publishing via Graph API fully operational. Mentix intelligence layer deployed with 13 skills on VPS.
 **Step 20 COMPLETE** (2026-03-23) — Shopier marketplace integration fully live. Non-blocking jobs queue pipeline, GitHub Actions 5-min cron, 4 registered webhooks with HMAC verification.
+**Step 21 COMPLETE** (2026-03-23) — Shopier order fulfillment flow live. Incoming orders create Payload CMS Order documents. Status updates on fulfilled/refund events. End-to-end verified.
+**Steps 22–24 COMPLETE** (2026-03-28) — Full Telegram bot product intake (direct webhook, no OpenClaw/n8n), AI image generation pipeline with Gemini Vision + Gemini Flash image generation. All bugs resolved and verified deployed.
 
 ---
 
@@ -24,11 +26,14 @@ _Last updated: 2026-03-23 (Step 20 complete — Shopier integration go-live)_
 - Dispatch review panel with direct publish controls
 - Admin dashboard with analytics
 
-### Automation Pipeline
-- Telegram group mention triggers OpenClaw (mentix-intake v3)
-- OpenClaw → n8n webhook → Payload draft product
-- Media attachment and duplicate guard working
+### Automation Pipeline (UPDATED 2026-03-28)
+- ~~OpenClaw → n8n → Payload~~ **REPLACED** by direct Telegram webhook
+- Telegram photo → `POST /api/telegram` → Payload Media + Product (direct, no VPS dependency)
+- `X-Telegram-Bot-Api-Secret-Token` verified on all incoming requests
+- Bot privacy mode OFF — receives all group messages including plain photos
+- Duplicate guard working
 - Admin review step before publish
+- `#gorsel` command triggers AI image generation pipeline
 
 ### Instagram/Facebook Publishing
 - **Instagram Direct Publish** — `src/lib/channelDispatch.ts::publishInstagramDirectly()`
@@ -80,6 +85,10 @@ _Last updated: 2026-03-23 (Step 20 complete — Shopier integration go-live)_
 | Date | Migration | Change |
 |------|-----------|--------|
 | 2026-03-17 | `products_channel_targets` | Converted `id` from `varchar` to `SERIAL` for stability |
+| 2026-03-23 | `orders` | Added `shopier_order_id VARCHAR` column |
+| 2026-03-23 | `enum_orders_source` | Added `shopier` enum value via `ALTER TYPE ... ADD VALUE` |
+| 2026-03-23 | `payload_jobs` | Created manually (push:true unreliable in serverless) |
+| 2026-03-23 | `products` | Added 5 `source_meta_shopier_*` columns manually |
 
 ### Known Issues
 - Brands/Categories collections unpopulated
@@ -241,10 +250,94 @@ To refresh Instagram token: navigate to `https://uygunayakkabi.com/api/auth/inst
 - **n8n Instagram workflow** — Superseded by direct Graph API, kept as reference
 - **Phase 1 cleanup** — Reusable design system components (deferred to Phase 3)
 
-## Recommended Next Phase
+## Step 21 — Shopier Order Fulfillment (VERIFIED WORKING — 2026-03-23)
+| Component | Status |
+|-----------|--------|
+| `Orders.ts` | `shopierOrderId` field added, `shopier` source option added |
+| `enum_orders_source` | `shopier` added via SQL — MANUALLY APPLIED to Neon |
+| `orders.shopier_order_id` column | MANUALLY CREATED in Neon |
+| `order.created` webhook | Creates Payload Order document with customer info + product link |
+| `order.fulfilled` webhook | Updates Order status → `shipped` |
+| `refund.requested` webhook | Updates Order status → `cancelled`, appends refund ID to notes |
+| Idempotency guard | Skips duplicate orders (checks `shopierOrderId` before create) |
+| Product auto-link | Matches `sourceMeta.shopierProductId` to local product |
+| Smoke test | Order `SIM-ORDER-21-001` created in Neon — id=1, ORD-861452 ✅ |
 
-**Step 21 — Shopier Order Fulfillment Flow**
-- Parse incoming `order.created` Shopier webhook → create Order document in Payload CMS
-- Decrement product stock on order
-- Send Telegram notification with order summary
-- Handle `order.fulfilled`, `refund.requested`, `refund.updated` state transitions
+---
+
+## Steps 22–24 — Telegram Bot + AI Image Generation (VERIFIED WORKING — 2026-03-28)
+
+### Architecture Change (Step 22): Direct Telegram Webhook (n8n/OpenClaw REMOVED from intake)
+| Component | Status | Notes |
+|-----------|--------|-------|
+| `src/app/api/telegram/route.ts` | IMPLEMENTED | Direct Payload CMS webhook handler — no n8n/OpenClaw dependency |
+| Photo intake | VERIFIED WORKING | Receives photo → downloads from Telegram → uploads to Vercel Blob → creates Media + Product |
+| `TELEGRAM_BOT_TOKEN` | SET in Vercel | Bot token used for all Telegram API calls |
+| `TELEGRAM_WEBHOOK_SECRET` | SET in Vercel | `X-Telegram-Bot-Api-Secret-Token` header verified on all incoming requests |
+| Telegram group privacy mode | VERIFIED OFF | Disabled via BotFather — bot receives plain photos without @mention |
+| Webhook registration | VERIFIED | Registered with `secret_token` parameter to match `TELEGRAM_WEBHOOK_SECRET` |
+
+### Bug Fixes Applied and Verified (2026-03-28)
+| Bug | Root Cause | Fix | Status |
+|-----|-----------|-----|--------|
+| Bot not receiving plain photos | Telegram group privacy mode ON | Disabled via BotFather `/mybots → Group Privacy → Turn Off` | VERIFIED FIXED |
+| All `/api/telegram` calls → 401 | Webhook registered without `secret_token` but env var set | Re-registered webhook with matching `secret_token` via JS console | VERIFIED FIXED |
+| "Satış Fiyatı zorunludur" on Telegram product create | `validate()` on price field didn't include `telegram` source | Added `data?.source === 'telegram'` bypass in `Products.ts` | VERIFIED FIXED |
+| "Hiç görsel üretilemedi" (no images generated) | `GEMINI_FLASH_MODEL` set to `gemini-2.0-flash-exp-image-generation` (404) | Changed env var to `gemini-2.5-flash-image` in Vercel | VERIFIED FIXED |
+| Generated images = completely wrong product | `gemini-2.5-flash-image` is text-to-image only — ignores image input | Two-step vision pipeline: Gemini Vision describes product → text prompt drives generation | VERIFIED DEPLOYED |
+
+### Step 24 — AI Image Generation Pipeline (IMPLEMENTED — 2026-03-28)
+| Component | File | Status |
+|-----------|------|--------|
+| Image generation task | `src/jobs/imageGenTask.ts` | IMPLEMENTED — Payload Jobs queue task |
+| Vision analysis step | `describeProductImage()` in imageGenTask.ts | IMPLEMENTED — calls `gemini-2.5-flash` (vision) to describe product photo |
+| Prompt builder | `src/lib/imagePromptBuilder.ts` | IMPLEMENTED — 5 concept prompts, uses `visualDescription` when available |
+| Image providers | `src/lib/imageProviders.ts` | IMPLEMENTED — Gemini Flash (hizli), GPT Image (dengeli), Gemini Pro (premium), Karma |
+| ImageGenerationJobs collection | `src/collections/ImageGenerationJobs.ts` | IMPLEMENTED |
+| Telegram `#gorsel` command | `src/app/api/telegram/route.ts` | IMPLEMENTED — triggers image gen job |
+
+### AI Image Generation — Key Architecture Decisions
+- **Model for image generation**: `gemini-2.5-flash-image` (env: `GEMINI_FLASH_MODEL`) — VERIFIED working
+- **Model for product vision analysis**: `gemini-2.5-flash` (hardcoded in `describeProductImage`) — VERIFIED working
+- **Image editing NOT supported**: All available Gemini image models (`gemini-2.5-flash-image`, `gemini-3.1-flash-image-preview`, `gemini-3-pro-image-preview`) are text-to-image only — they ignore `inlineData` image inputs
+- **Consistency approach**: Vision model analyzes reference photo → generates specific description → text-to-image model generates from that description
+- **`gemini-2.0-flash-exp-image-generation`**: DEPRECATED — returns 404, not available in models list
+- **Dengeli mode fallback**: GPT Image (`gpt-image-1`) fails with 401 (billing tier) → falls back to Gemini Flash
+
+### Environment Variables — Current Production State (Vercel)
+| Variable | Value / Notes | Status |
+|----------|--------------|--------|
+| `GEMINI_API_KEY` | Set in Vercel | ACTIVE |
+| `GEMINI_FLASH_MODEL` | `gemini-2.5-flash-image` | CORRECTED 2026-03-28 |
+| `GEMINI_PRO_MODEL` | `imagen-4.0-ultra-generate-001` | ACTIVE |
+| `OPENAI_API_KEY` | Set in Vercel | ACTIVE (GPT Image returns 401 — billing tier issue) |
+| `TELEGRAM_BOT_TOKEN` | Set in Vercel | ACTIVE |
+| `TELEGRAM_WEBHOOK_SECRET` | Set in Vercel | ACTIVE — must match webhook `secret_token` registration |
+| `AUTOMATION_SECRET` | Set in Vercel | ACTIVE |
+
+### Telegram Command Reference (VERIFIED WORKING)
+| Command | Action |
+|---------|--------|
+| Send photo | Creates draft product with photo |
+| `bunu ürüne çevir` + reply to photo | Converts photo to product |
+| `#gorsel` / `#gorsel <id>` | Triggers AI image generation for last/specified product |
+| `#gorsel #hizli` | Gemini Flash (fast) |
+| `#gorsel #dengeli` | GPT Image (falls back to Gemini Flash) |
+| `#gorsel #premium` | Gemini Pro / Imagen 4 Ultra |
+| `#gorsel #karma` | All providers (hybrid) |
+
+---
+
+## Recommended Next Steps
+
+**Step 25 — Verify image quality end-to-end**
+- Send a shoe photo, trigger `#gorsel`, confirm vision description in Vercel logs
+- Confirm generated images match actual product
+
+**Step 22b — Shopier stock decrement / InventoryLogs on order**
+- On `order.created`: decrement product stock, create InventoryLog entry
+- Or: Telegram notification to ops group for manual stock management
+
+**Instagram token refresh**
+- Long-lived token expires ~2026-05-20
+- Consider: n8n scheduled refresh OR System User token (no expiry)

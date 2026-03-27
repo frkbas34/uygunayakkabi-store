@@ -1485,3 +1485,146 @@ The two IDs redirect to each other in the browser but behave differently in the 
 **Verified:** 2026-03-22 — facebookPostId `122093848160884171`, pageId `1040379692491003`, `tokenMode: "page-token"`, `{ mode: "direct", dispatched: true, success: true }`
 
 **Status:** ACTIVE — implemented + verified 2026-03-22
+
+---
+
+## D-096 — Step 22: Telegram Bot Replaces OpenClaw/n8n for Product Intake
+**Decision:**
+Product intake via Telegram photo is handled directly by `src/app/api/telegram/route.ts` (a Next.js route deployed on Vercel), completely replacing the OpenClaw → n8n → Payload webhook chain used previously.
+
+**Reason:**
+- The OpenClaw/n8n pipeline added 2 network hops and external VPS dependency for a simple photo-to-product operation
+- Telegram webhooks can be registered directly pointing at the Vercel app
+- Payload CMS operations (media upload, product create) are native to the Vercel deployment
+- This removes the VPS as a critical dependency for core product intake
+
+**Implementation:**
+- `POST /api/telegram` receives all Telegram updates (webhook from Telegram's servers)
+- Validates `X-Telegram-Bot-Api-Secret-Token` header against `TELEGRAM_WEBHOOK_SECRET` env var
+- On photo message: downloads from Telegram → uploads to Vercel Blob → creates Media document → creates Product document
+- On `#gorsel` command: creates `ImageGenerationJob`, enqueues Payload Jobs task
+
+**Security:**
+- Webhook registered with `secret_token` parameter matching `TELEGRAM_WEBHOOK_SECRET`
+- All requests without matching header return 401
+
+**Operator Access:**
+- Allowlist enforced — only authorized Telegram user IDs can trigger operations
+
+**Status:** ACTIVE — implemented + verified 2026-03-28
+
+---
+
+## D-097 — Telegram Group Privacy Mode Must Be OFF for Bot to Receive Photos
+**Decision:**
+The Telegram bot's **Group Privacy Mode must be disabled** via BotFather for the bot to receive plain photo messages (messages without @mention) in group chats.
+
+**Reason:**
+- By default, Telegram bots in groups only receive messages that @mention them
+- With privacy mode ON, the bot received @mentions but silently dropped plain photos
+- Privacy mode is disabled per-bot in BotFather: `/mybots → [Bot] → Bot Settings → Group Privacy → Turn Off`
+
+**Verification:** Confirmed via BotFather web UI — "Group Privacy is disabled".
+
+**Important:** This is a BotFather setting, not a code setting. It persists until explicitly changed.
+
+**Status:** ACTIVE — verified OFF 2026-03-28
+
+---
+
+## D-098 — Telegram Webhook Secret Token Must Be Registered, Not Just Set in Env
+**Decision:**
+When `TELEGRAM_WEBHOOK_SECRET` is set in Vercel env vars, the webhook **must also be registered** with Telegram using the same `secret_token` value. Setting the env var alone is not sufficient.
+
+**Reason:**
+- The route validates `X-Telegram-Bot-Api-Secret-Token` header on every request
+- If webhook was registered without `secret_token`, Telegram sends no header → all requests fail 401
+- Webhook must be re-registered after any change to `TELEGRAM_WEBHOOK_SECRET`
+
+**Registration command:**
+```js
+fetch('https://api.telegram.org/bot{TOKEN}/setWebhook', {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({
+    url: 'https://www.uygunayakkabi.com/api/telegram',
+    allowed_updates: ['message', 'callback_query'],
+    secret_token: '{TELEGRAM_WEBHOOK_SECRET_VALUE}'
+  })
+})
+```
+
+**Status:** ACTIVE — verified 2026-03-28
+
+---
+
+## D-099 — Price Field Validation: Source Bypass Includes 'telegram'
+**Decision:**
+The `validate()` function on the price field in `Products.ts` must bypass validation for products created with `source === 'telegram'` in addition to `n8n` and `automation`.
+
+**Reason:**
+- Telegram-created products are draft products — price is intentionally empty at creation time
+- Without the bypass, saving any Telegram-sourced product triggered "Satış Fiyatı zorunludur" and aborted the save
+- The validate bypass is the correct pattern already established for n8n and automation sources
+
+**Implementation:**
+```typescript
+if (data?.source === 'n8n' || data?.source === 'automation' || data?.source === 'telegram') {
+  return true
+}
+```
+
+**Status:** ACTIVE — implemented + verified 2026-03-28
+
+---
+
+## D-100 — Gemini Image Generation Models Are Text-to-Image Only (No Image Editing)
+**Decision:**
+All currently available Gemini image generation models (`gemini-2.5-flash-image`, `gemini-3.1-flash-image-preview`, `gemini-3-pro-image-preview`) are **text-to-image only**. They do not process image inputs — passing `inlineData` in the request parts is silently ignored.
+
+**Reason / Evidence:**
+- Tested all three models: asked to identify color of a test input image → all returned wrong/generic answer
+- Generated images were completely different products (random white sneakers) regardless of reference image sent
+- `gemini-2.0-flash-exp-image-generation` (the old image editing model) is deprecated — returns 404, not in models API list
+- No currently available Gemini model supports true image-to-image editing via `generateContent` + `inlineData`
+
+**Verified Model List (2026-03-28, from Gemini models API):**
+- `gemini-2.5-flash-image` (Nano Banana) — text-to-image ✅, image input ❌
+- `gemini-3.1-flash-image-preview` (Nano Banana 2) — text-to-image ✅, image input ❌
+- `gemini-3-pro-image-preview` (Nano Banana Pro) — text-to-image ✅, image input ❌
+- `imagen-4.0-*` — text-to-image via `/predict` endpoint, no image input
+
+**Current model for generation:** `gemini-2.5-flash-image` via `GEMINI_FLASH_MODEL` env var.
+
+**Implication:** Do not attempt to pass reference images to image generation models. They will be ignored silently.
+
+**Status:** ACTIVE — verified 2026-03-28
+
+---
+
+## D-101 — AI Image Generation: Vision Analysis → Text Prompt Pipeline
+**Decision:**
+Product image generation uses a **two-step pipeline**:
+1. **Vision step**: `gemini-2.5-flash` (text+vision model) analyzes the product reference photo and produces a specific English description (e.g., "camel brown suede Chelsea boot with stacked block heel and almond toe")
+2. **Generation step**: `gemini-2.5-flash-image` (text-to-image model) generates 5 concept images using that description as the prompt basis
+
+**Reason:**
+- Image editing models don't exist in the current Gemini lineup (D-094)
+- Without vision analysis, text prompts default to generic product descriptions → random generic shoes
+- Gemini Vision (`gemini-2.5-flash`) correctly identifies product type, color, material, design features from photos
+- Injecting the vision description into generation prompts gives the text-to-image model enough specificity to produce consistent, product-accurate outputs
+
+**Implementation:**
+- `describeProductImage()` in `src/jobs/imageGenTask.ts` — calls `gemini-2.5-flash` with the product photo
+- Result stored as `productContext.visualDescription`
+- `buildPromptSet()` in `src/lib/imagePromptBuilder.ts` — uses `visualDescription` as the primary descriptor (overrides title/brand/color fields)
+- `buildBase()` returns `visualDescription` when set, falls back to metadata fields otherwise
+- Reference image is NOT passed to `generateByMode()` (D-094)
+
+**Log output to confirm it's working:**
+```
+[imageGenTask] Vision description: "black mesh low-top sneaker with..."
+[imageGenTask] productContext enriched with visualDescription
+```
+
+**Status:** ACTIVE — implemented + deployed 2026-03-28

@@ -1,6 +1,6 @@
 # TASK QUEUE — Uygunayakkabi
 
-_Last updated: 2026-03-23 (Consolidated — Steps 1-20 complete)_
+_Last updated: 2026-03-28 (Steps 22–24 complete — Telegram bot + AI image gen pipeline live)_
 
 ---
 
@@ -11,22 +11,28 @@ _Last updated: 2026-03-23 (Consolidated — Steps 1-20 complete)_
 **All schema changes on Neon MUST be applied manually via SQL.**
 Before adding any new collection/global: manually verify the new table + `payload_locked_documents_rels` column exist in Neon after deploy.
 
+### Blocker 1: GPT Image (`gpt-image-1`) Returns 401 — UNRESOLVED
+`gpt-image-1` requires a special billing tier on OpenAI. Current `OPENAI_API_KEY` is not authorized.
+`#dengeli` mode falls back to Gemini Flash. If GPT Image is needed, upgrade OpenAI billing tier.
+
+### Blocker 2: git index.lock in production repo — RECURRING
+The workspace repo at `/sessions/loving-eager-galileo/mnt/uygunayakkabi-store` occasionally gets a `index.lock` file that prevents `git add`. Workaround: use temp clone → copy files → commit → push → rm -rf temp.
+
 ---
 
 ## 🟢 NOW — Current Sprint
 
-### Step 21 — Shopier Order → Payload Order Flow
-1. Parse `order.created` webhook body → create `Order` document in Payload CMS
-2. Decrement `products.stockQuantity` for each ordered item
-3. Send Telegram notification with customer name, items, and total
-4. Handle `order.fulfilled` → update Payload order status
-5. Handle `refund.requested` / `refund.updated` → update order + optional Telegram alert
+### Step 25 — End-to-End Image Quality Verification
+1. Send a real shoe photo to Telegram bot
+2. Trigger `#gorsel` (default: hizli / Gemini Flash)
+3. In Vercel runtime logs, confirm: `[imageGenTask] Vision description: "..."` appears
+4. Confirm generated images in admin panel match the actual product (color, shape, type)
+5. If images still generic → investigate vision model response in logs
 
-### Mentix — Real Ops Testing
-1. Product intake test — photo + caption + `@Mentix bunu ürüne çevir` → verify draft product created
-2. Debug test — `@Mentix bu ürünün veri akışını debug et` → verify product-flow-debugger traces 13-step flow
-3. Add `DATABASE_URI` + `GITHUB_TOKEN` to OpenClaw Docker env (`/opt/openclaw/docker-compose.yml`)
-4. Restart OpenClaw, verify skill recognition
+### Step 21b — Shopier Stock Decrement on Order
+1. On `order.created` webhook: decrement `products.stockQuantity`
+2. Create `InventoryLog` entry with reason `shopier_order`
+3. Optional: Telegram notification to ops group
 
 ---
 

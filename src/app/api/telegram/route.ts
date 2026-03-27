@@ -200,17 +200,29 @@ export async function POST(req: NextRequest) {
         }
 
         const cbPayload = await getPayload()
+        // depth:1 to populate images[0].image so we can grab the reference URL
         const { docs: cbDocs } = await cbPayload.find({
           collection: 'products',
           where: { id: { equals: cbProductId } },
           limit: 1,
-          depth: 0,
+          depth: 1,
         })
         if (cbDocs.length === 0) {
           await answerCallbackQuery(cbQueryId, '❌ Ürün bulunamadı')
           return NextResponse.json({ ok: true })
         }
         const cbProduct = cbDocs[0] as Record<string, unknown>
+
+        // Extract reference image URL from first product image
+        const cbImages = cbProduct.images as
+          | Array<{ image: { url?: string; mimeType?: string } | number }>
+          | undefined
+        const cbFirstMedia =
+          cbImages?.[0]?.image && typeof cbImages[0].image === 'object'
+            ? cbImages[0].image
+            : undefined
+        const cbRefUrl = cbFirstMedia?.url
+        const cbRefMime = cbFirstMedia?.mimeType
 
         const modeLabelMap: Record<string, string> = {
           hizli: '⚡ Hızlı', dengeli: '⚖️ Dengeli', premium: '💎 Premium', karma: '🌈 Karma',
@@ -228,6 +240,7 @@ export async function POST(req: NextRequest) {
             status: 'queued',
             telegramChatId: String(cbChatId),
             requestedByUserId: String(callbackQuery.from?.id ?? ''),
+            ...(cbRefUrl ? { referenceImageUrl: cbRefUrl, referenceImageMime: cbRefMime ?? 'image/jpeg' } : {}),
           },
         })
 

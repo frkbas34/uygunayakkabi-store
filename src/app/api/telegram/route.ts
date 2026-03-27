@@ -213,16 +213,37 @@ export async function POST(req: NextRequest) {
         }
         const cbProduct = cbDocs[0] as Record<string, unknown>
 
-        // Extract reference image URL from first product image
+        // Extract reference image URL from first product image.
+        // Two paths:
+        //   a) depth:1 populated the relationship → use it directly
+        //   b) depth:1 left it as a raw ID (can happen with array fields) →
+        //      fetch the media document separately
         const cbImages = cbProduct.images as
           | Array<{ image: { url?: string; mimeType?: string } | number }>
           | undefined
-        const cbFirstMedia =
-          cbImages?.[0]?.image && typeof cbImages[0].image === 'object'
-            ? cbImages[0].image
-            : undefined
-        const cbRefUrl = cbFirstMedia?.url
-        const cbRefMime = cbFirstMedia?.mimeType
+        const cbImageItem = cbImages?.[0]?.image
+        let cbRefUrl: string | undefined
+        let cbRefMime: string | undefined
+
+        if (typeof cbImageItem === 'object' && cbImageItem?.url) {
+          // Path a — depth:1 populated
+          cbRefUrl = cbImageItem.url
+          cbRefMime = cbImageItem.mimeType
+        } else if (typeof cbImageItem === 'number') {
+          // Path b — depth:1 didn't populate, fetch media directly
+          try {
+            const cbMediaDoc = await cbPayload.findByID({
+              collection: 'media',
+              id: cbImageItem,
+              depth: 0,
+            }) as Record<string, unknown>
+            cbRefUrl = cbMediaDoc.url as string | undefined
+            cbRefMime = (cbMediaDoc.mimeType as string | undefined) ?? 'image/jpeg'
+            console.log(`[telegram/callback] media fetched directly — url=${cbRefUrl}`)
+          } catch (e) {
+            console.warn('[telegram/callback] direct media fetch failed:', e)
+          }
+        }
 
         const modeLabelMap: Record<string, string> = {
           hizli: '⚡ Hızlı', dengeli: '⚖️ Dengeli', premium: '💎 Premium', karma: '🌈 Karma',
@@ -655,16 +676,30 @@ export async function POST(req: NextRequest) {
       }
       const gorselProduct = gorselDocs[0] as Record<string, unknown>
 
-      // Extract reference image URL from the product's first image (depth:1 populated)
+      // Extract reference image URL — depth:1 first, explicit fetch as fallback
       const gorselImages = gorselProduct.images as
         | Array<{ image: { url?: string; mimeType?: string } | number }>
         | undefined
-      const gorselFirstMedia =
-        gorselImages?.[0]?.image && typeof gorselImages[0].image === 'object'
-          ? gorselImages[0].image
-          : undefined
-      const gorselRefUrl = gorselFirstMedia?.url
-      const gorselRefMime = gorselFirstMedia?.mimeType
+      const gorselImageItem = gorselImages?.[0]?.image
+      let gorselRefUrl: string | undefined
+      let gorselRefMime: string | undefined
+
+      if (typeof gorselImageItem === 'object' && gorselImageItem?.url) {
+        gorselRefUrl = gorselImageItem.url
+        gorselRefMime = gorselImageItem.mimeType
+      } else if (typeof gorselImageItem === 'number') {
+        try {
+          const gorselMediaDoc = await payload.findByID({
+            collection: 'media',
+            id: gorselImageItem,
+            depth: 0,
+          }) as Record<string, unknown>
+          gorselRefUrl = gorselMediaDoc.url as string | undefined
+          gorselRefMime = (gorselMediaDoc.mimeType as string | undefined) ?? 'image/jpeg'
+        } catch (e) {
+          console.warn('[telegram/#gorsel] direct media fetch failed:', e)
+        }
+      }
 
       // Create ImageGenerationJob record
       const modeLabelMap: Record<string, string> = {

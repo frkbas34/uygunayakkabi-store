@@ -210,10 +210,28 @@ export const imageGenTask: TaskConfig<{
           } catch (err) {
             console.warn('[imageGenTask] Could not load product image:', err)
           }
+        } else if (typeof firstMedia === 'number') {
+          // depth:1 didn't populate — fetch media directly by ID
+          try {
+            const mediaDoc = await payload.findByID({
+              collection: 'media',
+              id: firstMedia,
+              depth: 0,
+            }) as Record<string, unknown>
+            const mediaUrl = mediaDoc.url as string | undefined
+            if (mediaUrl) {
+              const imgRes = await fetch(mediaUrl)
+              if (imgRes.ok) {
+                referenceImage = Buffer.from(await imgRes.arrayBuffer())
+                referenceImageMime = (mediaDoc.mimeType as string | undefined) || 'image/jpeg'
+                console.log(`[imageGenTask] reference image loaded via direct media fetch — size=${referenceImage.length}`)
+              }
+            }
+          } catch (err) {
+            console.warn('[imageGenTask] Direct media fetch failed:', err)
+          }
         } else {
-          console.warn(
-            `[imageGenTask] images[0].image is ${typeof firstMedia === 'number' ? 'an unpopulated ID' : 'missing url'} — depth:1 may not have populated it`,
-          )
+          console.warn('[imageGenTask] images array empty or no url on first image')
         }
       }
     }

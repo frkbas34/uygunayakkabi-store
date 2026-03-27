@@ -465,15 +465,14 @@ export async function POST(req: NextRequest) {
         const statusLabel = statusDecision.status === 'active' ? 'Yayında' : 'Taslak'
         const visionLabel = visionData ? ' 🤖' : ''
 
-        // Eksik kritik alanları listele
+        // Eksik alanları listele (sadece kategori/marka — fiyat admin'den girilebilir)
         const missing: string[] = []
-        if (price === 0) missing.push('Fiyat')
         if (!category) missing.push('Kategori')
         if (!brand) missing.push('Marka')
 
         const missingBlock = missing.length > 0
-          ? `\n⚠️ <b>Eksik alanlar:</b> ${missing.join(', ')}\n` +
-            `<i>Admin panelden tamamla: /admin/collections/products/${productId}</i>`
+          ? `\n💡 <i>Admin'den tamamla: ${missing.join(', ')} — </i>` +
+            `<a href="https://www.uygunayakkabi.com/admin/collections/products/${productId}">aç</a>`
           : ''
 
         const confidenceBar = parsedCaption?.parseConfidence

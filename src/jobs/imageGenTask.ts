@@ -216,7 +216,7 @@ export const imageGenTask: TaskConfig<{
       id: jobId,
       data: {
         promptsUsed: JSON.stringify(
-          promptSet.map((p) => ({ concept: p.concept, label: p.label })),
+          promptSet.map((p) => ({ concept: p.concept, label: p.label, prompt: p.prompt })),
         ),
       },
     })

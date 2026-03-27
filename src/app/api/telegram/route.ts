@@ -486,6 +486,9 @@ export async function POST(req: NextRequest) {
             const modeLabelMap: Record<string, string> = {
               hizli: '⚡ Hızlı', dengeli: '⚖️ Dengeli', premium: '💎 Premium', karma: '🌈 Karma',
             }
+            // Pass the reference image URL directly so imageGenTask doesn't
+            // have to navigate the product→images→media chain (avoids depth issues)
+            const autoRefUrl = (media as Record<string, unknown>).url as string | undefined
             const autoJobDoc = await payload.create({
               collection: 'image-generation-jobs',
               data: {
@@ -495,6 +498,7 @@ export async function POST(req: NextRequest) {
                 status: 'queued',
                 telegramChatId: tgChatId,
                 requestedByUserId: String(message.from?.id ?? ''),
+                ...(autoRefUrl ? { referenceImageUrl: autoRefUrl, referenceImageMime: fileData.contentType } : {}),
               },
             })
             await payload.jobs.queue({
@@ -625,18 +629,29 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ ok: true })
       }
 
-      // Verify product exists
+      // Verify product exists — depth:1 to populate images[0].image for reference URL
       const { docs: gorselDocs } = await payload.find({
         collection: 'products',
         where: { id: { equals: gorselProductId } },
         limit: 1,
-        depth: 0,
+        depth: 1,
       })
       if (gorselDocs.length === 0) {
         await sendTelegramMessage(chatId, `❌ Ürün bulunamadı: #${gorselProductId}`)
         return NextResponse.json({ ok: true })
       }
       const gorselProduct = gorselDocs[0] as Record<string, unknown>
+
+      // Extract reference image URL from the product's first image (depth:1 populated)
+      const gorselImages = gorselProduct.images as
+        | Array<{ image: { url?: string; mimeType?: string } | number }>
+        | undefined
+      const gorselFirstMedia =
+        gorselImages?.[0]?.image && typeof gorselImages[0].image === 'object'
+          ? gorselImages[0].image
+          : undefined
+      const gorselRefUrl = gorselFirstMedia?.url
+      const gorselRefMime = gorselFirstMedia?.mimeType
 
       // Create ImageGenerationJob record
       const modeLabelMap: Record<string, string> = {
@@ -651,6 +666,9 @@ export async function POST(req: NextRequest) {
           status: 'queued',
           telegramChatId: String(chatId),
           requestedByUserId: String(message.from?.id ?? ''),
+          // Store reference URL directly — imageGenTask reads this instead of
+          // navigating the product→images→media chain (avoids depth-population issues)
+          ...(gorselRefUrl ? { referenceImageUrl: gorselRefUrl, referenceImageMime: gorselRefMime ?? 'image/jpeg' } : {}),
         },
       })
 

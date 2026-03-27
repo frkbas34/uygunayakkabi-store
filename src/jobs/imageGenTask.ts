@@ -147,36 +147,73 @@ export const imageGenTask: TaskConfig<{
       gender: productDoc.gender as string | undefined,
     }
 
-    // ── Step 2b: Load first product image as reference for consistency ───────
-    // If the product already has photos, we pass the first one as a reference
-    // image so the AI keeps the exact same product design across all 5 shots.
+    // ── Step 2b: Load reference image ─────────────────────────────────────────
+    // Priority order:
+    //   1. URL stored directly on the job record (set at job-creation time by the
+    //      Telegram route — most reliable, no chain-navigation required)
+    //   2. Product's images array with depth:1 population (fallback for older jobs)
+    //
+    // The reference image is NOT passed to the image generation model (those models
+    // are text-to-image only). It is used ONLY for vision analysis (Step 2c) to
+    // produce a precise textual description of the actual product.
     let referenceImage: Buffer | undefined
     let referenceImageMime: string | undefined
 
-    const imagesArr = productDoc.images as
-      | Array<{ image: { url?: string; mimeType?: string } | number }>
-      | undefined
+    // Option 1 — URL stored on job record
+    const storedRefUrl = jobDoc.referenceImageUrl as string | undefined
+    const storedRefMime = jobDoc.referenceImageMime as string | undefined
 
-    if (imagesArr && imagesArr.length > 0) {
-      const firstEntry = imagesArr[0]
-      const firstMedia = firstEntry?.image
-      if (firstMedia && typeof firstMedia === 'object' && firstMedia.url) {
-        try {
-          const imgRes = await fetch(firstMedia.url)
-          if (imgRes.ok) {
-            referenceImage = Buffer.from(await imgRes.arrayBuffer())
-            referenceImageMime = firstMedia.mimeType || 'image/jpeg'
-            console.log(
-              `[imageGenTask] reference image loaded — ` +
-                `url=${firstMedia.url} size=${referenceImage.length} mime=${referenceImageMime}`,
-            )
-          } else {
-            console.warn(
-              `[imageGenTask] reference image fetch failed (HTTP ${imgRes.status}) — text-only mode`,
-            )
+    if (storedRefUrl) {
+      try {
+        const imgRes = await fetch(storedRefUrl)
+        if (imgRes.ok) {
+          referenceImage = Buffer.from(await imgRes.arrayBuffer())
+          referenceImageMime = storedRefMime || 'image/jpeg'
+          console.log(
+            `[imageGenTask] reference image loaded from job URL — ` +
+              `size=${referenceImage.length} mime=${referenceImageMime}`,
+          )
+        } else {
+          console.warn(
+            `[imageGenTask] job referenceImageUrl fetch failed (HTTP ${imgRes.status})`,
+          )
+        }
+      } catch (err) {
+        console.warn('[imageGenTask] job referenceImageUrl fetch error:', err)
+      }
+    }
+
+    // Option 2 — fallback: product images array (depth:1)
+    if (!referenceImage) {
+      const imagesArr = productDoc.images as
+        | Array<{ image: { url?: string; mimeType?: string } | number }>
+        | undefined
+
+      if (imagesArr && imagesArr.length > 0) {
+        const firstEntry = imagesArr[0]
+        const firstMedia = firstEntry?.image
+        if (firstMedia && typeof firstMedia === 'object' && firstMedia.url) {
+          try {
+            const imgRes = await fetch(firstMedia.url)
+            if (imgRes.ok) {
+              referenceImage = Buffer.from(await imgRes.arrayBuffer())
+              referenceImageMime = firstMedia.mimeType || 'image/jpeg'
+              console.log(
+                `[imageGenTask] reference image loaded from product images — ` +
+                  `url=${firstMedia.url} size=${referenceImage.length}`,
+              )
+            } else {
+              console.warn(
+                `[imageGenTask] product image fetch failed (HTTP ${imgRes.status})`,
+              )
+            }
+          } catch (err) {
+            console.warn('[imageGenTask] Could not load product image:', err)
           }
-        } catch (err) {
-          console.warn('[imageGenTask] Could not load reference image — text-only mode:', err)
+        } else {
+          console.warn(
+            `[imageGenTask] images[0].image is ${typeof firstMedia === 'number' ? 'an unpopulated ID' : 'missing url'} — depth:1 may not have populated it`,
+          )
         }
       }
     }
@@ -467,4 +504,3 @@ async function sendTelegramNotification(
     console.error('[imageGenTask] Telegram notify failed:', err)
   }
 }
-// Sat Mar 28 01:52:03 +03 2026

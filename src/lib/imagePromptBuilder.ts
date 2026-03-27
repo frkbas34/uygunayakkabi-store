@@ -78,10 +78,16 @@ function categoryLabel(category?: string | null): string {
 /**
  * Detects auto-generated placeholder titles from Telegram intake.
  * These titles carry zero product information and should NOT be used in prompts.
- * Examples: "Telegram Ürünü 24.03.2026", "Telegram Ürünü 24.03.2026 12:30"
+ * Examples:
+ *   "Telegram Ürünü 24.03.2026"      — old format
+ *   "Telegram Ürünü 24.03.2026 12:30" — old format with time
+ *   "Taslak Ürün 27/03-127"           — current auto-generated draft format
  */
 function isPlaceholderTitle(title: string): boolean {
-  return /^Telegram\s+[ÜUüu]r[üu]n[üu]/i.test(title)
+  return (
+    /^Telegram\s+[ÜUüu]r[üu]n[üu]/i.test(title) ||
+    /^Taslak\s+[ÜUüu]r[üu]n[üu]/i.test(title)
+  )
 }
 
 /**

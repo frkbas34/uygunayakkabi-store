@@ -128,7 +128,16 @@ export const imageGenTask: TaskConfig<{
       throw new Error(`Ürün bulunamadı: ${productId}`)
     }
 
-    const productContext = {
+    const productContext: {
+      title: string
+      category?: string
+      brand?: string
+      color?: string
+      material?: string
+      productType?: string
+      gender?: string
+      visualDescription?: string
+    } = {
       title: (productDoc.title as string) || 'Ürün',
       category: productDoc.category as string | undefined,
       brand: productDoc.brand as string | undefined,
@@ -176,9 +185,30 @@ export const imageGenTask: TaskConfig<{
       console.log('[imageGenTask] No reference image available — using text-only prompts')
     }
 
+    // ── Step 2c: Vision analysis — describe the product for text prompts ─────
+    // The image generation models (gemini-2.5-flash-image etc.) are text-to-image
+    // only and do not process image inputs. Instead we use gemini-2.5-flash (the
+    // vision/text model) to produce a specific description of the actual product,
+    // which is then used as the primary prompt descriptor for image generation.
+    if (referenceImage && process.env.GEMINI_API_KEY) {
+      const visualDesc = await describeProductImage(
+        referenceImage,
+        referenceImageMime || 'image/jpeg',
+        process.env.GEMINI_API_KEY,
+      )
+      if (visualDesc) {
+        productContext.visualDescription = visualDesc
+        console.log(`[imageGenTask] productContext enriched with visualDescription`)
+      } else {
+        console.warn('[imageGenTask] Vision analysis returned null — using metadata fallback')
+      }
+    }
+
     // ── Step 3: Build prompts ───────────────────────────────────────────────
     const { buildPromptSet } = await import('../lib/imagePromptBuilder')
-    const promptSet = buildPromptSet(productContext, !!referenceImage)
+    // Always use text-only mode — image generation models don't support image input.
+    // When visualDescription is set, buildPromptSet uses it as the product descriptor.
+    const promptSet = buildPromptSet(productContext, false)
     const promptTexts = promptSet.map((p) => p.prompt)
 
     await payload.update({
@@ -198,11 +228,12 @@ export const imageGenTask: TaskConfig<{
     let providerResultsSummary: unknown[] = []
 
     try {
+      // Note: referenceImage is NOT passed here — the image generation models
+      // (gemini-2.5-flash-image etc.) are text-to-image only and ignore image
+      // inputs. Product consistency is achieved via visualDescription in prompts.
       const { results, buffers } = await generateByMode(
         mode as 'hizli' | 'dengeli' | 'premium' | 'karma',
         promptTexts,
-        referenceImage,
-        referenceImageMime,
       )
       generatedBuffers = buffers
       providerResultsSummary = results.map((r) => ({
@@ -331,6 +362,79 @@ export const imageGenTask: TaskConfig<{
 // ─────────────────────────────────────────────────────────────────────────────
 // Helpers
 // ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Uses Gemini Vision (gemini-2.5-flash — a text+vision model, NOT the image
+ * generation model) to analyse the reference product photo and return a concise
+ * English description suitable for use in image generation text prompts.
+ *
+ * Example output: "camel brown suede Chelsea boot with elastic side panels,
+ * stacked block heel, and almond toe cap"
+ *
+ * This description is then injected as productContext.visualDescription so the
+ * text-to-image model receives a highly specific product description rather than
+ * the sparse metadata available for draft/Telegram-created products.
+ *
+ * Returns null if the API call fails (task continues with fallback description).
+ */
+async function describeProductImage(
+  imageBuffer: Buffer,
+  imageMime: string,
+  apiKey: string,
+): Promise<string | null> {
+  const visionModel = 'gemini-2.5-flash'   // text/vision model — NOT image gen
+
+  const prompt =
+    `You are a product photography assistant helping to prepare AI image generation prompts. ` +
+    `Analyse this product photo carefully and describe the product in ONE concise English sentence (25-50 words). ` +
+    `Include: product type (e.g. sneaker / boot / sandal / wallet), dominant color(s), ` +
+    `material or texture (e.g. leather / suede / mesh / canvas), ` +
+    `key visual design features (e.g. logo, sole color, lace color, stitching, patterns), ` +
+    `and style category (e.g. casual / sport / formal). ` +
+    `Do NOT include brand names unless clearly visible. ` +
+    `Do NOT add any explanation — output the description sentence only. ` +
+    `Example: "Black mesh low-top running sneaker with neon yellow sole, reflective side stripe, and padded ankle collar".`
+
+  try {
+    const res = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/${visionModel}:generateContent?key=${apiKey}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{
+            parts: [
+              { inlineData: { mimeType: imageMime, data: imageBuffer.toString('base64') } },
+              { text: prompt },
+            ],
+          }],
+          generationConfig: { responseMimeType: 'text/plain', maxOutputTokens: 120 },
+        }),
+      },
+    )
+
+    if (!res.ok) {
+      const err = await res.text()
+      console.warn(`[imageGenTask] Vision analysis HTTP ${res.status}: ${err.slice(0, 200)}`)
+      return null
+    }
+
+    const data = await res.json()
+    const text: string | undefined =
+      data?.candidates?.[0]?.content?.parts?.[0]?.text
+    if (!text) {
+      console.warn('[imageGenTask] Vision analysis returned no text:', JSON.stringify(data).slice(0, 200))
+      return null
+    }
+
+    const description = text.trim().replace(/^["']|["']$/g, '').trim()
+    console.log(`[imageGenTask] Vision description: "${description}"`)
+    return description
+  } catch (err) {
+    console.warn('[imageGenTask] Vision analysis failed:', err instanceof Error ? err.message : err)
+    return null
+  }
+}
 
 function modeLabelTr(mode: string): string {
   const labels: Record<string, string> = {

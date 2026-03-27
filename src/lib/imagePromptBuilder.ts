@@ -26,6 +26,14 @@ export type ProductContext = {
   material?: string | null
   productType?: string | null
   gender?: string | null
+  /**
+   * AI-generated visual description from analysing the reference photo.
+   * When set, this overrides the title/brand/color fields in prompt building,
+   * giving the image generation model a highly specific product description
+   * (e.g. "camel suede Chelsea boot with stacked block heel and elastic panels")
+   * rather than generic metadata that may be empty for Telegram-created products.
+   */
+  visualDescription?: string | null
 }
 
 export type PromptConcept =
@@ -80,10 +88,16 @@ function isPlaceholderTitle(title: string): boolean {
  * Builds the base description string from product context.
  * Example: "Nike, Air Max 90, black leather sneaker"
  *
+ * When visualDescription is set (from AI vision analysis of the reference photo),
+ * it takes priority over all other fields — it's far more accurate and specific.
+ *
  * Skips the title if it's a Telegram placeholder (e.g. "Telegram Ürünü 24.03.2026")
  * to prevent the AI from generating a literal label with that text.
  */
 function buildBase(product: ProductContext): string {
+  // Vision-analysed description is always the most accurate — use it if available
+  if (product.visualDescription) return product.visualDescription
+
   const parts = [
     product.brand,
     isPlaceholderTitle(product.title) ? null : product.title,
@@ -128,72 +142,15 @@ export function buildPromptSet(product: ProductContext, hasReferenceImage = fals
     fullDesc = textParts.join(' ')
   }
 
-  // ── Prompt strategy ─────────────────────────────────────────────────────
-  // When a reference image is attached, use IMAGE EDITING instructions:
-  // tell the model to TRANSFORM the attached photo rather than reproduce it
-  // from scratch. This keeps the product shape/color/design intact far better
-  // than "reproduce this product" prompts which cause the model to hallucinate.
-  //
-  // Without a reference image, use standard text-to-image prompts.
-
-  if (hasReferenceImage) {
-    // ── EDITING MODE: transform the reference photo ────────────────────────
-    return [
-      // 1. White background studio shot
-      {
-        concept: 'commerce_front',
-        label: 'Ürün — Ön Görünüm (Beyaz Fon)',
-        prompt:
-          `Take the product in the attached photo and place it on a pure white background. ` +
-          `Keep the product 100% identical — same shape, same color, same design, same material. ` +
-          `Only change the background to solid white. ` +
-          `Professional e-commerce product photography, clean studio lighting, sharp focus. ` +
-          `No text, no watermarks.`,
-      },
-      // 2. Side angle studio
-      {
-        concept: 'side_angle',
-        label: 'Ürün — Yan Açı (Stüdyo)',
-        prompt:
-          `Take the product in the attached photo and show it from a 45-degree side angle. ` +
-          `Keep the product 100% identical — same shape, same color, same design. ` +
-          `White or light grey seamless studio background, soft-box lighting. ` +
-          `Professional product photography. No text.`,
-      },
-      // 3. Detail closeup of the actual product surface
-      {
-        concept: 'detail_closeup',
-        label: 'Detay — Malzeme Dokusu',
-        prompt:
-          `Zoom in on the surface texture and material of the product in the attached photo. ` +
-          `Extreme close-up macro shot of the SAME product — do not change the product or its color. ` +
-          `Shallow depth of field, sharp focus on surface details, warm soft lighting. ` +
-          `Professional fashion photography. No text.`,
-      },
-      // 4. Tabletop lifestyle
-      {
-        concept: 'tabletop_editorial',
-        label: 'Editoryal — Masa Üstü Yaşam',
-        prompt:
-          `Take the product in the attached photo and place it on a clean marble surface. ` +
-          `Keep the product completely unchanged. ` +
-          `Natural daylight from the side, minimal Scandinavian composition, ` +
-          `fashion editorial style, soft shadows, professional photography. No text.`,
-      },
-      // 5. Worn lifestyle
-      {
-        concept: 'worn_lifestyle',
-        label: 'Yaşam — Giyim Tarzı',
-        prompt:
-          `Show the product from the attached photo being worn in a lifestyle setting. ` +
-          `The product must look exactly the same as in the reference — same color, same design. ` +
-          `Urban or nature outdoor setting, golden-hour lighting, ` +
-          `only feet/legs visible (no face), fashion magazine quality. No text.`,
-      },
-    ]
-  }
-
-  // ── TEXT-ONLY MODE: no reference image — generate from description ────────
+  // ── Text-to-image prompts ───────────────────────────────────────────────
+  // All available Gemini image generation models (gemini-2.5-flash-image etc.)
+  // are TEXT-TO-IMAGE only — they do not process/use image inputs.
+  // Instead, we use Gemini Vision (gemini-2.5-flash) to analyse the reference
+  // photo first and store the result as productContext.visualDescription.
+  // That description is then injected into fullDesc here, giving the generation
+  // model a highly specific product description (e.g. "camel suede Chelsea boot
+  // with stacked block heel") rather than a generic "shoe".
+  // The hasReferenceImage flag is kept for future compatibility only.
   return [
     // ── 1. Commerce Front ────────────────────────────────────────────────────
     {

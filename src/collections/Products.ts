@@ -370,7 +370,7 @@ export const Products: CollectionConfig = {
       validate: (value: any, { data }: any) => {
         // Otomasyon kaynağından gelen draft ürünler için fiyat validasyonu atlanır
         // (fiyat daha sonra admin panelinden tamamlanır)
-        if (data?.source === 'n8n' || data?.source === 'automation') {
+        if (data?.source === 'n8n' || data?.source === 'automation' || data?.source === 'telegram') {
           return true
         }
         if (value === undefined || value === null || value === '') {

@@ -58,17 +58,17 @@ async function callGeminiFlash(
     process.env.GEMINI_FLASH_MODEL ||
     'gemini-2.5-flash-image'
 
-  // Build parts array: reference image first (if provided), then text prompt
-  const parts: Array<Record<string, unknown>> = []
+  // Build request parts: reference image first (if provided), then text prompt
+  const requestParts: Array<Record<string, unknown>> = []
   if (referenceImage) {
-    parts.push({
+    requestParts.push({
       inlineData: {
         mimeType: referenceImageMime || 'image/jpeg',
         data: referenceImage.toString('base64'),
       },
     })
   }
-  parts.push({ text: prompt })
+  requestParts.push({ text: prompt })
 
   try {
     const res = await fetch(
@@ -77,7 +77,7 @@ async function callGeminiFlash(
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          contents: [{ parts }],
+          contents: [{ parts: requestParts }],
           generationConfig: { responseModalities: ['IMAGE', 'TEXT'] },
         }),
       },

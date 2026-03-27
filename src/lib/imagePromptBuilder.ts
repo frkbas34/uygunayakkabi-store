@@ -128,30 +128,78 @@ export function buildPromptSet(product: ProductContext, hasReferenceImage = fals
     fullDesc = textParts.join(' ')
   }
 
-  // ── Reference image prefix ──────────────────────────────────────────────
-  // When a reference image is provided, every prompt starts with this block.
-  // It's intentionally strong/repetitive because image generation models tend
-  // to "drift" from the reference if not heavily constrained.
-  const refPrefix = hasReferenceImage
-    ? `CRITICAL INSTRUCTION — REFERENCE IMAGE FIDELITY: ` +
-      `The attached reference image shows the EXACT product to photograph. ` +
-      `You MUST reproduce this IDENTICAL product with 100% visual fidelity: ` +
-      `same exact colors (if the product is black, it MUST be black — do NOT change to brown or any other color), ` +
-      `same exact shape, same model, same logo placement, same sole design, ` +
-      `same stitching pattern, same material texture, same proportions. ` +
-      `Do NOT invent, alter, recolor, or substitute ANY part of the product. ` +
-      `The reference image is the absolute ground truth. ` +
-      `Only the camera angle, background/scene, and lighting should change as described below. ` +
-      `Do NOT add any text, labels, or watermarks to the image. `
-    : ''
+  // ── Prompt strategy ─────────────────────────────────────────────────────
+  // When a reference image is attached, use IMAGE EDITING instructions:
+  // tell the model to TRANSFORM the attached photo rather than reproduce it
+  // from scratch. This keeps the product shape/color/design intact far better
+  // than "reproduce this product" prompts which cause the model to hallucinate.
+  //
+  // Without a reference image, use standard text-to-image prompts.
 
+  if (hasReferenceImage) {
+    // ── EDITING MODE: transform the reference photo ────────────────────────
+    return [
+      // 1. White background studio shot
+      {
+        concept: 'commerce_front',
+        label: 'Ürün — Ön Görünüm (Beyaz Fon)',
+        prompt:
+          `Take the product in the attached photo and place it on a pure white background. ` +
+          `Keep the product 100% identical — same shape, same color, same design, same material. ` +
+          `Only change the background to solid white. ` +
+          `Professional e-commerce product photography, clean studio lighting, sharp focus. ` +
+          `No text, no watermarks.`,
+      },
+      // 2. Side angle studio
+      {
+        concept: 'side_angle',
+        label: 'Ürün — Yan Açı (Stüdyo)',
+        prompt:
+          `Take the product in the attached photo and show it from a 45-degree side angle. ` +
+          `Keep the product 100% identical — same shape, same color, same design. ` +
+          `White or light grey seamless studio background, soft-box lighting. ` +
+          `Professional product photography. No text.`,
+      },
+      // 3. Detail closeup of the actual product surface
+      {
+        concept: 'detail_closeup',
+        label: 'Detay — Malzeme Dokusu',
+        prompt:
+          `Zoom in on the surface texture and material of the product in the attached photo. ` +
+          `Extreme close-up macro shot of the SAME product — do not change the product or its color. ` +
+          `Shallow depth of field, sharp focus on surface details, warm soft lighting. ` +
+          `Professional fashion photography. No text.`,
+      },
+      // 4. Tabletop lifestyle
+      {
+        concept: 'tabletop_editorial',
+        label: 'Editoryal — Masa Üstü Yaşam',
+        prompt:
+          `Take the product in the attached photo and place it on a clean marble surface. ` +
+          `Keep the product completely unchanged. ` +
+          `Natural daylight from the side, minimal Scandinavian composition, ` +
+          `fashion editorial style, soft shadows, professional photography. No text.`,
+      },
+      // 5. Worn lifestyle
+      {
+        concept: 'worn_lifestyle',
+        label: 'Yaşam — Giyim Tarzı',
+        prompt:
+          `Show the product from the attached photo being worn in a lifestyle setting. ` +
+          `The product must look exactly the same as in the reference — same color, same design. ` +
+          `Urban or nature outdoor setting, golden-hour lighting, ` +
+          `only feet/legs visible (no face), fashion magazine quality. No text.`,
+      },
+    ]
+  }
+
+  // ── TEXT-ONLY MODE: no reference image — generate from description ────────
   return [
     // ── 1. Commerce Front ────────────────────────────────────────────────────
     {
       concept: 'commerce_front',
       label: 'Ürün — Ön Görünüm (Beyaz Fon)',
       prompt:
-        refPrefix +
         `High-resolution professional product photograph of ${fullDesc}, ` +
         `straight front view, centered on a pure white background, ` +
         `clean studio lighting with soft shadows, sharp focus, ` +
@@ -164,7 +212,6 @@ export function buildPromptSet(product: ProductContext, hasReferenceImage = fals
       concept: 'side_angle',
       label: 'Ürün — Yan Açı (Stüdyo)',
       prompt:
-        refPrefix +
         `Professional product studio photograph of ${fullDesc}, ` +
         `45-degree side angle view, white or light grey seamless background, ` +
         `soft-box studio lighting, fine detail visible, ` +
@@ -176,9 +223,8 @@ export function buildPromptSet(product: ProductContext, hasReferenceImage = fals
       concept: 'detail_closeup',
       label: 'Detay — Malzeme Dokusu',
       prompt:
-        refPrefix +
         `Extreme close-up macro product photography showing the texture and material ` +
-        `of ${hasReferenceImage ? 'the product from the reference image' : base || catLabel}, ` +
+        `of ${base || catLabel}, ` +
         `shallow depth of field, sharp focus on surface details, ` +
         `professional product photography, warm soft lighting, ` +
         `luxury fashion editorial style, no background distractions, no text`,
@@ -189,7 +235,6 @@ export function buildPromptSet(product: ProductContext, hasReferenceImage = fals
       concept: 'tabletop_editorial',
       label: 'Editoryal — Masa Üstü Yaşam',
       prompt:
-        refPrefix +
         `Lifestyle editorial product photography of ${fullDesc}, ` +
         `artfully placed on a clean marble or light oak wooden surface, ` +
         `natural daylight from the side, minimal Scandinavian composition, ` +
@@ -202,7 +247,6 @@ export function buildPromptSet(product: ProductContext, hasReferenceImage = fals
       concept: 'worn_lifestyle',
       label: 'Yaşam — Giyim Tarzı',
       prompt:
-        refPrefix +
         `Lifestyle fashion photography showing ${fullDesc} being worn, ` +
         `urban or nature outdoor setting, natural golden-hour lighting, ` +
         `contemporary fashion editorial style, only feet/hands/accessory visible, ` +

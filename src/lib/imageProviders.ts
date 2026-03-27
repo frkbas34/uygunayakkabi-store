@@ -410,9 +410,12 @@ export async function generateByMode(
 ): Promise<{ results: ProviderResult[]; buffers: Buffer[] }> {
   switch (mode) {
     case 'dengeli': {
-      // GPT Image does not use reference image in this integration
+      // Try GPT Image first; fall back to Gemini Flash if OpenAI is unavailable
       const r = await generateWithGPTImage(prompts)
-      return { results: [r], buffers: r.buffers }
+      if (r.buffers.length > 0) return { results: [r], buffers: r.buffers }
+      console.warn('[generateByMode] GPT Image failed, falling back to Gemini Flash for dengeli')
+      const fallback = await generateWithGeminiFlash(prompts, referenceImage, referenceImageMime)
+      return { results: [r, fallback], buffers: fallback.buffers }
     }
     case 'premium': {
       // Gemini Pro / Imagen uses text-only predict endpoint

@@ -243,8 +243,13 @@ const COMPOSITE_BACKGROUNDS = [
 
 /**
  * Remove the background from a PNG by flood-filling from the 4 corners.
- * Pixels that are colour-close to the detected background become transparent.
- * Threshold of 40 works well for clean studio shots; increase for noisy bgs.
+ * Pixels colour-close to the detected background become transparent.
+ *
+ * Bug fixes vs naive implementation:
+ *  1. Uses Buffer.from(data) — not data.buffer — because Node.js Buffers may
+ *     share a pool ArrayBuffer; data.buffer is oversized and starts at wrong offset.
+ *  2. Uses an index pointer (qHead) instead of queue.shift() — shift() is O(n),
+ *     making BFS O(n²) for 1M pixel images. Pointer approach is O(n).
  */
 async function removeBackground(pngBuffer: Buffer, threshold = 40): Promise<Buffer> {
   const sharp = (await import('sharp')).default
@@ -254,31 +259,33 @@ async function removeBackground(pngBuffer: Buffer, threshold = 40): Promise<Buff
     .raw()
     .toBuffer({ resolveWithObject: true })
 
-  const pixels = new Uint8ClampedArray(data.buffer)
+  // ── CRITICAL: copy into a fresh Buffer (not data.buffer which may be oversized)
+  const pixels = Buffer.from(data)
   const { width, height } = info
 
-  // ── Detect background colour from 4 corners ──────────────────────────────
-  const corner = (idx: number) => ({
+  // ── Detect background colour from 4 corners ───────────────────────────────
+  const px = (idx: number) => ({
     r: pixels[idx * 4],
     g: pixels[idx * 4 + 1],
     b: pixels[idx * 4 + 2],
   })
-  const c = [
-    corner(0),
-    corner(width - 1),
-    corner((height - 1) * width),
-    corner((height - 1) * width + (width - 1)),
+  const corners = [
+    px(0),
+    px(width - 1),
+    px((height - 1) * width),
+    px((height - 1) * width + (width - 1)),
   ]
   const bg = {
-    r: Math.round((c[0].r + c[1].r + c[2].r + c[3].r) / 4),
-    g: Math.round((c[0].g + c[1].g + c[2].g + c[3].g) / 4),
-    b: Math.round((c[0].b + c[1].b + c[2].b + c[3].b) / 4),
+    r: Math.round(corners.reduce((s, c) => s + c.r, 0) / 4),
+    g: Math.round(corners.reduce((s, c) => s + c.g, 0) / 4),
+    b: Math.round(corners.reduce((s, c) => s + c.b, 0) / 4),
   }
   console.log(`[bgRemoval] detected bg rgb(${bg.r},${bg.g},${bg.b}) threshold=${threshold}`)
 
-  // ── Flood-fill BFS from the 4 corner pixels ───────────────────────────────
+  // ── Flood-fill BFS — O(n) with index pointer (NOT shift() which is O(n²)) ──
   const visited = new Uint8Array(width * height)
   const queue: number[] = []
+  let qHead = 0
 
   const seed = (idx: number) => {
     if (!visited[idx]) {
@@ -291,8 +298,8 @@ async function removeBackground(pngBuffer: Buffer, threshold = 40): Promise<Buff
   seed((height - 1) * width)
   seed((height - 1) * width + (width - 1))
 
-  while (queue.length > 0) {
-    const idx = queue.shift()!
+  while (qHead < queue.length) {
+    const idx = queue[qHead++]
     const i = idx * 4
     const dr = pixels[i]     - bg.r
     const dg = pixels[i + 1] - bg.g
@@ -311,7 +318,10 @@ async function removeBackground(pngBuffer: Buffer, threshold = 40): Promise<Buff
     }
   }
 
-  return sharp(Buffer.from(pixels.buffer), {
+  console.log(`[bgRemoval] flood-fill done — visited=${qHead} pixels`)
+
+  // ── CRITICAL: pass pixels directly (it's already the right Buffer) ────────
+  return sharp(pixels, {
     raw: { width, height, channels: 4 },
   }).png().toBuffer()
 }

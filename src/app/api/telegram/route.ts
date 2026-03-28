@@ -208,43 +208,18 @@ export async function POST(req: NextRequest) {
           try {
             const cbPayload = await getPayload()
 
-            // Fetch product (depth:1 to try to populate images for vision analysis)
+            // Fetch product (depth:0 is fine — imageGenTask fetches images itself)
             const { docs: cbDocs } = await cbPayload.find({
               collection: 'products',
               where: { id: { equals: cbProductId } },
               limit: 1,
-              depth: 1,
+              depth: 0,
             })
             if (cbDocs.length === 0) {
               await sendTelegramMessage(cbChatId, '❌ Ürün bulunamadı')
               return
             }
             const cbProduct = cbDocs[0] as Record<string, unknown>
-
-            // Extract reference image URL — depth:1 first, direct fetch as fallback
-            const cbImages = cbProduct.images as
-              | Array<{ image: { url?: string; mimeType?: string } | number }>
-              | undefined
-            const cbImageItem = cbImages?.[0]?.image
-            let cbRefUrl: string | undefined
-            let cbRefMime: string | undefined
-
-            if (typeof cbImageItem === 'object' && cbImageItem?.url) {
-              cbRefUrl = cbImageItem.url
-              cbRefMime = cbImageItem.mimeType
-            } else if (typeof cbImageItem === 'number') {
-              try {
-                const cbMediaDoc = await cbPayload.findByID({
-                  collection: 'media',
-                  id: cbImageItem,
-                  depth: 0,
-                }) as Record<string, unknown>
-                cbRefUrl = cbMediaDoc.url as string | undefined
-                cbRefMime = (cbMediaDoc.mimeType as string | undefined) ?? 'image/jpeg'
-              } catch (e) {
-                console.warn('[telegram/callback] direct media fetch failed:', e)
-              }
-            }
 
             const modeLabelMap: Record<string, string> = {
               hizli: '⚡ Hızlı', dengeli: '⚖️ Dengeli', premium: '💎 Premium', karma: '🌈 Karma',
@@ -253,24 +228,17 @@ export async function POST(req: NextRequest) {
               hizli: '⚡', dengeli: '⚖️', premium: '💎', karma: '🌈',
             }
 
-            // Create job — store referenceImageUrl only if we got it
-            // (avoids crash if DB migration hasn't added the column yet)
-            const jobData: Record<string, unknown> = {
-              jobTitle: `${cbProduct.title} — ${modeLabelMap[cbMode]}`,
-              product: cbProductId,
-              mode: cbMode,
-              status: 'queued',
-              telegramChatId: String(cbChatId),
-              requestedByUserId: String(callbackQuery.from?.id ?? ''),
-            }
-            if (cbRefUrl) {
-              jobData.referenceImageUrl = cbRefUrl
-              jobData.referenceImageMime = cbRefMime ?? 'image/jpeg'
-            }
-
+            // Create job — imageGenTask will look up the reference image itself
             const cbJobDoc = await cbPayload.create({
               collection: 'image-generation-jobs',
-              data: jobData as any,
+              data: {
+                jobTitle: `${cbProduct.title} — ${modeLabelMap[cbMode]}`,
+                product: cbProductId,
+                mode: cbMode,
+                status: 'queued',
+                telegramChatId: String(cbChatId),
+                requestedByUserId: String(callbackQuery.from?.id ?? ''),
+              },
             })
 
             await cbPayload.jobs.queue({
@@ -529,9 +497,6 @@ export async function POST(req: NextRequest) {
             const modeLabelMap: Record<string, string> = {
               hizli: '⚡ Hızlı', dengeli: '⚖️ Dengeli', premium: '💎 Premium', karma: '🌈 Karma',
             }
-            // Pass the reference image URL directly so imageGenTask doesn't
-            // have to navigate the product→images→media chain (avoids depth issues)
-            const autoRefUrl = (media as Record<string, unknown>).url as string | undefined
             const autoJobDoc = await payload.create({
               collection: 'image-generation-jobs',
               data: {
@@ -541,7 +506,6 @@ export async function POST(req: NextRequest) {
                 status: 'queued',
                 telegramChatId: tgChatId,
                 requestedByUserId: String(message.from?.id ?? ''),
-                ...(autoRefUrl ? { referenceImageUrl: autoRefUrl, referenceImageMime: fileData.contentType } : {}),
               },
             })
             await payload.jobs.queue({
@@ -672,12 +636,12 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ ok: true })
       }
 
-      // Verify product exists — depth:1 to populate images[0].image for reference URL
+      // Verify product exists
       const { docs: gorselDocs } = await payload.find({
         collection: 'products',
         where: { id: { equals: gorselProductId } },
         limit: 1,
-        depth: 1,
+        depth: 0,
       })
       if (gorselDocs.length === 0) {
         await sendTelegramMessage(chatId, `❌ Ürün bulunamadı: #${gorselProductId}`)
@@ -685,32 +649,8 @@ export async function POST(req: NextRequest) {
       }
       const gorselProduct = gorselDocs[0] as Record<string, unknown>
 
-      // Extract reference image URL — depth:1 first, explicit fetch as fallback
-      const gorselImages = gorselProduct.images as
-        | Array<{ image: { url?: string; mimeType?: string } | number }>
-        | undefined
-      const gorselImageItem = gorselImages?.[0]?.image
-      let gorselRefUrl: string | undefined
-      let gorselRefMime: string | undefined
-
-      if (typeof gorselImageItem === 'object' && gorselImageItem?.url) {
-        gorselRefUrl = gorselImageItem.url
-        gorselRefMime = gorselImageItem.mimeType
-      } else if (typeof gorselImageItem === 'number') {
-        try {
-          const gorselMediaDoc = await payload.findByID({
-            collection: 'media',
-            id: gorselImageItem,
-            depth: 0,
-          }) as Record<string, unknown>
-          gorselRefUrl = gorselMediaDoc.url as string | undefined
-          gorselRefMime = (gorselMediaDoc.mimeType as string | undefined) ?? 'image/jpeg'
-        } catch (e) {
-          console.warn('[telegram/#gorsel] direct media fetch failed:', e)
-        }
-      }
-
-      // Create ImageGenerationJob record
+      // Create ImageGenerationJob record — imageGenTask will look up the
+      // reference image from the product's images array at run time.
       const modeLabelMap: Record<string, string> = {
         hizli: '⚡ Hızlı', dengeli: '⚖️ Dengeli', premium: '💎 Premium', karma: '🌈 Karma',
       }
@@ -723,9 +663,6 @@ export async function POST(req: NextRequest) {
           status: 'queued',
           telegramChatId: String(chatId),
           requestedByUserId: String(message.from?.id ?? ''),
-          // Store reference URL directly — imageGenTask reads this instead of
-          // navigating the product→images→media chain (avoids depth-population issues)
-          ...(gorselRefUrl ? { referenceImageUrl: gorselRefUrl, referenceImageMime: gorselRefMime ?? 'image/jpeg' } : {}),
         },
       })
 

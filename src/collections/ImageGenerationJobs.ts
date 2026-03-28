@@ -174,28 +174,6 @@ export const ImageGenerationJobs: CollectionConfig = {
         description: 'AI tarafından üretilen görseller — beğendiklerinizi ürüne ekleyin',
       },
     },
-    // ── Reference image ───────────────────────────────────────────────────────
-    // Stored when the job is created so imageGenTask can fetch it directly
-    // without having to navigate the product → images → media → url chain.
-    {
-      name: 'referenceImageUrl',
-      type: 'text',
-      label: '🖼️ Referans Görsel URL',
-      admin: {
-        readOnly: true,
-        description: 'Ürün fotoğrafının URL\'si — vision analizi için imageGenTask tarafından kullanılır',
-      },
-    },
-    {
-      name: 'referenceImageMime',
-      type: 'text',
-      label: 'Referans Görsel MIME',
-      admin: {
-        readOnly: true,
-        hidden: true,
-        description: 'MIME type of the reference image (e.g. image/jpeg)',
-      },
-    },
     // ── Prompts used ──────────────────────────────────────────────────────────
     {
       name: 'promptsUsed',

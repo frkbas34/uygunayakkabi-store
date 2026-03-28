@@ -148,91 +148,69 @@ export const imageGenTask: TaskConfig<{
     }
 
     // ── Step 2b: Load reference image ─────────────────────────────────────────
-    // Priority order:
-    //   1. URL stored directly on the job record (set at job-creation time by the
-    //      Telegram route — most reliable, no chain-navigation required)
-    //   2. Product's images array with depth:1 population (fallback for older jobs)
+    // Fetches the product's first photo for Gemini Vision analysis (Step 2c).
+    // The image is NOT passed to the generation model (text-to-image only).
     //
-    // The reference image is NOT passed to the image generation model (those models
-    // are text-to-image only). It is used ONLY for vision analysis (Step 2c) to
-    // produce a precise textual description of the actual product.
+    // Media URL handling:
+    //   Payload stores media URLs as relative paths like /api/media/file/xxx.jpg.
+    //   To fetch them from within a serverless function we need an absolute URL.
+    //   We use NEXT_PUBLIC_SERVER_URL or VERCEL_URL to construct it.
     let referenceImage: Buffer | undefined
     let referenceImageMime: string | undefined
 
-    // Option 1 — URL stored on job record
-    const storedRefUrl = jobDoc.referenceImageUrl as string | undefined
-    const storedRefMime = jobDoc.referenceImageMime as string | undefined
+    // Helper: make a media URL absolute so it's fetchable from serverless context
+    const siteBase =
+      process.env.NEXT_PUBLIC_SERVER_URL ||
+      (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : null)
 
-    if (storedRefUrl) {
+    function absoluteUrl(url: string): string {
+      if (url.startsWith('http')) return url           // already absolute
+      if (siteBase) return `${siteBase}${url}`         // prepend site base
+      return url                                        // last resort (will fail)
+    }
+
+    // Get the first product image's media ID or populated object
+    const imagesArr = productDoc.images as
+      | Array<{ image: { url?: string; mimeType?: string } | number }>
+      | undefined
+    const firstImageItem = imagesArr?.[0]?.image
+
+    // Resolve media URL — try depth:1 populated object first, then direct fetch
+    let mediaUrl: string | undefined
+    let mediaMime: string | undefined
+
+    if (typeof firstImageItem === 'object' && firstImageItem?.url) {
+      mediaUrl = firstImageItem.url
+      mediaMime = firstImageItem.mimeType
+    } else if (typeof firstImageItem === 'number') {
+      // depth:1 didn't populate — fetch media document directly
       try {
-        const imgRes = await fetch(storedRefUrl)
-        if (imgRes.ok) {
-          referenceImage = Buffer.from(await imgRes.arrayBuffer())
-          referenceImageMime = storedRefMime || 'image/jpeg'
-          console.log(
-            `[imageGenTask] reference image loaded from job URL — ` +
-              `size=${referenceImage.length} mime=${referenceImageMime}`,
-          )
-        } else {
-          console.warn(
-            `[imageGenTask] job referenceImageUrl fetch failed (HTTP ${imgRes.status})`,
-          )
-        }
+        const mediaDoc = await payload.findByID({
+          collection: 'media',
+          id: firstImageItem,
+          depth: 0,
+        }) as Record<string, unknown>
+        mediaUrl = mediaDoc.url as string | undefined
+        mediaMime = mediaDoc.mimeType as string | undefined
       } catch (err) {
-        console.warn('[imageGenTask] job referenceImageUrl fetch error:', err)
+        console.warn('[imageGenTask] Direct media fetch by ID failed:', err)
       }
     }
 
-    // Option 2 — fallback: product images array (depth:1)
-    if (!referenceImage) {
-      const imagesArr = productDoc.images as
-        | Array<{ image: { url?: string; mimeType?: string } | number }>
-        | undefined
-
-      if (imagesArr && imagesArr.length > 0) {
-        const firstEntry = imagesArr[0]
-        const firstMedia = firstEntry?.image
-        if (firstMedia && typeof firstMedia === 'object' && firstMedia.url) {
-          try {
-            const imgRes = await fetch(firstMedia.url)
-            if (imgRes.ok) {
-              referenceImage = Buffer.from(await imgRes.arrayBuffer())
-              referenceImageMime = firstMedia.mimeType || 'image/jpeg'
-              console.log(
-                `[imageGenTask] reference image loaded from product images — ` +
-                  `url=${firstMedia.url} size=${referenceImage.length}`,
-              )
-            } else {
-              console.warn(
-                `[imageGenTask] product image fetch failed (HTTP ${imgRes.status})`,
-              )
-            }
-          } catch (err) {
-            console.warn('[imageGenTask] Could not load product image:', err)
-          }
-        } else if (typeof firstMedia === 'number') {
-          // depth:1 didn't populate — fetch media directly by ID
-          try {
-            const mediaDoc = await payload.findByID({
-              collection: 'media',
-              id: firstMedia,
-              depth: 0,
-            }) as Record<string, unknown>
-            const mediaUrl = mediaDoc.url as string | undefined
-            if (mediaUrl) {
-              const imgRes = await fetch(mediaUrl)
-              if (imgRes.ok) {
-                referenceImage = Buffer.from(await imgRes.arrayBuffer())
-                referenceImageMime = (mediaDoc.mimeType as string | undefined) || 'image/jpeg'
-                console.log(`[imageGenTask] reference image loaded via direct media fetch — size=${referenceImage.length}`)
-              }
-            }
-          } catch (err) {
-            console.warn('[imageGenTask] Direct media fetch failed:', err)
-          }
+    if (mediaUrl) {
+      const fetchUrl = absoluteUrl(mediaUrl)
+      console.log(`[imageGenTask] fetching reference image — url=${fetchUrl}`)
+      try {
+        const imgRes = await fetch(fetchUrl)
+        if (imgRes.ok) {
+          referenceImage = Buffer.from(await imgRes.arrayBuffer())
+          referenceImageMime = mediaMime || 'image/jpeg'
+          console.log(`[imageGenTask] reference image loaded — size=${referenceImage.length} mime=${referenceImageMime}`)
         } else {
-          console.warn('[imageGenTask] images array empty or no url on first image')
+          console.warn(`[imageGenTask] reference image fetch failed (HTTP ${imgRes.status})`)
         }
+      } catch (err) {
+        console.warn('[imageGenTask] reference image fetch error:', err)
       }
     }
 

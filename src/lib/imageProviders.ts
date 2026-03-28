@@ -267,7 +267,7 @@ async function callGPTImageEdit(
     formData.append('model', model)
     formData.append(
       'image',
-      new Blob([pngBuffer], { type: pngMime }),
+      new Blob([new Uint8Array(pngBuffer)], { type: pngMime }),
       'product.png',
     )
     formData.append('prompt', prompt)

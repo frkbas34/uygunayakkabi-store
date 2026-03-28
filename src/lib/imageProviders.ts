@@ -182,8 +182,7 @@ async function callGPTImage(
         prompt,
         n: 1,
         size: '1024x1024',
-        response_format: 'b64_json',
-        quality: 'standard',
+        quality: 'low',
       }),
     })
 
@@ -263,41 +262,26 @@ async function callGPTImageEdit(
   const model = process.env.OPENAI_IMAGE_MODEL || 'gpt-image-1'
 
   try {
-    const b64Input = pngBuffer.toString('base64')
+    console.log(`[GPTImageEdit] calling /v1/images/edits — model=${model} imageSize=${pngBuffer.length} promptLen=${prompt.length}`)
 
-    console.log(`[GPTImageEdit] calling Responses API — model=${model} imageSize=${pngBuffer.length} promptLen=${prompt.length}`)
+    // Build multipart form data — gpt-image-1 requires "image[]" field name
+    const formData = new FormData()
+    formData.append('model', model)
+    formData.append('prompt', prompt)
+    formData.append('n', '1')
+    formData.append('size', '1024x1024')
+    formData.append('quality', 'low')
 
-    const res = await fetch('https://api.openai.com/v1/responses', {
+    // gpt-image-1 uses "image[]" (array syntax), dall-e-2 uses "image"
+    const imageBlob = new Blob([new Uint8Array(pngBuffer)], { type: 'image/png' })
+    formData.append('image[]', imageBlob, 'product.png')
+
+    const res = await fetch('https://api.openai.com/v1/images/edits', {
       method: 'POST',
       headers: {
-        'Content-Type': 'application/json',
         Authorization: `Bearer ${apiKey}`,
       },
-      body: JSON.stringify({
-        model,
-        input: [
-          {
-            role: 'user',
-            content: [
-              {
-                type: 'input_image',
-                image_url: `data:image/png;base64,${b64Input}`,
-              },
-              {
-                type: 'input_text',
-                text: prompt,
-              },
-            ],
-          },
-        ],
-        tools: [
-          {
-            type: 'image_generation',
-            size: '1024x1024',
-            quality: 'low',
-          },
-        ],
-      }),
+      body: formData,
     })
 
     if (!res.ok) {
@@ -306,20 +290,25 @@ async function callGPTImageEdit(
       return null
     }
 
-    const data = await res.json()
+    const data = (await res.json()) as {
+      data?: Array<{ b64_json?: string; url?: string }>
+    }
 
-    // The Responses API returns output[] with image_generation_call items
-    const output = data?.output as Array<Record<string, unknown>> | undefined
-    if (output) {
-      for (const item of output) {
-        if (item.type === 'image_generation_call') {
-          const b64 = item.result as string | undefined
-          if (b64) {
-            const buf = Buffer.from(b64, 'base64')
-            console.log(`[GPTImageEdit] success — output size=${buf.length}`)
-            return buf
-          }
-        }
+    // Try b64_json first, then url
+    const img = data?.data?.[0]
+    if (img?.b64_json) {
+      const buf = Buffer.from(img.b64_json, 'base64')
+      console.log(`[GPTImageEdit] success (b64) — output size=${buf.length}`)
+      return buf
+    }
+    if (img?.url) {
+      console.log(`[GPTImageEdit] got URL response, fetching image...`)
+      const imgRes = await fetch(img.url)
+      if (imgRes.ok) {
+        const arrBuf = await imgRes.arrayBuffer()
+        const buf = Buffer.from(arrBuf)
+        console.log(`[GPTImageEdit] success (url) — output size=${buf.length}`)
+        return buf
       }
     }
 

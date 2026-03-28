@@ -214,44 +214,130 @@ async function callGPTImage(
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Image editing (gpt-image-1 via /v1/images/edits)
+// Pipeline A: Background Removal + Compositing
+//
+// Extracts the exact product from the reference photo by detecting and
+// removing the background, then composites it onto 5 different solid-color
+// backgrounds. This guarantees 100% product pixel fidelity — no AI generation
+// involved, the product is always the exact item from the original photo.
+//
+// Algorithm:
+//  1. Resize/normalize the input to 1024x1024 (contain, white padding)
+//  2. Detect background colour from the 4 corner pixels
+//  3. Flood-fill from corners → mark background pixels as transparent
+//  4. Composite the cutout onto each target background in parallel
+//
+// Works best for product photos on solid/white backgrounds (standard
+// e-commerce shots). For lifestyle photos the cutout will be less clean
+// but the product is still 100% preserved.
 // ─────────────────────────────────────────────────────────────────────────────
 
+/** Target backgrounds for Pipeline A compositing */
+const COMPOSITE_BACKGROUNDS = [
+  { name: 'commerce_front',     r: 255, g: 255, b: 255, label: 'white studio' },
+  { name: 'side_angle',         r: 244, g: 241, b: 236, label: 'warm cream' },
+  { name: 'detail_closeup',     r: 32,  g: 34,  b: 38,  label: 'dark charcoal' },
+  { name: 'tabletop_editorial', r: 218, g: 214, b: 208, label: 'soft warm grey' },
+  { name: 'worn_lifestyle',     r: 236, g: 227, b: 212, label: 'sand' },
+] as const
+
 /**
- * Prepare the reference image for the OpenAI editing endpoint:
- *  1. Convert to PNG (the format edits endpoint works best with)
- *  2. Resize to max 1024x1024 to stay within size limits and match output
- *
- * Uses sharp which is already installed (v0.34.5).
- * Returns { buffer, mime } ready for FormData upload.
+ * Remove the background from a PNG by flood-filling from the 4 corners.
+ * Pixels that are colour-close to the detected background become transparent.
+ * Threshold of 40 works well for clean studio shots; increase for noisy bgs.
  */
-async function prepareImageForEdit(
-  imageBuffer: Buffer,
-): Promise<{ buffer: Buffer; mime: string }> {
-  try {
-    const sharp = (await import('sharp')).default
-    const processed = await sharp(imageBuffer)
-      .resize(1024, 1024, { fit: 'inside', withoutEnlargement: true })
-      .png()
-      .toBuffer()
-    console.log(`[prepareImageForEdit] converted to PNG — size=${processed.length} bytes`)
-    return { buffer: processed, mime: 'image/png' }
-  } catch (err) {
-    console.warn('[prepareImageForEdit] sharp conversion failed, using original:', err instanceof Error ? err.message : err)
-    return { buffer: imageBuffer, mime: 'image/jpeg' }
+async function removeBackground(pngBuffer: Buffer, threshold = 40): Promise<Buffer> {
+  const sharp = (await import('sharp')).default
+
+  const { data, info } = await sharp(pngBuffer)
+    .ensureAlpha()
+    .raw()
+    .toBuffer({ resolveWithObject: true })
+
+  const pixels = new Uint8ClampedArray(data.buffer)
+  const { width, height } = info
+
+  // ── Detect background colour from 4 corners ──────────────────────────────
+  const corner = (idx: number) => ({
+    r: pixels[idx * 4],
+    g: pixels[idx * 4 + 1],
+    b: pixels[idx * 4 + 2],
+  })
+  const c = [
+    corner(0),
+    corner(width - 1),
+    corner((height - 1) * width),
+    corner((height - 1) * width + (width - 1)),
+  ]
+  const bg = {
+    r: Math.round((c[0].r + c[1].r + c[2].r + c[3].r) / 4),
+    g: Math.round((c[0].g + c[1].g + c[2].g + c[3].g) / 4),
+    b: Math.round((c[0].b + c[1].b + c[2].b + c[3].b) / 4),
   }
+  console.log(`[bgRemoval] detected bg rgb(${bg.r},${bg.g},${bg.b}) threshold=${threshold}`)
+
+  // ── Flood-fill BFS from the 4 corner pixels ───────────────────────────────
+  const visited = new Uint8Array(width * height)
+  const queue: number[] = []
+
+  const seed = (idx: number) => {
+    if (!visited[idx]) {
+      visited[idx] = 1
+      queue.push(idx)
+    }
+  }
+  seed(0)
+  seed(width - 1)
+  seed((height - 1) * width)
+  seed((height - 1) * width + (width - 1))
+
+  while (queue.length > 0) {
+    const idx = queue.shift()!
+    const i = idx * 4
+    const dr = pixels[i]     - bg.r
+    const dg = pixels[i + 1] - bg.g
+    const db = pixels[i + 2] - bg.b
+    const dist = Math.sqrt(dr * dr + dg * dg + db * db)
+
+    if (dist < threshold) {
+      pixels[i + 3] = 0  // make transparent
+
+      const x = idx % width
+      const y = Math.floor(idx / width)
+      if (x > 0)          seed(idx - 1)
+      if (x < width - 1)  seed(idx + 1)
+      if (y > 0)          seed(idx - width)
+      if (y < height - 1) seed(idx + width)
+    }
+  }
+
+  return sharp(Buffer.from(pixels.buffer), {
+    raw: { width, height, channels: 4 },
+  }).png().toBuffer()
+}
+
+/** Composite a transparent-bg product cutout onto a solid background colour */
+async function compositeOnBackground(
+  cutout: Buffer,
+  r: number, g: number, b: number,
+): Promise<Buffer> {
+  const sharp = (await import('sharp')).default
+  const meta = await sharp(cutout).metadata()
+  const w = meta.width  ?? 1024
+  const h = meta.height ?? 1024
+
+  return sharp({
+    create: { width: w, height: h, channels: 4, background: { r, g, b, alpha: 1 } },
+  })
+    .composite([{ input: cutout, blend: 'over' }])
+    .jpeg({ quality: 92 })
+    .toBuffer()
 }
 
 /**
- * GPT Image Edit via the Responses API — the /v1/images/edits endpoint only
- * supports dall-e-2, NOT gpt-image-1. To use gpt-image-1 for image editing
- * we must use the Responses API (/v1/responses) with image_generation tool.
- *
- * This sends the original product photo as base64 inline input alongside a
- * scene-changing prompt. The model preserves the actual product while
- * generating a new image in the requested scene.
- *
- * Returns a single edited image Buffer, or null on failure.
+ * @deprecated  AI editing APIs cannot guarantee exact product preservation.
+ *              Pipeline A now uses background removal + compositing instead.
+ *              This function is kept only as a reference stub.
  */
 async function callGPTImageEdit(
   pngBuffer: Buffer,
@@ -540,105 +626,79 @@ export async function generateByMode(
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Image editing pipeline
+// Pipeline A: generateByEditing — background removal + compositing
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
- * Editing-mode prompts — these describe the SCENE, not the product.
- * The product is preserved from the original photo by the editing model.
- */
-const EDITING_PROMPTS = [
-  // 1. Commerce front
-  `Place this exact product on a pure white background. Center it with a straight front view. ` +
-  `Professional e-commerce product photography, clean studio lighting, soft shadows, ` +
-  `sharp focus on product, 4K quality. Keep the product EXACTLY as shown — do not change ` +
-  `any colors, materials, or design details. Only change the background to white.`,
-
-  // 2. Side angle
-  `Show this exact product from a 45-degree side angle on a white studio background. ` +
-  `Professional product photography with soft-box lighting. Keep every detail of the ` +
-  `product EXACTLY as shown — same colors, same materials, same design. Only change the ` +
-  `viewing angle and background.`,
-
-  // 3. Detail closeup
-  `Create an extreme close-up of this exact product showing texture and material details. ` +
-  `Shallow depth of field, macro photography style, warm soft lighting. Keep the product ` +
-  `EXACTLY as shown — same colors and materials. Focus on surface details and craftsmanship.`,
-
-  // 4. Tabletop editorial
-  `Place this exact product on a clean marble or light oak surface for an editorial lifestyle shot. ` +
-  `Natural daylight from the side, minimal Scandinavian composition. Keep the product ` +
-  `EXACTLY as shown — do not change any colors or design. Fashion magazine editorial style.`,
-
-  // 5. Worn lifestyle
-  `Show this exact product being worn/used in a lifestyle setting — urban outdoor environment, ` +
-  `golden-hour lighting, contemporary fashion editorial style. Keep the product EXACTLY as ` +
-  `shown — same colors, same materials, same design. Only show feet/hands, no face.`,
-]
-
-/**
- * Generate images by EDITING the original product photo.
- * Uses GPT Image Edit to preserve the actual product while changing the scene.
+ * Generate images by extracting the exact product from the reference photo
+ * and compositing it onto 5 different solid-colour backgrounds.
  *
- * This is the preferred pipeline when a reference photo is available — it
- * produces images of the ACTUAL product rather than a similar-looking one.
+ * This guarantees 100% product pixel fidelity — the product is NEVER
+ * regenerated by AI. Only the background changes.
  *
- * Optimizations:
- *  - Pre-converts image to PNG 1024x1024 once (not per-call)
- *  - Runs edits in parallel to stay within Vercel timeout
- *
- * Falls back to text-to-image (generateByMode) if editing fails.
+ * Steps:
+ *  1. Resize/normalize input to 1024×1024 (contain, white padding)
+ *  2. Flood-fill from corners to detect + remove background
+ *  3. Composite the cutout onto each target background in parallel
+ *  4. Return JPEG buffers ready for upload
  */
 export async function generateByEditing(
   referenceImage: Buffer,
   referenceImageMime: string,
 ): Promise<{ results: ProviderResult[]; buffers: Buffer[] }> {
-  const apiKey = process.env.OPENAI_API_KEY
   const result: ProviderResult = {
-    provider: 'gpt-image-edit',
-    promptCount: EDITING_PROMPTS.length,
+    provider: 'background-composite',
+    promptCount: COMPOSITE_BACKGROUNDS.length,
     successCount: 0,
     buffers: [],
     errors: [],
   }
 
-  if (!apiKey) {
-    const msg = 'OPENAI_API_KEY not set — GPT Image Edit skipped'
-    console.warn(`[imageProviders] ${msg}`)
-    result.errors.push(msg)
-    return { results: [result], buffers: [] }
-  }
+  try {
+    const sharp = (await import('sharp')).default
 
-  // Pre-process: convert to PNG and resize once
-  console.log(`[generateByEditing] preparing image — original size=${referenceImage.length} mime=${referenceImageMime}`)
-  const { buffer: pngBuffer, mime: pngMime } = await prepareImageForEdit(referenceImage)
+    // ── Step 1: Normalise to 1024×1024 PNG (contain, white padding) ──────────
+    console.log(`[generateByEditing] normalising image — input size=${referenceImage.length} mime=${referenceImageMime}`)
+    const pngBuffer = await sharp(referenceImage)
+      .resize(1024, 1024, { fit: 'contain', background: { r: 255, g: 255, b: 255, alpha: 1 } })
+      .png()
+      .toBuffer()
+    console.log(`[generateByEditing] normalised PNG — ${pngBuffer.length} bytes`)
 
-  // Run ALL 5 edits in parallel to minimize total time (Vercel timeout)
-  console.log(`[generateByEditing] launching ${EDITING_PROMPTS.length} parallel edits...`)
-  const editPromises = EDITING_PROMPTS.map((prompt, i) =>
-    callGPTImageEdit(pngBuffer, pngMime, prompt, apiKey)
-      .then((buf) => ({ index: i, buf }))
-      .catch((err) => {
-        console.error(`[generateByEditing] edit ${i + 1} threw:`, err instanceof Error ? err.message : err)
-        return { index: i, buf: null as Buffer | null }
-      }),
-  )
+    // ── Step 2: Background removal (flood-fill from corners) ─────────────────
+    const cutout = await removeBackground(pngBuffer)
+    console.log(`[generateByEditing] background removed — cutout size=${cutout.length} bytes`)
 
-  const editResults = await Promise.all(editPromises)
+    // ── Step 3: Composite onto all 5 backgrounds in parallel ─────────────────
+    console.log(`[generateByEditing] compositing onto ${COMPOSITE_BACKGROUNDS.length} backgrounds...`)
+    const composites = await Promise.all(
+      COMPOSITE_BACKGROUNDS.map(({ name, r, g, b, label }) =>
+        compositeOnBackground(cutout, r, g, b)
+          .then((buf) => {
+            console.log(`[generateByEditing] ✓ ${name} (${label}) — ${buf.length} bytes`)
+            return buf
+          })
+          .catch((err) => {
+            const msg = `${name}: ${err instanceof Error ? err.message : err}`
+            console.error(`[generateByEditing] ✗ ${msg}`)
+            result.errors.push(msg)
+            return null as Buffer | null
+          }),
+      ),
+    )
 
-  // Collect in order
-  for (const { index, buf } of editResults.sort((a, b) => a.index - b.index)) {
-    if (buf) {
-      result.buffers.push(buf)
-      result.successCount++
-    } else {
-      result.errors.push(`Edit ${index + 1}: failed`)
+    for (const buf of composites) {
+      if (buf) {
+        result.buffers.push(buf)
+        result.successCount++
+      }
     }
+  } catch (err) {
+    const msg = `Pipeline A fatal: ${err instanceof Error ? err.message : err}`
+    console.error(`[generateByEditing] ${msg}`)
+    result.errors.push(msg)
   }
 
-  console.log(
-    `[generateByEditing] completed — ${result.successCount}/${result.promptCount} images edited` +
-    (result.errors.length > 0 ? ` — errors: ${result.errors.join(', ')}` : ''),
-  )
+  console.log(`[generateByEditing] done — ${result.successCount}/${result.promptCount} images`)
   return { results: [result], buffers: result.buffers }
 }

@@ -244,43 +244,60 @@ async function prepareImageForEdit(
 }
 
 /**
- * GPT Image Edit — sends the original product photo + a scene-changing prompt
- * to OpenAI's image editing endpoint. The model preserves the actual product
- * while changing the background, angle, or setting.
+ * GPT Image Edit via the Responses API — the /v1/images/edits endpoint only
+ * supports dall-e-2, NOT gpt-image-1. To use gpt-image-1 for image editing
+ * we must use the Responses API (/v1/responses) with image_generation tool.
  *
- * This is fundamentally different from text-to-image: it KEEPS the original
- * product design and only modifies the surrounding context.
+ * This sends the original product photo as base64 inline input alongside a
+ * scene-changing prompt. The model preserves the actual product while
+ * generating a new image in the requested scene.
  *
- * Image is pre-processed to PNG 1024x1024 by prepareImageForEdit().
  * Returns a single edited image Buffer, or null on failure.
  */
 async function callGPTImageEdit(
   pngBuffer: Buffer,
-  pngMime: string,
+  _pngMime: string,
   prompt: string,
   apiKey: string,
 ): Promise<Buffer | null> {
   const model = process.env.OPENAI_IMAGE_MODEL || 'gpt-image-1'
 
   try {
-    const formData = new FormData()
-    formData.append('model', model)
-    formData.append(
-      'image',
-      new Blob([new Uint8Array(pngBuffer)], { type: pngMime }),
-      'product.png',
-    )
-    formData.append('prompt', prompt)
-    formData.append('n', '1')
-    formData.append('size', '1024x1024')
-    formData.append('response_format', 'b64_json')
+    const b64Input = pngBuffer.toString('base64')
 
-    console.log(`[GPTImageEdit] calling API — model=${model} imageSize=${pngBuffer.length} promptLen=${prompt.length}`)
+    console.log(`[GPTImageEdit] calling Responses API — model=${model} imageSize=${pngBuffer.length} promptLen=${prompt.length}`)
 
-    const res = await fetch('https://api.openai.com/v1/images/edits', {
+    const res = await fetch('https://api.openai.com/v1/responses', {
       method: 'POST',
-      headers: { Authorization: `Bearer ${apiKey}` },
-      body: formData,
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({
+        model,
+        input: [
+          {
+            role: 'user',
+            content: [
+              {
+                type: 'input_image',
+                image_url: `data:image/png;base64,${b64Input}`,
+              },
+              {
+                type: 'input_text',
+                text: prompt,
+              },
+            ],
+          },
+        ],
+        tools: [
+          {
+            type: 'image_generation',
+            size: '1024x1024',
+            quality: 'low',
+          },
+        ],
+      }),
     })
 
     if (!res.ok) {
@@ -290,22 +307,23 @@ async function callGPTImageEdit(
     }
 
     const data = await res.json()
-    const b64: string | undefined = data?.data?.[0]?.b64_json
-    if (b64) {
-      const buf = Buffer.from(b64, 'base64')
-      console.log(`[GPTImageEdit] success — output size=${buf.length}`)
-      return buf
+
+    // The Responses API returns output[] with image_generation_call items
+    const output = data?.output as Array<Record<string, unknown>> | undefined
+    if (output) {
+      for (const item of output) {
+        if (item.type === 'image_generation_call') {
+          const b64 = item.result as string | undefined
+          if (b64) {
+            const buf = Buffer.from(b64, 'base64')
+            console.log(`[GPTImageEdit] success — output size=${buf.length}`)
+            return buf
+          }
+        }
+      }
     }
 
-    // Fallback: URL-based response
-    const url: string | undefined = data?.data?.[0]?.url
-    if (url) {
-      const imgRes = await fetch(url)
-      if (!imgRes.ok) return null
-      return Buffer.from(await imgRes.arrayBuffer())
-    }
-
-    console.error('[GPTImageEdit] No b64_json or url in response:', JSON.stringify(data).slice(0, 500))
+    console.error('[GPTImageEdit] No image in response:', JSON.stringify(data).slice(0, 500))
     return null
   } catch (err) {
     console.error('[GPTImageEdit] fetch error:', err instanceof Error ? err.message : err)

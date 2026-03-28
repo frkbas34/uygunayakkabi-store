@@ -219,6 +219,31 @@ async function callGPTImage(
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
+ * Prepare the reference image for the OpenAI editing endpoint:
+ *  1. Convert to PNG (the format edits endpoint works best with)
+ *  2. Resize to max 1024x1024 to stay within size limits and match output
+ *
+ * Uses sharp which is already installed (v0.34.5).
+ * Returns { buffer, mime } ready for FormData upload.
+ */
+async function prepareImageForEdit(
+  imageBuffer: Buffer,
+): Promise<{ buffer: Buffer; mime: string }> {
+  try {
+    const sharp = (await import('sharp')).default
+    const processed = await sharp(imageBuffer)
+      .resize(1024, 1024, { fit: 'inside', withoutEnlargement: true })
+      .png()
+      .toBuffer()
+    console.log(`[prepareImageForEdit] converted to PNG — size=${processed.length} bytes`)
+    return { buffer: processed, mime: 'image/png' }
+  } catch (err) {
+    console.warn('[prepareImageForEdit] sharp conversion failed, using original:', err instanceof Error ? err.message : err)
+    return { buffer: imageBuffer, mime: 'image/jpeg' }
+  }
+}
+
+/**
  * GPT Image Edit — sends the original product photo + a scene-changing prompt
  * to OpenAI's image editing endpoint. The model preserves the actual product
  * while changing the background, angle, or setting.
@@ -226,29 +251,31 @@ async function callGPTImage(
  * This is fundamentally different from text-to-image: it KEEPS the original
  * product design and only modifies the surrounding context.
  *
+ * Image is pre-processed to PNG 1024x1024 by prepareImageForEdit().
  * Returns a single edited image Buffer, or null on failure.
  */
 async function callGPTImageEdit(
-  imageBuffer: Buffer,
-  imageMime: string,
+  pngBuffer: Buffer,
+  pngMime: string,
   prompt: string,
   apiKey: string,
 ): Promise<Buffer | null> {
   const model = process.env.OPENAI_IMAGE_MODEL || 'gpt-image-1'
-  const ext = imageMime.includes('png') ? 'png' : 'jpg'
 
   try {
-    // Use the Web API FormData (available in Node 18+, which Vercel uses)
     const formData = new FormData()
     formData.append('model', model)
     formData.append(
       'image',
-      new Blob([imageBuffer], { type: imageMime }),
-      `product.${ext}`,
+      new Blob([pngBuffer], { type: pngMime }),
+      'product.png',
     )
     formData.append('prompt', prompt)
     formData.append('n', '1')
     formData.append('size', '1024x1024')
+    formData.append('response_format', 'b64_json')
+
+    console.log(`[GPTImageEdit] calling API — model=${model} imageSize=${pngBuffer.length} promptLen=${prompt.length}`)
 
     const res = await fetch('https://api.openai.com/v1/images/edits', {
       method: 'POST',
@@ -258,13 +285,17 @@ async function callGPTImageEdit(
 
     if (!res.ok) {
       const errText = await res.text()
-      console.error(`[GPTImageEdit] HTTP ${res.status}: ${errText.slice(0, 300)}`)
+      console.error(`[GPTImageEdit] HTTP ${res.status}: ${errText.slice(0, 500)}`)
       return null
     }
 
     const data = await res.json()
     const b64: string | undefined = data?.data?.[0]?.b64_json
-    if (b64) return Buffer.from(b64, 'base64')
+    if (b64) {
+      const buf = Buffer.from(b64, 'base64')
+      console.log(`[GPTImageEdit] success — output size=${buf.length}`)
+      return buf
+    }
 
     // Fallback: URL-based response
     const url: string | undefined = data?.data?.[0]?.url
@@ -274,7 +305,7 @@ async function callGPTImageEdit(
       return Buffer.from(await imgRes.arrayBuffer())
     }
 
-    console.error('[GPTImageEdit] No b64_json or url in response:', JSON.stringify(data).slice(0, 300))
+    console.error('[GPTImageEdit] No b64_json or url in response:', JSON.stringify(data).slice(0, 500))
     return null
   } catch (err) {
     console.error('[GPTImageEdit] fetch error:', err instanceof Error ? err.message : err)
@@ -545,6 +576,10 @@ const EDITING_PROMPTS = [
  * This is the preferred pipeline when a reference photo is available — it
  * produces images of the ACTUAL product rather than a similar-looking one.
  *
+ * Optimizations:
+ *  - Pre-converts image to PNG 1024x1024 once (not per-call)
+ *  - Runs edits in parallel to stay within Vercel timeout
+ *
  * Falls back to text-to-image (generateByMode) if editing fails.
  */
 export async function generateByEditing(
@@ -567,26 +602,36 @@ export async function generateByEditing(
     return { results: [result], buffers: [] }
   }
 
-  for (let i = 0; i < EDITING_PROMPTS.length; i++) {
-    console.log(`[GPTImageEdit] editing image ${i + 1}/${EDITING_PROMPTS.length}...`)
-    const buf = await callGPTImageEdit(
-      referenceImage,
-      referenceImageMime,
-      EDITING_PROMPTS[i],
-      apiKey,
-    )
+  // Pre-process: convert to PNG and resize once
+  console.log(`[generateByEditing] preparing image — original size=${referenceImage.length} mime=${referenceImageMime}`)
+  const { buffer: pngBuffer, mime: pngMime } = await prepareImageForEdit(referenceImage)
+
+  // Run ALL 5 edits in parallel to minimize total time (Vercel timeout)
+  console.log(`[generateByEditing] launching ${EDITING_PROMPTS.length} parallel edits...`)
+  const editPromises = EDITING_PROMPTS.map((prompt, i) =>
+    callGPTImageEdit(pngBuffer, pngMime, prompt, apiKey)
+      .then((buf) => ({ index: i, buf }))
+      .catch((err) => {
+        console.error(`[generateByEditing] edit ${i + 1} threw:`, err instanceof Error ? err.message : err)
+        return { index: i, buf: null as Buffer | null }
+      }),
+  )
+
+  const editResults = await Promise.all(editPromises)
+
+  // Collect in order
+  for (const { index, buf } of editResults.sort((a, b) => a.index - b.index)) {
     if (buf) {
       result.buffers.push(buf)
       result.successCount++
     } else {
-      result.errors.push(`Edit ${i + 1}: failed`)
+      result.errors.push(`Edit ${index + 1}: failed`)
     }
-    // Longer delay for editing — more compute-heavy than text-to-image
-    if (i < EDITING_PROMPTS.length - 1) await sleep(1000)
   }
 
   console.log(
-    `[GPTImageEdit] completed — ${result.successCount}/${result.promptCount} images edited`,
+    `[generateByEditing] completed — ${result.successCount}/${result.promptCount} images edited` +
+    (result.errors.length > 0 ? ` — errors: ${result.errors.join(', ')}` : ''),
   )
   return { results: [result], buffers: result.buffers }
 }

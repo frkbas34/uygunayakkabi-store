@@ -1,6 +1,6 @@
 # PROJECT STATE — Uygunayakkabi
 
-_Last updated: 2026-03-28 (Steps 22–24 complete — Telegram bot + AI image generation pipeline live)_
+_Last updated: 2026-03-28 18:00 UTC (Step 25 in progress — AI image editing pipeline switched to /v1/images/edits with gpt-image-1)_
 
 ## Current Status
 
@@ -131,7 +131,7 @@ _Last updated: 2026-03-28 (Steps 22–24 complete — Telegram bot + AI image ge
 | `SHOPIER_WEBHOOK_TOKEN` | Comma-separated HMAC tokens (one per webhook registration) |
 
 ### Deployment Status
-- **Vercel deployment**: `a413c5a` — Ready + Current (as of 2026-03-23)
+- **Vercel deployment**: `196c419` — Ready + Current (as of 2026-03-28 ~18:00 UTC)
 - **Custom domain**: `uygunayakkabi.com` (CNAME configured)
 
 ### Instagram OAuth Routes
@@ -297,12 +297,36 @@ To refresh Instagram token: navigate to `https://uygunayakkabi.com/api/auth/inst
 | Telegram `#gorsel` command | `src/app/api/telegram/route.ts` | IMPLEMENTED — triggers image gen job |
 
 ### AI Image Generation — Key Architecture Decisions
+
+#### Pipeline A: Image Editing (PARTIALLY IMPLEMENTED — 2026-03-28, testing in progress)
+- **Trigger**: When `referenceImage` buffer is available on the job record
+- **Endpoint**: `POST /v1/images/edits` with `image[]` field name (gpt-image-1 requires array syntax)
+- **Model**: `gpt-image-1` via `OPENAI_API_KEY`
+- **Flow**: Reference photo → sharp PNG conversion (1024x1024) → 5 parallel editing prompts → upload results
+- **Editing prompts**: commerce_front, side_angle, detail_closeup, tabletop_editorial, worn_lifestyle
+- **Goal**: Preserve EXACT product from photo, only change background/angle/setting
+- **Status**: DEPLOYED (commit `196c419`), awaiting verification that output matches input product
+
+#### Pipeline B: Text-to-Image Fallback
+- **Trigger**: When no reference image available OR Pipeline A produces 0 images
+- **Flow**: Gemini Vision describes product → `buildPromptSet()` → text-to-image generation
+- **Model for vision analysis**: `gemini-2.5-flash` (hardcoded in `describeProductImage`) — VERIFIED working
 - **Model for image generation**: `gemini-2.5-flash-image` (env: `GEMINI_FLASH_MODEL`) — VERIFIED working
-- **Model for product vision analysis**: `gemini-2.5-flash` (hardcoded in `describeProductImage`) — VERIFIED working
-- **Image editing NOT supported**: All available Gemini image models (`gemini-2.5-flash-image`, `gemini-3.1-flash-image-preview`, `gemini-3-pro-image-preview`) are text-to-image only — they ignore `inlineData` image inputs
-- **Consistency approach**: Vision model analyzes reference photo → generates specific description → text-to-image model generates from that description
+- **Known limitation**: Text-to-image cannot guarantee exact product reproduction
+
+#### Key Technical Findings (2026-03-28 session)
+- **`/v1/images/edits` with gpt-image-1**: Requires `image[]` field name (NOT `image`). Using `image` returns 400 "Value must be 'dall-e-2'"
+- **OpenAI Responses API (`/v1/responses`) with `image_generation` tool**: Does NOT do true editing — generates loosely inspired new images. NOT suitable for product fidelity.
+- **`response_format: 'b64_json'`**: NOT a valid parameter for gpt-image-1 `/v1/images/generations` — causes 400 "Unknown parameter". Removed.
+- **OPENAI_API_KEY**: Rotated 2026-03-28 (old key expired/401). Updated via Vercel internal API.
 - **`gemini-2.0-flash-exp-image-generation`**: DEPRECATED — returns 404, not available in models list
-- **Dengeli mode fallback**: GPT Image (`gpt-image-1`) fails with 401 (billing tier) → falls back to Gemini Flash
+- **Gemini image models ignore `inlineData`**: All Gemini image models are text-to-image only
+
+#### Git Workaround (RECURRING)
+- Workspace repo has persistent `index.lock` preventing direct git operations
+- All git operations use temp clone at `/tmp/imgfix_tmp` with GitHub remote
+- Remote: `https://ghp_***@github.com/frkbas34/uygunayakkabi-store.git`
+- Commit config: `-c user.name="Yavuz" -c user.email="y.selimbulut38@gmail.com"`
 
 ### Environment Variables — Current Production State (Vercel)
 | Variable | Value / Notes | Status |
@@ -310,7 +334,7 @@ To refresh Instagram token: navigate to `https://uygunayakkabi.com/api/auth/inst
 | `GEMINI_API_KEY` | Set in Vercel | ACTIVE |
 | `GEMINI_FLASH_MODEL` | `gemini-2.5-flash-image` | CORRECTED 2026-03-28 |
 | `GEMINI_PRO_MODEL` | `imagen-4.0-ultra-generate-001` | ACTIVE |
-| `OPENAI_API_KEY` | Set in Vercel | ACTIVE (GPT Image returns 401 — billing tier issue) |
+| `OPENAI_API_KEY` | Rotated 2026-03-28 | ACTIVE — new key set via Vercel internal API (env ID `764gO7z42RX0uvI0`) |
 | `TELEGRAM_BOT_TOKEN` | Set in Vercel | ACTIVE |
 | `TELEGRAM_WEBHOOK_SECRET` | Set in Vercel | ACTIVE — must match webhook `secret_token` registration |
 | `AUTOMATION_SECRET` | Set in Vercel | ACTIVE |

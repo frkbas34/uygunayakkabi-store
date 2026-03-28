@@ -1,6 +1,6 @@
 # TASK QUEUE — Uygunayakkabi
 
-_Last updated: 2026-03-28 (Steps 22–24 complete — Telegram bot + AI image gen pipeline live)_
+_Last updated: 2026-03-28 18:00 UTC (Step 25 in progress — image editing pipeline deployed, awaiting test confirmation)_
 
 ---
 
@@ -11,9 +11,8 @@ _Last updated: 2026-03-28 (Steps 22–24 complete — Telegram bot + AI image ge
 **All schema changes on Neon MUST be applied manually via SQL.**
 Before adding any new collection/global: manually verify the new table + `payload_locked_documents_rels` column exist in Neon after deploy.
 
-### Blocker 1: GPT Image (`gpt-image-1`) Returns 401 — UNRESOLVED
-`gpt-image-1` requires a special billing tier on OpenAI. Current `OPENAI_API_KEY` is not authorized.
-`#dengeli` mode falls back to Gemini Flash. If GPT Image is needed, upgrade OpenAI billing tier.
+### Blocker 1: GPT Image (`gpt-image-1`) 401 — RESOLVED 2026-03-28
+~~`gpt-image-1` requires a special billing tier on OpenAI.~~ **FIXED**: API key rotated and updated in Vercel env vars. New key authorized for gpt-image-1.
 
 ### Blocker 2: git index.lock in production repo — RECURRING
 The workspace repo at `/sessions/loving-eager-galileo/mnt/uygunayakkabi-store` occasionally gets a `index.lock` file that prevents `git add`. Workaround: use temp clone → copy files → commit → push → rm -rf temp.
@@ -22,12 +21,22 @@ The workspace repo at `/sessions/loving-eager-galileo/mnt/uygunayakkabi-store` o
 
 ## 🟢 NOW — Current Sprint
 
-### Step 25 — End-to-End Image Quality Verification
-1. Send a real shoe photo to Telegram bot
-2. Trigger `#gorsel` (default: hizli / Gemini Flash)
-3. In Vercel runtime logs, confirm: `[imageGenTask] Vision description: "..."` appears
-4. Confirm generated images in admin panel match the actual product (color, shape, type)
-5. If images still generic → investigate vision model response in logs
+### Step 25 — Image Editing Pipeline (IN PROGRESS)
+**Goal**: Generated images must match the EXACT product from the original Telegram photo.
+
+**What's been done (2026-03-28)**:
+1. Pipeline A (image editing) implemented: reference image → `POST /v1/images/edits` with gpt-image-1
+2. Discovered `image[]` field name required (not `image`) for gpt-image-1 — fixed
+3. Discovered OpenAI Responses API `/v1/responses` does NOT do true editing — abandoned
+4. Fixed `callGPTImage` text-to-image fallback: removed invalid `response_format` param
+5. OPENAI_API_KEY rotated (old key expired)
+6. Deployed commit `196c419` — Ready on Vercel
+
+**What's remaining**:
+1. **Test**: Send shoe photo via Telegram, check if Pipeline A produces images matching original product
+2. **Verify logs**: Confirm `[GPTImageEdit] calling /v1/images/edits` appears (not fallback to Pipeline B)
+3. **If still wrong**: May need to adjust editing prompts or try `quality: 'medium'` for better fidelity
+4. **If /v1/images/edits rejects gpt-image-1 again**: Fall back to background removal approach (rembg/sharp compositing)
 
 ### Step 21b — Shopier Stock Decrement on Order
 1. On `order.created` webhook: decrement `products.stockQuantity`

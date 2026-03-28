@@ -1628,3 +1628,45 @@ Product image generation uses a **two-step pipeline**:
 ```
 
 **Status:** ACTIVE — implemented + deployed 2026-03-28
+
+---
+
+## D-096 — Image Editing via /v1/images/edits (Pipeline A)
+**Decision:**
+Use OpenAI `/v1/images/edits` endpoint with `gpt-image-1` and `image[]` field name for true image editing that preserves the exact product from the original Telegram photo.
+
+**Reason:**
+- Text-to-image (Pipeline B) generates shoes that look similar but NOT the exact product — colors, design details change
+- User explicitly requested generated images must match the EXACT product sent
+- OpenAI Responses API (`/v1/responses` with `image_generation` tool) was tested and rejected: it generates loosely inspired new images, NOT true edits
+- `/v1/images/edits` with correct `image[]` field (not `image`) is the proper gpt-image-1 editing endpoint
+
+**Alternatives rejected:**
+1. Responses API — produces new images, doesn't preserve product (TESTED & FAILED)
+2. dall-e-2 via `/v1/images/edits` — lower quality, older model
+3. Gemini image models — all text-to-image only, ignore `inlineData` inputs
+
+**Implementation:**
+- `callGPTImageEdit()` in `src/lib/imageProviders.ts` — FormData with `image[]` field
+- `generateByEditing()` orchestrates 5 parallel editing calls
+- Pipeline routing in `imageGenTask.ts`: if `referenceImage` exists → Pipeline A, else → Pipeline B
+- Pre-processing: sharp converts to PNG 1024x1024 before sending
+
+**Key technical detail:**
+gpt-image-1 uses `image[]` (array field name) in multipart form data. Using bare `image` returns HTTP 400 "Value must be 'dall-e-2'".
+
+**Status:** DEPLOYED (commit `196c419` 2026-03-28) — awaiting test verification
+
+---
+
+## D-097 — OPENAI_API_KEY Rotation (2026-03-28)
+**Decision:**
+Rotated OPENAI_API_KEY in Vercel env vars after old key returned 401.
+
+**Reason:**
+Previous key was expired/unauthorized for gpt-image-1. New key generated from OpenAI dashboard.
+
+**Implementation:**
+Updated via Vercel internal API: `PATCH /api/v10/projects/uygunayakkabi-store/env/764gO7z42RX0uvI0`
+
+**Status:** ACTIVE

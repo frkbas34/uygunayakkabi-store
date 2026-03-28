@@ -665,22 +665,43 @@ export async function generateByEditing(
 
   try {
     const sharp = (await import('sharp')).default
-    console.log(`[generateByEditing] input size=${referenceImage.length} mime=${referenceImageMime}`)
+    console.log(`[generateByEditing v3] input size=${referenceImage.length} mime=${referenceImageMime}`)
+
+    // ── Step 1: Scale shoe to fit within 800×800 (no background added yet) ───
+    // Using fit:'inside' so we get the exact shoe dimensions, then we manually
+    // center it on a 1024×1024 canvas. This guarantees at least 112px of
+    // background colour is visible on every side regardless of the photo's
+    // aspect ratio — even for perfectly square photos.
+    const shoeBuffer = await sharp(referenceImage)
+      .resize(800, 800, { fit: 'inside', withoutEnlargement: false })
+      .toBuffer()
+
+    const shoeMeta = await sharp(shoeBuffer).metadata()
+    const shoeW = shoeMeta.width ?? 800
+    const shoeH = shoeMeta.height ?? 800
+    console.log(`[generateByEditing v3] shoe scaled to ${shoeW}×${shoeH}`)
+
+    // Padding needed on each side to centre within 1024×1024
+    const padLeft   = Math.floor((1024 - shoeW) / 2)
+    const padRight  = 1024 - shoeW - padLeft
+    const padTop    = Math.floor((1024 - shoeH) / 2)
+    const padBottom = 1024 - shoeH - padTop
 
     const composites = await Promise.all(
       COMPOSITE_BACKGROUNDS.map(({ name, r, g, b, label }) =>
-        sharp(referenceImage)
-          .resize(1024, 1024, { fit: 'contain', background: { r, g, b, alpha: 1 } })
+        sharp(shoeBuffer)
+          .extend({ top: padTop, bottom: padBottom, left: padLeft, right: padRight,
+                    background: { r, g, b, alpha: 1 } })
           .flatten({ background: { r, g, b } })
           .jpeg({ quality: 92 })
           .toBuffer()
           .then((buf) => {
-            console.log(`[generateByEditing] ✓ ${name} (${label}) — ${buf.length} bytes`)
+            console.log(`[generateByEditing v3] ✓ ${name} (${label}) — ${buf.length} bytes`)
             return buf
           })
           .catch((err) => {
             const msg = `${name}: ${err instanceof Error ? err.message : err}`
-            console.error(`[generateByEditing] ✗ ${msg}`)
+            console.error(`[generateByEditing v3] ✗ ${msg}`)
             result.errors.push(msg)
             return null as Buffer | null
           }),
@@ -699,6 +720,6 @@ export async function generateByEditing(
     result.errors.push(msg)
   }
 
-  console.log(`[generateByEditing] done — ${result.successCount}/${result.promptCount} images`)
+  console.log(`[generateByEditing v3] done — ${result.successCount}/${result.promptCount} images`)
   return { results: [result], buffers: result.buffers }
 }

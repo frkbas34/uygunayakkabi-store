@@ -8,10 +8,12 @@
  *
  * Flow:
  *  1. Fetch ImageGenerationJob record (has product ID, mode, Telegram chat ID)
- *  2. Fetch product details (title, category, brand, color, material, etc.)
- *  3. Build 5 concept prompts via imagePromptBuilder
- *  4. Call provider(s) via imageProviders.generateByMode()
- *  5. For each generated image Buffer:
+ *  2. Fetch product details + reference image from product's first photo
+ *  3. Pipeline A (preferred): If reference image available, use GPT Image Edit
+ *     (preserves EXACT product, only changes scene/angle/background)
+ *     Pipeline B (fallback): If no reference image or editing fails, use
+ *     vision analysis + text prompts + generateByMode()
+ *  4. For each generated image Buffer:
  *     - Create Media document via payload.create (auto-uploads to Vercel Blob)
  *     - Collect media IDs
  *  6. Update ImageGenerationJob: status='review', generatedImages=[...media IDs]
@@ -218,82 +220,140 @@ export const imageGenTask: TaskConfig<{
       console.log('[imageGenTask] No reference image available — using text-only prompts')
     }
 
-    // ── Step 2c: Vision analysis — describe the product for text prompts ─────
-    // The image generation models (gemini-2.5-flash-image etc.) are text-to-image
-    // only and do not process image inputs. Instead we use gemini-2.5-flash (the
-    // vision/text model) to produce a specific description of the actual product,
-    // which is then used as the primary prompt descriptor for image generation.
-    if (referenceImage && process.env.GEMINI_API_KEY) {
-      const visualDesc = await describeProductImage(
-        referenceImage,
-        referenceImageMime || 'image/jpeg',
-        process.env.GEMINI_API_KEY,
-      )
-      if (visualDesc) {
-        productContext.visualDescription = visualDesc
-        console.log(`[imageGenTask] productContext enriched with visualDescription`)
-      } else {
-        console.warn('[imageGenTask] Vision analysis returned null — using metadata fallback')
-      }
-    }
-
-    // ── Step 3: Build prompts ───────────────────────────────────────────────
-    const { buildPromptSet } = await import('../lib/imagePromptBuilder')
-    // Always use text-only mode — image generation models don't support image input.
-    // When visualDescription is set, buildPromptSet uses it as the product descriptor.
-    const promptSet = buildPromptSet(productContext, false)
-    const promptTexts = promptSet.map((p) => p.prompt)
-
-    await payload.update({
-      collection: 'image-generation-jobs',
-      id: jobId,
-      data: {
-        promptsUsed: JSON.stringify(
-          promptSet.map((p) => ({ concept: p.concept, label: p.label, prompt: p.prompt })),
-        ),
-      },
-    })
-
-    // ── Step 4: Generate images ─────────────────────────────────────────────
-    const { generateByMode } = await import('../lib/imageProviders')
+    // ── Step 3 & 4: Generate images ──────────────────────────────────────────
+    // Two pipelines:
+    //   A) EDITING mode (preferred): When referenceImage is available, use GPT
+    //      Image Edit to preserve the EXACT product and only change scene/angle.
+    //   B) TEXT-TO-IMAGE fallback: When no reference image exists, use vision
+    //      analysis + text prompts + generateByMode().
 
     let generatedBuffers: Buffer[] = []
     let providerResultsSummary: unknown[] = []
+    let promptSet: Array<{ concept: string; label: string; prompt: string }> = []
 
-    try {
-      // Note: referenceImage is NOT passed here — the image generation models
-      // (gemini-2.5-flash-image etc.) are text-to-image only and ignore image
-      // inputs. Product consistency is achieved via visualDescription in prompts.
-      const { results, buffers } = await generateByMode(
-        mode as 'hizli' | 'dengeli' | 'premium' | 'karma',
-        promptTexts,
-      )
-      generatedBuffers = buffers
-      providerResultsSummary = results.map((r) => ({
-        provider: r.provider,
-        success: r.successCount,
-        total: r.promptCount,
-        errors: r.errors,
-      }))
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err)
+    if (referenceImage) {
+      // ── Pipeline A: Image EDITING (preserves exact product) ─────────────
+      console.log('[imageGenTask] Reference image available — using EDITING pipeline')
+
+      const { generateByEditing } = await import('../lib/imageProviders')
+
+      // Store the editing prompts for debugging
+      const editingConcepts = [
+        { concept: 'commerce_front', label: 'Ürün — Ön Görünüm (Beyaz Fon)' },
+        { concept: 'side_angle', label: 'Ürün — Yan Açı (Stüdyo)' },
+        { concept: 'detail_closeup', label: 'Detay — Malzeme Dokusu' },
+        { concept: 'tabletop_editorial', label: 'Editoryal — Masa Üstü Yaşam' },
+        { concept: 'worn_lifestyle', label: 'Yaşam — Giyim Tarzı' },
+      ]
+
       await payload.update({
         collection: 'image-generation-jobs',
         id: jobId,
         data: {
-          status: 'failed',
-          errorMessage: `Görsel üretimi başarısız: ${msg}`,
-          generationCompletedAt: new Date().toISOString(),
-          providerResults: JSON.stringify({ error: msg }),
+          promptsUsed: JSON.stringify(
+            editingConcepts.map((c) => ({ ...c, prompt: '[IMAGE EDITING MODE — prompt describes scene change, not product]' })),
+          ),
         },
       })
-      if (telegramChatId) {
-        await sendTelegramNotification(
-          telegramChatId,
-          `❌ Görsel üretimi başarısız (Job: ${jobId})\nHata: ${msg.slice(0, 200)}`,
+
+      promptSet = editingConcepts.map((c) => ({ ...c, prompt: 'editing' }))
+
+      try {
+        const { results, buffers } = await generateByEditing(
+          referenceImage,
+          referenceImageMime || 'image/jpeg',
         )
+        generatedBuffers = buffers
+        providerResultsSummary = results.map((r) => ({
+          provider: r.provider,
+          success: r.successCount,
+          total: r.promptCount,
+          errors: r.errors,
+        }))
+
+        // If editing produced zero images, fall back to text-to-image
+        if (generatedBuffers.length === 0) {
+          console.warn('[imageGenTask] Editing pipeline produced 0 images — falling back to text-to-image')
+          // Fall through to Pipeline B below
+        }
+      } catch (err) {
+        console.warn('[imageGenTask] Editing pipeline error, falling back to text-to-image:', err instanceof Error ? err.message : err)
+        // Fall through to Pipeline B below
       }
-      throw new Error(msg)
+    }
+
+    // ── Pipeline B: Text-to-image fallback ──────────────────────────────────
+    if (generatedBuffers.length === 0) {
+      if (referenceImage) {
+        console.log('[imageGenTask] Falling back to text-to-image pipeline')
+      } else {
+        console.log('[imageGenTask] No reference image — using text-to-image pipeline')
+      }
+
+      // Step 2c: Vision analysis (only if we have a reference image for description)
+      if (referenceImage && process.env.GEMINI_API_KEY) {
+        const visualDesc = await describeProductImage(
+          referenceImage,
+          referenceImageMime || 'image/jpeg',
+          process.env.GEMINI_API_KEY,
+        )
+        if (visualDesc) {
+          productContext.visualDescription = visualDesc
+          console.log(`[imageGenTask] productContext enriched with visualDescription`)
+        } else {
+          console.warn('[imageGenTask] Vision analysis returned null — using metadata fallback')
+        }
+      }
+
+      // Step 3: Build text prompts
+      const { buildPromptSet } = await import('../lib/imagePromptBuilder')
+      const builtPrompts = buildPromptSet(productContext, false)
+      const promptTexts = builtPrompts.map((p) => p.prompt)
+      promptSet = builtPrompts.map((p) => ({ concept: p.concept, label: p.label, prompt: p.prompt }))
+
+      await payload.update({
+        collection: 'image-generation-jobs',
+        id: jobId,
+        data: {
+          promptsUsed: JSON.stringify(promptSet),
+        },
+      })
+
+      // Step 4: Generate via text-to-image
+      const { generateByMode } = await import('../lib/imageProviders')
+
+      try {
+        const { results, buffers } = await generateByMode(
+          mode as 'hizli' | 'dengeli' | 'premium' | 'karma',
+          promptTexts,
+        )
+        generatedBuffers = buffers
+        providerResultsSummary = results.map((r) => ({
+          provider: r.provider,
+          success: r.successCount,
+          total: r.promptCount,
+          errors: r.errors,
+        }))
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err)
+        await payload.update({
+          collection: 'image-generation-jobs',
+          id: jobId,
+          data: {
+            status: 'failed',
+            errorMessage: `Görsel üretimi başarısız: ${msg}`,
+            generationCompletedAt: new Date().toISOString(),
+            providerResults: JSON.stringify({ error: msg }),
+          },
+        })
+        if (telegramChatId) {
+          await sendTelegramNotification(
+            telegramChatId,
+            `❌ Görsel üretimi başarısız (Job: ${jobId})\nHata: ${msg.slice(0, 200)}`,
+          )
+        }
+        throw new Error(msg)
+      }
     }
 
     if (generatedBuffers.length === 0) {

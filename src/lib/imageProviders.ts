@@ -215,6 +215,74 @@ async function callGPTImage(
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Image editing (gpt-image-1 via /v1/images/edits)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * GPT Image Edit — sends the original product photo + a scene-changing prompt
+ * to OpenAI's image editing endpoint. The model preserves the actual product
+ * while changing the background, angle, or setting.
+ *
+ * This is fundamentally different from text-to-image: it KEEPS the original
+ * product design and only modifies the surrounding context.
+ *
+ * Returns a single edited image Buffer, or null on failure.
+ */
+async function callGPTImageEdit(
+  imageBuffer: Buffer,
+  imageMime: string,
+  prompt: string,
+  apiKey: string,
+): Promise<Buffer | null> {
+  const model = process.env.OPENAI_IMAGE_MODEL || 'gpt-image-1'
+  const ext = imageMime.includes('png') ? 'png' : 'jpg'
+
+  try {
+    // Use the Web API FormData (available in Node 18+, which Vercel uses)
+    const formData = new FormData()
+    formData.append('model', model)
+    formData.append(
+      'image',
+      new Blob([imageBuffer], { type: imageMime }),
+      `product.${ext}`,
+    )
+    formData.append('prompt', prompt)
+    formData.append('n', '1')
+    formData.append('size', '1024x1024')
+
+    const res = await fetch('https://api.openai.com/v1/images/edits', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${apiKey}` },
+      body: formData,
+    })
+
+    if (!res.ok) {
+      const errText = await res.text()
+      console.error(`[GPTImageEdit] HTTP ${res.status}: ${errText.slice(0, 300)}`)
+      return null
+    }
+
+    const data = await res.json()
+    const b64: string | undefined = data?.data?.[0]?.b64_json
+    if (b64) return Buffer.from(b64, 'base64')
+
+    // Fallback: URL-based response
+    const url: string | undefined = data?.data?.[0]?.url
+    if (url) {
+      const imgRes = await fetch(url)
+      if (!imgRes.ok) return null
+      return Buffer.from(await imgRes.arrayBuffer())
+    }
+
+    console.error('[GPTImageEdit] No b64_json or url in response:', JSON.stringify(data).slice(0, 300))
+    return null
+  } catch (err) {
+    console.error('[GPTImageEdit] fetch error:', err instanceof Error ? err.message : err)
+    return null
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Public provider functions
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -431,4 +499,94 @@ export async function generateByMode(
       return { results: [r], buffers: r.buffers }
     }
   }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Image editing pipeline
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Editing-mode prompts — these describe the SCENE, not the product.
+ * The product is preserved from the original photo by the editing model.
+ */
+const EDITING_PROMPTS = [
+  // 1. Commerce front
+  `Place this exact product on a pure white background. Center it with a straight front view. ` +
+  `Professional e-commerce product photography, clean studio lighting, soft shadows, ` +
+  `sharp focus on product, 4K quality. Keep the product EXACTLY as shown — do not change ` +
+  `any colors, materials, or design details. Only change the background to white.`,
+
+  // 2. Side angle
+  `Show this exact product from a 45-degree side angle on a white studio background. ` +
+  `Professional product photography with soft-box lighting. Keep every detail of the ` +
+  `product EXACTLY as shown — same colors, same materials, same design. Only change the ` +
+  `viewing angle and background.`,
+
+  // 3. Detail closeup
+  `Create an extreme close-up of this exact product showing texture and material details. ` +
+  `Shallow depth of field, macro photography style, warm soft lighting. Keep the product ` +
+  `EXACTLY as shown — same colors and materials. Focus on surface details and craftsmanship.`,
+
+  // 4. Tabletop editorial
+  `Place this exact product on a clean marble or light oak surface for an editorial lifestyle shot. ` +
+  `Natural daylight from the side, minimal Scandinavian composition. Keep the product ` +
+  `EXACTLY as shown — do not change any colors or design. Fashion magazine editorial style.`,
+
+  // 5. Worn lifestyle
+  `Show this exact product being worn/used in a lifestyle setting — urban outdoor environment, ` +
+  `golden-hour lighting, contemporary fashion editorial style. Keep the product EXACTLY as ` +
+  `shown — same colors, same materials, same design. Only show feet/hands, no face.`,
+]
+
+/**
+ * Generate images by EDITING the original product photo.
+ * Uses GPT Image Edit to preserve the actual product while changing the scene.
+ *
+ * This is the preferred pipeline when a reference photo is available — it
+ * produces images of the ACTUAL product rather than a similar-looking one.
+ *
+ * Falls back to text-to-image (generateByMode) if editing fails.
+ */
+export async function generateByEditing(
+  referenceImage: Buffer,
+  referenceImageMime: string,
+): Promise<{ results: ProviderResult[]; buffers: Buffer[] }> {
+  const apiKey = process.env.OPENAI_API_KEY
+  const result: ProviderResult = {
+    provider: 'gpt-image-edit',
+    promptCount: EDITING_PROMPTS.length,
+    successCount: 0,
+    buffers: [],
+    errors: [],
+  }
+
+  if (!apiKey) {
+    const msg = 'OPENAI_API_KEY not set — GPT Image Edit skipped'
+    console.warn(`[imageProviders] ${msg}`)
+    result.errors.push(msg)
+    return { results: [result], buffers: [] }
+  }
+
+  for (let i = 0; i < EDITING_PROMPTS.length; i++) {
+    console.log(`[GPTImageEdit] editing image ${i + 1}/${EDITING_PROMPTS.length}...`)
+    const buf = await callGPTImageEdit(
+      referenceImage,
+      referenceImageMime,
+      EDITING_PROMPTS[i],
+      apiKey,
+    )
+    if (buf) {
+      result.buffers.push(buf)
+      result.successCount++
+    } else {
+      result.errors.push(`Edit ${i + 1}: failed`)
+    }
+    // Longer delay for editing — more compute-heavy than text-to-image
+    if (i < EDITING_PROMPTS.length - 1) await sleep(1000)
+  }
+
+  console.log(
+    `[GPTImageEdit] completed — ${result.successCount}/${result.promptCount} images edited`,
+  )
+  return { results: [result], buffers: result.buffers }
 }

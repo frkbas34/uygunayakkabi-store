@@ -418,15 +418,20 @@ async function describeProductImage(
   const visionModel = 'gemini-2.5-flash'   // text/vision model — NOT image gen
 
   const prompt =
-    `You are a product photography assistant helping to prepare AI image generation prompts. ` +
-    `Analyse this product photo carefully and describe the product in ONE concise English sentence (25-50 words). ` +
-    `Include: product type (e.g. sneaker / boot / sandal / wallet), dominant color(s), ` +
-    `material or texture (e.g. leather / suede / mesh / canvas), ` +
-    `key visual design features (e.g. logo, sole color, lace color, stitching, patterns), ` +
-    `and style category (e.g. casual / sport / formal). ` +
-    `Do NOT include brand names unless clearly visible. ` +
-    `Do NOT add any explanation — output the description sentence only. ` +
-    `Example: "Black mesh low-top running sneaker with neon yellow sole, reflective side stripe, and padded ankle collar".`
+    `You are a product photography expert. Your job is to describe this product so precisely ` +
+    `that an AI image generator can recreate EXACTLY the same product — not a similar one. ` +
+    `Write ONE detailed English sentence (40-80 words) covering ALL of these in order:\n` +
+    `1. EXACT product type & silhouette (e.g. "low-top lace-up derby shoe" NOT just "shoe")\n` +
+    `2. ALL colors visible — upper, sole, laces, stitching, accents\n` +
+    `3. Material & texture of EACH part (e.g. "smooth leather upper, rubber lug sole")\n` +
+    `4. Toe shape (round / pointed / square / almond)\n` +
+    `5. Sole style (flat / chunky / wedge / stacked heel), sole color\n` +
+    `6. Closure type (lace-up / slip-on / buckle / zipper / velcro)\n` +
+    `7. Distinctive details (perforations, logos, contrast stitching, pull tab, etc.)\n` +
+    `Do NOT include brand names. Output the description ONLY — no explanation.\n` +
+    `Example: "Tan brown smooth leather lace-up wingtip oxford shoe with brogue perforations ` +
+    `on toe cap and sides, flat dark brown stacked leather heel, thin brown cotton laces, ` +
+    `Goodyear welt stitching, pointed toe, and slim dark brown rubber sole with light tread pattern".`
 
   try {
     const res = await fetch(
@@ -441,7 +446,7 @@ async function describeProductImage(
               { text: prompt },
             ],
           }],
-          generationConfig: { responseMimeType: 'text/plain', maxOutputTokens: 120 },
+          generationConfig: { responseMimeType: 'text/plain', maxOutputTokens: 250 },
         }),
       },
     )

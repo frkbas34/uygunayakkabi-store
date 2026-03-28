@@ -199,93 +199,102 @@ export async function POST(req: NextRequest) {
           return NextResponse.json({ ok: true })
         }
 
-        const cbPayload = await getPayload()
-        // depth:1 to populate images[0].image so we can grab the reference URL
-        const { docs: cbDocs } = await cbPayload.find({
-          collection: 'products',
-          where: { id: { equals: cbProductId } },
-          limit: 1,
-          depth: 1,
-        })
-        if (cbDocs.length === 0) {
-          await answerCallbackQuery(cbQueryId, '❌ Ürün bulunamadı')
-          return NextResponse.json({ ok: true })
-        }
-        const cbProduct = cbDocs[0] as Record<string, unknown>
-
-        // Extract reference image URL from first product image.
-        // Two paths:
-        //   a) depth:1 populated the relationship → use it directly
-        //   b) depth:1 left it as a raw ID (can happen with array fields) →
-        //      fetch the media document separately
-        const cbImages = cbProduct.images as
-          | Array<{ image: { url?: string; mimeType?: string } | number }>
-          | undefined
-        const cbImageItem = cbImages?.[0]?.image
-        let cbRefUrl: string | undefined
-        let cbRefMime: string | undefined
-
-        if (typeof cbImageItem === 'object' && cbImageItem?.url) {
-          // Path a — depth:1 populated
-          cbRefUrl = cbImageItem.url
-          cbRefMime = cbImageItem.mimeType
-        } else if (typeof cbImageItem === 'number') {
-          // Path b — depth:1 didn't populate, fetch media directly
-          try {
-            const cbMediaDoc = await cbPayload.findByID({
-              collection: 'media',
-              id: cbImageItem,
-              depth: 0,
-            }) as Record<string, unknown>
-            cbRefUrl = cbMediaDoc.url as string | undefined
-            cbRefMime = (cbMediaDoc.mimeType as string | undefined) ?? 'image/jpeg'
-            console.log(`[telegram/callback] media fetched directly — url=${cbRefUrl}`)
-          } catch (e) {
-            console.warn('[telegram/callback] direct media fetch failed:', e)
-          }
-        }
-
-        const modeLabelMap: Record<string, string> = {
-          hizli: '⚡ Hızlı', dengeli: '⚖️ Dengeli', premium: '💎 Premium', karma: '🌈 Karma',
-        }
-        const modeEmojiMap: Record<string, string> = {
-          hizli: '⚡', dengeli: '⚖️', premium: '💎', karma: '🌈',
-        }
-
-        const cbJobDoc = await cbPayload.create({
-          collection: 'image-generation-jobs',
-          data: {
-            jobTitle: `${cbProduct.title} — ${modeLabelMap[cbMode]}`,
-            product: cbProductId,
-            mode: cbMode,
-            status: 'queued',
-            telegramChatId: String(cbChatId),
-            requestedByUserId: String(callbackQuery.from?.id ?? ''),
-            ...(cbRefUrl ? { referenceImageUrl: cbRefUrl, referenceImageMime: cbRefMime ?? 'image/jpeg' } : {}),
-          },
-        })
-
-        await cbPayload.jobs.queue({
-          task: 'image-gen',
-          input: { jobId: String(cbJobDoc.id) },
-          overrideAccess: true,
-        })
-
-        await answerCallbackQuery(cbQueryId, '🎨 Görsel üretimi başlatıldı!')
-        await sendTelegramMessage(
-          cbChatId,
-          `${modeEmojiMap[cbMode]} <b>Görsel üretimi başlatıldı!</b>\n\n` +
-          `📦 Ürün: <b>${cbProduct.title}</b>\n` +
-          `🔧 Mod: ${modeLabelMap[cbMode]}\n` +
-          `🖼️ 5 farklı konsept görsel üretilecek\n\n` +
-          `<i>Tamamlanınca bildirim gelecek.</i>`,
-        )
+        // ── CRITICAL: Answer Telegram FIRST so the button never freezes ─────
+        // Any error after this point is reported via a Telegram chat message
+        // instead of leaving the button in a permanent loading state.
+        await answerCallbackQuery(cbQueryId, '🎨 Görsel üretimi başlatılıyor...')
 
         after(async () => {
           try {
+            const cbPayload = await getPayload()
+
+            // Fetch product (depth:1 to try to populate images for vision analysis)
+            const { docs: cbDocs } = await cbPayload.find({
+              collection: 'products',
+              where: { id: { equals: cbProductId } },
+              limit: 1,
+              depth: 1,
+            })
+            if (cbDocs.length === 0) {
+              await sendTelegramMessage(cbChatId, '❌ Ürün bulunamadı')
+              return
+            }
+            const cbProduct = cbDocs[0] as Record<string, unknown>
+
+            // Extract reference image URL — depth:1 first, direct fetch as fallback
+            const cbImages = cbProduct.images as
+              | Array<{ image: { url?: string; mimeType?: string } | number }>
+              | undefined
+            const cbImageItem = cbImages?.[0]?.image
+            let cbRefUrl: string | undefined
+            let cbRefMime: string | undefined
+
+            if (typeof cbImageItem === 'object' && cbImageItem?.url) {
+              cbRefUrl = cbImageItem.url
+              cbRefMime = cbImageItem.mimeType
+            } else if (typeof cbImageItem === 'number') {
+              try {
+                const cbMediaDoc = await cbPayload.findByID({
+                  collection: 'media',
+                  id: cbImageItem,
+                  depth: 0,
+                }) as Record<string, unknown>
+                cbRefUrl = cbMediaDoc.url as string | undefined
+                cbRefMime = (cbMediaDoc.mimeType as string | undefined) ?? 'image/jpeg'
+              } catch (e) {
+                console.warn('[telegram/callback] direct media fetch failed:', e)
+              }
+            }
+
+            const modeLabelMap: Record<string, string> = {
+              hizli: '⚡ Hızlı', dengeli: '⚖️ Dengeli', premium: '💎 Premium', karma: '🌈 Karma',
+            }
+            const modeEmojiMap: Record<string, string> = {
+              hizli: '⚡', dengeli: '⚖️', premium: '💎', karma: '🌈',
+            }
+
+            // Create job — store referenceImageUrl only if we got it
+            // (avoids crash if DB migration hasn't added the column yet)
+            const jobData: Record<string, unknown> = {
+              jobTitle: `${cbProduct.title} — ${modeLabelMap[cbMode]}`,
+              product: cbProductId,
+              mode: cbMode,
+              status: 'queued',
+              telegramChatId: String(cbChatId),
+              requestedByUserId: String(callbackQuery.from?.id ?? ''),
+            }
+            if (cbRefUrl) {
+              jobData.referenceImageUrl = cbRefUrl
+              jobData.referenceImageMime = cbRefMime ?? 'image/jpeg'
+            }
+
+            const cbJobDoc = await cbPayload.create({
+              collection: 'image-generation-jobs',
+              data: jobData as any,
+            })
+
+            await cbPayload.jobs.queue({
+              task: 'image-gen',
+              input: { jobId: String(cbJobDoc.id) },
+              overrideAccess: true,
+            })
+
+            await sendTelegramMessage(
+              cbChatId,
+              `${modeEmojiMap[cbMode]} <b>Görsel üretimi başlatıldı!</b>\n\n` +
+              `📦 Ürün: <b>${cbProduct.title}</b>\n` +
+              `🔧 Mod: ${modeLabelMap[cbMode]}\n` +
+              `🖼️ 5 farklı konsept görsel üretilecek\n\n` +
+              `<i>Tamamlanınca bildirim gelecek.</i>`,
+            )
+
             await cbPayload.jobs.run({ limit: 1, overrideAccess: true })
           } catch (err) {
-            console.error('[telegram/webhook] callback_query jobs.run failed:', err)
+            console.error('[telegram/webhook] callback_query image-gen failed:', err)
+            await sendTelegramMessage(
+              cbChatId,
+              `❌ Görsel üretimi başlatılamadı: ${err instanceof Error ? err.message : 'Bilinmeyen hata'}`,
+            )
           }
         })
       }

@@ -401,14 +401,15 @@ export const imageGenTask: TaskConfig<{
       }
     }
 
-    // ── Build slot icons string for summaries ────────────────────────────────
-    const slotIcons = (slotLogsSummary as Array<{ success?: boolean; colorCheckPass?: boolean }>)
+    // ── Build per-slot icon array (ARRAY not string — avoids emoji indexing bugs) ─
+    const slotIconArr: string[] = (slotLogsSummary as Array<{ success?: boolean; colorCheckPass?: boolean }>)
       .map((s) => {
-        if (!s.success) return '❌'
+        if (s.success === false) return '❌'
         if (s.colorCheckPass === false) return '⚠️'
         return '✅'
       })
-      .join('')
+    // Joined string for approval keyboard summary only
+    const slotIconsJoined = slotIconArr.join('')
 
     // ── Step 8: Update job to 'preview' (images saved, awaiting TG approval) ─
     await payload.update({
@@ -431,30 +432,43 @@ export const imageGenTask: TaskConfig<{
       },
     })
 
-    // ── Step 9: Send preview images to Telegram ──────────────────────────────
+    // ── Step 9: Send preview images to Telegram via direct buffer upload ─────
+    // Sends each generated JPEG buffer directly as multipart/form-data.
+    // This bypasses URL accessibility concerns entirely — the buffer is in
+    // memory, always available, always the correct bytes.
     if (telegramChatId) {
-      // Send each generated image as a separate Telegram photo
-      for (let i = 0; i < mediaUrls.length; i++) {
-        const url = mediaUrls[i]
-        if (!url) continue
+      console.log(
+        `[imageGenTask v10] step9 — sending ${generatedBuffers.length} photos to chatId=${telegramChatId}` +
+        ` mediaIds=${mediaIds.join(',')} bufSizes=${generatedBuffers.map((b) => b?.length ?? 'null').join(',')}`,
+      )
+
+      for (let i = 0; i < generatedBuffers.length; i++) {
+        const buf = generatedBuffers[i]
+        if (!buf || buf.length === 0) {
+          console.warn(`[imageGenTask v10] step9 — skipping slot ${i + 1}: buffer missing or empty`)
+          continue
+        }
         const slotLabel = slotLabels[i] || `Görsel ${i + 1}`
-        const slotIcon = slotIcons[i] || '✅'
-        await sendTelegramPhoto(
-          telegramChatId,
-          url,
-          `${slotIcon} <b>${slotLabel}</b>`,
-        )
+        const slotIcon = slotIconArr[i] || '✅'
+        const filename = `${slotNames[i] || `slot-${i}`}.jpg`
+        const caption = `${slotIcon} <b>${slotLabel}</b>`
+
+        console.log(`[imageGenTask v10] step9 — sendPhoto slot ${i + 1} buf=${buf.length}b file=${filename}`)
+        await sendTelegramPhotoBuffer(telegramChatId, buf, caption, filename)
       }
 
-      // ── Step 10: Send approval keyboard ────────────────────────────────────
+      // ── Step 10: Send approval keyboard ──────────────────────────────────
+      console.log(`[imageGenTask v10] step10 — sending approval keyboard jobId=${jobId}`)
       await sendApprovalKeyboard(
         telegramChatId,
         jobId,
         mediaIds.length,
         productTitle,
-        slotIcons,
+        slotIconsJoined,
         identityLockMeta.mainColor as string | undefined,
       )
+    } else {
+      console.warn(`[imageGenTask v10] step9 — no telegramChatId on job ${jobId}, skipping preview send`)
     }
 
     console.log(`[imageGenTask v10] done — jobId=${jobId} product=${productId} images=${mediaIds.length} status=preview`)
@@ -506,25 +520,46 @@ async function sendTelegramNotification(chatId: string, text: string): Promise<v
 }
 
 /**
- * Send a single image to Telegram as a photo message.
- * photoUrl must be a publicly accessible HTTPS URL (Vercel Blob URL).
+ * Send a single image to Telegram via multipart/form-data buffer upload.
+ *
+ * Uses the raw JPEG buffer directly — bypasses URL accessibility issues.
+ * Telegram receives the bytes directly without needing to fetch a URL.
+ * Checks and logs the Telegram API response (both success and failure).
  */
-async function sendTelegramPhoto(chatId: string, photoUrl: string, caption: string): Promise<void> {
+async function sendTelegramPhotoBuffer(
+  chatId: string,
+  buf: Buffer,
+  caption: string,
+  filename: string,
+): Promise<void> {
   const token = process.env.TELEGRAM_BOT_TOKEN
-  if (!token) return
+  if (!token) {
+    console.warn('[imageGenTask] sendTelegramPhotoBuffer: TELEGRAM_BOT_TOKEN not set')
+    return
+  }
   try {
-    await fetch(`https://api.telegram.org/bot${token}/sendPhoto`, {
+    const form = new FormData()
+    form.append('chat_id', chatId)
+    form.append('caption', caption)
+    form.append('parse_mode', 'HTML')
+    form.append('photo', new Blob([new Uint8Array(buf)], { type: 'image/jpeg' }), filename)
+
+    const res = await fetch(`https://api.telegram.org/bot${token}/sendPhoto`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        chat_id: chatId,
-        photo: photoUrl,
-        caption,
-        parse_mode: 'HTML',
-      }),
+      body: form,
     })
+    const data = await res.json() as { ok: boolean; result?: { message_id?: number }; description?: string }
+
+    if (data.ok) {
+      console.log(`[imageGenTask] sendTelegramPhotoBuffer ok — msg_id=${data.result?.message_id} file=${filename}`)
+    } else {
+      console.error(
+        `[imageGenTask] sendTelegramPhotoBuffer FAILED — file=${filename} chat=${chatId}` +
+        ` tg_error="${data.description}" full=${JSON.stringify(data)}`,
+      )
+    }
   } catch (err) {
-    console.error(`[imageGenTask] sendTelegramPhoto failed (${photoUrl}):`, err)
+    console.error(`[imageGenTask] sendTelegramPhotoBuffer exception (${filename}):`, err)
   }
 }
 
@@ -568,7 +603,7 @@ async function sendApprovalKeyboard(
     `İptal için <b>❌ Reddet</b> butonuna basın.`
 
   try {
-    await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+    const res = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -588,7 +623,16 @@ async function sendApprovalKeyboard(
         },
       }),
     })
+    const data = await res.json() as { ok: boolean; result?: { message_id?: number }; description?: string }
+    if (data.ok) {
+      console.log(`[imageGenTask] sendApprovalKeyboard ok — msg_id=${data.result?.message_id} job=${jobId}`)
+    } else {
+      console.error(
+        `[imageGenTask] sendApprovalKeyboard FAILED — job=${jobId} chat=${chatId}` +
+        ` tg_error="${data.description}" full=${JSON.stringify(data)}`,
+      )
+    }
   } catch (err) {
-    console.error('[imageGenTask] sendApprovalKeyboard failed:', err)
+    console.error('[imageGenTask] sendApprovalKeyboard exception:', err)
   }
 }

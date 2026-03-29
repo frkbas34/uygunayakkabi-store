@@ -1,26 +1,18 @@
 /**
- * imageProviders — Step 24 / Step 25
+ * imageProviders — Step 25 v9
  *
- * Provider adapter layer for AI image generation.
+ * STRICT OPENAI-ONLY product-preserving image generation.
  *
- * ─── PRIMARY PATH (Step 25 — OpenAI-first, product-preserving) ─────────────
- * generateByEditing()
- *   Step A: validateProductImage()  — reject non-shoe / invalid inputs
- *   Step B: extractIdentityLock()   — build structured identity text block
- *   Step C: 5 slot edits via gpt-image-1 /v1/images/edits (OpenAI only)
- *   Step D: per-slot slotLogs returned for admin inspection
+ * ALL modes (#gorsel, #hizli, #dengeli, #premium) route to the SAME pipeline:
+ *   Step A: validateProductImage()   — Gemini Vision: reject non-shoe inputs
+ *   Step B: extractIdentityLock()    — Gemini Vision: structured 10-field identity
+ *   Step C: generateByEditing()      — OpenAI gpt-image-1 /v1/images/edits × 5 slots
+ *   Step D: checkColorMatch()        — Gemini Vision: per-slot color fidelity check
  *
- * Gemini is used ONLY for Vision analysis (validation + identity extraction).
- * Gemini is NOT used as an image generator in the primary path.
- * If Pipeline A (editing) fails → error is returned; no silent Gemini fallback.
- *
- * ─── FALLBACK PATH (no reference image) ────────────────────────────────────
- * Text-to-image generation only when no reference photo exists:
- *   - #hizli   → Gemini Flash
- *   - #dengeli → gpt-image-1 generations
- *   - #premium → Gemini Pro / Imagen 4 Ultra
- *   - #karma   → hybrid across all three
- * Known limitation: text-to-image cannot guarantee exact product reproduction.
+ * Gemini is used ONLY for analysis (validation, identity extraction, color checking).
+ * Gemini NEVER generates final product images.
+ * If editing fails → hard fail. No text-to-image fallback. No Gemini generation.
+ * If color drifts (black→brown) → slot marked REJECTED, retry once with reinforced prompt.
  */
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -37,12 +29,14 @@ export type ProviderResult = {
 
 /** Per-slot execution log — stored in ImageGenerationJob for admin debugging */
 export type SlotLog = {
-  slot: string           // e.g. 'commerce_front'
-  label: string          // e.g. 'Ürün — Ön Görünüm (Stüdyo Hero)'
-  provider: string       // 'gpt-image-edit'
-  attempts: number       // 1 = first try succeeded, 2 = needed retry
+  slot: string
+  label: string
+  provider: string
+  attempts: number        // 1 = first try, 2 = retried
   success: boolean
   outputSizeBytes?: number
+  colorCheckPass?: boolean
+  detectedColor?: string
   rejectionReason?: string
 }
 
@@ -50,21 +44,17 @@ export type SlotLog = {
 export type ValidationResult = {
   valid: boolean
   confidence: 'high' | 'medium' | 'low'
-  /** Detected footwear class, e.g. 'sneaker', 'oxford', 'boot' */
   productClass?: string
-  /** Human-readable reason if not valid, e.g. 'selfie', 'furniture', 'blurry' */
   rejectionReason?: string
 }
 
 /**
  * Structured product identity lock (Step B).
- * promptBlock is injected verbatim into every slot prompt.
- * The structured fields are stored as job metadata.
+ * promptBlock is injected into every slot prompt.
+ * Structured fields stored as job metadata + used for color checking.
  */
 export type IdentityLock = {
-  /** Full formatted text block for injection into slot prompts */
   promptBlock: string
-  // ── Structured fields (for metadata / logging) ──
   productClass: string
   mainColor: string
   accentColor?: string
@@ -74,13 +64,14 @@ export type IdentityLock = {
   heelProfile?: string
   closureType?: string
   distinctiveFeatures?: string
+  /** Camera angle detected in the reference photo, e.g. "45° front-left" */
+  referenceAngle?: string
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Internal helpers
 // ─────────────────────────────────────────────────────────────────────────────
 
-/** Sleep helper for retry back-off */
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms))
 }
@@ -90,14 +81,8 @@ function sleep(ms: number): Promise<void> {
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
- * Uses Gemini Vision to determine whether the image is a valid shoe/footwear
- * product photo. Called BEFORE any generation.
- *
- * Rejection examples: selfie, room interior, landscape, unrelated object,
- * severely blurred image, no visible shoe.
- *
- * On API failure, defaults to valid=true/confidence=low so legitimate requests
- * are not blocked by a transient Vision API error.
+ * Uses Gemini Vision to check if the image is a valid shoe/footwear product photo.
+ * On API failure: defaults to valid=true (don't block legitimate requests).
  */
 export async function validateProductImage(
   imageBuffer: Buffer,
@@ -113,10 +98,8 @@ export async function validateProductImage(
     `Required fields:\n` +
     `- "valid": true if main subject is a shoe/footwear, false otherwise\n` +
     `- "confidence": "high" if clearly footwear, "medium" if somewhat unclear, "low" if uncertain\n` +
-    `- "productClass": footwear type if valid (e.g. "sneaker", "oxford", "boot", "loafer", "sandal", "chelsea boot") — omit if not valid\n` +
-    `- "rejectionReason": brief reason if not valid (e.g. "selfie", "room interior", "landscape", "bag not footwear", "no shoe visible", "severely blurred") — omit if valid\n` +
-    `VALID examples: sneaker photo, leather oxford on white bg, ankle boot, dress shoe, running shoe closeup.\n` +
-    `INVALID examples: person selfie, furniture/room photo, landscape, handbag (not footwear), unrecognizable blur.`
+    `- "productClass": footwear type if valid (e.g. "sneaker", "oxford", "boot", "loafer")\n` +
+    `- "rejectionReason": brief reason if not valid (e.g. "selfie", "room interior", "no shoe visible")\n`
 
   try {
     const res = await fetch(
@@ -125,49 +108,32 @@ export async function validateProductImage(
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          contents: [{
-            parts: [
-              { inlineData: { mimeType: imageMime, data: imageBuffer.toString('base64') } },
-              { text: prompt },
-            ],
-          }],
+          contents: [{ parts: [
+            { inlineData: { mimeType: imageMime, data: imageBuffer.toString('base64') } },
+            { text: prompt },
+          ] }],
           generationConfig: { responseMimeType: 'application/json', maxOutputTokens: 200 },
         }),
       },
     )
 
     if (!res.ok) {
-      const errText = await res.text()
-      console.warn(`[validateProductImage] HTTP ${res.status}: ${errText.slice(0, 200)}`)
+      console.warn(`[validateProductImage] HTTP ${res.status}`)
       return { valid: true, confidence: 'low', rejectionReason: 'validation API unavailable' }
     }
 
     const data = await res.json()
     const text: string | undefined = data?.candidates?.[0]?.content?.parts?.[0]?.text
-    if (!text) {
-      console.warn('[validateProductImage] No text in response — defaulting to valid')
-      return { valid: true, confidence: 'low' }
-    }
+    if (!text) return { valid: true, confidence: 'low' }
 
-    const parsed = JSON.parse(text.trim()) as {
-      valid?: boolean
-      confidence?: string
-      productClass?: string
-      rejectionReason?: string
-    }
-
+    const parsed = JSON.parse(text.trim())
     const result: ValidationResult = {
       valid: parsed.valid ?? true,
-      confidence: (parsed.confidence as 'high' | 'medium' | 'low') ?? 'medium',
+      confidence: parsed.confidence ?? 'medium',
       productClass: parsed.productClass,
       rejectionReason: parsed.rejectionReason,
     }
-
-    console.log(
-      `[validateProductImage] valid=${result.valid} confidence=${result.confidence}` +
-      (result.productClass ? ` class=${result.productClass}` : '') +
-      (result.rejectionReason ? ` reason=${result.rejectionReason}` : ''),
-    )
+    console.log(`[validateProductImage] valid=${result.valid} confidence=${result.confidence} class=${result.productClass || '-'}`)
     return result
   } catch (err) {
     console.warn('[validateProductImage] error:', err instanceof Error ? err.message : err)
@@ -180,14 +146,9 @@ export async function validateProductImage(
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
- * Uses Gemini Vision to extract a structured product identity description from
- * the reference shoe photo. The resulting promptBlock is injected verbatim into
- * every slot prompt so gpt-image-1 cannot drift to a different product.
- *
- * The structured fields (productClass, mainColor, material, etc.) are stored
- * in the job record for admin inspection.
- *
- * Returns null if the Vision API fails; caller should use a minimal fallback.
+ * Uses Gemini Vision to extract a 10-field structured identity from the reference
+ * shoe photo, including the detected camera angle of the reference.
+ * Returns null on failure; caller should use a minimal fallback.
  */
 export async function extractIdentityLock(
   imageBuffer: Buffer,
@@ -197,20 +158,19 @@ export async function extractIdentityLock(
   const visionModel = 'gemini-2.5-flash'
 
   const prompt =
-    `You are a product photography specialist. ` +
-    `Analyze this shoe photo and extract a precise identity description. ` +
-    `Respond with a JSON object ONLY — no explanation, no markdown, no code fences. ` +
-    `Required fields:\n` +
-    `- "productClass": specific footwear type (e.g. "low-top lace-up sneaker", "wingtip brogue oxford", "chelsea boot", "running shoe")\n` +
-    `- "mainColor": primary color of the upper (e.g. "black", "tan brown", "all-white", "navy blue")\n` +
-    `- "accentColor": secondary/trim color if visually distinct (e.g. "white rubber sole", "red laces", "gold eyelets") — omit if none\n` +
-    `- "material": upper material texture (e.g. "smooth full-grain leather", "nubuck suede", "knit mesh", "canvas")\n` +
-    `- "toeShape": one of: "round", "pointed", "square", "almond", "round-almond"\n` +
-    `- "soleProfile": (e.g. "flat thin rubber", "chunky lug sole", "stacked leather", "thick EVA foam", "cupsole")\n` +
-    `- "heelProfile": (e.g. "flat", "block heel 3cm", "stacked leather 2cm", "wedge")\n` +
-    `- "closureType": one of: "lace-up", "slip-on", "buckle-strap", "side-zip", "velcro", "chelsea elastic panel"\n` +
-    `- "distinctiveFeatures": comma-separated key details (e.g. "brogue perforations on toe cap and quarters", "contrast white welt stitching", "metallic D-ring hardware", "side brand logo embossed")\n` +
-    `Be precise — these values are used to force AI generation to reproduce the EXACT same shoe.`
+    `You are a product photography expert. Analyze this shoe photo and extract a precise identity description. ` +
+    `Respond with a JSON object ONLY — no explanation, no markdown, no code fences. Required fields:\n` +
+    `- "productClass": specific type (e.g. "low-top lace-up sneaker", "wingtip brogue oxford", "chelsea boot")\n` +
+    `- "mainColor": primary color of the upper — be EXACT (e.g. "black", "tan brown", "all-white", "navy blue")\n` +
+    `- "accentColor": secondary color if distinct (e.g. "white sole", "red laces") — omit if none\n` +
+    `- "material": upper material (e.g. "smooth full-grain leather", "nubuck suede", "knit mesh")\n` +
+    `- "toeShape": one of "round", "pointed", "square", "almond"\n` +
+    `- "soleProfile": (e.g. "flat thin rubber", "chunky lug sole", "stacked leather heel")\n` +
+    `- "heelProfile": (e.g. "flat", "block heel 3cm", "stacked 2cm")\n` +
+    `- "closureType": (e.g. "lace-up", "slip-on", "side-zip", "chelsea elastic")\n` +
+    `- "distinctiveFeatures": comma-separated details (e.g. "brogue perforations, contrast stitching")\n` +
+    `- "referenceAngle": the camera angle in THIS photo (e.g. "45° front-left", "straight front", "overhead", "side profile")\n` +
+    `Be extremely precise on color — black vs brown vs tan matters enormously.`
 
   try {
     const res = await fetch(
@@ -219,78 +179,62 @@ export async function extractIdentityLock(
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          contents: [{
-            parts: [
-              { inlineData: { mimeType: imageMime, data: imageBuffer.toString('base64') } },
-              { text: prompt },
-            ],
-          }],
+          contents: [{ parts: [
+            { inlineData: { mimeType: imageMime, data: imageBuffer.toString('base64') } },
+            { text: prompt },
+          ] }],
           generationConfig: { responseMimeType: 'application/json', maxOutputTokens: 500 },
         }),
       },
     )
 
     if (!res.ok) {
-      const errText = await res.text()
-      console.warn(`[extractIdentityLock] HTTP ${res.status}: ${errText.slice(0, 200)}`)
+      console.warn(`[extractIdentityLock] HTTP ${res.status}`)
       return null
     }
 
     const data = await res.json()
     const text: string | undefined = data?.candidates?.[0]?.content?.parts?.[0]?.text
-    if (!text) {
-      console.warn('[extractIdentityLock] No text in response')
-      return null
-    }
+    if (!text) return null
 
-    const p = JSON.parse(text.trim()) as {
-      productClass?: string
-      mainColor?: string
-      accentColor?: string
-      material?: string
-      toeShape?: string
-      soleProfile?: string
-      heelProfile?: string
-      closureType?: string
-      distinctiveFeatures?: string
-    }
-
+    const p = JSON.parse(text.trim())
     const productClass = p.productClass || 'shoe'
     const mainColor    = p.mainColor    || 'as shown'
     const material     = p.material     || 'as shown'
+    const refAngle     = p.referenceAngle || 'unknown angle'
 
-    // Build the structured text block injected into every slot prompt
+    // Build structured prompt block with aggressive color locking
     const promptBlock = [
-      `╔══ PRODUCT IDENTITY LOCK — MUST NOT BE ALTERED ══╗`,
-      `PRODUCT CLASS  : ${productClass}`,
-      `PRIMARY COLOR  : ${mainColor}`,
-      p.accentColor ? `ACCENT COLOR   : ${p.accentColor}` : null,
-      `MATERIAL       : ${material}`,
-      p.toeShape ? `TOE SHAPE      : ${p.toeShape}` : null,
-      p.soleProfile ? `SOLE PROFILE   : ${p.soleProfile}` : null,
-      p.heelProfile ? `HEEL PROFILE   : ${p.heelProfile}` : null,
-      p.closureType ? `CLOSURE TYPE   : ${p.closureType}` : null,
-      p.distinctiveFeatures ? `DETAILS        : ${p.distinctiveFeatures}` : null,
-      `╠══ CRITICAL CONSTRAINTS — YOU MUST NEVER ════════╣`,
-      `• Change product type or class (must remain: ${productClass})`,
-      `• Change color (${mainColor} must stay ${mainColor})`,
+      `═══ PRODUCT IDENTITY LOCK ═══`,
+      `Product  : ${productClass}`,
+      `Color    : ${mainColor}` + (p.accentColor ? ` (accent: ${p.accentColor})` : ''),
+      `Material : ${material}`,
+      p.toeShape ?      `Toe      : ${p.toeShape}` : null,
+      p.soleProfile ?   `Sole     : ${p.soleProfile}` : null,
+      p.heelProfile ?   `Heel     : ${p.heelProfile}` : null,
+      p.closureType ?   `Closure  : ${p.closureType}` : null,
+      p.distinctiveFeatures ? `Details  : ${p.distinctiveFeatures}` : null,
+      ``,
+      `COLOR LOCK: This shoe is ${mainColor.toUpperCase()}. Output MUST be ${mainColor.toUpperCase()}.`,
+      `If you generate a shoe in a different color, the output is WRONG and will be rejected.`,
+      ``,
+      `NEVER DO ANY OF THESE:`,
+      `• Change the color (${mainColor} must stay ${mainColor} — not darker, not lighter, not a different hue)`,
       `• Change material from ${material}`,
-      `• Add design features not present in the reference photo`,
-      `• Remove design features visible in the reference photo`,
-      `• Replace with a visually similar but different shoe`,
+      `• Change product type from ${productClass}`,
+      `• Add or remove design features`,
+      `• Replace with a similar but different shoe`,
       `• Invent logos, patterns, or decorative elements`,
-      `• Change sole shape, thickness, or color`,
-      p.closureType ? `• Change or remove the ${p.closureType} closure system` : null,
-      p.distinctiveFeatures ? `• Omit these visible details: ${p.distinctiveFeatures}` : null,
-      `╚═════════════════════════════════════════════════╝`,
+      `• Change sole shape or thickness`,
+      p.closureType ? `• Change the ${p.closureType} closure` : null,
+      ``,
+      `REFERENCE ANGLE: The reference photo was taken from ${refAngle}.`,
+      `DO NOT simply reproduce this same angle. Generate the specific angle requested below.`,
+      `═══════════════════════════`,
       ``,
     ].filter(Boolean).join('\n')
 
-    console.log(
-      `[extractIdentityLock] ✓ ${productClass} | ${mainColor} | ${material}` +
-      (p.closureType ? ` | ${p.closureType}` : '') +
-      (p.distinctiveFeatures ? ` | ${p.distinctiveFeatures.slice(0, 60)}` : ''),
-    )
+    console.log(`[extractIdentityLock] ✓ ${productClass} | ${mainColor} | ${material} | ref=${refAngle}`)
 
     return {
       promptBlock,
@@ -303,6 +247,7 @@ export async function extractIdentityLock(
       heelProfile: p.heelProfile,
       closureType: p.closureType,
       distinctiveFeatures: p.distinctiveFeatures,
+      referenceAngle: refAngle,
     }
   } catch (err) {
     console.warn('[extractIdentityLock] error:', err instanceof Error ? err.message : err)
@@ -311,167 +256,73 @@ export async function extractIdentityLock(
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Gemini Flash (text-to-image, Pipeline B fallback)
+// Step D — Per-Slot Color Check
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
- * Gemini Flash (generateContent) — text-to-image generation via Gemini API.
- * Model: gemini-2.5-flash-image (overridable via GEMINI_FLASH_MODEL)
- * FALLBACK PATH ONLY — not used when a reference image is available.
+ * Quick Gemini Vision check: does the generated shoe match the expected color?
+ * Returns { match, detectedColor }.
+ * On failure: defaults to match=true (don't reject on transient API error).
  */
-async function callGeminiFlash(
-  prompt: string,
+async function checkColorMatch(
+  generatedImage: Buffer,
+  expectedColor: string,
   apiKey: string,
-  referenceImage?: Buffer,
-  referenceImageMime?: string,
-): Promise<Buffer | null> {
-  const model = process.env.GEMINI_FLASH_MODEL || 'gemini-2.5-flash-image'
+): Promise<{ match: boolean; detectedColor: string }> {
+  const visionModel = 'gemini-2.5-flash'
 
-  const requestParts: Array<Record<string, unknown>> = []
-  if (referenceImage) {
-    requestParts.push({
-      inlineData: {
-        mimeType: referenceImageMime || 'image/jpeg',
-        data: referenceImage.toString('base64'),
-      },
-    })
-  }
-  requestParts.push({ text: prompt })
+  const prompt =
+    `What is the PRIMARY color of the shoe in this image? ` +
+    `Reply JSON only: {"detectedColor": "...", "match": true/false}\n` +
+    `Expected color: ${expectedColor}\n` +
+    `"match" = true if the shoe color is clearly "${expectedColor}" or very close. ` +
+    `"match" = false if the shoe is a noticeably different color (e.g. expected "black" but shoe is brown/tan/grey).`
 
   try {
     const res = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`,
+      `https://generativelanguage.googleapis.com/v1beta/models/${visionModel}:generateContent?key=${apiKey}`,
       {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          contents: [{ parts: requestParts }],
-          generationConfig: { responseModalities: ['IMAGE', 'TEXT'] },
+          contents: [{ parts: [
+            { inlineData: { mimeType: 'image/jpeg', data: generatedImage.toString('base64') } },
+            { text: prompt },
+          ] }],
+          generationConfig: { responseMimeType: 'application/json', maxOutputTokens: 100 },
         }),
       },
     )
 
     if (!res.ok) {
-      const errText = await res.text()
-      console.error(`[GeminiFlash] HTTP ${res.status}: ${errText.slice(0, 200)}`)
-      return null
+      console.warn(`[checkColorMatch] HTTP ${res.status}`)
+      return { match: true, detectedColor: 'unknown' }
     }
 
     const data = await res.json()
-    const parts: Array<Record<string, unknown>> =
-      data?.candidates?.[0]?.content?.parts ?? []
+    const text: string | undefined = data?.candidates?.[0]?.content?.parts?.[0]?.text
+    if (!text) return { match: true, detectedColor: 'unknown' }
 
-    for (const part of parts) {
-      const inline = part?.inlineData as Record<string, string> | undefined
-      if (inline?.data) return Buffer.from(inline.data, 'base64')
+    const parsed = JSON.parse(text.trim())
+    const result = {
+      match: parsed.match ?? true,
+      detectedColor: parsed.detectedColor || 'unknown',
     }
-
-    console.error('[GeminiFlash] No inlineData in response:', JSON.stringify(data).slice(0, 300))
-    return null
+    console.log(`[checkColorMatch] expected=${expectedColor} detected=${result.detectedColor} match=${result.match}`)
+    return result
   } catch (err) {
-    console.error('[GeminiFlash] fetch error:', err instanceof Error ? err.message : err)
-    return null
+    console.warn('[checkColorMatch] error:', err instanceof Error ? err.message : err)
+    return { match: true, detectedColor: 'unknown' }
   }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Gemini Pro / Imagen 4 Ultra (text-to-image, Pipeline B fallback)
-// ─────────────────────────────────────────────────────────────────────────────
-
-/**
- * Gemini Pro / Imagen 4 Ultra — highest quality text-to-image.
- * Model: imagen-4.0-ultra-generate-001 (overridable via GEMINI_PRO_MODEL)
- * FALLBACK PATH ONLY — not used when a reference image is available.
- */
-async function callGeminiPro(prompt: string, apiKey: string): Promise<Buffer | null> {
-  const model = process.env.GEMINI_PRO_MODEL || 'imagen-4.0-ultra-generate-001'
-
-  try {
-    const res = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/${model}:predict?key=${apiKey}`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          instances: [{ prompt }],
-          parameters: { sampleCount: 1, outputMimeType: 'image/jpeg', aspectRatio: '1:1' },
-        }),
-      },
-    )
-
-    if (!res.ok) {
-      const errText = await res.text()
-      console.error(`[GeminiPro/Imagen] HTTP ${res.status}: ${errText.slice(0, 200)}`)
-      return null
-    }
-
-    const data = await res.json()
-    const b64: string | undefined = data?.predictions?.[0]?.bytesBase64Encoded
-    if (!b64) {
-      console.error('[GeminiPro/Imagen] No bytesBase64Encoded:', JSON.stringify(data).slice(0, 300))
-      return null
-    }
-    return Buffer.from(b64, 'base64')
-  } catch (err) {
-    console.error('[GeminiPro/Imagen] fetch error:', err instanceof Error ? err.message : err)
-    return null
-  }
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// OpenAI gpt-image-1 text-to-image (Pipeline B fallback)
-// ─────────────────────────────────────────────────────────────────────────────
-
-/**
- * OpenAI gpt-image-1 — text-to-image generation (Pipeline B fallback).
- * FALLBACK PATH ONLY — not used in Pipeline A (editing).
- */
-async function callGPTImage(prompt: string, apiKey: string): Promise<Buffer | null> {
-  const model = process.env.OPENAI_IMAGE_MODEL || 'gpt-image-1'
-
-  try {
-    const res = await fetch('https://api.openai.com/v1/images/generations', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
-      body: JSON.stringify({ model, prompt, n: 1, size: '1024x1024', quality: 'low' }),
-    })
-
-    if (!res.ok) {
-      const errText = await res.text()
-      console.error(`[GPTImage] HTTP ${res.status}: ${errText.slice(0, 200)}`)
-      return null
-    }
-
-    const data = await res.json()
-    const b64: string | undefined = data?.data?.[0]?.b64_json
-    if (b64) return Buffer.from(b64, 'base64')
-
-    const url: string | undefined = data?.data?.[0]?.url
-    if (url) {
-      const imgRes = await fetch(url)
-      if (!imgRes.ok) return null
-      return Buffer.from(await imgRes.arrayBuffer())
-    }
-
-    console.error('[GPTImage] No b64_json or url in response:', JSON.stringify(data).slice(0, 300))
-    return null
-  } catch (err) {
-    console.error('[GPTImage] fetch error:', err instanceof Error ? err.message : err)
-    return null
-  }
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// OpenAI gpt-image-1 Image Edit (PRIMARY PATH — Pipeline A)
+// OpenAI gpt-image-1 Image Edit (the ONLY image generator)
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
  * Call OpenAI /v1/images/edits with gpt-image-1.
- * Sends the reference photo + a full slot prompt (identity lock + scene instructions).
- * quality: 'medium' for better detail fidelity.
- *
- * Technical note: gpt-image-1 requires "image[]" field name (array syntax).
- * Using "image" (singular) returns 400 "Value must be 'dall-e-2'".
+ * quality: 'medium'. Requires "image[]" field name.
  */
 async function callGPTImageEdit(
   pngBuffer: Buffer,
@@ -481,10 +332,7 @@ async function callGPTImageEdit(
   const model = process.env.OPENAI_IMAGE_MODEL || 'gpt-image-1'
 
   try {
-    console.log(
-      `[GPTImageEdit] POST /v1/images/edits — model=${model} ` +
-      `imageSize=${pngBuffer.length}b promptLen=${prompt.length}`,
-    )
+    console.log(`[GPTImageEdit] POST /v1/images/edits — promptLen=${prompt.length}`)
 
     const formData = new FormData()
     formData.append('model', model)
@@ -492,7 +340,6 @@ async function callGPTImageEdit(
     formData.append('n', '1')
     formData.append('size', '1024x1024')
     formData.append('quality', 'medium')
-    // gpt-image-1 requires "image[]" (array syntax)
     formData.append('image[]', new Blob([new Uint8Array(pngBuffer)], { type: 'image/png' }), 'product.png')
 
     const res = await fetch('https://api.openai.com/v1/images/edits', {
@@ -512,297 +359,146 @@ async function callGPTImageEdit(
 
     if (img?.b64_json) {
       const buf = Buffer.from(img.b64_json, 'base64')
-      console.log(`[GPTImageEdit] ✓ b64 — ${buf.length}b`)
+      console.log(`[GPTImageEdit] ✓ ${buf.length}b`)
       return buf
     }
     if (img?.url) {
       const imgRes = await fetch(img.url)
       if (imgRes.ok) {
         const buf = Buffer.from(await imgRes.arrayBuffer())
-        console.log(`[GPTImageEdit] ✓ url — ${buf.length}b`)
+        console.log(`[GPTImageEdit] ✓ ${buf.length}b`)
         return buf
       }
     }
 
-    console.error('[GPTImageEdit] No image in response:', JSON.stringify(data).slice(0, 500))
+    console.error('[GPTImageEdit] No image in response')
     return null
   } catch (err) {
-    console.error('[GPTImageEdit] fetch error:', err instanceof Error ? err.message : err)
+    console.error('[GPTImageEdit] error:', err instanceof Error ? err.message : err)
     return null
   }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Pipeline B — public provider functions (text-to-image, fallback only)
-// ─────────────────────────────────────────────────────────────────────────────
-
-/** Generate with Gemini Flash. FALLBACK PATH — only when no reference image. */
-export async function generateWithGeminiFlash(
-  prompts: string[],
-  referenceImage?: Buffer,
-  referenceImageMime?: string,
-): Promise<ProviderResult> {
-  const apiKey = process.env.GEMINI_API_KEY
-  const result: ProviderResult = {
-    provider: 'gemini-flash',
-    promptCount: prompts.length,
-    successCount: 0,
-    buffers: [],
-    errors: [],
-  }
-
-  if (!apiKey) {
-    result.errors.push('GEMINI_API_KEY not set — Gemini Flash skipped')
-    console.warn(`[imageProviders] ${result.errors[0]}`)
-    return result
-  }
-
-  for (let i = 0; i < prompts.length; i++) {
-    const buf = await callGeminiFlash(prompts[i], apiKey, referenceImage, referenceImageMime)
-    if (buf) {
-      result.buffers.push(buf)
-      result.successCount++
-    } else {
-      result.errors.push(`Prompt ${i + 1}: generation failed`)
-    }
-    if (i < prompts.length - 1) await sleep(500)
-  }
-
-  console.log(`[GeminiFlash] ${result.successCount}/${result.promptCount} images`)
-  return result
-}
-
-/** Generate with Gemini Pro / Imagen 4 Ultra. FALLBACK PATH — only when no reference image. */
-export async function generateWithGeminiPro(prompts: string[]): Promise<ProviderResult> {
-  const apiKey = process.env.GEMINI_API_KEY
-  const result: ProviderResult = {
-    provider: 'gemini-pro',
-    promptCount: prompts.length,
-    successCount: 0,
-    buffers: [],
-    errors: [],
-  }
-
-  if (!apiKey) {
-    result.errors.push('GEMINI_API_KEY not set — Gemini Pro skipped')
-    console.warn(`[imageProviders] ${result.errors[0]}`)
-    return result
-  }
-
-  for (let i = 0; i < prompts.length; i++) {
-    const buf = await callGeminiPro(prompts[i], apiKey)
-    if (buf) {
-      result.buffers.push(buf)
-      result.successCount++
-    } else {
-      result.errors.push(`Prompt ${i + 1}: generation failed`)
-    }
-    if (i < prompts.length - 1) await sleep(500)
-  }
-
-  console.log(`[GeminiPro] ${result.successCount}/${result.promptCount} images`)
-  return result
-}
-
-/** Generate with OpenAI gpt-image-1 (text-to-image). FALLBACK PATH — only when no reference image. */
-export async function generateWithGPTImage(prompts: string[]): Promise<ProviderResult> {
-  const apiKey = process.env.OPENAI_API_KEY
-  const result: ProviderResult = {
-    provider: 'gpt-image',
-    promptCount: prompts.length,
-    successCount: 0,
-    buffers: [],
-    errors: [],
-  }
-
-  if (!apiKey) {
-    result.errors.push('OPENAI_API_KEY not set — GPT Image skipped')
-    console.warn(`[imageProviders] ${result.errors[0]}`)
-    return result
-  }
-
-  for (let i = 0; i < prompts.length; i++) {
-    const buf = await callGPTImage(prompts[i], apiKey)
-    if (buf) {
-      result.buffers.push(buf)
-      result.successCount++
-    } else {
-      result.errors.push(`Prompt ${i + 1}: generation failed`)
-    }
-    if (i < prompts.length - 1) await sleep(500)
-  }
-
-  console.log(`[GPTImage] ${result.successCount}/${result.promptCount} images`)
-  return result
-}
-
-/**
- * Hybrid generator for #karma mode. FALLBACK PATH — only when no reference image.
- * Distributes prompts: Gemini Flash [0,1] | GPT Image [2,3] | Gemini Pro [4]
- */
-export async function generateHybridSet(
-  prompts: string[],
-  referenceImage?: Buffer,
-  referenceImageMime?: string,
-): Promise<{ results: ProviderResult[]; buffers: Buffer[] }> {
-  const [flashResult, gptResult, proResult] = await Promise.all([
-    generateWithGeminiFlash(prompts.slice(0, 2), referenceImage, referenceImageMime),
-    generateWithGPTImage(prompts.slice(2, 4)),
-    generateWithGeminiPro(prompts.slice(4)),
-  ])
-
-  const mergedBuffers = [
-    ...flashResult.buffers,
-    ...gptResult.buffers,
-    ...proResult.buffers,
-  ]
-
-  console.log(
-    `[HybridSet] flash=${flashResult.successCount}/${flashResult.promptCount} ` +
-    `gpt=${gptResult.successCount}/${gptResult.promptCount} ` +
-    `pro=${proResult.successCount}/${proResult.promptCount} ` +
-    `total=${mergedBuffers.length}`,
-  )
-  return { results: [flashResult, gptResult, proResult], buffers: mergedBuffers }
-}
-
-/**
- * Route to the correct fallback provider(s) based on mode.
- * FALLBACK PATH ONLY — called when no reference image is available.
- */
-export async function generateByMode(
-  mode: 'hizli' | 'dengeli' | 'premium' | 'karma',
-  prompts: string[],
-  referenceImage?: Buffer,
-  referenceImageMime?: string,
-): Promise<{ results: ProviderResult[]; buffers: Buffer[] }> {
-  switch (mode) {
-    case 'dengeli': {
-      const r = await generateWithGPTImage(prompts)
-      if (r.buffers.length > 0) return { results: [r], buffers: r.buffers }
-      console.warn('[generateByMode] GPT Image failed, falling back to Gemini Flash for dengeli')
-      const fallback = await generateWithGeminiFlash(prompts, referenceImage, referenceImageMime)
-      return { results: [r, fallback], buffers: fallback.buffers }
-    }
-    case 'premium': {
-      const r = await generateWithGeminiPro(prompts)
-      return { results: [r], buffers: r.buffers }
-    }
-    case 'karma': {
-      return generateHybridSet(prompts, referenceImage, referenceImageMime)
-    }
-    case 'hizli':
-    default: {
-      const r = await generateWithGeminiFlash(prompts, referenceImage, referenceImageMime)
-      return { results: [r], buffers: r.buffers }
-    }
-  }
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Pipeline A — Step C: 5-Slot Editing Scenes (physically distinct)
+// 5-Slot Editing Scenes — v9 (aggressive physical separation + color lock)
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
- * Physically distinct slot definitions for gpt-image-1 editing.
- * Each slot specifies: camera position, camera height, framing, required visible parts,
- * background, lighting, style goal, and hard constraints (FORBIDDEN list).
+ * Each slot is defined by exact camera axis, height, framing, required visible parts,
+ * a FORBIDDEN list, and a slot-specific note about what distinguishes it from the others.
  *
- * These are combined with the identity lock block at generation time.
- * No two slots share the same camera angle or composition class.
+ * The "{COLOR}" placeholder is replaced at runtime with the identity lock's mainColor.
+ * The "{REF_ANGLE}" placeholder is replaced with the detected reference angle.
  */
 const EDITING_SCENES = [
   {
     name: 'commerce_front',
     label: 'Slot 1 — Ön Stüdyo Hero',
     sceneInstructions:
-      `── SLOT 1: FRONT STUDIO HERO ──\n` +
-      `CAMERA POSITION: Dead-straight front view. Lens axis exactly perpendicular to toe cap. Camera height aligned with lacing zone (mid-shoe).\n` +
-      `FRAMING: Shoe upright on sole, centered. Toe faces camera. Full shoe fills 70% of frame height. Top of collar and full sole bottom both visible.\n` +
-      `REQUIRED VISIBLE: Entire toe cap, full vamp, lace/closure system, complete front face of upper. Nothing of the side profile or heel counter.\n` +
-      `BACKGROUND: Pure seamless white (#ffffff). No texture, no gradient, no surface, no props.\n` +
-      `LIGHTING: Large overhead softbox. Bilateral fill panels. Uniform diffused studio light. Soft ground shadow beneath sole only.\n` +
-      `STYLE: Standard professional e-commerce hero. Clean, symmetric, centred. No artistic cropping.\n` +
-      `FORBIDDEN: Side view, 3/4 angle, tilted shoe, model wearing shoe, any background other than pure white.`,
+      `── SHOT: FRONT STUDIO HERO ──\n` +
+      `Create a new product photo of this EXACT {COLOR} shoe.\n` +
+      `CAMERA: Directly in front of the shoe, lens perpendicular to the toe cap, at mid-shoe height (lacing zone).\n` +
+      `POSITION: Shoe upright on sole, centered, toe cap facing camera dead-on. Both sides equally visible (symmetric).\n` +
+      `FRAME: Full shoe, 70% of frame height. Top of collar and sole bottom both visible.\n` +
+      `MUST SEE: Toe cap front face, vamp, lace/closure system, collar — the entire FRONT face.\n` +
+      `MUST NOT SEE: Heel counter, side profile, sole edge.\n` +
+      `BACKGROUND: Pure white (#fff). No texture, no gradient, no surface.\n` +
+      `LIGHT: Overhead softbox + bilateral fill. Soft ground shadow only.\n` +
+      `THIS IS NOT: a side view, a 3/4 view, a lifestyle shot, a close-up.\n` +
+      `COLOR: The shoe is {COLOR}. Output MUST be {COLOR}. Other colors = REJECTED.\n` +
+      `DO NOT repeat the reference angle ({REF_ANGLE}). Generate a clean front hero.`,
   },
   {
     name: 'side_angle',
     label: 'Slot 2 — 90° Yan Profil',
     sceneInstructions:
-      `── SLOT 2: PURE LATERAL SIDE PROFILE ──\n` +
-      `CAMERA POSITION: Exactly 90-degree lateral view (medial or lateral side). Camera at sole level, slightly below the midline, looking directly at the side face of the shoe. NOT front-facing. NOT 45°.\n` +
-      `FRAMING: Shoe displayed horizontally — toe pointing LEFT, heel on RIGHT. Full arch curve visible. Entire sole edge from toe to heel in frame. Shoe fills 75% of frame width.\n` +
-      `REQUIRED VISIBLE: Complete sole profile, heel counter height, arch curve, collar line, throat line. ZERO toe-cap front face visible — if toe is facing the camera, this is WRONG.\n` +
-      `BACKGROUND: Soft warm cream or light neutral grey seamless studio backdrop with subtle gradient.\n` +
-      `LIGHTING: Key light from front at 45°, fill from opposite side. No harsh drop shadows. Subtle sole-edge highlight.\n` +
-      `STYLE: Technical silhouette shot — heel height, sole thickness, arch profile all clearly readable.\n` +
-      `FORBIDDEN: Any angle less than 80° lateral, front hero view, toe facing camera, 3/4 perspective.`,
+      `── SHOT: PURE LATERAL SIDE PROFILE ──\n` +
+      `Create a new product photo of this EXACT {COLOR} shoe.\n` +
+      `CAMERA: Exactly 90° to the side (medial or lateral), at sole level. Looking directly at the side face.\n` +
+      `POSITION: Shoe horizontal — toe pointing LEFT, heel on RIGHT.\n` +
+      `FRAME: Full shoe from toe tip to heel counter. Entire sole edge visible. Shoe fills 75% of width.\n` +
+      `MUST SEE: Complete sole profile (toe to heel), arch curve, heel counter height, collar line. The sole silhouette is the dominant visual.\n` +
+      `MUST NOT SEE: Toe cap front face (if you can see the front of the toe, the angle is WRONG).\n` +
+      `BACKGROUND: Soft cream seamless.\n` +
+      `LIGHT: Key from front-left 45°, fill from opposite. Subtle sole-edge highlight.\n` +
+      `THIS IS NOT: a front view, a 3/4 view, a top-down view.\n` +
+      `COLOR: The shoe is {COLOR}. Output MUST be {COLOR}. Other colors = REJECTED.\n` +
+      `DO NOT repeat the reference angle ({REF_ANGLE}). Generate a pure side profile.`,
   },
   {
     name: 'detail_closeup',
-    label: 'Slot 3 — Malzeme Makro Detay',
+    label: 'Slot 3 — Malzeme Makro',
     sceneInstructions:
-      `── SLOT 3: MATERIAL MACRO DETAIL ──\n` +
-      `CAMERA POSITION: 15–20 cm from the vamp/toe-cap surface. Slightly above, looking down at 20–30°. Macro/close-up focal length.\n` +
-      `FRAMING: Upper material fills 85–90% of frame. Very shallow depth of field — toe-cap/vamp area in sharp focus, heel and background dissolve into soft blur.\n` +
-      `REQUIRED VISIBLE: Surface grain, weave, or texture of the upper material. Stitching thread relief. Any perforation or embossing pattern. Edge finishing visible on at least one side. The material identity must be unmistakable.\n` +
-      `BACKGROUND: Completely blurred out-of-focus neutral bokeh. No identifiable background objects.\n` +
-      `LIGHTING: Single directional raking sidelight to reveal surface texture and stitching relief. Subtle specular highlight on the material surface.\n` +
-      `STYLE: Luxury product macro — same quality as high-end fashion editorial material shots.\n` +
-      `FORBIDDEN: Full shoe in frame, wide-angle shot, plain background without bokeh, no product context.`,
+      `── SHOT: MATERIAL MACRO CLOSE-UP ──\n` +
+      `Create a new close-up photo of this EXACT {COLOR} shoe's material.\n` +
+      `CAMERA: 15–20 cm from the vamp/toe-cap surface. Slightly above, 20–30° down. Macro focal length.\n` +
+      `FRAME: Upper material fills 85–90% of frame. Very shallow depth of field. Toe area sharp, heel blurred.\n` +
+      `MUST SEE: Surface grain/texture/weave of the upper, stitching thread relief, any perforation or embossing.\n` +
+      `MUST NOT SEE: The full shoe. If the entire shoe is visible, the framing is WRONG.\n` +
+      `BACKGROUND: Blurred neutral bokeh. No identifiable objects.\n` +
+      `LIGHT: Single raking sidelight to reveal texture relief. Subtle specular highlight.\n` +
+      `THIS IS NOT: a full-shoe shot, a side profile, an editorial placement.\n` +
+      `COLOR: The shoe is {COLOR}. Output MUST be {COLOR}. Other colors = REJECTED.`,
   },
   {
     name: 'tabletop_editorial',
-    label: 'Slot 4 — Editoryal Üstten Perspektif',
+    label: 'Slot 4 — Editoryal Üstten',
     sceneInstructions:
-      `── SLOT 4: OVERHEAD EDITORIAL ──\n` +
-      `CAMERA POSITION: Above and in front of the shoe. Looking DOWN at a 55–65° downward angle. Three-quarter overhead perspective — not directly top-down, not side-on.\n` +
-      `FRAMING: Full shoe resting upright on a flat surface, viewed from above-front. Shoe fills 60% of frame. The top face of the shoe (tongue, toe, lace/closure from above) is the primary subject.\n` +
-      `REQUIRED VISIBLE: Top face of upper, tongue, toe shape from above, lacing/closure system from above angle. This view reveals parts of the shoe that slots 1 and 2 cannot — it must look clearly different from both.\n` +
-      `SURFACE: White Carrara marble with subtle natural grey veining. Shoe rests flat and naturally on the marble. No props, no accessories.\n` +
-      `LIGHTING: Soft diffused natural window light from upper-left. Gentle directional shadow lower-right. Clean editorial feel.\n` +
-      `STYLE: Scandinavian minimal editorial — clean, considered, magazine-quality.\n` +
-      `FORBIDDEN: Front-facing angle (slot 1), pure lateral angle (slot 2), close-up macro (slot 3), no dark or busy backgrounds.`,
+      `── SHOT: OVERHEAD EDITORIAL ──\n` +
+      `Create a new editorial photo of this EXACT {COLOR} shoe from above.\n` +
+      `CAMERA: Above and in front, looking DOWN at 55–65°. Three-quarter overhead perspective.\n` +
+      `POSITION: Shoe resting upright on flat marble surface.\n` +
+      `FRAME: Full shoe visible from above-front. Top face dominant (tongue, lacing from above, toe from overhead). Shoe fills 60% of frame.\n` +
+      `MUST SEE: Tongue, lace pattern from above, toe shape from overhead, upper opening. This reveals parts invisible in front/side views.\n` +
+      `MUST NOT SEE: The front face of the toe (that's slot 1), the side profile (that's slot 2).\n` +
+      `SURFACE: White Carrara marble with subtle grey veining. No props.\n` +
+      `LIGHT: Diffused window light from upper-left. Gentle shadow lower-right.\n` +
+      `THIS IS NOT: a front hero, a side profile, a close-up macro.\n` +
+      `COLOR: The shoe is {COLOR}. Output MUST be {COLOR}. Other colors = REJECTED.\n` +
+      `DO NOT repeat the reference angle ({REF_ANGLE}). Generate an overhead editorial.`,
   },
   {
     name: 'worn_lifestyle',
-    label: 'Slot 5 — Lifestyle Giyilmiş Bağlam',
+    label: 'Slot 5 — Lifestyle Giyilmiş',
     sceneInstructions:
-      `── SLOT 5: LIFESTYLE WORN CONTEXT ──\n` +
-      `CAMERA POSITION: Low ground-level angle. Camera 10–15 cm above the floor, positioned to the side and slightly in front of the foot wearing the shoe.\n` +
-      `FRAMING: One foot wearing the shoe — full shoe in frame with lower leg/ankle visible above collar. Ground surface in lower frame area. Shoe fills 65% of frame. Shoe is the hero.\n` +
-      `REQUIRED VISIBLE: Full shoe being worn in natural weight-bearing position. Ground surface contact. Lower ankle/leg above collar. The person's identity must NOT be visible (no face, no upper body).\n` +
-      `ENVIRONMENT: Warm blurred lifestyle setting — wooden floor, cobblestone path, garden path, or warm interior. Authentic bokeh background. NOT a studio background.\n` +
-      `LIGHTING: Warm golden-hour side light or warm indoor ambient. Authentic, non-studio mood lighting.\n` +
-      `STYLE: Fashion editorial lifestyle — emotional, real-world context. Aspirational but authentic.\n` +
-      `FORBIDDEN: Studio background, floating/unattached shoe, face or upper body visible, product sitting on surface without being worn.`,
+      `── SHOT: LIFESTYLE — SHOE WORN ON A FOOT ──\n` +
+      `Create a lifestyle photo showing this EXACT {COLOR} shoe being WORN on a human foot.\n` +
+      `CAMERA: Low ground level, 10–15 cm above floor, to the side of the foot.\n` +
+      `FRAME: One foot wearing the shoe. Full shoe visible with lower leg/ankle above collar. Ground surface in lower frame. Shoe fills 65% of frame.\n` +
+      `MUST SEE: The shoe ON a foot in natural weight-bearing position, ground contact, ankle/lower leg.\n` +
+      `MUST NOT SEE: Face, upper body. The shoe is the hero — the person is secondary.\n` +
+      `ENVIRONMENT: Warm blurred lifestyle setting — wooden floor, cobblestone, or garden. Bokeh background.\n` +
+      `LIGHT: Warm golden-hour side light. Authentic, non-studio.\n` +
+      `THIS IS NOT: an isolated product shot, a studio photo, an overhead view.\n` +
+      `COLOR: The shoe is {COLOR}. Output MUST be {COLOR}. Other colors = REJECTED.\n` +
+      `DO NOT repeat the reference angle ({REF_ANGLE}). Generate a lifestyle worn shot.`,
   },
 ] as const
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Pipeline A — generateByEditing (PRIMARY PATH)
+// Pipeline A — generateByEditing (THE ONLY generation path)
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
- * PRIMARY GENERATION PATH — Step 25 strict product-preserving pipeline.
+ * STRICT OpenAI-only generation pipeline.
  *
- * Sends the reference shoe photo to gpt-image-1 /v1/images/edits with
- * 5 physically distinct slot prompts. Each prompt = identityLockBlock + sceneInstructions.
- * The identity lock block prevents the model from drifting to a different product.
+ * For each of 5 slots:
+ *   1. Generate with gpt-image-1 /v1/images/edits
+ *   2. Check color match via Gemini Vision
+ *   3. If color drifted → retry once with reinforced color prompt
+ *   4. Record slotLog
  *
- * @param referenceImage    Raw bytes of the product photo (PNG after sharp conversion)
- * @param referenceImageMime MIME type of the reference photo
- * @param identityLockBlock  Structured text block from extractIdentityLock().
- *   Must be pre-built and passed in — the caller is responsible for extraction.
- *   If extraction failed, pass a minimal fallback block.
+ * Reference image is resized to 768×768 then padded to 1024×1024 (128px white border)
+ * to give the model visual room for recomposition.
  *
- * Returns buffers, results, and per-slot slotLogs for admin inspection.
- * Does NOT fall back to text-to-image — caller is responsible for failure handling.
+ * @param referenceImage    Raw bytes of the product photo
+ * @param referenceImageMime MIME type
+ * @param identityLock      Full IdentityLock object from extractIdentityLock()
  */
 export async function generateByEditing(
   referenceImage: Buffer,
   referenceImageMime: string,
-  identityLockBlock: string,
+  identityLock: IdentityLock,
 ): Promise<{ results: ProviderResult[]; buffers: Buffer[]; slotLogs: SlotLog[] }> {
   const result: ProviderResult = {
     provider: 'gpt-image-edit',
@@ -813,11 +509,12 @@ export async function generateByEditing(
   }
 
   const slotLogs: SlotLog[] = []
+  const geminiKey = process.env.GEMINI_API_KEY
 
   const apiKey = process.env.OPENAI_API_KEY
   if (!apiKey) {
-    const msg = 'OPENAI_API_KEY not set — GPT Image Edit cannot run'
-    console.warn(`[generateByEditing] ${msg}`)
+    const msg = 'OPENAI_API_KEY not set — generation impossible'
+    console.error(`[generateByEditing] ${msg}`)
     result.errors.push(msg)
     return { results: [result], buffers: [], slotLogs }
   }
@@ -826,22 +523,38 @@ export async function generateByEditing(
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     const sharp = require('sharp') as typeof import('sharp')
     console.log(
-      `[generateByEditing v8] input=${referenceImage.length}b mime=${referenceImageMime} ` +
-      `identityBlockLen=${identityLockBlock.length}`,
+      `[generateByEditing v9] input=${referenceImage.length}b ` +
+      `color=${identityLock.mainColor} refAngle=${identityLock.referenceAngle || '?'}`,
     )
 
-    // Convert reference photo to PNG 1024×1024 for the edit API.
-    // fit:contain keeps full shoe visible; white padding on non-square photos.
-    const pngBuffer = await sharp(referenceImage)
-      .resize(1024, 1024, { fit: 'contain', background: { r: 255, g: 255, b: 255, alpha: 1 } })
+    // Resize shoe to 768×768 (fit:contain with white bg) then pad to 1024×1024.
+    // This guarantees at least 128px white border on all sides, giving the model
+    // visual room for recomposition even on square photos.
+    const innerBuffer = await sharp(referenceImage)
+      .resize(768, 768, { fit: 'contain', background: { r: 255, g: 255, b: 255, alpha: 1 } })
       .png()
       .toBuffer()
-    console.log(`[generateByEditing v8] PNG ready — ${pngBuffer.length}b`)
 
-    // Process each scene slot sequentially with one retry on failure
+    const pngBuffer = await sharp(innerBuffer)
+      .extend({
+        top: 128, bottom: 128, left: 128, right: 128,
+        background: { r: 255, g: 255, b: 255, alpha: 1 },
+      })
+      .png()
+      .toBuffer()
+
+    console.log(`[generateByEditing v9] PNG 1024×1024 ready — ${pngBuffer.length}b (shoe at 768×768 center)`)
+
+    const mainColor = identityLock.mainColor
+    const refAngle  = identityLock.referenceAngle || 'unknown'
+
     for (const scene of EDITING_SCENES) {
-      // Full prompt = structured identity lock + physically distinct scene instructions
-      const fullPrompt = identityLockBlock + scene.sceneInstructions
+      // Replace placeholders in scene instructions
+      const sceneText = scene.sceneInstructions
+        .replace(/\{COLOR\}/g, mainColor)
+        .replace(/\{REF_ANGLE\}/g, refAngle)
+
+      const fullPrompt = identityLock.promptBlock + sceneText
 
       const slotLog: SlotLog = {
         slot: scene.name,
@@ -851,53 +564,103 @@ export async function generateByEditing(
         success: false,
       }
 
-      let buf: Buffer | null = null
-      for (let attempt = 0; attempt < 2; attempt++) {
-        slotLog.attempts = attempt + 1
-        if (attempt > 0) {
-          console.log(`[generateByEditing v8] retry ${scene.name} (attempt ${attempt + 1})...`)
-          await sleep(2000)
+      let finalBuf: Buffer | null = null
+
+      // Attempt 1: generate
+      slotLog.attempts = 1
+      let rawBuf = await callGPTImageEdit(pngBuffer, fullPrompt, apiKey)
+
+      if (rawBuf) {
+        const jpegBuf = await sharp(rawBuf).jpeg({ quality: 92 }).toBuffer()
+
+        // Color check (only if Gemini API key available)
+        if (geminiKey) {
+          const colorCheck = await checkColorMatch(jpegBuf, mainColor, geminiKey)
+          slotLog.colorCheckPass = colorCheck.match
+          slotLog.detectedColor = colorCheck.detectedColor
+
+          if (!colorCheck.match) {
+            // Color drifted — retry with reinforced color prompt
+            console.warn(
+              `[generateByEditing v9] ✗ ${scene.name} color drift: ` +
+              `expected=${mainColor} detected=${colorCheck.detectedColor} — retrying`,
+            )
+            slotLog.attempts = 2
+            await sleep(2000)
+
+            const reinforcedPrompt =
+              `CRITICAL COLOR CORRECTION: The previous output was ${colorCheck.detectedColor} but the shoe MUST be ${mainColor}. ` +
+              `This is a ${mainColor} shoe. Generate a ${mainColor} shoe. ${colorCheck.detectedColor} is WRONG.\n\n` +
+              fullPrompt
+
+            rawBuf = await callGPTImageEdit(pngBuffer, reinforcedPrompt, apiKey)
+            if (rawBuf) {
+              const retryJpeg = await sharp(rawBuf).jpeg({ quality: 92 }).toBuffer()
+              // Check retry color
+              const retryCheck = await checkColorMatch(retryJpeg, mainColor, geminiKey)
+              slotLog.colorCheckPass = retryCheck.match
+              slotLog.detectedColor = retryCheck.detectedColor
+
+              if (retryCheck.match) {
+                console.log(`[generateByEditing v9] ✓ ${scene.name} retry fixed color`)
+                finalBuf = retryJpeg
+              } else {
+                console.warn(`[generateByEditing v9] ✗ ${scene.name} retry still wrong color: ${retryCheck.detectedColor}`)
+                slotLog.rejectionReason = `Color drift: expected ${mainColor}, got ${retryCheck.detectedColor} after retry`
+                // Still include the image but mark it as color-drifted
+                finalBuf = retryJpeg
+              }
+            }
+          } else {
+            // Color matched on first try
+            finalBuf = jpegBuf
+          }
+        } else {
+          // No Gemini key — skip color check, accept the image
+          finalBuf = jpegBuf
         }
-        try {
-          buf = await callGPTImageEdit(pngBuffer, fullPrompt, apiKey)
-          if (buf) break
-        } catch (callErr) {
-          console.warn(
-            `[generateByEditing v8] attempt ${attempt + 1} error for ${scene.name}:`,
-            callErr instanceof Error ? callErr.message : callErr,
-          )
+      } else {
+        // Generation returned null — retry once
+        console.warn(`[generateByEditing v9] ✗ ${scene.name} null on attempt 1 — retrying`)
+        slotLog.attempts = 2
+        await sleep(2000)
+        rawBuf = await callGPTImageEdit(pngBuffer, fullPrompt, apiKey)
+        if (rawBuf) {
+          finalBuf = await sharp(rawBuf).jpeg({ quality: 92 }).toBuffer()
         }
       }
 
-      if (buf) {
-        const jpegBuf = await sharp(buf).jpeg({ quality: 92 }).toBuffer()
-        result.buffers.push(jpegBuf)
+      if (finalBuf) {
+        result.buffers.push(finalBuf)
         result.successCount++
         slotLog.success = true
-        slotLog.outputSizeBytes = jpegBuf.length
-        console.log(`[generateByEditing v8] ✓ ${scene.name} — ${jpegBuf.length}b (attempts=${slotLog.attempts})`)
+        slotLog.outputSizeBytes = finalBuf.length
+        console.log(
+          `[generateByEditing v9] ✓ ${scene.name} — ${finalBuf.length}b ` +
+          `(attempts=${slotLog.attempts} color=${slotLog.colorCheckPass ?? 'skip'})`,
+        )
       } else {
         const msg = `${scene.name}: null after ${slotLog.attempts} attempts`
         result.errors.push(msg)
-        slotLog.success = false
-        slotLog.rejectionReason = `GPT Image Edit returned null after ${slotLog.attempts} attempts`
-        console.warn(`[generateByEditing v8] ✗ ${msg}`)
+        slotLog.rejectionReason = slotLog.rejectionReason || msg
+        console.warn(`[generateByEditing v9] ✗ ${msg}`)
       }
 
       slotLogs.push(slotLog)
-
-      // Rate-limit guard between slots
       await sleep(1000)
     }
   } catch (err) {
-    const msg = `Pipeline A fatal: ${err instanceof Error ? err.message : err}`
-    console.error(`[generateByEditing v8] ${msg}`)
+    const msg = `Pipeline fatal: ${err instanceof Error ? err.message : err}`
+    console.error(`[generateByEditing v9] ${msg}`)
     result.errors.push(msg)
   }
 
-  console.log(
-    `[generateByEditing v8] done — ${result.successCount}/${result.promptCount} slots ` +
-    `[${slotLogs.map((s) => (s.success ? '✓' : '✗')).join('')}]`,
-  )
+  const slotSummary = slotLogs.map((s) => {
+    if (!s.success) return '✗'
+    if (s.colorCheckPass === false) return '⚠'
+    return '✓'
+  }).join('')
+  console.log(`[generateByEditing v9] done — ${result.successCount}/${result.promptCount} [${slotSummary}]`)
+
   return { results: [result], buffers: result.buffers, slotLogs }
 }

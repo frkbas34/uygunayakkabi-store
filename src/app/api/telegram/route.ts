@@ -935,13 +935,21 @@ export async function POST(req: NextRequest) {
     const isRegenCmd = /^(yeniden\s*[uü]ret|regenerate)\b/i.test(trimmedText)
 
     if (isApproveCmd || isRejectCmd || isRegenCmd) {
-      // Find the most recent preview job for this chat
+      // Find the most recent job awaiting Telegram approval for this chat.
+      // Looks for 'preview' OR 'review' — 'preview' is the intended status after
+      // v10.2, but 'review' is used as a fallback when the Postgres enum hasn't
+      // yet been updated with the 'preview' value (push: true migration lag).
       const { docs: previewJobs } = await payload.find({
         collection: 'image-generation-jobs',
         where: {
           and: [
             { telegramChatId: { equals: String(chatId) } },
-            { status: { equals: 'preview' } },
+            {
+              or: [
+                { status: { equals: 'preview' } },
+                { status: { equals: 'review' } },
+              ],
+            },
           ],
         },
         sort: '-createdAt',

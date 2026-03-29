@@ -411,41 +411,26 @@ export const imageGenTask: TaskConfig<{
     // Joined string for approval keyboard summary only
     const slotIconsJoined = slotIconArr.join('')
 
-    // ── Step 8: Update job to 'preview' (images saved, awaiting TG approval) ─
-    await payload.update({
-      collection: 'image-generation-jobs',
-      id: jobId,
-      data: {
-        status: 'preview',
-        generatedImages: mediaIds,
-        imageCount: mediaIds.length,
-        generationCompletedAt: new Date().toISOString(),
-        providerResults: JSON.stringify({
-          pipeline: 'openai-edit-only-v10',
-          mode: `${mode} (cosmetic)`,
-          summary: providerResultsSummary,
-          slotLogs: slotLogsSummary,
-          identityLock: identityLockMeta,
-          mediaUrls,
-        }),
-        jobTitle: `${productTitle} — OpenAI Edit (${mediaIds.length} görsel)`,
-      },
-    })
-
-    // ── Step 9: Send preview images to Telegram via direct buffer upload ─────
-    // Sends each generated JPEG buffer directly as multipart/form-data.
-    // This bypasses URL accessibility concerns entirely — the buffer is in
-    // memory, always available, always the correct bytes.
+    // ── Step 8: Send preview images to Telegram FIRST ────────────────────────
+    // CRITICAL ORDER: photos go to Telegram BEFORE the DB status update.
+    // If the DB update fails (e.g. enum not migrated), photos are already
+    // delivered. Swapping this order was the root cause of v10/v10.1 failures.
     if (telegramChatId) {
+      // Diagnostic text: confirms Step 8 was reached in Vercel logs + Telegram
+      await sendTelegramNotification(
+        telegramChatId,
+        `🔄 <b>${mediaIds.length} görsel üretildi</b> — Telegram'a gönderiliyor...`,
+      )
+
       console.log(
-        `[imageGenTask v10] step9 — sending ${generatedBuffers.length} photos to chatId=${telegramChatId}` +
+        `[imageGenTask v10] step8 — sending ${generatedBuffers.length} photos to chatId=${telegramChatId}` +
         ` mediaIds=${mediaIds.join(',')} bufSizes=${generatedBuffers.map((b) => b?.length ?? 'null').join(',')}`,
       )
 
       for (let i = 0; i < generatedBuffers.length; i++) {
         const buf = generatedBuffers[i]
         if (!buf || buf.length === 0) {
-          console.warn(`[imageGenTask v10] step9 — skipping slot ${i + 1}: buffer missing or empty`)
+          console.warn(`[imageGenTask v10] step8 — skipping slot ${i + 1}: buffer missing or empty`)
           continue
         }
         const slotLabel = slotLabels[i] || `Görsel ${i + 1}`
@@ -453,12 +438,12 @@ export const imageGenTask: TaskConfig<{
         const filename = `${slotNames[i] || `slot-${i}`}.jpg`
         const caption = `${slotIcon} <b>${slotLabel}</b>`
 
-        console.log(`[imageGenTask v10] step9 — sendPhoto slot ${i + 1} buf=${buf.length}b file=${filename}`)
+        console.log(`[imageGenTask v10] step8 — sendPhoto slot ${i + 1} buf=${buf.length}b file=${filename}`)
         await sendTelegramPhotoBuffer(telegramChatId, buf, caption, filename)
       }
 
-      // ── Step 10: Send approval keyboard ──────────────────────────────────
-      console.log(`[imageGenTask v10] step10 — sending approval keyboard jobId=${jobId}`)
+      // ── Approval keyboard ─────────────────────────────────────────────────
+      console.log(`[imageGenTask v10] step8 — sending approval keyboard jobId=${jobId}`)
       await sendApprovalKeyboard(
         telegramChatId,
         jobId,
@@ -468,7 +453,57 @@ export const imageGenTask: TaskConfig<{
         identityLockMeta.mainColor as string | undefined,
       )
     } else {
-      console.warn(`[imageGenTask v10] step9 — no telegramChatId on job ${jobId}, skipping preview send`)
+      console.warn(`[imageGenTask v10] step8 — no telegramChatId on job ${jobId}, skipping preview send`)
+    }
+
+    // ── Step 9: Update job status to 'preview' in DB ─────────────────────────
+    // This comes AFTER the Telegram sends so a DB error cannot block delivery.
+    // Falls back to 'review' if 'preview' is not yet in the Postgres enum
+    // (can happen when push: true migration hasn't added new enum values yet).
+    const jobUpdateData = {
+      generatedImages: mediaIds,
+      imageCount: mediaIds.length,
+      generationCompletedAt: new Date().toISOString(),
+      providerResults: JSON.stringify({
+        pipeline: 'openai-edit-only-v10',
+        mode: `${mode} (cosmetic)`,
+        summary: providerResultsSummary,
+        slotLogs: slotLogsSummary,
+        identityLock: identityLockMeta,
+        mediaUrls,
+      }),
+      jobTitle: `${productTitle} — OpenAI Edit (${mediaIds.length} görsel)`,
+    }
+
+    try {
+      await payload.update({
+        collection: 'image-generation-jobs',
+        id: jobId,
+        data: { status: 'preview', ...jobUpdateData },
+      })
+      console.log(`[imageGenTask v10] step9 — job status set to preview`)
+    } catch (enumErr) {
+      // 'preview' not in Postgres enum yet — fall back to 'review' (always valid)
+      const errMsg = enumErr instanceof Error ? enumErr.message : String(enumErr)
+      console.error(`[imageGenTask v10] step9 — 'preview' status update failed (enum issue?): ${errMsg}`)
+      try {
+        await payload.update({
+          collection: 'image-generation-jobs',
+          id: jobId,
+          data: { status: 'review', ...jobUpdateData },
+        })
+        console.log(`[imageGenTask v10] step9 — fallback: job status set to review`)
+        if (telegramChatId) {
+          await sendTelegramNotification(
+            telegramChatId,
+            `⚠️ <i>Not: İş durumu DB'de "review" olarak kaydedildi ('preview' enum sorunu). ` +
+            `Onay butonları yine de çalışır.</i>`,
+          )
+        }
+      } catch (fallbackErr) {
+        const fbMsg = fallbackErr instanceof Error ? fallbackErr.message : String(fallbackErr)
+        console.error(`[imageGenTask v10] step9 — fallback 'review' also failed: ${fbMsg}`)
+      }
     }
 
     console.log(`[imageGenTask v10] done — jobId=${jobId} product=${productId} images=${mediaIds.length} status=preview`)

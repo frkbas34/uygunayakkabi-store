@@ -220,10 +220,34 @@ export const imageGenTask: TaskConfig<{
       console.log('[imageGenTask] No reference image available — using text-only prompts')
     }
 
+    // ── Step 2c: Vision analysis — runs BEFORE pipeline fork ─────────────────
+    // Produces a precise text description of the product from the reference photo.
+    // This is used as an identity anchor in BOTH Pipeline A (edit prompts) and
+    // Pipeline B (text-to-image prompts), significantly reducing identity drift.
+    //
+    // Example output: "dark brown smooth leather lace-up wingtip oxford shoe
+    // with brogue perforations on toe cap and sides, flat stacked leather heel..."
+    let visualDescription: string | undefined
+    if (referenceImage && process.env.GEMINI_API_KEY) {
+      const visualDesc = await describeProductImage(
+        referenceImage,
+        referenceImageMime || 'image/jpeg',
+        process.env.GEMINI_API_KEY,
+      )
+      if (visualDesc) {
+        visualDescription = visualDesc
+        productContext.visualDescription = visualDesc
+        console.log(`[imageGenTask] Vision description: "${visualDesc.slice(0, 120)}..."`)
+      } else {
+        console.warn('[imageGenTask] Vision analysis returned null — proceeding without text anchor')
+      }
+    }
+
     // ── Step 3 & 4: Generate images ──────────────────────────────────────────
     // Two pipelines:
     //   A) EDITING mode (preferred): When referenceImage is available, use GPT
     //      Image Edit to preserve the EXACT product and only change scene/angle.
+    //      Visual description is passed as identity anchor in each edit prompt.
     //   B) TEXT-TO-IMAGE fallback: When no reference image exists, use vision
     //      analysis + text prompts + generateByMode().
 
@@ -251,7 +275,10 @@ export const imageGenTask: TaskConfig<{
         id: jobId,
         data: {
           promptsUsed: JSON.stringify(
-            editingConcepts.map((c) => ({ ...c, prompt: '[IMAGE EDITING MODE — prompt describes scene change, not product]' })),
+            editingConcepts.map((c) => ({
+              ...c,
+              prompt: `[EDITING MODE — identity anchor: ${visualDescription ? visualDescription.slice(0, 80) + '...' : 'image only'}]`,
+            })),
           ),
         },
       })
@@ -262,6 +289,7 @@ export const imageGenTask: TaskConfig<{
         const { results, buffers } = await generateByEditing(
           referenceImage,
           referenceImageMime || 'image/jpeg',
+          visualDescription,
         )
         generatedBuffers = buffers
         providerResultsSummary = results.map((r) => ({
@@ -288,21 +316,6 @@ export const imageGenTask: TaskConfig<{
         console.log('[imageGenTask] Falling back to text-to-image pipeline')
       } else {
         console.log('[imageGenTask] No reference image — using text-to-image pipeline')
-      }
-
-      // Step 2c: Vision analysis (only if we have a reference image for description)
-      if (referenceImage && process.env.GEMINI_API_KEY) {
-        const visualDesc = await describeProductImage(
-          referenceImage,
-          referenceImageMime || 'image/jpeg',
-          process.env.GEMINI_API_KEY,
-        )
-        if (visualDesc) {
-          productContext.visualDescription = visualDesc
-          console.log(`[imageGenTask] productContext enriched with visualDescription`)
-        } else {
-          console.warn('[imageGenTask] Vision analysis returned null — using metadata fallback')
-        }
       }
 
       // Step 3: Build text prompts

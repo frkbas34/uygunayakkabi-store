@@ -239,7 +239,7 @@ async function callGPTImageEdit(
     formData.append('prompt', prompt)
     formData.append('n', '1')
     formData.append('size', '1024x1024')
-    formData.append('quality', 'low')
+    formData.append('quality', 'medium')
 
     // gpt-image-1 uses "image[]" (array syntax), dall-e-2 uses "image"
     const imageBlob = new Blob([new Uint8Array(pngBuffer)], { type: 'image/png' })
@@ -517,66 +517,80 @@ export async function generateByMode(
 // different lighting — not just background swaps.
 // ─────────────────────────────────────────────────────────────────────────────
 
-/** 5 editing prompts — each describes a different composition/angle/scene */
+/**
+ * 5 editing scene templates — camera axis, framing, and visible parts are
+ * physically distinct so the model cannot produce the same image five times.
+ * An identity anchor (visualDescription) is prepended at call time.
+ */
 const EDITING_SCENES = [
   {
     name: 'commerce_front',
     label: 'Ürün — Ön Görünüm',
-    prompt:
-      'Professional e-commerce product photo of this EXACT shoe. ' +
-      'Place it on a clean seamless white studio background. ' +
-      'Front-facing straight-on angle, centered in frame. ' +
-      'Soft diffused studio lighting from above and both sides. ' +
-      'Subtle shadow beneath the shoe. ' +
-      'The shoe must be IDENTICAL to the one in the reference photo — same color, same design, same materials, same details. ' +
-      'High-resolution product photography, sharp focus, no other objects.',
+    sceneInstructions:
+      'CAMERA POSITION: Straight-on front view. Camera at shoe height, lens axis perpendicular to the toe cap. ' +
+      'FRAMING: Shoe upright on its sole, centered, filling 70% of frame width. Toe cap and lace area fully visible. ' +
+      'BACKGROUND: Pure seamless white (#ffffff). No props, no surface texture, nothing else. ' +
+      'LIGHTING: Large overhead softbox, bilateral fill panels, uniform diffused light. ' +
+      'Subtle soft shadow directly beneath the sole only. ' +
+      'GOAL: Standard clean e-commerce hero shot — toe, upper, and lacing system clearly visible.',
   },
   {
     name: 'side_angle',
-    label: 'Ürün — 45° Yan Açı',
-    prompt:
-      'Professional product photo of this EXACT shoe from a 45-degree side angle. ' +
-      'Warm cream studio background with soft gradient lighting. ' +
-      'The shoe is rotated so the side profile and heel are clearly visible. ' +
-      'Studio lighting with a slight warm tone. ' +
-      'The shoe must be IDENTICAL to the one in the reference photo — same color, same design, same materials, same sole, same stitching. ' +
-      'Sharp focus, professional product photography, no other objects.',
+    label: 'Ürün — Yan Profil',
+    sceneInstructions:
+      'CAMERA POSITION: Pure 90-degree lateral side view. Camera at sole level, looking directly at the medial or lateral side of the shoe. ' +
+      'FRAMING: Full shoe in frame — toe pointing left, heel visible on right. Entire sole profile visible. Shoe fills 75% of frame width. ' +
+      'BACKGROUND: Warm cream or soft light-grey seamless studio backdrop, subtle gradient. ' +
+      'LIGHTING: Key light from front-left at 45°, soft fill from opposite side. No harsh shadows. ' +
+      'GOAL: Show complete silhouette — heel counter height, arch profile, collar line, sole thickness.',
   },
   {
     name: 'detail_closeup',
     label: 'Detay — Yakın Çekim',
-    prompt:
-      'Close-up detail macro photograph of this EXACT shoe. ' +
-      'Focus on the material texture, stitching quality, and craftsmanship details. ' +
-      'Dark moody background, dramatic directional lighting highlighting the leather grain and fine details. ' +
-      'The shoe must be IDENTICAL to the one in the reference photo — same color, same design, same material texture. ' +
-      'Shallow depth of field, extreme sharpness on texture details, luxury product photography.',
+    sceneInstructions:
+      'CAMERA POSITION: 15–20 cm from the toe cap and vamp, slightly above, looking down at 30°. ' +
+      'FRAMING: Upper material fills 85% of frame. Very shallow depth of field — toe area sharp, heel falls out of focus. ' +
+      'BACKGROUND: Completely blurred, indistinct dark neutral bokeh. ' +
+      'LIGHTING: Single directional sidelight to reveal surface grain, stitching relief, and texture. ' +
+      'GOAL: Reveal material quality — leather grain, stitching precision, brogue perforations or embossing if present. ' +
+      'Luxury close-up macro, no other objects.',
   },
   {
     name: 'tabletop_editorial',
     label: 'Editoryal — Üstten Görünüm',
-    prompt:
-      'Editorial flat-lay product photo of this EXACT shoe viewed from above at a slight angle. ' +
-      'Placed on an elegant white marble surface with subtle natural veining. ' +
-      'Natural daylight from a window to the left. ' +
-      'The shoe must be IDENTICAL to the one in the reference photo — same color, same design, same materials. ' +
-      'Clean minimal Scandinavian aesthetic, editorial magazine style, no other objects, sharp focus.',
+    sceneInstructions:
+      'CAMERA POSITION: Above and slightly in front, looking down at a 50° downward angle. Three-quarter perspective. ' +
+      'FRAMING: Full shoe visible from above-front. Placed upright on a surface. Shoe fills 60% of frame. ' +
+      'BACKGROUND: White Carrara marble surface with very subtle grey veining. Clean, no props. ' +
+      'LIGHTING: Soft natural window light entering from the upper-left, gentle diffused shadow cast to the lower-right. ' +
+      'GOAL: Elegant editorial placement — Scandinavian minimal magazine style. Clean composition.',
   },
   {
     name: 'worn_lifestyle',
-    label: 'Yaşam — Stüdyo Ortam',
-    prompt:
-      'Lifestyle product photo of this EXACT shoe in an elegant indoor setting. ' +
-      'Natural warm golden-hour light streaming in, placed on a polished wooden surface. ' +
-      'Soft blurred background with warm tones. ' +
-      'The shoe must be IDENTICAL to the one in the reference photo — same color, same design, same materials, same sole. ' +
-      'Lifestyle editorial photography, professional composition, inviting atmosphere, no people.',
+    label: 'Yaşam — Giyim',
+    sceneInstructions:
+      'CAMERA POSITION: Low angle, camera 12–15 cm above ground, positioned to the side of the foot. ' +
+      'FRAMING: One foot wearing the shoe, filling 70% of frame. Lower leg visible above the collar. Ground surface in frame. ' +
+      'BACKGROUND: Warm blurred indoor or outdoor lifestyle setting — wooden floor, cobblestone, or garden path. Bokeh background. ' +
+      'LIGHTING: Warm golden-hour side light, authentic natural mood. ' +
+      'GOAL: Show the shoe being worn in real life — emotional, authentic, lifestyle context. No face shown.',
   },
 ] as const
 
+/**
+ * Pipeline A — GPT Image Edit with identity anchor + slot-specific prompts.
+ *
+ * @param referenceImage    Raw bytes of the product photo
+ * @param referenceImageMime MIME type of the reference photo
+ * @param visualDescription  Optional AI-generated text description of the product
+ *   (e.g. "dark brown leather lace-up wingtip oxford with brogue perforations").
+ *   When provided, this is prepended to every edit prompt as an identity anchor,
+ *   giving the model both visual AND text sources to preserve the product identity.
+ */
 export async function generateByEditing(
   referenceImage: Buffer,
   referenceImageMime: string,
+  visualDescription?: string,
 ): Promise<{ results: ProviderResult[]; buffers: Buffer[] }> {
   const result: ProviderResult = {
     provider: 'gpt-image-edit',
@@ -594,49 +608,67 @@ export async function generateByEditing(
     return { results: [result], buffers: [] }
   }
 
+  // Identity anchor: text description pinned to every prompt.
+  // This is the single biggest lever for reducing identity drift.
+  const identityAnchor = visualDescription
+    ? `PRODUCT IDENTITY LOCK: The product in the reference photo is: ${visualDescription}. ` +
+      `Every generated image MUST show this EXACT product — same color, same materials, same sole shape, same stitching, same design details. Do not alter the product in any way. `
+    : `PRODUCT IDENTITY LOCK: Reproduce the EXACT product shown in the reference photo. ` +
+      `Same color, same materials, same sole shape, same stitching, same design. Do not alter the product in any way. `
+
   try {
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     const sharp = require('sharp') as typeof import('sharp')
-    console.log(`[generateByEditing v6] input size=${referenceImage.length} mime=${referenceImageMime}`)
+    console.log(`[generateByEditing v7] input=${referenceImage.length}b mime=${referenceImageMime} hasDesc=${!!visualDescription}`)
 
-    // Convert reference image to PNG 1024x1024 for the edit API
+    // Convert reference image to PNG 1024x1024 for the edit API.
+    // fit:contain keeps full shoe visible; white padding on non-square photos.
     const pngBuffer = await sharp(referenceImage)
       .resize(1024, 1024, { fit: 'contain', background: { r: 255, g: 255, b: 255, alpha: 1 } })
       .png()
       .toBuffer()
-    console.log(`[generateByEditing v6] converted to PNG 1024x1024 — ${pngBuffer.length} bytes`)
+    console.log(`[generateByEditing v7] PNG ready — ${pngBuffer.length} bytes`)
 
-    // Send each scene prompt to gpt-image-1 /v1/images/edits sequentially
+    // Process each scene slot sequentially with one retry on failure
     for (const scene of EDITING_SCENES) {
-      try {
-        console.log(`[generateByEditing v6] generating ${scene.name}...`)
-        const buf = await callGPTImageEdit(pngBuffer, scene.prompt, apiKey)
-        if (buf) {
-          // Convert to JPEG for consistent output
-          const jpegBuf = await sharp(buf).jpeg({ quality: 92 }).toBuffer()
-          result.buffers.push(jpegBuf)
-          result.successCount++
-          console.log(`[generateByEditing v6] ✓ ${scene.name} — ${jpegBuf.length} bytes`)
-        } else {
-          const msg = `${scene.name}: GPT Image Edit returned null`
-          result.errors.push(msg)
-          console.warn(`[generateByEditing v6] ✗ ${msg}`)
+      // Full prompt = identity anchor + scene-specific camera/framing/lighting instructions
+      const fullPrompt = identityAnchor + scene.sceneInstructions
+
+      let buf: Buffer | null = null
+      for (let attempt = 0; attempt < 2; attempt++) {
+        if (attempt > 0) {
+          console.log(`[generateByEditing v7] retry attempt ${attempt} for ${scene.name}...`)
+          await sleep(2000)
         }
-      } catch (sceneErr) {
-        const msg = `${scene.name}: ${sceneErr instanceof Error ? sceneErr.message : sceneErr}`
-        console.error(`[generateByEditing v6] ✗ ${msg}`)
-        result.errors.push(msg)
+        try {
+          buf = await callGPTImageEdit(pngBuffer, fullPrompt, apiKey)
+          if (buf) break
+        } catch (callErr) {
+          console.warn(`[generateByEditing v7] attempt ${attempt} error for ${scene.name}:`,
+            callErr instanceof Error ? callErr.message : callErr)
+        }
       }
 
-      // Small delay between calls to respect rate limits
+      if (buf) {
+        const jpegBuf = await sharp(buf).jpeg({ quality: 92 }).toBuffer()
+        result.buffers.push(jpegBuf)
+        result.successCount++
+        console.log(`[generateByEditing v7] ✓ ${scene.name} — ${jpegBuf.length} bytes`)
+      } else {
+        const msg = `${scene.name}: GPT Image Edit returned null after retries`
+        result.errors.push(msg)
+        console.warn(`[generateByEditing v7] ✗ ${msg}`)
+      }
+
+      // Respect rate limits between slots
       await sleep(1000)
     }
   } catch (err) {
     const msg = `Pipeline A fatal: ${err instanceof Error ? err.message : err}`
-    console.error(`[generateByEditing v6] ${msg}`)
+    console.error(`[generateByEditing v7] ${msg}`)
     result.errors.push(msg)
   }
 
-  console.log(`[generateByEditing v6] done — ${result.successCount}/${result.promptCount} images`)
+  console.log(`[generateByEditing v7] done — ${result.successCount}/${result.promptCount} images`)
   return { results: [result], buffers: result.buffers }
 }

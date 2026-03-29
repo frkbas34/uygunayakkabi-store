@@ -214,141 +214,17 @@ async function callGPTImage(
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Pipeline A: Multi-Background Compositing
-//
-// Takes the original product photo and produces 5 versions on different
-// solid-colour backgrounds using sharp's fit:contain.
-//
-// fit:contain centers the photo within 1024×1024, filling remaining space
-// with the target background colour — so every pixel of the product photo
-// is preserved exactly as shot. No AI generation. No background removal
-// required. Works on any photo regardless of original background.
-//
-// For photos on near-white backgrounds an optional flood-fill step is
-// attempted first to produce a cleaner cutout; it is skipped automatically
-// when the background is complex/coloured.
+// GPT Image Edit — sends reference photo to gpt-image-1 /v1/images/edits
 // ─────────────────────────────────────────────────────────────────────────────
 
-/** Target backgrounds for Pipeline A — 5 distinct colour variants */
-const COMPOSITE_BACKGROUNDS = [
-  { name: 'commerce_front',     r: 255, g: 255, b: 255, label: 'white studio' },
-  { name: 'side_angle',         r: 244, g: 241, b: 236, label: 'warm cream' },
-  { name: 'detail_closeup',     r: 32,  g: 34,  b: 38,  label: 'dark charcoal' },
-  { name: 'tabletop_editorial', r: 218, g: 214, b: 208, label: 'soft warm grey' },
-  { name: 'worn_lifestyle',     r: 236, g: 227, b: 212, label: 'sand' },
-] as const
-
 /**
- * Remove the background from a PNG by flood-filling from the 4 corners.
- * Pixels colour-close to the detected background become transparent.
- *
- * Bug fixes vs naive implementation:
- *  1. Uses Buffer.from(data) — not data.buffer — because Node.js Buffers may
- *     share a pool ArrayBuffer; data.buffer is oversized and starts at wrong offset.
- *  2. Uses an index pointer (qHead) instead of queue.shift() — shift() is O(n),
- *     making BFS O(n²) for 1M pixel images. Pointer approach is O(n).
- */
-async function removeBackground(pngBuffer: Buffer, threshold = 40): Promise<Buffer> {
-  const sharp = (await import('sharp')).default
-
-  const { data, info } = await sharp(pngBuffer)
-    .ensureAlpha()
-    .raw()
-    .toBuffer({ resolveWithObject: true })
-
-  // ── CRITICAL: copy into a fresh Buffer (not data.buffer which may be oversized)
-  const pixels = Buffer.from(data)
-  const { width, height } = info
-
-  // ── Detect background colour from 4 corners ───────────────────────────────
-  const px = (idx: number) => ({
-    r: pixels[idx * 4],
-    g: pixels[idx * 4 + 1],
-    b: pixels[idx * 4 + 2],
-  })
-  const corners = [
-    px(0),
-    px(width - 1),
-    px((height - 1) * width),
-    px((height - 1) * width + (width - 1)),
-  ]
-  const bg = {
-    r: Math.round(corners.reduce((s, c) => s + c.r, 0) / 4),
-    g: Math.round(corners.reduce((s, c) => s + c.g, 0) / 4),
-    b: Math.round(corners.reduce((s, c) => s + c.b, 0) / 4),
-  }
-  console.log(`[bgRemoval] detected bg rgb(${bg.r},${bg.g},${bg.b}) threshold=${threshold}`)
-
-  // ── Flood-fill BFS — O(n) with index pointer (NOT shift() which is O(n²)) ──
-  const visited = new Uint8Array(width * height)
-  const queue: number[] = []
-  let qHead = 0
-
-  const seed = (idx: number) => {
-    if (!visited[idx]) {
-      visited[idx] = 1
-      queue.push(idx)
-    }
-  }
-  seed(0)
-  seed(width - 1)
-  seed((height - 1) * width)
-  seed((height - 1) * width + (width - 1))
-
-  while (qHead < queue.length) {
-    const idx = queue[qHead++]
-    const i = idx * 4
-    const dr = pixels[i]     - bg.r
-    const dg = pixels[i + 1] - bg.g
-    const db = pixels[i + 2] - bg.b
-    const dist = Math.sqrt(dr * dr + dg * dg + db * db)
-
-    if (dist < threshold) {
-      pixels[i + 3] = 0  // make transparent
-
-      const x = idx % width
-      const y = Math.floor(idx / width)
-      if (x > 0)          seed(idx - 1)
-      if (x < width - 1)  seed(idx + 1)
-      if (y > 0)          seed(idx - width)
-      if (y < height - 1) seed(idx + width)
-    }
-  }
-
-  console.log(`[bgRemoval] flood-fill done — visited=${qHead} pixels`)
-
-  // ── CRITICAL: pass pixels directly (it's already the right Buffer) ────────
-  return sharp(pixels, {
-    raw: { width, height, channels: 4 },
-  }).png().toBuffer()
-}
-
-/** Composite a transparent-bg product cutout onto a solid background colour */
-async function compositeOnBackground(
-  cutout: Buffer,
-  r: number, g: number, b: number,
-): Promise<Buffer> {
-  const sharp = (await import('sharp')).default
-  const meta = await sharp(cutout).metadata()
-  const w = meta.width  ?? 1024
-  const h = meta.height ?? 1024
-
-  return sharp({
-    create: { width: w, height: h, channels: 4, background: { r, g, b, alpha: 1 } },
-  })
-    .composite([{ input: cutout, blend: 'over' }])
-    .jpeg({ quality: 92 })
-    .toBuffer()
-}
-
-/**
- * @deprecated  AI editing APIs cannot guarantee exact product preservation.
- *              Pipeline A now uses background removal + compositing instead.
- *              This function is kept only as a reference stub.
+ * Call OpenAI /v1/images/edits with gpt-image-1.
+ * Sends the reference photo + a scene/angle editing prompt.
+ * The model generates a NEW image that preserves the product identity
+ * while changing the composition, angle, and setting.
  */
 async function callGPTImageEdit(
   pngBuffer: Buffer,
-  _pngMime: string,
   prompt: string,
   apiKey: string,
 ): Promise<Buffer | null> {
@@ -633,73 +509,68 @@ export async function generateByMode(
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Pipeline A: generateByEditing — background removal + compositing
+// Pipeline A: generateByEditing — GPT Image Edit (AI re-composition)
+//
+// Sends the reference product photo to gpt-image-1 /v1/images/edits with
+// 5 different scene/angle prompts. The AI model generates genuinely NEW
+// compositions of the SAME product — different angles, different settings,
+// different lighting — not just background swaps.
 // ─────────────────────────────────────────────────────────────────────────────
 
-/**
- * Generate images by removing the background from the reference product photo
- * using ML-based background removal (@imgly/background-removal), then
- * compositing the transparent cutout onto 5 different solid-colour backgrounds.
- *
- * This guarantees 100% product pixel fidelity — the product is NEVER
- * regenerated by AI. Only the background changes.
- *
- * Steps:
- *  1. ML background removal → transparent PNG cutout of just the product
- *  2. Resize cutout to fit within 800×800 (preserving transparency)
- *  3. For each of 5 target backgrounds, create 1024×1024 coloured canvas
- *     and composite the cutout centred on top
- *  4. Return JPEG buffers ready for upload
- *
- * Fallback: if ML removal fails (timeout, model download error, etc.),
- * falls back to resize+extend approach (visible coloured border, no removal).
- */
-/** Scene backgrounds generated by Gemini for each concept */
-const SCENE_PROMPTS = [
+/** 5 editing prompts — each describes a different composition/angle/scene */
+const EDITING_SCENES = [
   {
     name: 'commerce_front',
-    label: 'Beyaz Stüdyo',
-    bgPrompt:
-      'Pure seamless white studio photography background, soft even lighting, ' +
-      'very slight shadow at bottom center, professional e-commerce product photo background, ' +
-      'clean minimal, no objects, no text, 1024x1024',
-    fallback: { r: 255, g: 255, b: 255 },
+    label: 'Ürün — Ön Görünüm',
+    prompt:
+      'Professional e-commerce product photo of this EXACT shoe. ' +
+      'Place it on a clean seamless white studio background. ' +
+      'Front-facing straight-on angle, centered in frame. ' +
+      'Soft diffused studio lighting from above and both sides. ' +
+      'Subtle shadow beneath the shoe. ' +
+      'The shoe must be IDENTICAL to the one in the reference photo — same color, same design, same materials, same details. ' +
+      'High-resolution product photography, sharp focus, no other objects.',
   },
   {
     name: 'side_angle',
-    label: 'Krem Stüdyo',
-    bgPrompt:
-      'Warm cream ivory seamless studio backdrop, soft gradient from cream to white, ' +
-      'gentle side lighting, professional product photography background, ' +
-      'no objects, no text, 1024x1024',
-    fallback: { r: 244, g: 241, b: 236 },
+    label: 'Ürün — 45° Yan Açı',
+    prompt:
+      'Professional product photo of this EXACT shoe from a 45-degree side angle. ' +
+      'Warm cream studio background with soft gradient lighting. ' +
+      'The shoe is rotated so the side profile and heel are clearly visible. ' +
+      'Studio lighting with a slight warm tone. ' +
+      'The shoe must be IDENTICAL to the one in the reference photo — same color, same design, same materials, same sole, same stitching. ' +
+      'Sharp focus, professional product photography, no other objects.',
   },
   {
     name: 'detail_closeup',
-    label: 'Koyu Stüdyo',
-    bgPrompt:
-      'Dark charcoal gray seamless studio background, moody dramatic lighting from above, ' +
-      'subtle vignette edges, luxury product photography background, ' +
-      'no objects, no text, 1024x1024',
-    fallback: { r: 32, g: 34, b: 38 },
+    label: 'Detay — Yakın Çekim',
+    prompt:
+      'Close-up detail macro photograph of this EXACT shoe. ' +
+      'Focus on the material texture, stitching quality, and craftsmanship details. ' +
+      'Dark moody background, dramatic directional lighting highlighting the leather grain and fine details. ' +
+      'The shoe must be IDENTICAL to the one in the reference photo — same color, same design, same material texture. ' +
+      'Shallow depth of field, extreme sharpness on texture details, luxury product photography.',
   },
   {
     name: 'tabletop_editorial',
-    label: 'Mermer Yüzey',
-    bgPrompt:
-      'White Carrara marble surface seen from slight above angle, subtle natural veining, ' +
-      'soft natural daylight from left, editorial product photography surface, ' +
-      'clean minimal Scandinavian style, no objects, no text, 1024x1024',
-    fallback: { r: 218, g: 214, b: 208 },
+    label: 'Editoryal — Üstten Görünüm',
+    prompt:
+      'Editorial flat-lay product photo of this EXACT shoe viewed from above at a slight angle. ' +
+      'Placed on an elegant white marble surface with subtle natural veining. ' +
+      'Natural daylight from a window to the left. ' +
+      'The shoe must be IDENTICAL to the one in the reference photo — same color, same design, same materials. ' +
+      'Clean minimal Scandinavian aesthetic, editorial magazine style, no other objects, sharp focus.',
   },
   {
     name: 'worn_lifestyle',
-    label: 'Yaşam Ortamı',
-    bgPrompt:
-      'Natural light oak wooden floor, warm golden afternoon sunlight, ' +
-      'soft bokeh background with blurred indoor plants, lifestyle photography setting, ' +
-      'no people, no objects in focus, no text, 1024x1024',
-    fallback: { r: 236, g: 227, b: 212 },
+    label: 'Yaşam — Stüdyo Ortam',
+    prompt:
+      'Lifestyle product photo of this EXACT shoe in an elegant indoor setting. ' +
+      'Natural warm golden-hour light streaming in, placed on a polished wooden surface. ' +
+      'Soft blurred background with warm tones. ' +
+      'The shoe must be IDENTICAL to the one in the reference photo — same color, same design, same materials, same sole. ' +
+      'Lifestyle editorial photography, professional composition, inviting atmosphere, no people.',
   },
 ] as const
 
@@ -708,124 +579,64 @@ export async function generateByEditing(
   referenceImageMime: string,
 ): Promise<{ results: ProviderResult[]; buffers: Buffer[] }> {
   const result: ProviderResult = {
-    provider: 'ai-background-composite',
-    promptCount: SCENE_PROMPTS.length,
+    provider: 'gpt-image-edit',
+    promptCount: EDITING_SCENES.length,
     successCount: 0,
     buffers: [],
     errors: [],
   }
 
+  const apiKey = process.env.OPENAI_API_KEY
+  if (!apiKey) {
+    const msg = 'OPENAI_API_KEY not set — GPT Image Edit skipped'
+    console.warn(`[generateByEditing] ${msg}`)
+    result.errors.push(msg)
+    return { results: [result], buffers: [] }
+  }
+
   try {
-    const sharp = (await import('sharp')).default
-    console.log(`[generateByEditing v5] input size=${referenceImage.length} mime=${referenceImageMime}`)
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const sharp = require('sharp') as typeof import('sharp')
+    console.log(`[generateByEditing v6] input size=${referenceImage.length} mime=${referenceImageMime}`)
 
-    // ── Step 1: ML background removal → transparent shoe cutout ─────────────
-    let cutoutBuffer: Buffer | null = null
-    try {
-      console.log('[generateByEditing v5] ML background removal starting...')
-      const { removeBackground: mlRemoveBg } = await import('@imgly/background-removal')
-      const inputBlob = new Blob([new Uint8Array(referenceImage)], { type: referenceImageMime || 'image/jpeg' })
-      const resultBlob = await mlRemoveBg(inputBlob, {
-        model: 'isnet_quint8',
-        output: { format: 'image/png', quality: 0.9 },
-      })
-      cutoutBuffer = Buffer.from(await resultBlob.arrayBuffer())
-      console.log(`[generateByEditing v5] ML removal ✓ — cutout ${cutoutBuffer.length} bytes`)
-    } catch (mlErr) {
-      console.warn('[generateByEditing v5] ML removal failed:', mlErr instanceof Error ? mlErr.message : mlErr)
-    }
-
-    // ── Step 2: Scale the cutout (or original) to fit within 780×780 ─────────
-    const source = cutoutBuffer ?? referenceImage
-    const shoeResized = await sharp(source)
-      .resize(780, 780, { fit: 'inside', withoutEnlargement: false })
-      .ensureAlpha()
+    // Convert reference image to PNG 1024x1024 for the edit API
+    const pngBuffer = await sharp(referenceImage)
+      .resize(1024, 1024, { fit: 'contain', background: { r: 255, g: 255, b: 255, alpha: 1 } })
       .png()
       .toBuffer()
-    const shoeMeta = await sharp(shoeResized).metadata()
-    const shoeW = shoeMeta.width ?? 780
-    const shoeH = shoeMeta.height ?? 780
-    console.log(`[generateByEditing v5] shoe resized to ${shoeW}×${shoeH}, ML=${!!cutoutBuffer}`)
+    console.log(`[generateByEditing v6] converted to PNG 1024x1024 — ${pngBuffer.length} bytes`)
 
-    // ── Step 3: Generate background + composite for each scene ───────────────
-    const geminiKey = process.env.GEMINI_API_KEY
-    const model = process.env.GEMINI_FLASH_MODEL || 'gemini-2.0-flash-preview-image-generation'
-
-    for (const scene of SCENE_PROMPTS) {
+    // Send each scene prompt to gpt-image-1 /v1/images/edits sequentially
+    for (const scene of EDITING_SCENES) {
       try {
-        let bgBuffer: Buffer | null = null
-
-        // Try to generate an AI background scene with Gemini
-        if (geminiKey) {
-          try {
-            const res = await fetch(
-              `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${geminiKey}`,
-              {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                  contents: [{ parts: [{ text: scene.bgPrompt }] }],
-                  generationConfig: { responseModalities: ['IMAGE', 'TEXT'] },
-                }),
-              },
-            )
-            if (res.ok) {
-              const data = await res.json()
-              const parts: Array<Record<string, unknown>> =
-                data?.candidates?.[0]?.content?.parts ?? []
-              for (const part of parts) {
-                const inline = part?.inlineData as Record<string, string> | undefined
-                if (inline?.data) {
-                  bgBuffer = Buffer.from(inline.data, 'base64')
-                  break
-                }
-              }
-            } else {
-              console.warn(`[generateByEditing v5] Gemini bg HTTP ${res.status} for ${scene.name}`)
-            }
-          } catch (geminiErr) {
-            console.warn(`[generateByEditing v5] Gemini bg error for ${scene.name}:`,
-              geminiErr instanceof Error ? geminiErr.message : geminiErr)
-          }
+        console.log(`[generateByEditing v6] generating ${scene.name}...`)
+        const buf = await callGPTImageEdit(pngBuffer, scene.prompt, apiKey)
+        if (buf) {
+          // Convert to JPEG for consistent output
+          const jpegBuf = await sharp(buf).jpeg({ quality: 92 }).toBuffer()
+          result.buffers.push(jpegBuf)
+          result.successCount++
+          console.log(`[generateByEditing v6] ✓ ${scene.name} — ${jpegBuf.length} bytes`)
+        } else {
+          const msg = `${scene.name}: GPT Image Edit returned null`
+          result.errors.push(msg)
+          console.warn(`[generateByEditing v6] ✗ ${msg}`)
         }
-
-        // If Gemini failed, create a solid-colour background as fallback
-        if (!bgBuffer) {
-          const { r, g, b } = scene.fallback
-          bgBuffer = await sharp({
-            create: { width: 1024, height: 1024, channels: 3, background: { r, g, b } },
-          }).jpeg({ quality: 95 }).toBuffer()
-          console.log(`[generateByEditing v5] using solid fallback for ${scene.name}`)
-        }
-
-        // Resize background to exactly 1024×1024
-        const bgCanvas = await sharp(bgBuffer)
-          .resize(1024, 1024, { fit: 'cover' })
-          .png()
-          .toBuffer()
-
-        // Composite shoe centred on the background
-        const finalBuf = await sharp(bgCanvas)
-          .composite([{ input: shoeResized, gravity: 'centre' }])
-          .flatten({ background: scene.fallback })
-          .jpeg({ quality: 92 })
-          .toBuffer()
-
-        console.log(`[generateByEditing v5] ✓ ${scene.name} (${scene.label}) — ${finalBuf.length} bytes`)
-        result.buffers.push(finalBuf)
-        result.successCount++
       } catch (sceneErr) {
         const msg = `${scene.name}: ${sceneErr instanceof Error ? sceneErr.message : sceneErr}`
-        console.error(`[generateByEditing v5] ✗ ${msg}`)
+        console.error(`[generateByEditing v6] ✗ ${msg}`)
         result.errors.push(msg)
       }
+
+      // Small delay between calls to respect rate limits
+      await sleep(1000)
     }
   } catch (err) {
     const msg = `Pipeline A fatal: ${err instanceof Error ? err.message : err}`
-    console.error(`[generateByEditing v5] ${msg}`)
+    console.error(`[generateByEditing v6] ${msg}`)
     result.errors.push(msg)
   }
 
-  console.log(`[generateByEditing v5] done — ${result.successCount}/${result.promptCount} images`)
+  console.log(`[generateByEditing v6] done — ${result.successCount}/${result.promptCount} images`)
   return { results: [result], buffers: result.buffers }
 }

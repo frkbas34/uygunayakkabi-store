@@ -1,19 +1,27 @@
 /**
- * ImageGenerationJobs — Step 24
+ * ImageGenerationJobs — Step 25 v10
  *
  * Tracks AI image generation jobs triggered from Telegram.
  * Each job corresponds to one "#gorsel" command, producing up to 5 images.
  *
- * Status flow:
- *   queued → generating → review (admin approves/rejects images)
+ * Status flow (v10 — Telegram preview/approval):
+ *   queued → generating → preview → approved (images attached to product)
+ *   queued → generating → preview → rejected (images discarded)
  *   queued → generating → failed (on unrecoverable error)
  *
- * Admin review: images appear in `generatedImages` field; admin can:
- *   - Drag approved images into the product's `images` array
- *   - Or use the batch-attach helper (future UI)
+ * v10 Preview Flow:
+ *   1. imageGenTask generates 5 images + saves as Media docs
+ *   2. Task sends each image as a Telegram photo in the ops chat
+ *   3. Task sets job status → 'preview' (NOT 'review')
+ *   4. Operator reviews images IN Telegram:
+ *      - ✅ Tümünü Onayla button OR text "onayla"
+ *      - onayla 1,2,4  → approve specific slots only
+ *      - ❌ Reddet button OR text "reddet" / "cancel"
+ *      - 🔄 Yeniden Üret button OR text "yeniden üret"
+ *   5. On approval: afterChange hook attaches images to product
+ *   6. On rejection: job marked rejected, no images attached
  *
- * Design: no custom React components needed — Payload's default relationship
- * field renders media thumbnails inline for visual review.
+ * Admin panel still available for manual fallback review.
  */
 import type { CollectionConfig } from 'payload'
 
@@ -24,9 +32,16 @@ export const ImageGenerationJobs: CollectionConfig = {
   hooks: {
     afterChange: [
       /**
-       * When an admin sets status → 'approved', automatically append all
-       * generatedImages to the product's images array.
-       * This removes the manual drag-and-drop step from the workflow.
+       * When status → 'approved', automatically append all generatedImages
+       * to the product's images array.
+       *
+       * Triggered by:
+       *   - Telegram "onayla" / ✅ button (via route.ts approval handler)
+       *   - Admin manually setting status → approved in admin panel
+       *
+       * Partial approval (specific slots): the route.ts handler filters
+       * generatedImages before setting status → approved, so this hook
+       * always appends whatever is currently in generatedImages.
        */
       async ({ doc, previousDoc, req, operation }) => {
         // Only fire on updates when status just became 'approved'
@@ -153,14 +168,16 @@ export const ImageGenerationJobs: CollectionConfig = {
       options: [
         { label: '🕐 Kuyrukta', value: 'queued' },
         { label: '⚙️ Üretiliyor', value: 'generating' },
-        { label: '👁️ İnceleme Bekliyor', value: 'review' },
+        { label: '📱 Telegram Önizleme', value: 'preview' },
+        { label: '👁️ Admin İnceleme', value: 'review' },
         { label: '✅ Onaylandı', value: 'approved' },
-        { label: '❌ Başarısız', value: 'failed' },
+        { label: '❌ Reddedildi', value: 'rejected' },
+        { label: '💥 Başarısız', value: 'failed' },
       ],
       defaultValue: 'queued',
       admin: {
         position: 'sidebar',
-        description: '"İnceleme Bekliyor" → görseller hazır, admin onayı bekleniyor',
+        description: '"Telegram Önizleme" → görseller Telegram\'a gönderildi, operatör onayı bekleniyor',
       },
     },
     // ── Generated images ──────────────────────────────────────────────────────

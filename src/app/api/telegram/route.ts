@@ -166,6 +166,172 @@ Sadece JSON döndür, başka açıklama ekleme.`
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Image-gen approval helpers (v10 Telegram preview/approval flow)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Approve a preview job — attach images to product then mark job approved.
+ *
+ * slotsStr:
+ *   'all'    → approve every image in generatedImages
+ *   '1,2,4'  → approve only these 1-based slot indices
+ *
+ * Instead of relying solely on the afterChange hook, we do the product
+ * update directly here for reliability. The afterChange hook also fires
+ * (on status→approved) which is idempotent for already-attached images.
+ */
+async function approveImageGenJob(
+  payload: Awaited<ReturnType<typeof import('@/lib/payload').getPayload>>,
+  jobId: string,
+  slotsStr: string,
+  chatId: number,
+): Promise<void> {
+  const jobDoc = await payload.findByID({
+    collection: 'image-generation-jobs',
+    id: jobId,
+    depth: 0,
+  }) as Record<string, unknown>
+
+  const productRef = jobDoc.product as { id: number } | number | null
+  if (!productRef) throw new Error('İş kaydında ürün referansı yok')
+  const productId = typeof productRef === 'object' ? productRef.id : productRef
+
+  const generatedImages = (jobDoc.generatedImages as Array<{ id: number } | number> | undefined) ?? []
+  const allMediaIds = generatedImages.map((img) => (typeof img === 'object' ? img.id : img))
+
+  // Determine which IDs to approve
+  let approvedMediaIds: number[]
+  if (slotsStr === 'all' || !slotsStr) {
+    approvedMediaIds = allMediaIds
+  } else {
+    // Parse "1,2,4" → [0, 1, 3] (convert to 0-based indices)
+    const slotIndices = slotsStr
+      .split(/[,\s]+/)
+      .map((s) => parseInt(s.trim()) - 1)
+      .filter((i) => i >= 0 && i < allMediaIds.length)
+    approvedMediaIds = slotIndices.map((i) => allMediaIds[i]).filter(Boolean)
+  }
+
+  if (approvedMediaIds.length === 0) {
+    await sendTelegramMessage(chatId, '⚠️ Onaylanacak geçerli görsel bulunamadı.')
+    return
+  }
+
+  // Fetch current product images and append the approved ones
+  const productDoc = await payload.findByID({
+    collection: 'products',
+    id: productId,
+    depth: 0,
+  })
+  const existingImages = ((productDoc as any).images as Array<{ image: number }> | undefined) ?? []
+  const updatedImages = [
+    ...existingImages,
+    ...approvedMediaIds.map((id) => ({ image: id })),
+  ]
+  await payload.update({
+    collection: 'products',
+    id: productId,
+    data: { images: updatedImages },
+  })
+
+  // Update job: if partial, narrow generatedImages to approved set before marking approved
+  await payload.update({
+    collection: 'image-generation-jobs',
+    id: jobId,
+    data: {
+      status: 'approved',
+      generatedImages: approvedMediaIds,
+    },
+  })
+
+  const isPartial = slotsStr !== 'all' && approvedMediaIds.length < allMediaIds.length
+  const slotNote = isPartial ? ` (${approvedMediaIds.length}/${allMediaIds.length} slot)` : ''
+
+  await sendTelegramMessage(
+    chatId,
+    `✅ <b>${approvedMediaIds.length} görsel onaylandı${slotNote}</b>\n\n` +
+    `Görseller ürüne eklendi.\n` +
+    `🔗 <a href="https://www.uygunayakkabi.com/admin/collections/products/${productId}">Ürünü admin'de gör</a>`,
+  )
+}
+
+/**
+ * Reject a preview job — mark as rejected, images NOT attached to product.
+ * The temp Media documents remain in the media collection (can be cleaned
+ * up manually or via a future cron).
+ */
+async function rejectImageGenJob(
+  payload: Awaited<ReturnType<typeof import('@/lib/payload').getPayload>>,
+  jobId: string,
+  chatId: number,
+): Promise<void> {
+  await payload.update({
+    collection: 'image-generation-jobs',
+    id: jobId,
+    data: { status: 'rejected' },
+  })
+  await sendTelegramMessage(
+    chatId,
+    `❌ <b>Görseller reddedildi</b>\n\n` +
+    `Ürüne hiçbir görsel eklenmedi.\n` +
+    `Yeniden üretmek için: <code>yeniden üret</code> veya <code>#gorsel</code> komutunu kullanın.`,
+  )
+}
+
+/**
+ * Re-queue a preview job for full regeneration.
+ * Clears generatedImages, resets status to queued, and queues a new task run.
+ */
+async function regenImageGenJob(
+  payload: Awaited<ReturnType<typeof import('@/lib/payload').getPayload>>,
+  jobId: string,
+  chatId: number,
+): Promise<void> {
+  const jobDoc = await payload.findByID({
+    collection: 'image-generation-jobs',
+    id: jobId,
+    depth: 0,
+  }) as Record<string, unknown>
+
+  const productRef = jobDoc.product as { id: number } | number | null
+  const productId = productRef ? (typeof productRef === 'object' ? productRef.id : productRef) : null
+
+  await payload.update({
+    collection: 'image-generation-jobs',
+    id: jobId,
+    data: {
+      status: 'queued',
+      generatedImages: [],
+      imageCount: 0,
+      errorMessage: '',
+      generationStartedAt: null,
+      generationCompletedAt: null,
+      jobTitle: `${jobDoc.jobTitle || 'Ürün'} — Yeniden Üretim`,
+    },
+  })
+
+  await payload.jobs.queue({
+    task: 'image-gen',
+    input: { jobId },
+    overrideAccess: true,
+  })
+
+  await sendTelegramMessage(
+    chatId,
+    `🔄 <b>Yeniden üretim başlatıldı</b>\n\n` +
+    (productId ? `📦 Ürün ID: ${productId}\n` : '') +
+    `Yeni görseller hazır olduğunda Telegram'a önizleme gönderilecek.`,
+  )
+
+  // Run the job
+  try {
+    await payload.jobs.run({ limit: 1, overrideAccess: true })
+  } catch (err) {
+    console.error('[telegram/webhook] regenImageGenJob jobs.run failed:', err)
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Webhook handler
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -263,6 +429,61 @@ export async function POST(req: NextRequest) {
               cbChatId,
               `❌ Görsel üretimi başlatılamadı: ${err instanceof Error ? err.message : 'Bilinmeyen hata'}`,
             )
+          }
+        })
+      }
+
+      // ── imgapprove:{jobId}:all  or  imgapprove:{jobId}:{1,2,4} ────────────
+      // Approves all or specific (1-based) slots of a preview job.
+      // Sets job status → approved which triggers the afterChange hook
+      // to attach the approved images to the product.
+      if (cbData.startsWith('imgapprove:')) {
+        const parts = cbData.split(':')
+        const cbJobId = parts[1]
+        const slotsStr = parts[2] || 'all' // 'all' or '1,2,4'
+
+        await answerCallbackQuery(cbQueryId, '✅ Onaylanıyor...')
+
+        after(async () => {
+          try {
+            const approvePayload = await getPayload()
+            await approveImageGenJob(approvePayload, cbJobId, slotsStr, cbChatId)
+          } catch (err) {
+            console.error('[telegram/webhook] imgapprove callback failed:', err)
+            await sendTelegramMessage(cbChatId, `❌ Onaylama hatası: ${err instanceof Error ? err.message : 'Bilinmeyen hata'}`)
+          }
+        })
+      }
+
+      // ── imgreject:{jobId} ─────────────────────────────────────────────────
+      // Rejects a preview job — marks as rejected, no images attached to product.
+      if (cbData.startsWith('imgreject:')) {
+        const cbJobId = cbData.split(':')[1]
+        await answerCallbackQuery(cbQueryId, '❌ Reddedildi')
+
+        after(async () => {
+          try {
+            const rejectPayload = await getPayload()
+            await rejectImageGenJob(rejectPayload, cbJobId, cbChatId)
+          } catch (err) {
+            console.error('[telegram/webhook] imgreject callback failed:', err)
+          }
+        })
+      }
+
+      // ── imgregen:{jobId} ──────────────────────────────────────────────────
+      // Discards current previews and re-queues the generation job from scratch.
+      if (cbData.startsWith('imgregen:')) {
+        const cbJobId = cbData.split(':')[1]
+        await answerCallbackQuery(cbQueryId, '🔄 Yeniden üretiliyor...')
+
+        after(async () => {
+          try {
+            const regenPayload = await getPayload()
+            await regenImageGenJob(regenPayload, cbJobId, cbChatId)
+          } catch (err) {
+            console.error('[telegram/webhook] imgregen callback failed:', err)
+            await sendTelegramMessage(cbChatId, `❌ Yeniden üretim başlatılamadı: ${err instanceof Error ? err.message : 'Bilinmeyen hata'}`)
           }
         })
       }
@@ -693,6 +914,78 @@ export async function POST(req: NextRequest) {
           console.error('[telegram/webhook] after() #gorsel jobs.run failed:', err)
         }
       })
+
+      return NextResponse.json({ ok: true })
+    }
+
+    // ── Preview approval text commands ────────────────────────────────────────
+    // Handles plain-text approval commands for the most recent 'preview' job
+    // in this chat. These mirror the inline keyboard buttons but allow
+    // partial-slot approval and other fine-grained control.
+    //
+    // Commands:
+    //   onayla / approve          → approve ALL slots
+    //   onayla 1,2,4              → approve specific 1-based slot indices
+    //   approve 1,3               → (English variant)
+    //   reddet / reject / cancel  → reject, no images attached to product
+    //   yeniden üret / regenerate → discard + re-queue generation
+    const trimmedText = text.trim()
+    const isApproveCmd = /^(onayla|approve)\b/i.test(trimmedText)
+    const isRejectCmd = /^(reddet|reject|cancel)\b/i.test(trimmedText)
+    const isRegenCmd = /^(yeniden\s*[uü]ret|regenerate)\b/i.test(trimmedText)
+
+    if (isApproveCmd || isRejectCmd || isRegenCmd) {
+      // Find the most recent preview job for this chat
+      const { docs: previewJobs } = await payload.find({
+        collection: 'image-generation-jobs',
+        where: {
+          and: [
+            { telegramChatId: { equals: String(chatId) } },
+            { status: { equals: 'preview' } },
+          ],
+        },
+        sort: '-createdAt',
+        limit: 1,
+        depth: 0,
+      })
+
+      if (previewJobs.length === 0) {
+        await sendTelegramMessage(
+          chatId,
+          '⚠️ Onay bekleyen bir görsel önizlemesi bulunamadı.\n' +
+          'Önce <code>#gorsel</code> komutuyla görsel üretin.',
+        )
+        return NextResponse.json({ ok: true })
+      }
+
+      const previewJob = previewJobs[0] as Record<string, unknown>
+      const previewJobId = String(previewJob.id)
+
+      if (isApproveCmd) {
+        // Check for specific slot indices: "onayla 1,2,4" or "approve 1,3"
+        const slotsMatch = trimmedText.match(/[\d,\s]+$/)
+        const slotsStr = slotsMatch ? slotsMatch[0].trim() : 'all'
+
+        try {
+          await approveImageGenJob(payload, previewJobId, slotsStr, chatId)
+        } catch (err) {
+          console.error('[telegram/webhook] approve text command failed:', err)
+          await sendTelegramMessage(chatId, `❌ Onaylama hatası: ${err instanceof Error ? err.message : 'Bilinmeyen hata'}`)
+        }
+      } else if (isRejectCmd) {
+        try {
+          await rejectImageGenJob(payload, previewJobId, chatId)
+        } catch (err) {
+          console.error('[telegram/webhook] reject text command failed:', err)
+        }
+      } else if (isRegenCmd) {
+        try {
+          await regenImageGenJob(payload, previewJobId, chatId)
+        } catch (err) {
+          console.error('[telegram/webhook] regen text command failed:', err)
+          await sendTelegramMessage(chatId, `❌ Yeniden üretim başlatılamadı: ${err instanceof Error ? err.message : 'Bilinmeyen hata'}`)
+        }
+      }
 
       return NextResponse.json({ ok: true })
     }

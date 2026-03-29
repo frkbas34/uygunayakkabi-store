@@ -1,5 +1,5 @@
 /**
- * imageGenTask — Step 25 v9
+ * imageGenTask — Step 25 v10
  *
  * Payload Jobs Queue task for AI product image generation.
  * Triggered by Telegram #gorsel command.
@@ -13,12 +13,16 @@
  *  5. Step B: Extract structured identity lock (10 fields + reference angle)
  *  6. Step C: Generate 5 slots via OpenAI gpt-image-1 editing ONLY
  *  7. Step D: Per-slot color check — reject color-drifted outputs
- *  8. Save generated Media documents
- *  9. Update job → status='review'
- * 10. Telegram notification with per-slot status
+ *  8. Save generated Media documents (type='enhanced', NOT yet attached to product)
+ *  9. Send each image as a Telegram photo for operator preview
+ * 10. Send approval keyboard to Telegram (✅ Onayla / 🔄 Yeniden Üret / ❌ Reddet)
+ * 11. Update job → status='preview' (awaiting Telegram approval)
  *
  * NO PIPELINE B. NO GEMINI GENERATION. NO TEXT-TO-IMAGE FALLBACK.
  * If Pipeline A fails → explicit failure. Mode tag is cosmetic only.
+ *
+ * v10 PREVIEW FLOW: images are NOT attached to product until operator
+ * explicitly approves via Telegram. See route.ts for approval handlers.
  */
 
 import type { TaskConfig } from 'payload'
@@ -359,9 +363,12 @@ export const imageGenTask: TaskConfig<{
     }
 
     // ── Step 7: Save each buffer as a Media document ────────────────────────
+    // Images are saved as type='enhanced' but NOT yet attached to the product.
+    // They will be attached only after operator approval via Telegram.
     const slotNames = ['commerce_front', 'side_angle', 'detail_closeup', 'tabletop_editorial', 'worn_lifestyle']
     const slotLabels = ['Slot 1 — Ön Hero', 'Slot 2 — Yan Profil', 'Slot 3 — Makro', 'Slot 4 — Editoryal', 'Slot 5 — Lifestyle']
     const mediaIds: number[] = []
+    const mediaUrls: string[] = []
 
     for (let i = 0; i < generatedBuffers.length; i++) {
       const buf = generatedBuffers[i]
@@ -385,56 +392,72 @@ export const imageGenTask: TaskConfig<{
           },
         })
         mediaIds.push(media.id as number)
-        console.log(`[imageGenTask v9] saved media=${media.id} ${concept} ${buf.length}b`)
+        mediaUrls.push((media.url as string) || '')
+        console.log(`[imageGenTask v10] saved media=${media.id} ${concept} ${buf.length}b url=${media.url}`)
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err)
-        console.error(`[imageGenTask v9] media save failed (${concept}): ${msg}`)
+        console.error(`[imageGenTask v10] media save failed (${concept}): ${msg}`)
+        mediaUrls.push('') // keep index alignment
       }
     }
 
-    // ── Step 8: Update job to 'review' ──────────────────────────────────────
+    // ── Build slot icons string for summaries ────────────────────────────────
+    const slotIcons = (slotLogsSummary as Array<{ success?: boolean; colorCheckPass?: boolean }>)
+      .map((s) => {
+        if (!s.success) return '❌'
+        if (s.colorCheckPass === false) return '⚠️'
+        return '✅'
+      })
+      .join('')
+
+    // ── Step 8: Update job to 'preview' (images saved, awaiting TG approval) ─
     await payload.update({
       collection: 'image-generation-jobs',
       id: jobId,
       data: {
-        status: 'review',
+        status: 'preview',
         generatedImages: mediaIds,
         imageCount: mediaIds.length,
         generationCompletedAt: new Date().toISOString(),
         providerResults: JSON.stringify({
-          pipeline: 'openai-edit-only-v9',
+          pipeline: 'openai-edit-only-v10',
           mode: `${mode} (cosmetic)`,
           summary: providerResultsSummary,
           slotLogs: slotLogsSummary,
           identityLock: identityLockMeta,
+          mediaUrls,
         }),
         jobTitle: `${productTitle} — OpenAI Edit (${mediaIds.length} görsel)`,
       },
     })
 
-    // ── Step 9: Telegram notification ───────────────────────────────────────
+    // ── Step 9: Send preview images to Telegram ──────────────────────────────
     if (telegramChatId) {
-      const adminUrl = `https://www.uygunayakkabi.com/admin/collections/image-generation-jobs/${jobId}`
-      const slotIcons = (slotLogsSummary as Array<{ success?: boolean; colorCheckPass?: boolean }>)
-        .map((s) => {
-          if (!s.success) return '❌'
-          if (s.colorCheckPass === false) return '⚠️'
-          return '✅'
-        })
-        .join('')
+      // Send each generated image as a separate Telegram photo
+      for (let i = 0; i < mediaUrls.length; i++) {
+        const url = mediaUrls[i]
+        if (!url) continue
+        const slotLabel = slotLabels[i] || `Görsel ${i + 1}`
+        const slotIcon = slotIcons[i] || '✅'
+        await sendTelegramPhoto(
+          telegramChatId,
+          url,
+          `${slotIcon} <b>${slotLabel}</b>`,
+        )
+      }
 
-      await sendTelegramNotification(
+      // ── Step 10: Send approval keyboard ────────────────────────────────────
+      await sendApprovalKeyboard(
         telegramChatId,
-        `🎨 <b>${mediaIds.length} görsel hazır!</b>\n\n` +
-        `📦 Ürün: <b>${productTitle}</b>\n` +
-        `🔧 Pipeline: OpenAI Edit v9\n` +
-        (slotIcons ? `🎯 Slotlar: ${slotIcons}\n` : '') +
-        (identityLockMeta.mainColor ? `🎨 Renk: ${identityLockMeta.mainColor}\n` : '') +
-        `\n🔗 <a href="${adminUrl}">Görselleri incele</a>`,
+        jobId,
+        mediaIds.length,
+        productTitle,
+        slotIcons,
+        identityLockMeta.mainColor as string | undefined,
       )
     }
 
-    console.log(`[imageGenTask v9] done — jobId=${jobId} product=${productId} images=${mediaIds.length}`)
+    console.log(`[imageGenTask v10] done — jobId=${jobId} product=${productId} images=${mediaIds.length} status=preview`)
 
     return {
       output: {
@@ -479,5 +502,93 @@ async function sendTelegramNotification(chatId: string, text: string): Promise<v
     })
   } catch (err) {
     console.error('[imageGenTask] Telegram notify failed:', err)
+  }
+}
+
+/**
+ * Send a single image to Telegram as a photo message.
+ * photoUrl must be a publicly accessible HTTPS URL (Vercel Blob URL).
+ */
+async function sendTelegramPhoto(chatId: string, photoUrl: string, caption: string): Promise<void> {
+  const token = process.env.TELEGRAM_BOT_TOKEN
+  if (!token) return
+  try {
+    await fetch(`https://api.telegram.org/bot${token}/sendPhoto`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        chat_id: chatId,
+        photo: photoUrl,
+        caption,
+        parse_mode: 'HTML',
+      }),
+    })
+  } catch (err) {
+    console.error(`[imageGenTask] sendTelegramPhoto failed (${photoUrl}):`, err)
+  }
+}
+
+/**
+ * Send the approval inline keyboard to Telegram after preview images.
+ * Buttons:
+ *   Row 1: ✅ Tümünü Onayla
+ *   Row 2: 🔄 Yeniden Üret  |  ❌ Reddet
+ *
+ * callback_data formats (handled in route.ts):
+ *   imgapprove:{jobId}:all   — approve all generated images
+ *   imgregen:{jobId}         — discard + regenerate all 5 slots
+ *   imgreject:{jobId}        — reject, discard temp media
+ *
+ * Text commands also accepted in route.ts:
+ *   onayla / approve            → approve all
+ *   onayla 1,2,4 / approve 1,3 → approve specific slots (1-based)
+ *   reddet / reject / cancel    → reject
+ *   yeniden üret / regenerate   → regenerate
+ */
+async function sendApprovalKeyboard(
+  chatId: string,
+  jobId: string,
+  imageCount: number,
+  productTitle: string,
+  slotIcons: string,
+  mainColor?: string,
+): Promise<void> {
+  const token = process.env.TELEGRAM_BOT_TOKEN
+  if (!token) return
+
+  const colorLine = mainColor ? `\n🎨 Renk kilidi: <b>${mainColor}</b>` : ''
+  const text =
+    `🎨 <b>${imageCount} önizleme hazır — onay bekleniyor</b>\n\n` +
+    `📦 <b>${productTitle}</b>` +
+    colorLine +
+    (slotIcons ? `\n🎯 Slotlar: ${slotIcons}` : '') +
+    `\n\n` +
+    `Tümünü onaylamak için <b>✅ Tümünü Onayla</b> butonuna basın.\n` +
+    `Belirli slotları onaylamak için yazın: <code>onayla 1,2,4</code>\n` +
+    `İptal için <b>❌ Reddet</b> butonuna basın.`
+
+  try {
+    await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        chat_id: chatId,
+        text,
+        parse_mode: 'HTML',
+        reply_markup: {
+          inline_keyboard: [
+            [
+              { text: '✅ Tümünü Onayla', callback_data: `imgapprove:${jobId}:all` },
+            ],
+            [
+              { text: '🔄 Yeniden Üret', callback_data: `imgregen:${jobId}` },
+              { text: '❌ Reddet', callback_data: `imgreject:${jobId}` },
+            ],
+          ],
+        },
+      }),
+    })
+  } catch (err) {
+    console.error('[imageGenTask] sendApprovalKeyboard failed:', err)
   }
 }

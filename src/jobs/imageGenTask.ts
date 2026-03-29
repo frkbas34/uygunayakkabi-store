@@ -1,29 +1,30 @@
 /**
- * imageGenTask — Step 24
+ * imageGenTask — Step 24 / Step 25
  *
  * Payload Jobs Queue task for AI product image generation.
  * Registered in payload.config.ts under jobs.tasks.
  *
  * Triggered by: Telegram route when user sends #gorsel command.
  *
- * Flow:
- *  1. Fetch ImageGenerationJob record (has product ID, mode, Telegram chat ID)
- *  2. Fetch product details + reference image from product's first photo
- *  3. Pipeline A (preferred): If reference image available, use GPT Image Edit
- *     (preserves EXACT product, only changes scene/angle/background)
- *     Pipeline B (fallback): If no reference image or editing fails, use
- *     vision analysis + text prompts + generateByMode()
- *  4. For each generated image Buffer:
- *     - Create Media document via payload.create (auto-uploads to Vercel Blob)
- *     - Collect media IDs
- *  6. Update ImageGenerationJob: status='review', generatedImages=[...media IDs]
- *  7. Send Telegram notification to requester
+ * ─── PRIMARY FLOW (reference image available — Step 25) ────────────────────
+ *  1. Fetch ImageGenerationJob record
+ *  2. Fetch product details + reference image
+ *  3. STEP A — Validate: reject if not a valid shoe/product image
+ *  4. STEP B — Identity lock: extract structured product description
+ *  5. STEP C — Pipeline A: OpenAI gpt-image-1 image editing (5 slots)
+ *     - If Pipeline A fails (0 images) AND reference image exists → FAIL CLEARLY
+ *       (do NOT silently fall back to Gemini text-to-image)
+ *  6. Save generated Media documents
+ *  7. Update ImageGenerationJob → status='review'
+ *  8. Send Telegram notification
  *
- * On failure: job status → 'failed', error message stored, Telegram notified.
+ * ─── FALLBACK FLOW (no reference image) ────────────────────────────────────
+ *  Pipeline B: Gemini Vision describes product → text prompts → generateByMode()
+ *  Known limitation: text-to-image cannot guarantee exact product reproduction.
+ *  This path is degraded and logged as such.
  *
- * IMPORTANT: Image generation takes 30–120 seconds for 5 images.
- * Vercel Pro is needed (maxDuration=60 or higher on the job runner endpoint).
- * On Hobby plan, set retries=0 to prevent partial re-generation.
+ * IMPORTANT: Image generation takes 60–120+ seconds for 5 images.
+ * Vercel Pro is needed (maxDuration=120 on the job runner endpoint).
  */
 
 import type { TaskConfig } from 'payload'
@@ -43,7 +44,7 @@ export const imageGenTask: TaskConfig<{
 }> = {
   slug: 'image-gen',
   label: 'AI Görsel Üretimi',
-  retries: 0, // No retry — image gen is expensive; admin should re-trigger if needed
+  retries: 0, // No task-level retry — image gen is expensive; admin re-triggers if needed
 
   inputSchema: [{ name: 'jobId', type: 'text', required: true }],
 
@@ -54,7 +55,6 @@ export const imageGenTask: TaskConfig<{
   ],
 
   onFail: async ({ job, req }) => {
-    // Extract jobId from the job record for cleanup
     const jobId = (
       (job.taskStatus?.['image-gen'] as Record<string, unknown> | undefined)
         ?.input as Record<string, unknown> | undefined
@@ -91,7 +91,7 @@ export const imageGenTask: TaskConfig<{
         id: jobId,
         depth: 1,
       }) as Record<string, unknown>
-    } catch (err) {
+    } catch {
       const msg = `Job bulunamadı: ${jobId}`
       console.error(`[imageGenTask] ${msg}`)
       throw new Error(msg)
@@ -105,10 +105,8 @@ export const imageGenTask: TaskConfig<{
       throw new Error('Job kayıtında ürün referansı eksik')
     }
 
-    const productId =
-      typeof productRef === 'object' ? productRef.id : productRef
+    const productId = typeof productRef === 'object' ? productRef.id : productRef
 
-    // Mark as generating
     await payload.update({
       collection: 'image-generation-jobs',
       id: jobId,
@@ -118,7 +116,7 @@ export const imageGenTask: TaskConfig<{
       },
     })
 
-    // ── Step 2: Fetch product details (depth:1 to get populated image URLs) ──
+    // ── Step 2: Fetch product details ────────────────────────────────────────
     let productDoc: Record<string, unknown>
     try {
       productDoc = await payload.findByID({
@@ -126,7 +124,7 @@ export const imageGenTask: TaskConfig<{
         id: productId,
         depth: 1,
       }) as Record<string, unknown>
-    } catch (err) {
+    } catch {
       throw new Error(`Ürün bulunamadı: ${productId}`)
     }
 
@@ -150,34 +148,24 @@ export const imageGenTask: TaskConfig<{
     }
 
     // ── Step 2b: Load reference image ─────────────────────────────────────────
-    // Fetches the product's first photo for Gemini Vision analysis (Step 2c).
-    // The image is NOT passed to the generation model (text-to-image only).
-    //
-    // Media URL handling:
-    //   Payload stores media URLs as relative paths like /api/media/file/xxx.jpg.
-    //   To fetch them from within a serverless function we need an absolute URL.
-    //   We use NEXT_PUBLIC_SERVER_URL or VERCEL_URL to construct it.
     let referenceImage: Buffer | undefined
     let referenceImageMime: string | undefined
 
-    // Helper: make a media URL absolute so it's fetchable from serverless context
     const siteBase =
       process.env.NEXT_PUBLIC_SERVER_URL ||
       (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : null)
 
     function absoluteUrl(url: string): string {
-      if (url.startsWith('http')) return url           // already absolute
-      if (siteBase) return `${siteBase}${url}`         // prepend site base
-      return url                                        // last resort (will fail)
+      if (url.startsWith('http')) return url
+      if (siteBase) return `${siteBase}${url}`
+      return url
     }
 
-    // Get the first product image's media ID or populated object
     const imagesArr = productDoc.images as
       | Array<{ image: { url?: string; mimeType?: string } | number }>
       | undefined
     const firstImageItem = imagesArr?.[0]?.image
 
-    // Resolve media URL — try depth:1 populated object first, then direct fetch
     let mediaUrl: string | undefined
     let mediaMime: string | undefined
 
@@ -185,7 +173,6 @@ export const imageGenTask: TaskConfig<{
       mediaUrl = firstImageItem.url
       mediaMime = firstImageItem.mimeType
     } else if (typeof firstImageItem === 'number') {
-      // depth:1 didn't populate — fetch media document directly
       try {
         const mediaDoc = await payload.findByID({
           collection: 'media',
@@ -207,7 +194,9 @@ export const imageGenTask: TaskConfig<{
         if (imgRes.ok) {
           referenceImage = Buffer.from(await imgRes.arrayBuffer())
           referenceImageMime = mediaMime || 'image/jpeg'
-          console.log(`[imageGenTask] reference image loaded — size=${referenceImage.length} mime=${referenceImageMime}`)
+          console.log(
+            `[imageGenTask] reference image loaded — size=${referenceImage.length} mime=${referenceImageMime}`,
+          )
         } else {
           console.warn(`[imageGenTask] reference image fetch failed (HTTP ${imgRes.status})`)
         }
@@ -217,58 +206,150 @@ export const imageGenTask: TaskConfig<{
     }
 
     if (!referenceImage) {
-      console.log('[imageGenTask] No reference image available — using text-only prompts')
+      console.log('[imageGenTask] No reference image — Pipeline B (text-to-image) will be used')
     }
 
-    // ── Step 2c: Vision analysis — runs BEFORE pipeline fork ─────────────────
-    // Produces a precise text description of the product from the reference photo.
-    // This is used as an identity anchor in BOTH Pipeline A (edit prompts) and
-    // Pipeline B (text-to-image prompts), significantly reducing identity drift.
-    //
-    // Example output: "dark brown smooth leather lace-up wingtip oxford shoe
-    // with brogue perforations on toe cap and sides, flat stacked leather heel..."
-    let visualDescription: string | undefined
+    // ── Step 2c: STEP A — Input Validation ───────────────────────────────────
+    // Reject invalid inputs BEFORE any generation attempt.
+    // Validation uses Gemini Vision for analysis only (not for image generation).
+    // On validation API failure, defaults to valid=true so requests aren't blocked.
     if (referenceImage && process.env.GEMINI_API_KEY) {
-      const visualDesc = await describeProductImage(
+      const { validateProductImage } = await import('../lib/imageProviders')
+      const validation = await validateProductImage(
         referenceImage,
         referenceImageMime || 'image/jpeg',
         process.env.GEMINI_API_KEY,
       )
-      if (visualDesc) {
-        visualDescription = visualDesc
-        productContext.visualDescription = visualDesc
-        console.log(`[imageGenTask] Vision description: "${visualDesc.slice(0, 120)}..."`)
-      } else {
-        console.warn('[imageGenTask] Vision analysis returned null — proceeding without text anchor')
+
+      console.log(
+        `[imageGenTask] Validation: valid=${validation.valid} ` +
+        `confidence=${validation.confidence}` +
+        (validation.productClass ? ` class=${validation.productClass}` : '') +
+        (validation.rejectionReason ? ` reason=${validation.rejectionReason}` : ''),
+      )
+
+      if (!validation.valid) {
+        const rejectionMsg =
+          `Görsel geçersiz — bu bir ayakkabı/ürün fotoğrafı değil` +
+          (validation.rejectionReason ? `: ${validation.rejectionReason}` : '') +
+          `. Lütfen ürün fotoğrafı gönderin.`
+
+        await payload.update({
+          collection: 'image-generation-jobs',
+          id: jobId,
+          data: {
+            status: 'failed',
+            errorMessage: rejectionMsg,
+            generationCompletedAt: new Date().toISOString(),
+            providerResults: JSON.stringify({
+              rejected: true,
+              confidence: validation.confidence,
+              reason: validation.rejectionReason,
+            }),
+          },
+        })
+
+        if (telegramChatId) {
+          await sendTelegramNotification(
+            telegramChatId,
+            `⚠️ <b>Görsel reddedildi</b>\n\n` +
+            `Bu fotoğraf bir ayakkabı/ürün görseli olarak tanınamadı` +
+            (validation.rejectionReason ? ` (<i>${validation.rejectionReason}</i>)` : '') +
+            `.\n\nLütfen net bir ürün fotoğrafı gönderin ve tekrar deneyin.`,
+          )
+        }
+
+        console.warn(`[imageGenTask] Input rejected — reason=${validation.rejectionReason}`)
+        throw new Error(rejectionMsg)
+      }
+
+      // Store validated product class in context if detected
+      if (validation.productClass) {
+        productContext.productType = productContext.productType || validation.productClass
       }
     }
 
-    // ── Step 3 & 4: Generate images ──────────────────────────────────────────
-    // Two pipelines:
-    //   A) EDITING mode (preferred): When referenceImage is available, use GPT
-    //      Image Edit to preserve the EXACT product and only change scene/angle.
-    //      Visual description is passed as identity anchor in each edit prompt.
-    //   B) TEXT-TO-IMAGE fallback: When no reference image exists, use vision
-    //      analysis + text prompts + generateByMode().
+    // ── Step 2d: STEP B — Identity Lock Extraction ───────────────────────────
+    // Build a structured product identity block from the reference image.
+    // This block is injected into every Pipeline A slot prompt to prevent drift.
+    // Falls back to a minimal generic lock if extraction fails.
+    let identityLockBlock: string
+    let identityLockMeta: Record<string, unknown> = {}
 
+    if (referenceImage && process.env.GEMINI_API_KEY) {
+      const { extractIdentityLock } = await import('../lib/imageProviders')
+      const lock = await extractIdentityLock(
+        referenceImage,
+        referenceImageMime || 'image/jpeg',
+        process.env.GEMINI_API_KEY,
+      )
+
+      if (lock) {
+        identityLockBlock = lock.promptBlock
+        identityLockMeta = {
+          productClass: lock.productClass,
+          mainColor: lock.mainColor,
+          accentColor: lock.accentColor,
+          material: lock.material,
+          toeShape: lock.toeShape,
+          soleProfile: lock.soleProfile,
+          heelProfile: lock.heelProfile,
+          closureType: lock.closureType,
+          distinctiveFeatures: lock.distinctiveFeatures,
+        }
+        // Use vision-extracted description for Pipeline B fallback as well
+        productContext.visualDescription =
+          `${lock.productClass}, ${lock.mainColor}, ${lock.material}` +
+          (lock.distinctiveFeatures ? `, ${lock.distinctiveFeatures}` : '')
+        console.log(`[imageGenTask] Identity lock extracted: ${lock.productClass} | ${lock.mainColor} | ${lock.material}`)
+      } else {
+        // API failed — use minimal generic fallback lock
+        console.warn('[imageGenTask] Identity lock extraction failed — using minimal fallback lock')
+        identityLockBlock =
+          `╔══ PRODUCT IDENTITY LOCK — MUST NOT BE ALTERED ══╗\n` +
+          `PRODUCT CLASS  : the exact shoe shown in the reference photo\n` +
+          `╠══ CRITICAL CONSTRAINTS — YOU MUST NEVER ════════╣\n` +
+          `• Change product type, color, material, or silhouette\n` +
+          `• Add or remove any design features\n` +
+          `• Replace with a different shoe\n` +
+          `• Invent logos, patterns, or decorative elements\n` +
+          `╚═════════════════════════════════════════════════╝\n\n`
+        identityLockMeta = { fallback: true }
+      }
+    } else {
+      // No reference image or no API key — minimal lock
+      identityLockBlock =
+        `╔══ PRODUCT IDENTITY LOCK ══╗\n` +
+        `Reproduce the exact product from the reference photo.\n` +
+        `Do not change color, material, sole, or design.\n` +
+        `╚══════════════════════════╝\n\n`
+      identityLockMeta = { fallback: true, noImage: !referenceImage }
+    }
+
+    // ── Step 3 & 4: Generate images ──────────────────────────────────────────
     let generatedBuffers: Buffer[] = []
     let providerResultsSummary: unknown[] = []
     let promptSet: Array<{ concept: string; label: string; prompt: string }> = []
+    let slotLogsSummary: unknown[] = []
 
     if (referenceImage) {
-      // ── Pipeline A: Image EDITING (preserves exact product) ─────────────
-      console.log('[imageGenTask] Reference image available — using EDITING pipeline')
+      // ── Pipeline A: OpenAI Image Editing (PRIMARY PATH) ──────────────────
+      // This is the ONLY generation path when a reference image exists.
+      // DO NOT fall through to Pipeline B if this fails.
+      console.log('[imageGenTask] Pipeline A — OpenAI gpt-image-1 editing (primary path)')
 
-      const { generateByEditing } = await import('../lib/imageProviders')
-
-      // Store the editing prompts for debugging
       const editingConcepts = [
-        { concept: 'commerce_front', label: 'Ürün — Ön Görünüm (Beyaz Fon)' },
-        { concept: 'side_angle', label: 'Ürün — Yan Açı (Stüdyo)' },
-        { concept: 'detail_closeup', label: 'Detay — Malzeme Dokusu' },
-        { concept: 'tabletop_editorial', label: 'Editoryal — Masa Üstü Yaşam' },
-        { concept: 'worn_lifestyle', label: 'Yaşam — Giyim Tarzı' },
+        { concept: 'commerce_front',      label: 'Slot 1 — Ön Stüdyo Hero' },
+        { concept: 'side_angle',          label: 'Slot 2 — 90° Yan Profil' },
+        { concept: 'detail_closeup',      label: 'Slot 3 — Malzeme Makro Detay' },
+        { concept: 'tabletop_editorial',  label: 'Slot 4 — Editoryal Üstten Perspektif' },
+        { concept: 'worn_lifestyle',      label: 'Slot 5 — Lifestyle Giyilmiş Bağlam' },
       ]
+
+      promptSet = editingConcepts.map((c) => ({
+        ...c,
+        prompt: `[EDITING MODE — identity lock: ${identityLockMeta.productClass || 'extracted'}]`,
+      }))
 
       await payload.update({
         collection: 'image-generation-jobs',
@@ -277,21 +358,24 @@ export const imageGenTask: TaskConfig<{
           promptsUsed: JSON.stringify(
             editingConcepts.map((c) => ({
               ...c,
-              prompt: `[EDITING MODE — identity anchor: ${visualDescription ? visualDescription.slice(0, 80) + '...' : 'image only'}]`,
+              mode: 'gpt-image-1-edit',
+              identityLock: identityLockMeta,
             })),
           ),
         },
       })
 
-      promptSet = editingConcepts.map((c) => ({ ...c, prompt: 'editing' }))
+      const { generateByEditing } = await import('../lib/imageProviders')
 
+      let editingFailed = false
       try {
-        const { results, buffers } = await generateByEditing(
+        const { results, buffers, slotLogs } = await generateByEditing(
           referenceImage,
           referenceImageMime || 'image/jpeg',
-          visualDescription,
+          identityLockBlock,
         )
         generatedBuffers = buffers
+        slotLogsSummary = slotLogs
         providerResultsSummary = results.map((r) => ({
           provider: r.provider,
           success: r.successCount,
@@ -299,40 +383,84 @@ export const imageGenTask: TaskConfig<{
           errors: r.errors,
         }))
 
-        // If editing produced zero images, fall back to text-to-image
         if (generatedBuffers.length === 0) {
-          console.warn('[imageGenTask] Editing pipeline produced 0 images — falling back to text-to-image')
-          // Fall through to Pipeline B below
+          editingFailed = true
+          console.error('[imageGenTask] Pipeline A: 0 images generated')
+        } else {
+          console.log(`[imageGenTask] Pipeline A: ${generatedBuffers.length} images generated`)
         }
       } catch (err) {
-        console.warn('[imageGenTask] Editing pipeline error, falling back to text-to-image:', err instanceof Error ? err.message : err)
-        // Fall through to Pipeline B below
+        editingFailed = true
+        const errMsg = err instanceof Error ? err.message : String(err)
+        console.error('[imageGenTask] Pipeline A error:', errMsg)
+        providerResultsSummary = [{ provider: 'gpt-image-edit', error: errMsg }]
+      }
+
+      // ── CRITICAL: No silent Gemini fallback when reference image exists ──
+      // If Pipeline A fails with a reference image, fail explicitly.
+      // The user must know that editing failed — not receive Gemini text-to-image
+      // output that won't match the original shoe.
+      if (editingFailed) {
+        const msg =
+          `OpenAI görsel düzenleme başarısız — ${generatedBuffers.length === 0 ? '0 görsel üretildi' : 'hata'}. ` +
+          `Ürün fotoğrafını kontrol edip tekrar deneyin.`
+
+        await payload.update({
+          collection: 'image-generation-jobs',
+          id: jobId,
+          data: {
+            status: 'failed',
+            errorMessage: msg,
+            generationCompletedAt: new Date().toISOString(),
+            providerResults: JSON.stringify({
+              ...providerResultsSummary,
+              slotLogs: slotLogsSummary,
+              note: 'Pipeline A (OpenAI editing) failed. No Gemini fallback — reference image path requires editing.',
+            }),
+          },
+        })
+
+        if (telegramChatId) {
+          await sendTelegramNotification(
+            telegramChatId,
+            `❌ <b>Görsel üretimi başarısız</b>\n\n` +
+            `OpenAI düzenleme motoru görsel üretemedi.\n` +
+            `Ürün fotoğrafının net ve tek bir ayakkabıyı gösterdiğinden emin olun, ardından tekrar deneyin: <code>#gorsel</code>`,
+          )
+        }
+
+        throw new Error(msg)
       }
     }
 
-    // ── Pipeline B: Text-to-image fallback ──────────────────────────────────
+    // ── Pipeline B: Text-to-image fallback (NO reference image only) ─────────
+    // This path only runs when there is literally no reference image on the product.
+    // It is a degraded path — the output is NOT guaranteed to match any real product.
     if (generatedBuffers.length === 0) {
-      if (referenceImage) {
-        console.log('[imageGenTask] Falling back to text-to-image pipeline')
-      } else {
-        console.log('[imageGenTask] No reference image — using text-to-image pipeline')
-      }
+      console.log(
+        '[imageGenTask] Pipeline B — text-to-image fallback ' +
+        '(DEGRADED: no reference image, product identity not guaranteed)',
+      )
 
-      // Step 3: Build text prompts
       const { buildPromptSet } = await import('../lib/imagePromptBuilder')
       const builtPrompts = buildPromptSet(productContext, false)
       const promptTexts = builtPrompts.map((p) => p.prompt)
-      promptSet = builtPrompts.map((p) => ({ concept: p.concept, label: p.label, prompt: p.prompt }))
+      promptSet = builtPrompts.map((p) => ({
+        concept: p.concept,
+        label: p.label,
+        prompt: p.prompt,
+      }))
 
       await payload.update({
         collection: 'image-generation-jobs',
         id: jobId,
         data: {
-          promptsUsed: JSON.stringify(promptSet),
+          promptsUsed: JSON.stringify(
+            promptSet.map((p) => ({ ...p, mode: 'text-to-image-fallback' })),
+          ),
         },
       })
 
-      // Step 4: Generate via text-to-image
       const { generateByMode } = await import('../lib/imageProviders')
 
       try {
@@ -346,6 +474,7 @@ export const imageGenTask: TaskConfig<{
           success: r.successCount,
           total: r.promptCount,
           errors: r.errors,
+          note: 'Pipeline B — text-to-image, product identity not guaranteed',
         }))
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err)
@@ -354,7 +483,7 @@ export const imageGenTask: TaskConfig<{
           id: jobId,
           data: {
             status: 'failed',
-            errorMessage: `Görsel üretimi başarısız: ${msg}`,
+            errorMessage: `Görsel üretimi başarısız (Pipeline B): ${msg}`,
             generationCompletedAt: new Date().toISOString(),
             providerResults: JSON.stringify({ error: msg }),
           },
@@ -413,9 +542,7 @@ export const imageGenTask: TaskConfig<{
           },
         })
         mediaIds.push(media.id as number)
-        console.log(
-          `[imageGenTask] media saved — id=${media.id} concept=${concept} size=${buf.length}`,
-        )
+        console.log(`[imageGenTask] media saved — id=${media.id} concept=${concept} size=${buf.length}`)
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err)
         console.error(`[imageGenTask] media save failed (${concept}): ${msg}`)
@@ -432,7 +559,11 @@ export const imageGenTask: TaskConfig<{
         generatedImages: mediaIds,
         imageCount: mediaIds.length,
         generationCompletedAt: new Date().toISOString(),
-        providerResults: JSON.stringify(providerResultsSummary),
+        providerResults: JSON.stringify({
+          summary: providerResultsSummary,
+          slotLogs: slotLogsSummary,
+          identityLock: identityLockMeta,
+        }),
         jobTitle: `${productTitle} — ${modeLabelTr(mode)} (${mediaIds.length} görsel)`,
       },
     })
@@ -440,19 +571,22 @@ export const imageGenTask: TaskConfig<{
     // ── Step 7: Telegram notification ───────────────────────────────────────
     if (telegramChatId) {
       const adminUrl = `https://www.uygunayakkabi.com/admin/collections/image-generation-jobs/${jobId}`
+      const slotStatus = (slotLogsSummary as Array<{ success?: boolean; slot?: string }>)
+        .map((s) => (s.success ? '✅' : '❌'))
+        .join('')
       await sendTelegramNotification(
         telegramChatId,
         `🎨 <b>${mediaIds.length} görsel hazır!</b>\n\n` +
-          `📦 Ürün: <b>${productTitle}</b>\n` +
-          `🔧 Mod: ${modeLabelTr(mode)}\n\n` +
-          `Admin panelinde görselleri inceleyip ürüne ekleyebilirsiniz:\n` +
-          `🔗 <a href="${adminUrl}">Görselleri incele</a>`,
+        `📦 Ürün: <b>${productTitle}</b>\n` +
+        `🔧 Mod: ${modeLabelTr(mode)}\n` +
+        (slotStatus ? `🎯 Slotlar: ${slotStatus}\n` : '') +
+        `\nAdmin panelinde görselleri inceleyip ürüne ekleyebilirsiniz:\n` +
+        `🔗 <a href="${adminUrl}">Görselleri incele</a>`,
       )
     }
 
     console.log(
-      `[imageGenTask] success — jobId=${jobId} product=${productId} ` +
-        `images=${mediaIds.length}`,
+      `[imageGenTask] success — jobId=${jobId} product=${productId} images=${mediaIds.length}`,
     )
 
     return {
@@ -469,84 +603,6 @@ export const imageGenTask: TaskConfig<{
 // Helpers
 // ─────────────────────────────────────────────────────────────────────────────
 
-/**
- * Uses Gemini Vision (gemini-2.5-flash — a text+vision model, NOT the image
- * generation model) to analyse the reference product photo and return a concise
- * English description suitable for use in image generation text prompts.
- *
- * Example output: "camel brown suede Chelsea boot with elastic side panels,
- * stacked block heel, and almond toe cap"
- *
- * This description is then injected as productContext.visualDescription so the
- * text-to-image model receives a highly specific product description rather than
- * the sparse metadata available for draft/Telegram-created products.
- *
- * Returns null if the API call fails (task continues with fallback description).
- */
-async function describeProductImage(
-  imageBuffer: Buffer,
-  imageMime: string,
-  apiKey: string,
-): Promise<string | null> {
-  const visionModel = 'gemini-2.5-flash'   // text/vision model — NOT image gen
-
-  const prompt =
-    `You are a product photography expert. Your job is to describe this product so precisely ` +
-    `that an AI image generator can recreate EXACTLY the same product — not a similar one. ` +
-    `Write ONE detailed English sentence (40-80 words) covering ALL of these in order:\n` +
-    `1. EXACT product type & silhouette (e.g. "low-top lace-up derby shoe" NOT just "shoe")\n` +
-    `2. ALL colors visible — upper, sole, laces, stitching, accents\n` +
-    `3. Material & texture of EACH part (e.g. "smooth leather upper, rubber lug sole")\n` +
-    `4. Toe shape (round / pointed / square / almond)\n` +
-    `5. Sole style (flat / chunky / wedge / stacked heel), sole color\n` +
-    `6. Closure type (lace-up / slip-on / buckle / zipper / velcro)\n` +
-    `7. Distinctive details (perforations, logos, contrast stitching, pull tab, etc.)\n` +
-    `Do NOT include brand names. Output the description ONLY — no explanation.\n` +
-    `Example: "Tan brown smooth leather lace-up wingtip oxford shoe with brogue perforations ` +
-    `on toe cap and sides, flat dark brown stacked leather heel, thin brown cotton laces, ` +
-    `Goodyear welt stitching, pointed toe, and slim dark brown rubber sole with light tread pattern".`
-
-  try {
-    const res = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/${visionModel}:generateContent?key=${apiKey}`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          contents: [{
-            parts: [
-              { inlineData: { mimeType: imageMime, data: imageBuffer.toString('base64') } },
-              { text: prompt },
-            ],
-          }],
-          generationConfig: { responseMimeType: 'text/plain', maxOutputTokens: 250 },
-        }),
-      },
-    )
-
-    if (!res.ok) {
-      const err = await res.text()
-      console.warn(`[imageGenTask] Vision analysis HTTP ${res.status}: ${err.slice(0, 200)}`)
-      return null
-    }
-
-    const data = await res.json()
-    const text: string | undefined =
-      data?.candidates?.[0]?.content?.parts?.[0]?.text
-    if (!text) {
-      console.warn('[imageGenTask] Vision analysis returned no text:', JSON.stringify(data).slice(0, 200))
-      return null
-    }
-
-    const description = text.trim().replace(/^["']|["']$/g, '').trim()
-    console.log(`[imageGenTask] Vision description: "${description}"`)
-    return description
-  } catch (err) {
-    console.warn('[imageGenTask] Vision analysis failed:', err instanceof Error ? err.message : err)
-    return null
-  }
-}
-
 function modeLabelTr(mode: string): string {
   const labels: Record<string, string> = {
     hizli: '⚡ Hızlı (Gemini Flash)',
@@ -557,10 +613,7 @@ function modeLabelTr(mode: string): string {
   return labels[mode] ?? mode
 }
 
-async function sendTelegramNotification(
-  chatId: string,
-  text: string,
-): Promise<void> {
+async function sendTelegramNotification(chatId: string, text: string): Promise<void> {
   const token = process.env.TELEGRAM_BOT_TOKEN
   if (!token) return
   try {

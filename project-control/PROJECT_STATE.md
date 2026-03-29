@@ -1,6 +1,6 @@
 # PROJECT STATE — Uygunayakkabi
 
-_Last updated: 2026-03-28 18:00 UTC (Step 25 in progress — AI image editing pipeline switched to /v1/images/edits with gpt-image-1)_
+_Last updated: 2026-03-29 (Step 25 IN PROGRESS — 5 approaches tried and rejected by user; fundamental pipeline redesign needed)_
 
 ## Current Status
 
@@ -131,7 +131,7 @@ _Last updated: 2026-03-28 18:00 UTC (Step 25 in progress — AI image editing pi
 | `SHOPIER_WEBHOOK_TOKEN` | Comma-separated HMAC tokens (one per webhook registration) |
 
 ### Deployment Status
-- **Vercel deployment**: `196c419` — Ready + Current (as of 2026-03-28 ~18:00 UTC)
+- **Vercel deployment**: v8 pending push (2026-03-29) — OpenAI-first strict pipeline: input validation, structured identity lock, no silent Gemini fallback, per-slot logs
 - **Custom domain**: `uygunayakkabi.com` (CNAME configured)
 
 ### Instagram OAuth Routes
@@ -298,29 +298,126 @@ To refresh Instagram token: navigate to `https://uygunayakkabi.com/api/auth/inst
 
 ### AI Image Generation — Key Architecture Decisions
 
-#### Pipeline A: Image Editing (PARTIALLY IMPLEMENTED — 2026-03-28, testing in progress)
-- **Trigger**: When `referenceImage` buffer is available on the job record
-- **Endpoint**: `POST /v1/images/edits` with `image[]` field name (gpt-image-1 requires array syntax)
-- **Model**: `gpt-image-1` via `OPENAI_API_KEY`
-- **Flow**: Reference photo → sharp PNG conversion (1024x1024) → 5 parallel editing prompts → upload results
-- **Editing prompts**: commerce_front, side_angle, detail_closeup, tabletop_editorial, worn_lifestyle
-- **Goal**: Preserve EXACT product from photo, only change background/angle/setting
-- **Status**: DEPLOYED (commit `196c419`), awaiting verification that output matches input product
+#### Step 25 — Full Attempt History (2026-03-28 → 2026-03-29)
 
-#### Pipeline B: Text-to-Image Fallback
-- **Trigger**: When no reference image available OR Pipeline A produces 0 images
-- **Flow**: Gemini Vision describes product → `buildPromptSet()` → text-to-image generation
-- **Model for vision analysis**: `gemini-2.5-flash` (hardcoded in `describeProductImage`) — VERIFIED working
-- **Model for image generation**: `gemini-2.5-flash-image` (env: `GEMINI_FLASH_MODEL`) — VERIFIED working
+**User requirement (explicit):** Generated images must show the EXACT SAME shoe from the Telegram photo — different angles/scenes/compositions. NOT "just changing the background."
+
+**Approach v1 — `fit:contain` at 1024×1024 (commit `ece33d2`)**
+- Resize reference image to 1024×1024 with `fit:contain` (letterboxing for non-square)
+- Result: Square shoe photos get ZERO padding → all 5 output images identical to original
+- User outcome: "it's not generating at all" (images looked unchanged)
+- Status: ❌ REJECTED — invisible on square photos
+
+**Approach v2 — `fit:inside` 800×800 + `extend(112px)` (commit `8f866b2`)**
+- Resize to 800×800 `fit:inside` then extend with 112px border on all sides → guaranteed 1024×1024 with visible border
+- Result: Shoe visible with colored border, but all 5 images = same shoe same angle
+- User outcome: "it s only changing the background. I don't want that"
+- Status: ❌ REJECTED — user wants different compositions, not just colored borders
+
+**Approach v3 — ML background removal + solid color fills (commit `0b4cbd3`)**
+- `@imgly/background-removal` (isnet_quint8 model) strips shoe from background → transparent PNG
+- Resize cutout to 780×780, composite centred onto 5 different solid-color 1024×1024 canvases (white, cream, charcoal, marble-grey, warm-beige)
+- Result: Clean shoe cutout on 5 different background colors
+- User outcome: "it s only cyhanging the background. ! ı dont want that" (repeated, emphatic)
+- Status: ❌ REJECTED — user explicitly does not want background color changes
+
+**Approach v4 — ML background removal + Gemini-generated scene backgrounds (commit `d2994b3`)**
+**CURRENT DEPLOYED STATE** (as of 2026-03-29)
+- `@imgly/background-removal` strips shoe → transparent cutout (780×780)
+- For each of 5 scenes: call Gemini Flash to generate a realistic background image (white studio, cream backdrop, dark charcoal, marble surface, oak floor with bokeh)
+- Composite shoe cutout centred onto generated background → JPEG output
+- Falls back to solid color if Gemini background generation fails
+- Result: Shoe on 5 different AI-generated scene backgrounds — but still same shoe, same angle, same direction
+- User outcome: same rejection — "only changing the background"
+- Status: ❌ REJECTED — fundamental problem unresolved
+
+**Root cause identified:**
+All approaches above share the same flaw: they take the original shoe photo at its original angle and paste/composite it onto different backgrounds. The user wants **different camera angles and compositions** (front view, side view, close-up texture, tabletop shot, lifestyle worn shot) — not the same photo on different backgrounds.
+
+**What's needed (NOT YET IMPLEMENTED):**
+An AI model that can take a reference shoe photo and genuinely **reconstruct it in 5 different poses/angles/scenes** while maintaining exact visual fidelity (same design, color, sole, details). This requires either:
+1. A model with true image-editing capability (not text-to-image)
+2. gpt-image-1 `/v1/images/edits` with stronger prompting (PARTIALLY IMPLEMENTED — commit `196c419` — not yet verified effective)
+3. Stability AI ControlNet (shape-conditioned generation)
+4. Fine-tuning / DreamBooth style subject preservation
+
+#### Current Architecture — v8 (2026-03-29)
+
+**ARCHITECTURE CHANGE: OpenAI-first, strict product-preserving pipeline.**
+
+Pipeline A is now the ONLY path when a reference image exists.
+No silent Gemini fallback when Pipeline A fails — failure is explicit.
+
+```
+STEP A — Input Validation (NEW)
+  validateProductImage() in imageProviders.ts
+  - Calls Gemini Vision to classify if image is a valid shoe/footwear photo
+  - If invalid → job status='failed', Telegram rejection message, no generation
+  - If validation API fails → defaults to valid=true (don't block on transient errors)
+
+STEP B — Identity Lock Extraction (NEW — replaces describeProductImage)
+  extractIdentityLock() in imageProviders.ts
+  - Calls Gemini Vision to extract STRUCTURED identity: productClass, mainColor,
+    accentColor, material, toeShape, soleProfile, heelProfile, closureType, distinctiveFeatures
+  - Builds a formatted promptBlock with MUST NOT ALTER constraints for each field
+  - On extraction failure → minimal fallback lock block used
+
+STEP C — Pipeline A: OpenAI gpt-image-1 editing (PRIMARY + ONLY reference-image path)
+  generateByEditing(referenceBuffer, mime, identityLockBlock) in imageProviders.ts
+  - sharp converts photo to PNG 1024×1024 (fit:contain, white bg)
+  - For each of 5 scene slots (sequential, 1 retry each, 1s between slots):
+      fullPrompt = identityLockBlock + scene.sceneInstructions
+      callGPTImageEdit(pngBuffer, fullPrompt, apiKey) — quality: 'medium'
+      Convert result to JPEG q92
+  - Returns buffers + slotLogs (per-slot: slot, attempts, success, outputSizeBytes)
+  - If 0 images → job fails explicitly. NO Gemini fallback.
+
+EDITING_SCENES v8 (5 physically distinct slots — each has FORBIDDEN list):
+  slot 1 commerce_front      → dead-straight front, camera at lacing height, white bg,
+                                toe+vamp+laces visible, NO side profile
+  slot 2 side_angle          → EXACTLY 90° lateral, camera at sole level, cream bg,
+                                full sole profile, heel on right, NO toe front
+  slot 3 detail_closeup      → 15-20cm macro, 20-30° down, shallow DoF, raking sidelight,
+                                texture/stitching sharp, NO wide shot
+  slot 4 tabletop_editorial  → 55-65° overhead, marble surface, window light upper-left,
+                                top face of shoe visible, Scandi editorial style
+  slot 5 worn_lifestyle      → ground-level (10-15cm), one foot wearing shoe, bokeh bg,
+                                golden light, NO face/body, NOT studio
+
+PIPELINE B — Text-to-image fallback (DEGRADED PATH — only when no reference image)
+  - Trigger: referenceImage = undefined (literally no product photo exists)
+  - Flow: productContext text → buildPromptSet() → generateByMode()
+  - Logged as 'Pipeline B — text-to-image, product identity not guaranteed'
+  - NOT triggered when Pipeline A fails with a reference image (fail explicitly instead)
+
+KEY IMPROVEMENTS in v8 vs v7:
+  - Input validation gate: non-shoe images rejected before generation
+  - Structured identity lock: 9-field extraction vs. single-sentence description
+  - identityLockBlock now includes field-specific MUST NOT constraints (color, material, etc.)
+  - No silent Gemini fallback when Pipeline A fails with reference image
+  - slotLogs returned per slot: attempts, success, outputSizeBytes, rejectionReason
+  - Telegram notification includes per-slot status icons (✅/❌)
+  - describeProductImage() removed — replaced by extractIdentityLock() in imageProviders.ts
+  - TypeScript: VERIFIED compiles clean (tsc --noEmit, 2026-03-29)
+```
+
+#### Pipeline B: Text-to-Image Fallback (DEGRADED — no reference image only)
+- **Trigger**: `referenceImage === undefined` — product has no photo attached
+- **Flow**: `productContext` text → `buildPromptSet()` → `generateByMode()`
+- **Providers**: Gemini Flash (#hizli), GPT Image (#dengeli), Gemini Pro (#premium), Karma
 - **Known limitation**: Text-to-image cannot guarantee exact product reproduction
+- **CHANGED**: No longer triggered when Pipeline A fails with a reference image — failure is explicit
 
-#### Key Technical Findings (2026-03-28 session)
+#### Key Technical Findings (2026-03-28 → 2026-03-29 session)
 - **`/v1/images/edits` with gpt-image-1**: Requires `image[]` field name (NOT `image`). Using `image` returns 400 "Value must be 'dall-e-2'"
 - **OpenAI Responses API (`/v1/responses`) with `image_generation` tool**: Does NOT do true editing — generates loosely inspired new images. NOT suitable for product fidelity.
 - **`response_format: 'b64_json'`**: NOT a valid parameter for gpt-image-1 `/v1/images/generations` — causes 400 "Unknown parameter". Removed.
 - **OPENAI_API_KEY**: Rotated 2026-03-28 (old key expired/401). Updated via Vercel internal API.
 - **`gemini-2.0-flash-exp-image-generation`**: DEPRECATED — returns 404, not available in models list
 - **Gemini image models ignore `inlineData`**: All Gemini image models are text-to-image only
+- **`@imgly/background-removal-node`**: FAILED to install (requires its own sharp binary download, blocked by sandbox proxy). Universal version installed but approach ABANDONED.
+- **Square photo problem**: `fit:contain` at 1024×1024 adds zero padding to square photos — all 5 outputs look identical to original
+- **Compositing approach ABANDONED**: User explicitly rejected ALL background-swap approaches. Commit `b668ac4` removed all compositing code and switched to gpt-image-1 AI editing
 
 #### Git Workaround (RECURRING)
 - Workspace repo has persistent `index.lock` preventing direct git operations
@@ -354,9 +451,13 @@ To refresh Instagram token: navigate to `https://uygunayakkabi.com/api/auth/inst
 
 ## Recommended Next Steps
 
-**Step 25 — Verify image quality end-to-end**
-- Send a shoe photo, trigger `#gorsel`, confirm vision description in Vercel logs
-- Confirm generated images match actual product
+**Step 25 — AI Product Photography Pipeline (IN PROGRESS — awaiting v8 test results)**
+- v8 deployed: input validation gate, structured 9-field identity lock, strict 5-slot prompts, no silent Gemini fallback, per-slot slotLogs
+- **NEXT ACTION**: Test with `#gorsel #dengeli` on a real shoe product — score each of 5 outputs
+- **If Case A** (different compositions + shoe preserved): Step 25 DONE → move to Step 26
+- **If Case B** (shoe preserved, compositions still weak): add explicit "DO NOT repeat reference angle" to each slot
+- **If Case C** (compositions change, fidelity drifts): evaluate Stability AI ControlNet or fal.ai IP-Adapter
+- **If Case D** (still same-angle outputs): gpt-image-1 editing insufficient — provider decision needed
 
 **Step 22b — Shopier stock decrement / InventoryLogs on order**
 - On `order.created`: decrement product stock, create InventoryLog entry

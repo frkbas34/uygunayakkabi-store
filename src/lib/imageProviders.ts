@@ -482,7 +482,7 @@ const EDITING_SCENES = [
 /**
  * STRICT OpenAI-only generation pipeline.
  *
- * For each of 5 slots:
+ * For each selected slot:
  *   1. Generate with gpt-image-1 /v1/images/edits
  *   2. Check color match via Gemini Vision
  *   3. If color drifted → retry once with reinforced color prompt
@@ -494,15 +494,24 @@ const EDITING_SCENES = [
  * @param referenceImage    Raw bytes of the product photo
  * @param referenceImageMime MIME type
  * @param identityLock      Full IdentityLock object from extractIdentityLock()
+ * @param sceneIndices      Which EDITING_SCENES indices to run (0-based). Default: all 5.
+ *                          Stage 1 (standard): [0, 1, 2]  — front, side, macro
+ *                          Stage 2 (premium):  [3, 4]     — editorial, lifestyle
  */
 export async function generateByEditing(
   referenceImage: Buffer,
   referenceImageMime: string,
   identityLock: IdentityLock,
+  sceneIndices?: number[],
 ): Promise<{ results: ProviderResult[]; buffers: Buffer[]; slotLogs: SlotLog[] }> {
+  // Filter scenes to run — default is all 5
+  const scenes = sceneIndices
+    ? EDITING_SCENES.filter((_, i) => sceneIndices.includes(i))
+    : [...EDITING_SCENES]
+
   const result: ProviderResult = {
     provider: 'gpt-image-edit',
-    promptCount: EDITING_SCENES.length,
+    promptCount: scenes.length,
     successCount: 0,
     buffers: [],
     errors: [],
@@ -523,8 +532,9 @@ export async function generateByEditing(
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     const sharp = require('sharp') as typeof import('sharp')
     console.log(
-      `[generateByEditing v9] input=${referenceImage.length}b ` +
-      `color=${identityLock.mainColor} refAngle=${identityLock.referenceAngle || '?'}`,
+      `[generateByEditing v10] input=${referenceImage.length}b ` +
+      `color=${identityLock.mainColor} refAngle=${identityLock.referenceAngle || '?'} ` +
+      `scenes=${scenes.map((s) => s.name).join(',')}`,
     )
 
     // Resize shoe to 768×768 (fit:contain with white bg) then pad to 1024×1024.
@@ -543,12 +553,12 @@ export async function generateByEditing(
       .png()
       .toBuffer()
 
-    console.log(`[generateByEditing v9] PNG 1024×1024 ready — ${pngBuffer.length}b (shoe at 768×768 center)`)
+    console.log(`[generateByEditing v10] PNG 1024×1024 ready — ${pngBuffer.length}b (shoe at 768×768 center)`)
 
     const mainColor = identityLock.mainColor
     const refAngle  = identityLock.referenceAngle || 'unknown'
 
-    for (const scene of EDITING_SCENES) {
+    for (const scene of scenes) {
       // Replace placeholders in scene instructions
       const sceneText = scene.sceneInstructions
         .replace(/\{COLOR\}/g, mainColor)
@@ -582,7 +592,7 @@ export async function generateByEditing(
           if (!colorCheck.match) {
             // Color drifted — retry with reinforced color prompt
             console.warn(
-              `[generateByEditing v9] ✗ ${scene.name} color drift: ` +
+              `[generateByEditing v10] ✗ ${scene.name} color drift: ` +
               `expected=${mainColor} detected=${colorCheck.detectedColor} — retrying`,
             )
             slotLog.attempts = 2
@@ -602,10 +612,10 @@ export async function generateByEditing(
               slotLog.detectedColor = retryCheck.detectedColor
 
               if (retryCheck.match) {
-                console.log(`[generateByEditing v9] ✓ ${scene.name} retry fixed color`)
+                console.log(`[generateByEditing v10] ✓ ${scene.name} retry fixed color`)
                 finalBuf = retryJpeg
               } else {
-                console.warn(`[generateByEditing v9] ✗ ${scene.name} retry still wrong color: ${retryCheck.detectedColor}`)
+                console.warn(`[generateByEditing v10] ✗ ${scene.name} retry still wrong color: ${retryCheck.detectedColor}`)
                 slotLog.rejectionReason = `Color drift: expected ${mainColor}, got ${retryCheck.detectedColor} after retry`
                 // Still include the image but mark it as color-drifted
                 finalBuf = retryJpeg
@@ -621,7 +631,7 @@ export async function generateByEditing(
         }
       } else {
         // Generation returned null — retry once
-        console.warn(`[generateByEditing v9] ✗ ${scene.name} null on attempt 1 — retrying`)
+        console.warn(`[generateByEditing v10] ✗ ${scene.name} null on attempt 1 — retrying`)
         slotLog.attempts = 2
         await sleep(2000)
         rawBuf = await callGPTImageEdit(pngBuffer, fullPrompt, apiKey)
@@ -636,14 +646,14 @@ export async function generateByEditing(
         slotLog.success = true
         slotLog.outputSizeBytes = finalBuf.length
         console.log(
-          `[generateByEditing v9] ✓ ${scene.name} — ${finalBuf.length}b ` +
+          `[generateByEditing v10] ✓ ${scene.name} — ${finalBuf.length}b ` +
           `(attempts=${slotLog.attempts} color=${slotLog.colorCheckPass ?? 'skip'})`,
         )
       } else {
         const msg = `${scene.name}: null after ${slotLog.attempts} attempts`
         result.errors.push(msg)
         slotLog.rejectionReason = slotLog.rejectionReason || msg
-        console.warn(`[generateByEditing v9] ✗ ${msg}`)
+        console.warn(`[generateByEditing v10] ✗ ${msg}`)
       }
 
       slotLogs.push(slotLog)
@@ -651,7 +661,7 @@ export async function generateByEditing(
     }
   } catch (err) {
     const msg = `Pipeline fatal: ${err instanceof Error ? err.message : err}`
-    console.error(`[generateByEditing v9] ${msg}`)
+    console.error(`[generateByEditing v10] ${msg}`)
     result.errors.push(msg)
   }
 
@@ -660,7 +670,7 @@ export async function generateByEditing(
     if (s.colorCheckPass === false) return '⚠'
     return '✓'
   }).join('')
-  console.log(`[generateByEditing v9] done — ${result.successCount}/${result.promptCount} [${slotSummary}]`)
+  console.log(`[generateByEditing v10] done — ${result.successCount}/${result.promptCount} [${slotSummary}]`)
 
   return { results: [result], buffers: result.buffers, slotLogs }
 }

@@ -279,7 +279,9 @@ async function rejectImageGenJob(
 }
 
 /**
- * Re-queue a preview job for full regeneration.
+ * Re-queue a preview job for regeneration with the SAME stage.
+ * Reads stage from promptsUsed JSON so Stage 1 regen → slots 1-3,
+ * Stage 2 regen → slots 4-5.
  * Clears generatedImages, resets status to queued, and queues a new task run.
  */
 async function regenImageGenJob(
@@ -295,6 +297,16 @@ async function regenImageGenJob(
 
   const productRef = jobDoc.product as { id: number } | number | null
   const productId = productRef ? (typeof productRef === 'object' ? productRef.id : productRef) : null
+
+  // Recover stage from promptsUsed JSON (stored by imageGenTask v11)
+  let currentStage = 'standard'
+  try {
+    const prompts = JSON.parse((jobDoc.promptsUsed as string) || '{}')
+    currentStage = (prompts.stage as string) || 'standard'
+  } catch {
+    // ignore parse errors — default to standard
+  }
+  const stageLabel = currentStage === 'premium' ? 'Premium (4-5)' : 'Standart (1-3)'
 
   await payload.update({
     collection: 'image-generation-jobs',
@@ -312,13 +324,13 @@ async function regenImageGenJob(
 
   await payload.jobs.queue({
     task: 'image-gen',
-    input: { jobId },
+    input: { jobId, stage: currentStage },
     overrideAccess: true,
   })
 
   await sendTelegramMessage(
     chatId,
-    `🔄 <b>Yeniden üretim başlatıldı</b>\n\n` +
+    `🔄 <b>Yeniden üretim başlatıldı (${stageLabel})</b>\n\n` +
     (productId ? `📦 Ürün ID: ${productId}\n` : '') +
     `Yeni görseller hazır olduğunda Telegram'a önizleme gönderilecek.`,
   )
@@ -328,6 +340,70 @@ async function regenImageGenJob(
     await payload.jobs.run({ limit: 1, overrideAccess: true })
   } catch (err) {
     console.error('[telegram/webhook] regenImageGenJob jobs.run failed:', err)
+  }
+}
+
+/**
+ * Start a Stage 2 "premium" image generation job (slots 4-5).
+ * Called when operator clicks "🌟 4-5 Premium Üret" on the Stage 1 keyboard.
+ * Creates a NEW ImageGenerationJob for the same product and queues the task.
+ * The Stage 1 job remains in 'preview' status — it can still be approved separately.
+ */
+async function startPremiumImageGenJob(
+  payload: Awaited<ReturnType<typeof import('@/lib/payload').getPayload>>,
+  originalJobId: string,
+  chatId: number,
+): Promise<void> {
+  // Read the original Stage 1 job to get product + chat context
+  const originalJob = await payload.findByID({
+    collection: 'image-generation-jobs',
+    id: originalJobId,
+    depth: 0,
+  }) as Record<string, unknown>
+
+  const productRef = originalJob.product as { id: number } | number | null
+  if (!productRef) throw new Error('Orijinal iş kaydında ürün referansı yok')
+  const productId = typeof productRef === 'object' ? productRef.id : productRef
+
+  // Derive product title from job title (strip the suffix)
+  const existingTitle = (originalJob.jobTitle as string) || ''
+  const productTitle = existingTitle.split(' — ')[0] || 'Ürün'
+
+  const chatIdStr = (originalJob.telegramChatId as string) || String(chatId)
+
+  // Create a new job record for Stage 2
+  const newJob = await payload.create({
+    collection: 'image-generation-jobs',
+    data: {
+      product: productId,
+      mode: 'hizli',  // cosmetic — actual generation is always OpenAI edit
+      status: 'queued',
+      telegramChatId: chatIdStr,
+      jobTitle: `${productTitle} — Premium Görsel (Slot 4-5)`,
+    },
+  })
+
+  const newJobId = String(newJob.id)
+
+  await payload.jobs.queue({
+    task: 'image-gen',
+    input: { jobId: newJobId, stage: 'premium' },
+    overrideAccess: true,
+  })
+
+  await sendTelegramMessage(
+    chatId,
+    `🌟 <b>Premium görsel üretimi başlatıldı</b>\n\n` +
+    `📸 Slot 4 (Editoryal Üstten) ve Slot 5 (Lifestyle Giyilmiş) üretiliyor...\n` +
+    `Hazır olduğunda Telegram'a önizleme gönderilecek.\n\n` +
+    `💡 <i>Slot 1-3 görselleri için önceki onay butonlarını hâlâ kullanabilirsiniz.</i>`,
+  )
+
+  // Run the new job
+  try {
+    await payload.jobs.run({ limit: 1, overrideAccess: true })
+  } catch (err) {
+    console.error('[telegram/webhook] startPremiumImageGenJob jobs.run failed:', err)
   }
 }
 
@@ -472,7 +548,7 @@ export async function POST(req: NextRequest) {
       }
 
       // ── imgregen:{jobId} ──────────────────────────────────────────────────
-      // Discards current previews and re-queues the generation job from scratch.
+      // Discards current previews and re-queues the generation job (same stage).
       if (cbData.startsWith('imgregen:')) {
         const cbJobId = cbData.split(':')[1]
         await answerCallbackQuery(cbQueryId, '🔄 Yeniden üretiliyor...')
@@ -484,6 +560,24 @@ export async function POST(req: NextRequest) {
           } catch (err) {
             console.error('[telegram/webhook] imgregen callback failed:', err)
             await sendTelegramMessage(cbChatId, `❌ Yeniden üretim başlatılamadı: ${err instanceof Error ? err.message : 'Bilinmeyen hata'}`)
+          }
+        })
+      }
+
+      // ── imgpremium:{jobId} ────────────────────────────────────────────────
+      // Starts a NEW Stage 2 premium job (slots 4-5) for the same product.
+      // The Stage 1 job remains in 'preview' status — operator can still approve it.
+      if (cbData.startsWith('imgpremium:')) {
+        const cbJobId = cbData.split(':')[1]
+        await answerCallbackQuery(cbQueryId, '🌟 Premium üretim başlatılıyor...')
+
+        after(async () => {
+          try {
+            const premiumPayload = await getPayload()
+            await startPremiumImageGenJob(premiumPayload, cbJobId, cbChatId)
+          } catch (err) {
+            console.error('[telegram/webhook] imgpremium callback failed:', err)
+            await sendTelegramMessage(cbChatId, `❌ Premium üretim başlatılamadı: ${err instanceof Error ? err.message : 'Bilinmeyen hata'}`)
           }
         })
       }

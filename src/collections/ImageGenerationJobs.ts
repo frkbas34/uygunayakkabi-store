@@ -279,5 +279,38 @@ export const ImageGenerationJobs: CollectionConfig = {
         description: 'Başarıyla üretilen görsel adedi',
       },
     },
+    // ── Luma-specific fields (Step 26) ────────────────────────────────────────
+    {
+      name: 'requestType',
+      type: 'text',
+      label: 'İstek Tipi',
+      admin: {
+        readOnly: true,
+        position: 'sidebar',
+        description: 'Luma pipeline tipi — örn: studio_angles',
+        condition: (data: any) => !!data?.requestType,
+      },
+    },
+    {
+      name: 'lumaGenerationIds',
+      type: 'textarea',
+      label: '🔮 Luma Generation ID\'leri (JSON)',
+      admin: {
+        readOnly: true,
+        description: 'Luma API\'ye gönderilen generation ID\'leri (audit/debug)',
+        condition: (data: any) => !!data?.lumaGenerationIds,
+      },
+    },
+    {
+      name: 'lumaModel',
+      type: 'text',
+      label: 'Luma Modeli',
+      admin: {
+        readOnly: true,
+        position: 'sidebar',
+        description: 'Kullanılan Luma modeli — photon-flash-1 / photon-1',
+        condition: (data: any) => !!data?.lumaModel,
+      },
+    },
   ],
 }

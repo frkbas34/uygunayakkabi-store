@@ -308,6 +308,7 @@ async function regenImageGenJob(
 
   // Recover stage AND provider from promptsUsed JSON (stored by imageGenTask v11+)
   // v14: provider is also stored in promptsUsed so regen preserves the original choice
+  // Step 26: provider='luma' → re-queue luma-gen task instead of image-gen
   let currentStage = 'standard'
   let currentProvider = 'openai'
   try {
@@ -318,7 +319,10 @@ async function regenImageGenJob(
     // ignore parse errors — default to standard + openai
   }
   const stageLabel    = currentStage === 'premium' ? 'Premium (4-5)' : 'Standart (1-3)'
-  const providerLabel = currentProvider === 'gemini-pro' ? '✨ Gemini Pro' : '⚙️ OpenAI'
+  const providerLabel =
+    currentProvider === 'luma'       ? '🔮 Luma AI'    :
+    currentProvider === 'gemini-pro' ? '✨ Gemini Pro' :
+    '⚙️ OpenAI'
 
   await payload.update({
     collection: 'image-generation-jobs',
@@ -334,11 +338,20 @@ async function regenImageGenJob(
     },
   })
 
-  await payload.jobs.queue({
-    task: 'image-gen',
-    input: { jobId, stage: currentStage, provider: currentProvider },
-    overrideAccess: true,
-  })
+  if (currentProvider === 'luma') {
+    // Luma regen → re-queue luma-gen task (same model — photon-flash-1 default)
+    await payload.jobs.queue({
+      task: 'luma-gen',
+      input: { jobId, hq: false },
+      overrideAccess: true,
+    })
+  } else {
+    await payload.jobs.queue({
+      task: 'image-gen',
+      input: { jobId, stage: currentStage, provider: currentProvider },
+      overrideAccess: true,
+    })
+  }
 
   await sendTelegramMessage(
     chatId,
@@ -596,6 +609,54 @@ export async function POST(req: NextRequest) {
           } catch (err) {
             console.error('[telegram/webhook] imgpremium callback failed:', err)
             await sendTelegramMessage(cbChatId, `❌ Premium üretim başlatılamadı: ${err instanceof Error ? err.message : 'Bilinmeyen hata'}`)
+          }
+        })
+      }
+
+      // ── lumahq:{jobId} ────────────────────────────────────────────────────
+      // Luma HQ rerun — re-queues luma-gen task with hq=true (photon-1 model).
+      // Discards current preview images and starts a fresh HQ generation.
+      if (cbData.startsWith('lumahq:')) {
+        const cbJobId = cbData.split(':')[1]
+        await answerCallbackQuery(cbQueryId, '🌟 HQ yeniden üretiliyor...')
+
+        after(async () => {
+          try {
+            const hqPayload = await getPayload()
+
+            // Reset the job for HQ rerun
+            await hqPayload.update({
+              collection: 'image-generation-jobs',
+              id: cbJobId,
+              data: {
+                status: 'queued',
+                generatedImages: [],
+                imageCount: 0,
+                errorMessage: '',
+                generationStartedAt: null,
+                generationCompletedAt: null,
+              },
+            })
+
+            // Queue luma-gen with hq=true
+            await hqPayload.jobs.queue({
+              task: 'luma-gen',
+              input: { jobId: cbJobId, hq: true },
+              overrideAccess: true,
+            })
+
+            await sendTelegramMessage(
+              cbChatId,
+              `🌟 <b>Luma HQ yeniden üretim başlatıldı</b>\n\n` +
+              `⚙️ Model: photon-1 (yüksek kalite)\n` +
+              `Görseller hazır olduğunda Telegram'a önizleme gönderilecek.`,
+            )
+
+            // Run immediately
+            await hqPayload.jobs.run({ limit: 1, overrideAccess: true })
+          } catch (err) {
+            console.error('[telegram/webhook] lumahq callback failed:', err)
+            await sendTelegramMessage(cbChatId, `❌ HQ yeniden üretim başlatılamadı: ${err instanceof Error ? err.message : 'Bilinmeyen hata'}`)
           }
         })
       }
@@ -1036,6 +1097,105 @@ export async function POST(req: NextRequest) {
           await payload.jobs.run({ limit: 1, overrideAccess: true })
         } catch (err) {
           console.error('[telegram/webhook] after() #gorsel jobs.run failed:', err)
+        }
+      })
+
+      return NextResponse.json({ ok: true })
+    }
+
+    // ── #luma — Luma AI Studio Angles Image Generation (Step 26) ─────────────
+    // Triggers: "#luma" (+ optional product ID or reply to product creation msg)
+    // Generates 3 studio angle shots (front, side, 3/4) via Luma photon-flash-1.
+    // HQ flag: "#luma #hq" → uses photon-1 model.
+    //
+    // Product discovery (same pattern as #gorsel):
+    //   A) Reply to bot's product creation message → extracts product ID from URL
+    //   B) Explicit: "#luma 42" or "#luma 42 #hq"
+    const isLumaTrigger = /#luma\b/i.test(text)
+
+    if (isLumaTrigger) {
+      const lumaHq = /#hq\b/i.test(text)
+
+      // Option A — reply to product creation message
+      const lumaReplyText =
+        message.reply_to_message?.text ||
+        message.reply_to_message?.caption ||
+        ''
+      const lumaUrlMatch = lumaReplyText.match(/\/products\/(\d+)/)
+      let lumaProductId: number | null = lumaUrlMatch ? parseInt(lumaUrlMatch[1]) : null
+
+      // Option B — explicit ID: "#luma 42"
+      if (!lumaProductId) {
+        const idMatch = text.match(/#luma\s+(\d+)/i)
+        if (idMatch) lumaProductId = parseInt(idMatch[1])
+      }
+
+      if (!lumaProductId) {
+        await sendTelegramMessage(
+          chatId,
+          '🔮 <b>Luma görsel üretimi için ürün gerekli.</b>\n\n' +
+          'İki yöntemden biri:\n' +
+          '1️⃣ Ürün oluşturma mesajını <b>reply</b> edip yaz: <code>#luma</code>\n' +
+          '2️⃣ Ürün ID ile yaz: <code>#luma 42</code>\n\n' +
+          'Model seçimi (opsiyonel):\n' +
+          '<code>#luma</code>     — ⚡ Hızlı (photon-flash-1, 3 stüdyo açısı)\n' +
+          '<code>#luma #hq</code> — 💎 Yüksek kalite (photon-1, 3 stüdyo açısı)',
+        )
+        return NextResponse.json({ ok: true })
+      }
+
+      // Verify product exists
+      const { docs: lumaDocs } = await payload.find({
+        collection: 'products',
+        where: { id: { equals: lumaProductId } },
+        limit: 1,
+        depth: 0,
+      })
+      if (lumaDocs.length === 0) {
+        await sendTelegramMessage(chatId, `❌ Ürün bulunamadı: #${lumaProductId}`)
+        return NextResponse.json({ ok: true })
+      }
+      const lumaProduct = lumaDocs[0] as Record<string, unknown>
+
+      const lumaModelLabel = lumaHq ? '💎 photon-1 (HQ)' : '⚡ photon-flash-1'
+      const lumaJobTitle = `${lumaProduct.title} — Luma Stüdyo ${lumaHq ? 'HQ' : ''}`
+
+      // Create ImageGenerationJob record for this Luma job
+      const lumaJobDoc = await payload.create({
+        collection: 'image-generation-jobs',
+        data: {
+          jobTitle: lumaJobTitle,
+          product: lumaProductId,
+          mode: 'hizli',       // cosmetic only — Luma doesn't use mode
+          status: 'queued',
+          requestType: 'studio_angles',
+          telegramChatId: String(chatId),
+          requestedByUserId: String(message.from?.id ?? ''),
+        },
+      })
+
+      // Queue the luma-gen task
+      await payload.jobs.queue({
+        task: 'luma-gen',
+        input: { jobId: String(lumaJobDoc.id), hq: lumaHq },
+        overrideAccess: true,
+      })
+
+      await sendTelegramMessage(
+        chatId,
+        `🔮 <b>Luma görsel üretimi başlatıldı!</b>\n\n` +
+        `📦 Ürün: <b>${lumaProduct.title}</b>\n` +
+        `⚙️ Model: ${lumaModelLabel}\n` +
+        `🖼️ 3 stüdyo açısı üretilecek (ön, yan, 3/4)\n\n` +
+        `<i>Tamamlanınca Telegram'a önizleme gönderilecek.</i>`,
+      )
+
+      // Run the job after responding
+      after(async () => {
+        try {
+          await payload.jobs.run({ limit: 1, overrideAccess: true })
+        } catch (err) {
+          console.error('[telegram/webhook] after() #luma jobs.run failed:', err)
         }
       })
 

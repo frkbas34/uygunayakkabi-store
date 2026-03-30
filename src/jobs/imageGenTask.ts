@@ -650,7 +650,7 @@ async function sendTelegramPhotoBuffer(
  *
  * Stage 1 "standard" (slots 1-3) keyboard:
  *   Row 1: ✅ Tümünü Onayla (1-3)
- *   Row 2: 🌟 4-5 Premium Üret
+ *   Row 2: 🌟 4-5 Gemini Pro Üret
  *   Row 3: 🔄 Yeniden Üret  |  ❌ Reddet
  *
  * Stage 2 "premium" (slots 4-5) keyboard:
@@ -687,7 +687,7 @@ async function sendApprovalKeyboard(
   const stageNote  = isStandard
     ? `Tümünü onaylamak için <b>✅ Tümünü Onayla (1-3)</b> butonuna basın.\n` +
       `Belirli slotları onaylamak için yazın: <code>onayla 1,2,3</code>\n` +
-      `Slot 4-5 premium görseller için <b>🌟 4-5 Premium Üret</b> butonuna basın.`
+      `Slot 4-5 Gemini Pro görseller için <b>🌟 4-5 Gemini Pro Üret</b> butonuna basın.`
     : `Tümünü onaylamak için <b>✅ Tümünü Onayla (4-5)</b> butonuna basın.\n` +
       `İptal için <b>❌ Reddet</b> butonuna basın.`
 
@@ -702,7 +702,7 @@ async function sendApprovalKeyboard(
   const keyboard = isStandard
     ? [
         [{ text: '✅ Tümünü Onayla (1-3)', callback_data: `imgapprove:${jobId}:all` }],
-        [{ text: '🌟 4-5 Premium Üret',    callback_data: `imgpremium:${jobId}` }],
+        [{ text: '🌟 4-5 Gemini Pro Üret', callback_data: `imgpremium:${jobId}` }],
         [
           { text: '🔄 Yeniden Üret', callback_data: `imgregen:${jobId}` },
           { text: '❌ Reddet',       callback_data: `imgreject:${jobId}` },

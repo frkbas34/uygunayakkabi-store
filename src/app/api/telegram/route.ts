@@ -383,14 +383,11 @@ async function startPremiumImageGenJob(
 
   const chatIdStr = (originalJob.telegramChatId as string) || String(chatId)
 
-  // v14: inherit provider from original job's promptsUsed (defaults to 'openai')
-  let inheritedProvider = 'openai'
-  try {
-    const prompts = JSON.parse((originalJob.promptsUsed as string) || '{}')
-    inheritedProvider = (prompts.provider as string) || 'openai'
-  } catch { /* ignore — default to openai */ }
-
-  const premiumProviderLabel = inheritedProvider === 'gemini-pro' ? '✨ Gemini Pro' : '⚙️ OpenAI'
+  // v15: Stage 2 premium is ALWAYS Gemini Pro — regardless of Stage 1 provider.
+  // "Premium" means specifically Gemini Pro image generation for editorial/lifestyle slots.
+  // Stage 1 provider is intentionally NOT inherited here.
+  const premiumProvider = 'gemini-pro' as const
+  const premiumProviderLabel = '✨ Gemini Pro'
 
   // Create a new job record for Stage 2
   const newJob = await payload.create({
@@ -408,7 +405,7 @@ async function startPremiumImageGenJob(
 
   await payload.jobs.queue({
     task: 'image-gen',
-    input: { jobId: newJobId, stage: 'premium', provider: inheritedProvider },
+    input: { jobId: newJobId, stage: 'premium', provider: premiumProvider },
     overrideAccess: true,
   })
 

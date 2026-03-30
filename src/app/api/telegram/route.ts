@@ -7,6 +7,13 @@ import {
   resolveChannelTargets,
 } from '@/lib/automationDecision'
 
+// ── Vercel function timeout ────────────────────────────────────────────────────
+// Luma polling loop runs up to 120s. OpenAI gpt-image-1 typically 15-40s.
+// Default Vercel Pro: 60s — too tight for Luma HQ and borderline for standard.
+// maxDuration=300 allows up to 5 minutes on Pro/Team plans.
+// Required to prevent after() polling from being killed mid-generation.
+export const maxDuration = 300
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Helpers
 // ─────────────────────────────────────────────────────────────────────────────

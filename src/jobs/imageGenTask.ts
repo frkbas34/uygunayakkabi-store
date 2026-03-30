@@ -84,7 +84,7 @@ export const imageGenTask: TaskConfig<{
     const sceneIndices = stage === 'premium' ? [3, 4] : [0, 1, 2]
     const payload = req.payload
 
-    console.log(`[imageGenTask v11] start — jobId=${jobId} stage=${stage} sceneIndices=[${sceneIndices}]`)
+    console.log(`[imageGenTask v12] start — jobId=${jobId} stage=${stage} sceneIndices=[${sceneIndices}]`)
 
     // ── Step 1: Fetch the job record ────────────────────────────────────────
     let jobDoc: Record<string, unknown>
@@ -170,18 +170,18 @@ export const imageGenTask: TaskConfig<{
 
     if (mediaUrl) {
       const fetchUrl = absoluteUrl(mediaUrl)
-      console.log(`[imageGenTask v11] fetching reference image — ${fetchUrl}`)
+      console.log(`[imageGenTask v12] fetching reference image — ${fetchUrl}`)
       try {
         const imgRes = await fetch(fetchUrl)
         if (imgRes.ok) {
           referenceImage = Buffer.from(await imgRes.arrayBuffer())
           referenceImageMime = mediaMime || 'image/jpeg'
-          console.log(`[imageGenTask v11] reference loaded — ${referenceImage.length}b ${referenceImageMime}`)
+          console.log(`[imageGenTask v12] reference loaded — ${referenceImage.length}b ${referenceImageMime}`)
         } else {
-          console.warn(`[imageGenTask v11] reference fetch failed HTTP ${imgRes.status}`)
+          console.warn(`[imageGenTask v12] reference fetch failed HTTP ${imgRes.status}`)
         }
       } catch (err) {
-        console.warn('[imageGenTask v11] reference fetch error:', err)
+        console.warn('[imageGenTask v12] reference fetch error:', err)
       }
     }
 
@@ -223,7 +223,7 @@ export const imageGenTask: TaskConfig<{
       )
 
       console.log(
-        `[imageGenTask v11] validation: valid=${validation.valid} ` +
+        `[imageGenTask v12] validation: valid=${validation.valid} ` +
         `confidence=${validation.confidence} class=${validation.productClass || '-'}`,
       )
 
@@ -288,15 +288,20 @@ export const imageGenTask: TaskConfig<{
           closureType: lock.closureType,
           distinctiveFeatures: lock.distinctiveFeatures,
           referenceAngle: lock.referenceAngle,
+          // v12: protected zones summary for admin visibility
+          protectedZones: (lock.protectedZones || []).map((z) => `${z.name}: ${z.description}`),
         }
-        console.log(`[imageGenTask v11] identity: ${lock.productClass} | ${lock.mainColor} | ${lock.material} | angle=${lock.referenceAngle}`)
+        console.log(
+          `[imageGenTask v12] identity: ${lock.productClass} | ${lock.mainColor} | ${lock.material} | ` +
+          `zones=${lock.protectedZones?.length || 0} | angle=${lock.referenceAngle}`,
+        )
       } else {
-        console.warn('[imageGenTask v11] identity extraction failed — using fallback')
+        console.warn('[imageGenTask v12] identity extraction failed — using fallback')
         identityLock = buildFallbackLock()
         identityLockMeta = { fallback: true }
       }
     } else {
-      console.warn('[imageGenTask v11] no GEMINI_API_KEY — using fallback identity lock')
+      console.warn('[imageGenTask v12] no GEMINI_API_KEY — using fallback identity lock')
       identityLock = buildFallbackLock()
       identityLockMeta = { fallback: true, noGemini: true }
     }
@@ -307,14 +312,14 @@ export const imageGenTask: TaskConfig<{
     const slotNames  = sceneIndices.map((i) => ALL_SLOT_NAMES[i])
     const slotLabels = sceneIndices.map((i) => ALL_SLOT_LABELS[i])
 
-    console.log(`[imageGenTask v11] generating — stage=${stage} slots=[${slotNames.join(',')}]`)
+    console.log(`[imageGenTask v12] generating — stage=${stage} slots=[${slotNames.join(',')}]`)
 
     await payload.update({
       collection: 'image-generation-jobs',
       id: jobId,
       data: {
         promptsUsed: JSON.stringify({
-          pipeline: 'openai-edit-only-v11',
+          pipeline: 'openai-edit-only-v12',
           stage,
           mode: `${mode} (cosmetic)`,
           identityLock: identityLockMeta,
@@ -343,10 +348,10 @@ export const imageGenTask: TaskConfig<{
         errors: r.errors,
       }))
 
-      console.log(`[imageGenTask v11] generated ${generatedBuffers.length} images`)
+      console.log(`[imageGenTask v12] generated ${generatedBuffers.length} images`)
     } catch (err) {
       const errMsg = err instanceof Error ? err.message : String(err)
-      console.error('[imageGenTask v11] generation error:', errMsg)
+      console.error('[imageGenTask v12] generation error:', errMsg)
       providerResultsSummary = [{ provider: 'gpt-image-edit', error: errMsg }]
     }
 
@@ -409,19 +414,20 @@ export const imageGenTask: TaskConfig<{
         })
         mediaIds.push(media.id as number)
         mediaUrls.push((media.url as string) || '')
-        console.log(`[imageGenTask v11] saved media=${media.id} ${concept} ${buf.length}b url=${media.url}`)
+        console.log(`[imageGenTask v12] saved media=${media.id} ${concept} ${buf.length}b url=${media.url}`)
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err)
-        console.error(`[imageGenTask v11] media save failed (${concept}): ${msg}`)
+        console.error(`[imageGenTask v12] media save failed (${concept}): ${msg}`)
         mediaUrls.push('') // keep index alignment
       }
     }
 
     // ── Build per-slot icon array (ARRAY not string — avoids emoji indexing bugs) ─
-    const slotIconArr: string[] = (slotLogsSummary as Array<{ success?: boolean; colorCheckPass?: boolean }>)
+    // v12: ⚠️ also shown when brandFidelityPass=false (brand zones drifted)
+    const slotIconArr: string[] = (slotLogsSummary as Array<{ success?: boolean; colorCheckPass?: boolean; brandFidelityPass?: boolean }>)
       .map((s) => {
         if (s.success === false) return '❌'
-        if (s.colorCheckPass === false) return '⚠️'
+        if (s.colorCheckPass === false || s.brandFidelityPass === false) return '⚠️'
         return '✅'
       })
     // Joined string for approval keyboard summary only
@@ -439,14 +445,14 @@ export const imageGenTask: TaskConfig<{
       )
 
       console.log(
-        `[imageGenTask v11] step8 — sending ${generatedBuffers.length} photos to chatId=${telegramChatId}` +
+        `[imageGenTask v12] step8 — sending ${generatedBuffers.length} photos to chatId=${telegramChatId}` +
         ` mediaIds=${mediaIds.join(',')} bufSizes=${generatedBuffers.map((b) => b?.length ?? 'null').join(',')}`,
       )
 
       for (let i = 0; i < generatedBuffers.length; i++) {
         const buf = generatedBuffers[i]
         if (!buf || buf.length === 0) {
-          console.warn(`[imageGenTask v11] step8 — skipping slot ${i + 1}: buffer missing or empty`)
+          console.warn(`[imageGenTask v12] step8 — skipping slot ${i + 1}: buffer missing or empty`)
           continue
         }
         const slotLabel = slotLabels[i] || `Görsel ${i + 1}`
@@ -454,12 +460,12 @@ export const imageGenTask: TaskConfig<{
         const filename = `${slotNames[i] || `slot-${i}`}.jpg`
         const caption = `${slotIcon} <b>${slotLabel}</b>`
 
-        console.log(`[imageGenTask v11] step8 — sendPhoto slot ${i + 1} buf=${buf.length}b file=${filename}`)
+        console.log(`[imageGenTask v12] step8 — sendPhoto slot ${i + 1} buf=${buf.length}b file=${filename}`)
         await sendTelegramPhotoBuffer(telegramChatId, buf, caption, filename)
       }
 
       // ── Stage-appropriate approval keyboard ──────────────────────────────
-      console.log(`[imageGenTask v11] step8 — sending approval keyboard jobId=${jobId} stage=${stage}`)
+      console.log(`[imageGenTask v12] step8 — sending approval keyboard jobId=${jobId} stage=${stage}`)
       await sendApprovalKeyboard(
         telegramChatId,
         jobId,
@@ -470,7 +476,7 @@ export const imageGenTask: TaskConfig<{
         stage,
       )
     } else {
-      console.warn(`[imageGenTask v11] step8 — no telegramChatId on job ${jobId}, skipping preview send`)
+      console.warn(`[imageGenTask v12] step8 — no telegramChatId on job ${jobId}, skipping preview send`)
     }
 
     // ── Step 9: Update job status to 'preview' in DB ─────────────────────────
@@ -498,18 +504,18 @@ export const imageGenTask: TaskConfig<{
         id: jobId,
         data: { status: 'preview', ...jobUpdateData },
       })
-      console.log(`[imageGenTask v11] step9 — job status set to preview`)
+      console.log(`[imageGenTask v12] step9 — job status set to preview`)
     } catch (enumErr) {
       // 'preview' not in Postgres enum yet — fall back to 'review' (always valid)
       const errMsg = enumErr instanceof Error ? enumErr.message : String(enumErr)
-      console.error(`[imageGenTask v11] step9 — 'preview' status update failed (enum issue?): ${errMsg}`)
+      console.error(`[imageGenTask v12] step9 — 'preview' status update failed (enum issue?): ${errMsg}`)
       try {
         await payload.update({
           collection: 'image-generation-jobs',
           id: jobId,
           data: { status: 'review', ...jobUpdateData },
         })
-        console.log(`[imageGenTask v11] step9 — fallback: job status set to review`)
+        console.log(`[imageGenTask v12] step9 — fallback: job status set to review`)
         if (telegramChatId) {
           await sendTelegramNotification(
             telegramChatId,
@@ -519,11 +525,11 @@ export const imageGenTask: TaskConfig<{
         }
       } catch (fallbackErr) {
         const fbMsg = fallbackErr instanceof Error ? fallbackErr.message : String(fallbackErr)
-        console.error(`[imageGenTask v11] step9 — fallback 'review' also failed: ${fbMsg}`)
+        console.error(`[imageGenTask v12] step9 — fallback 'review' also failed: ${fbMsg}`)
       }
     }
 
-    console.log(`[imageGenTask v11] done — jobId=${jobId} product=${productId} images=${mediaIds.length} status=preview`)
+    console.log(`[imageGenTask v12] done — jobId=${jobId} product=${productId} images=${mediaIds.length} status=preview`)
 
     return {
       output: {

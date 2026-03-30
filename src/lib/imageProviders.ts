@@ -37,7 +37,30 @@ export type SlotLog = {
   outputSizeBytes?: number
   colorCheckPass?: boolean
   detectedColor?: string
+  /** v12: brand fidelity check result */
+  brandFidelityPass?: boolean
+  brandFidelityScore?: 'good' | 'degraded' | 'failed'
+  brandFidelityNotes?: string
   rejectionReason?: string
+}
+
+/**
+ * A brand-critical local zone on the shoe that must be preserved in all generated images.
+ * Extracted from the reference photo by Gemini Vision (Step B extension).
+ */
+export type ProtectedZone = {
+  name: string          // e.g. "tongue_label", "side_branding", "heel_tab", "ankle_patch"
+  description: string   // e.g. "Nike Swoosh logo on white rectangular tongue patch"
+  mustPreserve: string  // e.g. "swoosh shape, white on black background, centered on tongue"
+  visibility: 'high' | 'medium' | 'low'
+}
+
+/** Result from a post-generation brand fidelity check (Step D extension) */
+type BrandFidelityResult = {
+  pass: boolean
+  overallScore: 'good' | 'degraded' | 'failed'
+  zones: Array<{ zone: string; pass: boolean; note: string }>
+  reinforcementHint: string
 }
 
 /** Result from pre-generation image validation (Step A) */
@@ -66,6 +89,10 @@ export type IdentityLock = {
   distinctiveFeatures?: string
   /** Camera angle detected in the reference photo, e.g. "45° front-left" */
   referenceAngle?: string
+  /** v12: brand-critical local zones extracted from reference photo */
+  protectedZones?: ProtectedZone[]
+  /** v12: pre-built prompt section for protected zones, injected per slot */
+  protectedZoneBlock?: string
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -170,6 +197,13 @@ export async function extractIdentityLock(
     `- "closureType": (e.g. "lace-up", "slip-on", "side-zip", "chelsea elastic")\n` +
     `- "distinctiveFeatures": comma-separated details (e.g. "brogue perforations, contrast stitching")\n` +
     `- "referenceAngle": the camera angle in THIS photo (e.g. "45° front-left", "straight front", "overhead", "side profile")\n` +
+    `- "protectedZones": array of brand-critical visible zones. Include ONLY zones where a logo, text mark, ` +
+    `stripe pattern, or distinctive graphic element is CLEARLY VISIBLE. For each zone include:\n` +
+    `  - "name": one of "tongue_label" | "side_branding" | "heel_tab" | "toe_cap_overlay" | "ankle_patch" | "other"\n` +
+    `  - "description": exactly what is visible (e.g. "white Nike Swoosh on black tongue patch", "three white parallel stripes on lateral side")\n` +
+    `  - "mustPreserve": what specifically must not change (e.g. "swoosh shape and white-on-black contrast", "exactly 3 stripes, white, evenly spaced")\n` +
+    `  - "visibility": "high" if clearly prominent, "medium" if visible but small, "low" if very subtle\n` +
+    `  If no branding/logos/marks are visible, return an empty array [].\n` +
     `Be extremely precise on color — black vs brown vs tan matters enormously.`
 
   try {
@@ -183,7 +217,7 @@ export async function extractIdentityLock(
             { inlineData: { mimeType: imageMime, data: imageBuffer.toString('base64') } },
             { text: prompt },
           ] }],
-          generationConfig: { responseMimeType: 'application/json', maxOutputTokens: 500 },
+          generationConfig: { responseMimeType: 'application/json', maxOutputTokens: 900 },
         }),
       },
     )
@@ -234,7 +268,26 @@ export async function extractIdentityLock(
       ``,
     ].filter(Boolean).join('\n')
 
-    console.log(`[extractIdentityLock] ✓ ${productClass} | ${mainColor} | ${material} | ref=${refAngle}`)
+    // Parse protected zones (v12)
+    const rawZones: unknown[] = Array.isArray(p.protectedZones) ? p.protectedZones : []
+    const protectedZones: ProtectedZone[] = rawZones
+      .filter((z): z is Record<string, unknown> => typeof z === 'object' && z !== null && typeof (z as Record<string, unknown>).name === 'string')
+      .map((z) => ({
+        name: String(z.name),
+        description: String(z.description || ''),
+        mustPreserve: String(z.mustPreserve || 'preserve as shown'),
+        visibility: (['high', 'medium', 'low'] as const).includes(z.visibility as 'high' | 'medium' | 'low')
+          ? (z.visibility as 'high' | 'medium' | 'low')
+          : 'medium',
+      }))
+      .filter((z) => z.description.length > 0)
+
+    const protectedZoneBlock = buildProtectedZoneBlock(protectedZones)
+
+    console.log(
+      `[extractIdentityLock] ✓ ${productClass} | ${mainColor} | ${material} | ref=${refAngle} | ` +
+      `zones=${protectedZones.length} (${protectedZones.map((z) => z.name).join(',') || 'none'})`,
+    )
 
     return {
       promptBlock,
@@ -248,11 +301,52 @@ export async function extractIdentityLock(
       closureType: p.closureType,
       distinctiveFeatures: p.distinctiveFeatures,
       referenceAngle: refAngle,
+      protectedZones,
+      protectedZoneBlock,
     }
   } catch (err) {
     console.warn('[extractIdentityLock] error:', err instanceof Error ? err.message : err)
     return null
   }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Protected Zone Prompt Block Builder
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Build a prompt section that explicitly names and locks each protected zone.
+ * Injected into the generation prompt between the global identity block and
+ * the scene-specific instructions.
+ * Returns empty string if no meaningful zones exist.
+ */
+function buildProtectedZoneBlock(zones: ProtectedZone[]): string {
+  const visibleZones = zones.filter((z) => z.visibility !== 'low' && z.description.length > 0)
+  if (visibleZones.length === 0) return ''
+
+  const lines: string[] = [
+    `═══ PROTECTED BRAND ZONES — MUST NOT CHANGE ═══`,
+    `The following brand/identity zones MUST be reproduced faithfully from the reference.`,
+    ``,
+  ]
+
+  for (const zone of visibleZones) {
+    const zoneTitle = zone.name.toUpperCase().replace(/_/g, ' ')
+    lines.push(`${zoneTitle}: ${zone.description}`)
+    lines.push(`  • PRESERVE: ${zone.mustPreserve}`)
+    lines.push(`  • DO NOT invent fake text, logos, or brand marks here.`)
+    lines.push(``)
+  }
+
+  lines.push(
+    `BRAND FIDELITY RULE: If you cannot exactly reproduce a brand mark, render that zone`,
+    `as a subtle/blurred shape rather than inventing fictional brand text (e.g. "COLIDAS",`,
+    `"ADIBAS", or any made-up brand name). A blurred logo is better than a fake logo.`,
+    `═══════════════════════════`,
+    ``,
+  )
+
+  return lines.join('\n')
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -313,6 +407,96 @@ async function checkColorMatch(
   } catch (err) {
     console.warn('[checkColorMatch] error:', err instanceof Error ? err.message : err)
     return { match: true, detectedColor: 'unknown' }
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Step D2 — Per-Slot Brand Fidelity Check (v12)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Uses Gemini Vision to evaluate whether the generated image faithfully preserved
+ * the protected brand zones extracted from the reference.
+ *
+ * Only called when identityLock.protectedZones has high/medium visibility zones.
+ * On API failure: defaults to pass=true (never block on transient errors).
+ *
+ * Key concern: invented/changed brand text (e.g. "COLIDAS" instead of original logo).
+ */
+async function checkBrandFidelity(
+  generatedImage: Buffer,
+  protectedZones: ProtectedZone[],
+  apiKey: string,
+): Promise<BrandFidelityResult> {
+  const visionModel = 'gemini-2.5-flash'
+
+  const visibleZones = protectedZones.filter((z) => z.visibility !== 'low')
+  if (visibleZones.length === 0) {
+    return { pass: true, overallScore: 'good', zones: [], reinforcementHint: '' }
+  }
+
+  const zoneDescriptions = visibleZones
+    .map((z) => `- ${z.name}: "${z.description}" (must preserve: ${z.mustPreserve})`)
+    .join('\n')
+
+  const prompt =
+    `You are evaluating whether a generated shoe image faithfully preserved the original product's brand zones.\n\n` +
+    `EXPECTED ZONES from the original reference shoe:\n${zoneDescriptions}\n\n` +
+    `Look at this generated shoe image and evaluate each zone:\n` +
+    `- Is the zone present and visually consistent with the expected description?\n` +
+    `- Was any text INVENTED or changed? (e.g. "COLIDAS" instead of the original brand)\n` +
+    `- Was a logo shape changed or replaced with a different brand symbol?\n\n` +
+    `Reply JSON only — no markdown, no code fences:\n` +
+    `{\n` +
+    `  "pass": true/false,\n` +
+    `  "overallScore": "good" | "degraded" | "failed",\n` +
+    `  "zones": [{ "zone": "...", "pass": true/false, "note": "brief observation" }],\n` +
+    `  "reinforcementHint": "brief description of what failed and what the correct zone should look like"\n` +
+    `}\n` +
+    `"pass" = true if all high-visibility brand zones look faithful (or are stylized/blurred but not replaced with fake text).\n` +
+    `"pass" = false ONLY if a zone clearly shows invented/fake text, a wrong brand name, or a completely different logo.`
+
+  try {
+    const res = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/${visionModel}:generateContent?key=${apiKey}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{ parts: [
+            { inlineData: { mimeType: 'image/jpeg', data: generatedImage.toString('base64') } },
+            { text: prompt },
+          ] }],
+          generationConfig: { responseMimeType: 'application/json', maxOutputTokens: 400 },
+        }),
+      },
+    )
+
+    if (!res.ok) {
+      console.warn(`[checkBrandFidelity] HTTP ${res.status}`)
+      return { pass: true, overallScore: 'good', zones: [], reinforcementHint: '' }
+    }
+
+    const data = await res.json()
+    const text: string | undefined = data?.candidates?.[0]?.content?.parts?.[0]?.text
+    if (!text) return { pass: true, overallScore: 'good', zones: [], reinforcementHint: '' }
+
+    const parsed = JSON.parse(text.trim()) as Partial<BrandFidelityResult>
+    const result: BrandFidelityResult = {
+      pass:               parsed.pass          ?? true,
+      overallScore:       parsed.overallScore   ?? 'good',
+      zones:              Array.isArray(parsed.zones) ? parsed.zones : [],
+      reinforcementHint:  parsed.reinforcementHint ?? '',
+    }
+
+    console.log(
+      `[checkBrandFidelity] pass=${result.pass} score=${result.overallScore}` +
+      (result.reinforcementHint ? ` hint="${result.reinforcementHint.slice(0, 100)}"` : ''),
+    )
+    return result
+  } catch (err) {
+    console.warn('[checkBrandFidelity] error:', err instanceof Error ? err.message : err)
+    return { pass: true, overallScore: 'good', zones: [], reinforcementHint: '' }
   }
 }
 
@@ -532,7 +716,7 @@ export async function generateByEditing(
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     const sharp = require('sharp') as typeof import('sharp')
     console.log(
-      `[generateByEditing v10] input=${referenceImage.length}b ` +
+      `[generateByEditing v12] input=${referenceImage.length}b ` +
       `color=${identityLock.mainColor} refAngle=${identityLock.referenceAngle || '?'} ` +
       `scenes=${scenes.map((s) => s.name).join(',')}`,
     )
@@ -553,10 +737,16 @@ export async function generateByEditing(
       .png()
       .toBuffer()
 
-    console.log(`[generateByEditing v10] PNG 1024×1024 ready — ${pngBuffer.length}b (shoe at 768×768 center)`)
+    console.log(`[generateByEditing v12] PNG 1024×1024 ready — ${pngBuffer.length}b (shoe at 768×768 center)`)
 
-    const mainColor = identityLock.mainColor
-    const refAngle  = identityLock.referenceAngle || 'unknown'
+    const mainColor    = identityLock.mainColor
+    const refAngle     = identityLock.referenceAngle || 'unknown'
+    const zoneBlock    = identityLock.protectedZoneBlock || ''
+    const hasBrandZones = geminiKey && (identityLock.protectedZones?.length ?? 0) > 0
+
+    console.log(
+      `[generateByEditing v12] protected zones: ${hasBrandZones ? (identityLock.protectedZones?.map((z) => z.name).join(',')) : 'none'}`,
+    )
 
     for (const scene of scenes) {
       // Replace placeholders in scene instructions
@@ -564,7 +754,8 @@ export async function generateByEditing(
         .replace(/\{COLOR\}/g, mainColor)
         .replace(/\{REF_ANGLE\}/g, refAngle)
 
-      const fullPrompt = identityLock.promptBlock + sceneText
+      // v12: protected zone block injected between global identity and scene text
+      const fullPrompt = identityLock.promptBlock + zoneBlock + sceneText
 
       const slotLog: SlotLog = {
         slot: scene.name,
@@ -576,62 +767,103 @@ export async function generateByEditing(
 
       let finalBuf: Buffer | null = null
 
-      // Attempt 1: generate
+      // ── Attempt 1 ──────────────────────────────────────────────────────────
       slotLog.attempts = 1
       let rawBuf = await callGPTImageEdit(pngBuffer, fullPrompt, apiKey)
 
       if (rawBuf) {
         const jpegBuf = await sharp(rawBuf).jpeg({ quality: 92 }).toBuffer()
 
-        // Color check (only if Gemini API key available)
         if (geminiKey) {
+          // ── Step D1: Color check ─────────────────────────────────────────
           const colorCheck = await checkColorMatch(jpegBuf, mainColor, geminiKey)
           slotLog.colorCheckPass = colorCheck.match
-          slotLog.detectedColor = colorCheck.detectedColor
+          slotLog.detectedColor  = colorCheck.detectedColor
 
-          if (!colorCheck.match) {
-            // Color drifted — retry with reinforced color prompt
+          // ── Step D2: Brand fidelity check (v12, only when zones were extracted) ──
+          let brandCheck: BrandFidelityResult | null = null
+          if (hasBrandZones) {
+            brandCheck = await checkBrandFidelity(jpegBuf, identityLock.protectedZones!, geminiKey)
+            slotLog.brandFidelityPass  = brandCheck.pass
+            slotLog.brandFidelityScore = brandCheck.overallScore
+            slotLog.brandFidelityNotes = brandCheck.reinforcementHint || undefined
+          }
+
+          const needsRetry = !colorCheck.match || (brandCheck !== null && !brandCheck.pass)
+
+          if (needsRetry) {
+            // ── Build combined reinforcement preamble ────────────────────
+            const correctionLines: string[] = []
+            if (!colorCheck.match) {
+              correctionLines.push(
+                `CRITICAL COLOR CORRECTION: The previous output was ${colorCheck.detectedColor} ` +
+                `but the shoe MUST be ${mainColor}. ${colorCheck.detectedColor} is WRONG. ` +
+                `This is a ${mainColor} shoe — generate a ${mainColor} shoe.`,
+              )
+            }
+            if (brandCheck && !brandCheck.pass && brandCheck.reinforcementHint) {
+              correctionLines.push(
+                `CRITICAL BRAND FIDELITY CORRECTION: ${brandCheck.reinforcementHint} ` +
+                `Do NOT invent fake brand text, logos, or marks. ` +
+                `Reproduce the exact original branding zones described above.`,
+              )
+            }
+            const reinforcedPrompt = correctionLines.join('\n') + '\n\n' + fullPrompt
+
             console.warn(
-              `[generateByEditing v10] ✗ ${scene.name} color drift: ` +
-              `expected=${mainColor} detected=${colorCheck.detectedColor} — retrying`,
+              `[generateByEditing v12] ✗ ${scene.name} fidelity issues — ` +
+              `color=${colorCheck.match} brand=${brandCheck?.pass ?? 'skip'} — retrying`,
             )
             slotLog.attempts = 2
             await sleep(2000)
 
-            const reinforcedPrompt =
-              `CRITICAL COLOR CORRECTION: The previous output was ${colorCheck.detectedColor} but the shoe MUST be ${mainColor}. ` +
-              `This is a ${mainColor} shoe. Generate a ${mainColor} shoe. ${colorCheck.detectedColor} is WRONG.\n\n` +
-              fullPrompt
-
+            // ── Attempt 2 (reinforced) ────────────────────────────────────
             rawBuf = await callGPTImageEdit(pngBuffer, reinforcedPrompt, apiKey)
             if (rawBuf) {
               const retryJpeg = await sharp(rawBuf).jpeg({ quality: 92 }).toBuffer()
-              // Check retry color
-              const retryCheck = await checkColorMatch(retryJpeg, mainColor, geminiKey)
-              slotLog.colorCheckPass = retryCheck.match
-              slotLog.detectedColor = retryCheck.detectedColor
 
-              if (retryCheck.match) {
-                console.log(`[generateByEditing v10] ✓ ${scene.name} retry fixed color`)
-                finalBuf = retryJpeg
+              // Re-check color
+              const retryColor = await checkColorMatch(retryJpeg, mainColor, geminiKey)
+              slotLog.colorCheckPass = retryColor.match
+              slotLog.detectedColor  = retryColor.detectedColor
+
+              // Re-check brand fidelity
+              if (hasBrandZones) {
+                const retryBrand = await checkBrandFidelity(retryJpeg, identityLock.protectedZones!, geminiKey)
+                slotLog.brandFidelityPass  = retryBrand.pass
+                slotLog.brandFidelityScore = retryBrand.overallScore
+                slotLog.brandFidelityNotes = retryBrand.reinforcementHint || undefined
+              }
+
+              // Build rejection reason summary if still failing after retry
+              const warnings: string[] = []
+              if (!retryColor.match) warnings.push(`color drift: expected ${mainColor} got ${retryColor.detectedColor}`)
+              if (slotLog.brandFidelityPass === false) warnings.push(`brand zones drifted: ${slotLog.brandFidelityNotes || 'unknown'}`)
+              if (warnings.length > 0) slotLog.rejectionReason = warnings.join('; ')
+
+              // Accept image regardless — operator can judge from preview
+              finalBuf = retryJpeg
+
+              if (warnings.length === 0) {
+                console.log(`[generateByEditing v12] ✓ ${scene.name} retry resolved all issues`)
               } else {
-                console.warn(`[generateByEditing v10] ✗ ${scene.name} retry still wrong color: ${retryCheck.detectedColor}`)
-                slotLog.rejectionReason = `Color drift: expected ${mainColor}, got ${retryCheck.detectedColor} after retry`
-                // Still include the image but mark it as color-drifted
-                finalBuf = retryJpeg
+                console.warn(`[generateByEditing v12] ⚠ ${scene.name} retry still has issues: ${slotLog.rejectionReason}`)
               }
             }
           } else {
-            // Color matched on first try
+            // First attempt passed all checks
+            if (hasBrandZones) {
+              console.log(`[generateByEditing v12] ✓ ${scene.name} color+brand ok on first attempt`)
+            }
             finalBuf = jpegBuf
           }
         } else {
-          // No Gemini key — skip color check, accept the image
+          // No Gemini key — skip all fidelity checks, accept image
           finalBuf = jpegBuf
         }
       } else {
-        // Generation returned null — retry once
-        console.warn(`[generateByEditing v10] ✗ ${scene.name} null on attempt 1 — retrying`)
+        // Generation returned null — simple null retry (no fidelity check on null)
+        console.warn(`[generateByEditing v12] ✗ ${scene.name} null on attempt 1 — retrying`)
         slotLog.attempts = 2
         await sleep(2000)
         rawBuf = await callGPTImageEdit(pngBuffer, fullPrompt, apiKey)
@@ -646,14 +878,15 @@ export async function generateByEditing(
         slotLog.success = true
         slotLog.outputSizeBytes = finalBuf.length
         console.log(
-          `[generateByEditing v10] ✓ ${scene.name} — ${finalBuf.length}b ` +
-          `(attempts=${slotLog.attempts} color=${slotLog.colorCheckPass ?? 'skip'})`,
+          `[generateByEditing v12] ✓ ${scene.name} — ${finalBuf.length}b ` +
+          `(attempts=${slotLog.attempts} color=${slotLog.colorCheckPass ?? 'skip'} ` +
+          `brand=${slotLog.brandFidelityPass ?? 'skip'})`,
         )
       } else {
         const msg = `${scene.name}: null after ${slotLog.attempts} attempts`
         result.errors.push(msg)
         slotLog.rejectionReason = slotLog.rejectionReason || msg
-        console.warn(`[generateByEditing v10] ✗ ${msg}`)
+        console.warn(`[generateByEditing v12] ✗ ${msg}`)
       }
 
       slotLogs.push(slotLog)
@@ -661,16 +894,16 @@ export async function generateByEditing(
     }
   } catch (err) {
     const msg = `Pipeline fatal: ${err instanceof Error ? err.message : err}`
-    console.error(`[generateByEditing v10] ${msg}`)
+    console.error(`[generateByEditing v12] ${msg}`)
     result.errors.push(msg)
   }
 
   const slotSummary = slotLogs.map((s) => {
     if (!s.success) return '✗'
-    if (s.colorCheckPass === false) return '⚠'
+    if (s.colorCheckPass === false || s.brandFidelityPass === false) return '⚠'
     return '✓'
   }).join('')
-  console.log(`[generateByEditing v10] done — ${result.successCount}/${result.promptCount} [${slotSummary}]`)
+  console.log(`[generateByEditing v12] done — ${result.successCount}/${result.promptCount} [${slotSummary}]`)
 
   return { results: [result], buffers: result.buffers, slotLogs }
 }

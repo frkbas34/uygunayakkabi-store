@@ -32,8 +32,14 @@ export const ImageGenerationJobs: CollectionConfig = {
   hooks: {
     afterChange: [
       /**
-       * When status → 'approved', automatically append all generatedImages
-       * to the product's images array.
+       * DUAL-TRACK (v13): When status → 'approved', append generatedImages to
+       * product.generativeGallery — NOT to product.images.
+       *
+       * product.images       = website-safe originals (Telegram photo + manual uploads)
+       * product.generativeGallery = AI-generated editorial/marketing media only
+       *
+       * This hook fires on admin-panel approval. Telegram approval via
+       * approveImageGenJob() in route.ts also writes to generativeGallery (same rule).
        *
        * Triggered by:
        *   - Telegram "onayla" / ✅ button (via route.ts approval handler)
@@ -77,37 +83,37 @@ export const ImageGenerationJobs: CollectionConfig = {
         )
 
         try {
-          // Fetch current product images (depth:0 to get raw IDs)
+          // Fetch current product (depth:0 to get raw IDs)
           const productDoc = await payload.findByID({
             collection: 'products',
             id: productId,
             depth: 0,
           })
 
-          const existingImages = (
-            productDoc.images as Array<{ image: number }> | undefined
+          // Append to generativeGallery — NOT to images (website-safe lane stays clean)
+          const existingGallery = (
+            (productDoc as any).generativeGallery as Array<{ image: number }> | undefined
           ) ?? []
 
-          // Build the merged images array (existing + newly approved AI images)
-          const updatedImages = [
-            ...existingImages,
+          const updatedGallery = [
+            ...existingGallery,
             ...newMediaIds.map((id) => ({ image: id })),
           ]
 
           await payload.update({
             collection: 'products',
             id: productId,
-            data: { images: updatedImages },
+            data: { generativeGallery: updatedGallery },
           })
 
           console.log(
-            `[ImageGenerationJobs] auto-pushed ${newMediaIds.length} AI images ` +
-              `to product ${productId} (total images: ${updatedImages.length})`,
+            `[ImageGenerationJobs v13] auto-pushed ${newMediaIds.length} AI images ` +
+              `to product ${productId} generativeGallery (total: ${updatedGallery.length})`,
           )
         } catch (err) {
           // Non-fatal: log but don't crash the admin save
           console.error(
-            '[ImageGenerationJobs] afterChange hook failed — images NOT pushed to product:',
+            '[ImageGenerationJobs v13] afterChange hook failed — images NOT pushed to generativeGallery:',
             err,
           )
         }

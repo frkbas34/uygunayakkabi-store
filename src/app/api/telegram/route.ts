@@ -170,15 +170,21 @@ Sadece JSON döndür, başka açıklama ekleme.`
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
- * Approve a preview job — attach images to product then mark job approved.
+ * Approve a preview job — attach images to product.generativeGallery then mark job approved.
+ *
+ * DUAL-TRACK (v13):
+ *   Approved AI images go to product.generativeGallery — NOT product.images.
+ *   product.images stays website-safe (original Telegram photos + manual uploads only).
+ *   product.generativeGallery is the marketing/editorial lane.
  *
  * slotsStr:
  *   'all'    → approve every image in generatedImages
  *   '1,2,4'  → approve only these 1-based slot indices
  *
- * Instead of relying solely on the afterChange hook, we do the product
- * update directly here for reliability. The afterChange hook also fires
- * (on status→approved) which is idempotent for already-attached images.
+ * Both this direct update and the afterChange hook write to generativeGallery.
+ * The hook write is idempotent (same IDs already appended here will not duplicate
+ * because the hook fires AFTER status=approved is saved, by which point
+ * generatedImages is already narrowed to approvedMediaIds).
  */
 async function approveImageGenJob(
   payload: Awaited<ReturnType<typeof import('@/lib/payload').getPayload>>,
@@ -217,21 +223,23 @@ async function approveImageGenJob(
     return
   }
 
-  // Fetch current product images and append the approved ones
+  // DUAL-TRACK (v13): append to generativeGallery — NOT to product.images
+  // product.images = website-safe originals only (never touched here)
+  // product.generativeGallery = AI marketing/editorial lane
   const productDoc = await payload.findByID({
     collection: 'products',
     id: productId,
     depth: 0,
   })
-  const existingImages = ((productDoc as any).images as Array<{ image: number }> | undefined) ?? []
-  const updatedImages = [
-    ...existingImages,
+  const existingGallery = ((productDoc as any).generativeGallery as Array<{ image: number }> | undefined) ?? []
+  const updatedGallery = [
+    ...existingGallery,
     ...approvedMediaIds.map((id) => ({ image: id })),
   ]
   await payload.update({
     collection: 'products',
     id: productId,
-    data: { images: updatedImages },
+    data: { generativeGallery: updatedGallery },
   })
 
   // Update job: if partial, narrow generatedImages to approved set before marking approved
@@ -250,7 +258,7 @@ async function approveImageGenJob(
   await sendTelegramMessage(
     chatId,
     `✅ <b>${approvedMediaIds.length} görsel onaylandı${slotNote}</b>\n\n` +
-    `Görseller ürüne eklendi.\n` +
+    `Görseller AI Üretim Galerisi'ne eklendi (ürün sayfası görselleri değişmedi).\n` +
     `🔗 <a href="https://www.uygunayakkabi.com/admin/collections/products/${productId}">Ürünü admin'de gör</a>`,
   )
 }

@@ -385,8 +385,10 @@ export const imageGenTask: TaskConfig<{
     }
 
     // ── Step 7: Save each buffer as a Media document ────────────────────────
-    // Images are saved as type='enhanced' but NOT yet attached to the product.
-    // They will be attached only after operator approval via Telegram.
+    // DUAL-TRACK (v13): Images saved as type='generated' — not 'enhanced'.
+    // 'enhanced' = cleaned/improved original. 'generated' = AI-created output.
+    // NOT attached to product.images — held in job.generatedImages until approved.
+    // On approval: written to product.generativeGallery (marketing lane), NOT product.images.
     // slotNames/slotLabels already computed above (filtered by stage)
     const mediaIds: number[] = []
     const mediaUrls: string[] = []
@@ -403,7 +405,7 @@ export const imageGenTask: TaskConfig<{
           data: {
             altText: `${productTitle} — ${label} (AI)`,
             product: productId,
-            type: 'enhanced',
+            type: 'generated',
           },
           file: {
             data: buf,

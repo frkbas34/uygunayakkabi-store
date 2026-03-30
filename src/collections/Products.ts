@@ -293,6 +293,32 @@ export const Products: CollectionConfig = {
         },
       ],
     },
+    // ── 🤖 AI Üretim Galerisi (Pazarlama / Editöryal) ─────────
+    // DUAL-TRACK SEPARATION (v13):
+    //   product.images       = website-safe originals only (Telegram photo + manual uploads)
+    //   product.generativeGallery = AI-generated editorial/marketing media — not shown on product page by default
+    //
+    // On approval, generated images are written here, NOT into product.images.
+    // This prevents AI outputs from polluting the website-safe gallery.
+    {
+      name: 'generativeGallery',
+      type: 'array',
+      label: '🤖 AI Üretim Galerisi (Pazarlama)',
+      admin: {
+        description:
+          'AI ile üretilen görseller — ürün sayfası değil, sosyal medya / pazarlama için. ' +
+          'Ürün sayfası görselleri için yukarıdaki "Ürün Görselleri" alanını kullanın.',
+        initCollapsed: true,
+      },
+      fields: [
+        {
+          name: 'image',
+          type: 'relationship',
+          relationTo: 'media',
+          label: 'Görsel',
+        },
+      ],
+    },
     // ── Marka & Kategori ──────────────────────────────────────
     {
       name: 'brand',
@@ -301,6 +327,21 @@ export const Products: CollectionConfig = {
       admin: {
         position: 'sidebar',
         description: 'Nike / Adidas / Puma / New Balance / Converse / Vans / Reebok / Timberland',
+      },
+    },
+    // DUAL-TRACK v13: marks brand-sensitive products (logo/branded details)
+    // These products should NEVER have AI-generated images used as website-safe originals.
+    // When true, AI outputs go to generativeGallery only and must NOT replace product.images.
+    {
+      name: 'brandSensitive',
+      type: 'checkbox',
+      label: '🏷️ Marka Hassas Ürün',
+      defaultValue: false,
+      admin: {
+        position: 'sidebar',
+        description:
+          'Nike, Adidas gibi logolu ve markalı ürünler için işaretleyin. ' +
+          'AI üretilen görseller asla otomatik olarak ürün sayfası galerisine eklenmez.',
       },
     },
     {

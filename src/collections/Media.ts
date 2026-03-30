@@ -56,6 +56,7 @@ export const MediaCollection: CollectionConfig = {
       options: [
         { label: 'Original', value: 'original' },
         { label: 'Enhanced', value: 'enhanced' },
+        { label: 'Generated (AI)', value: 'generated' },
       ],
       defaultValue: 'original',
       admin: { position: 'sidebar' },

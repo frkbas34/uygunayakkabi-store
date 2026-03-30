@@ -389,11 +389,14 @@ export const imageGenTask: TaskConfig<{
       })
 
       if (telegramChatId) {
+        const failRetryCmd = provider === 'gemini-pro'
+          ? `<code>#gorsel #geminipro</code>`
+          : `<code>#gorsel</code>`
         await sendTelegramNotification(
           telegramChatId,
-          `❌ <b>Görsel üretimi başarısız</b>\n\n` +
-          `OpenAI motoru görsel üretemedi. Fotoğrafın net ve tek bir ayakkabıyı gösterdiğinden emin olun.\n` +
-          `Tekrar deneyin: <code>#gorsel</code>`,
+          `❌ <b>Görsel üretimi başarısız</b> (${providerLabel})\n\n` +
+          `${providerLabel} motoru görsel üretemedi. Fotoğrafın net ve tek bir ayakkabıyı gösterdiğinden emin olun.\n` +
+          `Tekrar deneyin: ${failRetryCmd}`,
         )
       }
 

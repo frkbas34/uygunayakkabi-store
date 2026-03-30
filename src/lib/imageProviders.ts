@@ -907,3 +907,290 @@ export async function generateByEditing(
 
   return { results: [result], buffers: result.buffers, slotLogs }
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Gemini Pro Image Generation (v14 — optional premium provider)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Call Gemini image generation model with a reference image + prompt.
+ *
+ * Model is read from env GEMINI_IMAGE_GEN_MODEL, defaulting to
+ * 'gemini-3-pro-image-preview'.
+ *
+ * API shape: generateContent with responseModalities: ['IMAGE', 'TEXT'].
+ * Reference image sent as inlineData (PNG) for style/identity conditioning.
+ *
+ * NOTE: 'gemini-3-pro-image-preview' is the user-specified model ID. If the
+ * model is not available or the API shape differs, the function returns null
+ * and the caller falls through to the standard OpenAI path.
+ */
+async function callGeminiImageGenerate(
+  pngBuffer: Buffer,
+  prompt: string,
+  apiKey: string,
+): Promise<Buffer | null> {
+  const model = process.env.GEMINI_IMAGE_GEN_MODEL || 'gemini-3-pro-image-preview'
+
+  try {
+    console.log(`[GeminiImageGenerate] POST model=${model} promptLen=${prompt.length}`)
+
+    const res = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{
+            parts: [
+              { inlineData: { mimeType: 'image/png', data: pngBuffer.toString('base64') } },
+              { text: prompt },
+            ],
+          }],
+          generationConfig: {
+            responseModalities: ['IMAGE', 'TEXT'],
+          },
+        }),
+      },
+    )
+
+    if (!res.ok) {
+      const errText = await res.text()
+      console.error(`[GeminiImageGenerate] HTTP ${res.status}: ${errText.slice(0, 500)}`)
+      return null
+    }
+
+    const data = await res.json()
+    const parts: unknown[] = data?.candidates?.[0]?.content?.parts ?? []
+
+    // Find the image part in the response
+    for (const part of parts) {
+      const p = part as Record<string, unknown>
+      const inlineData = p?.inlineData as Record<string, string> | undefined
+      if (inlineData?.data) {
+        const buf = Buffer.from(inlineData.data, 'base64')
+        console.log(`[GeminiImageGenerate] ✓ ${buf.length}b (${inlineData.mimeType || 'image/*'})`)
+        return buf
+      }
+    }
+
+    console.error('[GeminiImageGenerate] No image part in response')
+    return null
+  } catch (err) {
+    console.error('[GeminiImageGenerate] error:', err instanceof Error ? err.message : err)
+    return null
+  }
+}
+
+/**
+ * OPTIONAL PREMIUM PROVIDER (v14): Gemini Pro image generation pipeline.
+ *
+ * Drop-in replacement for generateByEditing() — same signature, same scene
+ * definitions, same color/brand checks. Differs only in the underlying
+ * image generation API call (Gemini Pro vs OpenAI gpt-image-1).
+ *
+ * Selection: pass sceneIndices + call from imageGenTask when provider='gemini-pro'.
+ * Default provider remains OpenAI (generateByEditing). This is additive only.
+ *
+ * Use cases: premium editorial slots, logo/text-sensitive benchmarking,
+ * difficult branded products where higher-resolution output helps.
+ *
+ * @param referenceImage    Raw bytes of the product photo
+ * @param referenceImageMime MIME type
+ * @param identityLock      Full IdentityLock object
+ * @param sceneIndices      Which EDITING_SCENES to run (0-based). Default: all 5.
+ */
+export async function generateByGeminiPro(
+  referenceImage: Buffer,
+  referenceImageMime: string,
+  identityLock: IdentityLock,
+  sceneIndices?: number[],
+): Promise<{ results: ProviderResult[]; buffers: Buffer[]; slotLogs: SlotLog[] }> {
+  const scenes = sceneIndices
+    ? EDITING_SCENES.filter((_, i) => sceneIndices.includes(i))
+    : [...EDITING_SCENES]
+
+  const modelId = process.env.GEMINI_IMAGE_GEN_MODEL || 'gemini-3-pro-image-preview'
+
+  const result: ProviderResult = {
+    provider: `gemini-pro-image:${modelId}`,
+    promptCount: scenes.length,
+    successCount: 0,
+    buffers: [],
+    errors: [],
+  }
+
+  const slotLogs: SlotLog[] = []
+  const geminiKey = process.env.GEMINI_API_KEY
+
+  if (!geminiKey) {
+    const msg = 'GEMINI_API_KEY not set — Gemini Pro generation impossible'
+    console.error(`[generateByGeminiPro] ${msg}`)
+    result.errors.push(msg)
+    return { results: [result], buffers: [], slotLogs }
+  }
+
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const sharp = require('sharp') as typeof import('sharp')
+    console.log(
+      `[generateByGeminiPro v14] model=${modelId} input=${referenceImage.length}b ` +
+      `color=${identityLock.mainColor} refAngle=${identityLock.referenceAngle || '?'} ` +
+      `scenes=${scenes.map((s) => s.name).join(',')}`,
+    )
+
+    // Same 768×768 → 1024×1024 padding as generateByEditing
+    const innerBuffer = await sharp(referenceImage)
+      .resize(768, 768, { fit: 'contain', background: { r: 255, g: 255, b: 255, alpha: 1 } })
+      .png()
+      .toBuffer()
+
+    const pngBuffer = await sharp(innerBuffer)
+      .extend({
+        top: 128, bottom: 128, left: 128, right: 128,
+        background: { r: 255, g: 255, b: 255, alpha: 1 },
+      })
+      .png()
+      .toBuffer()
+
+    console.log(`[generateByGeminiPro v14] PNG 1024×1024 ready — ${pngBuffer.length}b`)
+
+    const mainColor   = identityLock.mainColor
+    const refAngle    = identityLock.referenceAngle || 'unknown'
+    const zoneBlock   = identityLock.protectedZoneBlock || ''
+    const hasBrandZones = (identityLock.protectedZones?.length ?? 0) > 0
+
+    for (const scene of scenes) {
+      const sceneText = scene.sceneInstructions
+        .replace(/\{COLOR\}/g, mainColor)
+        .replace(/\{REF_ANGLE\}/g, refAngle)
+
+      const fullPrompt = identityLock.promptBlock + zoneBlock + sceneText
+
+      const slotLog: SlotLog = {
+        slot: scene.name,
+        label: scene.label,
+        provider: `gemini-pro-image:${modelId}`,
+        attempts: 0,
+        success: false,
+      }
+
+      let finalBuf: Buffer | null = null
+
+      // ── Attempt 1 ────────────────────────────────────────────────────────────
+      slotLog.attempts = 1
+      let rawBuf = await callGeminiImageGenerate(pngBuffer, fullPrompt, geminiKey)
+
+      if (rawBuf) {
+        const jpegBuf = await sharp(rawBuf).jpeg({ quality: 92 }).toBuffer()
+
+        // Step D1: Color check
+        const colorCheck = await checkColorMatch(jpegBuf, mainColor, geminiKey)
+        slotLog.colorCheckPass = colorCheck.match
+        slotLog.detectedColor  = colorCheck.detectedColor
+
+        // Step D2: Brand fidelity check
+        let brandCheck: BrandFidelityResult | null = null
+        if (hasBrandZones) {
+          brandCheck = await checkBrandFidelity(jpegBuf, identityLock.protectedZones!, geminiKey)
+          slotLog.brandFidelityPass  = brandCheck.pass
+          slotLog.brandFidelityScore = brandCheck.overallScore
+          slotLog.brandFidelityNotes = brandCheck.reinforcementHint || undefined
+        }
+
+        const needsRetry = !colorCheck.match || (brandCheck !== null && !brandCheck.pass)
+
+        if (needsRetry) {
+          const correctionLines: string[] = []
+          if (!colorCheck.match) {
+            correctionLines.push(
+              `CRITICAL COLOR CORRECTION: The previous output was ${colorCheck.detectedColor} ` +
+              `but the shoe MUST be ${mainColor}. Generate a ${mainColor} shoe.`,
+            )
+          }
+          if (brandCheck && !brandCheck.pass && brandCheck.reinforcementHint) {
+            correctionLines.push(
+              `CRITICAL BRAND FIDELITY CORRECTION: ${brandCheck.reinforcementHint} ` +
+              `Do NOT invent fake brand text, logos, or marks.`,
+            )
+          }
+          const reinforcedPrompt = correctionLines.join('\n') + '\n\n' + fullPrompt
+
+          console.warn(
+            `[generateByGeminiPro v14] ✗ ${scene.name} fidelity issues — ` +
+            `color=${colorCheck.match} brand=${brandCheck?.pass ?? 'skip'} — retrying`,
+          )
+          slotLog.attempts = 2
+          await sleep(2000)
+
+          rawBuf = await callGeminiImageGenerate(pngBuffer, reinforcedPrompt, geminiKey)
+          if (rawBuf) {
+            const retryJpeg = await sharp(rawBuf).jpeg({ quality: 92 }).toBuffer()
+
+            const retryColor = await checkColorMatch(retryJpeg, mainColor, geminiKey)
+            slotLog.colorCheckPass = retryColor.match
+            slotLog.detectedColor  = retryColor.detectedColor
+
+            if (hasBrandZones) {
+              const retryBrand = await checkBrandFidelity(retryJpeg, identityLock.protectedZones!, geminiKey)
+              slotLog.brandFidelityPass  = retryBrand.pass
+              slotLog.brandFidelityScore = retryBrand.overallScore
+              slotLog.brandFidelityNotes = retryBrand.reinforcementHint || undefined
+            }
+
+            const warnings: string[] = []
+            if (!retryColor.match) warnings.push(`color drift: expected ${mainColor} got ${retryColor.detectedColor}`)
+            if (slotLog.brandFidelityPass === false) warnings.push(`brand zones drifted: ${slotLog.brandFidelityNotes || 'unknown'}`)
+            if (warnings.length > 0) slotLog.rejectionReason = warnings.join('; ')
+
+            finalBuf = retryJpeg
+          }
+        } else {
+          finalBuf = jpegBuf
+        }
+      } else {
+        // Attempt 1 returned null — simple retry
+        console.warn(`[generateByGeminiPro v14] ✗ ${scene.name} null on attempt 1 — retrying`)
+        slotLog.attempts = 2
+        await sleep(2000)
+        rawBuf = await callGeminiImageGenerate(pngBuffer, fullPrompt, geminiKey)
+        if (rawBuf) {
+          finalBuf = await sharp(rawBuf).jpeg({ quality: 92 }).toBuffer()
+        }
+      }
+
+      if (finalBuf) {
+        result.buffers.push(finalBuf)
+        result.successCount++
+        slotLog.success = true
+        slotLog.outputSizeBytes = finalBuf.length
+        console.log(
+          `[generateByGeminiPro v14] ✓ ${scene.name} — ${finalBuf.length}b ` +
+          `(attempts=${slotLog.attempts} color=${slotLog.colorCheckPass ?? 'skip'} ` +
+          `brand=${slotLog.brandFidelityPass ?? 'skip'})`,
+        )
+      } else {
+        const msg = `${scene.name}: null after ${slotLog.attempts} attempts`
+        result.errors.push(msg)
+        slotLog.rejectionReason = slotLog.rejectionReason || msg
+        console.warn(`[generateByGeminiPro v14] ✗ ${msg}`)
+      }
+
+      slotLogs.push(slotLog)
+      await sleep(1000)
+    }
+  } catch (err) {
+    const msg = `Pipeline fatal: ${err instanceof Error ? err.message : err}`
+    console.error(`[generateByGeminiPro v14] ${msg}`)
+    result.errors.push(msg)
+  }
+
+  const slotSummary = slotLogs.map((s) => {
+    if (!s.success) return '✗'
+    if (s.colorCheckPass === false || s.brandFidelityPass === false) return '⚠'
+    return '✓'
+  }).join('')
+  console.log(`[generateByGeminiPro v14] done — ${result.successCount}/${result.promptCount} [${slotSummary}]`)
+
+  return { results: [result], buffers: result.buffers, slotLogs }
+}

@@ -44,7 +44,8 @@ export const imageGenTask: TaskConfig<{
 
   inputSchema: [
     { name: 'jobId', type: 'text', required: true },
-    { name: 'stage', type: 'text' }, // 'standard' (slots 1-3) | 'premium' (slots 4-5)
+    { name: 'stage', type: 'text' },    // 'standard' (slots 1-3) | 'premium' (slots 4-5)
+    { name: 'provider', type: 'text' }, // 'openai' (default) | 'gemini-pro'
   ],
 
   outputSchema: [
@@ -82,9 +83,12 @@ export const imageGenTask: TaskConfig<{
     //        'premium'  → slots 4-5 (explicit operator request)
     const stage = (input.stage || 'standard') as 'standard' | 'premium'
     const sceneIndices = stage === 'premium' ? [3, 4] : [0, 1, 2]
+    // provider: 'openai' (default, gpt-image-1 edit) | 'gemini-pro' (Gemini image gen)
+    // v14: provider is explicit in task input. Default keeps existing OpenAI path unchanged.
+    const provider = (input.provider || 'openai') as 'openai' | 'gemini-pro'
     const payload = req.payload
 
-    console.log(`[imageGenTask v12] start — jobId=${jobId} stage=${stage} sceneIndices=[${sceneIndices}]`)
+    console.log(`[imageGenTask v14] start — jobId=${jobId} stage=${stage} provider=${provider} sceneIndices=[${sceneIndices}]`)
 
     // ── Step 1: Fetch the job record ────────────────────────────────────────
     let jobDoc: Record<string, unknown>
@@ -170,18 +174,18 @@ export const imageGenTask: TaskConfig<{
 
     if (mediaUrl) {
       const fetchUrl = absoluteUrl(mediaUrl)
-      console.log(`[imageGenTask v12] fetching reference image — ${fetchUrl}`)
+      console.log(`[imageGenTask v14] fetching reference image — ${fetchUrl}`)
       try {
         const imgRes = await fetch(fetchUrl)
         if (imgRes.ok) {
           referenceImage = Buffer.from(await imgRes.arrayBuffer())
           referenceImageMime = mediaMime || 'image/jpeg'
-          console.log(`[imageGenTask v12] reference loaded — ${referenceImage.length}b ${referenceImageMime}`)
+          console.log(`[imageGenTask v14] reference loaded — ${referenceImage.length}b ${referenceImageMime}`)
         } else {
-          console.warn(`[imageGenTask v12] reference fetch failed HTTP ${imgRes.status}`)
+          console.warn(`[imageGenTask v14] reference fetch failed HTTP ${imgRes.status}`)
         }
       } catch (err) {
-        console.warn('[imageGenTask v12] reference fetch error:', err)
+        console.warn('[imageGenTask v14] reference fetch error:', err)
       }
     }
 
@@ -223,7 +227,7 @@ export const imageGenTask: TaskConfig<{
       )
 
       console.log(
-        `[imageGenTask v12] validation: valid=${validation.valid} ` +
+        `[imageGenTask v14] validation: valid=${validation.valid} ` +
         `confidence=${validation.confidence} class=${validation.productClass || '-'}`,
       )
 
@@ -262,7 +266,8 @@ export const imageGenTask: TaskConfig<{
     }
 
     // ── Step 5: STEP B — Identity Lock Extraction ────────────────────────────
-    const { extractIdentityLock, generateByEditing } = await import('../lib/imageProviders')
+    // generateByEditing / generateByGeminiPro imported later in Step 6 (provider-routed)
+    const { extractIdentityLock } = await import('../lib/imageProviders')
     type IdentityLock = Awaited<ReturnType<typeof extractIdentityLock>>
 
     let identityLock: NonNullable<IdentityLock>
@@ -292,34 +297,41 @@ export const imageGenTask: TaskConfig<{
           protectedZones: (lock.protectedZones || []).map((z) => `${z.name}: ${z.description}`),
         }
         console.log(
-          `[imageGenTask v12] identity: ${lock.productClass} | ${lock.mainColor} | ${lock.material} | ` +
+          `[imageGenTask v14] identity: ${lock.productClass} | ${lock.mainColor} | ${lock.material} | ` +
           `zones=${lock.protectedZones?.length || 0} | angle=${lock.referenceAngle}`,
         )
       } else {
-        console.warn('[imageGenTask v12] identity extraction failed — using fallback')
+        console.warn('[imageGenTask v14] identity extraction failed — using fallback')
         identityLock = buildFallbackLock()
         identityLockMeta = { fallback: true }
       }
     } else {
-      console.warn('[imageGenTask v12] no GEMINI_API_KEY — using fallback identity lock')
+      console.warn('[imageGenTask v14] no GEMINI_API_KEY — using fallback identity lock')
       identityLock = buildFallbackLock()
       identityLockMeta = { fallback: true, noGemini: true }
     }
 
-    // ── Step 6: STEP C — OpenAI Editing (THE ONLY generation path) ──────────
+    // ── Step 6: STEP C — Image Generation (provider-routed) ─────────────────
+    // v14: provider='openai' → generateByEditing (gpt-image-1, default, unchanged)
+    //      provider='gemini-pro' → generateByGeminiPro (Gemini image gen, optional)
     const ALL_SLOT_NAMES  = ['commerce_front', 'side_angle', 'detail_closeup', 'tabletop_editorial', 'worn_lifestyle']
     const ALL_SLOT_LABELS = ['Slot 1 — Ön Hero', 'Slot 2 — Yan Profil', 'Slot 3 — Makro', 'Slot 4 — Editoryal', 'Slot 5 — Lifestyle']
     const slotNames  = sceneIndices.map((i) => ALL_SLOT_NAMES[i])
     const slotLabels = sceneIndices.map((i) => ALL_SLOT_LABELS[i])
 
-    console.log(`[imageGenTask v12] generating — stage=${stage} slots=[${slotNames.join(',')}]`)
+    const pipelineLabel = provider === 'gemini-pro'
+      ? `gemini-pro-image-v14:${process.env.GEMINI_IMAGE_GEN_MODEL || 'gemini-3-pro-image-preview'}`
+      : 'openai-edit-only-v12'
+
+    console.log(`[imageGenTask v14] generating — stage=${stage} provider=${provider} slots=[${slotNames.join(',')}]`)
 
     await payload.update({
       collection: 'image-generation-jobs',
       id: jobId,
       data: {
         promptsUsed: JSON.stringify({
-          pipeline: 'openai-edit-only-v12',
+          pipeline: pipelineLabel,
+          provider,           // explicit provider field — recovered by regenImageGenJob
           stage,
           mode: `${mode} (cosmetic)`,
           identityLock: identityLockMeta,
@@ -333,7 +345,10 @@ export const imageGenTask: TaskConfig<{
     let slotLogsSummary: unknown[] = []
 
     try {
-      const { results, buffers, slotLogs } = await generateByEditing(
+      const { generateByEditing, generateByGeminiPro } = await import('../lib/imageProviders')
+      const genFn = provider === 'gemini-pro' ? generateByGeminiPro : generateByEditing
+
+      const { results, buffers, slotLogs } = await genFn(
         referenceImage,
         referenceImageMime || 'image/jpeg',
         identityLock,
@@ -348,15 +363,16 @@ export const imageGenTask: TaskConfig<{
         errors: r.errors,
       }))
 
-      console.log(`[imageGenTask v12] generated ${generatedBuffers.length} images`)
+      console.log(`[imageGenTask v14] generated ${generatedBuffers.length} images via ${provider}`)
     } catch (err) {
       const errMsg = err instanceof Error ? err.message : String(err)
-      console.error('[imageGenTask v12] generation error:', errMsg)
-      providerResultsSummary = [{ provider: 'gpt-image-edit', error: errMsg }]
+      console.error(`[imageGenTask v14] generation error (${provider}):`, errMsg)
+      providerResultsSummary = [{ provider, error: errMsg }]
     }
 
     if (generatedBuffers.length === 0) {
-      const msg = 'OpenAI görsel düzenleme başarısız — 0 görsel üretildi. Ürün fotoğrafını kontrol edip tekrar deneyin.'
+      const providerLabel = provider === 'gemini-pro' ? 'Gemini Pro' : 'OpenAI'
+      const msg = `${providerLabel} görsel üretimi başarısız — 0 görsel üretildi. Ürün fotoğrafını kontrol edip tekrar deneyin.`
 
       await payload.update({
         collection: 'image-generation-jobs',
@@ -416,10 +432,10 @@ export const imageGenTask: TaskConfig<{
         })
         mediaIds.push(media.id as number)
         mediaUrls.push((media.url as string) || '')
-        console.log(`[imageGenTask v12] saved media=${media.id} ${concept} ${buf.length}b url=${media.url}`)
+        console.log(`[imageGenTask v14] saved media=${media.id} ${concept} ${buf.length}b url=${media.url}`)
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err)
-        console.error(`[imageGenTask v12] media save failed (${concept}): ${msg}`)
+        console.error(`[imageGenTask v14] media save failed (${concept}): ${msg}`)
         mediaUrls.push('') // keep index alignment
       }
     }
@@ -447,14 +463,14 @@ export const imageGenTask: TaskConfig<{
       )
 
       console.log(
-        `[imageGenTask v12] step8 — sending ${generatedBuffers.length} photos to chatId=${telegramChatId}` +
+        `[imageGenTask v14] step8 — sending ${generatedBuffers.length} photos to chatId=${telegramChatId}` +
         ` mediaIds=${mediaIds.join(',')} bufSizes=${generatedBuffers.map((b) => b?.length ?? 'null').join(',')}`,
       )
 
       for (let i = 0; i < generatedBuffers.length; i++) {
         const buf = generatedBuffers[i]
         if (!buf || buf.length === 0) {
-          console.warn(`[imageGenTask v12] step8 — skipping slot ${i + 1}: buffer missing or empty`)
+          console.warn(`[imageGenTask v14] step8 — skipping slot ${i + 1}: buffer missing or empty`)
           continue
         }
         const slotLabel = slotLabels[i] || `Görsel ${i + 1}`
@@ -462,12 +478,12 @@ export const imageGenTask: TaskConfig<{
         const filename = `${slotNames[i] || `slot-${i}`}.jpg`
         const caption = `${slotIcon} <b>${slotLabel}</b>`
 
-        console.log(`[imageGenTask v12] step8 — sendPhoto slot ${i + 1} buf=${buf.length}b file=${filename}`)
+        console.log(`[imageGenTask v14] step8 — sendPhoto slot ${i + 1} buf=${buf.length}b file=${filename}`)
         await sendTelegramPhotoBuffer(telegramChatId, buf, caption, filename)
       }
 
       // ── Stage-appropriate approval keyboard ──────────────────────────────
-      console.log(`[imageGenTask v12] step8 — sending approval keyboard jobId=${jobId} stage=${stage}`)
+      console.log(`[imageGenTask v14] step8 — sending approval keyboard jobId=${jobId} stage=${stage}`)
       await sendApprovalKeyboard(
         telegramChatId,
         jobId,
@@ -478,7 +494,7 @@ export const imageGenTask: TaskConfig<{
         stage,
       )
     } else {
-      console.warn(`[imageGenTask v12] step8 — no telegramChatId on job ${jobId}, skipping preview send`)
+      console.warn(`[imageGenTask v14] step8 — no telegramChatId on job ${jobId}, skipping preview send`)
     }
 
     // ── Step 9: Update job status to 'preview' in DB ─────────────────────────
@@ -490,14 +506,17 @@ export const imageGenTask: TaskConfig<{
       imageCount: mediaIds.length,
       generationCompletedAt: new Date().toISOString(),
       providerResults: JSON.stringify({
-        pipeline: 'openai-edit-only-v10',
+        pipeline: pipelineLabel,
+        provider,                // v14: actual provider used
         mode: `${mode} (cosmetic)`,
         summary: providerResultsSummary,
         slotLogs: slotLogsSummary,
         identityLock: identityLockMeta,
         mediaUrls,
       }),
-      jobTitle: `${productTitle} — OpenAI Edit (${mediaIds.length} görsel)`,
+      jobTitle: provider === 'gemini-pro'
+        ? `${productTitle} — Gemini Pro (${mediaIds.length} görsel)`
+        : `${productTitle} — OpenAI Edit (${mediaIds.length} görsel)`,
     }
 
     try {
@@ -506,18 +525,18 @@ export const imageGenTask: TaskConfig<{
         id: jobId,
         data: { status: 'preview', ...jobUpdateData },
       })
-      console.log(`[imageGenTask v12] step9 — job status set to preview`)
+      console.log(`[imageGenTask v14] step9 — job status set to preview`)
     } catch (enumErr) {
       // 'preview' not in Postgres enum yet — fall back to 'review' (always valid)
       const errMsg = enumErr instanceof Error ? enumErr.message : String(enumErr)
-      console.error(`[imageGenTask v12] step9 — 'preview' status update failed (enum issue?): ${errMsg}`)
+      console.error(`[imageGenTask v14] step9 — 'preview' status update failed (enum issue?): ${errMsg}`)
       try {
         await payload.update({
           collection: 'image-generation-jobs',
           id: jobId,
           data: { status: 'review', ...jobUpdateData },
         })
-        console.log(`[imageGenTask v12] step9 — fallback: job status set to review`)
+        console.log(`[imageGenTask v14] step9 — fallback: job status set to review`)
         if (telegramChatId) {
           await sendTelegramNotification(
             telegramChatId,
@@ -527,11 +546,11 @@ export const imageGenTask: TaskConfig<{
         }
       } catch (fallbackErr) {
         const fbMsg = fallbackErr instanceof Error ? fallbackErr.message : String(fallbackErr)
-        console.error(`[imageGenTask v12] step9 — fallback 'review' also failed: ${fbMsg}`)
+        console.error(`[imageGenTask v14] step9 — fallback 'review' also failed: ${fbMsg}`)
       }
     }
 
-    console.log(`[imageGenTask v12] done — jobId=${jobId} product=${productId} images=${mediaIds.length} status=preview`)
+    console.log(`[imageGenTask v14] done — jobId=${jobId} product=${productId} images=${mediaIds.length} status=preview`)
 
     return {
       output: {

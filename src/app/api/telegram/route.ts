@@ -306,15 +306,19 @@ async function regenImageGenJob(
   const productRef = jobDoc.product as { id: number } | number | null
   const productId = productRef ? (typeof productRef === 'object' ? productRef.id : productRef) : null
 
-  // Recover stage from promptsUsed JSON (stored by imageGenTask v11)
+  // Recover stage AND provider from promptsUsed JSON (stored by imageGenTask v11+)
+  // v14: provider is also stored in promptsUsed so regen preserves the original choice
   let currentStage = 'standard'
+  let currentProvider = 'openai'
   try {
     const prompts = JSON.parse((jobDoc.promptsUsed as string) || '{}')
-    currentStage = (prompts.stage as string) || 'standard'
+    currentStage    = (prompts.stage    as string) || 'standard'
+    currentProvider = (prompts.provider as string) || 'openai'
   } catch {
-    // ignore parse errors — default to standard
+    // ignore parse errors — default to standard + openai
   }
-  const stageLabel = currentStage === 'premium' ? 'Premium (4-5)' : 'Standart (1-3)'
+  const stageLabel    = currentStage === 'premium' ? 'Premium (4-5)' : 'Standart (1-3)'
+  const providerLabel = currentProvider === 'gemini-pro' ? '✨ Gemini Pro' : '⚙️ OpenAI'
 
   await payload.update({
     collection: 'image-generation-jobs',
@@ -332,13 +336,13 @@ async function regenImageGenJob(
 
   await payload.jobs.queue({
     task: 'image-gen',
-    input: { jobId, stage: currentStage },
+    input: { jobId, stage: currentStage, provider: currentProvider },
     overrideAccess: true,
   })
 
   await sendTelegramMessage(
     chatId,
-    `🔄 <b>Yeniden üretim başlatıldı (${stageLabel})</b>\n\n` +
+    `🔄 <b>Yeniden üretim başlatıldı (${stageLabel} · ${providerLabel})</b>\n\n` +
     (productId ? `📦 Ürün ID: ${productId}\n` : '') +
     `Yeni görseller hazır olduğunda Telegram'a önizleme gönderilecek.`,
   )
@@ -379,15 +383,24 @@ async function startPremiumImageGenJob(
 
   const chatIdStr = (originalJob.telegramChatId as string) || String(chatId)
 
+  // v14: inherit provider from original job's promptsUsed (defaults to 'openai')
+  let inheritedProvider = 'openai'
+  try {
+    const prompts = JSON.parse((originalJob.promptsUsed as string) || '{}')
+    inheritedProvider = (prompts.provider as string) || 'openai'
+  } catch { /* ignore — default to openai */ }
+
+  const premiumProviderLabel = inheritedProvider === 'gemini-pro' ? '✨ Gemini Pro' : '⚙️ OpenAI'
+
   // Create a new job record for Stage 2
   const newJob = await payload.create({
     collection: 'image-generation-jobs',
     data: {
       product: productId,
-      mode: 'hizli',  // cosmetic — actual generation is always OpenAI edit
+      mode: 'hizli',  // cosmetic only
       status: 'queued',
       telegramChatId: chatIdStr,
-      jobTitle: `${productTitle} — Premium Görsel (Slot 4-5)`,
+      jobTitle: `${productTitle} — Premium Görsel (Slot 4-5 · ${premiumProviderLabel})`,
     },
   })
 
@@ -395,13 +408,13 @@ async function startPremiumImageGenJob(
 
   await payload.jobs.queue({
     task: 'image-gen',
-    input: { jobId: newJobId, stage: 'premium' },
+    input: { jobId: newJobId, stage: 'premium', provider: inheritedProvider },
     overrideAccess: true,
   })
 
   await sendTelegramMessage(
     chatId,
-    `🌟 <b>Premium görsel üretimi başlatıldı</b>\n\n` +
+    `🌟 <b>Premium görsel üretimi başlatıldı</b> (${premiumProviderLabel})\n\n` +
     `📸 Slot 4 (Editoryal Üstten) ve Slot 5 (Lifestyle Giyilmiş) üretiliyor...\n` +
     `Hazır olduğunda Telegram'a önizleme gönderilecek.\n\n` +
     `💡 <i>Slot 1-3 görselleri için önceki onay butonlarını hâlâ kullanabilirsiniz.</i>`,
@@ -646,7 +659,7 @@ export async function POST(req: NextRequest) {
         //    çıkarılır — "bunu ürüne çevir #hizli 1755 TL" gibi kullanımlarda
         //    parseTelegramCaption'ı bozmasın
         const BOT_MENTIONS = /(@Uygunops_bot|@uygunops_bot|@mentix_aibot|@Mentix)/gi
-        const GORSEL_TAGS  = /#(gorsel|hizli|dengeli|premium|karma)\b/gi
+        const GORSEL_TAGS  = /#(gorsel|hizli|dengeli|premium|karma|geminipro)\b/gi
         const combinedText = combinedRaw
         const cleanCaption = combinedText
           .replace(/bunu\s+[uü]r[uü]ne\s+[cç]evir/gi, '')
@@ -928,6 +941,12 @@ export async function POST(req: NextRequest) {
         /#dengeli/i.test(text) ? 'dengeli' :
         'hizli'
 
+      // v14: Detect provider from hashtags
+      // #geminipro → use Gemini Pro image generation (optional premium provider)
+      // Default → OpenAI gpt-image-1 (existing path, unchanged)
+      const genProvider: 'openai' | 'gemini-pro' =
+        /#geminipro/i.test(text) ? 'gemini-pro' : 'openai'
+
       // Find product ID:
       // Option A — bot's confirmation message (reply contains /products/<id> URL)
       const replyText =
@@ -950,11 +969,13 @@ export async function POST(req: NextRequest) {
           'İki yöntemden biri:\n' +
           '1️⃣ Ürün oluşturma mesajını <b>reply</b> edip yaz: <code>#gorsel</code>\n' +
           '2️⃣ Ürün ID ile yaz: <code>#gorsel 42</code>\n\n' +
-          'Mod seçimi (opsiyonel):\n' +
-          '<code>#gorsel #hizli</code>   — ⚡ Gemini Flash (hızlı)\n' +
-          '<code>#gorsel #dengeli</code> — ⚖️ GPT Image (dengeli)\n' +
-          '<code>#gorsel #premium</code> — 💎 Gemini Pro (yüksek kalite)\n' +
-          '<code>#gorsel #karma</code>   — 🌈 Tüm motorlar (5 farklı açı)',
+          'Mod seçimi (opsiyonel, tüm modlar OpenAI motoru kullanır):\n' +
+          '<code>#gorsel #hizli</code>   — ⚡ Hızlı (slot 1-3)\n' +
+          '<code>#gorsel #dengeli</code> — ⚖️ Dengeli (slot 1-3)\n' +
+          '<code>#gorsel #karma</code>   — 🌈 Tüm slotlar (1-5)\n\n' +
+          'Provider seçimi (opsiyonel):\n' +
+          '<code>#gorsel #geminipro</code>  — ✨ Gemini Pro görsel üretimi\n' +
+          '<code>#gorsel 42 #geminipro</code> — Gemini Pro ile spesifik ürün',
         )
         return NextResponse.json({ ok: true })
       }
@@ -977,10 +998,13 @@ export async function POST(req: NextRequest) {
       const modeLabelMap: Record<string, string> = {
         hizli: '⚡ Hızlı', dengeli: '⚖️ Dengeli', premium: '💎 Premium', karma: '🌈 Karma',
       }
+      // v14: provider label for job title and confirmation
+      const providerSuffix = genProvider === 'gemini-pro' ? ' · ✨ Gemini Pro' : ''
+
       const jobDoc = await payload.create({
         collection: 'image-generation-jobs',
         data: {
-          jobTitle: `${gorselProduct.title} — ${modeLabelMap[genMode] ?? genMode}`,
+          jobTitle: `${gorselProduct.title} — ${modeLabelMap[genMode] ?? genMode}${providerSuffix}`,
           product: gorselProductId,
           mode: genMode,
           status: 'queued',
@@ -989,10 +1013,10 @@ export async function POST(req: NextRequest) {
         },
       })
 
-      // Queue the image generation job
+      // Queue the image generation job — pass provider explicitly (v14)
       await payload.jobs.queue({
         task: 'image-gen',
-        input: { jobId: String(jobDoc.id) },
+        input: { jobId: String(jobDoc.id), provider: genProvider },
         overrideAccess: true,
       })
 
@@ -1004,7 +1028,8 @@ export async function POST(req: NextRequest) {
         `${modeEmoji[genMode] ?? '🎨'} <b>Görsel üretimi başlatıldı!</b>\n\n` +
         `📦 Ürün: <b>${gorselProduct.title}</b>\n` +
         `🔧 Mod: ${modeLabelMap[genMode]}\n` +
-        `🖼️ 5 farklı konsept görsel üretilecek\n\n` +
+        (genProvider === 'gemini-pro' ? `✨ Provider: Gemini Pro\n` : ``) +
+        `🖼️ 3 konsept görsel üretilecek (Slot 1-3)\n\n` +
         `<i>Tamamlanınca bildirim gelecek.</i>`,
       )
 

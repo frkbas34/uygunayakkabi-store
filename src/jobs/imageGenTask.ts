@@ -31,7 +31,7 @@
 import type { TaskConfig } from 'payload'
 
 export const imageGenTask: TaskConfig<{
-  input: { jobId: string; stage?: string }
+  input: { jobId: string; stage?: string; provider?: string }
   output: {
     success: boolean
     mediaIds: string

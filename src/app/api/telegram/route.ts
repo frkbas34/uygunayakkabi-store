@@ -314,22 +314,20 @@ async function regenImageGenJob(
   const productId = productRef ? (typeof productRef === 'object' ? productRef.id : productRef) : null
 
   // Recover stage AND provider from promptsUsed JSON (stored by imageGenTask v11+)
-  // v14: provider is also stored in promptsUsed so regen preserves the original choice
-  // Step 26: provider='luma' → re-queue luma-gen task instead of image-gen
+  // v16: provider='luma' or 'openai' (old default) → re-queue luma-gen
+  //      provider='gemini-pro' (Stage 2) → re-queue image-gen with gemini-pro
   let currentStage = 'standard'
-  let currentProvider = 'openai'
+  let currentProvider = 'luma'  // v16 default: new jobs are always Luma for Stage 1
   try {
     const prompts = JSON.parse((jobDoc.promptsUsed as string) || '{}')
     currentStage    = (prompts.stage    as string) || 'standard'
-    currentProvider = (prompts.provider as string) || 'openai'
+    currentProvider = (prompts.provider as string) || 'luma'
   } catch {
-    // ignore parse errors — default to standard + openai
+    // ignore parse errors — default to standard + luma
   }
   const stageLabel    = currentStage === 'premium' ? 'Premium (4-5)' : 'Standart (1-3)'
   const providerLabel =
-    currentProvider === 'luma'       ? '🔮 Luma AI'    :
-    currentProvider === 'gemini-pro' ? '✨ Gemini Pro' :
-    '⚙️ OpenAI'
+    currentProvider === 'gemini-pro' ? '✨ Gemini Pro' : '🔮 Luma AI'
 
   await payload.update({
     collection: 'image-generation-jobs',
@@ -345,17 +343,18 @@ async function regenImageGenJob(
     },
   })
 
-  if (currentProvider === 'luma') {
-    // Luma regen → re-queue luma-gen task (same model — photon-flash-1 default)
-    await payload.jobs.queue({
-      task: 'luma-gen',
-      input: { jobId, hq: false },
-      overrideAccess: true,
-    })
-  } else {
+  if (currentProvider === 'gemini-pro') {
+    // Stage 2 (Gemini Pro) regen → re-queue image-gen with gemini-pro
     await payload.jobs.queue({
       task: 'image-gen',
       input: { jobId, stage: currentStage, provider: currentProvider },
+      overrideAccess: true,
+    })
+  } else {
+    // Stage 1 regen (luma, openai legacy, or unknown) → always re-queue luma-gen
+    await payload.jobs.queue({
+      task: 'luma-gen',
+      input: { jobId, hq: false },
       overrideAccess: true,
     })
   }
@@ -508,11 +507,11 @@ export async function POST(req: NextRequest) {
               hizli: '⚡', dengeli: '⚖️', premium: '💎', karma: '🌈',
             }
 
-            // Create job — imageGenTask will look up the reference image itself
+            // Create job — lumaGenTask will look up source images itself
             const cbJobDoc = await cbPayload.create({
               collection: 'image-generation-jobs',
               data: {
-                jobTitle: `${cbProduct.title} — ${modeLabelMap[cbMode]}`,
+                jobTitle: `${cbProduct.title} — ${modeLabelMap[cbMode]} · 🔮 Luma`,
                 product: cbProductId,
                 mode: cbMode,
                 status: 'queued',
@@ -521,18 +520,19 @@ export async function POST(req: NextRequest) {
               },
             })
 
+            // v16: Stage 1 uses Luma
             await cbPayload.jobs.queue({
-              task: 'image-gen',
-              input: { jobId: String(cbJobDoc.id) },
+              task: 'luma-gen',
+              input: { jobId: String(cbJobDoc.id), hq: false },
               overrideAccess: true,
             })
 
             await sendTelegramMessage(
               cbChatId,
-              `${modeEmojiMap[cbMode]} <b>Görsel üretimi başlatıldı!</b>\n\n` +
+              `🔮 <b>Luma görsel üretimi başlatıldı!</b>\n\n` +
               `📦 Ürün: <b>${cbProduct.title}</b>\n` +
-              `🔧 Mod: ${modeLabelMap[cbMode]}\n` +
-              `🖼️ 5 farklı konsept görsel üretilecek\n\n` +
+              `🤖 Provider: 🔮 Luma photon-flash-1\n` +
+              `🖼️ 3 stüdyo açısı üretilecek (Slot 1-3)\n\n` +
               `<i>Tamamlanınca bildirim gelecek.</i>`,
             )
 
@@ -891,7 +891,7 @@ export async function POST(req: NextRequest) {
           ? ` (${parsedCaption.parseConfidence}% güven)`
           : ''
 
-        // 12. Görsel mod tag'i varsa → otomatik image-gen job kuyruğa al
+        // 12. Görsel mod tag'i varsa → otomatik Luma job kuyruğa al (v16: Luma default)
         let autoGenJobId: string | null = null
         if (autoGenMode) {
           try {
@@ -901,7 +901,7 @@ export async function POST(req: NextRequest) {
             const autoJobDoc = await payload.create({
               collection: 'image-generation-jobs',
               data: {
-                jobTitle: `${title} — ${modeLabelMap[autoGenMode]}`,
+                jobTitle: `${title} — ${modeLabelMap[autoGenMode]} · 🔮 Luma`,
                 product: productId,
                 mode: autoGenMode,
                 status: 'queued',
@@ -909,14 +909,15 @@ export async function POST(req: NextRequest) {
                 requestedByUserId: String(message.from?.id ?? ''),
               },
             })
+            // v16: Stage 1 uses Luma
             await payload.jobs.queue({
-              task: 'image-gen',
-              input: { jobId: String(autoJobDoc.id) },
+              task: 'luma-gen',
+              input: { jobId: String(autoJobDoc.id), hq: false },
               overrideAccess: true,
             })
             autoGenJobId = String(autoJobDoc.id)
           } catch (err) {
-            console.error('[telegram/webhook] auto image-gen queue failed:', err)
+            console.error('[telegram/webhook] auto luma-gen queue failed:', err)
           }
         }
 
@@ -941,7 +942,7 @@ export async function POST(req: NextRequest) {
           await sendTelegramMessage(
             chatId,
             productSummary +
-            `\n\n${modeEmojiMap[autoGenMode]} <b>Görsel üretimi başlatıldı</b> (${autoGenMode}) — tamamlanınca bildirim gelecek`,
+            `\n\n🔮 <b>Luma görsel üretimi başlatıldı</b> — 3 stüdyo açısı (Slot 1-3) — tamamlanınca bildirim gelecek`,
           )
         } else {
           // No mode selected — show inline keyboard for one-tap mode selection
@@ -999,18 +1000,16 @@ export async function POST(req: NextRequest) {
       /g[oö]rsel\s+[uü]ret/i.test(text)
 
     if (isGorselTrigger) {
-      // Detect generation mode from hashtags in message text
+      // Detect generation mode from hashtags in message text (cosmetic — Luma ignores mode)
       const genMode: 'hizli' | 'dengeli' | 'premium' | 'karma' =
         /#karma/i.test(text)   ? 'karma'   :
         /#premium/i.test(text) ? 'premium' :
         /#dengeli/i.test(text) ? 'dengeli' :
         'hizli'
 
-      // v14: Detect provider from hashtags
-      // #geminipro → use Gemini Pro image generation (optional premium provider)
-      // Default → OpenAI gpt-image-1 (existing path, unchanged)
-      const genProvider: 'openai' | 'gemini-pro' =
-        /#geminipro/i.test(text) ? 'gemini-pro' : 'openai'
+      // v16: Stage 1 is always Luma — genProvider removed.
+      // OpenAI image generation is no longer active for Stage 1.
+      // Stage 2 (slots 4-5) remains Gemini Pro via the imgpremium button.
 
       // Find product ID:
       // Option A — bot's confirmation message (reply contains /products/<id> URL)
@@ -1030,17 +1029,12 @@ export async function POST(req: NextRequest) {
       if (!gorselProductId) {
         await sendTelegramMessage(
           chatId,
-          '🎨 <b>Görsel üretimi için ürün gerekli.</b>\n\n' +
+          '🔮 <b>Luma görsel üretimi için ürün gerekli.</b>\n\n' +
           'İki yöntemden biri:\n' +
           '1️⃣ Ürün oluşturma mesajını <b>reply</b> edip yaz: <code>#gorsel</code>\n' +
           '2️⃣ Ürün ID ile yaz: <code>#gorsel 42</code>\n\n' +
-          'Mod seçimi (opsiyonel, tüm modlar OpenAI motoru kullanır):\n' +
-          '<code>#gorsel #hizli</code>   — ⚡ Hızlı (slot 1-3)\n' +
-          '<code>#gorsel #dengeli</code> — ⚖️ Dengeli (slot 1-3)\n' +
-          '<code>#gorsel #karma</code>   — 🌈 Tüm slotlar (1-5)\n\n' +
-          'Provider seçimi (opsiyonel):\n' +
-          '<code>#gorsel #geminipro</code>  — ✨ Gemini Pro görsel üretimi\n' +
-          '<code>#gorsel 42 #geminipro</code> — Gemini Pro ile spesifik ürün',
+          'Motor: 🔮 Luma photon-flash-1 (3 stüdyo açısı — Slot 1-3)\n' +
+          'Sonrasında: 🌟 Gemini Pro butonu ile Slot 4-5 üretebilirsiniz.',
         )
         return NextResponse.json({ ok: true })
       }
@@ -1063,13 +1057,10 @@ export async function POST(req: NextRequest) {
       const modeLabelMap: Record<string, string> = {
         hizli: '⚡ Hızlı', dengeli: '⚖️ Dengeli', premium: '💎 Premium', karma: '🌈 Karma',
       }
-      // v14: provider label for job title and confirmation
-      const providerSuffix = genProvider === 'gemini-pro' ? ' · ✨ Gemini Pro' : ''
-
       const jobDoc = await payload.create({
         collection: 'image-generation-jobs',
         data: {
-          jobTitle: `${gorselProduct.title} — ${modeLabelMap[genMode] ?? genMode}${providerSuffix}`,
+          jobTitle: `${gorselProduct.title} — ${modeLabelMap[genMode] ?? genMode} · 🔮 Luma`,
           product: gorselProductId,
           mode: genMode,
           status: 'queued',
@@ -1078,23 +1069,19 @@ export async function POST(req: NextRequest) {
         },
       })
 
-      // Queue the image generation job — pass provider explicitly (v14)
+      // v16: Stage 1 always uses Luma (luma-gen task)
       await payload.jobs.queue({
-        task: 'image-gen',
-        input: { jobId: String(jobDoc.id), provider: genProvider },
+        task: 'luma-gen',
+        input: { jobId: String(jobDoc.id), hq: false },
         overrideAccess: true,
       })
 
-      const modeEmoji: Record<string, string> = {
-        hizli: '⚡', dengeli: '⚖️', premium: '💎', karma: '🌈',
-      }
       await sendTelegramMessage(
         chatId,
-        `${modeEmoji[genMode] ?? '🎨'} <b>Görsel üretimi başlatıldı!</b>\n\n` +
+        `🔮 <b>Luma görsel üretimi başlatıldı!</b>\n\n` +
         `📦 Ürün: <b>${gorselProduct.title}</b>\n` +
-        `🔧 Mod: ${modeLabelMap[genMode]}\n` +
-        `🤖 Provider: ${genProvider === 'gemini-pro' ? '✨ Gemini Pro' : '⚙️ OpenAI gpt-image-1'}\n` +
-        `🖼️ 3 konsept görsel üretilecek (Slot 1-3)\n\n` +
+        `🤖 Provider: 🔮 Luma photon-flash-1\n` +
+        `🖼️ 3 stüdyo açısı üretilecek (Slot 1-3)\n\n` +
         `<i>Tamamlanınca bildirim gelecek.</i>`,
       )
 

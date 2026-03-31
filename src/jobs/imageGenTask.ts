@@ -1,28 +1,24 @@
 /**
- * imageGenTask — Step 25 v11
+ * imageGenTask — Step 25 v11 / v16 role: STAGE 2 ONLY (Gemini Pro)
  *
  * Payload Jobs Queue task for AI product image generation.
- * Triggered by Telegram #gorsel command.
  *
- * TWO-STAGE PIPELINE:
- *   Stage 1 "standard" (default): generates 3 slots — front hero, side profile, macro detail
- *   Stage 2 "premium"  (explicit): generates 2 slots — tabletop editorial, lifestyle worn
+ * v16 ARCHITECTURE CHANGE:
+ *   Stage 1 (slots 1-3) is now handled by lumaGenTask (#gorsel → luma-gen).
+ *   This task is ONLY called for Stage 2 (slots 4-5) via the imgpremium button,
+ *   always with provider='gemini-pro'.
  *
- * Full flow:
- *  1. Fetch ImageGenerationJob record
- *  2. Fetch product details + reference image
- *  3. REQUIRE reference image — if none, fail immediately
- *  4. Step A: Validate input (reject non-shoe images)
- *  5. Step B: Extract structured identity lock (10 fields + reference angle)
- *  6. Step C: Generate selected slots via OpenAI gpt-image-1 editing ONLY
- *  7. Step D: Per-slot color check — reject color-drifted outputs
- *  8. Save generated Media documents (type='enhanced', NOT yet attached to product)
- *  9. Send each image as a Telegram photo for operator preview
- * 10. Send stage-appropriate approval keyboard to Telegram
- * 11. Update job → status='preview' (awaiting Telegram approval)
+ *   OpenAI path (provider='openai') is DEPRECATED and UNREACHABLE from operator commands.
+ *   The code remains for backward compatibility but no active route queues it.
  *
- * NO PIPELINE B. NO GEMINI GENERATION. NO TEXT-TO-IMAGE FALLBACK.
- * If Pipeline A fails → explicit failure. Mode tag is cosmetic only.
+ * ACTIVE USE:
+ *   Stage 2 "premium": generates slots 4-5 (tabletop editorial, lifestyle worn)
+ *   Provider: gemini-pro (always, hardcoded in startPremiumImageGenJob)
+ *   Triggered by: imgpremium:{jobId} callback — "🌟 4-5 Gemini Pro Üret" button
+ *
+ * DEPRECATED (no active entry points):
+ *   Stage 1 "standard" with provider='openai' — replaced by lumaGenTask
+ *   #geminipro provider tag — removed from #gorsel handler
  *
  * v11 PREVIEW FLOW: images are NOT attached to product until operator
  * explicitly approves via Telegram. See route.ts for approval handlers.

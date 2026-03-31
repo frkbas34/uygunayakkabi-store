@@ -916,21 +916,21 @@ export async function generateByEditing(
  * Call Gemini image generation model with a reference image + prompt.
  *
  * Model is read from env GEMINI_IMAGE_GEN_MODEL, defaulting to
- * 'gemini-3-pro-image-preview'.
+ * 'gemini-2.0-flash-preview-image-generation'.
  *
  * API shape: generateContent with responseModalities: ['IMAGE', 'TEXT'].
  * Reference image sent as inlineData (PNG) for style/identity conditioning.
  *
- * NOTE: 'gemini-3-pro-image-preview' is the user-specified model ID. If the
- * model is not available or the API shape differs, the function returns null
- * and the caller falls through to the standard OpenAI path.
+ * To override the model, set GEMINI_IMAGE_GEN_MODEL in Vercel env vars.
+ * If the model returns an error or no image part, the function returns null
+ * and the caller logs the failure.
  */
 async function callGeminiImageGenerate(
   pngBuffer: Buffer,
   prompt: string,
   apiKey: string,
 ): Promise<Buffer | null> {
-  const model = process.env.GEMINI_IMAGE_GEN_MODEL || 'gemini-3-pro-image-preview'
+  const model = process.env.GEMINI_IMAGE_GEN_MODEL || 'gemini-2.0-flash-preview-image-generation'
 
   try {
     console.log(`[GeminiImageGenerate] POST model=${model} promptLen=${prompt.length}`)
@@ -1010,7 +1010,7 @@ export async function generateByGeminiPro(
     ? EDITING_SCENES.filter((_, i) => sceneIndices.includes(i))
     : [...EDITING_SCENES]
 
-  const modelId = process.env.GEMINI_IMAGE_GEN_MODEL || 'gemini-3-pro-image-preview'
+  const modelId = process.env.GEMINI_IMAGE_GEN_MODEL || 'gemini-2.0-flash-preview-image-generation'
 
   const result: ProviderResult = {
     provider: `gemini-pro-image:${modelId}`,

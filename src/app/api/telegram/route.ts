@@ -314,10 +314,12 @@ async function regenImageGenJob(
   const productId = productRef ? (typeof productRef === 'object' ? productRef.id : productRef) : null
 
   // Recover stage AND provider from promptsUsed JSON (stored by imageGenTask v11+)
-  // v16: provider='luma' or 'openai' (old default) → re-queue luma-gen
-  //      provider='gemini-pro' (Stage 2) → re-queue image-gen with gemini-pro
+  // v17 routing:
+  //   provider='gemini-pro'  → re-queue image-gen with gemini-pro (Stage 2 regen)
+  //   provider='openai'      → re-queue image-gen with openai (#chatgpt explicit regen)
+  //   provider='luma' | unknown → re-queue luma-gen (Stage 1 default regen)
   let currentStage = 'standard'
-  let currentProvider = 'luma'  // v16 default: new jobs are always Luma for Stage 1
+  let currentProvider = 'luma'  // v17 default: Stage 1 is Luma
   try {
     const prompts = JSON.parse((jobDoc.promptsUsed as string) || '{}')
     currentStage    = (prompts.stage    as string) || 'standard'
@@ -327,7 +329,9 @@ async function regenImageGenJob(
   }
   const stageLabel    = currentStage === 'premium' ? 'Premium (4-5)' : 'Standart (1-3)'
   const providerLabel =
-    currentProvider === 'gemini-pro' ? '✨ Gemini Pro' : '🔮 Luma AI'
+    currentProvider === 'gemini-pro' ? '✨ Gemini Pro' :
+    currentProvider === 'openai'     ? '⚙️ ChatGPT'   :
+    '🔮 Luma AI'
 
   await payload.update({
     collection: 'image-generation-jobs',
@@ -350,8 +354,16 @@ async function regenImageGenJob(
       input: { jobId, stage: currentStage, provider: currentProvider },
       overrideAccess: true,
     })
+  } else if (currentProvider === 'openai') {
+    // Explicit ChatGPT regen (#chatgpt trigger) → re-queue image-gen with openai
+    // v17: Must preserve original engine on regen — do NOT silently switch to Luma
+    await payload.jobs.queue({
+      task: 'image-gen',
+      input: { jobId, stage: currentStage, provider: 'openai' },
+      overrideAccess: true,
+    })
   } else {
-    // Stage 1 regen (luma, openai legacy, or unknown) → always re-queue luma-gen
+    // Stage 1 Luma regen (luma, unknown) → re-queue luma-gen
     await payload.jobs.queue({
       task: 'luma-gen',
       input: { jobId, hq: false },

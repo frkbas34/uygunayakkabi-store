@@ -3,22 +3,21 @@
  *
  * Payload Jobs Queue task for AI product image generation.
  *
- * v16 ARCHITECTURE CHANGE:
- *   Stage 1 (slots 1-3) is now handled by lumaGenTask (#gorsel → luma-gen).
- *   This task is ONLY called for Stage 2 (slots 4-5) via the imgpremium button,
- *   always with provider='gemini-pro'.
+ * v17 ARCHITECTURE (2026-03-31):
+ *   Multiple active entry points — explicit engine selection by operator.
  *
- *   OpenAI path (provider='openai') is DEPRECATED and UNREACHABLE from operator commands.
- *   The code remains for backward compatibility but no active route queues it.
+ * ACTIVE USE (v17):
+ *   Stage 1 explicit ChatGPT: #chatgpt {id} → provider='openai', stage='standard'
+ *   Stage 1 explicit Gemini Pro: #geminipro {id} → provider='gemini-pro', stage='standard'
+ *   Stage 2 premium: imgpremium button → provider='gemini-pro', stage='premium' (slots 4-5)
  *
- * ACTIVE USE:
- *   Stage 2 "premium": generates slots 4-5 (tabletop editorial, lifestyle worn)
- *   Provider: gemini-pro (always, hardcoded in startPremiumImageGenJob)
- *   Triggered by: imgpremium:{jobId} callback — "🌟 4-5 Gemini Pro Üret" button
+ *   Default Stage 1 (slots 1-3) is STILL lumaGenTask → #gorsel → luma-gen.
+ *   This task handles all image-gen (openai + gemini-pro) explicit engine requests.
  *
- * DEPRECATED (no active entry points):
- *   Stage 1 "standard" with provider='openai' — replaced by lumaGenTask
- *   #geminipro provider tag — removed from #gorsel handler
+ * REGEN ROUTING (v17):
+ *   provider='openai'     → re-queues image-gen/openai (preserves explicit engine)
+ *   provider='gemini-pro' → re-queues image-gen/gemini-pro
+ *   provider='luma'       → re-queues luma-gen (handled in regenImageGenJob, not here)
  *
  * v11 PREVIEW FLOW: images are NOT attached to product until operator
  * explicitly approves via Telegram. See route.ts for approval handlers.

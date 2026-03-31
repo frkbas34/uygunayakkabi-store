@@ -5,11 +5,20 @@
  *   - See productPreservation.ts for the canonical shared prohibition list
  *   - No people, no feet, no legs (Phase 1 — studio only)
  *
- * Visual identity is anchored by `image_ref` at high weight (0.85–0.90).
+ * ENVIRONMENT LOCK (enforced in every prompt):
+ *   - Seamless studio backdrop ONLY — no real-world surfaces
+ *   - Explicitly forbidden: wood, table, floor, marble, concrete, plants,
+ *     room interior, furniture, outdoor, any environmental context
+ *   - buildStudioEnvironmentLock() must be the FIRST block in every prompt
+ *
+ * Visual identity is anchored by `image_ref` at high weight (0.88–0.90).
  * The prompt describes SCENE GEOMETRY only — not shoe design.
  *
- * Prompt structure:
- *   [scene type] + [camera angle] + [background/lighting] + [identity lock] + [hard prohibitions]
+ * Prompt structure (ORDER IS IMPORTANT for Luma):
+ *   1. Environment lock (what the background/context MUST be + what is FORBIDDEN)
+ *   2. Scene geometry (camera angle, framing, what must be visible)
+ *   3. Lighting spec
+ *   4. Product identity lock (color, material, brand, prohibited changes)
  */
 
 import type { LumaAspectRatio, LumaModel } from './lumaApi'
@@ -35,11 +44,33 @@ export type StudioAngleSlot = {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Identity lock suffix — delegates to shared productPreservation module
+// Studio environment lock — MUST lead every Luma Studio prompt
 // ─────────────────────────────────────────────────────────────────────────────
 
-// buildPreservationBlock is imported from productPreservation.ts and used directly
-// in slot buildPrompt functions below.  No local duplication needed.
+/**
+ * Generates a hard environment lock that prevents Luma from placing the product
+ * in any real-world context, surface, or editorial environment.
+ *
+ * This block must be the FIRST text in every Stage 1 Luma prompt.
+ * Luma processes the beginning of a prompt with highest attention weight.
+ *
+ * Forbidden surfaces are listed explicitly — generic instructions like
+ * "white background" are not sufficient; named-surface prohibitions are required.
+ */
+function buildStudioEnvironmentLock(backgroundSpec: string): string {
+  return (
+    `STRICT CATALOG STUDIO PRODUCT PHOTOGRAPHY — ISOLATED PRODUCT ONLY. ` +
+    `Background: ${backgroundSpec}. ` +
+    `ABSOLUTELY NO environment, context, surface, or scene. ` +
+    `FORBIDDEN BACKGROUNDS AND SURFACES: wood table, wooden desk, marble surface, ` +
+    `concrete floor, carpet, tile floor, grass, sand, stone, any table surface, ` +
+    `any floor surface, any shelf, any furniture, indoor room interior, outdoor scene, ` +
+    `window light environment, editorial set, lifestyle context, plants, flowers, ` +
+    `props, hands, feet, legs, people, clothing, fabric drape, any object besides the shoe. ` +
+    `The background must contain ZERO environmental elements. ` +
+    `This is a pure commercial product catalog photograph — not a lifestyle, editorial, or environmental image.`
+  )
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Studio angle slot definitions
@@ -50,16 +81,16 @@ export const STUDIO_ANGLE_SLOTS: readonly StudioAngleSlot[] = [
     name: 'studio_front',
     label: 'Slot 1 — Ön Stüdyo',
     aspectRatio: '1:1',
-    imageRefWeight: 0.88,
+    imageRefWeight: 0.90,
     buildPrompt: (ctx) =>
-      `Professional e-commerce studio product photograph. ` +
-      `The exact same shoe from the reference image, placed upright on a flat surface. ` +
-      `Camera positioned directly in front of the shoe at mid-height, perpendicular to the toe cap. ` +
-      `The shoe faces the camera dead-on — both sides symmetrically visible. ` +
-      `Pure white seamless background (#FFFFFF). ` +
-      `Soft overhead key light, bilateral fill panels, subtle ground shadow only. ` +
-      `Full shoe visible — collar top and sole bottom both in frame. ` +
-      `No reflections. No surface texture. No props. No people. ` +
+      buildStudioEnvironmentLock('pure white seamless backdrop #FFFFFF — nothing else') +
+      ` ` +
+      `The exact same shoe from the reference image, placed upright on its sole, perfectly centered. ` +
+      `CAMERA: Directly in front of the shoe, lens perpendicular to the toe cap, at mid-height (lacing zone). ` +
+      `The shoe faces the camera dead-on — left and right sides equally visible (perfectly symmetric view). ` +
+      `FRAME: Full shoe in frame — top of collar and bottom of sole both visible. Shoe fills 70–75% of frame height. ` +
+      `LIGHTING: Soft overhead key light, bilateral fill panels, very subtle ground shadow only. No reflections. No specular glare. No gradient sky. ` +
+      `COMPOSITION: Shoe only. Zero props. Zero environmental elements. Zero surface texture visible. ` +
       buildPreservationBlock(ctx),
   },
 
@@ -67,16 +98,16 @@ export const STUDIO_ANGLE_SLOTS: readonly StudioAngleSlot[] = [
     name: 'studio_side',
     label: 'Slot 2 — Yan Profil',
     aspectRatio: '1:1',
-    imageRefWeight: 0.88,
+    imageRefWeight: 0.90,
     buildPrompt: (ctx) =>
-      `Professional e-commerce studio product photograph. ` +
+      buildStudioEnvironmentLock('soft neutral grey seamless backdrop — nothing else, no gradients, no surfaces') +
+      ` ` +
       `The exact same shoe from the reference image, photographed in a pure lateral side profile. ` +
-      `Camera positioned exactly 90 degrees to the side — looking directly at the medial face. ` +
-      `Shoe pointing left, heel to the right. Full sole silhouette visible from toe tip to heel counter. ` +
-      `Arch curve and heel height clearly readable in profile. ` +
-      `Soft neutral grey seamless background. Subtle gradient. ` +
-      `Key light from front-left 45 degrees, fill from opposite. ` +
-      `No reflections. No props. No people. ` +
+      `CAMERA: Exactly 90 degrees to the side — looking directly at the medial (inner) face of the shoe. ` +
+      `ORIENTATION: Shoe pointing LEFT, heel to the RIGHT. ` +
+      `FRAME: Full shoe from toe tip to heel counter. Entire sole silhouette visible from one end to the other. Arch curve and heel height clearly readable. Shoe fills 75% of frame width. ` +
+      `LIGHTING: Key light from front-left 45 degrees, fill from opposite side. Subtle sole-edge highlight. No reflections. No surface texture. ` +
+      `COMPOSITION: Shoe only. Zero props. Zero environmental elements. ` +
       buildPreservationBlock(ctx),
   },
 
@@ -84,17 +115,16 @@ export const STUDIO_ANGLE_SLOTS: readonly StudioAngleSlot[] = [
     name: 'studio_quarter',
     label: 'Slot 3 — Üç Çeyrek Açı',
     aspectRatio: '1:1',
-    imageRefWeight: 0.85,
+    imageRefWeight: 0.88,
     buildPrompt: (ctx) =>
-      `Professional e-commerce studio product photograph. ` +
+      buildStudioEnvironmentLock('pure white seamless backdrop #FFFFFF — nothing else, no surface textures, no gradients') +
+      ` ` +
       `The exact same shoe from the reference image, photographed at a 3/4 front-left angle. ` +
-      `Camera positioned at 45 degrees to the left of the shoe at mid-height. ` +
-      `Both the toe cap face AND the medial side face are visible simultaneously. ` +
-      `The lacing system, tongue, and side silhouette all visible. ` +
-      `Pure white seamless background. ` +
-      `Soft diffused studio lighting — no harsh shadows, no specular hotspots. ` +
-      `Catalog quality. High detail on upper material and branding zones. ` +
-      `No props. No people. ` +
+      `CAMERA: 45 degrees to the left of the shoe at mid-height — a classic three-quarter front view. ` +
+      `VISIBILITY: Both the toe cap face AND the medial side face visible simultaneously. Lacing system, tongue, and side silhouette all in frame. ` +
+      `FRAME: Full shoe — collar top and sole bottom both visible. Shoe fills 70% of frame. ` +
+      `LIGHTING: Soft diffused studio lighting — no harsh shadows, no specular hotspots, no glare. Catalog quality. High detail on upper material and branding zones. ` +
+      `COMPOSITION: Shoe only. Zero props. Zero environmental elements. Zero surface texture visible. ` +
       buildPreservationBlock(ctx),
   },
 ] as const

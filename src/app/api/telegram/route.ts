@@ -634,21 +634,16 @@ export async function POST(req: NextRequest) {
       }
 
       // ── imgpremium:{jobId} ────────────────────────────────────────────────
-      // Starts a NEW Stage 2 premium job (slots 4-5) for the same product.
-      // The Stage 1 job remains in 'preview' status — operator can still approve it.
+      // Stage 2 Gemini Pro (slots 4-5) — BLOCKED: Gemini Pro not yet reliably working.
+      // Code preserved for re-enablement when Gemini Pro is verified functional.
       if (cbData.startsWith('imgpremium:')) {
-        const cbJobId = cbData.split(':')[1]
-        await answerCallbackQuery(cbQueryId, '🌟 Premium üretim başlatılıyor...')
-
-        after(async () => {
-          try {
-            const premiumPayload = await getPayload()
-            await startPremiumImageGenJob(premiumPayload, cbJobId, cbChatId)
-          } catch (err) {
-            console.error('[telegram/webhook] imgpremium callback failed:', err)
-            await sendTelegramMessage(cbChatId, `❌ Premium üretim başlatılamadı: ${err instanceof Error ? err.message : 'Bilinmeyen hata'}`)
-          }
-        })
+        await answerCallbackQuery(cbQueryId, '⛔ Gemini Pro şu an devre dışı')
+        await sendTelegramMessage(
+          cbChatId,
+          `⛔ <b>Gemini Pro şu an kullanılamıyor.</b>\n\n` +
+          `Gemini Pro görsel üretimi geçici olarak devre dışı bırakıldı.\n` +
+          `Slot 1-3 Luma görsellerini onaylamak için <b>✅ Tümünü Onayla</b> butonunu kullanın.`,
+        )
       }
 
       // ── lumahq:{jobId} ────────────────────────────────────────────────────
@@ -860,8 +855,7 @@ export async function POST(req: NextRequest) {
               `Toplam ${newCount} referans fotoğraf bu ürüne eklendi.\n` +
               `Görsel üretmek için:\n` +
               `<code>#gorsel ${groupProductId}</code> — 🔮 Luma\n` +
-              `<code>#chatgpt ${groupProductId}</code> — ⚙️ ChatGPT\n` +
-              `<code>#geminipro ${groupProductId}</code> — ✨ Gemini Pro`,
+              `<code>#chatgpt ${groupProductId}</code> — ⚙️ ChatGPT`,
             )
             return NextResponse.json({ ok: true })
           }
@@ -992,18 +986,20 @@ export async function POST(req: NextRequest) {
 
         // 12. Görsel tag varsa → otomatik görsel üretim kuyruğa al
         //    Legacy mod tag'leri (hizli/dengeli/premium/karma) → Luma (v16 default)
-        //    Engine tag'leri: #luma → Luma, #chatgpt → OpenAI, #geminipro → Gemini Pro
+        //    Engine tag'leri: #luma → Luma, #chatgpt → OpenAI
+        //    #geminipro in caption → BLOCKED: Gemini Pro devre dışı, tag yoksayılır
+        const effectiveEngine = autoGenEngine === 'geminipro' ? null : autoGenEngine
         let autoGenJobId: string | null = null
-        if (autoGenMode || autoGenEngine) {
+        if (autoGenMode || effectiveEngine) {
           try {
             const modeLabelMap: Record<string, string> = {
               hizli: '⚡ Hızlı', dengeli: '⚖️ Dengeli', premium: '💎 Premium', karma: '🌈 Karma',
             }
             const engineLabelMap: Record<string, string> = {
-              luma: '🔮 Luma', chatgpt: '⚙️ ChatGPT', geminipro: '✨ Gemini Pro',
+              luma: '🔮 Luma', chatgpt: '⚙️ ChatGPT',
             }
-            const jobLabel = autoGenEngine
-              ? engineLabelMap[autoGenEngine]
+            const jobLabel = effectiveEngine
+              ? engineLabelMap[effectiveEngine]
               : `${modeLabelMap[autoGenMode!]} · 🔮 Luma`
 
             const autoJobDoc = await payload.create({
@@ -1018,22 +1014,15 @@ export async function POST(req: NextRequest) {
               },
             })
 
-            if (autoGenEngine === 'chatgpt') {
+            if (effectiveEngine === 'chatgpt') {
               // Explicit ChatGPT engine
               await payload.jobs.queue({
                 task: 'image-gen',
                 input: { jobId: String(autoJobDoc.id), stage: 'standard', provider: 'openai' },
                 overrideAccess: true,
               })
-            } else if (autoGenEngine === 'geminipro') {
-              // Explicit Gemini Pro engine
-              await payload.jobs.queue({
-                task: 'image-gen',
-                input: { jobId: String(autoJobDoc.id), stage: 'standard', provider: 'gemini-pro' },
-                overrideAccess: true,
-              })
             } else {
-              // Default: Luma (legacy modes + #luma tag + v16 default)
+              // Default: Luma (legacy modes + #luma tag + v17 default)
               await payload.jobs.queue({
                 task: 'luma-gen',
                 input: { jobId: String(autoJobDoc.id), hq: false },
@@ -1066,9 +1055,7 @@ export async function POST(req: NextRequest) {
           // Engine/mode was pre-selected in caption — show plain confirmation
           const autoConfirmLabel = autoGenEngine === 'chatgpt'
             ? '⚙️ <b>ChatGPT görsel üretimi başlatıldı</b> — 3 sahne — tamamlanınca bildirim gelecek'
-            : autoGenEngine === 'geminipro'
-              ? '✨ <b>Gemini Pro görsel üretimi başlatıldı</b> — 3 sahne — tamamlanınca bildirim gelecek'
-              : '🔮 <b>Luma görsel üretimi başlatıldı</b> — 3 stüdyo açısı (Slot 1-3) — tamamlanınca bildirim gelecek'
+            : '🔮 <b>Luma görsel üretimi başlatıldı</b> — 3 stüdyo açısı (Slot 1-3) — tamamlanınca bildirim gelecek'
           await sendTelegramMessage(
             chatId,
             productSummary + `\n\n${autoConfirmLabel}`,
@@ -1084,7 +1071,6 @@ export async function POST(req: NextRequest) {
               ],
               [
                 { text: '⚙️ ChatGPT', callback_data: `imagegen:${productId}:chatgpt` },
-                { text: '✨ Gemini Pro', callback_data: `imagegen:${productId}:premium` },
               ],
               [
                 { text: '❌ Hayır, sadece kaydet', callback_data: `imagegen:${productId}:skip` },
@@ -1164,9 +1150,7 @@ export async function POST(req: NextRequest) {
           '<b>Motor seçimi:</b>\n' +
           '<code>#gorsel</code>    — 🔮 Luma (varsayılan, 3 stüdyo açısı)\n' +
           '<code>#luma</code>      — 🔮 Luma (aynı, + HQ seçeneği)\n' +
-          '<code>#chatgpt</code>   — ⚙️ ChatGPT / OpenAI gpt-image-1\n' +
-          '<code>#geminipro</code> — ✨ Gemini Pro\n\n' +
-          'Sonrasında: 🌟 Gemini Pro butonu ile Slot 4-5 de üretebilirsiniz.',
+          '<code>#chatgpt</code>   — ⚙️ ChatGPT / OpenAI gpt-image-1',
         )
         return NextResponse.json({ ok: true })
       }
@@ -1412,87 +1396,19 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: true })
     }
 
-    // ── #geminipro — Explicit Gemini Pro Stage 1 ─────────────────────────────
-    // Triggers: "#geminipro 42" or reply + "#geminipro"
-    // Queues image-gen with provider='gemini-pro', stage='standard' (slots 1-3).
-    // Standalone Gemini Pro trigger — does NOT require prior Luma Stage 1.
+    // ── #geminipro — BLOCKED: Gemini Pro not yet reliably working ────────────
+    // Code preserved — re-enable by restoring the original handler block.
+    // When re-enabling: queue image-gen with provider='gemini-pro', stage='standard'.
     const isGeminiProTrigger = /#geminipro\b/i.test(text)
 
     if (isGeminiProTrigger) {
-      // Option A — reply to product creation message
-      const gpReplyText =
-        message.reply_to_message?.text ||
-        message.reply_to_message?.caption ||
-        ''
-      const gpUrlMatch = gpReplyText.match(/\/products\/(\d+)/)
-      let gpProductId: number | null = gpUrlMatch ? parseInt(gpUrlMatch[1]) : null
-
-      // Option B — explicit ID: "#geminipro 42"
-      if (!gpProductId) {
-        const idMatch = text.match(/#geminipro\s+(\d+)/i)
-        if (idMatch) gpProductId = parseInt(idMatch[1])
-      }
-
-      if (!gpProductId) {
-        await sendTelegramMessage(
-          chatId,
-          '✨ <b>Gemini Pro görsel üretimi için ürün gerekli.</b>\n\n' +
-          'İki yöntemden biri:\n' +
-          '1️⃣ Ürün oluşturma mesajını <b>reply</b> edip yaz: <code>#geminipro</code>\n' +
-          '2️⃣ Ürün ID ile yaz: <code>#geminipro 42</code>\n\n' +
-          '<code>#geminipro</code> — ✨ Gemini Pro, 3 sahne',
-        )
-        return NextResponse.json({ ok: true })
-      }
-
-      // Verify product exists
-      const { docs: gpDocs } = await payload.find({
-        collection: 'products',
-        where: { id: { equals: gpProductId } },
-        limit: 1,
-        depth: 0,
-      })
-      if (gpDocs.length === 0) {
-        await sendTelegramMessage(chatId, `❌ Ürün bulunamadı: #${gpProductId}`)
-        return NextResponse.json({ ok: true })
-      }
-      const gpProduct = gpDocs[0] as Record<string, unknown>
-
-      const gpJobDoc = await payload.create({
-        collection: 'image-generation-jobs',
-        data: {
-          jobTitle: `${gpProduct.title} — Gemini Pro Stüdyo`,
-          product: gpProductId,
-          mode: 'premium',
-          status: 'queued',
-          telegramChatId: String(chatId),
-          requestedByUserId: String(message.from?.id ?? ''),
-        },
-      })
-
-      await payload.jobs.queue({
-        task: 'image-gen',
-        input: { jobId: String(gpJobDoc.id), stage: 'standard', provider: 'gemini-pro' },
-        overrideAccess: true,
-      })
-
       await sendTelegramMessage(
         chatId,
-        `✨ <b>Gemini Pro görsel üretimi başlatıldı!</b>\n\n` +
-        `📦 Ürün: <b>${gpProduct.title}</b>\n` +
-        `🤖 Provider: ✨ Gemini Pro\n` +
-        `🖼️ 3 sahne üretilecek\n\n` +
-        `<i>Tamamlanınca Telegram'a önizleme gönderilecek.</i>`,
+        `⛔ <b>Gemini Pro şu an kullanılamıyor.</b>\n\n` +
+        `Gemini Pro görsel üretimi geçici olarak devre dışı bırakıldı.\n` +
+        `Görsel üretmek için şu motoru kullanın:\n` +
+        `<code>#gorsel</code> veya <code>#luma</code> — 🔮 Luma (aktif)`,
       )
-
-      after(async () => {
-        try {
-          await payload.jobs.run({ limit: 1, overrideAccess: true })
-        } catch (err) {
-          console.error('[telegram/webhook] after() #geminipro jobs.run failed:', err)
-        }
-      })
-
       return NextResponse.json({ ok: true })
     }
 

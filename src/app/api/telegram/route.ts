@@ -1093,7 +1093,7 @@ export async function POST(req: NextRequest) {
         `${modeEmoji[genMode] ?? '🎨'} <b>Görsel üretimi başlatıldı!</b>\n\n` +
         `📦 Ürün: <b>${gorselProduct.title}</b>\n` +
         `🔧 Mod: ${modeLabelMap[genMode]}\n` +
-        (genProvider === 'gemini-pro' ? `✨ Provider: Gemini Pro\n` : ``) +
+        `🤖 Provider: ${genProvider === 'gemini-pro' ? '✨ Gemini Pro' : '⚙️ OpenAI gpt-image-1'}\n` +
         `🖼️ 3 konsept görsel üretilecek (Slot 1-3)\n\n` +
         `<i>Tamamlanınca bildirim gelecek.</i>`,
       )

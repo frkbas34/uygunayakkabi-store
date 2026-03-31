@@ -323,6 +323,11 @@ export const imageGenTask: TaskConfig<{
       ? `gemini-pro-image-v14:${process.env.GEMINI_IMAGE_GEN_MODEL || 'gemini-3-pro-image-preview'}`
       : 'openai-edit-only-v12'
 
+    // Human-readable provider label for Telegram captions and keyboard
+    const providerDisplayLabel = provider === 'gemini-pro'
+      ? `✨ Gemini Pro ${process.env.GEMINI_IMAGE_GEN_MODEL || 'gemini-3-pro-image-preview'}`
+      : `⚙️ OpenAI gpt-image-1`
+
     console.log(`[imageGenTask v14] generating — stage=${stage} provider=${provider} slots=[${slotNames.join(',')}]`)
 
     await payload.update({
@@ -479,7 +484,7 @@ export const imageGenTask: TaskConfig<{
         const slotLabel = slotLabels[i] || `Görsel ${i + 1}`
         const slotIcon = slotIconArr[i] || '✅'
         const filename = `${slotNames[i] || `slot-${i}`}.jpg`
-        const caption = `${slotIcon} <b>${slotLabel}</b>`
+        const caption = `${slotIcon} <b>${slotLabel}</b> — ${providerDisplayLabel}`
 
         console.log(`[imageGenTask v14] step8 — sendPhoto slot ${i + 1} buf=${buf.length}b file=${filename}`)
         await sendTelegramPhotoBuffer(telegramChatId, buf, caption, filename)
@@ -495,6 +500,7 @@ export const imageGenTask: TaskConfig<{
         slotIconsJoined,
         identityLockMeta.mainColor as string | undefined,
         stage,
+        providerDisplayLabel,
       )
     } else {
       console.warn(`[imageGenTask v14] step8 — no telegramChatId on job ${jobId}, skipping preview send`)
@@ -512,6 +518,21 @@ export const imageGenTask: TaskConfig<{
         pipeline: pipelineLabel,
         provider,                // v14: actual provider used
         mode: `${mode} (cosmetic)`,
+        humanSummary: (slotLogsSummary as Array<{
+          label?: string; slot?: string; provider?: string; attempts?: number;
+          success?: boolean; colorCheckPass?: boolean; brandFidelityPass?: boolean;
+          brandFidelityScore?: string; rejectionReason?: string;
+        }>).map((sl, idx) => {
+          const slotName  = sl.label ?? sl.slot ?? `Slot ${idx + 1}`
+          const prov      = sl.provider ?? provider
+          const tries     = sl.attempts ?? 1
+          const ok        = sl.success ? '✓' : '✗'
+          const color     = sl.colorCheckPass != null ? (sl.colorCheckPass ? 'color:✓' : 'color:✗') : ''
+          const brand     = sl.brandFidelityPass != null ? (sl.brandFidelityPass ? 'brand:✓' : `brand:✗(${sl.brandFidelityScore ?? ''})`) : ''
+          const rejection = sl.rejectionReason ? ` REJECTED:${sl.rejectionReason}` : ''
+          const checks    = [color, brand].filter(Boolean).join(' ')
+          return `${slotName} → ${prov} / ${tries} attempt${tries > 1 ? 's' : ''} / ${ok}${checks ? ' ' + checks : ''}${rejection}`
+        }),
         summary: providerResultsSummary,
         slotLogs: slotLogsSummary,
         identityLock: identityLockMeta,
@@ -677,11 +698,13 @@ async function sendApprovalKeyboard(
   slotIcons: string,
   mainColor?: string,
   stage: 'standard' | 'premium' = 'standard',
+  providerLabel?: string,
 ): Promise<void> {
   const token = process.env.TELEGRAM_BOT_TOKEN
   if (!token) return
 
-  const colorLine = mainColor ? `\n🎨 Renk kilidi: <b>${mainColor}</b>` : ''
+  const colorLine    = mainColor     ? `\n🎨 Renk kilidi: <b>${mainColor}</b>`  : ''
+  const providerLine = providerLabel ? `\n🤖 Provider: <b>${providerLabel}</b>` : ''
   const isStandard = stage !== 'premium'
   const stageLabel = isStandard ? 'Slot 1-3' : 'Slot 4-5'
   const stageNote  = isStandard
@@ -695,6 +718,7 @@ async function sendApprovalKeyboard(
     `${isStandard ? '📸' : '🌟'} <b>${imageCount} önizleme hazır (${stageLabel}) — onay bekleniyor</b>\n\n` +
     `📦 <b>${productTitle}</b>` +
     colorLine +
+    providerLine +
     (slotIcons ? `\n🎯 Slotlar: ${slotIcons}` : '') +
     `\n\n` +
     stageNote

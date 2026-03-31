@@ -372,14 +372,22 @@ export const imageGenTask: TaskConfig<{
 
     if (generatedBuffers.length === 0) {
       const providerLabel = provider === 'gemini-pro' ? 'Gemini Pro' : 'OpenAI'
-      const msg = `${providerLabel} görsel üretimi başarısız — 0 görsel üretildi. Ürün fotoğrafını kontrol edip tekrar deneyin.`
+
+      // Extract first real API error from slot logs for diagnostic display
+      const firstSlotError = (slotLogsSummary as Array<{ rejectionReason?: string }>)
+        .find((s) => s.rejectionReason)?.rejectionReason || null
+      const apiErrorSummary = firstSlotError
+        ? firstSlotError.slice(0, 200)
+        : ((providerResultsSummary[0] as { error?: string } | undefined)?.error || null)
+
+      const msg = `${providerLabel} görsel üretimi başarısız — 0 görsel üretildi.`
 
       await payload.update({
         collection: 'image-generation-jobs',
         id: jobId,
         data: {
           status: 'failed',
-          errorMessage: msg,
+          errorMessage: apiErrorSummary ? `${msg} API: ${apiErrorSummary}` : msg,
           generationCompletedAt: new Date().toISOString(),
           providerResults: JSON.stringify({
             summary: providerResultsSummary,
@@ -389,18 +397,18 @@ export const imageGenTask: TaskConfig<{
       })
 
       if (telegramChatId) {
-        const failRetryCmd = provider === 'gemini-pro'
-          ? `<code>#gorsel #geminipro</code>`
-          : `<code>#gorsel</code>`
+        const errorLine = apiErrorSummary
+          ? `\n\n🔍 <b>API hatası:</b> <code>${apiErrorSummary}</code>`
+          : ''
         await sendTelegramNotification(
           telegramChatId,
           `❌ <b>Görsel üretimi başarısız</b> (${providerLabel})\n\n` +
-          `${providerLabel} motoru görsel üretemedi. Fotoğrafın net ve tek bir ayakkabıyı gösterdiğinden emin olun.\n` +
-          `Tekrar deneyin: ${failRetryCmd}`,
+          `${providerLabel} motoru görsel üretemedi.${errorLine}\n\n` +
+          `Tekrar deneyin: <code>#gorsel</code> veya <code>#geminipro {id}</code>`,
         )
       }
 
-      throw new Error(msg)
+      throw new Error(apiErrorSummary ? `${msg} API: ${apiErrorSummary}` : msg)
     }
 
     // ── Step 7: Save each buffer as a Media document ────────────────────────

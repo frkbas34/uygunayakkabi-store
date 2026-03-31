@@ -929,7 +929,7 @@ async function callGeminiImageGenerate(
   pngBuffer: Buffer,
   prompt: string,
   apiKey: string,
-): Promise<Buffer | null> {
+): Promise<Buffer> {
   const model = process.env.GEMINI_IMAGE_GEN_MODEL || 'gemini-2.0-flash-preview-image-generation'
 
   try {
@@ -943,8 +943,8 @@ async function callGeminiImageGenerate(
         body: JSON.stringify({
           contents: [{
             parts: [
-              { inlineData: { mimeType: 'image/png', data: pngBuffer.toString('base64') } },
               { text: prompt },
+              { inlineData: { mimeType: 'image/png', data: pngBuffer.toString('base64') } },
             ],
           }],
           generationConfig: {
@@ -956,11 +956,29 @@ async function callGeminiImageGenerate(
 
     if (!res.ok) {
       const errText = await res.text()
-      console.error(`[GeminiImageGenerate] HTTP ${res.status}: ${errText.slice(0, 500)}`)
-      return null
+      // Parse for a human-readable error message if the response is JSON
+      let errDetail = errText.slice(0, 300)
+      try {
+        const errJson = JSON.parse(errText)
+        const msg = errJson?.error?.message as string | undefined
+        if (msg) errDetail = msg.slice(0, 200)
+      } catch { /* not JSON */ }
+      const fullErr = `HTTP ${res.status} model=${model}: ${errDetail}`
+      console.error(`[GeminiImageGenerate] ${fullErr}`)
+      // Throw instead of returning null so callers can surface the real error to Telegram
+      throw new Error(fullErr)
     }
 
     const data = await res.json()
+
+    // Surface finish_reason if generation was blocked (safety, recitation, etc.)
+    const finishReason = data?.candidates?.[0]?.finishReason as string | undefined
+    if (finishReason && finishReason !== 'STOP' && finishReason !== 'MAX_TOKENS') {
+      const msg = `Gemini blocked finishReason=${finishReason} model=${model}`
+      console.warn(`[GeminiImageGenerate] ${msg}`)
+      throw new Error(msg)
+    }
+
     const parts: unknown[] = data?.candidates?.[0]?.content?.parts ?? []
 
     // Find the image part in the response
@@ -974,11 +992,12 @@ async function callGeminiImageGenerate(
       }
     }
 
-    console.error('[GeminiImageGenerate] No image part in response')
-    return null
+    const noImageMsg = `No image part in response (parts=${parts.length} finishReason=${finishReason ?? 'none'} model=${model})`
+    console.error(`[GeminiImageGenerate] ${noImageMsg}`)
+    throw new Error(noImageMsg)
   } catch (err) {
-    console.error('[GeminiImageGenerate] error:', err instanceof Error ? err.message : err)
-    return null
+    // Re-throw so generateByGeminiPro can catch it per-slot and surface to Telegram
+    throw err instanceof Error ? err : new Error(String(err))
   }
 }
 
@@ -1077,11 +1096,14 @@ export async function generateByGeminiPro(
 
       let finalBuf: Buffer | null = null
 
-      // ── Attempt 1 ────────────────────────────────────────────────────────────
-      slotLog.attempts = 1
-      let rawBuf = await callGeminiImageGenerate(pngBuffer, fullPrompt, geminiKey)
+      // ── Per-slot try/catch: one slot failure must not abort remaining slots ──
+      // callGeminiImageGenerate now throws on API error — catch per slot so the
+      // error message is captured in slotLog.rejectionReason and surfaced to Telegram.
+      try {
+        // ── Attempt 1 ──────────────────────────────────────────────────────────
+        slotLog.attempts = 1
+        let rawBuf = await callGeminiImageGenerate(pngBuffer, fullPrompt, geminiKey)
 
-      if (rawBuf) {
         const jpegBuf = await sharp(rawBuf).jpeg({ quality: 92 }).toBuffer()
 
         // Step D1: Color check
@@ -1124,39 +1146,34 @@ export async function generateByGeminiPro(
           await sleep(2000)
 
           rawBuf = await callGeminiImageGenerate(pngBuffer, reinforcedPrompt, geminiKey)
-          if (rawBuf) {
-            const retryJpeg = await sharp(rawBuf).jpeg({ quality: 92 }).toBuffer()
+          const retryJpeg = await sharp(rawBuf).jpeg({ quality: 92 }).toBuffer()
 
-            const retryColor = await checkColorMatch(retryJpeg, mainColor, geminiKey)
-            slotLog.colorCheckPass = retryColor.match
-            slotLog.detectedColor  = retryColor.detectedColor
+          const retryColor = await checkColorMatch(retryJpeg, mainColor, geminiKey)
+          slotLog.colorCheckPass = retryColor.match
+          slotLog.detectedColor  = retryColor.detectedColor
 
-            if (hasBrandZones) {
-              const retryBrand = await checkBrandFidelity(retryJpeg, identityLock.protectedZones!, geminiKey)
-              slotLog.brandFidelityPass  = retryBrand.pass
-              slotLog.brandFidelityScore = retryBrand.overallScore
-              slotLog.brandFidelityNotes = retryBrand.reinforcementHint || undefined
-            }
-
-            const warnings: string[] = []
-            if (!retryColor.match) warnings.push(`color drift: expected ${mainColor} got ${retryColor.detectedColor}`)
-            if (slotLog.brandFidelityPass === false) warnings.push(`brand zones drifted: ${slotLog.brandFidelityNotes || 'unknown'}`)
-            if (warnings.length > 0) slotLog.rejectionReason = warnings.join('; ')
-
-            finalBuf = retryJpeg
+          if (hasBrandZones) {
+            const retryBrand = await checkBrandFidelity(retryJpeg, identityLock.protectedZones!, geminiKey)
+            slotLog.brandFidelityPass  = retryBrand.pass
+            slotLog.brandFidelityScore = retryBrand.overallScore
+            slotLog.brandFidelityNotes = retryBrand.reinforcementHint || undefined
           }
+
+          const warnings: string[] = []
+          if (!retryColor.match) warnings.push(`color drift: expected ${mainColor} got ${retryColor.detectedColor}`)
+          if (slotLog.brandFidelityPass === false) warnings.push(`brand zones drifted: ${slotLog.brandFidelityNotes || 'unknown'}`)
+          if (warnings.length > 0) slotLog.rejectionReason = warnings.join('; ')
+
+          finalBuf = retryJpeg
         } else {
           finalBuf = jpegBuf
         }
-      } else {
-        // Attempt 1 returned null — simple retry
-        console.warn(`[generateByGeminiPro v14] ✗ ${scene.name} null on attempt 1 — retrying`)
-        slotLog.attempts = 2
-        await sleep(2000)
-        rawBuf = await callGeminiImageGenerate(pngBuffer, fullPrompt, geminiKey)
-        if (rawBuf) {
-          finalBuf = await sharp(rawBuf).jpeg({ quality: 92 }).toBuffer()
-        }
+      } catch (slotErr) {
+        // API error or generation block — capture the real reason per slot
+        const slotErrMsg = slotErr instanceof Error ? slotErr.message : String(slotErr)
+        slotLog.rejectionReason = slotErrMsg
+        console.warn(`[generateByGeminiPro v14] ✗ ${scene.name} failed: ${slotErrMsg}`)
+        result.errors.push(`${scene.name}: ${slotErrMsg}`)
       }
 
       if (finalBuf) {

@@ -434,7 +434,7 @@ export const lumaGenTask: TaskConfig<{
           continue
         }
 
-        const caption = `✅ <b>${slot?.label ?? `Slot ${i + 1}`}</b>`
+        const caption = `🔮 <b>${slot?.label ?? `Slot ${i + 1}`}</b> — Luma ${model}`
         await lumaSendPhoto(telegramChatId, buf, caption, `${log.slot}.jpg`)
       }
 

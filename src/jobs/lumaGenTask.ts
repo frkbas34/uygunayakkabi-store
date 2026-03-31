@@ -203,11 +203,47 @@ export const lumaGenTask: TaskConfig<{
 
     console.log(`[lumaGenTask] source images: ${sourceUrls.length} URLs`)
 
-    // ── Step 4: Build image refs (first image at high weight, extras at lower) ─
-    const imageRefs = sourceUrls.map((url, i) => ({
-      url,
-      weight: i === 0 ? 0.88 : 0.75,  // primary reference strongest
-    }))
+    // ── Step 3b: Extract visual identity from first source image ────────────
+    // Uses Gemini Vision to extract a 10-field identity lock (same as imageGenTask Step B).
+    // If successful, the extracted promptBlock replaces the DB-derived buildPreservationBlock(ctx)
+    // in each slot prompt — giving Luma the same fidelity anchor as ChatGPT/Gemini.
+    // Falls back silently to DB-derived context if GEMINI_API_KEY is absent or extraction fails.
+    let lumaIdentityBlock: string | undefined
+
+    const geminiApiKey = process.env.GEMINI_API_KEY
+    if (geminiApiKey && sourceUrls.length > 0) {
+      try {
+        const firstUrl = sourceUrls[0]
+        const imgRes = await fetch(firstUrl)
+        if (imgRes.ok) {
+          const imgBuf = Buffer.from(await imgRes.arrayBuffer())
+          const contentType = imgRes.headers.get('content-type') || 'image/jpeg'
+          const mime = contentType.split(';')[0].trim() as 'image/jpeg' | 'image/png' | 'image/webp'
+          const { extractIdentityLock } = await import('../lib/imageProviders')
+          const lock = await extractIdentityLock(imgBuf, mime, geminiApiKey)
+          if (lock) {
+            lumaIdentityBlock = lock.promptBlock
+            // Merge vision-extracted color/material back into identityCtx for metadata
+            if (lock.mainColor && lock.mainColor !== 'as shown') {
+              identityCtx.mainColor = lock.mainColor
+            }
+            console.log(
+              `[lumaGenTask] identity extracted via vision — ` +
+              `${lock.productClass} | ${lock.mainColor} | ${lock.material} | ` +
+              `zones=${lock.protectedZones?.length ?? 0}`,
+            )
+          } else {
+            console.warn('[lumaGenTask] identity extraction returned null — using DB context fallback')
+          }
+        } else {
+          console.warn(`[lumaGenTask] first source image fetch failed HTTP ${imgRes.status} — using DB context fallback`)
+        }
+      } catch (e) {
+        console.warn('[lumaGenTask] identity extraction error — using DB context fallback:', e instanceof Error ? e.message : e)
+      }
+    } else if (!geminiApiKey) {
+      console.warn('[lumaGenTask] GEMINI_API_KEY not set — Luma will use DB-field identity context (weaker)')
+    }
 
     // Callback URL for Luma to POST on state changes
     // Luma will POST the full generation object to this URL
@@ -235,13 +271,26 @@ export const lumaGenTask: TaskConfig<{
     })
 
     // ── Step 5: Submit all 3 Luma generations ───────────────────────────────
+    // imageRefs built per-slot so each slot's imageRefWeight is applied to the primary image.
+    // Fix: slot.imageRefWeight was previously defined but never used (all slots got 0.88).
     const submittedIds: string[] = []
     const submissionErrors: string[] = []
 
     for (const slot of STUDIO_ANGLE_SLOTS) {
-      const prompt = slot.buildPrompt(identityCtx)
+      // Pass vision-extracted identityBlock if available; falls back to DB-derived buildPreservationBlock(ctx)
+      const prompt = slot.buildPrompt(identityCtx, lumaIdentityBlock)
 
-      console.log(`[lumaGenTask] submitting slot=${slot.name} model=${model} refs=${imageRefs.length}`)
+      // Per-slot imageRefs: primary at slot.imageRefWeight, extras at 0.75
+      const imageRefs = sourceUrls.map((url, i) => ({
+        url,
+        weight: i === 0 ? slot.imageRefWeight : 0.75,
+      }))
+
+      console.log(
+        `[lumaGenTask] submitting slot=${slot.name} model=${model} ` +
+        `refs=${imageRefs.length} primaryWeight=${slot.imageRefWeight} ` +
+        `identitySource=${lumaIdentityBlock ? 'vision' : 'db-fallback'}`,
+      )
 
       try {
         const gen = await submitLumaGen(

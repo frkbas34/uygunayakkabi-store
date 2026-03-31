@@ -39,8 +39,14 @@ export type StudioAngleSlot = {
   aspectRatio: LumaAspectRatio
   /** Weight applied to image_ref for this slot (higher = more identity fidelity) */
   imageRefWeight: number
-  /** Build the final prompt from product identity context */
-  buildPrompt: (ctx: ProductIdentityContext) => string
+  /**
+   * Build the final prompt from product identity context.
+   * @param ctx       Product identity from DB fields (fallback)
+   * @param identityBlock  Optional override: vision-extracted promptBlock from extractIdentityLock().
+   *                       When provided, replaces the DB-derived buildPreservationBlock(ctx).
+   *                       Always leads with environment lock; identityBlock goes at the end.
+   */
+  buildPrompt: (ctx: ProductIdentityContext, identityBlock?: string) => string
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -82,7 +88,7 @@ export const STUDIO_ANGLE_SLOTS: readonly StudioAngleSlot[] = [
     label: 'Slot 1 — Ön Stüdyo',
     aspectRatio: '1:1',
     imageRefWeight: 0.90,
-    buildPrompt: (ctx) =>
+    buildPrompt: (ctx, identityBlock?) =>
       buildStudioEnvironmentLock('pure white seamless backdrop #FFFFFF — nothing else') +
       ` ` +
       `The exact same shoe from the reference image, placed upright on its sole, perfectly centered. ` +
@@ -91,7 +97,7 @@ export const STUDIO_ANGLE_SLOTS: readonly StudioAngleSlot[] = [
       `FRAME: Full shoe in frame — top of collar and bottom of sole both visible. Shoe fills 70–75% of frame height. ` +
       `LIGHTING: Soft overhead key light, bilateral fill panels, very subtle ground shadow only. No reflections. No specular glare. No gradient sky. ` +
       `COMPOSITION: Shoe only. Zero props. Zero environmental elements. Zero surface texture visible. ` +
-      buildPreservationBlock(ctx),
+      (identityBlock ?? buildPreservationBlock(ctx)),
   },
 
   {
@@ -99,7 +105,7 @@ export const STUDIO_ANGLE_SLOTS: readonly StudioAngleSlot[] = [
     label: 'Slot 2 — Yan Profil',
     aspectRatio: '1:1',
     imageRefWeight: 0.90,
-    buildPrompt: (ctx) =>
+    buildPrompt: (ctx, identityBlock?) =>
       buildStudioEnvironmentLock('soft neutral grey seamless backdrop — nothing else, no gradients, no surfaces') +
       ` ` +
       `The exact same shoe from the reference image, photographed in a pure lateral side profile. ` +
@@ -108,7 +114,7 @@ export const STUDIO_ANGLE_SLOTS: readonly StudioAngleSlot[] = [
       `FRAME: Full shoe from toe tip to heel counter. Entire sole silhouette visible from one end to the other. Arch curve and heel height clearly readable. Shoe fills 75% of frame width. ` +
       `LIGHTING: Key light from front-left 45 degrees, fill from opposite side. Subtle sole-edge highlight. No reflections. No surface texture. ` +
       `COMPOSITION: Shoe only. Zero props. Zero environmental elements. ` +
-      buildPreservationBlock(ctx),
+      (identityBlock ?? buildPreservationBlock(ctx)),
   },
 
   {
@@ -116,7 +122,7 @@ export const STUDIO_ANGLE_SLOTS: readonly StudioAngleSlot[] = [
     label: 'Slot 3 — Üç Çeyrek Açı',
     aspectRatio: '1:1',
     imageRefWeight: 0.88,
-    buildPrompt: (ctx) =>
+    buildPrompt: (ctx, identityBlock?) =>
       buildStudioEnvironmentLock('pure white seamless backdrop #FFFFFF — nothing else, no surface textures, no gradients') +
       ` ` +
       `The exact same shoe from the reference image, photographed at a 3/4 front-left angle. ` +
@@ -125,7 +131,7 @@ export const STUDIO_ANGLE_SLOTS: readonly StudioAngleSlot[] = [
       `FRAME: Full shoe — collar top and sole bottom both visible. Shoe fills 70% of frame. ` +
       `LIGHTING: Soft diffused studio lighting — no harsh shadows, no specular hotspots, no glare. Catalog quality. High detail on upper material and branding zones. ` +
       `COMPOSITION: Shoe only. Zero props. Zero environmental elements. Zero surface texture visible. ` +
-      buildPreservationBlock(ctx),
+      (identityBlock ?? buildPreservationBlock(ctx)),
   },
 ] as const
 

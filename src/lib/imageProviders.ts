@@ -523,7 +523,7 @@ async function callGPTImageEdit(
     formData.append('prompt', prompt)
     formData.append('n', '1')
     formData.append('size', '1024x1024')
-    formData.append('quality', 'medium')
+    formData.append('quality', 'high')
     formData.append('image[]', new Blob([new Uint8Array(pngBuffer)], { type: 'image/png' }), 'product.png')
 
     const res = await fetch('https://api.openai.com/v1/images/edits', {

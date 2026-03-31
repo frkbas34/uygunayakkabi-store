@@ -693,6 +693,15 @@ export const Products: CollectionConfig = {
           admin: { readOnly: true },
         },
         {
+          name: 'telegramMediaGroupId',
+          type: 'text',
+          label: 'Telegram Album Grubu ID',
+          admin: {
+            readOnly: true,
+            description: 'Aynı albümdeki (media group) fotoğrafları bağlar — birden fazla fotoğraf aynı ürüne eklenir',
+          },
+        },
+        {
           name: 'telegramFromUserId',
           type: 'text',
           label: 'Telegram Gönderen ID',

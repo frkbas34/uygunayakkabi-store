@@ -2,14 +2,8 @@
  * Luma prompt templates — Step 26 / Phase 1 (studio_angles)
  *
  * PRODUCT IDENTITY PRESERVATION RULES (enforced in every prompt):
- *   - Same exact shoe as the reference image
- *   - Same color family — no drift
- *   - Same silhouette, sole shape, toe geometry
- *   - Same lace structure and count
- *   - Same material appearance
- *   - Same logo / branding zones (preserve, do not invent or alter)
+ *   - See productPreservation.ts for the canonical shared prohibition list
  *   - No people, no feet, no legs (Phase 1 — studio only)
- *   - No added props or accessories
  *
  * Visual identity is anchored by `image_ref` at high weight (0.85–0.90).
  * The prompt describes SCENE GEOMETRY only — not shoe design.
@@ -19,21 +13,14 @@
  */
 
 import type { LumaAspectRatio, LumaModel } from './lumaApi'
+import {
+  type ProductIdentityContext,
+  buildPreservationBlock,
+  buildIdentityContextFromProduct,
+} from './productPreservation'
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Types
-// ─────────────────────────────────────────────────────────────────────────────
-
-export type ProductIdentityContext = {
-  /** Primary color extracted from product record or identity lock */
-  mainColor: string
-  /** Material descriptor — leather, suede, mesh, canvas, etc. */
-  material?: string
-  /** Brand name — used in branding-zone warnings */
-  brand?: string
-  /** Product category — shoe / sneaker / boot / sandal */
-  category?: string
-}
+// Re-export for callers that previously imported from here
+export type { ProductIdentityContext }
 
 export type StudioAngleSlot = {
   /** Machine name — stored in providerResults + Media altText */
@@ -48,22 +35,11 @@ export type StudioAngleSlot = {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Hard-coded identity lock suffix injected into every slot prompt
+// Identity lock suffix — delegates to shared productPreservation module
 // ─────────────────────────────────────────────────────────────────────────────
 
-function identityLockSuffix(ctx: ProductIdentityContext): string {
-  const colorNote  = `The shoe is ${ctx.mainColor} — do NOT change the color.`
-  const matNote    = ctx.material ? `Material is ${ctx.material} — preserve surface texture and finish.` : ''
-  const brandNote  = ctx.brand
-    ? `Brand identity zones (logos, stripes, text) must be preserved faithfully — do NOT invent or alter branding.`
-    : ''
-  const prohibitions =
-    `STRICTLY FORBIDDEN: changing shoe design, altering sole geometry, inventing new colors, ` +
-    `adding feet or legs, adding accessories, adding extra objects, blurry or low-resolution output, ` +
-    `watermarks, text overlays.`
-
-  return [colorNote, matNote, brandNote, prohibitions].filter(Boolean).join(' ')
-}
+// buildPreservationBlock is imported from productPreservation.ts and used directly
+// in slot buildPrompt functions below.  No local duplication needed.
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Studio angle slot definitions
@@ -84,7 +60,7 @@ export const STUDIO_ANGLE_SLOTS: readonly StudioAngleSlot[] = [
       `Soft overhead key light, bilateral fill panels, subtle ground shadow only. ` +
       `Full shoe visible — collar top and sole bottom both in frame. ` +
       `No reflections. No surface texture. No props. No people. ` +
-      identityLockSuffix(ctx),
+      buildPreservationBlock(ctx),
   },
 
   {
@@ -101,7 +77,7 @@ export const STUDIO_ANGLE_SLOTS: readonly StudioAngleSlot[] = [
       `Soft neutral grey seamless background. Subtle gradient. ` +
       `Key light from front-left 45 degrees, fill from opposite. ` +
       `No reflections. No props. No people. ` +
-      identityLockSuffix(ctx),
+      buildPreservationBlock(ctx),
   },
 
   {
@@ -119,7 +95,7 @@ export const STUDIO_ANGLE_SLOTS: readonly StudioAngleSlot[] = [
       `Soft diffused studio lighting — no harsh shadows, no specular hotspots. ` +
       `Catalog quality. High detail on upper material and branding zones. ` +
       `No props. No people. ` +
-      identityLockSuffix(ctx),
+      buildPreservationBlock(ctx),
   },
 ] as const
 
@@ -143,13 +119,8 @@ export const LUMA_POLL_TIMEOUT_MS = 120_000  // 2 minutes
 
 /**
  * Build a ProductIdentityContext from flat product fields.
- * Falls back gracefully when fields are absent (automation drafts may be sparse).
+ * Delegates to shared buildIdentityContextFromProduct in productPreservation.ts.
  */
 export function buildIdentityContext(product: Record<string, unknown>): ProductIdentityContext {
-  return {
-    mainColor: (product.color as string | undefined) || 'as shown in reference',
-    material:  (product.material as string | undefined) || undefined,
-    brand:     (product.brand as string | undefined) || undefined,
-    category:  (product.category as string | undefined) || 'shoe',
-  }
+  return buildIdentityContextFromProduct(product)
 }

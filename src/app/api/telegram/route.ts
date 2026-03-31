@@ -471,7 +471,7 @@ export async function POST(req: NextRequest) {
       if (cbData.startsWith('imagegen:')) {
         const parts = cbData.split(':')
         const cbProductId = parseInt(parts[1])
-        const cbMode = parts[2] as 'hizli' | 'dengeli' | 'premium' | 'karma' | 'skip'
+        const cbMode = parts[2] as 'hizli' | 'dengeli' | 'premium' | 'karma' | 'chatgpt' | 'skip'
 
         if (cbMode === 'skip') {
           await answerCallbackQuery(cbQueryId, '✅ Tamam, sadece ürün kaydedildi')
@@ -502,39 +502,58 @@ export async function POST(req: NextRequest) {
 
             const modeLabelMap: Record<string, string> = {
               hizli: '⚡ Hızlı', dengeli: '⚖️ Dengeli', premium: '💎 Premium', karma: '🌈 Karma',
-            }
-            const modeEmojiMap: Record<string, string> = {
-              hizli: '⚡', dengeli: '⚖️', premium: '💎', karma: '🌈',
+              chatgpt: '⚙️ ChatGPT',
             }
 
-            // Create job — lumaGenTask will look up source images itself
+            const isChatGptMode = cbMode === 'chatgpt'
+            const jobLabel = isChatGptMode
+              ? `${cbProduct.title} — ⚙️ ChatGPT Stüdyo`
+              : `${cbProduct.title} — ${modeLabelMap[cbMode] ?? cbMode} · 🔮 Luma`
+
+            // Create job — task will look up source images itself
             const cbJobDoc = await cbPayload.create({
               collection: 'image-generation-jobs',
               data: {
-                jobTitle: `${cbProduct.title} — ${modeLabelMap[cbMode]} · 🔮 Luma`,
+                jobTitle: jobLabel,
                 product: cbProductId,
-                mode: cbMode,
+                mode: isChatGptMode ? 'hizli' : cbMode,
                 status: 'queued',
                 telegramChatId: String(cbChatId),
                 requestedByUserId: String(callbackQuery.from?.id ?? ''),
               },
             })
 
-            // v16: Stage 1 uses Luma
-            await cbPayload.jobs.queue({
-              task: 'luma-gen',
-              input: { jobId: String(cbJobDoc.id), hq: false },
-              overrideAccess: true,
-            })
-
-            await sendTelegramMessage(
-              cbChatId,
-              `🔮 <b>Luma görsel üretimi başlatıldı!</b>\n\n` +
-              `📦 Ürün: <b>${cbProduct.title}</b>\n` +
-              `🤖 Provider: 🔮 Luma photon-flash-1\n` +
-              `🖼️ 3 stüdyo açısı üretilecek (Slot 1-3)\n\n` +
-              `<i>Tamamlanınca bildirim gelecek.</i>`,
-            )
+            if (isChatGptMode) {
+              // Explicit ChatGPT engine via button
+              await cbPayload.jobs.queue({
+                task: 'image-gen',
+                input: { jobId: String(cbJobDoc.id), stage: 'standard', provider: 'openai' },
+                overrideAccess: true,
+              })
+              await sendTelegramMessage(
+                cbChatId,
+                `⚙️ <b>ChatGPT görsel üretimi başlatıldı!</b>\n\n` +
+                `📦 Ürün: <b>${cbProduct.title}</b>\n` +
+                `🤖 Provider: ⚙️ OpenAI gpt-image-1\n` +
+                `🖼️ 3 sahne üretilecek\n\n` +
+                `<i>Tamamlanınca bildirim gelecek.</i>`,
+              )
+            } else {
+              // Default: Luma (v16: all non-chatgpt modes route to luma-gen)
+              await cbPayload.jobs.queue({
+                task: 'luma-gen',
+                input: { jobId: String(cbJobDoc.id), hq: false },
+                overrideAccess: true,
+              })
+              await sendTelegramMessage(
+                cbChatId,
+                `🔮 <b>Luma görsel üretimi başlatıldı!</b>\n\n` +
+                `📦 Ürün: <b>${cbProduct.title}</b>\n` +
+                `🤖 Provider: 🔮 Luma photon-flash-1\n` +
+                `🖼️ 3 stüdyo açısı üretilecek (Slot 1-3)\n\n` +
+                `<i>Tamamlanınca bildirim gelecek.</i>`,
+              )
+            }
 
             await cbPayload.jobs.run({ limit: 1, overrideAccess: true })
           } catch (err) {
@@ -711,6 +730,7 @@ export async function POST(req: NextRequest) {
 
         // 2. Görsel mod tag'ini tespit et (caption temizlenmeden önce)
         //    "bunu ürüne çevir #hizli 1755 TL" → mod = 'hizli', otomatik image-gen kuyruğa alınır
+        //    Engine tag'leri: #luma → Luma, #chatgpt → OpenAI, #geminipro → Gemini Pro
         const combinedRaw = text + (replyCaption ? '\n' + replyCaption : '')
         const autoGenMode: 'hizli' | 'dengeli' | 'premium' | 'karma' | null =
           /#karma/i.test(combinedRaw)   ? 'karma'   :
@@ -718,13 +738,19 @@ export async function POST(req: NextRequest) {
           /#dengeli/i.test(combinedRaw) ? 'dengeli' :
           /#hizli/i.test(combinedRaw)   ? 'hizli'   :
           null
+        // Engine-explicit tags (new UX) — checked separately from legacy mode names
+        const autoGenEngine: 'luma' | 'chatgpt' | 'geminipro' | null =
+          /#chatgpt\b/i.test(combinedRaw)   ? 'chatgpt'   :
+          /#geminipro\b/i.test(combinedRaw) ? 'geminipro' :
+          /#luma\b/i.test(combinedRaw)      ? 'luma'      :
+          null
 
         // Caption temizle — bot mentions + trigger phrases + görsel hashtag'leri sil
-        //    #hizli / #dengeli / #premium / #karma / #gorsel gibi görsel mod tag'leri de
-        //    çıkarılır — "bunu ürüne çevir #hizli 1755 TL" gibi kullanımlarda
-        //    parseTelegramCaption'ı bozmasın
+        //    #hizli / #dengeli / #premium / #karma / #gorsel / #luma / #chatgpt / #geminipro
+        //    gibi görsel tag'leri çıkarılır — "bunu ürüne çevir #luma 1755 TL" gibi
+        //    kullanımlarda parseTelegramCaption'ı bozmasın
         const BOT_MENTIONS = /(@Uygunops_bot|@uygunops_bot|@mentix_aibot|@Mentix)/gi
-        const GORSEL_TAGS  = /#(gorsel|hizli|dengeli|premium|karma|geminipro)\b/gi
+        const GORSEL_TAGS  = /#(gorsel|hizli|dengeli|premium|karma|geminipro|chatgpt|luma)\b/gi
         const combinedText = combinedRaw
         const cleanCaption = combinedText
           .replace(/bunu\s+[uü]r[uü]ne\s+[cç]evir/gi, '')
@@ -769,6 +795,66 @@ export async function POST(req: NextRequest) {
 
         // Slug: unique by appending sku
         const slug = slugify(title) + '-' + sku.toLowerCase().replace(/[^a-z0-9-]/g, '')
+
+        // 6b. Media group (album) check — multiple photos of the SAME product
+        // When Telegram sends an album, each photo arrives as a separate webhook
+        // with the same media_group_id. We group them into one product.
+        const mediaGroupId = (message.media_group_id as string | undefined) || null
+        if (mediaGroupId) {
+          const { docs: groupDocs } = await payload.find({
+            collection: 'products',
+            where: {
+              and: [
+                { 'automationMeta.telegramChatId': { equals: String(chatId) } },
+                { 'automationMeta.telegramMediaGroupId': { equals: mediaGroupId } },
+              ],
+            },
+            limit: 1,
+            depth: 0,
+          })
+
+          if (groupDocs.length > 0) {
+            // Product already created for this album — append this photo to it
+            const groupProduct = groupDocs[0] as Record<string, unknown>
+            const groupProductId = groupProduct.id as number
+            const existingImages = (groupProduct.images as Array<{ image: number }> | undefined) ?? []
+
+            const addFilename = `tg-${groupProductId}-${Date.now()}.${fileData.ext}`
+            const addMedia = await payload.create({
+              collection: 'media',
+              data: {
+                altText: String(groupProduct.title || 'Ürün'),
+                product: groupProductId,
+                type: 'original',
+              },
+              file: {
+                data: fileData.buffer,
+                mimetype: fileData.contentType,
+                name: addFilename,
+                size: fileData.buffer.length,
+              },
+            })
+
+            await payload.update({
+              collection: 'products',
+              id: groupProductId,
+              data: { images: [...existingImages, { image: addMedia.id }] },
+            })
+
+            const newCount = existingImages.length + 1
+            await sendTelegramMessage(
+              chatId,
+              `📷 Fotoğraf eklendi (#${newCount}) — <b>${groupProduct.title}</b>\n` +
+              `Toplam ${newCount} referans fotoğraf bu ürüne eklendi.\n` +
+              `Görsel üretmek için:\n` +
+              `<code>#gorsel ${groupProductId}</code> — 🔮 Luma\n` +
+              `<code>#chatgpt ${groupProductId}</code> — ⚙️ ChatGPT\n` +
+              `<code>#geminipro ${groupProductId}</code> — ✨ Gemini Pro`,
+            )
+            return NextResponse.json({ ok: true })
+          }
+          // else: first photo in this media group — proceed with product creation below
+        }
 
         // 7. Idempotency check: aynı mesaj daha önce işlendi mi?
         const tgChatId = String(chatId)
@@ -835,6 +921,7 @@ export async function POST(req: NextRequest) {
             automationMeta: {
               telegramChatId: tgChatId,
               telegramMessageId: tgMsgId,
+              ...(mediaGroupId ? { telegramMediaGroupId: mediaGroupId } : {}),
               rawCaption: cleanCaption || text,
               parseConfidence: parsedCaption?.parseConfidence ?? 0,
               parseWarnings: JSON.stringify(parsedCaption?.parseWarnings ?? []),
@@ -891,33 +978,59 @@ export async function POST(req: NextRequest) {
           ? ` (${parsedCaption.parseConfidence}% güven)`
           : ''
 
-        // 12. Görsel mod tag'i varsa → otomatik Luma job kuyruğa al (v16: Luma default)
+        // 12. Görsel tag varsa → otomatik görsel üretim kuyruğa al
+        //    Legacy mod tag'leri (hizli/dengeli/premium/karma) → Luma (v16 default)
+        //    Engine tag'leri: #luma → Luma, #chatgpt → OpenAI, #geminipro → Gemini Pro
         let autoGenJobId: string | null = null
-        if (autoGenMode) {
+        if (autoGenMode || autoGenEngine) {
           try {
             const modeLabelMap: Record<string, string> = {
               hizli: '⚡ Hızlı', dengeli: '⚖️ Dengeli', premium: '💎 Premium', karma: '🌈 Karma',
             }
+            const engineLabelMap: Record<string, string> = {
+              luma: '🔮 Luma', chatgpt: '⚙️ ChatGPT', geminipro: '✨ Gemini Pro',
+            }
+            const jobLabel = autoGenEngine
+              ? engineLabelMap[autoGenEngine]
+              : `${modeLabelMap[autoGenMode!]} · 🔮 Luma`
+
             const autoJobDoc = await payload.create({
               collection: 'image-generation-jobs',
               data: {
-                jobTitle: `${title} — ${modeLabelMap[autoGenMode]} · 🔮 Luma`,
+                jobTitle: `${title} — ${jobLabel}`,
                 product: productId,
-                mode: autoGenMode,
+                mode: autoGenMode ?? 'hizli',
                 status: 'queued',
                 telegramChatId: tgChatId,
                 requestedByUserId: String(message.from?.id ?? ''),
               },
             })
-            // v16: Stage 1 uses Luma
-            await payload.jobs.queue({
-              task: 'luma-gen',
-              input: { jobId: String(autoJobDoc.id), hq: false },
-              overrideAccess: true,
-            })
+
+            if (autoGenEngine === 'chatgpt') {
+              // Explicit ChatGPT engine
+              await payload.jobs.queue({
+                task: 'image-gen',
+                input: { jobId: String(autoJobDoc.id), stage: 'standard', provider: 'openai' },
+                overrideAccess: true,
+              })
+            } else if (autoGenEngine === 'geminipro') {
+              // Explicit Gemini Pro engine
+              await payload.jobs.queue({
+                task: 'image-gen',
+                input: { jobId: String(autoJobDoc.id), stage: 'standard', provider: 'gemini-pro' },
+                overrideAccess: true,
+              })
+            } else {
+              // Default: Luma (legacy modes + #luma tag + v16 default)
+              await payload.jobs.queue({
+                task: 'luma-gen',
+                input: { jobId: String(autoJobDoc.id), hq: false },
+                overrideAccess: true,
+              })
+            }
             autoGenJobId = String(autoJobDoc.id)
           } catch (err) {
-            console.error('[telegram/webhook] auto luma-gen queue failed:', err)
+            console.error('[telegram/webhook] auto gen queue failed:', err)
           }
         }
 
@@ -937,12 +1050,16 @@ export async function POST(req: NextRequest) {
           missingBlock +
           `\n\n🔗 <a href="https://www.uygunayakkabi.com/admin/collections/products/${productId}">Admin'de aç</a>`
 
-        if (autoGenJobId && autoGenMode) {
-          // Mode was pre-selected in caption — show plain confirmation
+        if (autoGenJobId && (autoGenMode || autoGenEngine)) {
+          // Engine/mode was pre-selected in caption — show plain confirmation
+          const autoConfirmLabel = autoGenEngine === 'chatgpt'
+            ? '⚙️ <b>ChatGPT görsel üretimi başlatıldı</b> — 3 sahne — tamamlanınca bildirim gelecek'
+            : autoGenEngine === 'geminipro'
+              ? '✨ <b>Gemini Pro görsel üretimi başlatıldı</b> — 3 sahne — tamamlanınca bildirim gelecek'
+              : '🔮 <b>Luma görsel üretimi başlatıldı</b> — 3 stüdyo açısı (Slot 1-3) — tamamlanınca bildirim gelecek'
           await sendTelegramMessage(
             chatId,
-            productSummary +
-            `\n\n🔮 <b>Luma görsel üretimi başlatıldı</b> — 3 stüdyo açısı (Slot 1-3) — tamamlanınca bildirim gelecek`,
+            productSummary + `\n\n${autoConfirmLabel}`,
           )
         } else {
           // No mode selected — show inline keyboard for one-tap mode selection
@@ -951,12 +1068,11 @@ export async function POST(req: NextRequest) {
             productSummary + `\n\n🎨 <b>Görsel üretmek ister misiniz?</b>`,
             [
               [
-                { text: '⚡ Hızlı', callback_data: `imagegen:${productId}:hizli` },
-                { text: '⚖️ Dengeli', callback_data: `imagegen:${productId}:dengeli` },
+                { text: '🔮 Luma (varsayılan)', callback_data: `imagegen:${productId}:hizli` },
               ],
               [
-                { text: '💎 Premium', callback_data: `imagegen:${productId}:premium` },
-                { text: '🌈 Karma (5 açı)', callback_data: `imagegen:${productId}:karma` },
+                { text: '⚙️ ChatGPT', callback_data: `imagegen:${productId}:chatgpt` },
+                { text: '✨ Gemini Pro', callback_data: `imagegen:${productId}:premium` },
               ],
               [
                 { text: '❌ Hayır, sadece kaydet', callback_data: `imagegen:${productId}:skip` },
@@ -1029,12 +1145,16 @@ export async function POST(req: NextRequest) {
       if (!gorselProductId) {
         await sendTelegramMessage(
           chatId,
-          '🔮 <b>Luma görsel üretimi için ürün gerekli.</b>\n\n' +
+          '🎨 <b>Görsel üretimi için ürün gerekli.</b>\n\n' +
           'İki yöntemden biri:\n' +
           '1️⃣ Ürün oluşturma mesajını <b>reply</b> edip yaz: <code>#gorsel</code>\n' +
           '2️⃣ Ürün ID ile yaz: <code>#gorsel 42</code>\n\n' +
-          'Motor: 🔮 Luma photon-flash-1 (3 stüdyo açısı — Slot 1-3)\n' +
-          'Sonrasında: 🌟 Gemini Pro butonu ile Slot 4-5 üretebilirsiniz.',
+          '<b>Motor seçimi:</b>\n' +
+          '<code>#gorsel</code>    — 🔮 Luma (varsayılan, 3 stüdyo açısı)\n' +
+          '<code>#luma</code>      — 🔮 Luma (aynı, + HQ seçeneği)\n' +
+          '<code>#chatgpt</code>   — ⚙️ ChatGPT / OpenAI gpt-image-1\n' +
+          '<code>#geminipro</code> — ✨ Gemini Pro\n\n' +
+          'Sonrasında: 🌟 Gemini Pro butonu ile Slot 4-5 de üretebilirsiniz.',
         )
         return NextResponse.json({ ok: true })
       }
@@ -1190,6 +1310,174 @@ export async function POST(req: NextRequest) {
           await payload.jobs.run({ limit: 1, overrideAccess: true })
         } catch (err) {
           console.error('[telegram/webhook] after() #luma jobs.run failed:', err)
+        }
+      })
+
+      return NextResponse.json({ ok: true })
+    }
+
+    // ── #chatgpt — Explicit ChatGPT (OpenAI gpt-image-1) Stage 1 ─────────────
+    // Triggers: "#chatgpt 42" or reply + "#chatgpt"
+    // Queues image-gen with provider='openai', stage='standard' (slots 1-3).
+    // Operator opt-in to OpenAI engine — separate from Luma default flow.
+    const isChatGptTrigger = /#chatgpt\b/i.test(text)
+
+    if (isChatGptTrigger) {
+      // Option A — reply to product creation message
+      const cgptReplyText =
+        message.reply_to_message?.text ||
+        message.reply_to_message?.caption ||
+        ''
+      const cgptUrlMatch = cgptReplyText.match(/\/products\/(\d+)/)
+      let cgptProductId: number | null = cgptUrlMatch ? parseInt(cgptUrlMatch[1]) : null
+
+      // Option B — explicit ID: "#chatgpt 42"
+      if (!cgptProductId) {
+        const idMatch = text.match(/#chatgpt\s+(\d+)/i)
+        if (idMatch) cgptProductId = parseInt(idMatch[1])
+      }
+
+      if (!cgptProductId) {
+        await sendTelegramMessage(
+          chatId,
+          '⚙️ <b>ChatGPT görsel üretimi için ürün gerekli.</b>\n\n' +
+          'İki yöntemden biri:\n' +
+          '1️⃣ Ürün oluşturma mesajını <b>reply</b> edip yaz: <code>#chatgpt</code>\n' +
+          '2️⃣ Ürün ID ile yaz: <code>#chatgpt 42</code>\n\n' +
+          '<code>#chatgpt</code> — ⚙️ OpenAI gpt-image-1, 3 sahne',
+        )
+        return NextResponse.json({ ok: true })
+      }
+
+      // Verify product exists
+      const { docs: cgptDocs } = await payload.find({
+        collection: 'products',
+        where: { id: { equals: cgptProductId } },
+        limit: 1,
+        depth: 0,
+      })
+      if (cgptDocs.length === 0) {
+        await sendTelegramMessage(chatId, `❌ Ürün bulunamadı: #${cgptProductId}`)
+        return NextResponse.json({ ok: true })
+      }
+      const cgptProduct = cgptDocs[0] as Record<string, unknown>
+
+      const cgptJobDoc = await payload.create({
+        collection: 'image-generation-jobs',
+        data: {
+          jobTitle: `${cgptProduct.title} — ChatGPT Stüdyo`,
+          product: cgptProductId,
+          mode: 'hizli',
+          status: 'queued',
+          telegramChatId: String(chatId),
+          requestedByUserId: String(message.from?.id ?? ''),
+        },
+      })
+
+      await payload.jobs.queue({
+        task: 'image-gen',
+        input: { jobId: String(cgptJobDoc.id), stage: 'standard', provider: 'openai' },
+        overrideAccess: true,
+      })
+
+      await sendTelegramMessage(
+        chatId,
+        `⚙️ <b>ChatGPT görsel üretimi başlatıldı!</b>\n\n` +
+        `📦 Ürün: <b>${cgptProduct.title}</b>\n` +
+        `🤖 Provider: ⚙️ OpenAI gpt-image-1\n` +
+        `🖼️ 3 sahne üretilecek\n\n` +
+        `<i>Tamamlanınca Telegram'a önizleme gönderilecek.</i>`,
+      )
+
+      after(async () => {
+        try {
+          await payload.jobs.run({ limit: 1, overrideAccess: true })
+        } catch (err) {
+          console.error('[telegram/webhook] after() #chatgpt jobs.run failed:', err)
+        }
+      })
+
+      return NextResponse.json({ ok: true })
+    }
+
+    // ── #geminipro — Explicit Gemini Pro Stage 1 ─────────────────────────────
+    // Triggers: "#geminipro 42" or reply + "#geminipro"
+    // Queues image-gen with provider='gemini-pro', stage='standard' (slots 1-3).
+    // Standalone Gemini Pro trigger — does NOT require prior Luma Stage 1.
+    const isGeminiProTrigger = /#geminipro\b/i.test(text)
+
+    if (isGeminiProTrigger) {
+      // Option A — reply to product creation message
+      const gpReplyText =
+        message.reply_to_message?.text ||
+        message.reply_to_message?.caption ||
+        ''
+      const gpUrlMatch = gpReplyText.match(/\/products\/(\d+)/)
+      let gpProductId: number | null = gpUrlMatch ? parseInt(gpUrlMatch[1]) : null
+
+      // Option B — explicit ID: "#geminipro 42"
+      if (!gpProductId) {
+        const idMatch = text.match(/#geminipro\s+(\d+)/i)
+        if (idMatch) gpProductId = parseInt(idMatch[1])
+      }
+
+      if (!gpProductId) {
+        await sendTelegramMessage(
+          chatId,
+          '✨ <b>Gemini Pro görsel üretimi için ürün gerekli.</b>\n\n' +
+          'İki yöntemden biri:\n' +
+          '1️⃣ Ürün oluşturma mesajını <b>reply</b> edip yaz: <code>#geminipro</code>\n' +
+          '2️⃣ Ürün ID ile yaz: <code>#geminipro 42</code>\n\n' +
+          '<code>#geminipro</code> — ✨ Gemini Pro, 3 sahne',
+        )
+        return NextResponse.json({ ok: true })
+      }
+
+      // Verify product exists
+      const { docs: gpDocs } = await payload.find({
+        collection: 'products',
+        where: { id: { equals: gpProductId } },
+        limit: 1,
+        depth: 0,
+      })
+      if (gpDocs.length === 0) {
+        await sendTelegramMessage(chatId, `❌ Ürün bulunamadı: #${gpProductId}`)
+        return NextResponse.json({ ok: true })
+      }
+      const gpProduct = gpDocs[0] as Record<string, unknown>
+
+      const gpJobDoc = await payload.create({
+        collection: 'image-generation-jobs',
+        data: {
+          jobTitle: `${gpProduct.title} — Gemini Pro Stüdyo`,
+          product: gpProductId,
+          mode: 'premium',
+          status: 'queued',
+          telegramChatId: String(chatId),
+          requestedByUserId: String(message.from?.id ?? ''),
+        },
+      })
+
+      await payload.jobs.queue({
+        task: 'image-gen',
+        input: { jobId: String(gpJobDoc.id), stage: 'standard', provider: 'gemini-pro' },
+        overrideAccess: true,
+      })
+
+      await sendTelegramMessage(
+        chatId,
+        `✨ <b>Gemini Pro görsel üretimi başlatıldı!</b>\n\n` +
+        `📦 Ürün: <b>${gpProduct.title}</b>\n` +
+        `🤖 Provider: ✨ Gemini Pro\n` +
+        `🖼️ 3 sahne üretilecek\n\n` +
+        `<i>Tamamlanınca Telegram'a önizleme gönderilecek.</i>`,
+      )
+
+      after(async () => {
+        try {
+          await payload.jobs.run({ limit: 1, overrideAccess: true })
+        } catch (err) {
+          console.error('[telegram/webhook] after() #geminipro jobs.run failed:', err)
         }
       })
 

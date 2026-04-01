@@ -912,12 +912,16 @@ export async function POST(req: NextRequest) {
           /#luma\b/i.test(combinedRaw)      ? 'luma'      :
           null
 
+        // #claid in caption → after product creation, show Claid mode keyboard
+        // (not an engine tag — does not queue image-gen; shows claidmode: keyboard instead)
+        const isClaidCaption = /#claid\b/i.test(combinedRaw)
+
         // Caption temizle — bot mentions + trigger phrases + görsel hashtag'leri sil
         //    #hizli / #dengeli / #premium / #karma / #gorsel / #luma / #chatgpt / #geminipro
-        //    gibi görsel tag'leri çıkarılır — "bunu ürüne çevir #luma 1755 TL" gibi
+        //    #claid — gibi görsel tag'leri çıkarılır — "bunu ürüne çevir #claid 1755 TL"
         //    kullanımlarda parseTelegramCaption'ı bozmasın
         const BOT_MENTIONS = /(@Uygunops_bot|@uygunops_bot|@mentix_aibot|@Mentix)/gi
-        const GORSEL_TAGS  = /#(gorsel|hizli|dengeli|premium|karma|geminipro|chatgpt|luma)\b/gi
+        const GORSEL_TAGS  = /#(gorsel|hizli|dengeli|premium|karma|geminipro|chatgpt|luma|claid)\b/gi
         const combinedText = combinedRaw
         const cleanCaption = combinedText
           .replace(/bunu\s+[uü]r[uü]ne\s+[cç]evir/gi, '')
@@ -1193,7 +1197,23 @@ export async function POST(req: NextRequest) {
           missingBlock +
           `\n\n🔗 <a href="https://www.uygunayakkabi.com/admin/collections/products/${productId}">Admin'de aç</a>`
 
-        if (autoGenJobId && (autoGenMode || autoGenEngine)) {
+        if (isClaidCaption) {
+          // #claid in caption → skip Gemini queue, show Claid mode keyboard immediately
+          const { CLAID_MODE_LABELS, CLAID_MODE_DESCRIPTIONS } = await import('@/lib/claidProvider')
+          await sendTelegramMessageWithKeyboard(
+            chatId,
+            productSummary + `\n\n🧴 <b>Claid iyileştirme modu seçin:</b>\n\n` +
+            `<b>🧹 Ürün Temizleme</b>\n<i>${CLAID_MODE_DESCRIPTIONS.cleanup}</i>\n\n` +
+            `<b>✨ Stüdyo Geliştirme</b>\n<i>${CLAID_MODE_DESCRIPTIONS.studio}</i>\n\n` +
+            `<b>🎨 Kreatif Arka Plan</b>\n<i>${CLAID_MODE_DESCRIPTIONS.creative}</i>`,
+            [
+              [{ text: `🧹 ${CLAID_MODE_LABELS.cleanup}`,  callback_data: `claidmode:${productId}:cleanup` }],
+              [{ text: `✨ ${CLAID_MODE_LABELS.studio}`,   callback_data: `claidmode:${productId}:studio` }],
+              [{ text: `🎨 ${CLAID_MODE_LABELS.creative}`, callback_data: `claidmode:${productId}:creative` }],
+              [{ text: '❌ İptal (sadece kaydet)',          callback_data: `imagegen:${productId}:skip` }],
+            ],
+          )
+        } else if (autoGenJobId && (autoGenMode || autoGenEngine)) {
           // Engine/mode was pre-selected in caption — show plain confirmation
           // v18 Gemini-only: single label regardless of tag
           const autoConfirmLabel = '✨ <b>Gemini Pro görsel üretimi başlatıldı</b> — 3 sahne — tamamlanınca bildirim gelecek'
@@ -1202,17 +1222,14 @@ export async function POST(req: NextRequest) {
             productSummary + `\n\n${autoConfirmLabel}`,
           )
         } else {
-          // v18 Gemini-only debug phase: single engine button
+          // Default post-product keyboard: Gemini Pro + Claid + skip
           await sendTelegramMessageWithKeyboard(
             chatId,
-            productSummary + `\n\n🎨 <b>Görsel üretmek ister misiniz?</b>`,
+            productSummary + `\n\n🎨 <b>Görsel işlem seçin:</b>`,
             [
-              [
-                { text: '✨ Gemini Pro (görsel üret)', callback_data: `imagegen:${productId}:geminipro` },
-              ],
-              [
-                { text: '❌ Hayır, sadece kaydet', callback_data: `imagegen:${productId}:skip` },
-              ],
+              [{ text: '✨ Gemini Pro (görsel üret)',  callback_data: `imagegen:${productId}:geminipro` }],
+              [{ text: '🧹 Claid (fotoğraf iyileştir)', callback_data: `claidmode:${productId}:cleanup` }],
+              [{ text: '❌ Hayır, sadece kaydet',       callback_data: `imagegen:${productId}:skip` }],
             ],
           )
         }

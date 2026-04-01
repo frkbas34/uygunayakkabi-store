@@ -39,16 +39,24 @@ const CANONICAL_PROHIBITIONS_BLOCK =
 
 const TASK_FRAMING_BLOCK =
   `═══ TASK: RE-PHOTOGRAPH AN EXISTING PRODUCT ═══\n` +
-  `You are a product photographer. You have been given a REAL shoe to photograph.\n` +
-  `The reference image shows the EXACT PHYSICAL SHOE you must photograph.\n` +
-  `Your job: take a NEW PHOTO of THIS SAME SHOE from a different angle/setting.\n` +
+  `You are a commercial product photographer with a physical shoe in front of you.\n` +
+  `The reference image(s) show the EXACT PHYSICAL SHOE you are photographing.\n` +
+  `Your job: produce a NEW CLEAN PRODUCT PHOTO of THIS SAME SHOE from a different angle/setting.\n` +
   `\n` +
-  `CRITICAL RULES:\n` +
-  `• The shoe in your output must be the SAME PHYSICAL OBJECT as the reference.\n` +
-  `• NOT a similar shoe. NOT a redesigned shoe. THE SAME SHOE.\n` +
-  `• Every physical detail (silhouette, sole, stitching, logos, material, color) must match.\n` +
-  `• ONLY the photography may change: camera angle, lighting, background, scene.\n` +
-  `• Think of it as: same shoe on a different part of the photo studio set.\n` +
+  `WHAT MUST STAY IDENTICAL:\n` +
+  `• The shoe itself — silhouette, sole, toe shape, laces, stitching, logos, material, color.\n` +
+  `• Every structural detail that makes this shoe this specific shoe.\n` +
+  `• NOT a similar shoe. NOT a redesigned shoe. THE SAME PHYSICAL OBJECT.\n` +
+  `\n` +
+  `WHAT MAY CHANGE:\n` +
+  `• Camera angle, perspective, framing, lighting, background, scene setting.\n` +
+  `• Think: same shoe moved to a different position on the studio set.\n` +
+  `\n` +
+  `OUTPUT FORMAT — CRITICAL:\n` +
+  `• Full-bleed photograph — the image IS the product photo, nothing else.\n` +
+  `• NO frames, NO borders, NO margins, NO outer shadow boxing.\n` +
+  `• NOT a photo inside a white canvas. NOT a mockup. NOT a card. NOT a poster.\n` +
+  `• The output must look like a direct camera shot, NOT like an image placed inside another image.\n` +
   `═══════════════════════════\n\n`
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -735,15 +743,16 @@ const EDITING_SCENES = [
     label: 'Slot 1 — Ön Stüdyo Hero',
     sceneInstructions:
       `── SHOT: FRONT STUDIO HERO ──\n` +
-      `Create a new product photo of this EXACT {COLOR} shoe.\n` +
+      `Re-photograph this EXACT {COLOR} shoe from the front — same physical object.\n` +
       `CAMERA: Directly in front of the shoe, lens perpendicular to the toe cap, at mid-shoe height (lacing zone).\n` +
       `POSITION: Shoe upright on sole, centered, toe cap facing camera dead-on. Both sides equally visible (symmetric).\n` +
-      `FRAME: Full shoe, 70% of frame height. Top of collar and sole bottom both visible.\n` +
+      `COMPOSITION: Full shoe, 70% of image height. Top of collar and sole bottom both visible. Centered.\n` +
       `MUST SEE: Toe cap front face, vamp, lace/closure system, collar — the entire FRONT face.\n` +
       `MUST NOT SEE: Heel counter, side profile, sole edge.\n` +
       `BACKGROUND: Pure white (#fff). No texture, no gradient, no surface.\n` +
       `LIGHT: Overhead softbox + bilateral fill. Soft ground shadow only.\n` +
-      `THIS IS NOT: a side view, a 3/4 view, a lifestyle shot, a close-up.\n` +
+      `OUTPUT: Full-bleed photograph. No frames, no borders, no margins, no mockup.\n` +
+      `THIS IS NOT: a side view, a 3/4 view, a lifestyle shot, a close-up, a framed image.\n` +
       `COLOR: The shoe is {COLOR}. Output MUST be {COLOR}. Other colors = REJECTED.\n` +
       `DO NOT repeat the reference angle ({REF_ANGLE}). Generate a clean front hero.`,
   },
@@ -752,15 +761,16 @@ const EDITING_SCENES = [
     label: 'Slot 2 — 90° Yan Profil',
     sceneInstructions:
       `── SHOT: PURE LATERAL SIDE PROFILE ──\n` +
-      `Create a new product photo of this EXACT {COLOR} shoe.\n` +
+      `Re-photograph this EXACT {COLOR} shoe from the side — same physical object.\n` +
       `CAMERA: Exactly 90° to the side (medial or lateral), at sole level. Looking directly at the side face.\n` +
       `POSITION: Shoe horizontal — toe pointing LEFT, heel on RIGHT.\n` +
-      `FRAME: Full shoe from toe tip to heel counter. Entire sole edge visible. Shoe fills 75% of width.\n` +
+      `COMPOSITION: Full shoe from toe tip to heel counter. Entire sole edge visible. Shoe fills 75% of image width. Centered.\n` +
       `MUST SEE: Complete sole profile (toe to heel), arch curve, heel counter height, collar line. The sole silhouette is the dominant visual.\n` +
       `MUST NOT SEE: Toe cap front face (if you can see the front of the toe, the angle is WRONG).\n` +
       `BACKGROUND: Soft cream seamless.\n` +
       `LIGHT: Key from front-left 45°, fill from opposite. Subtle sole-edge highlight.\n` +
-      `THIS IS NOT: a front view, a 3/4 view, a top-down view.\n` +
+      `OUTPUT: Full-bleed photograph. No frames, no borders, no margins, no mockup.\n` +
+      `THIS IS NOT: a front view, a 3/4 view, a top-down view, a framed image.\n` +
       `COLOR: The shoe is {COLOR}. Output MUST be {COLOR}. Other colors = REJECTED.\n` +
       `DO NOT repeat the reference angle ({REF_ANGLE}). Generate a pure side profile.`,
   },
@@ -769,14 +779,15 @@ const EDITING_SCENES = [
     label: 'Slot 3 — Malzeme Makro',
     sceneInstructions:
       `── SHOT: MATERIAL MACRO CLOSE-UP ──\n` +
-      `Create a new close-up photo of this EXACT {COLOR} shoe's material.\n` +
+      `Re-photograph this EXACT {COLOR} shoe — macro close-up of the upper material — same physical object.\n` +
       `CAMERA: 15–20 cm from the vamp/toe-cap surface. Slightly above, 20–30° down. Macro focal length.\n` +
-      `FRAME: Upper material fills 85–90% of frame. Very shallow depth of field. Toe area sharp, heel blurred.\n` +
+      `COMPOSITION: Upper material fills 85–90% of image area. Very shallow depth of field. Toe area sharp, heel blurred.\n` +
       `MUST SEE: Surface grain/texture/weave of the upper, stitching thread relief, any perforation or embossing.\n` +
       `MUST NOT SEE: The full shoe. If the entire shoe is visible, the framing is WRONG.\n` +
       `BACKGROUND: Blurred neutral bokeh. No identifiable objects.\n` +
       `LIGHT: Single raking sidelight to reveal texture relief. Subtle specular highlight.\n` +
-      `THIS IS NOT: a full-shoe shot, a side profile, an editorial placement.\n` +
+      `OUTPUT: Full-bleed photograph. No frames, no borders, no margins, no mockup.\n` +
+      `THIS IS NOT: a full-shoe shot, a side profile, an editorial placement, a framed image.\n` +
       `COLOR: The shoe is {COLOR}. Output MUST be {COLOR}. Other colors = REJECTED.`,
   },
   {
@@ -784,15 +795,16 @@ const EDITING_SCENES = [
     label: 'Slot 4 — Editoryal Üstten',
     sceneInstructions:
       `── SHOT: OVERHEAD EDITORIAL ──\n` +
-      `Create a new editorial photo of this EXACT {COLOR} shoe from above.\n` +
+      `Re-photograph this EXACT {COLOR} shoe from an elevated angle — same physical object.\n` +
       `CAMERA: Above and in front, looking DOWN at 55–65°. Three-quarter overhead perspective.\n` +
       `POSITION: Shoe resting upright on flat marble surface.\n` +
-      `FRAME: Full shoe visible from above-front. Top face dominant (tongue, lacing from above, toe from overhead). Shoe fills 60% of frame.\n` +
+      `COMPOSITION: Full shoe visible from above-front. Top face dominant (tongue, lacing from above, toe from overhead). Shoe fills 65% of image area. Centered.\n` +
       `MUST SEE: Tongue, lace pattern from above, toe shape from overhead, upper opening. This reveals parts invisible in front/side views.\n` +
       `MUST NOT SEE: The front face of the toe (that's slot 1), the side profile (that's slot 2).\n` +
       `SURFACE: White Carrara marble with subtle grey veining. No props.\n` +
       `LIGHT: Diffused window light from upper-left. Gentle shadow lower-right.\n` +
-      `THIS IS NOT: a front hero, a side profile, a close-up macro.\n` +
+      `OUTPUT: Full-bleed photograph. No frames, no borders, no margins, no mockup.\n` +
+      `THIS IS NOT: a front hero, a side profile, a close-up macro, a framed image.\n` +
       `COLOR: The shoe is {COLOR}. Output MUST be {COLOR}. Other colors = REJECTED.\n` +
       `DO NOT repeat the reference angle ({REF_ANGLE}). Generate an overhead editorial.`,
   },
@@ -801,14 +813,15 @@ const EDITING_SCENES = [
     label: 'Slot 5 — Lifestyle Giyilmiş',
     sceneInstructions:
       `── SHOT: LIFESTYLE — SHOE WORN ON A FOOT ──\n` +
-      `Create a lifestyle photo showing this EXACT {COLOR} shoe being WORN on a human foot.\n` +
+      `Re-photograph this EXACT {COLOR} shoe in a lifestyle worn setting — same physical object.\n` +
       `CAMERA: Low ground level, 10–15 cm above floor, to the side of the foot.\n` +
-      `FRAME: One foot wearing the shoe. Full shoe visible with lower leg/ankle above collar. Ground surface in lower frame. Shoe fills 65% of frame.\n` +
+      `COMPOSITION: One foot wearing the shoe. Full shoe visible with lower leg/ankle above collar. Ground surface in lower frame. Shoe fills 65% of image area. Centered.\n` +
       `MUST SEE: The shoe ON a foot in natural weight-bearing position, ground contact, ankle/lower leg.\n` +
       `MUST NOT SEE: Face, upper body. The shoe is the hero — the person is secondary.\n` +
       `ENVIRONMENT: Warm blurred lifestyle setting — wooden floor, cobblestone, or garden. Bokeh background.\n` +
       `LIGHT: Warm golden-hour side light. Authentic, non-studio.\n` +
-      `THIS IS NOT: an isolated product shot, a studio photo, an overhead view.\n` +
+      `OUTPUT: Full-bleed photograph. No frames, no borders, no margins, no mockup.\n` +
+      `THIS IS NOT: an isolated product shot, a studio photo, an overhead view, a framed image.\n` +
       `COLOR: The shoe is {COLOR}. Output MUST be {COLOR}. Other colors = REJECTED.\n` +
       `DO NOT repeat the reference angle ({REF_ANGLE}). Generate a lifestyle worn shot.`,
   },
@@ -842,6 +855,7 @@ export async function generateByEditing(
   referenceImageMime: string,
   identityLock: IdentityLock,
   sceneIndices?: number[],
+  _additionalImages?: Array<{ data: Buffer; mime: string }>, // reserved — OpenAI path uses only primary ref
 ): Promise<{ results: ProviderResult[]; buffers: Buffer[]; slotLogs: SlotLog[] }> {
   // Filter scenes to run — default is all 5
   const scenes = sceneIndices
@@ -1094,11 +1108,29 @@ async function callGeminiImageGenerate(
   pngBuffer: Buffer,
   prompt: string,
   apiKey: string,
+  additionalImages?: Array<{ data: Buffer; mime: string }>,
 ): Promise<Buffer> {
   const model = process.env.GEMINI_IMAGE_GEN_MODEL || 'gemini-2.5-flash-image'
 
+  // Build parts: text prompt first, then primary reference image, then any additional refs.
+  // Multiple reference images give the model a richer view of the product (e.g. front + side).
+  const requestParts: Array<Record<string, unknown>> = [
+    { text: prompt },
+    { inlineData: { mimeType: 'image/png', data: pngBuffer.toString('base64') } },
+  ]
+  if (additionalImages) {
+    for (const img of additionalImages.slice(0, 2)) {
+      requestParts.push({
+        inlineData: { mimeType: img.mime, data: img.data.toString('base64') },
+      })
+    }
+  }
+
   try {
-    console.log(`[GeminiImageGenerate] POST model=${model} promptLen=${prompt.length}`)
+    console.log(
+      `[GeminiImageGenerate] POST model=${model} promptLen=${prompt.length}` +
+      (additionalImages?.length ? ` +${additionalImages.length} additional ref(s)` : ''),
+    )
 
     const res = await fetch(
       `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`,
@@ -1107,10 +1139,7 @@ async function callGeminiImageGenerate(
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           contents: [{
-            parts: [
-              { text: prompt },
-              { inlineData: { mimeType: 'image/png', data: pngBuffer.toString('base64') } },
-            ],
+            parts: requestParts,
           }],
           generationConfig: {
             responseModalities: ['IMAGE', 'TEXT'],
@@ -1189,6 +1218,7 @@ export async function generateByGeminiPro(
   referenceImageMime: string,
   identityLock: IdentityLock,
   sceneIndices?: number[],
+  additionalImages?: Array<{ data: Buffer; mime: string }>,
 ): Promise<{ results: ProviderResult[]; buffers: Buffer[]; slotLogs: SlotLog[] }> {
   const scenes = sceneIndices
     ? EDITING_SCENES.filter((_, i) => sceneIndices.includes(i))
@@ -1268,7 +1298,7 @@ export async function generateByGeminiPro(
       try {
         // ── Attempt 1 ──────────────────────────────────────────────────────────
         slotLog.attempts = 1
-        let rawBuf = await callGeminiImageGenerate(pngBuffer, fullPrompt, geminiKey)
+        let rawBuf = await callGeminiImageGenerate(pngBuffer, fullPrompt, geminiKey, additionalImages)
 
         const jpegBuf = await sharp(rawBuf).jpeg({ quality: 92 }).toBuffer()
 
@@ -1320,7 +1350,7 @@ export async function generateByGeminiPro(
           slotLog.attempts = 2
           await sleep(2000)
 
-          rawBuf = await callGeminiImageGenerate(pngBuffer, reinforcedPrompt, geminiKey)
+          rawBuf = await callGeminiImageGenerate(pngBuffer, reinforcedPrompt, geminiKey, additionalImages)
           const retryJpeg = await sharp(rawBuf).jpeg({ quality: 92 }).toBuffer()
 
           const retryColor = await checkColorMatch(retryJpeg, mainColor, geminiKey)

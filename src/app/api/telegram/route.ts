@@ -1084,6 +1084,28 @@ export async function POST(req: NextRequest) {
       }
       const gorselProduct = gorselDocs[0] as Record<string, unknown>
 
+      // Dedup guard — prevent duplicate jobs for the same product
+      const { docs: activeGorselJobs } = await payload.find({
+        collection: 'image-generation-jobs',
+        where: {
+          and: [
+            { product: { equals: gorselProductId } },
+            { status: { in: ['queued', 'generating', 'preview'] } },
+          ],
+        },
+        limit: 1,
+        depth: 0,
+      })
+      if (activeGorselJobs.length > 0) {
+        await sendTelegramMessage(
+          chatId,
+          `⏳ <b>Bu ürün için zaten aktif bir görsel üretimi var.</b>\n\n` +
+          `Mevcut iş tamamlanana kadar yeni iş başlatılamaz.\n` +
+          `Durumu kontrol edin veya mevcut önizlemeyi onaylayın/reddedin.`,
+        )
+        return NextResponse.json({ ok: true })
+      }
+
       // Create ImageGenerationJob record — imageGenTask will look up the
       // reference image from the product's images array at run time.
       const modeLabelMap: Record<string, string> = {

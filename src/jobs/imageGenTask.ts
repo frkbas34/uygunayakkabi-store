@@ -128,9 +128,13 @@ export const imageGenTask: TaskConfig<{
 
     const productTitle = (productDoc.title as string) || 'Ürün'
 
-    // ── Step 2b: Load reference image ────────────────────────────────────────
+    // ── Step 2b: Load reference image pack (up to 3 images) ─────────────────
+    // Primary reference = first product image (required).
+    // Additional references (2nd, 3rd product image) give the AI more angles
+    // to lock onto the exact product identity — reduces hallucination on retries.
     let referenceImage: Buffer | undefined
     let referenceImageMime: string | undefined
+    const additionalReferenceImages: Array<{ data: Buffer; mime: string }> = []
 
     const siteBase =
       process.env.NEXT_PUBLIC_SERVER_URL ||
@@ -142,46 +146,64 @@ export const imageGenTask: TaskConfig<{
       return url
     }
 
+    // Helper: resolve a media item (populated object or bare ID) to {url, mime}
+    async function resolveMedia(
+      item: { url?: string; mimeType?: string } | number,
+    ): Promise<{ url: string; mime: string } | null> {
+      if (typeof item === 'object' && item?.url) {
+        return { url: item.url, mime: item.mimeType || 'image/jpeg' }
+      }
+      if (typeof item === 'number') {
+        try {
+          const doc = await payload.findByID({
+            collection: 'media',
+            id: item,
+            depth: 0,
+          }) as Record<string, unknown>
+          if (doc.url) return { url: doc.url as string, mime: (doc.mimeType as string) || 'image/jpeg' }
+        } catch (err) {
+          console.warn('[imageGenTask] media fetch by ID failed:', err)
+        }
+      }
+      return null
+    }
+
     const imagesArr = productDoc.images as
       | Array<{ image: { url?: string; mimeType?: string } | number }>
       | undefined
-    const firstImageItem = imagesArr?.[0]?.image
 
-    let mediaUrl: string | undefined
-    let mediaMime: string | undefined
-
-    if (typeof firstImageItem === 'object' && firstImageItem?.url) {
-      mediaUrl = firstImageItem.url
-      mediaMime = firstImageItem.mimeType
-    } else if (typeof firstImageItem === 'number') {
+    // Load up to 3 product images: primary + up to 2 additional
+    const toLoad = (imagesArr ?? []).slice(0, 3)
+    for (let i = 0; i < toLoad.length; i++) {
+      const item = toLoad[i]?.image
+      if (!item) continue
+      const resolved = await resolveMedia(item)
+      if (!resolved) continue
+      const fetchUrl = absoluteUrl(resolved.url)
       try {
-        const mediaDoc = await payload.findByID({
-          collection: 'media',
-          id: firstImageItem,
-          depth: 0,
-        }) as Record<string, unknown>
-        mediaUrl = mediaDoc.url as string | undefined
-        mediaMime = mediaDoc.mimeType as string | undefined
+        const imgRes = await fetch(fetchUrl)
+        if (!imgRes.ok) {
+          console.warn(`[imageGenTask v14] ref image ${i + 1} fetch failed HTTP ${imgRes.status}`)
+          continue
+        }
+        const buf = Buffer.from(await imgRes.arrayBuffer())
+        if (i === 0) {
+          referenceImage = buf
+          referenceImageMime = resolved.mime
+          console.log(`[imageGenTask v14] primary ref — ${buf.length}b ${resolved.mime}`)
+        } else {
+          additionalReferenceImages.push({ data: buf, mime: resolved.mime })
+          console.log(`[imageGenTask v14] additional ref ${i + 1} — ${buf.length}b`)
+        }
       } catch (err) {
-        console.warn('[imageGenTask] media fetch by ID failed:', err)
+        console.warn(`[imageGenTask v14] ref image ${i + 1} fetch error:`, err)
       }
     }
 
-    if (mediaUrl) {
-      const fetchUrl = absoluteUrl(mediaUrl)
-      console.log(`[imageGenTask v14] fetching reference image — ${fetchUrl}`)
-      try {
-        const imgRes = await fetch(fetchUrl)
-        if (imgRes.ok) {
-          referenceImage = Buffer.from(await imgRes.arrayBuffer())
-          referenceImageMime = mediaMime || 'image/jpeg'
-          console.log(`[imageGenTask v14] reference loaded — ${referenceImage.length}b ${referenceImageMime}`)
-        } else {
-          console.warn(`[imageGenTask v14] reference fetch failed HTTP ${imgRes.status}`)
-        }
-      } catch (err) {
-        console.warn('[imageGenTask v14] reference fetch error:', err)
-      }
+    if (referenceImage) {
+      console.log(
+        `[imageGenTask v14] reference pack ready: 1 primary + ${additionalReferenceImages.length} additional`,
+      )
     }
 
     // ── Step 3: REQUIRE reference image ──────────────────────────────────────
@@ -353,6 +375,7 @@ export const imageGenTask: TaskConfig<{
         referenceImageMime || 'image/jpeg',
         identityLock,
         sceneIndices,
+        additionalReferenceImages.length > 0 ? additionalReferenceImages : undefined,
       )
       generatedBuffers = buffers
       slotLogsSummary = slotLogs

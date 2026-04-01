@@ -9,6 +9,7 @@
  * to Claid — the safest, most reliable path.
  *
  * Endpoint:  POST /v1/image/edit/upload   (multipart/form-data)
+ * Fields:    file (image binary) + data (JSON operations string)
  * Auth:      Authorization: Bearer <CLAID_API_KEY>
  *
  * ── Modes ────────────────────────────────────────────────────────────────────
@@ -122,7 +123,9 @@ export async function callClaidUpload(
   const ext = imageMime === 'image/png' ? 'png' : imageMime === 'image/webp' ? 'webp' : 'jpg'
 
   const form = new FormData()
-  form.append('image', new Blob([new Uint8Array(imageBuffer)], { type: imageMime }), `input.${ext}`)
+  // Claid Upload API requires field name 'file' (not 'image')
+  // See: https://docs.claid.ai/image-editing-api/upload-api-reference
+  form.append('file', new Blob([new Uint8Array(imageBuffer)], { type: imageMime }), `input.${ext}`)
   form.append('data', dataJson)
 
   console.log(

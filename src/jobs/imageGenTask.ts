@@ -686,14 +686,17 @@ async function sendTelegramPhotoBuffer(
 /**
  * Send the stage-appropriate approval inline keyboard to Telegram after preview images.
  *
- * Stage 1 "standard" (slots 1-3) keyboard:
+ * Stage 1 "standard" (slots 1-3) keyboard (v21):
  *   Row 1: ✅ Tümünü Onayla (1-3)
- *   Row 2: 🌟 4-5 Gemini Pro Üret
- *   Row 3: 🔄 Yeniden Üret  |  ❌ Reddet
+ *   Row 2: 📷 Görsel 1  |  📷 Görsel 2  |  📷 Görsel 3
+ *   Row 3: 📸 1+2  |  📸 1+3  |  📸 2+3
+ *   Row 4: 🌟 4-5 Gemini Pro Üret
+ *   Row 5: 🔄 Yeniden Üret  |  ❌ Reddet
  *
- * Stage 2 "premium" (slots 4-5) keyboard:
+ * Stage 2 "premium" (slots 4-5) keyboard (v21):
  *   Row 1: ✅ Tümünü Onayla (4-5)
- *   Row 2: 🔄 Yeniden Üret (4-5)  |  ❌ Reddet
+ *   Row 2: 📷 Görsel 4  |  📷 Görsel 5
+ *   Row 3: 🔄 Yeniden Üret  |  ❌ Reddet
  *
  * callback_data formats (handled in route.ts):
  *   imgapprove:{jobId}:all   — approve all generated images
@@ -706,6 +709,11 @@ async function sendTelegramPhotoBuffer(
  *   onayla 1,2,3 / approve 1,3 → approve specific slots (1-based)
  *   reddet / reject / cancel    → reject
  *   yeniden üret / regenerate   → regenerate same stage
+ *
+ * v21: Per-image selection buttons added.
+ *   Individual:   📷 Görsel 1 / 2 / 3  → imgapprove:{jobId}:1 / :2 / :3
+ *   Combinations: 📸 1+2 / 1+3 / 2+3  → imgapprove:{jobId}:1,2 etc.
+ *   All existing callback handlers in route.ts already support these formats.
  */
 async function sendApprovalKeyboard(
   chatId: string,
@@ -724,15 +732,32 @@ async function sendApprovalKeyboard(
   const providerLine = providerLabel ? `\n🤖 Provider: <b>${providerLabel}</b>` : ''
   const isStandard = stage !== 'premium'
   const stageLabel = isStandard ? 'Slot 1-3' : 'Slot 4-5'
-  const stageNote  = isStandard
-    ? `Tümünü onaylamak için <b>✅ Tümünü Onayla (1-3)</b> butonuna basın.\n` +
-      `Belirli slotları onaylamak için yazın: <code>onayla 1,2,3</code>\n` +
-      `Slot 4-5 Gemini Pro görseller için <b>🌟 4-5 Gemini Pro Üret</b> butonuna basın.`
-    : `Tümünü onaylamak için <b>✅ Tümünü Onayla (4-5)</b> butonuna basın.\n` +
-      `İptal için <b>❌ Reddet</b> butonuna basın.`
+
+  // ── Build per-image individual buttons ──────────────────────────────────
+  // Uses 1-based slotsStr format that approveImageGenJob() already handles.
+  // Button labels show the real slot number (1-3 for standard, 4-5 for premium).
+  const slotOffset = isStandard ? 0 : 3 // premium slots start at 4 in the 5-slot system
+  const individualButtons = Array.from({ length: imageCount }, (_, i) => ({
+    text: `📷 Görsel ${slotOffset + i + 1}`,
+    callback_data: `imgapprove:${jobId}:${i + 1}`,
+  }))
+
+  // ── Build 2-image combination buttons (only when 3 images available) ────
+  // Combinations: 1+2, 1+3, 2+3 — displayed on a separate row.
+  const combinationButtons = imageCount >= 3
+    ? [
+        { text: '📸 1+2', callback_data: `imgapprove:${jobId}:1,2` },
+        { text: '📸 1+3', callback_data: `imgapprove:${jobId}:1,3` },
+        { text: '📸 2+3', callback_data: `imgapprove:${jobId}:2,3` },
+      ]
+    : []
+
+  const stageNote = isStandard
+    ? `Tüm görselleri veya istediğinizi seçin:`
+    : `İstediğiniz görseli seçin veya tümünü onaylayın:`
 
   const text =
-    `${isStandard ? '📸' : '🌟'} <b>${imageCount} önizleme hazır (${stageLabel}) — onay bekleniyor</b>\n\n` +
+    `${isStandard ? '📸' : '🌟'} <b>${imageCount} önizleme hazır (${stageLabel})</b>\n\n` +
     `📦 <b>${productTitle}</b>` +
     colorLine +
     providerLine +
@@ -740,22 +765,33 @@ async function sendApprovalKeyboard(
     `\n\n` +
     stageNote
 
-  const keyboard = isStandard
-    ? [
-        [{ text: '✅ Tümünü Onayla (1-3)', callback_data: `imgapprove:${jobId}:all` }],
-        [{ text: '🌟 4-5 Gemini Pro Üret', callback_data: `imgpremium:${jobId}` }],
-        [
-          { text: '🔄 Yeniden Üret', callback_data: `imgregen:${jobId}` },
-          { text: '❌ Reddet',       callback_data: `imgreject:${jobId}` },
-        ],
-      ]
-    : [
-        [{ text: '✅ Tümünü Onayla (4-5)',  callback_data: `imgapprove:${jobId}:all` }],
-        [
-          { text: '🔄 Yeniden Üret (4-5)', callback_data: `imgregen:${jobId}` },
-          { text: '❌ Reddet',              callback_data: `imgreject:${jobId}` },
-        ],
-      ]
+  // ── Assemble keyboard ────────────────────────────────────────────────────
+  const keyboard: Array<Array<{ text: string; callback_data: string }>> = []
+
+  // Row 1: Approve all
+  const allLabel = isStandard ? '✅ Tümünü Onayla (1-3)' : '✅ Tümünü Onayla (4-5)'
+  keyboard.push([{ text: allLabel, callback_data: `imgapprove:${jobId}:all` }])
+
+  // Row 2: Individual image buttons (up to 3 side by side)
+  if (individualButtons.length > 0) {
+    keyboard.push(individualButtons)
+  }
+
+  // Row 3: 2-image combination buttons (only for 3-image stage)
+  if (combinationButtons.length > 0) {
+    keyboard.push(combinationButtons)
+  }
+
+  // Row 4: Premium upgrade (standard stage only)
+  if (isStandard) {
+    keyboard.push([{ text: '🌟 4-5 Gemini Pro Üret', callback_data: `imgpremium:${jobId}` }])
+  }
+
+  // Last row: Regenerate + Reject
+  keyboard.push([
+    { text: '🔄 Yeniden Üret', callback_data: `imgregen:${jobId}` },
+    { text: '❌ Reddet',       callback_data: `imgreject:${jobId}` },
+  ])
 
   try {
     const res = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {

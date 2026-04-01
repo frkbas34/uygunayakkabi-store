@@ -57,7 +57,48 @@ const TASK_FRAMING_BLOCK =
   `• NO frames, NO borders, NO margins, NO outer shadow boxing.\n` +
   `• NOT a photo inside a white canvas. NOT a mockup. NOT a card. NOT a poster.\n` +
   `• The output must look like a direct camera shot, NOT like an image placed inside another image.\n` +
+  `• NO watermarks, NO logos, NO branding overlays, NO text of any kind in the image.\n` +
+  `\n` +
+  `QUALITY STANDARD:\n` +
+  `• Premium e-commerce photography — think Zara / Nike / luxury catalog quality.\n` +
+  `• Ultra clean, high clarity, high sharpness, no noise, no clutter.\n` +
+  `• Soft studio lighting, natural soft shadow under the shoe.\n` +
+  `• No harsh reflections, no dramatic lighting — realistic commercial look.\n` +
   `═══════════════════════════\n\n`
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Premium Background Selection Engine
+// ─────────────────────────────────────────────────────────────────────────────
+// Maps shoe color → premium contrasting background for studio shots.
+// Goal: background supports the product, never competes. Soft, minimal, premium.
+
+function getBackgroundForColor(mainColor: string): string {
+  const c = mainColor.toLowerCase()
+
+  // Black / dark shoes → warm beige or soft light grey
+  if (c.includes('black') || c.includes('siyah'))
+    return 'warm beige (#F5F0E8) or soft light grey (#ECECEC). Soft, minimal, premium studio feel.'
+  // White / off-white shoes → light grey or very soft pastel blue
+  if (c.includes('white') || c.includes('beyaz') || c.includes('off-white'))
+    return 'light grey (#E8E8E8) or very soft pastel blue (#EDF2F7). NOT white — the shoe must contrast.'
+  // Brown / espresso shoes → cream or muted green
+  if (c.includes('brown') || c.includes('kahve') || c.includes('espresso'))
+    return 'warm cream (#F5F1E6) or muted sage green (#E8EDEA). Soft, natural, premium.'
+  // Tan / tobacco / camel shoes → off-white or warm sand
+  if (c.includes('tan') || c.includes('tobacco') || c.includes('camel') || c.includes('taba'))
+    return 'off-white (#FAF8F5) or warm sand (#F0EDE5). Barely-there warmth.'
+  // Grey shoes → clean white or very soft blue
+  if (c.includes('grey') || c.includes('gray') || c.includes('gri'))
+    return 'clean white (#FFFFFF) or very soft blue (#F0F4F8). Bright, crisp contrast.'
+  // Navy / dark blue shoes → light grey or beige
+  if (c.includes('navy') || c.includes('lacivert') || (c.includes('blue') && c.includes('dark')))
+    return 'light grey (#EDEDED) or warm beige (#F3EDE4). Neutral warmth for contrast.'
+  // Red shoes → neutral off-white
+  if (c.includes('red') || c.includes('kırmızı') || c.includes('bordo') || c.includes('burgundy'))
+    return 'neutral off-white (#F7F5F3) or soft grey (#EBEBEB). Minimal, does not compete with the red.'
+  // Colorful / patterned / anything else → neutral light grey or off-white
+  return 'neutral light grey (#EDEDED) or off-white (#F7F5F3). Soft, minimal, premium studio feel.'
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Types
@@ -746,12 +787,12 @@ const EDITING_SCENES = [
       `Re-photograph this EXACT {COLOR} shoe from the front — same physical object.\n` +
       `CAMERA: Directly in front of the shoe, lens perpendicular to the toe cap, at mid-shoe height (lacing zone).\n` +
       `POSITION: Shoe upright on sole, centered, toe cap facing camera dead-on. Both sides equally visible (symmetric).\n` +
-      `COMPOSITION: Full shoe, 70% of image height. Top of collar and sole bottom both visible. Centered.\n` +
+      `COMPOSITION: Full shoe, 70% of image height. Top of collar and sole bottom both visible. Centered. Clean spacing around shoe.\n` +
       `MUST SEE: Toe cap front face, vamp, lace/closure system, collar — the entire FRONT face.\n` +
       `MUST NOT SEE: Heel counter, side profile, sole edge.\n` +
-      `BACKGROUND: Pure white (#fff). No texture, no gradient, no surface.\n` +
-      `LIGHT: Overhead softbox + bilateral fill. Soft ground shadow only.\n` +
-      `OUTPUT: Full-bleed photograph. No frames, no borders, no margins, no mockup.\n` +
+      `BACKGROUND: {BACKGROUND}\n` +
+      `LIGHT: Soft studio lighting — overhead softbox + bilateral fill. Natural soft shadow under the shoe only. No harsh reflections.\n` +
+      `OUTPUT: Full-bleed photograph. No frames, no borders, no margins, no mockup. No watermark, no text, no logo overlay.\n` +
       `THIS IS NOT: a side view, a 3/4 view, a lifestyle shot, a close-up, a framed image.\n` +
       `COLOR: The shoe is {COLOR}. Output MUST be {COLOR}. Other colors = REJECTED.\n` +
       `DO NOT repeat the reference angle ({REF_ANGLE}). Generate a clean front hero.`,
@@ -764,12 +805,12 @@ const EDITING_SCENES = [
       `Re-photograph this EXACT {COLOR} shoe from the side — same physical object.\n` +
       `CAMERA: Exactly 90° to the side (medial or lateral), at sole level. Looking directly at the side face.\n` +
       `POSITION: Shoe horizontal — toe pointing LEFT, heel on RIGHT.\n` +
-      `COMPOSITION: Full shoe from toe tip to heel counter. Entire sole edge visible. Shoe fills 75% of image width. Centered.\n` +
+      `COMPOSITION: Full shoe from toe tip to heel counter. Entire sole edge visible. Shoe fills 75% of image width. Centered. Clean spacing.\n` +
       `MUST SEE: Complete sole profile (toe to heel), arch curve, heel counter height, collar line. The sole silhouette is the dominant visual.\n` +
       `MUST NOT SEE: Toe cap front face (if you can see the front of the toe, the angle is WRONG).\n` +
-      `BACKGROUND: Soft cream seamless.\n` +
-      `LIGHT: Key from front-left 45°, fill from opposite. Subtle sole-edge highlight.\n` +
-      `OUTPUT: Full-bleed photograph. No frames, no borders, no margins, no mockup.\n` +
+      `BACKGROUND: {BACKGROUND}\n` +
+      `LIGHT: Soft studio lighting — key from front-left 45°, fill from opposite. Natural soft shadow. No harsh reflections.\n` +
+      `OUTPUT: Full-bleed photograph. No frames, no borders, no margins, no mockup. No watermark, no text, no logo overlay.\n` +
       `THIS IS NOT: a front view, a 3/4 view, a top-down view, a framed image.\n` +
       `COLOR: The shoe is {COLOR}. Output MUST be {COLOR}. Other colors = REJECTED.\n` +
       `DO NOT repeat the reference angle ({REF_ANGLE}). Generate a pure side profile.`,
@@ -784,9 +825,9 @@ const EDITING_SCENES = [
       `COMPOSITION: Upper material fills 85–90% of image area. Very shallow depth of field. Toe area sharp, heel blurred.\n` +
       `MUST SEE: Surface grain/texture/weave of the upper, stitching thread relief, any perforation or embossing.\n` +
       `MUST NOT SEE: The full shoe. If the entire shoe is visible, the framing is WRONG.\n` +
-      `BACKGROUND: Blurred neutral bokeh. No identifiable objects.\n` +
-      `LIGHT: Single raking sidelight to reveal texture relief. Subtle specular highlight.\n` +
-      `OUTPUT: Full-bleed photograph. No frames, no borders, no margins, no mockup.\n` +
+      `BACKGROUND: Blurred neutral bokeh from {BACKGROUND} No identifiable objects.\n` +
+      `LIGHT: Single soft raking sidelight to reveal texture. Subtle specular highlight. No harsh reflections.\n` +
+      `OUTPUT: Full-bleed photograph. No frames, no borders, no margins, no mockup. No watermark, no text, no logo overlay.\n` +
       `THIS IS NOT: a full-shoe shot, a side profile, an editorial placement, a framed image.\n` +
       `COLOR: The shoe is {COLOR}. Output MUST be {COLOR}. Other colors = REJECTED.`,
   },
@@ -797,13 +838,13 @@ const EDITING_SCENES = [
       `── SHOT: OVERHEAD EDITORIAL ──\n` +
       `Re-photograph this EXACT {COLOR} shoe from an elevated angle — same physical object.\n` +
       `CAMERA: Above and in front, looking DOWN at 55–65°. Three-quarter overhead perspective.\n` +
-      `POSITION: Shoe resting upright on flat marble surface.\n` +
-      `COMPOSITION: Full shoe visible from above-front. Top face dominant (tongue, lacing from above, toe from overhead). Shoe fills 65% of image area. Centered.\n` +
+      `POSITION: Shoe resting upright on a clean premium surface.\n` +
+      `COMPOSITION: Full shoe visible from above-front. Top face dominant (tongue, lacing from above, toe from overhead). Shoe fills 65% of image area. Centered. No props.\n` +
       `MUST SEE: Tongue, lace pattern from above, toe shape from overhead, upper opening. This reveals parts invisible in front/side views.\n` +
       `MUST NOT SEE: The front face of the toe (that's slot 1), the side profile (that's slot 2).\n` +
-      `SURFACE: White Carrara marble with subtle grey veining. No props.\n` +
-      `LIGHT: Diffused window light from upper-left. Gentle shadow lower-right.\n` +
-      `OUTPUT: Full-bleed photograph. No frames, no borders, no margins, no mockup.\n` +
+      `SURFACE: Clean surface that complements the shoe. {BACKGROUND} Very soft gradient allowed but barely noticeable.\n` +
+      `LIGHT: Soft diffused studio light from upper-left. Gentle natural shadow lower-right. No harsh reflections.\n` +
+      `OUTPUT: Full-bleed photograph. No frames, no borders, no margins, no mockup. No watermark, no text, no logo overlay.\n` +
       `THIS IS NOT: a front hero, a side profile, a close-up macro, a framed image.\n` +
       `COLOR: The shoe is {COLOR}. Output MUST be {COLOR}. Other colors = REJECTED.\n` +
       `DO NOT repeat the reference angle ({REF_ANGLE}). Generate an overhead editorial.`,
@@ -818,9 +859,9 @@ const EDITING_SCENES = [
       `COMPOSITION: One foot wearing the shoe. Full shoe visible with lower leg/ankle above collar. Ground surface in lower frame. Shoe fills 65% of image area. Centered.\n` +
       `MUST SEE: The shoe ON a foot in natural weight-bearing position, ground contact, ankle/lower leg.\n` +
       `MUST NOT SEE: Face, upper body. The shoe is the hero — the person is secondary.\n` +
-      `ENVIRONMENT: Warm blurred lifestyle setting — wooden floor, cobblestone, or garden. Bokeh background.\n` +
-      `LIGHT: Warm golden-hour side light. Authentic, non-studio.\n` +
-      `OUTPUT: Full-bleed photograph. No frames, no borders, no margins, no mockup.\n` +
+      `ENVIRONMENT: Warm blurred lifestyle setting — wooden floor, cobblestone, or garden. Soft bokeh background.\n` +
+      `LIGHT: Warm natural golden-hour side light. Authentic, non-studio. Soft shadows. No harsh reflections.\n` +
+      `OUTPUT: Full-bleed photograph. No frames, no borders, no margins, no mockup. No watermark, no text, no logo overlay.\n` +
       `THIS IS NOT: an isolated product shot, a studio photo, an overhead view, a framed image.\n` +
       `COLOR: The shoe is {COLOR}. Output MUST be {COLOR}. Other colors = REJECTED.\n` +
       `DO NOT repeat the reference angle ({REF_ANGLE}). Generate a lifestyle worn shot.`,
@@ -917,11 +958,15 @@ export async function generateByEditing(
       `[generateByEditing v12] protected zones: ${hasBrandZones ? (identityLock.protectedZones?.map((z) => z.name).join(',')) : 'none'}`,
     )
 
+    // Compute premium background once (same for all studio slots in this batch)
+    const premiumBackground = getBackgroundForColor(mainColor)
+
     for (const scene of scenes) {
       // Replace placeholders in scene instructions
       const sceneText = scene.sceneInstructions
         .replace(/\{COLOR\}/g, mainColor)
         .replace(/\{REF_ANGLE\}/g, refAngle)
+        .replace(/\{BACKGROUND\}/g, premiumBackground)
 
       // Prompt structure (order matters for model attention):
       //   1. TASK_FRAMING_BLOCK — "you are re-photographing an existing product"
@@ -1274,10 +1319,13 @@ export async function generateByGeminiPro(
     const zoneBlock   = identityLock.protectedZoneBlock || ''
     const hasBrandZones = (identityLock.protectedZones?.length ?? 0) > 0
 
+    const premiumBackground = getBackgroundForColor(mainColor)
+
     for (const scene of scenes) {
       const sceneText = scene.sceneInstructions
         .replace(/\{COLOR\}/g, mainColor)
         .replace(/\{REF_ANGLE\}/g, refAngle)
+        .replace(/\{BACKGROUND\}/g, premiumBackground)
 
       // Same 5-block prompt structure as generateByEditing
       const fullPrompt = TASK_FRAMING_BLOCK + identityLock.promptBlock + zoneBlock + sceneText + CANONICAL_PROHIBITIONS_BLOCK

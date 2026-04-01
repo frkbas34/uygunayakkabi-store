@@ -315,12 +315,12 @@ export const imageGenTask: TaskConfig<{
     const slotLabels = sceneIndices.map((i) => ALL_SLOT_LABELS[i])
 
     const pipelineLabel = provider === 'gemini-pro'
-      ? `gemini-pro-image-v14:${process.env.GEMINI_IMAGE_GEN_MODEL || 'gemini-2.0-flash-preview-image-generation'}`
+      ? `gemini-pro-image-v14:${process.env.GEMINI_IMAGE_GEN_MODEL || 'gemini-2.5-flash-image'}`
       : 'openai-edit-only-v12'
 
     // Human-readable provider label for Telegram captions and keyboard
     const providerDisplayLabel = provider === 'gemini-pro'
-      ? `✨ Gemini Pro ${process.env.GEMINI_IMAGE_GEN_MODEL || 'gemini-2.0-flash-preview-image-generation'}`
+      ? `✨ Gemini Pro ${process.env.GEMINI_IMAGE_GEN_MODEL || 'gemini-2.5-flash-image'}`
       : `⚙️ OpenAI gpt-image-1`
 
     console.log(`[imageGenTask v14] generating — stage=${stage} provider=${provider} slots=[${slotNames.join(',')}]`)

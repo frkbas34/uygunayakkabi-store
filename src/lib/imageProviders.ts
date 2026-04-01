@@ -957,7 +957,12 @@ export async function generateByEditing(
  * Call Gemini image generation model with a reference image + prompt.
  *
  * Model is read from env GEMINI_IMAGE_GEN_MODEL, defaulting to
- * 'gemini-2.0-flash-preview-image-generation'.
+ * 'gemini-2.5-flash-image' (stable Nano Banana model).
+ *
+ * Supported alternatives (set via env var):
+ *   - gemini-3-pro-image-preview  (strongest quality, preview)
+ *   - gemini-3.1-flash-image-preview (fast/efficient, preview)
+ *   - gemini-2.5-flash-image (stable, default)
  *
  * API shape: generateContent with responseModalities: ['IMAGE', 'TEXT'].
  * Reference image sent as inlineData (PNG) for style/identity conditioning.
@@ -971,7 +976,7 @@ async function callGeminiImageGenerate(
   prompt: string,
   apiKey: string,
 ): Promise<Buffer> {
-  const model = process.env.GEMINI_IMAGE_GEN_MODEL || 'gemini-2.0-flash-preview-image-generation'
+  const model = process.env.GEMINI_IMAGE_GEN_MODEL || 'gemini-2.5-flash-image'
 
   try {
     console.log(`[GeminiImageGenerate] POST model=${model} promptLen=${prompt.length}`)
@@ -1070,7 +1075,7 @@ export async function generateByGeminiPro(
     ? EDITING_SCENES.filter((_, i) => sceneIndices.includes(i))
     : [...EDITING_SCENES]
 
-  const modelId = process.env.GEMINI_IMAGE_GEN_MODEL || 'gemini-2.0-flash-preview-image-generation'
+  const modelId = process.env.GEMINI_IMAGE_GEN_MODEL || 'gemini-2.5-flash-image'
 
   const result: ProviderResult = {
     provider: `gemini-pro-image:${modelId}`,

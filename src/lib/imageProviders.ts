@@ -31,6 +31,27 @@ const CANONICAL_PROHIBITIONS_BLOCK =
   `═══════════════════════════\n`
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Task framing — tells the model WHAT IT IS DOING before any details
+// ─────────────────────────────────────────────────────────────────────────────
+// This block is injected BEFORE the identity lock in every generation prompt.
+// It frames the task as "re-photograph the same physical product" rather than
+// "create/design a new product image", which dramatically reduces hallucination.
+
+const TASK_FRAMING_BLOCK =
+  `═══ TASK: RE-PHOTOGRAPH AN EXISTING PRODUCT ═══\n` +
+  `You are a product photographer. You have been given a REAL shoe to photograph.\n` +
+  `The reference image shows the EXACT PHYSICAL SHOE you must photograph.\n` +
+  `Your job: take a NEW PHOTO of THIS SAME SHOE from a different angle/setting.\n` +
+  `\n` +
+  `CRITICAL RULES:\n` +
+  `• The shoe in your output must be the SAME PHYSICAL OBJECT as the reference.\n` +
+  `• NOT a similar shoe. NOT a redesigned shoe. THE SAME SHOE.\n` +
+  `• Every physical detail (silhouette, sole, stitching, logos, material, color) must match.\n` +
+  `• ONLY the photography may change: camera angle, lighting, background, scene.\n` +
+  `• Think of it as: same shoe on a different part of the photo studio set.\n` +
+  `═══════════════════════════\n\n`
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Types
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -769,9 +790,13 @@ export async function generateByEditing(
         .replace(/\{COLOR\}/g, mainColor)
         .replace(/\{REF_ANGLE\}/g, refAngle)
 
-      // v12: protected zone block injected between global identity and scene text
-      // v13: canonical prohibitions from productPreservation.ts appended — single source of truth
-      const fullPrompt = identityLock.promptBlock + zoneBlock + sceneText + CANONICAL_PROHIBITIONS_BLOCK
+      // Prompt structure (order matters for model attention):
+      //   1. TASK_FRAMING_BLOCK — "you are re-photographing an existing product"
+      //   2. identityLock.promptBlock — product identity + color lock + per-field prohibitions
+      //   3. zoneBlock — protected brand zones
+      //   4. sceneText — camera angle, framing, background, lighting
+      //   5. CANONICAL_PROHIBITIONS_BLOCK — 11 canonical prohibitions from productPreservation.ts
+      const fullPrompt = TASK_FRAMING_BLOCK + identityLock.promptBlock + zoneBlock + sceneText + CANONICAL_PROHIBITIONS_BLOCK
 
       const slotLog: SlotLog = {
         slot: scene.name,
@@ -1100,8 +1125,8 @@ export async function generateByGeminiPro(
         .replace(/\{COLOR\}/g, mainColor)
         .replace(/\{REF_ANGLE\}/g, refAngle)
 
-      // v15: canonical prohibitions appended — same as generateByEditing
-      const fullPrompt = identityLock.promptBlock + zoneBlock + sceneText + CANONICAL_PROHIBITIONS_BLOCK
+      // Same 5-block prompt structure as generateByEditing
+      const fullPrompt = TASK_FRAMING_BLOCK + identityLock.promptBlock + zoneBlock + sceneText + CANONICAL_PROHIBITIONS_BLOCK
 
       const slotLog: SlotLog = {
         slot: scene.name,

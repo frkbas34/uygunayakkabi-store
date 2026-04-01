@@ -596,9 +596,20 @@ export const imageGenTask: TaskConfig<{
 function buildFallbackLock() {
   return {
     promptBlock:
-      `═══ PRODUCT IDENTITY LOCK ═══\n` +
+      `═══ PRODUCT IDENTITY LOCK (FALLBACK) ═══\n` +
       `Reproduce the EXACT shoe shown in the reference photo.\n` +
-      `NEVER change color, material, silhouette, sole, or design.\n` +
+      `This is the SAME PHYSICAL SHOE — not a similar shoe, not a redesigned shoe.\n` +
+      `\n` +
+      `PRESERVE EXACTLY:\n` +
+      `• Silhouette and overall shape\n` +
+      `• Sole geometry, thickness, and profile\n` +
+      `• Toe shape and toe box\n` +
+      `• Lace structure, closure type\n` +
+      `• Material finish and surface texture\n` +
+      `• All logos, stripes, buckles, ornaments — do NOT invent or alter\n` +
+      `• Color — keep the EXACT color shown in the reference (no shifts)\n` +
+      `\n` +
+      `ONLY CHANGE: camera angle, lighting, background, scene setting.\n` +
       `═══════════════════════════\n\n`,
     productClass: 'shoe',
     mainColor: 'as shown in reference',

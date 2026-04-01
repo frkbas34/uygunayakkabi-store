@@ -79,8 +79,8 @@ export const imageGenTask: TaskConfig<{
     const stage = (input.stage || 'standard') as 'standard' | 'premium'
     const sceneIndices = stage === 'premium' ? [3, 4] : [0, 1, 2]
     // provider: 'openai' (default, gpt-image-1 edit) | 'gemini-pro' (Gemini image gen)
-    // v14: provider is explicit in task input. Default keeps existing OpenAI path unchanged.
-    const provider = (input.provider || 'openai') as 'openai' | 'gemini-pro'
+    // v19 Gemini-only: default provider is gemini-pro (was 'openai' before v19)
+    const provider = (input.provider || 'gemini-pro') as 'openai' | 'gemini-pro'
     const payload = req.payload
 
     console.log(`[imageGenTask v14] start — jobId=${jobId} stage=${stage} provider=${provider} sceneIndices=[${sceneIndices}]`)

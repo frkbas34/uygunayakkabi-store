@@ -328,10 +328,8 @@ async function regenImageGenJob(
     // ignore parse errors — default to standard + luma
   }
   const stageLabel    = currentStage === 'premium' ? 'Premium (4-5)' : 'Standart (1-3)'
-  const providerLabel =
-    currentProvider === 'gemini-pro' ? '✨ Gemini Pro' :
-    currentProvider === 'openai'     ? '⚙️ ChatGPT'   :
-    '🔮 Luma AI'
+  // v19 Gemini-only: all providers display as Gemini Pro
+  const providerLabel = '✨ Gemini Pro'
 
   await payload.update({
     collection: 'image-generation-jobs',
@@ -605,253 +603,23 @@ export async function POST(req: NextRequest) {
         })
       }
 
-      // ── claidapprove:{jobId} ─────────────────────────────────────────────────
-      // Approve a Claid preview — push to product.generativeGallery (reuses approveImageGenJob).
-      if (cbData.startsWith('claidapprove:')) {
-        const cbJobId = cbData.split(':')[1]
-        await answerCallbackQuery(cbQueryId, '✅ Görsel ürüne ekleniyor...')
-
-        after(async () => {
-          try {
-            const claidApprovePayload = await getPayload()
-            await approveImageGenJob(claidApprovePayload, cbJobId, 'all', cbChatId)
-          } catch (err) {
-            console.error('[telegram/webhook] claidapprove callback failed:', err)
-            await sendTelegramMessage(cbChatId, `❌ Claid onaylama hatası: ${err instanceof Error ? err.message : 'Bilinmeyen hata'}`)
-          }
-        })
-      }
-
-      // ── claidregen:{jobId} ───────────────────────────────────────────────────
-      // Re-queue claid-enhance with the same mode (recovered from requestType field).
-      if (cbData.startsWith('claidregen:')) {
-        const cbJobId = cbData.split(':')[1]
-        await answerCallbackQuery(cbQueryId, '🔄 Yeniden işleniyor...')
-
-        after(async () => {
-          try {
-            const claidRegenPayload = await getPayload()
-
-            // Recover mode from requestType field
-            const claidJobDoc = await claidRegenPayload.findByID({
-              collection: 'image-generation-jobs',
-              id: cbJobId,
-              depth: 0,
-            }) as Record<string, unknown>
-
-            const recoveredMode = (claidJobDoc.requestType as string) || 'cleanup'
-            const productRef = claidJobDoc.product as { id: number } | number | null
-            const productId = productRef ? (typeof productRef === 'object' ? productRef.id : productRef) : null
-
-            // Reset job
-            await claidRegenPayload.update({
-              collection: 'image-generation-jobs',
-              id: cbJobId,
-              data: {
-                status: 'queued',
-                generatedImages: [],
-                imageCount: 0,
-                errorMessage: '',
-                generationStartedAt: null,
-                generationCompletedAt: null,
-              },
-            })
-
-            await claidRegenPayload.jobs.queue({
-              task: 'claid-enhance',
-              input: { jobId: cbJobId, mode: recoveredMode },
-              overrideAccess: true,
-            })
-
-            const { CLAID_MODE_LABELS } = await import('@/lib/claidProvider')
-            await sendTelegramMessage(
-              cbChatId,
-              `🔄 <b>Claid yeniden işleme başlatıldı</b>\n\n` +
-              `✨ Mod: <b>${CLAID_MODE_LABELS[recoveredMode as keyof typeof CLAID_MODE_LABELS] || recoveredMode}</b>` +
-              (productId ? `\n📦 Ürün ID: ${productId}` : '') +
-              `\n\nSonuç hazır olduğunda Telegram'a gönderilecek.`,
-            )
-
-            await claidRegenPayload.jobs.run({ limit: 1, overrideAccess: true })
-          } catch (err) {
-            console.error('[telegram/webhook] claidregen callback failed:', err)
-            await sendTelegramMessage(cbChatId, `❌ Claid yeniden işleme başlatılamadı: ${err instanceof Error ? err.message : 'Bilinmeyen hata'}`)
-          }
-        })
-      }
-
-      // ── claidchange:{jobId} ──────────────────────────────────────────────────
-      // Show mode selection keyboard again (operator wants to try a different mode).
-      // Creates a new job for the selected mode (existing job stays as-is).
-      if (cbData.startsWith('claidchange:')) {
-        const cbJobId = cbData.split(':')[1]
-        await answerCallbackQuery(cbQueryId, '🎨 Mod seçimi...')
-
-        after(async () => {
-          try {
-            const claidChangePayload = await getPayload()
-
-            const claidJobDoc = await claidChangePayload.findByID({
-              collection: 'image-generation-jobs',
-              id: cbJobId,
-              depth: 0,
-            }) as Record<string, unknown>
-
-            const productRef = claidJobDoc.product as { id: number } | number | null
-            if (!productRef) {
-              await sendTelegramMessage(cbChatId, '❌ İş kaydında ürün referansı bulunamadı.')
-              return
-            }
-            const productId = typeof productRef === 'object' ? productRef.id : productRef
-
-            const { CLAID_MODE_LABELS, CLAID_MODE_DESCRIPTIONS } = await import('@/lib/claidProvider')
-            await sendTelegramMessageWithKeyboard(
-              cbChatId,
-              `🎨 <b>Claid modu seçin — Ürün #${productId}</b>\n\n` +
-              `<b>🧹 Ürün Temizleme</b>\n<i>${CLAID_MODE_DESCRIPTIONS.cleanup}</i>\n\n` +
-              `<b>✨ Stüdyo Geliştirme</b>\n<i>${CLAID_MODE_DESCRIPTIONS.studio}</i>\n\n` +
-              `<b>🎨 Kreatif Arka Plan</b>\n<i>${CLAID_MODE_DESCRIPTIONS.creative}</i>`,
-              [
-                [{ text: `🧹 ${CLAID_MODE_LABELS.cleanup}`,  callback_data: `claidmode:${productId}:cleanup` }],
-                [{ text: `✨ ${CLAID_MODE_LABELS.studio}`,   callback_data: `claidmode:${productId}:studio` }],
-                [{ text: `🎨 ${CLAID_MODE_LABELS.creative}`, callback_data: `claidmode:${productId}:creative` }],
-              ],
-            )
-          } catch (err) {
-            console.error('[telegram/webhook] claidchange callback failed:', err)
-          }
-        })
-      }
-
-      // ── claidreject:{jobId} ──────────────────────────────────────────────────
-      // Reject Claid preview — no image attached (reuses rejectImageGenJob).
-      if (cbData.startsWith('claidreject:')) {
-        const cbJobId = cbData.split(':')[1]
-        await answerCallbackQuery(cbQueryId, '❌ Reddedildi')
-
-        after(async () => {
-          try {
-            const claidRejectPayload = await getPayload()
-            await rejectImageGenJob(claidRejectPayload, cbJobId, cbChatId)
-          } catch (err) {
-            console.error('[telegram/webhook] claidreject callback failed:', err)
-          }
-        })
+      // ── v19 Gemini-only: Claid callbacks deactivated ──────────────────────────
+      // claidapprove, claidregen, claidchange, claidreject all return "devre dışı"
+      // Full handlers preserved in git history (commit 505be38) for future re-enable.
+      if (cbData.startsWith('claidapprove:') || cbData.startsWith('claidregen:') ||
+          cbData.startsWith('claidchange:') || cbData.startsWith('claidreject:')) {
+        await answerCallbackQuery(cbQueryId, '⛔ Claid devre dışı — #gorsel kullanın')
       }
 
       // ── claidmode:{productId}:{mode} ─────────────────────────────────────────
-      // Operator selected a mode from the #claid mode keyboard.
-      // Creates a new ImageGenerationJob and queues the claid-enhance task.
+      // v19 Gemini-only: Claid callbacks deactivated
       if (cbData.startsWith('claidmode:')) {
-        const parts = cbData.split(':')
-        const claidProductId = parseInt(parts[1])
-        const claidMode = parts[2] || 'cleanup' // 'cleanup' | 'studio' | 'creative'
-
-        await answerCallbackQuery(cbQueryId, '✨ Claid iyileştirme başlatılıyor...')
-
-        after(async () => {
-          try {
-            const claidModePayload = await getPayload()
-
-            const { docs: claidDocs } = await claidModePayload.find({
-              collection: 'products',
-              where: { id: { equals: claidProductId } },
-              limit: 1,
-              depth: 0,
-            })
-            if (claidDocs.length === 0) {
-              await sendTelegramMessage(cbChatId, `❌ Ürün bulunamadı: #${claidProductId}`)
-              return
-            }
-            const claidProduct = claidDocs[0] as Record<string, unknown>
-
-            const { CLAID_MODE_LABELS } = await import('@/lib/claidProvider')
-            const modeLabel = CLAID_MODE_LABELS[claidMode as keyof typeof CLAID_MODE_LABELS] || claidMode
-
-            const claidJobDoc = await claidModePayload.create({
-              collection: 'image-generation-jobs',
-              data: {
-                jobTitle:   `${claidProduct.title} — Claid ${modeLabel}`,
-                product:    claidProductId,
-                mode:       'hizli',       // cosmetic — Claid doesn't use this field
-                status:     'queued',
-                requestType: claidMode,    // stores ClaidMode for regen recovery
-                telegramChatId: String(cbChatId),
-                requestedByUserId: String(callbackQuery.from?.id ?? ''),
-              },
-            })
-
-            await claidModePayload.jobs.queue({
-              task: 'claid-enhance',
-              input: { jobId: String(claidJobDoc.id), mode: claidMode },
-              overrideAccess: true,
-            })
-
-            await sendTelegramMessage(
-              cbChatId,
-              `✨ <b>Claid iyileştirme başlatıldı!</b>\n\n` +
-              `📦 Ürün: <b>${claidProduct.title}</b>\n` +
-              `🎨 Mod: <b>${modeLabel}</b>\n\n` +
-              `<i>Sonuç hazır olduğunda Telegram'a gönderilecek.</i>`,
-            )
-
-            await claidModePayload.jobs.run({ limit: 1, overrideAccess: true })
-          } catch (err) {
-            console.error('[telegram/webhook] claidmode callback failed:', err)
-            await sendTelegramMessage(
-              cbChatId,
-              `❌ Claid başlatılamadı: ${err instanceof Error ? err.message : 'Bilinmeyen hata'}`,
-            )
-          }
-        })
+        await answerCallbackQuery(cbQueryId, '⛔ Claid devre dışı — #gorsel kullanın')
       }
 
-      // ── lumahq:{jobId} ────────────────────────────────────────────────────
-      // Luma HQ rerun — re-queues luma-gen task with hq=true (photon-1 model).
-      // Discards current preview images and starts a fresh HQ generation.
+      // ── lumahq:{jobId} — v19 Gemini-only: Luma deactivated ──────────────────
       if (cbData.startsWith('lumahq:')) {
-        const cbJobId = cbData.split(':')[1]
-        await answerCallbackQuery(cbQueryId, '🌟 HQ yeniden üretiliyor...')
-
-        after(async () => {
-          try {
-            const hqPayload = await getPayload()
-
-            // Reset the job for HQ rerun
-            await hqPayload.update({
-              collection: 'image-generation-jobs',
-              id: cbJobId,
-              data: {
-                status: 'queued',
-                generatedImages: [],
-                imageCount: 0,
-                errorMessage: '',
-                generationStartedAt: null,
-                generationCompletedAt: null,
-              },
-            })
-
-            // Queue luma-gen with hq=true
-            await hqPayload.jobs.queue({
-              task: 'luma-gen',
-              input: { jobId: cbJobId, hq: true },
-              overrideAccess: true,
-            })
-
-            await sendTelegramMessage(
-              cbChatId,
-              `🌟 <b>Luma HQ yeniden üretim başlatıldı</b>\n\n` +
-              `⚙️ Model: photon-1 (yüksek kalite)\n` +
-              `Görseller hazır olduğunda Telegram'a önizleme gönderilecek.`,
-            )
-
-            // Run immediately
-            await hqPayload.jobs.run({ limit: 1, overrideAccess: true })
-          } catch (err) {
-            console.error('[telegram/webhook] lumahq callback failed:', err)
-            await sendTelegramMessage(cbChatId, `❌ HQ yeniden üretim başlatılamadı: ${err instanceof Error ? err.message : 'Bilinmeyen hata'}`)
-          }
-        })
+        await answerCallbackQuery(cbQueryId, '⛔ Luma devre dışı — #gorsel kullanın')
       }
 
       return NextResponse.json({ ok: true })
@@ -897,7 +665,7 @@ export async function POST(req: NextRequest) {
 
         // 2. Görsel mod tag'ini tespit et (caption temizlenmeden önce)
         //    "bunu ürüne çevir #hizli 1755 TL" → mod = 'hizli', otomatik image-gen kuyruğa alınır
-        //    Engine tag'leri: #luma → Luma, #chatgpt → OpenAI, #geminipro → Gemini Pro
+        //    v19 Gemini-only: all engine tags → Gemini Pro
         const combinedRaw = text + (replyCaption ? '\n' + replyCaption : '')
         const autoGenMode: 'hizli' | 'dengeli' | 'premium' | 'karma' | null =
           /#karma/i.test(combinedRaw)   ? 'karma'   :
@@ -905,16 +673,16 @@ export async function POST(req: NextRequest) {
           /#dengeli/i.test(combinedRaw) ? 'dengeli' :
           /#hizli/i.test(combinedRaw)   ? 'hizli'   :
           null
-        // Engine-explicit tags (new UX) — checked separately from legacy mode names
-        const autoGenEngine: 'luma' | 'chatgpt' | 'geminipro' | null =
-          /#chatgpt\b/i.test(combinedRaw)   ? 'chatgpt'   :
+        // v19 Gemini-only: engine tags simplified — all map to Gemini Pro
+        // #geminipro still recognized for explicit opt-in; #chatgpt/#luma treated as Gemini
+        const autoGenEngine: 'geminipro' | null =
           /#geminipro\b/i.test(combinedRaw) ? 'geminipro' :
-          /#luma\b/i.test(combinedRaw)      ? 'luma'      :
+          /#chatgpt\b/i.test(combinedRaw)   ? 'geminipro' :
+          /#luma\b/i.test(combinedRaw)      ? 'geminipro' :
           null
 
-        // #claid in caption → after product creation, show Claid mode keyboard
-        // (not an engine tag — does not queue image-gen; shows claidmode: keyboard instead)
-        const isClaidCaption = /#claid\b/i.test(combinedRaw)
+        // v19 Gemini-only: #claid caption detection disabled — Claid removed from operator flow
+        const isClaidCaption = false // was: /#claid\b/i.test(combinedRaw)
 
         // Caption temizle — bot mentions + trigger phrases + görsel hashtag'leri sil
         //    #hizli / #dengeli / #premium / #karma / #gorsel / #luma / #chatgpt / #geminipro
@@ -1018,9 +786,7 @@ export async function POST(req: NextRequest) {
               `📷 Fotoğraf eklendi (#${newCount}) — <b>${groupProduct.title}</b>\n` +
               `Toplam ${newCount} referans fotoğraf bu ürüne eklendi.\n` +
               `Görsel üretmek için:\n` +
-              `<code>#gorsel ${groupProductId}</code> — 🔮 Luma\n` +
-              `<code>#chatgpt ${groupProductId}</code> — ⚙️ ChatGPT\n` +
-              `<code>#geminipro ${groupProductId}</code> — ✨ Gemini Pro`,
+              `<code>#gorsel ${groupProductId}</code> — ✨ Gemini Pro (3 sahne)`,
             )
             return NextResponse.json({ ok: true })
           }
@@ -1150,10 +916,8 @@ export async function POST(req: NextRequest) {
           : ''
 
         // 12. Görsel tag varsa → otomatik görsel üretim kuyruğa al
-        //    Legacy mod tag'leri (hizli/dengeli/premium/karma) → Luma (default)
-        //    Engine tag'leri: #luma → Luma, #chatgpt → ChatGPT, #geminipro → Gemini Pro
-        // v18 Gemini-only debug phase: all caption engine/mode tags → Gemini Pro
-        const effectiveEngine = autoGenEngine  // tag captured but routing below ignores non-gemini
+        //    v19 Gemini-only: all caption mode/engine tags → Gemini Pro
+        const effectiveEngine = autoGenEngine
         let autoGenJobId: string | null = null
         if (autoGenMode || effectiveEngine) {
           try {
@@ -1222,13 +986,12 @@ export async function POST(req: NextRequest) {
             productSummary + `\n\n${autoConfirmLabel}`,
           )
         } else {
-          // Default post-product keyboard: Gemini Pro + Claid + skip
+          // Default post-product keyboard: Gemini Pro + skip (v19 Gemini-only)
           await sendTelegramMessageWithKeyboard(
             chatId,
-            productSummary + `\n\n🎨 <b>Görsel işlem seçin:</b>`,
+            productSummary + `\n\n🎨 <b>Görsel üretmek ister misiniz?</b>`,
             [
-              [{ text: '✨ Gemini Pro (görsel üret)',  callback_data: `imagegen:${productId}:geminipro` }],
-              [{ text: '🧹 Claid (fotoğraf iyileştir)', callback_data: `claidmode:${productId}:cleanup` }],
+              [{ text: '✨ Gemini Pro (3 sahne üret)',  callback_data: `imagegen:${productId}:geminipro` }],
               [{ text: '❌ Hayır, sadece kaydet',       callback_data: `imagegen:${productId}:skip` }],
             ],
           )
@@ -1503,63 +1266,13 @@ export async function POST(req: NextRequest) {
     const isClaidTrigger = /#claid\b/i.test(text)
 
     if (isClaidTrigger) {
-      // Option A — reply to product creation message
-      const claidReplyText =
-        message.reply_to_message?.text ||
-        message.reply_to_message?.caption ||
-        ''
-      const claidUrlMatch = claidReplyText.match(/\/products\/(\d+)/)
-      let claidProductId: number | null = claidUrlMatch ? parseInt(claidUrlMatch[1]) : null
-
-      // Option B — explicit ID: "#claid 42"
-      if (!claidProductId) {
-        const idMatch = text.match(/#claid\s+(\d+)/i)
-        if (idMatch) claidProductId = parseInt(idMatch[1])
-      }
-
-      if (!claidProductId) {
-        await sendTelegramMessage(
-          chatId,
-          '🧴 <b>Claid fotoğraf iyileştirme için ürün gerekli.</b>\n\n' +
-          'İki yöntemden biri:\n' +
-          '1️⃣ Ürün oluşturma mesajını <b>reply</b> edip yaz: <code>#claid</code>\n' +
-          '2️⃣ Ürün ID ile yaz: <code>#claid 42</code>\n\n' +
-          '🎨 Üç mod mevcut:\n' +
-          '• 🧹 Ürün Temizleme — beyaz arka plan + netleme\n' +
-          '• ✨ Stüdyo Geliştirme — premium kontrast + HDR\n' +
-          '• 🎨 Kreatif Arka Plan — stüdyo gri + editoryal',
-        )
-        return NextResponse.json({ ok: true })
-      }
-
-      // Verify product exists
-      const { docs: claidDocs } = await payload.find({
-        collection: 'products',
-        where: { id: { equals: claidProductId } },
-        limit: 1,
-        depth: 0,
-      })
-      if (claidDocs.length === 0) {
-        await sendTelegramMessage(chatId, `❌ Ürün bulunamadı: #${claidProductId}`)
-        return NextResponse.json({ ok: true })
-      }
-      const claidProduct = claidDocs[0] as Record<string, unknown>
-
-      const { CLAID_MODE_LABELS, CLAID_MODE_DESCRIPTIONS } = await import('@/lib/claidProvider')
-
-      await sendTelegramMessageWithKeyboard(
+      // v19 Gemini-only: Claid deactivated
+      await sendTelegramMessage(
         chatId,
-        `🧴 <b>Claid iyileştirme — ${claidProduct.title}</b>\n\n` +
-        `<b>🧹 Ürün Temizleme</b>\n<i>${CLAID_MODE_DESCRIPTIONS.cleanup}</i>\n\n` +
-        `<b>✨ Stüdyo Geliştirme</b>\n<i>${CLAID_MODE_DESCRIPTIONS.studio}</i>\n\n` +
-        `<b>🎨 Kreatif Arka Plan</b>\n<i>${CLAID_MODE_DESCRIPTIONS.creative}</i>`,
-        [
-          [{ text: `🧹 ${CLAID_MODE_LABELS.cleanup}`,  callback_data: `claidmode:${claidProductId}:cleanup` }],
-          [{ text: `✨ ${CLAID_MODE_LABELS.studio}`,   callback_data: `claidmode:${claidProductId}:studio` }],
-          [{ text: `🎨 ${CLAID_MODE_LABELS.creative}`, callback_data: `claidmode:${claidProductId}:creative` }],
-        ],
+        `⛔ <b>Claid şu an devre dışı.</b>\n\n` +
+        `Görsel üretimi için: <code>#gorsel</code> kullanın.\n` +
+        `✨ Aktif motor: Gemini Pro`,
       )
-
       return NextResponse.json({ ok: true })
     }
 

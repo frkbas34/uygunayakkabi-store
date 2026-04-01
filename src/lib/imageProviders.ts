@@ -15,6 +15,21 @@
  * If color drifts (black→brown) → slot marked REJECTED, retry once with reinforced prompt.
  */
 
+import { PRODUCT_PRESERVATION_PROHIBITIONS } from './productPreservation'
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Shared canonical prohibitions — injected into EVERY generation prompt
+// ─────────────────────────────────────────────────────────────────────────────
+// This ensures the same master prohibition list from productPreservation.ts
+// is used by ALL engines (OpenAI, Gemini Pro, Luma) — single source of truth.
+
+const CANONICAL_PROHIBITIONS_BLOCK =
+  `\n═══ ABSOLUTE PROHIBITIONS ═══\n` +
+  `The following changes are STRICTLY FORBIDDEN in any generated image:\n` +
+  PRODUCT_PRESERVATION_PROHIBITIONS.map((p) => `• ${p}`).join('\n') +
+  `\nAny image violating these rules will be REJECTED.\n` +
+  `═══════════════════════════\n`
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Types
 // ─────────────────────────────────────────────────────────────────────────────
@@ -755,7 +770,8 @@ export async function generateByEditing(
         .replace(/\{REF_ANGLE\}/g, refAngle)
 
       // v12: protected zone block injected between global identity and scene text
-      const fullPrompt = identityLock.promptBlock + zoneBlock + sceneText
+      // v13: canonical prohibitions from productPreservation.ts appended — single source of truth
+      const fullPrompt = identityLock.promptBlock + zoneBlock + sceneText + CANONICAL_PROHIBITIONS_BLOCK
 
       const slotLog: SlotLog = {
         slot: scene.name,
@@ -1084,7 +1100,8 @@ export async function generateByGeminiPro(
         .replace(/\{COLOR\}/g, mainColor)
         .replace(/\{REF_ANGLE\}/g, refAngle)
 
-      const fullPrompt = identityLock.promptBlock + zoneBlock + sceneText
+      // v15: canonical prohibitions appended — same as generateByEditing
+      const fullPrompt = identityLock.promptBlock + zoneBlock + sceneText + CANONICAL_PROHIBITIONS_BLOCK
 
       const slotLog: SlotLog = {
         slot: scene.name,

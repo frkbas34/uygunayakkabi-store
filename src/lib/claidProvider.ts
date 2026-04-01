@@ -45,45 +45,48 @@ export const CLAID_MODE_DESCRIPTIONS: Record<ClaidMode, string> = {
 
 // ── Operations config per mode ────────────────────────────────────────────────
 // Tune these to adjust Claid's behaviour without touching the rest of the code.
-// All numeric adjustments are in Claid's accepted range: -10 to +10.
+//
+// Valid restorations.upscale: 'smart_enhance' | 'smart_resize' | 'digital_art' | 'faces' | 'photo'
+// Valid adjustments: hdr (0-100), sharpness (0-100), exposure (-100 to +100),
+//                    saturation (-100 to +100), contrast (-100 to +100)
+// Valid background: remove (bool|object) + color (hex|'transparent')
+// Ref: https://docs.claid.ai/image-editing-api/api-reference
 
 type ClaidOperations = {
-  background?: { color: string }
+  background?: { remove?: boolean; color?: string }
   restorations?: {
-    upscale?: 'smart' | 'smart_enhance'
-    deblur?: boolean
-    denoise?: boolean
+    upscale?: 'smart_enhance' | 'smart_resize' | 'digital_art' | 'faces' | 'photo'
+    decompress?: 'moderate' | 'strong' | 'auto'
+    polish?: boolean
   }
   adjustments?: {
-    hdr?: number
-    clarity?: number
-    sharpness?: number
-    exposure?: number
-    vibrance?: number
+    hdr?: number           // 0-100
+    sharpness?: number     // 0-100
+    exposure?: number      // -100 to +100
+    saturation?: number    // -100 to +100
+    contrast?: number      // -100 to +100
   }
 }
 
 const MODE_OPERATIONS: Record<ClaidMode, ClaidOperations> = {
-  // Marketplace product shot: white background + mild upscale + light sharpening
+  // Marketplace product shot: white bg (remove+fill) + upscale + moderate sharpening
   cleanup: {
-    background:   { color: '#FFFFFF' },
-    restorations: { upscale: 'smart' },
-    adjustments:  { hdr: 3, sharpness: 5, clarity: 2 },
+    background:   { remove: true, color: '#FFFFFF' },
+    restorations: { upscale: 'smart_enhance' },
+    adjustments:  { hdr: 30, sharpness: 50, contrast: 20 },
   },
 
   // Studio enhancement: no background change — only quality + HDR lift
   studio: {
     restorations: { upscale: 'smart_enhance' },
-    adjustments:  { hdr: 5, clarity: 5, sharpness: 8 },
+    adjustments:  { hdr: 50, sharpness: 60, contrast: 30 },
   },
 
   // Editorial feel: light-grey seamless background + mild enhancement
-  // NOTE: for AI-generated scene backgrounds, upgrade to Claid's
-  // background.generate feature (requires compatible plan).
   creative: {
-    background:   { color: '#F0F0F0' },
-    restorations: { upscale: 'smart' },
-    adjustments:  { hdr: 4, clarity: 4, sharpness: 3 },
+    background:   { remove: true, color: '#F0F0F0' },
+    restorations: { upscale: 'smart_enhance' },
+    adjustments:  { hdr: 40, sharpness: 30, contrast: 20 },
   },
 }
 

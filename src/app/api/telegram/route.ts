@@ -605,6 +605,207 @@ export async function POST(req: NextRequest) {
         })
       }
 
+      // ── claidapprove:{jobId} ─────────────────────────────────────────────────
+      // Approve a Claid preview — push to product.generativeGallery (reuses approveImageGenJob).
+      if (cbData.startsWith('claidapprove:')) {
+        const cbJobId = cbData.split(':')[1]
+        await answerCallbackQuery(cbQueryId, '✅ Görsel ürüne ekleniyor...')
+
+        after(async () => {
+          try {
+            const claidApprovePayload = await getPayload()
+            await approveImageGenJob(claidApprovePayload, cbJobId, 'all', cbChatId)
+          } catch (err) {
+            console.error('[telegram/webhook] claidapprove callback failed:', err)
+            await sendTelegramMessage(cbChatId, `❌ Claid onaylama hatası: ${err instanceof Error ? err.message : 'Bilinmeyen hata'}`)
+          }
+        })
+      }
+
+      // ── claidregen:{jobId} ───────────────────────────────────────────────────
+      // Re-queue claid-enhance with the same mode (recovered from requestType field).
+      if (cbData.startsWith('claidregen:')) {
+        const cbJobId = cbData.split(':')[1]
+        await answerCallbackQuery(cbQueryId, '🔄 Yeniden işleniyor...')
+
+        after(async () => {
+          try {
+            const claidRegenPayload = await getPayload()
+
+            // Recover mode from requestType field
+            const claidJobDoc = await claidRegenPayload.findByID({
+              collection: 'image-generation-jobs',
+              id: cbJobId,
+              depth: 0,
+            }) as Record<string, unknown>
+
+            const recoveredMode = (claidJobDoc.requestType as string) || 'cleanup'
+            const productRef = claidJobDoc.product as { id: number } | number | null
+            const productId = productRef ? (typeof productRef === 'object' ? productRef.id : productRef) : null
+
+            // Reset job
+            await claidRegenPayload.update({
+              collection: 'image-generation-jobs',
+              id: cbJobId,
+              data: {
+                status: 'queued',
+                generatedImages: [],
+                imageCount: 0,
+                errorMessage: '',
+                generationStartedAt: null,
+                generationCompletedAt: null,
+              },
+            })
+
+            await claidRegenPayload.jobs.queue({
+              task: 'claid-enhance',
+              input: { jobId: cbJobId, mode: recoveredMode },
+              overrideAccess: true,
+            })
+
+            const { CLAID_MODE_LABELS } = await import('@/lib/claidProvider')
+            await sendTelegramMessage(
+              cbChatId,
+              `🔄 <b>Claid yeniden işleme başlatıldı</b>\n\n` +
+              `✨ Mod: <b>${CLAID_MODE_LABELS[recoveredMode as keyof typeof CLAID_MODE_LABELS] || recoveredMode}</b>` +
+              (productId ? `\n📦 Ürün ID: ${productId}` : '') +
+              `\n\nSonuç hazır olduğunda Telegram'a gönderilecek.`,
+            )
+
+            await claidRegenPayload.jobs.run({ limit: 1, overrideAccess: true })
+          } catch (err) {
+            console.error('[telegram/webhook] claidregen callback failed:', err)
+            await sendTelegramMessage(cbChatId, `❌ Claid yeniden işleme başlatılamadı: ${err instanceof Error ? err.message : 'Bilinmeyen hata'}`)
+          }
+        })
+      }
+
+      // ── claidchange:{jobId} ──────────────────────────────────────────────────
+      // Show mode selection keyboard again (operator wants to try a different mode).
+      // Creates a new job for the selected mode (existing job stays as-is).
+      if (cbData.startsWith('claidchange:')) {
+        const cbJobId = cbData.split(':')[1]
+        await answerCallbackQuery(cbQueryId, '🎨 Mod seçimi...')
+
+        after(async () => {
+          try {
+            const claidChangePayload = await getPayload()
+
+            const claidJobDoc = await claidChangePayload.findByID({
+              collection: 'image-generation-jobs',
+              id: cbJobId,
+              depth: 0,
+            }) as Record<string, unknown>
+
+            const productRef = claidJobDoc.product as { id: number } | number | null
+            if (!productRef) {
+              await sendTelegramMessage(cbChatId, '❌ İş kaydında ürün referansı bulunamadı.')
+              return
+            }
+            const productId = typeof productRef === 'object' ? productRef.id : productRef
+
+            const { CLAID_MODE_LABELS, CLAID_MODE_DESCRIPTIONS } = await import('@/lib/claidProvider')
+            await sendTelegramMessageWithKeyboard(
+              cbChatId,
+              `🎨 <b>Claid modu seçin — Ürün #${productId}</b>\n\n` +
+              `<b>🧹 Ürün Temizleme</b>\n<i>${CLAID_MODE_DESCRIPTIONS.cleanup}</i>\n\n` +
+              `<b>✨ Stüdyo Geliştirme</b>\n<i>${CLAID_MODE_DESCRIPTIONS.studio}</i>\n\n` +
+              `<b>🎨 Kreatif Arka Plan</b>\n<i>${CLAID_MODE_DESCRIPTIONS.creative}</i>`,
+              [
+                [{ text: `🧹 ${CLAID_MODE_LABELS.cleanup}`,  callback_data: `claidmode:${productId}:cleanup` }],
+                [{ text: `✨ ${CLAID_MODE_LABELS.studio}`,   callback_data: `claidmode:${productId}:studio` }],
+                [{ text: `🎨 ${CLAID_MODE_LABELS.creative}`, callback_data: `claidmode:${productId}:creative` }],
+              ],
+            )
+          } catch (err) {
+            console.error('[telegram/webhook] claidchange callback failed:', err)
+          }
+        })
+      }
+
+      // ── claidreject:{jobId} ──────────────────────────────────────────────────
+      // Reject Claid preview — no image attached (reuses rejectImageGenJob).
+      if (cbData.startsWith('claidreject:')) {
+        const cbJobId = cbData.split(':')[1]
+        await answerCallbackQuery(cbQueryId, '❌ Reddedildi')
+
+        after(async () => {
+          try {
+            const claidRejectPayload = await getPayload()
+            await rejectImageGenJob(claidRejectPayload, cbJobId, cbChatId)
+          } catch (err) {
+            console.error('[telegram/webhook] claidreject callback failed:', err)
+          }
+        })
+      }
+
+      // ── claidmode:{productId}:{mode} ─────────────────────────────────────────
+      // Operator selected a mode from the #claid mode keyboard.
+      // Creates a new ImageGenerationJob and queues the claid-enhance task.
+      if (cbData.startsWith('claidmode:')) {
+        const parts = cbData.split(':')
+        const claidProductId = parseInt(parts[1])
+        const claidMode = parts[2] || 'cleanup' // 'cleanup' | 'studio' | 'creative'
+
+        await answerCallbackQuery(cbQueryId, '✨ Claid iyileştirme başlatılıyor...')
+
+        after(async () => {
+          try {
+            const claidModePayload = await getPayload()
+
+            const { docs: claidDocs } = await claidModePayload.find({
+              collection: 'products',
+              where: { id: { equals: claidProductId } },
+              limit: 1,
+              depth: 0,
+            })
+            if (claidDocs.length === 0) {
+              await sendTelegramMessage(cbChatId, `❌ Ürün bulunamadı: #${claidProductId}`)
+              return
+            }
+            const claidProduct = claidDocs[0] as Record<string, unknown>
+
+            const { CLAID_MODE_LABELS } = await import('@/lib/claidProvider')
+            const modeLabel = CLAID_MODE_LABELS[claidMode as keyof typeof CLAID_MODE_LABELS] || claidMode
+
+            const claidJobDoc = await claidModePayload.create({
+              collection: 'image-generation-jobs',
+              data: {
+                jobTitle:   `${claidProduct.title} — Claid ${modeLabel}`,
+                product:    claidProductId,
+                mode:       'hizli',       // cosmetic — Claid doesn't use this field
+                status:     'queued',
+                requestType: claidMode,    // stores ClaidMode for regen recovery
+                telegramChatId: String(cbChatId),
+                requestedByUserId: String(callbackQuery.from?.id ?? ''),
+              },
+            })
+
+            await claidModePayload.jobs.queue({
+              task: 'claid-enhance',
+              input: { jobId: String(claidJobDoc.id), mode: claidMode },
+              overrideAccess: true,
+            })
+
+            await sendTelegramMessage(
+              cbChatId,
+              `✨ <b>Claid iyileştirme başlatıldı!</b>\n\n` +
+              `📦 Ürün: <b>${claidProduct.title}</b>\n` +
+              `🎨 Mod: <b>${modeLabel}</b>\n\n` +
+              `<i>Sonuç hazır olduğunda Telegram'a gönderilecek.</i>`,
+            )
+
+            await claidModePayload.jobs.run({ limit: 1, overrideAccess: true })
+          } catch (err) {
+            console.error('[telegram/webhook] claidmode callback failed:', err)
+            await sendTelegramMessage(
+              cbChatId,
+              `❌ Claid başlatılamadı: ${err instanceof Error ? err.message : 'Bilinmeyen hata'}`,
+            )
+          }
+        })
+      }
+
       // ── lumahq:{jobId} ────────────────────────────────────────────────────
       // Luma HQ rerun — re-queues luma-gen task with hq=true (photon-1 model).
       // Discards current preview images and starts a fresh HQ generation.
@@ -1269,6 +1470,78 @@ export async function POST(req: NextRequest) {
           console.error('[telegram/webhook] after() #geminipro jobs.run failed:', err)
         }
       })
+
+      return NextResponse.json({ ok: true })
+    }
+
+    // ── #claid — Claid.ai Product Photo Enhancement ───────────────────────────
+    // Triggers: "#claid 42" or reply to product creation message + "#claid"
+    // Shows a mode selection keyboard — no job is created until the operator
+    // chooses a mode (claidmode: callback).
+    //
+    // Modes:
+    //   cleanup  — white background, upscale, sharpen (marketplace-ready)
+    //   studio   — premium contrast/HDR, no background change
+    //   creative — editorial grey background, mild enhancement
+    const isClaidTrigger = /#claid\b/i.test(text)
+
+    if (isClaidTrigger) {
+      // Option A — reply to product creation message
+      const claidReplyText =
+        message.reply_to_message?.text ||
+        message.reply_to_message?.caption ||
+        ''
+      const claidUrlMatch = claidReplyText.match(/\/products\/(\d+)/)
+      let claidProductId: number | null = claidUrlMatch ? parseInt(claidUrlMatch[1]) : null
+
+      // Option B — explicit ID: "#claid 42"
+      if (!claidProductId) {
+        const idMatch = text.match(/#claid\s+(\d+)/i)
+        if (idMatch) claidProductId = parseInt(idMatch[1])
+      }
+
+      if (!claidProductId) {
+        await sendTelegramMessage(
+          chatId,
+          '🧴 <b>Claid fotoğraf iyileştirme için ürün gerekli.</b>\n\n' +
+          'İki yöntemden biri:\n' +
+          '1️⃣ Ürün oluşturma mesajını <b>reply</b> edip yaz: <code>#claid</code>\n' +
+          '2️⃣ Ürün ID ile yaz: <code>#claid 42</code>\n\n' +
+          '🎨 Üç mod mevcut:\n' +
+          '• 🧹 Ürün Temizleme — beyaz arka plan + netleme\n' +
+          '• ✨ Stüdyo Geliştirme — premium kontrast + HDR\n' +
+          '• 🎨 Kreatif Arka Plan — stüdyo gri + editoryal',
+        )
+        return NextResponse.json({ ok: true })
+      }
+
+      // Verify product exists
+      const { docs: claidDocs } = await payload.find({
+        collection: 'products',
+        where: { id: { equals: claidProductId } },
+        limit: 1,
+        depth: 0,
+      })
+      if (claidDocs.length === 0) {
+        await sendTelegramMessage(chatId, `❌ Ürün bulunamadı: #${claidProductId}`)
+        return NextResponse.json({ ok: true })
+      }
+      const claidProduct = claidDocs[0] as Record<string, unknown>
+
+      const { CLAID_MODE_LABELS, CLAID_MODE_DESCRIPTIONS } = await import('@/lib/claidProvider')
+
+      await sendTelegramMessageWithKeyboard(
+        chatId,
+        `🧴 <b>Claid iyileştirme — ${claidProduct.title}</b>\n\n` +
+        `<b>🧹 Ürün Temizleme</b>\n<i>${CLAID_MODE_DESCRIPTIONS.cleanup}</i>\n\n` +
+        `<b>✨ Stüdyo Geliştirme</b>\n<i>${CLAID_MODE_DESCRIPTIONS.studio}</i>\n\n` +
+        `<b>🎨 Kreatif Arka Plan</b>\n<i>${CLAID_MODE_DESCRIPTIONS.creative}</i>`,
+        [
+          [{ text: `🧹 ${CLAID_MODE_LABELS.cleanup}`,  callback_data: `claidmode:${claidProductId}:cleanup` }],
+          [{ text: `✨ ${CLAID_MODE_LABELS.studio}`,   callback_data: `claidmode:${claidProductId}:studio` }],
+          [{ text: `🎨 ${CLAID_MODE_LABELS.creative}`, callback_data: `claidmode:${claidProductId}:creative` }],
+        ],
+      )
 
       return NextResponse.json({ ok: true })
     }

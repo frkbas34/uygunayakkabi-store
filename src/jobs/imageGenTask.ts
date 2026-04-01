@@ -128,6 +128,22 @@ export const imageGenTask: TaskConfig<{
 
     const productTitle = (productDoc.title as string) || 'Ürün'
 
+    // ── Step 2a: Ensure persistent stockNumber ────────────────────────────────
+    // Format: SN0001–SN9999. Generated once per product, never changes.
+    // Used for deterministic overlay on all generated images.
+    let stockNumber = productDoc.stockNumber as string | undefined
+    if (!stockNumber) {
+      stockNumber = await generateStockNumber(payload)
+      await payload.update({
+        collection: 'products',
+        id: productId,
+        data: { stockNumber },
+      })
+      console.log(`[imageGenTask] stockNumber generated: ${stockNumber} for product ${productId}`)
+    } else {
+      console.log(`[imageGenTask] stockNumber exists: ${stockNumber}`)
+    }
+
     // ── Step 2b: Load reference image pack (up to 3 images) ─────────────────
     // Primary reference = first product image (required).
     // Additional references (2nd, 3rd product image) give the AI more angles
@@ -432,6 +448,21 @@ export const imageGenTask: TaskConfig<{
       }
 
       throw new Error(apiErrorSummary ? `${msg} API: ${apiErrorSummary}` : msg)
+    }
+
+    // ── Step 6b: Overlay stockNumber on each generated image ──────────────
+    // Deterministic post-process — NOT prompt-based. Uses sharp composite
+    // to render the stock number in the bottom-right corner of every image.
+    if (stockNumber) {
+      for (let i = 0; i < generatedBuffers.length; i++) {
+        try {
+          generatedBuffers[i] = await overlayStockNumber(generatedBuffers[i], stockNumber)
+        } catch (err) {
+          console.warn(`[imageGenTask] overlay failed for buffer ${i}:`, err)
+          // Keep original buffer if overlay fails — don't lose the image
+        }
+      }
+      console.log(`[imageGenTask] stockNumber "${stockNumber}" overlaid on ${generatedBuffers.length} images`)
     }
 
     // ── Step 7: Save each buffer as a Media document ────────────────────────
@@ -839,4 +870,112 @@ async function sendApprovalKeyboard(
   } catch (err) {
     console.error('[imageGenTask] sendApprovalKeyboard exception:', err)
   }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Stock Number Generation
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Generate a unique stock number in format SN0001–SN9999.
+ * Queries the DB for the current max and increments.
+ * Falls back to a random number on race condition (unique constraint catches dupes).
+ */
+async function generateStockNumber(
+  payload: { find: Function },
+): Promise<string> {
+  try {
+    // Find the highest existing stockNumber
+    const { docs } = await payload.find({
+      collection: 'products',
+      where: {
+        stockNumber: { exists: true },
+      },
+      sort: '-stockNumber',
+      limit: 1,
+      depth: 0,
+    })
+
+    let nextNum = 1
+    if (docs.length > 0) {
+      const current = docs[0].stockNumber as string
+      const match = current?.match(/^SN(\d+)$/)
+      if (match) {
+        nextNum = parseInt(match[1], 10) + 1
+      }
+    }
+
+    // Clamp to 4 digits (SN0001–SN9999)
+    if (nextNum > 9999) nextNum = nextNum % 10000 || 1
+
+    return `SN${String(nextNum).padStart(4, '0')}`
+  } catch (err) {
+    // Fallback: random 4-digit number (unique constraint will prevent dupes)
+    console.warn('[imageGenTask] stockNumber generation fallback:', err)
+    const rand = Math.floor(Math.random() * 9999) + 1
+    return `SN${String(rand).padStart(4, '0')}`
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Stock Number Overlay
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Overlay a stock number text on the bottom-right corner of a JPEG buffer.
+ * Uses sharp's composite with an SVG text overlay.
+ *
+ * Produces a small, semi-transparent label that's readable but not intrusive.
+ * Returns a new JPEG buffer with the overlay baked in.
+ */
+async function overlayStockNumber(
+  imageBuffer: Buffer,
+  stockNumber: string,
+): Promise<Buffer> {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const sharp = require('sharp') as typeof import('sharp')
+
+  // Get image dimensions
+  const metadata = await sharp(imageBuffer).metadata()
+  const width = metadata.width || 1024
+  const height = metadata.height || 1024
+
+  // SVG overlay: semi-transparent background pill with white text
+  // Positioned bottom-right with small margin
+  const fontSize = Math.max(14, Math.round(width * 0.022)) // ~22px on 1024px image
+  const paddingX = Math.round(fontSize * 0.6)
+  const paddingY = Math.round(fontSize * 0.3)
+  const textWidth = stockNumber.length * fontSize * 0.62 // approximate
+  const boxWidth = Math.round(textWidth + paddingX * 2)
+  const boxHeight = Math.round(fontSize + paddingY * 2)
+  const margin = Math.round(width * 0.015) // ~15px margin on 1024px
+
+  const svgOverlay = Buffer.from(`
+    <svg width="${width}" height="${height}" xmlns="http://www.w3.org/2000/svg">
+      <rect
+        x="${width - boxWidth - margin}"
+        y="${height - boxHeight - margin}"
+        width="${boxWidth}"
+        height="${boxHeight}"
+        rx="4"
+        ry="4"
+        fill="rgba(0,0,0,0.45)"
+      />
+      <text
+        x="${width - margin - paddingX}"
+        y="${height - margin - paddingY}"
+        font-family="Arial, Helvetica, sans-serif"
+        font-size="${fontSize}"
+        font-weight="600"
+        fill="rgba(255,255,255,0.92)"
+        text-anchor="end"
+        dominant-baseline="auto"
+      >${stockNumber}</text>
+    </svg>
+  `)
+
+  return sharp(imageBuffer)
+    .composite([{ input: svgOverlay, top: 0, left: 0 }])
+    .jpeg({ quality: 92 })
+    .toBuffer()
 }

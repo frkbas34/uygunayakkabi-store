@@ -471,6 +471,20 @@ export const Products: CollectionConfig = {
         description: 'Boş bırakırsanız otomatik oluşturulur (ör: NKE-AM90-BLK)',
       },
     },
+    // ── Stok Numarası (AI Görseller) ─────────────────────────
+    // Persistent stock number rendered on all generated images.
+    // Format: SN0001–SN9999. Auto-generated, never changes once set.
+    {
+      name: 'stockNumber',
+      type: 'text',
+      label: 'Stok No (AI Görsel)',
+      unique: true,
+      admin: {
+        position: 'sidebar',
+        readOnly: true,
+        description: 'AI görsellerde görünen stok numarası — otomatik üretilir, değiştirmeyin.',
+      },
+    },
     // ── Durum ─────────────────────────────────────────────────
     {
       name: 'status',

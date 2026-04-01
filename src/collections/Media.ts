@@ -27,12 +27,11 @@ export const MediaCollection: CollectionConfig = {
         height: 600,
         position: 'centre',
       },
-      {
-        name: 'large',
-        width: 1200,
-        height: 1200,
-        position: 'centre',
-      },
+      // NOTE: 'large' (1200x1200) removed to reduce Vercel Blob Advanced Operations.
+      // Each upload previously created 4 blob files (original + 3 sizes).
+      // Now creates 3 (original + thumbnail + card).
+      // Existing large-size blobs in storage are unaffected and still served.
+      // Storefront uses media.url (CDN) directly — no component references sizes.large.
     ],
     adminThumbnail: 'thumbnail',
     focalPoint: true,

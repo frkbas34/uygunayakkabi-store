@@ -77,6 +77,9 @@ export type SlotLog = {
   brandFidelityPass?: boolean
   brandFidelityScore?: 'good' | 'degraded' | 'failed'
   brandFidelityNotes?: string
+  /** v20: shot composition compliance check */
+  shotCompliancePass?: boolean
+  detectedShot?: string
   rejectionReason?: string
 }
 
@@ -533,6 +536,122 @@ async function checkBrandFidelity(
   } catch (err) {
     console.warn('[checkBrandFidelity] error:', err instanceof Error ? err.message : err)
     return { pass: true, overallScore: 'good', zones: [], reinforcementHint: '' }
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Step D3 — Per-Slot Shot Compliance Check (v20)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Gemini Vision check: does the generated image actually match the intended shot type?
+ * Catches angle drift — e.g. Gemini generating a 3/4 view instead of a pure 90° side
+ * profile, or a near-front instead of the required dead-straight front.
+ *
+ * Each slot has precise pass/fail criteria. On API failure defaults to pass=true
+ * (never block on transient errors).
+ *
+ * Returns { pass, detectedShot, correctionHint } where correctionHint is pre-formatted
+ * for direct injection into the retry preamble.
+ */
+async function checkShotCompliance(
+  generatedImage: Buffer,
+  slotName: string,
+  apiKey: string,
+): Promise<{ pass: boolean; detectedShot: string; correctionHint: string }> {
+  const visionModel = 'gemini-2.5-flash'
+
+  // Per-slot criteria — description, pass rule, fail signals, required correction
+  const SHOT_CRITERIA: Record<string, {
+    required: string
+    passRule: string
+    failSignals: string
+    correction: string
+  }> = {
+    commerce_front: {
+      required: 'straight-on front hero — camera directly facing the toe cap, symmetric, white background',
+      passRule: 'the toe cap front face is fully visible and both sides are symmetric (equal width on left and right)',
+      failSignals: 'heel counter visible, 3/4 diagonal angle, side profile dominant, asymmetric sides',
+      correction: 'Camera must be DIRECTLY IN FRONT of the toe cap, perpendicular. Both sides equally visible. No diagonal. Pure front-on.',
+    },
+    side_angle: {
+      required: 'pure 90° lateral side profile — complete sole edge visible, toe front face NOT visible',
+      passRule: 'the sole edge profile is fully visible from toe tip to heel, the toe front face is NOT visible',
+      failSignals: 'toe front face visible, slight diagonal (3/4 from front), heel hidden, angled top-down',
+      correction: 'Camera must be at exactly 90° to the side. The toe FRONT FACE must NOT be visible. The sole profile must be fully exposed from toe to heel.',
+    },
+    detail_closeup: {
+      required: 'macro close-up of material texture — full shoe silhouette NOT visible, surface fills frame',
+      passRule: 'the frame shows material texture/grain at close range, the full shoe silhouette is not in the frame',
+      failSignals: 'full shoe visible in frame, standard product angle, no macro framing, wide shot',
+      correction: 'Camera must be 15-20cm from the upper surface. The full shoe must NOT be visible. Only surface texture should fill the frame.',
+    },
+    tabletop_editorial: {
+      required: 'overhead editorial at 55-65° — top of shoe (tongue, lacing) dominant, marble surface',
+      passRule: 'the top of the shoe is prominently visible (tongue, lacing seen from above), clear overhead-ish angle',
+      failSignals: 'straight-on front angle, side profile view, no overhead perspective, lacing not visible from above',
+      correction: 'Camera must be above and in front at 55-65° looking DOWN. The tongue and lacing pattern must be visible from above. Not a front or side view.',
+    },
+    worn_lifestyle: {
+      required: 'lifestyle worn shot — shoe on a human foot/lower leg, ground-level, warm environment',
+      passRule: 'a human foot/lower leg is visible wearing the shoe in a lifestyle environment (not a studio)',
+      failSignals: 'isolated floating shoe with no foot, studio white background, no human element present',
+      correction: 'The shoe must be WORN ON A HUMAN FOOT. A lower leg/ankle must be visible. This is NOT a product-on-surface shot.',
+    },
+  }
+
+  const criteria = SHOT_CRITERIA[slotName]
+  if (!criteria) return { pass: true, detectedShot: 'unknown', correctionHint: '' }
+
+  const prompt =
+    `You are evaluating whether a generated shoe photo matches the required shot type.\n\n` +
+    `REQUIRED SHOT TYPE: ${criteria.required}\n` +
+    `PASS if: ${criteria.passRule}\n` +
+    `FAIL if any of these are true: ${criteria.failSignals}\n\n` +
+    `Analyze this shoe image and respond with JSON only — no markdown, no code fences:\n` +
+    `{"pass": true/false, "detectedShot": "one-sentence description of the actual angle/composition in this image"}\n\n` +
+    `Be strict. A slight 3/4 angle when pure front was requested = FAIL. ` +
+    `A slight diagonal when pure side was requested = FAIL.`
+
+  try {
+    const res = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/${visionModel}:generateContent?key=${apiKey}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{ parts: [
+            { inlineData: { mimeType: 'image/jpeg', data: generatedImage.toString('base64') } },
+            { text: prompt },
+          ] }],
+          generationConfig: { responseMimeType: 'application/json', maxOutputTokens: 120 },
+        }),
+      },
+    )
+
+    if (!res.ok) {
+      console.warn(`[checkShotCompliance] HTTP ${res.status}`)
+      return { pass: true, detectedShot: 'unknown', correctionHint: '' }
+    }
+
+    const data = await res.json()
+    const text: string | undefined = data?.candidates?.[0]?.content?.parts?.[0]?.text
+    if (!text) return { pass: true, detectedShot: 'unknown', correctionHint: '' }
+
+    const parsed = JSON.parse(text.trim())
+    const pass = parsed.pass ?? true
+    const detectedShot = parsed.detectedShot || 'unknown'
+    const correctionHint = pass ? '' :
+      `CRITICAL SHOT CORRECTION: The output shows "${detectedShot}" but this slot requires: ` +
+      `${criteria.required}. ${criteria.correction}`
+
+    console.log(
+      `[checkShotCompliance] slot=${slotName} pass=${pass} detected="${detectedShot.slice(0, 80)}"`,
+    )
+    return { pass, detectedShot, correctionHint }
+  } catch (err) {
+    console.warn('[checkShotCompliance] error:', err instanceof Error ? err.message : err)
+    return { pass: true, detectedShot: 'unknown', correctionHint: '' }
   }
 }
 
@@ -1167,7 +1286,12 @@ export async function generateByGeminiPro(
           slotLog.brandFidelityNotes = brandCheck.reinforcementHint || undefined
         }
 
-        const needsRetry = !colorCheck.match || (brandCheck !== null && !brandCheck.pass)
+        // Step D3: Shot compliance check (v20)
+        const shotCheck = await checkShotCompliance(jpegBuf, scene.name, geminiKey)
+        slotLog.shotCompliancePass = shotCheck.pass
+        slotLog.detectedShot = shotCheck.detectedShot
+
+        const needsRetry = !colorCheck.match || (brandCheck !== null && !brandCheck.pass) || !shotCheck.pass
 
         if (needsRetry) {
           const correctionLines: string[] = []
@@ -1183,11 +1307,15 @@ export async function generateByGeminiPro(
               `Do NOT invent fake brand text, logos, or marks.`,
             )
           }
+          if (!shotCheck.pass && shotCheck.correctionHint) {
+            correctionLines.push(shotCheck.correctionHint)
+          }
           const reinforcedPrompt = correctionLines.join('\n') + '\n\n' + fullPrompt
 
           console.warn(
-            `[generateByGeminiPro v14] ✗ ${scene.name} fidelity issues — ` +
-            `color=${colorCheck.match} brand=${brandCheck?.pass ?? 'skip'} — retrying`,
+            `[generateByGeminiPro v20] ✗ ${scene.name} fidelity issues — ` +
+            `color=${colorCheck.match} brand=${brandCheck?.pass ?? 'skip'} ` +
+            `shot=${shotCheck.pass} (detected="${shotCheck.detectedShot.slice(0, 60)}") — retrying`,
           )
           slotLog.attempts = 2
           await sleep(2000)
@@ -1206,9 +1334,17 @@ export async function generateByGeminiPro(
             slotLog.brandFidelityNotes = retryBrand.reinforcementHint || undefined
           }
 
+          // Re-check shot on retry (only if first attempt failed shot check)
+          if (!shotCheck.pass) {
+            const retryShotCheck = await checkShotCompliance(retryJpeg, scene.name, geminiKey)
+            slotLog.shotCompliancePass = retryShotCheck.pass
+            slotLog.detectedShot = retryShotCheck.detectedShot
+          }
+
           const warnings: string[] = []
           if (!retryColor.match) warnings.push(`color drift: expected ${mainColor} got ${retryColor.detectedColor}`)
           if (slotLog.brandFidelityPass === false) warnings.push(`brand zones drifted: ${slotLog.brandFidelityNotes || 'unknown'}`)
+          if (slotLog.shotCompliancePass === false) warnings.push(`angle wrong: got "${slotLog.detectedShot || 'unknown'}"`)
           if (warnings.length > 0) slotLog.rejectionReason = warnings.join('; ')
 
           finalBuf = retryJpeg
@@ -1229,15 +1365,15 @@ export async function generateByGeminiPro(
         slotLog.success = true
         slotLog.outputSizeBytes = finalBuf.length
         console.log(
-          `[generateByGeminiPro v14] ✓ ${scene.name} — ${finalBuf.length}b ` +
+          `[generateByGeminiPro v20] ✓ ${scene.name} — ${finalBuf.length}b ` +
           `(attempts=${slotLog.attempts} color=${slotLog.colorCheckPass ?? 'skip'} ` +
-          `brand=${slotLog.brandFidelityPass ?? 'skip'})`,
+          `brand=${slotLog.brandFidelityPass ?? 'skip'} shot=${slotLog.shotCompliancePass ?? 'skip'})`,
         )
       } else {
         const msg = `${scene.name}: null after ${slotLog.attempts} attempts`
         result.errors.push(msg)
         slotLog.rejectionReason = slotLog.rejectionReason || msg
-        console.warn(`[generateByGeminiPro v14] ✗ ${msg}`)
+        console.warn(`[generateByGeminiPro v20] ✗ ${msg}`)
       }
 
       slotLogs.push(slotLog)
@@ -1245,16 +1381,16 @@ export async function generateByGeminiPro(
     }
   } catch (err) {
     const msg = `Pipeline fatal: ${err instanceof Error ? err.message : err}`
-    console.error(`[generateByGeminiPro v14] ${msg}`)
+    console.error(`[generateByGeminiPro v20] ${msg}`)
     result.errors.push(msg)
   }
 
   const slotSummary = slotLogs.map((s) => {
     if (!s.success) return '✗'
-    if (s.colorCheckPass === false || s.brandFidelityPass === false) return '⚠'
+    if (s.colorCheckPass === false || s.brandFidelityPass === false || s.shotCompliancePass === false) return '⚠'
     return '✓'
   }).join('')
-  console.log(`[generateByGeminiPro v14] done — ${result.successCount}/${result.promptCount} [${slotSummary}]`)
+  console.log(`[generateByGeminiPro v20] done — ${result.successCount}/${result.promptCount} [${slotSummary}]`)
 
   return { results: [result], buffers: result.buffers, slotLogs }
 }

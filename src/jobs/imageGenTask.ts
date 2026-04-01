@@ -453,10 +453,11 @@ export const imageGenTask: TaskConfig<{
 
     // ── Build per-slot icon array (ARRAY not string — avoids emoji indexing bugs) ─
     // v12: ⚠️ also shown when brandFidelityPass=false (brand zones drifted)
-    const slotIconArr: string[] = (slotLogsSummary as Array<{ success?: boolean; colorCheckPass?: boolean; brandFidelityPass?: boolean }>)
+    // v20: ⚠️ also shown when shotCompliancePass=false (angle drift detected)
+    const slotIconArr: string[] = (slotLogsSummary as Array<{ success?: boolean; colorCheckPass?: boolean; brandFidelityPass?: boolean; shotCompliancePass?: boolean }>)
       .map((s) => {
         if (s.success === false) return '❌'
-        if (s.colorCheckPass === false || s.brandFidelityPass === false) return '⚠️'
+        if (s.colorCheckPass === false || s.brandFidelityPass === false || s.shotCompliancePass === false) return '⚠️'
         return '✅'
       })
     // Joined string for approval keyboard summary only
@@ -524,7 +525,8 @@ export const imageGenTask: TaskConfig<{
         humanSummary: (slotLogsSummary as Array<{
           label?: string; slot?: string; provider?: string; attempts?: number;
           success?: boolean; colorCheckPass?: boolean; brandFidelityPass?: boolean;
-          brandFidelityScore?: string; rejectionReason?: string;
+          brandFidelityScore?: string; shotCompliancePass?: boolean; detectedShot?: string;
+          rejectionReason?: string;
         }>).map((sl, idx) => {
           const slotName  = sl.label ?? sl.slot ?? `Slot ${idx + 1}`
           const prov      = sl.provider ?? provider
@@ -532,8 +534,9 @@ export const imageGenTask: TaskConfig<{
           const ok        = sl.success ? '✓' : '✗'
           const color     = sl.colorCheckPass != null ? (sl.colorCheckPass ? 'color:✓' : 'color:✗') : ''
           const brand     = sl.brandFidelityPass != null ? (sl.brandFidelityPass ? 'brand:✓' : `brand:✗(${sl.brandFidelityScore ?? ''})`) : ''
+          const shot      = sl.shotCompliancePass != null ? (sl.shotCompliancePass ? 'shot:✓' : `shot:✗(${sl.detectedShot?.slice(0, 40) ?? ''})`) : ''
           const rejection = sl.rejectionReason ? ` REJECTED:${sl.rejectionReason}` : ''
-          const checks    = [color, brand].filter(Boolean).join(' ')
+          const checks    = [color, brand, shot].filter(Boolean).join(' ')
           return `${slotName} → ${prov} / ${tries} attempt${tries > 1 ? 's' : ''} / ${ok}${checks ? ' ' + checks : ''}${rejection}`
         }),
         summary: providerResultsSummary,

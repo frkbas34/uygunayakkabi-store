@@ -60,8 +60,10 @@ export const ReviewPanel: React.FC = () => {
   const source        = useFormFields(([f]) => f['source']?.value) as string | undefined
   const brand         = useFormFields(([f]) => f['brand']?.value) as string | undefined
   const category      = useFormFields(([f]) => f['category']?.value) as string | undefined
-  const images        = useFormFields(([f]) => f['images']?.value) as unknown[] | undefined
-  const stockQuantity = useFormFields(([f]) => f['stockQuantity']?.value) as number | undefined
+  const images            = useFormFields(([f]) => f['images']?.value) as unknown[] | undefined
+  // v21: also read generativeGallery — AI-approved images count as valid product visuals
+  const generativeGallery = useFormFields(([f]) => f['generativeGallery']?.value) as unknown[] | undefined
+  const stockQuantity     = useFormFields(([f]) => f['stockQuantity']?.value) as number | undefined
   // Telegram meta
   const chatId        = useFormFields(([f]) => f['automationMeta.telegramChatId']?.value) as string | undefined
   const chatType      = useFormFields(([f]) => f['automationMeta.telegramChatType']?.value) as string | undefined
@@ -84,7 +86,12 @@ export const ReviewPanel: React.FC = () => {
   // Only render for automation-sourced products
   if (!source || source === 'admin') return null
 
-  const hasImages  = Array.isArray(images) && images.length > 0
+  // v21: hasImages = true if product.images OR product.generativeGallery has content.
+  // AI-approved images go to generativeGallery (never product.images), so both lanes
+  // must be checked to correctly report visual presence.
+  const imagesCount   = Array.isArray(images) ? images.length : 0
+  const aiGalleryCount = Array.isArray(generativeGallery) ? generativeGallery.length : 0
+  const hasImages      = imagesCount > 0 || aiGalleryCount > 0
   const priceNum   = typeof price === 'number' ? price : Number(price)
   const hasPrice   = !isNaN(priceNum) && priceNum > 0
   const stockNum   = typeof stockQuantity === 'number' ? stockQuantity : Number(stockQuantity)
@@ -149,7 +156,12 @@ export const ReviewPanel: React.FC = () => {
     {
       label: 'Görsel',
       detail: hasImages
-        ? `${(images as unknown[]).length} görsel ekli`
+        ? (() => {
+            const parts: string[] = []
+            if (imagesCount > 0) parts.push(`${imagesCount} ürün görseli`)
+            if (aiGalleryCount > 0) parts.push(`${aiGalleryCount} AI görseli`)
+            return parts.join(' + ')
+          })()
         : 'Görsel yok',
       ok: hasImages,
     },

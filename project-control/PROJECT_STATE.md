@@ -1,6 +1,6 @@
 # PROJECT STATE — Uygunayakkabi
 
-_Last updated: 2026-03-29 (Step 25 IN PROGRESS — 5 approaches tried and rejected by user; fundamental pipeline redesign needed)_
+_Last updated: 2026-04-01 (Step 25 DEPLOYED/UNPROVEN — Gemini-only debug mode active; Step 27 Claid.ai deployed; workspace sync required)_
 
 ## Current Status
 
@@ -9,6 +9,9 @@ _Last updated: 2026-03-29 (Step 25 IN PROGRESS — 5 approaches tried and reject
 **Step 20 COMPLETE** (2026-03-23) — Shopier marketplace integration fully live. Non-blocking jobs queue pipeline, GitHub Actions 5-min cron, 4 registered webhooks with HMAC verification.
 **Step 21 COMPLETE** (2026-03-23) — Shopier order fulfillment flow live. Incoming orders create Payload CMS Order documents. Status updates on fulfilled/refund events. End-to-end verified.
 **Steps 22–24 COMPLETE** (2026-03-28) — Full Telegram bot product intake (direct webhook, no OpenClaw/n8n), AI image generation pipeline with Gemini Vision + Gemini Flash image generation. All bugs resolved and verified deployed.
+**Step 25 DEPLOYED — NOT YET PROVEN** (2026-04-01) — v18 Gemini-only debug mode active. `#gorsel` → Gemini Pro (model: `gemini-2.0-flash-preview-image-generation`). OpenAI and Luma disabled at route level. NO successful end-to-end image gen job confirmed in production.
+**Step 26 DEPLOYED — DISABLED** (2026-04-01) — Luma AI integration code complete (`lumaGenTask`, `lumaApi`, `lumaPrompts`). Route handler for `#luma` deactivated in v18. Can restore from commit `a27b78a`.
+**Step 27 DEPLOYED — NOT YET TESTED** (2026-04-01) — Claid.ai product photo enhancement integrated. `#claid {productId}` → 3-mode keyboard → `claid-enhance` job. `CLAID_API_KEY` set in Vercel. No live test performed yet.
 
 ---
 

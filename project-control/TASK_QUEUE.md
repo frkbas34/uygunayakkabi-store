@@ -1,6 +1,6 @@
 # TASK QUEUE — Uygunayakkabi
 
-_Last updated: 2026-03-28 18:00 UTC (Step 25 in progress — image editing pipeline deployed, awaiting test confirmation)_
+_Last updated: 2026-04-01 (HARD RESET RECOVERY PASS — one provider must be proven end-to-end)_
 
 ---
 
@@ -11,32 +11,55 @@ _Last updated: 2026-03-28 18:00 UTC (Step 25 in progress — image editing pipel
 **All schema changes on Neon MUST be applied manually via SQL.**
 Before adding any new collection/global: manually verify the new table + `payload_locked_documents_rels` column exist in Neon after deploy.
 
-### Blocker 1: GPT Image (`gpt-image-1`) 401 — RESOLVED 2026-03-28
-~~`gpt-image-1` requires a special billing tier on OpenAI.~~ **FIXED**: API key rotated and updated in Vercel env vars. New key authorized for gpt-image-1.
+### Blocker 1: Workspace Folder Out of Sync with Remote — ACTIVE
+The workspace folder (`/mnt/uygunayakkabi-store`) is on a diverged history from remote main.
+Remote is at `8089dde` (Step 27 + fixes). Workspace is at `beb681a` (pre-Step 25).
+The workspace CANNOT be updated with a simple `git pull` — histories have diverged.
+**Fix (requires explicit operator authorization):** `git fetch origin && git reset --hard origin/main`
+This will discard local uncommitted changes and diverged local commits — IRREVERSIBLE.
+Do NOT execute without operator confirmation.
 
-### Blocker 2: git index.lock in production repo — RECURRING
-The workspace repo at `/sessions/loving-eager-galileo/mnt/uygunayakkabi-store` occasionally gets a `index.lock` file that prevents `git add`. Workaround: use temp clone → copy files → commit → push → rm -rf temp.
+### Blocker 2: No AI Image Gen Job Proven End-to-End — CRITICAL
+No AI image generation job (Gemini, OpenAI, Luma) has produced a confirmed successful result in production. Step 25 has been deployed through multiple iterations but the operator has never confirmed "this works, images match the product."
 
 ---
 
-## 🟢 NOW — Current Sprint
+## 🟢 NOW — Current Sprint (HARD RESET RECOVERY PASS — 2026-04-01)
 
-### Step 25 — Image Editing Pipeline (IN PROGRESS)
-**Goal**: Generated images must match the EXACT product from the original Telegram photo.
+### Priority 1: Prove Claid.ai End-to-End (FIRST RECOVERY TARGET)
+Claid is the simplest provider: 1 API call, no generative uncertainty, deterministic output.
+`CLAID_API_KEY` is confirmed set in Vercel.
 
-**What's been done (2026-03-28)**:
-1. Pipeline A (image editing) implemented: reference image → `POST /v1/images/edits` with gpt-image-1
-2. Discovered `image[]` field name required (not `image`) for gpt-image-1 — fixed
-3. Discovered OpenAI Responses API `/v1/responses` does NOT do true editing — abandoned
-4. Fixed `callGPTImage` text-to-image fallback: removed invalid `response_format` param
-5. OPENAI_API_KEY rotated (old key expired)
-6. Deployed commit `196c419` — Ready on Vercel
+**Test procedure:**
+1. Find a product ID in Telegram that has an original photo attached
+2. Send `#claid {productId}` to the Telegram bot
+3. Select `🧹 Ürün Temizleme` (cleanup mode) from the keyboard
+4. Wait for Claid result photo to appear in Telegram
+5. Click `✅ Ürüne Ekle` to approve
+6. Verify the image appears in the product's `generativeGallery` in Payload admin
 
-**What's remaining**:
-1. **Test**: Send shoe photo via Telegram, check if Pipeline A produces images matching original product
-2. **Verify logs**: Confirm `[GPTImageEdit] calling /v1/images/edits` appears (not fallback to Pipeline B)
-3. **If still wrong**: May need to adjust editing prompts or try `quality: 'medium'` for better fidelity
-4. **If /v1/images/edits rejects gpt-image-1 again**: Fall back to background removal approach (rembg/sharp compositing)
+**Success criteria:**
+- Bot replies with mode selection keyboard → ✓
+- Photo received in Telegram with approval keyboard → ✓
+- Approval stores image in `generativeGallery` → ✓
+
+**Failure investigation:**
+- No keyboard → check `#claid` trigger regex and callback routing
+- No photo → check Vercel logs for `[claidTask]` entries; check `CLAID_API_KEY` in env
+- HTTP error from Claid → check response body in Vercel logs
+
+### Priority 2: Gemini Image Gen Diagnosis (AFTER Claid proven)
+Current state: `#gorsel` → Gemini Pro → `gemini-2.0-flash-preview-image-generation`
+Key unknown: does this model actually accept `inlineData` reference images?
+D-100 tested older models and found them all text-to-image only. This model was not in D-100's test list.
+
+**Diagnosis test:**
+1. Send `#gorsel {productId}` to Telegram
+2. Check Vercel logs for `[GeminiImageGenerate]` entries
+3. Look for: model name, HTTP status, finishReason, presence of image part
+4. If HTTP 404 → model not available, need different model ID
+5. If HTTP 200 but wrong product → model ignores inlineData, need text-only approach
+6. If HTTP 200 and correct product → SUCCESS, document in DECISIONS.md
 
 ### Step 21b — Shopier Stock Decrement on Order
 1. On `order.created` webhook: decrement `products.stockQuantity`

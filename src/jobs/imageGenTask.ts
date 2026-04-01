@@ -522,30 +522,43 @@ export const imageGenTask: TaskConfig<{
     // If the DB update fails (e.g. enum not migrated), photos are already
     // delivered. Swapping this order was the root cause of v10/v10.1 failures.
     if (telegramChatId) {
-      // Diagnostic text: confirms Step 8 was reached in Vercel logs + Telegram
-      await sendTelegramNotification(
-        telegramChatId,
-        `🔄 <b>${mediaIds.length} görsel üretildi</b> — Telegram'a gönderiliyor...`,
-      )
+      // ── Step 8a: Send all preview images as a single Telegram album ────────
+      // Uses sendMediaGroup for clean grouped delivery (one album instead of 3
+      // separate messages). Falls back to individual sendPhoto if album fails.
 
       console.log(
-        `[imageGenTask v14] step8 — sending ${generatedBuffers.length} photos to chatId=${telegramChatId}` +
+        `[imageGenTask v25] step8 — sending ${generatedBuffers.length} photos as album to chatId=${telegramChatId}` +
         ` mediaIds=${mediaIds.join(',')} bufSizes=${generatedBuffers.map((b) => b?.length ?? 'null').join(',')}`,
       )
 
+      // Build album items — filter out missing/empty buffers
+      const albumItems: Array<{ buf: Buffer; caption: string; filename: string }> = []
       for (let i = 0; i < generatedBuffers.length; i++) {
         const buf = generatedBuffers[i]
         if (!buf || buf.length === 0) {
-          console.warn(`[imageGenTask v14] step8 — skipping slot ${i + 1}: buffer missing or empty`)
+          console.warn(`[imageGenTask v25] step8 — skipping slot ${i + 1}: buffer missing or empty`)
           continue
         }
         const slotLabel = slotLabels[i] || `Görsel ${i + 1}`
         const slotIcon = slotIconArr[i] || '✅'
         const filename = `${slotNames[i] || `slot-${i}`}.jpg`
         const caption = `${slotIcon} <b>${slotLabel}</b> — ${providerDisplayLabel}`
+        albumItems.push({ buf, caption, filename })
+      }
 
-        console.log(`[imageGenTask v14] step8 — sendPhoto slot ${i + 1} buf=${buf.length}b file=${filename}`)
-        await sendTelegramPhotoBuffer(telegramChatId, buf, caption, filename)
+      if (albumItems.length >= 2) {
+        // Telegram sendMediaGroup: delivers all images as a single album message
+        const albumOk = await sendTelegramMediaGroup(telegramChatId, albumItems)
+        if (!albumOk) {
+          // Fallback: send individually if album fails
+          console.warn(`[imageGenTask v25] step8 — album failed, falling back to individual sends`)
+          for (const item of albumItems) {
+            await sendTelegramPhotoBuffer(telegramChatId, item.buf, item.caption, item.filename)
+          }
+        }
+      } else if (albumItems.length === 1) {
+        // Single image — sendPhoto (sendMediaGroup requires 2+)
+        await sendTelegramPhotoBuffer(telegramChatId, albumItems[0].buf, albumItems[0].caption, albumItems[0].filename)
       }
 
       // ── Stage-appropriate approval keyboard ──────────────────────────────
@@ -734,6 +747,76 @@ async function sendTelegramPhotoBuffer(
     }
   } catch (err) {
     console.error(`[imageGenTask] sendTelegramPhotoBuffer exception (${filename}):`, err)
+  }
+}
+
+/**
+ * Send multiple images as a single Telegram album via sendMediaGroup.
+ *
+ * Telegram's sendMediaGroup delivers 2-10 photos as one grouped message
+ * (album), drastically reducing chat clutter vs individual sends.
+ *
+ * Each photo is attached via multipart `attach://photoN` references.
+ * Only the first photo's caption is displayed by Telegram (album rule).
+ *
+ * Returns true on success, false on failure (caller should fallback to
+ * individual sendPhoto calls).
+ */
+async function sendTelegramMediaGroup(
+  chatId: string,
+  items: Array<{ buf: Buffer; caption: string; filename: string }>,
+): Promise<boolean> {
+  const token = process.env.TELEGRAM_BOT_TOKEN
+  if (!token) {
+    console.warn('[imageGenTask] sendTelegramMediaGroup: TELEGRAM_BOT_TOKEN not set')
+    return false
+  }
+  try {
+    // Build the media JSON array — each item references attach://photoN
+    const media = items.map((item, i) => ({
+      type: 'photo' as const,
+      media: `attach://photo${i}`,
+      // Telegram only shows caption on the first photo in an album
+      ...(i === 0
+        ? { caption: item.caption, parse_mode: 'HTML' as const }
+        : {}),
+    }))
+
+    const form = new FormData()
+    form.append('chat_id', chatId)
+    form.append('media', JSON.stringify(media))
+
+    // Attach each photo buffer as a named field matching the attach:// reference
+    for (let i = 0; i < items.length; i++) {
+      form.append(
+        `photo${i}`,
+        new Blob([new Uint8Array(items[i].buf)], { type: 'image/jpeg' }),
+        items[i].filename,
+      )
+    }
+
+    const res = await fetch(`https://api.telegram.org/bot${token}/sendMediaGroup`, {
+      method: 'POST',
+      body: form,
+    })
+    const data = await res.json() as { ok: boolean; result?: unknown[]; description?: string }
+
+    if (data.ok) {
+      console.log(
+        `[imageGenTask] sendTelegramMediaGroup ok — ${items.length} photos sent as album` +
+        ` chat=${chatId} files=${items.map((it) => it.filename).join(',')}`,
+      )
+      return true
+    } else {
+      console.error(
+        `[imageGenTask] sendTelegramMediaGroup FAILED — chat=${chatId}` +
+        ` tg_error="${data.description}" full=${JSON.stringify(data)}`,
+      )
+      return false
+    }
+  } catch (err) {
+    console.error(`[imageGenTask] sendTelegramMediaGroup exception:`, err)
+    return false
   }
 }
 

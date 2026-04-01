@@ -59,6 +59,53 @@ async function answerCallbackQuery(callbackQueryId: string, text?: string): Prom
   })
 }
 
+/**
+ * Extract product ID from a Telegram reply-to message context.
+ *
+ * Checks multiple patterns in this priority order:
+ * 1. Admin URL: /products/{id}
+ * 2. Inline keyboard callback_data: imagegen:{id}:... or claidmode:{id}:...
+ * 3. Text patterns: "ID: {id}", "#gorsel {id}", "#geminipro {id}", "Ürün ID: {id}"
+ *
+ * Returns the numeric product ID or null if nothing found.
+ */
+function resolveProductFromReply(replyMessage: Record<string, unknown> | undefined): number | null {
+  if (!replyMessage) return null
+
+  // Combine text + caption from the replied-to message
+  const replyText = String(replyMessage.text || replyMessage.caption || '')
+
+  // 1. Admin URL: /admin/collections/products/{id} or /products/{id}
+  const urlMatch = replyText.match(/\/products\/(\d+)/)
+  if (urlMatch) return parseInt(urlMatch[1])
+
+  // 2. Inline keyboard callback_data in the replied-to message
+  //    e.g. imagegen:42:geminipro, claidmode:42:studio, imgapprove:42:all
+  const replyMarkup = replyMessage.reply_markup as { inline_keyboard?: Array<Array<{ callback_data?: string }>> } | undefined
+  if (replyMarkup?.inline_keyboard) {
+    for (const row of replyMarkup.inline_keyboard) {
+      for (const btn of row) {
+        const cbMatch = btn.callback_data?.match(/^(?:imagegen|claidmode|imgapprove|imgpremium|imgreject|imgregen):(\d+)/)
+        if (cbMatch) return parseInt(cbMatch[1])
+      }
+    }
+  }
+
+  // 3. Text patterns: "ID: 42", "#gorsel 42", "#geminipro 42", "Ürün ID: 42"
+  const idPatterns = [
+    /\bID:\s*(\d+)/i,
+    /#gorsel\s+(\d+)/i,
+    /#geminipro\s+(\d+)/i,
+    /Ürün\s+ID:\s*(\d+)/i,
+  ]
+  for (const pattern of idPatterns) {
+    const m = replyText.match(pattern)
+    if (m) return parseInt(m[1])
+  }
+
+  return null
+}
+
 /** Türkçe karakterleri ASCII'ye çevir + URL-safe slug üret */
 function slugify(text: string): string {
   return text
@@ -1023,9 +1070,11 @@ export async function POST(req: NextRequest) {
     // ── #gorsel — AI Product Image Generation ────────────────────────────────
     // Triggers: "#gorsel", "bunu görsel üret", "görsel üret"
     // Mode tags: #hizli (default), #dengeli, #premium, #karma
-    // Product discovery:
-    //   A) Reply to the bot's product creation message → extracts product ID from URL
+    // Product discovery (v26 — auto-resolve):
+    //   A) Reply to ANY bot message containing product context → resolveProductFromReply()
+    //      (admin URL, inline keyboard callback_data, "ID: N", "#gorsel N")
     //   B) Explicit: "#gorsel 42" or "#gorsel 42 #premium"
+    //   C) Inline button: imagegen:{productId}:geminipro (handled in callback section above)
     const isGorselTrigger =
       /#gorsel/i.test(text) ||
       /bunu\s+g[oö]rsel\s+[uü]ret/i.test(text) ||
@@ -1043,16 +1092,13 @@ export async function POST(req: NextRequest) {
       // OpenAI image generation is no longer active for Stage 1.
       // Stage 2 (slots 4-5) remains Gemini Pro via the imgpremium button.
 
-      // Find product ID:
-      // Option A — bot's confirmation message (reply contains /products/<id> URL)
-      const replyText =
-        message.reply_to_message?.text ||
-        message.reply_to_message?.caption ||
-        ''
-      const urlMatch = replyText.match(/\/products\/(\d+)/)
-      let gorselProductId: number | null = urlMatch ? parseInt(urlMatch[1]) : null
+      // ── Find product ID (v26 — auto-resolve from context) ──────────────────
+      // Priority: 1) reply-to message context  2) explicit ID in command text
+      let gorselProductId: number | null = resolveProductFromReply(
+        message.reply_to_message as Record<string, unknown> | undefined,
+      )
 
-      // Option B — explicit ID in the command: "#gorsel 42" or "#gorsel 42 #premium"
+      // Fallback: explicit ID in the command — "#gorsel 42" or "#gorsel 42 #premium"
       if (!gorselProductId) {
         const idMatch = text.match(/#gorsel\s+(\d+)/i)
         if (idMatch) gorselProductId = parseInt(idMatch[1])
@@ -1061,12 +1107,9 @@ export async function POST(req: NextRequest) {
       if (!gorselProductId) {
         await sendTelegramMessage(
           chatId,
-          '🎨 <b>Görsel üretimi için ürün gerekli.</b>\n\n' +
-          'İki yöntemden biri:\n' +
-          '1️⃣ Ürün oluşturma mesajını <b>reply</b> edip yaz: <code>#gorsel</code>\n' +
-          '2️⃣ Ürün ID ile yaz: <code>#gorsel 42</code>\n\n' +
-          '✨ Aktif motor: <b>Gemini Pro</b> — 3 sahne\n\n' +
-          'Sonrasında: 🌟 Premium butonu ile Slot 4-5 Gemini Pro üretebilirsiniz.',
+          '❌ <b>Ürün bulunamadı.</b>\n\n' +
+          'Lütfen ürün mesajına <b>reply</b> yapın veya geçerli bir ürün butonundan başlatın.\n\n' +
+          'Alternatif: <code>#gorsel 42</code> (ürün ID ile)',
         )
         return NextResponse.json({ ok: true })
       }
@@ -1199,15 +1242,12 @@ export async function POST(req: NextRequest) {
     const isGeminiProTrigger = /#geminipro\b/i.test(text)
 
     if (isGeminiProTrigger) {
-      // Option A — reply to product creation message
-      const gpReplyText =
-        message.reply_to_message?.text ||
-        message.reply_to_message?.caption ||
-        ''
-      const gpUrlMatch = gpReplyText.match(/\/products\/(\d+)/)
-      let gpProductId: number | null = gpUrlMatch ? parseInt(gpUrlMatch[1]) : null
+      // ── Find product ID (v26 — auto-resolve from context) ──────────────────
+      let gpProductId: number | null = resolveProductFromReply(
+        message.reply_to_message as Record<string, unknown> | undefined,
+      )
 
-      // Option B — explicit ID: "#geminipro 42"
+      // Fallback: explicit ID — "#geminipro 42"
       if (!gpProductId) {
         const idMatch = text.match(/#geminipro\s+(\d+)/i)
         if (idMatch) gpProductId = parseInt(idMatch[1])
@@ -1216,11 +1256,9 @@ export async function POST(req: NextRequest) {
       if (!gpProductId) {
         await sendTelegramMessage(
           chatId,
-          '✨ <b>Gemini Pro görsel üretimi için ürün gerekli.</b>\n\n' +
-          'İki yöntemden biri:\n' +
-          '1️⃣ Ürün oluşturma mesajını <b>reply</b> edip yaz: <code>#geminipro</code>\n' +
-          '2️⃣ Ürün ID ile yaz: <code>#geminipro 42</code>\n\n' +
-          '<code>#geminipro</code> — ✨ Gemini Pro, 3 sahne',
+          '❌ <b>Ürün bulunamadı.</b>\n\n' +
+          'Lütfen ürün mesajına <b>reply</b> yapın veya geçerli bir ürün butonundan başlatın.\n\n' +
+          'Alternatif: <code>#geminipro 42</code> (ürün ID ile)',
         )
         return NextResponse.json({ ok: true })
       }

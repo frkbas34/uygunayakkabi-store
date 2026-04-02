@@ -1023,15 +1023,16 @@ async function overlayStockNumber(
   const width = metadata.width || 1024
   const height = metadata.height || 1024
 
-  // SVG overlay: semi-transparent background pill with white text
-  // Positioned bottom-right with small margin
-  const fontSize = Math.max(14, Math.round(width * 0.022)) // ~22px on 1024px image
-  const paddingX = Math.round(fontSize * 0.6)
-  const paddingY = Math.round(fontSize * 0.3)
-  const textWidth = stockNumber.length * fontSize * 0.62 // approximate
+  // SVG overlay: low-key premium stock number — bottom-right corner.
+  // Spec: "Low opacity (70–80%), must NOT distract from the product."
+  // Pill bg at 0.25 opacity, text at 0.72 — subtle but readable.
+  const fontSize = Math.max(13, Math.round(width * 0.019)) // ~19px on 1024px (slightly smaller)
+  const paddingX = Math.round(fontSize * 0.55)
+  const paddingY = Math.round(fontSize * 0.25)
+  const textWidth = stockNumber.length * fontSize * 0.6 // approximate
   const boxWidth = Math.round(textWidth + paddingX * 2)
   const boxHeight = Math.round(fontSize + paddingY * 2)
-  const margin = Math.round(width * 0.015) // ~15px margin on 1024px
+  const margin = Math.round(width * 0.012) // ~12px margin on 1024px
 
   const svgOverlay = Buffer.from(`
     <svg width="${width}" height="${height}" xmlns="http://www.w3.org/2000/svg">
@@ -1040,17 +1041,17 @@ async function overlayStockNumber(
         y="${height - boxHeight - margin}"
         width="${boxWidth}"
         height="${boxHeight}"
-        rx="4"
-        ry="4"
-        fill="rgba(0,0,0,0.45)"
+        rx="3"
+        ry="3"
+        fill="rgba(0,0,0,0.25)"
       />
       <text
         x="${width - margin - paddingX}"
         y="${height - margin - paddingY}"
         font-family="Arial, Helvetica, sans-serif"
         font-size="${fontSize}"
-        font-weight="600"
-        fill="rgba(255,255,255,0.92)"
+        font-weight="500"
+        fill="rgba(255,255,255,0.72)"
         text-anchor="end"
         dominant-baseline="auto"
       >${stockNumber}</text>

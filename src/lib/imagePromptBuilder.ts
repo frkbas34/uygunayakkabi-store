@@ -86,7 +86,7 @@ function categoryLabel(category?: string | null): string {
 function isPlaceholderTitle(title: string): boolean {
   return (
     /^Telegram\s+[ÜUüu]r[üu]n[üu]/i.test(title) ||
-    /^Taslak\s+[ÜUüu]r[üu]n[üu]/i.test(title)
+    /^Taslak\s+[ÜUüu]r[üu]n/i.test(title)
   )
 }
 

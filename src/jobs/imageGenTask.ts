@@ -1026,37 +1026,26 @@ async function overlayStockNumber(
   // SVG overlay: low-key premium stock number — bottom-right corner.
   // Spec: "Low opacity (70–80%), must NOT distract from the product."
   // Pill bg at 0.25 opacity, text at 0.72 — subtle but readable.
-  const fontSize = Math.max(13, Math.round(width * 0.019)) // ~19px on 1024px (slightly smaller)
-  const paddingX = Math.round(fontSize * 0.55)
-  const paddingY = Math.round(fontSize * 0.25)
-  const textWidth = stockNumber.length * fontSize * 0.6 // approximate
+  // Pill bg at 0.30 opacity, text at 0.85 — subtle but clearly readable.
+  const fontSize = Math.max(14, Math.round(width * 0.022)) // ~22px on 1024px
+  const paddingX = Math.round(fontSize * 0.6)
+  const paddingY = Math.round(fontSize * 0.4)
+  const textWidth = stockNumber.length * fontSize * 0.62 // approximate monospace-ish width
   const boxWidth = Math.round(textWidth + paddingX * 2)
   const boxHeight = Math.round(fontSize + paddingY * 2)
-  const margin = Math.round(width * 0.012) // ~12px margin on 1024px
+  const margin = Math.round(width * 0.015) // ~15px margin on 1024px
 
-  const svgOverlay = Buffer.from(`
-    <svg width="${width}" height="${height}" xmlns="http://www.w3.org/2000/svg">
-      <rect
-        x="${width - boxWidth - margin}"
-        y="${height - boxHeight - margin}"
-        width="${boxWidth}"
-        height="${boxHeight}"
-        rx="3"
-        ry="3"
-        fill="rgba(0,0,0,0.25)"
-      />
-      <text
-        x="${width - margin - paddingX}"
-        y="${height - margin - paddingY}"
-        font-family="Arial, Helvetica, sans-serif"
-        font-size="${fontSize}"
-        font-weight="500"
-        fill="rgba(255,255,255,0.72)"
-        text-anchor="end"
-        dominant-baseline="auto"
-      >${stockNumber}</text>
-    </svg>
-  `)
+  // Pill position — bottom-right
+  const rectX = width - boxWidth - margin
+  const rectY = height - boxHeight - margin
+  // Text position — horizontally centered in pill, vertically centered via dy
+  const textX = rectX + Math.round(boxWidth / 2)
+  const textY = rectY + Math.round(boxHeight / 2)
+
+  const svgOverlay = Buffer.from(`<svg width="${width}" height="${height}" xmlns="http://www.w3.org/2000/svg">
+  <rect x="${rectX}" y="${rectY}" width="${boxWidth}" height="${boxHeight}" rx="4" ry="4" fill="rgba(0,0,0,0.30)"/>
+  <text x="${textX}" y="${textY}" dy="0.35em" font-family="Arial,Helvetica,sans-serif" font-size="${fontSize}" font-weight="600" fill="rgba(255,255,255,0.85)" text-anchor="middle">${stockNumber}</text>
+</svg>`)
 
   return sharp(imageBuffer)
     .composite([{ input: svgOverlay, top: 0, left: 0 }])

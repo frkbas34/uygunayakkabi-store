@@ -64,6 +64,12 @@ const TASK_FRAMING_BLOCK =
   `• Ultra clean, high clarity, high sharpness, no noise, no clutter.\n` +
   `• Soft studio lighting, natural soft shadow under the shoe.\n` +
   `• No harsh reflections, no dramatic lighting — realistic commercial look.\n` +
+  `\n` +
+  `BACKGROUND CONSISTENCY (BATCH RULE):\n` +
+  `• ALL images in this generation set use the SAME background color family.\n` +
+  `• The background specification given in the BACKGROUND line is the SINGLE source of truth.\n` +
+  `• Even when depth-of-field blurs the background (e.g. macro shots), the background COLOR and TONE must remain within the same family.\n` +
+  `• Do NOT invent a new background color, tone, or palette for any slot.\n` +
   `═══════════════════════════\n\n`
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -825,11 +831,12 @@ const EDITING_SCENES = [
       `COMPOSITION: Upper material fills 85–90% of image area. Very shallow depth of field. Toe area sharp, heel blurred.\n` +
       `MUST SEE: Surface grain/texture/weave of the upper, stitching thread relief, any perforation or embossing.\n` +
       `MUST NOT SEE: The full shoe. If the entire shoe is visible, the framing is WRONG.\n` +
-      `BACKGROUND: Blurred neutral bokeh from {BACKGROUND} No identifiable objects.\n` +
+      `BACKGROUND: {BACKGROUND} — rendered as soft bokeh due to macro depth-of-field. Same background color family as the other shots in this set. No identifiable objects.\n` +
       `LIGHT: Single soft raking sidelight to reveal texture. Subtle specular highlight. No harsh reflections.\n` +
       `OUTPUT: Full-bleed photograph. No frames, no borders, no margins, no mockup. No watermark, no text, no logo overlay.\n` +
       `THIS IS NOT: a full-shoe shot, a side profile, an editorial placement, a framed image.\n` +
-      `COLOR: The shoe is {COLOR}. Output MUST be {COLOR}. Other colors = REJECTED.`,
+      `COLOR: The shoe is {COLOR}. Output MUST be {COLOR}. Other colors = REJECTED.\n` +
+      `NORMALIZATION: Close crop IS expected here — this is the one slot where tight zoom is correct. But the background color family MUST match the other slots in this set — do NOT introduce a new background tone, color, or style.`,
   },
   {
     name: 'tabletop_editorial',

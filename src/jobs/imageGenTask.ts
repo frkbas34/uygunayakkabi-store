@@ -300,7 +300,7 @@ export const imageGenTask: TaskConfig<{
 
     // ── Step 5: STEP B — Identity Lock Extraction ────────────────────────────
     // generateByEditing / generateByGeminiPro imported later in Step 6 (provider-routed)
-    const { extractIdentityLock } = await import('../lib/imageProviders')
+    const { extractIdentityLock, getBackgroundForColor } = await import('../lib/imageProviders')
     type IdentityLock = Awaited<ReturnType<typeof extractIdentityLock>>
 
     let identityLock: NonNullable<IdentityLock>
@@ -448,6 +448,31 @@ export const imageGenTask: TaskConfig<{
       }
 
       throw new Error(apiErrorSummary ? `${msg} API: ${apiErrorSummary}` : msg)
+    }
+
+    // ── Step 6c: Background consistency check ────────────────────────────────
+    // Gemini Vision compares backgrounds across generated images.
+    // Fail-open: if check errors, generation proceeds normally.
+    if (generatedBuffers.length >= 2) {
+      try {
+        const mainColorForBg = (identityLockMeta.mainColor as string) || ''
+        const batchBackground = mainColorForBg ? getBackgroundForColor(mainColorForBg) : 'neutral light grey'
+        const bgResult = await checkBackgroundConsistency(generatedBuffers, batchBackground)
+        if (!bgResult.consistent) {
+          console.warn('[imageGenTask] BG drift! Slots: ' + bgResult.driftedSlots.join(',') + ' -- ' + (bgResult.detail || ''))
+          for (const dIdx of bgResult.driftedSlots) {
+            const li = dIdx - 1
+            if (slotLogsSummary[li]) {
+              (slotLogsSummary[li] as Record<string, unknown>).bgDrift = true;
+              (slotLogsSummary[li] as Record<string, unknown>).bgDriftDetail = bgResult.detail
+            }
+          }
+        } else {
+          console.log('[imageGenTask] Background consistency check passed')
+        }
+      } catch (bgErr) {
+        console.warn('[imageGenTask] BG check failed (non-blocking):', bgErr instanceof Error ? bgErr.message : bgErr)
+      }
     }
 
     // ── Step 6b: Overlay stockNumber on each generated image ──────────────
@@ -1011,6 +1036,81 @@ async function generateStockNumber(
  * Produces a small, semi-transparent label that's readable but not intrusive.
  * Returns a new JPEG buffer with the overlay baked in.
  */
+// ─────────────────────────────────────────────────────────────────────────────
+// Background Consistency Check
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Check whether all generated images in a batch share the same background color.
+ * Uses Gemini Vision to compare. Fail-open on any error.
+ */
+async function checkBackgroundConsistency(
+  buffers: Buffer[],
+  expectedBackground: string,
+): Promise<{ consistent: boolean; driftedSlots: number[]; detail?: string }> {
+  if (buffers.length < 2) return { consistent: true, driftedSlots: [] }
+
+  const apiKey = process.env.GEMINI_API_KEY
+  if (!apiKey) return { consistent: true, driftedSlots: [] }
+
+  try {
+    const imageParts = buffers.map((buf) => ({
+      inlineData: { mimeType: 'image/jpeg' as const, data: buf.toString('base64') },
+    }))
+
+    const prompt =
+      'You are a QC inspector for e-commerce product photography.\n' +
+      'Intended background for ALL images: ' + expectedBackground + '\n\n' +
+      'I am showing you ' + buffers.length + ' product images that should ALL have the EXACT SAME background color.\n' +
+      'Compare the background color/tone across all images.\n\n' +
+      'Respond in EXACT JSON format only:\n' +
+      '{"consistent": true/false, "driftedSlots": [1-based slot numbers that differ], "detail": "brief explanation"}\n' +
+      'Mark consistent if all backgrounds look the same color.\n' +
+      'Mark inconsistent ONLY if one or more images have a VISIBLY DIFFERENT background color from the others.'
+
+    const model = process.env.GEMINI_VISION_MODEL || 'gemini-2.0-flash'
+    const url = 'https://generativelanguage.googleapis.com/v1beta/models/' + model + ':generateContent?key=' + apiKey
+
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        contents: [{ parts: [...imageParts, { text: prompt }] }],
+        generationConfig: { temperature: 0.1, maxOutputTokens: 300 },
+      }),
+    })
+
+    if (!res.ok) {
+      console.warn('[bgCheck] Gemini API error: ' + res.status)
+      return { consistent: true, driftedSlots: [] }
+    }
+
+    const data = await res.json() as {
+      candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>
+    }
+    const text = data.candidates?.[0]?.content?.parts?.[0]?.text || ''
+    const jsonMatch = text.match(/\{[\s\S]*?\}/)
+    if (!jsonMatch) {
+      console.warn('[bgCheck] Could not parse response:', text.slice(0, 200))
+      return { consistent: true, driftedSlots: [] }
+    }
+
+    const result = JSON.parse(jsonMatch[0]) as {
+      consistent?: boolean; driftedSlots?: number[]; detail?: string
+    }
+
+    console.log('[bgCheck] consistent=' + result.consistent + ' drifted=' + JSON.stringify(result.driftedSlots) + ' detail=' + result.detail)
+    return {
+      consistent: result.consistent !== false,
+      driftedSlots: Array.isArray(result.driftedSlots) ? result.driftedSlots : [],
+      detail: result.detail,
+    }
+  } catch (err) {
+    console.warn('[bgCheck] Error:', err instanceof Error ? err.message : err)
+    return { consistent: true, driftedSlots: [] }
+  }
+}
+
 async function overlayStockNumber(
   imageBuffer: Buffer,
   stockNumber: string,

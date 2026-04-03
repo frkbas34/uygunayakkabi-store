@@ -59,6 +59,26 @@ const TASK_FRAMING_BLOCK =
   `• The output must look like a direct camera shot, NOT like an image placed inside another image.\n` +
   `• NO watermarks, NO logos, NO branding overlays, NO text of any kind in the image.\n` +
   `\n` +
+  `═══ IMAGE NORMALIZATION — MANDATORY ═══\n` +
+  `SUBJECT SCALE: The shoe must occupy 65-80% of the image frame (height or width, whichever is dominant).\n` +
+  `• The shoe must NOT appear tiny or distant inside a large empty canvas.\n` +
+  `• The shoe must NOT be excessively zoomed in (except for macro/detail slot).\n` +
+  `• All standard product shots must maintain a consistent, premium product-to-frame ratio.\n` +
+  `CENTERING: The shoe must be centered or deliberately composed with controlled premium placement.\n` +
+  `• Never place the shoe awkwardly near an edge.\n` +
+  `• Composition must look intentional and premium — like a professional catalog photo.\n` +
+  `ANTI-INSET RULE (CRITICAL):\n` +
+  `• Do NOT generate an image-inside-an-image. Do NOT create a framed-photo look.\n` +
+  `• Do NOT create visible outer borders or a poster/card/mockup presentation.\n` +
+  `• Do NOT create large white or colored margins that make the scene feel inset.\n` +
+  `• The output must be a direct, full-bleed photograph — edge to edge.\n` +
+  `• If your output looks like a photo placed onto a canvas, it is WRONG.\n` +
+  `CONSISTENCY RULE:\n` +
+  `• All images in this batch must feel like they belong to the same premium catalog system.\n` +
+  `• Different slots may have different angles/scenes but the overall visual scale must be consistent.\n` +
+  `• When placed side by side on a website, these images must look professionally harmonized.\n` +
+  `═══════════════════════════\n` +
+  `\n` +
   `QUALITY STANDARD:\n` +
   `• Premium e-commerce photography — think Zara / Nike / luxury catalog quality.\n` +
   `• Ultra clean, high clarity, high sharpness, no noise, no clutter.\n` +
@@ -72,6 +92,29 @@ const TASK_FRAMING_BLOCK =
   `• Even in macro/close-up shots where background is blurred, the blurred area must be the SAME exact color.\n` +
   `• All images must look like they were shot in the SAME studio with the SAME backdrop.\n` +
   `═══════════════════════════\n\n`
+
+/**
+ * Multi-angle reference block — injected when multiple reference images are provided.
+ * Tells the generation model that these are all the SAME product from different angles,
+ * improving product identity preservation.
+ */
+function buildMultiAngleBlock(additionalCount: number): string {
+  if (additionalCount <= 0) return ''
+  const total = 1 + additionalCount
+  return (
+    `═══ MULTI-ANGLE REFERENCE PACK ═══\n` +
+    `You have been given ${total} reference images of the SAME EXACT shoe from different angles.\n` +
+    `These are NOT different shoes. This is ONE physical product photographed ${total} times.\n` +
+    `Use ALL reference images together to understand:\n` +
+    `• The complete 3D shape of this shoe — what the front, side, and back look like.\n` +
+    `• Logo and branding placement on all visible faces.\n` +
+    `• Sole shape, heel profile, and construction details from multiple perspectives.\n` +
+    `• Material consistency — the same leather/suede/mesh appears from every angle.\n` +
+    `The first image is the PRIMARY reference. Additional images provide supplementary angles.\n` +
+    `Your generated output must be faithful to ALL reference angles — the shoe identity must match.\n` +
+    `═══════════════════════════\n\n`
+  )
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Premium Background Selection Engine
@@ -271,11 +314,25 @@ export async function extractIdentityLock(
   imageBuffer: Buffer,
   imageMime: string,
   apiKey: string,
+  additionalImages?: Array<{ data: Buffer; mime: string }>,
 ): Promise<IdentityLock | null> {
   const visionModel = 'gemini-2.5-flash'
 
+  // Multi-angle framing: if additional reference images are provided,
+  // explicitly tell Gemini these are different angles of the SAME product.
+  const hasMultiAngle = additionalImages && additionalImages.length > 0
+  const totalImages = 1 + (additionalImages?.length || 0)
+
+  const multiAnglePrefix = hasMultiAngle
+    ? `IMPORTANT: You are receiving ${totalImages} photos of the SAME EXACT physical shoe taken from different angles. ` +
+      `These are NOT different shoes — they are the SAME product photographed from ${totalImages} different perspectives. ` +
+      `Use ALL ${totalImages} images together to build a complete, precise identity of this one shoe. ` +
+      `Cross-reference details across angles: what you can't see from the front may be visible from the side or back.\n\n`
+    : ''
+
   const prompt =
-    `You are a product photography expert. Analyze this shoe photo and extract a precise identity description. ` +
+    multiAnglePrefix +
+    `You are a product photography expert. Analyze this shoe photo${hasMultiAngle ? ' set' : ''} and extract a precise identity description. ` +
     `Respond with a JSON object ONLY — no explanation, no markdown, no code fences. Required fields:\n` +
     `- "productClass": specific type (e.g. "low-top lace-up sneaker", "wingtip brogue oxford", "chelsea boot")\n` +
     `- "mainColor": primary color of the upper — be EXACT (e.g. "black", "tan brown", "all-white", "navy blue")\n` +
@@ -286,9 +343,9 @@ export async function extractIdentityLock(
     `- "heelProfile": (e.g. "flat", "block heel 3cm", "stacked 2cm")\n` +
     `- "closureType": (e.g. "lace-up", "slip-on", "side-zip", "chelsea elastic")\n` +
     `- "distinctiveFeatures": comma-separated details (e.g. "brogue perforations, contrast stitching")\n` +
-    `- "referenceAngle": the camera angle in THIS photo (e.g. "45° front-left", "straight front", "overhead", "side profile")\n` +
+    `- "referenceAngle": the camera angle in the PRIMARY (first) photo (e.g. "45° front-left", "straight front", "overhead", "side profile")\n` +
     `- "protectedZones": array of brand-critical visible zones. Include ONLY zones where a logo, text mark, ` +
-    `stripe pattern, or distinctive graphic element is CLEARLY VISIBLE. For each zone include:\n` +
+    `stripe pattern, or distinctive graphic element is CLEARLY VISIBLE in ANY of the provided images. For each zone include:\n` +
     `  - "name": one of "tongue_label" | "side_branding" | "heel_tab" | "toe_cap_overlay" | "ankle_patch" | "other"\n` +
     `  - "description": exactly what is visible (e.g. "white Nike Swoosh on black tongue patch", "three white parallel stripes on lateral side")\n` +
     `  - "mustPreserve": what specifically must not change (e.g. "swoosh shape and white-on-black contrast", "exactly 3 stripes, white, evenly spaced")\n` +
@@ -297,6 +354,18 @@ export async function extractIdentityLock(
     `Be extremely precise on color — black vs brown vs tan matters enormously.`
 
   try {
+    // Build image parts: primary image first, then additional angles
+    const imageParts: Array<Record<string, unknown>> = [
+      { inlineData: { mimeType: imageMime, data: imageBuffer.toString('base64') } },
+    ]
+    if (additionalImages) {
+      for (const img of additionalImages.slice(0, 3)) {
+        imageParts.push({
+          inlineData: { mimeType: img.mime, data: img.data.toString('base64') },
+        })
+      }
+    }
+
     const res = await fetch(
       `https://generativelanguage.googleapis.com/v1beta/models/${visionModel}:generateContent?key=${apiKey}`,
       {
@@ -304,7 +373,7 @@ export async function extractIdentityLock(
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           contents: [{ parts: [
-            { inlineData: { mimeType: imageMime, data: imageBuffer.toString('base64') } },
+            ...imageParts,
             { text: prompt },
           ] }],
           generationConfig: { responseMimeType: 'application/json', maxOutputTokens: 900 },
@@ -376,7 +445,8 @@ export async function extractIdentityLock(
 
     console.log(
       `[extractIdentityLock] ✓ ${productClass} | ${mainColor} | ${material} | ref=${refAngle} | ` +
-      `zones=${protectedZones.length} (${protectedZones.map((z) => z.name).join(',') || 'none'})`,
+      `zones=${protectedZones.length} (${protectedZones.map((z) => z.name).join(',') || 'none'}) | ` +
+      `images=${totalImages} (${hasMultiAngle ? 'multi-angle' : 'single'})`,
     )
 
     return {
@@ -789,7 +859,7 @@ const EDITING_SCENES = [
       `Re-photograph this EXACT {COLOR} shoe from the front — same physical object.\n` +
       `CAMERA: Directly in front of the shoe, lens perpendicular to the toe cap, at mid-shoe height (lacing zone).\n` +
       `POSITION: Shoe upright on sole, centered, toe cap facing camera dead-on. Both sides equally visible (symmetric).\n` +
-      `COMPOSITION: Full shoe, 70% of image height. Top of collar and sole bottom both visible. Centered. Clean spacing around shoe.\n` +
+      `COMPOSITION: Full shoe, 70-80% of image height. Top of collar and sole bottom both visible. Centered. Clean even spacing around shoe — NO excessive empty canvas.\n` +
       `MUST SEE: Toe cap front face, vamp, lace/closure system, collar — the entire FRONT face.\n` +
       `MUST NOT SEE: Heel counter, side profile, sole edge.\n` +
       `BACKGROUND: {BACKGROUND} Use this EXACT color. Do not shift or reinterpret.\n` +
@@ -807,7 +877,7 @@ const EDITING_SCENES = [
       `Re-photograph this EXACT {COLOR} shoe from the side — same physical object.\n` +
       `CAMERA: Exactly 90° to the side (medial or lateral), at sole level. Looking directly at the side face.\n` +
       `POSITION: Shoe horizontal — toe pointing LEFT, heel on RIGHT.\n` +
-      `COMPOSITION: Full shoe from toe tip to heel counter. Entire sole edge visible. Shoe fills 75% of image width. Centered. Clean spacing.\n` +
+      `COMPOSITION: Full shoe from toe tip to heel counter. Entire sole edge visible. Shoe fills 75-80% of image width. Centered. Clean even spacing — NO excessive empty canvas.\n` +
       `MUST SEE: Complete sole profile (toe to heel), arch curve, heel counter height, collar line. The sole silhouette is the dominant visual.\n` +
       `MUST NOT SEE: Toe cap front face (if you can see the front of the toe, the angle is WRONG).\n` +
       `BACKGROUND: {BACKGROUND} Use this EXACT color — identical to all other slots.\n` +
@@ -842,7 +912,7 @@ const EDITING_SCENES = [
       `Re-photograph this EXACT {COLOR} shoe from an elevated angle — same physical object.\n` +
       `CAMERA: Above and in front, looking DOWN at 55–65°. Three-quarter overhead perspective.\n` +
       `POSITION: Shoe resting upright on a clean premium surface.\n` +
-      `COMPOSITION: Full shoe visible from above-front. Top face dominant (tongue, lacing from above, toe from overhead). Shoe fills 65% of image area. Centered. No props.\n` +
+      `COMPOSITION: Full shoe visible from above-front. Top face dominant (tongue, lacing from above, toe from overhead). Shoe fills 65-75% of image area. Centered. No props. NO excessive empty canvas.\n` +
       `MUST SEE: Tongue, lace pattern from above, toe shape from overhead, upper opening. This reveals parts invisible in front/side views.\n` +
       `MUST NOT SEE: The front face of the toe (that's slot 1), the side profile (that's slot 2).\n` +
       `SURFACE: Clean surface that complements the shoe. {BACKGROUND} Very soft gradient allowed but barely noticeable.\n` +
@@ -859,7 +929,7 @@ const EDITING_SCENES = [
       `── SHOT: LIFESTYLE — SHOE WORN ON A FOOT ──\n` +
       `Re-photograph this EXACT {COLOR} shoe in a lifestyle worn setting — same physical object.\n` +
       `CAMERA: Low ground level, 10–15 cm above floor, to the side of the foot.\n` +
-      `COMPOSITION: One foot wearing the shoe. Full shoe visible with lower leg/ankle above collar. Ground surface in lower frame. Shoe fills 65% of image area. Centered.\n` +
+      `COMPOSITION: One foot wearing the shoe. Full shoe visible with lower leg/ankle above collar. Ground surface in lower frame. Shoe fills 65-75% of image area. Centered. NO excessive empty canvas.\n` +
       `MUST SEE: The shoe ON a foot in natural weight-bearing position, ground contact, ankle/lower leg.\n` +
       `MUST NOT SEE: Face, upper body. The shoe is the hero — the person is secondary.\n` +
       `ENVIRONMENT: Warm blurred lifestyle setting — wooden floor, cobblestone, or garden. Soft bokeh background.\n` +
@@ -1323,6 +1393,7 @@ export async function generateByGeminiPro(
     const hasBrandZones = (identityLock.protectedZones?.length ?? 0) > 0
 
     const premiumBackground = getBackgroundForColor(mainColor)
+    const multiAngleBlock = buildMultiAngleBlock(additionalImages?.length || 0)
 
     for (const scene of scenes) {
       const sceneText = scene.sceneInstructions
@@ -1330,8 +1401,14 @@ export async function generateByGeminiPro(
         .replace(/\{REF_ANGLE\}/g, refAngle)
         .replace(/\{BACKGROUND\}/g, premiumBackground)
 
-      // Same 5-block prompt structure as generateByEditing
-      const fullPrompt = TASK_FRAMING_BLOCK + identityLock.promptBlock + zoneBlock + sceneText + CANONICAL_PROHIBITIONS_BLOCK
+      // 6-block prompt structure:
+      //   1. TASK_FRAMING_BLOCK — task framing + normalization rules
+      //   2. multiAngleBlock — multi-angle reference framing (if applicable)
+      //   3. identityLock.promptBlock — product identity + color lock
+      //   4. zoneBlock — protected brand zones
+      //   5. sceneText — camera angle, framing, background, lighting
+      //   6. CANONICAL_PROHIBITIONS_BLOCK — master prohibitions
+      const fullPrompt = TASK_FRAMING_BLOCK + multiAngleBlock + identityLock.promptBlock + zoneBlock + sceneText + CANONICAL_PROHIBITIONS_BLOCK
 
       const slotLog: SlotLog = {
         slot: scene.name,

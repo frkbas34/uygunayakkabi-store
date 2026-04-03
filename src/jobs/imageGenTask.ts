@@ -311,6 +311,7 @@ export const imageGenTask: TaskConfig<{
         referenceImage,
         referenceImageMime || 'image/jpeg',
         process.env.GEMINI_API_KEY,
+        additionalReferenceImages.length > 0 ? additionalReferenceImages : undefined,
       )
 
       if (lock) {
@@ -993,25 +994,30 @@ async function generateStockNumber(
   payload: { find: Function },
 ): Promise<string> {
   try {
-    // Find the highest existing stockNumber
+    // Find ALL existing stockNumbers and compute the max numerically.
+    // We cannot rely on sort: '-stockNumber' because Payload/Postgres does
+    // text-based sorting (SN9 > SN1000). Instead, fetch all and compute max.
     const { docs } = await payload.find({
       collection: 'products',
       where: {
         stockNumber: { exists: true },
       },
-      sort: '-stockNumber',
-      limit: 1,
+      limit: 0, // fetch all
       depth: 0,
     })
 
-    let nextNum = 1
-    if (docs.length > 0) {
-      const current = docs[0].stockNumber as string
-      const match = current?.match(/^SN(\d+)$/)
+    let maxNum = 0
+    for (const doc of docs) {
+      const sn = doc.stockNumber as string | undefined
+      if (!sn) continue
+      const match = sn.match(/^SN(\d+)$/)
       if (match) {
-        nextNum = parseInt(match[1], 10) + 1
+        const num = parseInt(match[1], 10)
+        if (num > maxNum) maxNum = num
       }
     }
+
+    let nextNum = maxNum + 1
 
     // Clamp to 4 digits (SN0001–SN9999)
     if (nextNum > 9999) nextNum = nextNum % 10000 || 1

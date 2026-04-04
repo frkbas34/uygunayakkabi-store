@@ -86,11 +86,14 @@ const TASK_FRAMING_BLOCK =
   `• No harsh reflections, no dramatic lighting — realistic commercial look.\n` +
   `\n` +
   `BACKGROUND LOCK (BATCH RULE — MANDATORY):\n` +
-  `• ALL images in this batch MUST use the EXACT SAME background color.\n` +
-  `• The BACKGROUND line specifies ONE exact color with a hex code. Use THAT color. No reinterpretation.\n` +
-  `• Do NOT choose a different shade, tone, warmth, or color — even if similar or complementary.\n` +
-  `• Even in macro/close-up shots where background is blurred, the blurred area must be the SAME exact color.\n` +
-  `• All images must look like they were shot in the SAME studio with the SAME backdrop.\n` +
+  `• ALL images in this batch MUST use the EXACT SAME background color — no exceptions.\n` +
+  `• Each slot's BACKGROUND line specifies ONE exact color with a hex code. Use THAT hex code literally.\n` +
+  `• Do NOT choose a different shade, tone, warmth, or hue — even if "similar" or "complementary".\n` +
+  `• Do NOT introduce green, blue, or any color not explicitly specified in the BACKGROUND line.\n` +
+  `• Even in macro/close-up/lifestyle shots where background is blurred, the blurred area must be the SAME exact color.\n` +
+  `• Even in editorial/overhead shots, the visible surface/backdrop must match the SAME batch background.\n` +
+  `• All images must look like they were shot in the SAME studio with the SAME physical backdrop paper.\n` +
+  `• If your output has a different background color than specified, it is WRONG and will be REJECTED.\n` +
   `═══════════════════════════\n\n`
 
 /**
@@ -915,7 +918,7 @@ const EDITING_SCENES = [
       `COMPOSITION: Full shoe visible from above-front. Top face dominant (tongue, lacing from above, toe from overhead). Shoe fills 65-75% of image area. Centered. No props. NO excessive empty canvas.\n` +
       `MUST SEE: Tongue, lace pattern from above, toe shape from overhead, upper opening. This reveals parts invisible in front/side views.\n` +
       `MUST NOT SEE: The front face of the toe (that's slot 1), the side profile (that's slot 2).\n` +
-      `SURFACE: Clean surface that complements the shoe. {BACKGROUND} Very soft gradient allowed but barely noticeable.\n` +
+      `BACKGROUND: {BACKGROUND} Use this EXACT color — identical to all other slots in this batch. The surface the shoe rests on should be clean and premium but the dominant visible background color MUST match the other slots exactly. No gradient, no tone shift, no reinterpretation.\n` +
       `LIGHT: Soft diffused studio light from upper-left. Gentle natural shadow lower-right. No harsh reflections.\n` +
       `OUTPUT: Full-bleed photograph. No frames, no borders, no margins, no mockup. No watermark, no text, no logo overlay.\n` +
       `THIS IS NOT: a front hero, a side profile, a close-up macro, a framed image.\n` +
@@ -932,7 +935,7 @@ const EDITING_SCENES = [
       `COMPOSITION: One foot wearing the shoe. Full shoe visible with lower leg/ankle above collar. Ground surface in lower frame. Shoe fills 65-75% of image area. Centered. NO excessive empty canvas.\n` +
       `MUST SEE: The shoe ON a foot in natural weight-bearing position, ground contact, ankle/lower leg.\n` +
       `MUST NOT SEE: Face, upper body. The shoe is the hero — the person is secondary.\n` +
-      `ENVIRONMENT: Warm blurred lifestyle setting — wooden floor, cobblestone, or garden. Soft bokeh background.\n` +
+      `BACKGROUND: {BACKGROUND} This is the SAME EXACT background color as all other slots in this batch. In this lifestyle shot the background appears as warm soft bokeh, but the DOMINANT COLOR TONE must match the batch background exactly. Do NOT introduce green, blue, or any color not specified. The blurred environment must read as the same color family as the studio backdrop.\n` +
       `LIGHT: Warm natural golden-hour side light. Authentic, non-studio. Soft shadows. No harsh reflections.\n` +
       `OUTPUT: Full-bleed photograph. No frames, no borders, no margins, no mockup. No watermark, no text, no logo overlay.\n` +
       `THIS IS NOT: an isolated product shot, a studio photo, an overhead view, a framed image.\n` +

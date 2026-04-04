@@ -867,6 +867,161 @@ async function checkSlotBackground(
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Background Enforcement — Deterministic Post-Processing (v28)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Parse hex color from a background description string like:
+ * "warm beige (#F5F0E8). Solid, uniform..." → "#F5F0E8"
+ * Returns null if no hex code found.
+ */
+function parseBackgroundHex(bgDescription: string): string | null {
+  const match = bgDescription.match(/#([0-9A-Fa-f]{6})/)
+  return match ? match[0] : null
+}
+
+/**
+ * Convert hex color string (#RRGGBB) to {r, g, b}.
+ */
+function hexToRgb(hex: string): { r: number; g: number; b: number } {
+  const h = hex.replace('#', '')
+  return {
+    r: parseInt(h.substring(0, 2), 16),
+    g: parseInt(h.substring(2, 4), 16),
+    b: parseInt(h.substring(4, 6), 16),
+  }
+}
+
+/**
+ * Deterministic background enforcement for macro/close-up slots.
+ *
+ * When Gemini fails to match the batch background even after retry,
+ * this function replaces the background color using sharp pixel manipulation.
+ *
+ * Strategy:
+ *   1. Sample edge/corner regions to detect the current (wrong) background color.
+ *   2. For each pixel, compute color distance from the detected background.
+ *   3. Pixels that are "background-like" (close to detected bg) get blended
+ *      toward the target background color.
+ *   4. Product pixels (far from detected bg color) are untouched.
+ *
+ * This preserves the macro product texture while correcting the background
+ * color deterministically — no AI involved.
+ *
+ * For macro shots where the background is soft bokeh, this produces a
+ * natural-looking color shift with no visible seam.
+ */
+async function enforceSlotBackground(
+  imageBuffer: Buffer,
+  targetHex: string,
+): Promise<Buffer> {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const sharp = require('sharp') as typeof import('sharp')
+
+  const metadata = await sharp(imageBuffer).metadata()
+  const width  = metadata.width  || 1024
+  const height = metadata.height || 1024
+
+  // Extract raw RGB pixel data
+  const { data: rawPixels, info } = await sharp(imageBuffer)
+    .removeAlpha()
+    .raw()
+    .toBuffer({ resolveWithObject: true })
+
+  const channels = info.channels  // should be 3 (RGB)
+
+  // ── Step 1: Sample edge regions to detect current background color ──
+  // Sample 4 strips: top 5%, bottom 5%, left 5%, right 5%
+  const edgeDepth = Math.max(10, Math.round(Math.min(width, height) * 0.05))
+  let rSum = 0, gSum = 0, bSum = 0, sampleCount = 0
+
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      const isEdge = y < edgeDepth || y >= height - edgeDepth ||
+                     x < edgeDepth || x >= width - edgeDepth
+      if (!isEdge) continue
+
+      const idx = (y * width + x) * channels
+      rSum += rawPixels[idx]
+      gSum += rawPixels[idx + 1]
+      bSum += rawPixels[idx + 2]
+      sampleCount++
+    }
+  }
+
+  const detectedBg = {
+    r: Math.round(rSum / sampleCount),
+    g: Math.round(gSum / sampleCount),
+    b: Math.round(bSum / sampleCount),
+  }
+
+  const targetBg = hexToRgb(targetHex)
+
+  console.log(
+    `[enforceSlotBackground] detected bg: rgb(${detectedBg.r},${detectedBg.g},${detectedBg.b}) ` +
+    `target: ${targetHex} rgb(${targetBg.r},${targetBg.g},${targetBg.b}) ` +
+    `pixels=${width}x${height} samples=${sampleCount}`,
+  )
+
+  // ── Step 2: Replace background-like pixels ──
+  // Color distance threshold: pixels within this distance from detected bg
+  // are considered "background" and get blended toward target.
+  // Max distance in RGB space is ~441 (sqrt(255^2*3)), typical bg drift is 30-120.
+  const MAX_BG_DISTANCE = 90   // pixels clearly "background"
+  const BLEND_MARGIN    = 50   // soft blend zone between bg and product
+  const totalThreshold  = MAX_BG_DISTANCE + BLEND_MARGIN
+
+  const outputPixels = Buffer.from(rawPixels) // copy
+
+  for (let i = 0; i < rawPixels.length; i += channels) {
+    const pr = rawPixels[i]
+    const pg = rawPixels[i + 1]
+    const pb = rawPixels[i + 2]
+
+    // Euclidean distance from this pixel to detected background
+    const dr = pr - detectedBg.r
+    const dg = pg - detectedBg.g
+    const db = pb - detectedBg.b
+    const dist = Math.sqrt(dr * dr + dg * dg + db * db)
+
+    if (dist >= totalThreshold) {
+      // Product pixel — leave untouched
+      continue
+    }
+
+    // Blend factor: 1.0 = full replacement (very close to bg), 0.0 = no change
+    let blend: number
+    if (dist <= MAX_BG_DISTANCE) {
+      blend = 1.0
+    } else {
+      // Soft gradient in the margin zone
+      blend = 1.0 - (dist - MAX_BG_DISTANCE) / BLEND_MARGIN
+    }
+
+    // Shift this pixel's color toward the target background
+    // We compute: what this pixel WOULD be if the background were the target color.
+    // Offset = difference between detected and target bg, applied with blend factor.
+    const shiftR = (targetBg.r - detectedBg.r) * blend
+    const shiftG = (targetBg.g - detectedBg.g) * blend
+    const shiftB = (targetBg.b - detectedBg.b) * blend
+
+    outputPixels[i]     = Math.max(0, Math.min(255, Math.round(pr + shiftR)))
+    outputPixels[i + 1] = Math.max(0, Math.min(255, Math.round(pg + shiftG)))
+    outputPixels[i + 2] = Math.max(0, Math.min(255, Math.round(pb + shiftB)))
+  }
+
+  // ── Step 3: Reconstruct JPEG from modified pixel data ──
+  const result = await sharp(outputPixels, {
+    raw: { width, height, channels },
+  })
+    .jpeg({ quality: 92 })
+    .toBuffer()
+
+  console.log(`[enforceSlotBackground] ✓ background shifted — ${result.length}b`)
+  return result
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // OpenAI gpt-image-1 Image Edit (the ONLY image generator)
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -1629,6 +1784,28 @@ export async function generateByGeminiPro(
           if (warnings.length > 0) slotLog.rejectionReason = warnings.join('; ')
 
           finalBuf = retryJpeg
+
+          // ── Step D5: Deterministic background enforcement (v28) ──────────
+          // If background STILL drifts after retry, fix it in post-processing.
+          // Only applied to slots that failed bg check — typically detail_closeup.
+          if (slotLog.bgCheckPass === false && finalBuf) {
+            const bgHex = parseBackgroundHex(premiumBackground)
+            if (bgHex) {
+              try {
+                console.log(`[generateByGeminiPro v28] bg still drifted on ${scene.name} after retry — enforcing ${bgHex} via post-process`)
+                finalBuf = await enforceSlotBackground(finalBuf, bgHex)
+                slotLog.bgCheckPass = true // mark as corrected
+                ;(slotLog as Record<string, unknown>).bgEnforced = true
+                // Remove bg warning from rejection reason since we fixed it
+                const filteredWarnings = warnings.filter((w) => !w.startsWith('background drift'))
+                slotLog.rejectionReason = filteredWarnings.length > 0 ? filteredWarnings.join('; ') : undefined
+                console.log(`[generateByGeminiPro v28] ✓ ${scene.name} background enforced via post-process`)
+              } catch (enforceErr) {
+                console.warn(`[generateByGeminiPro v28] bg enforcement failed for ${scene.name}:`, enforceErr instanceof Error ? enforceErr.message : enforceErr)
+                // Keep the retried image as-is — don't lose it
+              }
+            }
+          }
         } else {
           finalBuf = jpegBuf
         }

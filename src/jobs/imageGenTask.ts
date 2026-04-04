@@ -558,17 +558,22 @@ export const imageGenTask: TaskConfig<{
       )
 
       // Build album items — filter out missing/empty buffers
+      // Clean captions — product-focused, no provider/metadata clutter.
+      // Slot diagnostics are in the approval keyboard message + job metadata.
+      const CLEAN_SLOT_LABELS = ['Ön Görünüm', 'Yan Profil', 'Detay Makro', 'Editoryal', 'Lifestyle']
       const albumItems: Array<{ buf: Buffer; caption: string; filename: string }> = []
       for (let i = 0; i < generatedBuffers.length; i++) {
         const buf = generatedBuffers[i]
         if (!buf || buf.length === 0) {
-          console.warn(`[imageGenTask v25] step8 — skipping slot ${i + 1}: buffer missing or empty`)
+          console.warn(`[imageGenTask v28] step8 — skipping slot ${i + 1}: buffer missing or empty`)
           continue
         }
-        const slotLabel = slotLabels[i] || `Görsel ${i + 1}`
-        const slotIcon = slotIconArr[i] || '✅'
+        const cleanLabel = CLEAN_SLOT_LABELS[sceneIndices[i]] || `Görsel ${i + 1}`
         const filename = `${slotNames[i] || `slot-${i}`}.jpg`
-        const caption = `${slotIcon} <b>${slotLabel}</b> — ${providerDisplayLabel}`
+        // First image in album gets the product title + stock number; rest get just the slot label
+        const caption = i === 0
+          ? `📦 <b>${productTitle}</b>${stockNumber ? ` — ${stockNumber}` : ''}\n${cleanLabel}`
+          : cleanLabel
         albumItems.push({ buf, caption, filename })
       }
 
@@ -613,12 +618,23 @@ export const imageGenTask: TaskConfig<{
       generationCompletedAt: new Date().toISOString(),
       providerResults: JSON.stringify({
         pipeline: pipelineLabel,
-        provider,                // v14: actual provider used
+        provider,
         mode: `${mode} (cosmetic)`,
+        // v28: comprehensive batch context for debugging
+        batchContext: {
+          stockNumber: stockNumber || null,
+          referenceImageCount: 1 + additionalReferenceImages.length,
+          chosenBackground: (identityLockMeta.mainColor as string)
+            ? getBackgroundForColor(identityLockMeta.mainColor as string)
+            : null,
+          stage,
+          sceneIndices,
+        },
         humanSummary: (slotLogsSummary as Array<{
           label?: string; slot?: string; provider?: string; attempts?: number;
           success?: boolean; colorCheckPass?: boolean; brandFidelityPass?: boolean;
           brandFidelityScore?: string; shotCompliancePass?: boolean; detectedShot?: string;
+          bgCheckPass?: boolean; detectedBackground?: string; bgEnforced?: boolean;
           rejectionReason?: string;
         }>).map((sl, idx) => {
           const slotName  = sl.label ?? sl.slot ?? `Slot ${idx + 1}`
@@ -628,8 +644,9 @@ export const imageGenTask: TaskConfig<{
           const color     = sl.colorCheckPass != null ? (sl.colorCheckPass ? 'color:✓' : 'color:✗') : ''
           const brand     = sl.brandFidelityPass != null ? (sl.brandFidelityPass ? 'brand:✓' : `brand:✗(${sl.brandFidelityScore ?? ''})`) : ''
           const shot      = sl.shotCompliancePass != null ? (sl.shotCompliancePass ? 'shot:✓' : `shot:✗(${sl.detectedShot?.slice(0, 40) ?? ''})`) : ''
+          const bg        = sl.bgCheckPass != null ? (sl.bgCheckPass ? (sl.bgEnforced ? 'bg:enforced' : 'bg:✓') : `bg:✗(${sl.detectedBackground?.slice(0, 30) ?? ''})`) : ''
           const rejection = sl.rejectionReason ? ` REJECTED:${sl.rejectionReason}` : ''
-          const checks    = [color, brand, shot].filter(Boolean).join(' ')
+          const checks    = [color, brand, shot, bg].filter(Boolean).join(' ')
           return `${slotName} → ${prov} / ${tries} attempt${tries > 1 ? 's' : ''} / ${ok}${checks ? ' ' + checks : ''}${rejection}`
         }),
         summary: providerResultsSummary,
@@ -673,7 +690,17 @@ export const imageGenTask: TaskConfig<{
       }
     }
 
-    console.log(`[imageGenTask v14] done — jobId=${jobId} product=${productId} images=${mediaIds.length} status=preview`)
+    // ── Final batch summary log ────────────────────────────────────────────
+    const bgEnforcedCount = (slotLogsSummary as Array<{ bgEnforced?: boolean }>).filter((s) => s.bgEnforced).length
+    const retryCount = (slotLogsSummary as Array<{ attempts?: number }>).filter((s) => (s.attempts ?? 1) > 1).length
+    console.log(
+      `[imageGenTask v28] ═══ BATCH COMPLETE ═══ ` +
+      `job=${jobId} product=${productId} images=${mediaIds.length} ` +
+      `stock=${stockNumber || 'none'} refs=1+${additionalReferenceImages.length} ` +
+      `provider=${provider} stage=${stage} ` +
+      `retries=${retryCount} bgEnforced=${bgEnforcedCount} ` +
+      `slots=[${slotIconArr.join('')}]`,
+    )
 
     return {
       output: {
@@ -891,10 +918,9 @@ async function sendApprovalKeyboard(
   const token = process.env.TELEGRAM_BOT_TOKEN
   if (!token) return
 
-  const colorLine    = mainColor     ? `\n🎨 Renk kilidi: <b>${mainColor}</b>`  : ''
-  const providerLine = providerLabel ? `\n🤖 Provider: <b>${providerLabel}</b>` : ''
+  const colorLine    = mainColor     ? ` · ${mainColor}`  : ''
   const isStandard = stage !== 'premium'
-  const stageLabel = isStandard ? 'Slot 1-3' : 'Slot 4-5'
+  const stageLabel = isStandard ? '1-3' : '4-5'
 
   // ── Build per-image individual buttons ──────────────────────────────────
   // Uses 1-based slotsStr format that approveImageGenJob() already handles.
@@ -920,11 +946,9 @@ async function sendApprovalKeyboard(
     : `İstediğiniz görseli seçin veya tümünü onaylayın:`
 
   const text =
-    `${isStandard ? '📸' : '🌟'} <b>${imageCount} önizleme hazır (${stageLabel})</b>\n\n` +
+    `${isStandard ? '📸' : '🌟'} <b>${imageCount} önizleme hazır</b> (${stageLabel}${colorLine})\n\n` +
     `📦 <b>${productTitle}</b>` +
-    colorLine +
-    providerLine +
-    (slotIcons ? `\n🎯 Slotlar: ${slotIcons}` : '') +
+    (slotIcons ? ` ${slotIcons}` : '') +
     `\n\n` +
     stageNote
 

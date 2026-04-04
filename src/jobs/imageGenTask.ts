@@ -533,11 +533,11 @@ export const imageGenTask: TaskConfig<{
 
     // ── Build per-slot icon array (ARRAY not string — avoids emoji indexing bugs) ─
     // v12: ⚠️ also shown when brandFidelityPass=false (brand zones drifted)
-    // v20: ⚠️ also shown when shotCompliancePass=false (angle drift detected)
-    const slotIconArr: string[] = (slotLogsSummary as Array<{ success?: boolean; colorCheckPass?: boolean; brandFidelityPass?: boolean; shotCompliancePass?: boolean }>)
+    // v28: ⚠️ also shown when bgCheckPass=false (background drift detected)
+    const slotIconArr: string[] = (slotLogsSummary as Array<{ success?: boolean; colorCheckPass?: boolean; brandFidelityPass?: boolean; shotCompliancePass?: boolean; bgCheckPass?: boolean }>)
       .map((s) => {
         if (s.success === false) return '❌'
-        if (s.colorCheckPass === false || s.brandFidelityPass === false || s.shotCompliancePass === false) return '⚠️'
+        if (s.colorCheckPass === false || s.brandFidelityPass === false || s.shotCompliancePass === false || s.bgCheckPass === false) return '⚠️'
         return '✅'
       })
     // Joined string for approval keyboard summary only

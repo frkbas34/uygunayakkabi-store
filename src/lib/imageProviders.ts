@@ -177,6 +177,9 @@ export type SlotLog = {
   /** v20: shot composition compliance check */
   shotCompliancePass?: boolean
   detectedShot?: string
+  /** v28: per-slot background compliance check */
+  bgCheckPass?: boolean
+  detectedBackground?: string
   rejectionReason?: string
 }
 
@@ -780,6 +783,90 @@ async function checkShotCompliance(
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Step D4 — Per-Slot Background Check (v28)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Gemini Vision check: does the generated image's background match the
+ * intended batch background color?
+ *
+ * This is a PER-SLOT check (unlike checkBackgroundConsistency which runs
+ * on the whole batch post-generation). It catches individual slot drift
+ * immediately so the slot can be retried.
+ *
+ * On API failure: defaults to pass=true (never block on transient errors).
+ */
+async function checkSlotBackground(
+  generatedImage: Buffer,
+  expectedBackground: string,
+  slotName: string,
+  apiKey: string,
+): Promise<{ pass: boolean; detectedBackground: string; correctionHint: string }> {
+  const visionModel = 'gemini-2.5-flash'
+
+  const prompt =
+    `You are a QC inspector for e-commerce product photography background consistency.\n\n` +
+    `EXPECTED BACKGROUND: ${expectedBackground}\n` +
+    `SLOT TYPE: ${slotName}\n\n` +
+    `Look at this product image and evaluate the background:\n` +
+    `1. What is the dominant background color/surface in this image?\n` +
+    `2. Does it match the expected background color specified above?\n\n` +
+    `PASS if: the background is clearly the same color family as expected (e.g. both warm beige, both light grey).\n` +
+    `FAIL if:\n` +
+    `- Background is a different color (e.g. expected beige but got green/grey/brown)\n` +
+    `- Background shows a textured surface (wood, marble, fabric, stone, tiles) instead of a clean studio backdrop\n` +
+    `- Background shows an environmental scene instead of the specified studio color\n` +
+    `- Background is dark/black when a light color was specified (or vice versa)\n\n` +
+    `Respond with JSON only — no markdown, no code fences:\n` +
+    `{"pass": true/false, "detectedBackground": "brief description of the actual background"}\n` +
+    `Be strict. Different color tone = FAIL. Textured surface when solid color was specified = FAIL.`
+
+  try {
+    const res = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/${visionModel}:generateContent?key=${apiKey}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{ parts: [
+            { inlineData: { mimeType: 'image/jpeg', data: generatedImage.toString('base64') } },
+            { text: prompt },
+          ] }],
+          generationConfig: { responseMimeType: 'application/json', maxOutputTokens: 150 },
+        }),
+      },
+    )
+
+    if (!res.ok) {
+      console.warn(`[checkSlotBackground] HTTP ${res.status}`)
+      return { pass: true, detectedBackground: 'unknown', correctionHint: '' }
+    }
+
+    const data = await res.json()
+    const text: string | undefined = data?.candidates?.[0]?.content?.parts?.[0]?.text
+    if (!text) return { pass: true, detectedBackground: 'unknown', correctionHint: '' }
+
+    const parsed = JSON.parse(text.trim())
+    const pass = parsed.pass ?? true
+    const detectedBackground = parsed.detectedBackground || 'unknown'
+    const correctionHint = pass ? '' :
+      `CRITICAL BACKGROUND CORRECTION: The output background is "${detectedBackground}" ` +
+      `but the batch background MUST be: ${expectedBackground}. ` +
+      `Do NOT use a tabletop, textured surface, wood, marble, or any environmental background. ` +
+      `Use ONLY the exact studio backdrop color specified: ${expectedBackground}. ` +
+      `The background must be a clean, uniform, solid color — not a surface or texture.`
+
+    console.log(
+      `[checkSlotBackground] slot=${slotName} pass=${pass} detected="${detectedBackground.slice(0, 80)}" expected="${expectedBackground.slice(0, 40)}"`,
+    )
+    return { pass, detectedBackground, correctionHint }
+  } catch (err) {
+    console.warn('[checkSlotBackground] error:', err instanceof Error ? err.message : err)
+    return { pass: true, detectedBackground: 'unknown', correctionHint: '' }
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // OpenAI gpt-image-1 Image Edit (the ONLY image generator)
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -900,12 +987,28 @@ const EDITING_SCENES = [
       `COMPOSITION: Upper material fills 85–90% of image area. Very shallow depth of field. Toe area sharp, heel blurred.\n` +
       `MUST SEE: Surface grain/texture/weave of the upper, stitching thread relief, any perforation or embossing.\n` +
       `MUST NOT SEE: The full shoe. If the entire shoe is visible, the framing is WRONG.\n` +
-      `BACKGROUND: {BACKGROUND} — this is the EXACT SAME background color as slots 1 and 2. In this macro shot it appears as soft bokeh due to shallow depth-of-field, but the COLOR stays identical. No identifiable objects.\n` +
+      `\n` +
+      `BACKGROUND — CRITICAL BATCH LOCK:\n` +
+      `BACKGROUND: {BACKGROUND}\n` +
+      `This macro shot uses the EXACT SAME studio backdrop as Slot 1 and Slot 2.\n` +
+      `The shoe is photographed on the SAME studio set with the SAME backdrop paper.\n` +
+      `Because of shallow depth-of-field, the background will appear as soft bokeh — but the COLOR must be identical.\n` +
+      `The blurred out-of-focus area MUST read as the same exact color specified above.\n` +
+      `\n` +
+      `BANNED BACKGROUNDS (will cause REJECTION):\n` +
+      `• NO tabletop surface — no wood, no marble, no stone, no concrete\n` +
+      `• NO textured floor — no tiles, no carpet, no parquet\n` +
+      `• NO environmental/real-world surface — no grass, no pavement, no fabric\n` +
+      `• NO surface carried over from the reference photo\n` +
+      `• NO dark/black background unless the batch background specifies it\n` +
+      `• NO colored surface that differs from the batch background\n` +
+      `The ONLY acceptable background is: the exact color specified in the BACKGROUND line above, rendered as soft uniform bokeh.\n` +
+      `If the background looks different from Slot 1 or Slot 2, this image is WRONG.\n` +
+      `\n` +
       `LIGHT: Single soft raking sidelight to reveal texture. Subtle specular highlight. No harsh reflections.\n` +
       `OUTPUT: Full-bleed photograph. No frames, no borders, no margins, no mockup. No watermark, no text, no logo overlay.\n` +
-      `THIS IS NOT: a full-shoe shot, a side profile, an editorial placement, a framed image.\n` +
-      `COLOR: The shoe is {COLOR}. Output MUST be {COLOR}. Other colors = REJECTED.\n` +
-      `NORMALIZATION: Close crop IS expected here — tight zoom is correct for macro. The background MUST be the EXACT SAME COLOR (hex value) as slots 1 and 2. Do NOT shift hue, saturation, warmth, or brightness. The blurred bokeh must match the studio backdrop color precisely.`,
+      `THIS IS NOT: a full-shoe shot, a side profile, an editorial placement, a tabletop composition, a framed image.\n` +
+      `COLOR: The shoe is {COLOR}. Output MUST be {COLOR}. Other colors = REJECTED.`,
   },
   {
     name: 'tabletop_editorial',
@@ -1452,7 +1555,12 @@ export async function generateByGeminiPro(
         slotLog.shotCompliancePass = shotCheck.pass
         slotLog.detectedShot = shotCheck.detectedShot
 
-        const needsRetry = !colorCheck.match || (brandCheck !== null && !brandCheck.pass) || !shotCheck.pass
+        // Step D4: Per-slot background check (v28)
+        const bgCheck = await checkSlotBackground(jpegBuf, premiumBackground, scene.name, geminiKey)
+        slotLog.bgCheckPass = bgCheck.pass
+        slotLog.detectedBackground = bgCheck.detectedBackground
+
+        const needsRetry = !colorCheck.match || (brandCheck !== null && !brandCheck.pass) || !shotCheck.pass || !bgCheck.pass
 
         if (needsRetry) {
           const correctionLines: string[] = []
@@ -1471,12 +1579,16 @@ export async function generateByGeminiPro(
           if (!shotCheck.pass && shotCheck.correctionHint) {
             correctionLines.push(shotCheck.correctionHint)
           }
+          if (!bgCheck.pass && bgCheck.correctionHint) {
+            correctionLines.push(bgCheck.correctionHint)
+          }
           const reinforcedPrompt = correctionLines.join('\n') + '\n\n' + fullPrompt
 
           console.warn(
-            `[generateByGeminiPro v20] ✗ ${scene.name} fidelity issues — ` +
+            `[generateByGeminiPro v28] ✗ ${scene.name} fidelity issues — ` +
             `color=${colorCheck.match} brand=${brandCheck?.pass ?? 'skip'} ` +
-            `shot=${shotCheck.pass} (detected="${shotCheck.detectedShot.slice(0, 60)}") — retrying`,
+            `shot=${shotCheck.pass} bg=${bgCheck.pass} ` +
+            `(bgDetected="${bgCheck.detectedBackground.slice(0, 60)}") — retrying`,
           )
           slotLog.attempts = 2
           await sleep(2000)
@@ -1502,10 +1614,18 @@ export async function generateByGeminiPro(
             slotLog.detectedShot = retryShotCheck.detectedShot
           }
 
+          // Re-check background on retry (only if first attempt failed bg check)
+          if (!bgCheck.pass) {
+            const retryBgCheck = await checkSlotBackground(retryJpeg, premiumBackground, scene.name, geminiKey)
+            slotLog.bgCheckPass = retryBgCheck.pass
+            slotLog.detectedBackground = retryBgCheck.detectedBackground
+          }
+
           const warnings: string[] = []
           if (!retryColor.match) warnings.push(`color drift: expected ${mainColor} got ${retryColor.detectedColor}`)
           if (slotLog.brandFidelityPass === false) warnings.push(`brand zones drifted: ${slotLog.brandFidelityNotes || 'unknown'}`)
           if (slotLog.shotCompliancePass === false) warnings.push(`angle wrong: got "${slotLog.detectedShot || 'unknown'}"`)
+          if (slotLog.bgCheckPass === false) warnings.push(`background drift: got "${slotLog.detectedBackground || 'unknown'}" expected batch bg`)
           if (warnings.length > 0) slotLog.rejectionReason = warnings.join('; ')
 
           finalBuf = retryJpeg
@@ -1526,9 +1646,10 @@ export async function generateByGeminiPro(
         slotLog.success = true
         slotLog.outputSizeBytes = finalBuf.length
         console.log(
-          `[generateByGeminiPro v20] ✓ ${scene.name} — ${finalBuf.length}b ` +
+          `[generateByGeminiPro v28] ✓ ${scene.name} — ${finalBuf.length}b ` +
           `(attempts=${slotLog.attempts} color=${slotLog.colorCheckPass ?? 'skip'} ` +
-          `brand=${slotLog.brandFidelityPass ?? 'skip'} shot=${slotLog.shotCompliancePass ?? 'skip'})`,
+          `brand=${slotLog.brandFidelityPass ?? 'skip'} shot=${slotLog.shotCompliancePass ?? 'skip'} ` +
+          `bg=${slotLog.bgCheckPass ?? 'skip'})`,
         )
       } else {
         const msg = `${scene.name}: null after ${slotLog.attempts} attempts`
@@ -1548,10 +1669,10 @@ export async function generateByGeminiPro(
 
   const slotSummary = slotLogs.map((s) => {
     if (!s.success) return '✗'
-    if (s.colorCheckPass === false || s.brandFidelityPass === false || s.shotCompliancePass === false) return '⚠'
+    if (s.colorCheckPass === false || s.brandFidelityPass === false || s.shotCompliancePass === false || s.bgCheckPass === false) return '⚠'
     return '✓'
   }).join('')
-  console.log(`[generateByGeminiPro v20] done — ${result.successCount}/${result.promptCount} [${slotSummary}]`)
+  console.log(`[generateByGeminiPro v28] done — ${result.successCount}/${result.promptCount} [${slotSummary}]`)
 
   return { results: [result], buffers: result.buffers, slotLogs }
 }

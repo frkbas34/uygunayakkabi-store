@@ -19,8 +19,11 @@ import { Categories } from "./src/collections/Categories";
 import { Banners } from "./src/collections/Banners";
 import { BlogPosts } from "./src/collections/BlogPosts";
 import { ImageGenerationJobs } from "./src/collections/ImageGenerationJobs";
+import { BotEvents } from "./src/collections/BotEvents";
+import { StoryJobs } from "./src/collections/StoryJobs";
 import { SiteSettings } from "./src/globals/SiteSettings";
 import { AutomationSettings } from "./src/globals/AutomationSettings";
+import { HomepageMerchandisingSettings } from "./src/globals/HomepageMerchandisingSettings";
 import { shopierSyncTask } from "./src/jobs/shopierSyncTask";
 import { imageGenTask } from "./src/jobs/imageGenTask";
 import { lumaGenTask } from "./src/jobs/lumaGenTask";
@@ -67,8 +70,10 @@ export default buildConfig({
     Banners,
     BlogPosts,
     ImageGenerationJobs,
+    BotEvents,
+    StoryJobs,
   ],
-  globals: [SiteSettings, AutomationSettings],
+  globals: [SiteSettings, AutomationSettings, HomepageMerchandisingSettings],
 
   // ── Step 20: Shopier Jobs Queue ──────────────────────────────────────────────
   //

@@ -8,6 +8,46 @@ export const Variants: CollectionConfig = {
     defaultColumns: ['size', 'product', 'stock', 'variantSku'],
     description: 'Ürün beden varyantları ve stok takibi',
   },
+  hooks: {
+    afterChange: [
+      // Phase 10: Trigger central stock reaction when variant stock changes
+      async ({ doc, previousDoc, operation, req }) => {
+        // Skip if this is a dispatch update (prevents infinite loops)
+        if (req?.context?.isDispatchUpdate) return doc
+
+        // Only react on update when stock actually changed
+        if (operation !== 'update') return doc
+        const prevStock = (previousDoc as any)?.stock ?? 0
+        const newStock = (doc as any)?.stock ?? 0
+        if (prevStock === newStock) return doc
+
+        // Need a product reference to react
+        const productId = typeof doc.product === 'object'
+          ? (doc.product as any)?.id
+          : doc.product
+        if (!productId) return doc
+
+        // Non-blocking stock reaction
+        try {
+          const { reactToStockChange } = await import('@/lib/stockReaction')
+          const result = await reactToStockChange(req.payload, productId, 'admin', req)
+          if (result.reacted) {
+            console.log(
+              `[Variants.afterChange] stockReaction — variant=${doc.id} product=${productId} ` +
+                `stock ${prevStock}→${newStock} events=[${result.eventsEmitted.join(',')}]`,
+            )
+          }
+        } catch (err) {
+          console.error(
+            `[Variants.afterChange] stockReaction failed (non-blocking):`,
+            err instanceof Error ? err.message : String(err),
+          )
+        }
+
+        return doc
+      },
+    ],
+  },
   fields: [
     {
       name: 'product',

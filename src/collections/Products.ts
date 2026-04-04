@@ -232,6 +232,36 @@ export const Products: CollectionConfig = {
               `shopierQueued=${shouldQueueShopier} ` +
               `total=${results.length} channels evaluated`,
           )
+
+          // ── Phase 4: Non-blocking Story trigger ──────────────────────────────
+          // Only fires on status transitions (draft→active), not on force-redispatch.
+          // Story failure is caught silently — never blocks product publish.
+          if (isStatusTransition) {
+            try {
+              const { shouldAutoTriggerStory } = await import('@/lib/storyTargets')
+              if (shouldAutoTriggerStory(doc as Record<string, unknown>)) {
+                const { dispatchStory } = await import('@/lib/storyDispatch')
+                const storyResult = await dispatchStory(
+                  doc as any,
+                  settings?.storyTargets ?? null,
+                  req.payload as any,
+                  'auto_publish',
+                  req,
+                )
+                console.log(
+                  `[Products] Story dispatch — product=${doc.id} ` +
+                    `status=${storyResult.status} targets=[${storyResult.targets.join(',')}] ` +
+                    `blocked=[${storyResult.blockedTargets.join(',')}]`,
+                )
+              }
+            } catch (storyErr) {
+              // Story failure is non-critical — log and continue
+              console.error(
+                `[Products] Story dispatch failed (non-blocking) — product=${doc.id}: ` +
+                  (storyErr instanceof Error ? storyErr.message : String(storyErr)),
+              )
+            }
+          }
         } catch (err) {
           // Non-critical: product was activated/saved successfully.
           // Dispatch failure is logged; forceRedispatch flag is NOT reset on error
@@ -940,6 +970,805 @@ export const Products: CollectionConfig = {
           admin: {
             readOnly: true,
             description: 'Son sync hatası — başarılı sync\'te temizlenir',
+          },
+        },
+        // ── Phase 3: Story Tracking ─────────────────────────────
+        // Written by storyDispatch after story job creation/completion.
+        // Non-blocking — story failures do not affect product publish.
+        {
+          name: 'storyStatus',
+          type: 'select',
+          label: '📖 Story Durumu',
+          options: [
+            { label: '➖ Yok', value: 'none' },
+            { label: '🔄 Kuyrukta', value: 'queued' },
+            { label: '⏳ Onay Bekliyor', value: 'awaiting_approval' },
+            { label: '📤 Yayınlanıyor', value: 'publishing' },
+            { label: '✅ Yayınlandı', value: 'published' },
+            { label: '⚠️ Kısmen Başarılı', value: 'partial_success' },
+            { label: '❌ Başarısız', value: 'failed' },
+            { label: '🚫 Resmi Engel', value: 'blocked_officially' },
+          ],
+          defaultValue: 'none',
+          admin: {
+            readOnly: true,
+            description: 'Story pipeline durumu — otomatik güncellenir',
+          },
+        },
+        {
+          name: 'storyQueuedAt',
+          type: 'date',
+          label: '📖 Story Kuyruğa Alındı',
+          admin: {
+            readOnly: true,
+            description: 'Story job\'un oluşturulduğu zaman',
+          },
+        },
+        {
+          name: 'storyPublishedAt',
+          type: 'date',
+          label: '📖 Story Yayınlandı',
+          admin: {
+            readOnly: true,
+            description: 'Story\'nin başarıyla yayınlandığı zaman',
+          },
+        },
+        {
+          name: 'storyTargetsPublished',
+          type: 'text',
+          label: '📖 Yayınlanan Hedefler',
+          admin: {
+            readOnly: true,
+            description: 'Story başarıyla yayınlanan platformlar (JSON dizi)',
+          },
+        },
+        {
+          name: 'storyTargetsFailed',
+          type: 'text',
+          label: '📖 Başarısız Hedefler',
+          admin: {
+            readOnly: true,
+            description: 'Story yayını başarısız olan platformlar (JSON dizi)',
+          },
+        },
+        {
+          name: 'lastStoryError',
+          type: 'textarea',
+          label: '📖 Son Story Hatası',
+          admin: {
+            readOnly: true,
+            description: 'Son story yayın denemesinin hata mesajı',
+          },
+        },
+        {
+          name: 'lastStoryAsset',
+          type: 'text',
+          label: '📖 Son Story Görseli',
+          admin: {
+            readOnly: true,
+            description: 'Son story\'de kullanılan görsel URL\'si',
+          },
+        },
+        {
+          name: 'lastStoryCaption',
+          type: 'textarea',
+          label: '📖 Son Story Açıklaması',
+          admin: {
+            readOnly: true,
+            description: 'Son story\'de kullanılan açıklama metni',
+          },
+        },
+      ],
+    },
+    // ── Phase 3: Story Settings ────────────────────────────
+    // Per-product story pipeline configuration.
+    // Controls whether/how this product participates in Telegram Story publishing.
+    {
+      name: 'storySettings',
+      type: 'group',
+      label: '📖 Story Ayarları',
+      admin: {
+        description: 'Ürünün Telegram Story pipeline\'ına katılım ayarları',
+      },
+      fields: [
+        {
+          name: 'enabled',
+          type: 'checkbox',
+          label: 'Story Aktif',
+          defaultValue: false,
+          admin: {
+            description: 'Bu ürün story pipeline\'ına dahil edilsin mi?',
+          },
+        },
+        {
+          name: 'autoOnPublish',
+          type: 'checkbox',
+          label: 'Yayında Otomatik Story',
+          defaultValue: false,
+          admin: {
+            description: 'Ürün aktifleştirildiğinde otomatik story job oluştur',
+          },
+        },
+        {
+          name: 'skipApproval',
+          type: 'checkbox',
+          label: 'Onay Atla',
+          defaultValue: false,
+          admin: {
+            description: 'Story doğrudan yayınlansın — operatör onayı beklemesin',
+          },
+        },
+        {
+          name: 'captionMode',
+          type: 'select',
+          label: 'Açıklama Modu',
+          defaultValue: 'auto',
+          options: [
+            { label: '🤖 Otomatik', value: 'auto' },
+            { label: '✏️ Manuel', value: 'manual' },
+            { label: '📋 Şablon', value: 'template' },
+          ],
+          admin: {
+            description: 'Story açıklaması nasıl oluşturulsun?',
+          },
+        },
+        {
+          name: 'primaryAsset',
+          type: 'select',
+          label: 'Tercih Edilen Görsel',
+          defaultValue: 'main_image',
+          options: [
+            { label: '📸 Ana Ürün Görseli', value: 'main_image' },
+            { label: '🤖 AI Galeri Görseli', value: 'generative' },
+            { label: '🖼️ Özel Story Görseli', value: 'custom' },
+          ],
+          admin: {
+            description: 'Story için hangi görsel kaynağı tercih edilsin?',
+          },
+        },
+        {
+          name: 'storyTargets',
+          type: 'select',
+          label: 'Story Hedefleri',
+          hasMany: true,
+          options: [
+            { label: '📱 Telegram', value: 'telegram' },
+            { label: '📸 Instagram', value: 'instagram' },
+            { label: '💬 WhatsApp', value: 'whatsapp' },
+          ],
+          defaultValue: ['telegram'],
+          admin: {
+            description: 'Story hangi platformlara gönderilsin? (WhatsApp resmi API ile desteklenmiyor)',
+          },
+        },
+      ],
+    },
+    // ── Phase 1: Workflow State Fields ──────────────────────
+    // Bot-to-bot workflow orchestration — tracks product lifecycle stages.
+    // All fields default to safe values so existing records are unaffected.
+    {
+      name: 'workflow',
+      type: 'group',
+      label: '🔄 İş Akışı Durumu',
+      admin: {
+        description: 'Otonom bot iş akışı aşamalarını izler — ürün yaşam döngüsü',
+      },
+      fields: [
+        {
+          name: 'workflowStatus',
+          type: 'select',
+          label: 'İş Akışı Durumu',
+          defaultValue: 'draft',
+          options: [
+            { label: '📝 Taslak', value: 'draft' },
+            { label: '🖼️ Görsel Bekliyor', value: 'visual_pending' },
+            { label: '🖼️ Görsel Hazır', value: 'visual_ready' },
+            { label: '✅ Onay Bekliyor', value: 'confirmation_pending' },
+            { label: '✅ Onaylandı', value: 'confirmed' },
+            { label: '📝 İçerik Bekliyor', value: 'content_pending' },
+            { label: '📝 İçerik Hazır', value: 'content_ready' },
+            { label: '🔍 Denetim Bekliyor', value: 'audit_pending' },
+            { label: '🚀 Yayına Hazır', value: 'publish_ready' },
+            { label: '🟢 Aktif', value: 'active' },
+            { label: '🔴 Tükendi', value: 'soldout' },
+            { label: '📦 Arşivlendi', value: 'archived' },
+          ],
+          admin: {
+            description: 'Ana iş akışı aşaması — botlar arası geçişleri yönetir',
+          },
+        },
+        {
+          name: 'visualStatus',
+          type: 'select',
+          label: 'Görsel Durumu',
+          defaultValue: 'pending',
+          options: [
+            { label: '⏳ Bekliyor', value: 'pending' },
+            { label: '⚙️ Üretiliyor', value: 'generating' },
+            { label: '👁️ Önizleme', value: 'preview' },
+            { label: '✅ Onaylandı', value: 'approved' },
+            { label: '❌ Reddedildi', value: 'rejected' },
+          ],
+          admin: {
+            description: 'AI görsel üretim aşaması',
+          },
+        },
+        {
+          name: 'confirmationStatus',
+          type: 'select',
+          label: 'Onay Durumu',
+          defaultValue: 'pending',
+          options: [
+            { label: '⏳ Bekliyor', value: 'pending' },
+            { label: '✅ Onaylandı', value: 'confirmed' },
+            { label: '🚫 Engellendi', value: 'blocked' },
+          ],
+          admin: {
+            description: 'Operatör onay durumu',
+          },
+        },
+        {
+          name: 'contentStatus',
+          type: 'select',
+          label: 'İçerik Durumu',
+          defaultValue: 'pending',
+          options: [
+            { label: '⏳ Bekliyor', value: 'pending' },
+            { label: '🛒 Commerce Üretildi', value: 'commerce_generated' },
+            { label: '🔍 Discovery Üretildi', value: 'discovery_generated' },
+            { label: '✅ Hazır', value: 'ready' },
+            { label: '❌ Başarısız', value: 'failed' },
+          ],
+          admin: {
+            description: 'SEO / commerce içerik üretim durumu',
+          },
+        },
+        {
+          name: 'auditStatus',
+          type: 'select',
+          label: 'Denetim Durumu',
+          defaultValue: 'not_required',
+          options: [
+            { label: '➖ Gerekli Değil', value: 'not_required' },
+            { label: '⏳ Bekliyor', value: 'pending' },
+            { label: '✅ Onaylandı', value: 'approved' },
+            { label: '⚠️ Uyarılı Onay', value: 'approved_with_warning' },
+            { label: '🔁 Revizyon Gerekli', value: 'needs_revision' },
+            { label: '❌ Başarısız', value: 'failed' },
+          ],
+          admin: {
+            description: 'Mentix denetim durumu',
+          },
+        },
+        {
+          name: 'publishStatus',
+          type: 'select',
+          label: 'Yayın Durumu',
+          defaultValue: 'not_requested',
+          options: [
+            { label: '➖ İstenmedi', value: 'not_requested' },
+            { label: '⏳ Bekliyor', value: 'pending' },
+            { label: '✅ Yayınlandı', value: 'published' },
+            { label: '⚠️ Kısmen Yayınlandı', value: 'partial' },
+            { label: '❌ Başarısız', value: 'failed' },
+          ],
+          admin: {
+            description: 'Çoklu kanal yayın durumu',
+          },
+        },
+        {
+          name: 'stockState',
+          type: 'select',
+          label: 'Stok Durumu',
+          defaultValue: 'in_stock',
+          options: [
+            { label: '✅ Stokta', value: 'in_stock' },
+            { label: '⚠️ Az Kaldı', value: 'low_stock' },
+            { label: '🔴 Tükendi', value: 'sold_out' },
+            { label: '🔄 Tekrar Stokta', value: 'restocked' },
+          ],
+          admin: {
+            description: 'Stok durumu — soldout otomasyonu için',
+          },
+        },
+        {
+          name: 'sellable',
+          type: 'checkbox',
+          label: 'Satılabilir',
+          defaultValue: false,
+          admin: {
+            description: 'Tüm koşullar sağlandığında true — satışa hazır',
+          },
+        },
+        {
+          name: 'productConfirmedAt',
+          type: 'date',
+          label: 'Onay Tarihi',
+          admin: {
+            description: 'Operatör tarafından onaylandığı zaman',
+          },
+        },
+        {
+          name: 'lastHandledByBot',
+          type: 'select',
+          label: 'Son İşleyen Bot',
+          options: [
+            { label: 'UygunOps', value: 'uygunops' },
+            { label: 'GeoBot', value: 'geobot' },
+            { label: 'Mentix', value: 'mentix' },
+            { label: 'Sistem', value: 'system' },
+          ],
+          admin: {
+            description: 'Bu ürünü en son hangi bot/sistem işledi',
+          },
+        },
+      ],
+    },
+    // ── Phase 1: Merchandising Fields ────────────────────────
+    // Homepage section targeting — Yeni, Popüler, Çok Satanlar, Fırsatlar, İndirimli.
+    // Schema foundation only — merchandising query engine comes in Phase 2.
+    {
+      name: 'merchandising',
+      type: 'group',
+      label: '🏷️ Mağaza Vitrini',
+      admin: {
+        description: 'Ana sayfa bölümleri için vitrin kontrolleri — Yeni, Popüler, Çok Satanlar, Fırsatlar',
+      },
+      fields: [
+        {
+          name: 'publishedAt',
+          type: 'date',
+          label: 'Yayın Tarihi',
+          admin: {
+            description: '"Yeni" hesaplaması için — ilk yayın anı',
+          },
+        },
+        {
+          name: 'newUntil',
+          type: 'date',
+          label: '"Yeni" Bitiş Tarihi',
+          admin: {
+            description: 'Bu tarihe kadar "Yeni Ürünler" bölümünde görünür',
+          },
+        },
+        {
+          name: 'manualPopular',
+          type: 'checkbox',
+          label: '⭐ Manuel Popüler',
+          defaultValue: false,
+          admin: {
+            description: 'Admin tarafından popüler olarak işaretlendi',
+          },
+        },
+        {
+          name: 'manualDeal',
+          type: 'checkbox',
+          label: '🔥 Manuel Fırsat',
+          defaultValue: false,
+          admin: {
+            description: 'Admin tarafından fırsat ürünü olarak işaretlendi',
+          },
+        },
+        {
+          name: 'bestSellerPinned',
+          type: 'checkbox',
+          label: '📌 Çok Satan Sabitle',
+          defaultValue: false,
+          admin: {
+            description: 'Çok Satanlar listesinde sabitlenmiş — skordan bağımsız görünür',
+          },
+        },
+        {
+          name: 'bestSellerExcluded',
+          type: 'checkbox',
+          label: '🚫 Çok Satanlardan Hariç Tut',
+          defaultValue: false,
+          admin: {
+            description: 'Bu ürünü Çok Satanlar listesinden çıkar',
+          },
+        },
+        {
+          name: 'homepageHidden',
+          type: 'checkbox',
+          label: '👁️‍🗨️ Ana Sayfadan Gizle',
+          defaultValue: false,
+          admin: {
+            description: 'Ürün aktif ama ana sayfa bölümlerinde gösterilmez',
+          },
+        },
+        {
+          name: 'totalUnitsSold',
+          type: 'number',
+          label: 'Toplam Satış Adedi',
+          defaultValue: 0,
+          admin: {
+            readOnly: true,
+            description: 'Tüm zamanlar toplam satış — sipariş sistemi tarafından güncellenir',
+          },
+        },
+        {
+          name: 'recentUnitsSold7d',
+          type: 'number',
+          label: 'Son 7 Gün Satış',
+          defaultValue: 0,
+          admin: {
+            readOnly: true,
+            description: 'Son 7 gün satış adedi — periyodik sync ile güncellenir',
+          },
+        },
+        {
+          name: 'recentUnitsSold30d',
+          type: 'number',
+          label: 'Son 30 Gün Satış',
+          defaultValue: 0,
+          admin: {
+            readOnly: true,
+            description: 'Son 30 gün satış adedi — periyodik sync ile güncellenir',
+          },
+        },
+        {
+          name: 'bestSellerScore',
+          type: 'number',
+          label: 'Çok Satan Skoru',
+          defaultValue: 0,
+          admin: {
+            readOnly: true,
+            description: 'Ağırlıklı satış skoru — merchandising sync tarafından hesaplanır',
+          },
+        },
+        {
+          name: 'lastMerchandisingSyncAt',
+          type: 'date',
+          label: 'Son Vitrin Sync',
+          admin: {
+            readOnly: true,
+            description: 'Merchandising verileri en son ne zaman güncellendi',
+          },
+        },
+      ],
+    },
+    // ── Phase 6: Content Generation Packs (D-107) ─────────────────────
+    // Geobot-generated commerce + discovery content.
+    // Commerce Pack: channel-specific copy (website, Instagram, X, Facebook, Shopier).
+    // Discovery Pack: long-form GEO/SEO article + metadata.
+    // Both packs are generated after product confirmation (confirmationStatus=confirmed).
+    {
+      name: 'content',
+      type: 'group',
+      label: '📝 İçerik Üretim',
+      admin: {
+        description: 'Geobot tarafından üretilen ticari ve keşif içerikleri',
+      },
+      fields: [
+        // ── Commerce Pack ──────────────────────────────────────────
+        {
+          name: 'commercePack',
+          type: 'group',
+          label: '🛒 Commerce Pack',
+          admin: {
+            description: 'Kanal bazlı ürün açıklamaları ve kopya metinleri',
+          },
+          fields: [
+            {
+              name: 'websiteDescription',
+              type: 'textarea',
+              label: 'Website Açıklaması',
+              admin: {
+                description: 'Ana ürün sayfası açıklaması — HTML destekli',
+              },
+            },
+            {
+              name: 'instagramCaption',
+              type: 'textarea',
+              label: 'Instagram Caption',
+              admin: {
+                description: 'Instagram post caption — hashtag dahil',
+              },
+            },
+            {
+              name: 'xPost',
+              type: 'textarea',
+              label: 'X (Twitter) Post',
+              admin: {
+                description: 'X/Twitter kısa kopya — 280 karakter sınırı hedefli',
+              },
+            },
+            {
+              name: 'facebookCopy',
+              type: 'textarea',
+              label: 'Facebook Copy',
+              admin: {
+                description: 'Facebook post metni',
+              },
+            },
+            {
+              name: 'shopierCopy',
+              type: 'textarea',
+              label: 'Shopier Copy',
+              admin: {
+                description: 'Shopier ürün sayfası açıklaması',
+              },
+            },
+            {
+              name: 'highlights',
+              type: 'json',
+              label: 'Öne Çıkan Noktalar',
+              admin: {
+                description: 'Ürün öne çıkan özellikleri — JSON dizisi ["madde1", "madde2", ...]',
+              },
+            },
+            {
+              name: 'confidence',
+              type: 'number',
+              label: 'Güven Skoru',
+              admin: {
+                readOnly: true,
+                description: 'AI üretim güven skoru (0-100)',
+              },
+            },
+            {
+              name: 'warnings',
+              type: 'json',
+              label: 'Uyarılar',
+              admin: {
+                readOnly: true,
+                description: 'AI üretim sırasında oluşan uyarılar — JSON dizisi',
+              },
+            },
+            {
+              name: 'generatedAt',
+              type: 'date',
+              label: 'Üretim Zamanı',
+              admin: {
+                readOnly: true,
+                description: 'Commerce pack ne zaman üretildi',
+              },
+            },
+          ],
+        },
+        // ── Discovery Pack ─────────────────────────────────────────
+        {
+          name: 'discoveryPack',
+          type: 'group',
+          label: '🔍 Discovery Pack',
+          admin: {
+            description: 'GEO/SEO uzun içerik, meta veriler ve bağlantı hedefleri',
+          },
+          fields: [
+            {
+              name: 'articleTitle',
+              type: 'text',
+              label: 'Makale Başlığı',
+              admin: {
+                description: 'GEO/SEO makale ana başlığı',
+              },
+            },
+            {
+              name: 'articleBody',
+              type: 'textarea',
+              label: 'Makale İçeriği',
+              admin: {
+                description: 'Uzun form GEO/SEO makale gövdesi — Markdown/HTML destekli',
+              },
+            },
+            {
+              name: 'metaTitle',
+              type: 'text',
+              label: 'Meta Title',
+              admin: {
+                description: 'SEO meta title — max 60 karakter hedefli',
+              },
+            },
+            {
+              name: 'metaDescription',
+              type: 'textarea',
+              label: 'Meta Description',
+              admin: {
+                description: 'SEO meta description — max 160 karakter hedefli',
+              },
+            },
+            {
+              name: 'faq',
+              type: 'json',
+              label: 'SSS (FAQ)',
+              admin: {
+                description: 'Sıkça sorulan sorular — JSON: [{q: "...", a: "..."}, ...]',
+              },
+            },
+            {
+              name: 'keywordEntities',
+              type: 'json',
+              label: 'Anahtar Kelimeler / Varlıklar',
+              admin: {
+                description: 'Anahtar kelime ve entity kümesi — JSON dizisi',
+              },
+            },
+            {
+              name: 'internalLinkTargets',
+              type: 'json',
+              label: 'İç Bağlantı Hedefleri',
+              admin: {
+                description: 'Önerilen iç bağlantılar — JSON: [{slug: "...", anchor: "..."}, ...]',
+              },
+            },
+            {
+              name: 'confidence',
+              type: 'number',
+              label: 'Güven Skoru',
+              admin: {
+                readOnly: true,
+                description: 'AI üretim güven skoru (0-100)',
+              },
+            },
+            {
+              name: 'warnings',
+              type: 'json',
+              label: 'Uyarılar',
+              admin: {
+                readOnly: true,
+                description: 'AI üretim sırasında oluşan uyarılar — JSON dizisi',
+              },
+            },
+            {
+              name: 'generatedAt',
+              type: 'date',
+              label: 'Üretim Zamanı',
+              admin: {
+                readOnly: true,
+                description: 'Discovery pack ne zaman üretildi',
+              },
+            },
+          ],
+        },
+        // ── Blog linkage ──────────────────────────────────────────
+        {
+          name: 'linkedBlogPost',
+          type: 'relationship',
+          label: 'Bağlı Blog Yazısı',
+          relationTo: 'blog-posts',
+          admin: {
+            description: 'Discovery pack\'ten oluşturulan blog yazısı — otomatik bağlanır',
+          },
+        },
+        {
+          name: 'contentGenerationSource',
+          type: 'select',
+          label: 'Üretim Kaynağı',
+          defaultValue: 'none',
+          options: [
+            { label: '➖ Yok', value: 'none' },
+            { label: '🤖 Geobot', value: 'geobot' },
+            { label: '👤 Manuel', value: 'manual' },
+            { label: '📥 İçe Aktarım', value: 'import' },
+          ],
+          admin: {
+            readOnly: true,
+            description: 'İçerik hangi kaynak tarafından üretildi',
+          },
+        },
+        {
+          name: 'lastContentGenerationAt',
+          type: 'date',
+          label: 'Son İçerik Üretimi',
+          admin: {
+            readOnly: true,
+            description: 'İçerik en son ne zaman üretildi/güncellendi',
+          },
+        },
+      ],
+    },
+    // ── Phase 8: Mentix Audit Results (D-109) ─────────────────────────
+    // Structured audit results from Mentix review layer.
+    // Records per-dimension assessment + overall publish readiness.
+    {
+      name: 'auditResult',
+      type: 'group',
+      label: '🔍 Denetim Sonuçları',
+      admin: {
+        description: 'Mentix denetim katmanı sonuçları — görsel, ticari, keşif ve genel hazırlık',
+      },
+      fields: [
+        {
+          name: 'visualAudit',
+          type: 'select',
+          label: 'Görsel Denetimi',
+          defaultValue: 'not_reviewed',
+          options: [
+            { label: '➖ İncelenmedi', value: 'not_reviewed' },
+            { label: '✅ Geçti', value: 'pass' },
+            { label: '⚠️ Uyarılı Geçti', value: 'pass_with_warning' },
+            { label: '❌ Başarısız', value: 'fail' },
+          ],
+          admin: { description: 'Görsel hazırlık değerlendirmesi' },
+        },
+        {
+          name: 'commerceAudit',
+          type: 'select',
+          label: 'Commerce Denetimi',
+          defaultValue: 'not_reviewed',
+          options: [
+            { label: '➖ İncelenmedi', value: 'not_reviewed' },
+            { label: '✅ Geçti', value: 'pass' },
+            { label: '⚠️ Uyarılı Geçti', value: 'pass_with_warning' },
+            { label: '❌ Başarısız', value: 'fail' },
+          ],
+          admin: { description: 'Commerce pack içerik kalitesi değerlendirmesi' },
+        },
+        {
+          name: 'discoveryAudit',
+          type: 'select',
+          label: 'Discovery Denetimi',
+          defaultValue: 'not_reviewed',
+          options: [
+            { label: '➖ İncelenmedi', value: 'not_reviewed' },
+            { label: '✅ Geçti', value: 'pass' },
+            { label: '⚠️ Uyarılı Geçti', value: 'pass_with_warning' },
+            { label: '❌ Başarısız', value: 'fail' },
+          ],
+          admin: { description: 'Discovery/GEO pack kalite değerlendirmesi' },
+        },
+        {
+          name: 'overallResult',
+          type: 'select',
+          label: 'Genel Sonuç',
+          defaultValue: 'not_reviewed',
+          options: [
+            { label: '➖ İncelenmedi', value: 'not_reviewed' },
+            { label: '✅ Onaylandı', value: 'approved' },
+            { label: '⚠️ Uyarılı Onay', value: 'approved_with_warning' },
+            { label: '🔁 Revizyon Gerekli', value: 'needs_revision' },
+            { label: '❌ Başarısız', value: 'failed' },
+          ],
+          admin: { description: 'Genel yayın hazırlık sonucu' },
+        },
+        {
+          name: 'approvedForPublish',
+          type: 'checkbox',
+          label: 'Yayına Onaylı',
+          defaultValue: false,
+          admin: {
+            readOnly: true,
+            description: 'true = tüm denetim boyutları geçti, ürün yayına hazır',
+          },
+        },
+        {
+          name: 'warnings',
+          type: 'json',
+          label: 'Uyarılar',
+          admin: {
+            readOnly: true,
+            description: 'Denetim uyarıları — JSON dizisi',
+          },
+        },
+        {
+          name: 'revisionNotes',
+          type: 'textarea',
+          label: 'Revizyon Notları',
+          admin: {
+            description: 'Düzeltilmesi gereken konular — operatör veya Mentix tarafından yazılır',
+          },
+        },
+        {
+          name: 'auditedAt',
+          type: 'date',
+          label: 'Denetim Zamanı',
+          admin: {
+            readOnly: true,
+            description: 'Son denetim ne zaman yapıldı',
+          },
+        },
+        {
+          name: 'auditedByBot',
+          type: 'select',
+          label: 'Denetleyen Bot',
+          options: [
+            { label: 'Mentix', value: 'mentix' },
+            { label: 'Operatör', value: 'operator' },
+            { label: 'Sistem', value: 'system' },
+          ],
+          admin: {
+            readOnly: true,
+            description: 'Denetimi yapan bot/kişi',
           },
         },
       ],

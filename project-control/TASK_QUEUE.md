@@ -1,6 +1,6 @@
 # TASK QUEUE — Uygunayakkabi
 
-_Last updated: 2026-04-01 (HARD RESET RECOVERY PASS — one provider must be proven end-to-end)_
+_Last updated: 2026-04-04 (Phase 13 Prep — D-115; Phase 13 D-114; Phase 12 D-113; Phase 11 D-112; Phase 10 D-111; Phases 1-9 complete)_
 
 ---
 
@@ -79,6 +79,89 @@ D-100 tested older models and found them all text-to-image only. This model was 
 - Instagram long-lived token expires ~2026-05-20
 - Options: implement n8n scheduled refresh OR switch to System User token (no expiry)
 - Manual fallback: visit `https://uygunayakkabi.com/api/auth/instagram/initiate`
+
+### Phase 4 — Story Pipeline Wiring: Remaining Items
+- ✅ Wire dispatchStory() into Products afterChange hook (non-blocking) — D-105
+- ✅ Telegram Story operator commands: `/story`, `/restory`, `/targets`, `/approve_story`, `/reject_story` — D-105
+- ✅ Story approval flow via Telegram inline keyboards (approve/reject/retry callbacks) — D-105
+- Story asset transformation (portrait crop/resize for story format) — DEFERRED
+- Story scheduled publishing (scheduledFor field) — DEFERRED
+- DB migration: create story_jobs table + products story columns + storyTargets array in Neon — REQUIRED BEFORE PRODUCTION USE
+
+### Phase 7 — Geobot AI Runtime: Completed + Remaining
+- ✅ Content schema + state model — D-107
+- ✅ Auto-trigger after confirmation — D-107
+- ✅ BotEvent flow — D-107/D-108
+- ✅ Geobot AI runtime (Gemini 2.5 Flash) — real commerce + discovery generation — D-108
+- ✅ Auto-create BlogPost from discovery pack — draft with SEO fields — D-108
+- ✅ Truthful state transitions (partial success, graceful GEMINI_API_KEY absence) — D-108
+
+### Phase 8 — Mentix Audit + Content Review (Builds on D-108) — PARTIALLY DONE (D-109)
+- ✅ Mentix audit layer: auditStatus flow for content quality before publish — D-109
+- ✅ 4-dimension audit (visual, commerce, discovery, overall) with auto-trigger — D-109
+- ✅ /audit Telegram command: show status + force run — D-109
+- ✅ BotEvents: audit.requested/started/approved/needs_revision/failed — D-109
+- Telegram content preview: operator can view generated content inline — DEFERRED
+- Content approval/rejection inline keyboards — DEFERRED
+- Content regeneration: retry individual packs — DEFERRED
+- workflowStatus progression: content_ready → audit_pending → approved → publish_ready — ✅ IMPLEMENTED
+- Publish-ready automation: after audit approval, product eligible for autonomous publish — ✅ approvedForPublish flag
+- DB migration: create auditResult columns + content group columns + blog linkage in products table in Neon — REQUIRED BEFORE PRODUCTION USE
+
+### Merchandising Integration (Builds on D-102 Schema + D-103 Logic + D-110 Stock Autonomy)
+- ✅ Merchandising helper library: `src/lib/merchandising.ts` (D-103 — DONE)
+- ✅ Soldout automation: stockState → soldout flow via stockReaction.ts (D-110 — DONE)
+- ✅ Merchandising exclusion: soldout products excluded via isHomepageEligible() (D-103 + D-110 — DONE)
+- Homepage API route: call `resolveHomepageSections()` with real Payload data
+- Storefront UI: render Yeni / Popüler / Çok Satanlar / Fırsatlar / İndirimli sections
+- Merchandising sync cron: periodic job to update bestSellerScore on products from order data
+- Telegram merchandising commands: `#yeni`, `#populer`, `#deal` etc.
+- BotEvents orchestration: event-driven workflow transitions
+- Mentix audit integration: auditStatus flow via BotEvents
+- DB migration: manually create new columns/tables in Neon production after deploy
+
+### Phase 10 — Homepage + Order + Stock Recovery (D-111) — DONE
+- ✅ Homepage integration: page.tsx uses isHomepageEligible() + resolveHomepageSections() server-side
+- ✅ Admin stock edit hook: Variants.ts afterChange triggers reactToStockChange
+- ✅ Orders afterChange: auto-decrements stock on non-Shopier order creation
+- ✅ Refund stock restoration: Shopier webhook restores stock on order cancellation
+- ✅ Low-stock Telegram alerts: sendStockAlertToTelegram on soldout/restock/low_stock
+
+### Phase 11 — Homepage Merchandising UI + Telegram Merch Commands (D-112) — DONE
+- ✅ Server → client section data: page.tsx builds sectionIds, passes as prop to App
+- ✅ UygunApp renders 5 real merchandising sections with client-side fallbacks
+- ✅ /merch preview: section summaries with product counts and names
+- ✅ /merch status: per-product merchandising state and section membership
+- ✅ /merch popular/deal/bestseller commands: operator control of merchandising fields
+
+### Phase 12 — Final Publish Autonomy + Orchestration Polish (D-113) — DONE
+- ✅ Central publish readiness evaluation: `src/lib/publishReadiness.ts` with 6-dimension check
+- ✅ Readiness wired into mentixAudit: workflowStatus='publish_ready' only when ALL dimensions pass
+- ✅ /pipeline Telegram command: full 10-stage lifecycle view + readiness + coherence check
+- ✅ State coherence validation: detectStateIncoherence() catches contradictory states
+- ✅ product.publish_ready BotEvent emitted when fully ready
+
+### Phase 13 — Production Hardening + Migration Pack (D-114) — DONE
+- ✅ MIGRATION_NOTES.md: 14 collections, 3 globals, 80+ Products columns, SQL DDL, migration order
+- ✅ DEPLOY_CHECKLIST.md: 43+ env vars, deploy sequence, security, post-deploy validation
+- ✅ SMOKE_TESTS.md: 15 test scenarios + 12-step e2e plan
+- ✅ PRODUCTION_TRUTH_MATRIX.md: honest status of every subsystem
+- ✅ /diagnostics Telegram command: DB, env, events, orders, products, runtime
+
+### Phase 13 Prep — Production Hardening Execution (D-115) — DONE
+- ✅ Hardcoded secret cleanup: generate-api-key/route.ts migrated to GENERATE_API_KEY_SECRET env var
+- ✅ .env.example rewrite: 7 missing vars added, 3 stale vars removed, classified sections
+- ✅ MIGRATION_NOTES.md: exact DDL capture procedure (5-step)
+- ✅ DEPLOY_CHECKLIST.md + PRODUCTION_TRUTH_MATRIX.md: updated with D-115 status
+- ✅ No production mutations — prep only
+
+### Phase 14 — Next Steps (Builds on D-114/D-115)
+- Deploy Phases 1-13 to production with proper Neon migration
+- Run smoke test plan and validate all subsystems
+- Shopier stock sync-back: poll Shopier inventory → update local stock
+- Merchandising sync cron: periodic bestSellerScore recalculation from order data
+- Website checkout/cart/payment integration (PayTR or equivalent)
+- Auto-publish operator approval flow: publish_ready → operator confirms → activate
 
 ### D-056–D-059 Duplicate ID Cleanup
 - DECISIONS.md has two definitions each for D-056, D-057, D-058, D-059
@@ -214,6 +297,24 @@ Infrastructure, collections, schema, storefront — all validated in production.
 - 6 runbooks, 3 golden cases, trace schema
 - Dashboard v2 (7-tab HTML)
 - Governance: SYSTEM_PROMPT.md + MENTIX_SYSTEM_PROMPT.md
+</details>
+
+<details>
+<summary>Phase 1–5 Schema + Merchandising + Story Pipeline + Confirmation Wizard (2026-04-03 → 2026-04-04) ✅</summary>
+
+- Phase 1 (D-102): Workflow + merchandising fields on Products, HomepageMerchandisingSettings global, BotEvents collection
+- Phase 2 (D-103): Merchandising logic library — 5 homepage sections, bestseller scoring, new window, membership resolution
+- Phase 3 (D-104): Story pipeline foundation — StoryJobs collection, storySettings, storyTargets, storyDispatch, storyTargets libs
+- Phase 4 (D-105): Story pipeline wiring — afterChange hook trigger, Telegram operator commands, approval keyboards, no-fake-publish rule
+- Phase 5 (D-106): Product confirmation wizard — `/confirm` command, guided field collection, inline keyboards, BotEvent emission
+- Phase 6 (D-107): Geobot content pack foundation — content schema, contentPack.ts helpers, auto-trigger after confirmation, `/content` command
+- Phase 7 (D-108): Geobot AI runtime wiring — real Gemini generation, commerce+discovery packs, BlogPost auto-creation, truthful states
+- Phase 8 (D-109): Mentix audit + content review — 4-dimension audit runtime, auto-trigger after content.ready, `/audit` command, BotEvents
+- Phase 9 (D-110): Order/stock/soldout autonomy — central stockReaction.ts, Shopier/Telegram integration, BotEvents, `/stok` command
+- Phase 10 (D-111): Homepage + order + stock recovery — merchandising server-side filtering, Variants/Orders afterChange hooks, refund restoration, low-stock alerts
+- Phase 11 (D-112): Homepage merchandising UI + Telegram merch commands — UygunApp renders 5 real sections from server data, /merch operator commands for popular/deal/bestseller control
+- Phase 12 (D-113): Final publish autonomy + orchestration polish — central readiness evaluation (6 dimensions), /pipeline command, state coherence validation, readiness wired into audit flow
+- Phase 13 (D-114): Production hardening + migration pack — MIGRATION_NOTES.md, DEPLOY_CHECKLIST.md, SMOKE_TESTS.md, PRODUCTION_TRUTH_MATRIX.md, /diagnostics command
 </details>
 
 <details>

@@ -1,6 +1,8 @@
 import App from "./UygunApp";
 import type { DbProduct, DbBanner, SiteSettings } from "./UygunApp";
 import { getPayload } from "@/lib/payload";
+import { resolveHomepageSections, isHomepageEligible } from "@/lib/merchandising";
+import type { MerchandisableProduct, MerchandisingSettings } from "@/lib/merchandising";
 
 // Force server-side rendering on every request so admin changes reflect immediately.
 // Without this, Next.js statically caches the page at build time and DB products never update.
@@ -61,21 +63,65 @@ export default async function Page() {
   try {
     const payload = await getPayload();
 
-    // Fetch products
+    // Fetch products — include soldout so we can apply merchandising rules server-side
+    // Products with status 'draft' are excluded; 'active' and 'soldout' are fetched,
+    // then merchandising filters (isHomepageEligible) exclude soldout/non-sellable from sections.
     const result = await payload.find({
       collection: 'products',
-      where: { status: { equals: 'active' } },
+      where: {
+        status: { in: ['active', 'soldout'] },
+      },
       depth: 2,
-      limit: 100,
+      limit: 200,
       sort: '-createdAt',
     });
+
+    // ── Phase 10: Merchandising section resolution ────────────────────
+    // Fetch HomepageMerchandisingSettings for section toggles/limits
+    let merchSettings: MerchandisingSettings | null = null;
+    try {
+      const settingsDoc = await payload.findGlobal({ slug: 'homepage-merchandising-settings' });
+      merchSettings = settingsDoc as unknown as MerchandisingSettings;
+    } catch {
+      // HomepageMerchandisingSettings may not exist yet — use defaults
+    }
+
+    // Apply merchandising eligibility filter — excludes soldout, non-sellable, hidden products
+    const eligibleProducts = result.docs.filter((p: any) =>
+      isHomepageEligible(p as MerchandisableProduct),
+    );
+
+    // Resolve sections (for future use when UygunApp supports section props)
+    // For now, this validates the merchandising engine works correctly server-side
+    const sections = resolveHomepageSections(
+      eligibleProducts as unknown as MerchandisableProduct[],
+      merchSettings,
+    );
+    // Log section counts for observability
+    console.log(
+      `[Page] Merchandising sections — yeni:${sections.yeni.length} popular:${sections.popular.length} ` +
+        `bestSellers:${sections.bestSellers.length} deals:${sections.deals.length} discounted:${sections.discounted.length} ` +
+        `(${eligibleProducts.length} eligible / ${result.docs.length} total)`,
+    );
+
+    // Build section membership as product ID arrays for client-side rendering
+    const sectionIds = {
+      yeni: sections.yeni.map((p: any) => `db_${p.id}`),
+      popular: sections.popular.map((p: any) => `db_${p.id}`),
+      bestSellers: sections.bestSellers.map((p: any) => `db_${p.id}`),
+      deals: sections.deals.map((p: any) => `db_${p.id}`),
+      discounted: sections.discounted.map((p: any) => `db_${p.id}`),
+    };
+
+    // Use only eligible products for the homepage (soldout excluded)
+    const productsForHomepage = eligibleProducts;
 
     // ── Reverse media lookup ──────────────────────────────────────────
     // Some admins link images by setting "İlgili Ürün" on the Media record
     // instead of adding images via the Product's images array.
     // Fetch all media docs that have a product reference so we can use them
     // as fallback images when the product's own images array is empty.
-    const productIds = result.docs.map((p: any) => p.id);
+    const productIds = productsForHomepage.map((p: any) => p.id);
     let reverseMediaMap = new Map<number | string, any[]>();
     if (productIds.length > 0) {
       try {
@@ -97,7 +143,7 @@ export default async function Page() {
       }
     }
 
-    dbProducts = result.docs.map((p: any) => {
+    dbProducts = productsForHomepage.map((p: any) => {
       const shoeImg = getShoeImage(p.category || 'gunluk');
       // Primary: images from the product's own images array
       const mediaUrls = getAllMediaUrls(p.images || []);
@@ -215,5 +261,5 @@ export default async function Page() {
     console.error('[Page] DB ürünleri yüklenemedi:', err);
   }
 
-  return <App dbProducts={dbProducts} siteSettings={siteSettings} banners={banners} />;
+  return <App dbProducts={dbProducts} siteSettings={siteSettings} banners={banners} sections={sectionIds} />;
 }

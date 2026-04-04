@@ -5,8 +5,14 @@ import crypto from 'crypto'
 
 // One-time API key generation endpoint
 export async function POST(req: NextRequest) {
+  const expectedSecret = process.env.GENERATE_API_KEY_SECRET
+  if (!expectedSecret) {
+    console.warn('[generate-api-key] GENERATE_API_KEY_SECRET env var not set')
+    return NextResponse.json({ error: 'Service not configured' }, { status: 500 })
+  }
+
   const secret = req.headers.get('x-generate-secret')
-  if (secret !== 'uygun-setup-2026-mentix') {
+  if (secret !== expectedSecret) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 

@@ -57,10 +57,19 @@ export interface SiteSettings {
   };
 }
 
+export interface HomepageSections {
+  yeni: string[];
+  popular: string[];
+  bestSellers: string[];
+  deals: string[];
+  discounted: string[];
+}
+
 export interface AppProps {
   dbProducts?: DbProduct[];
   siteSettings?: SiteSettings | null;
   banners?: DbBanner[];
+  sections?: HomepageSections | null;
 }
 
 declare const App: FC<AppProps>;

@@ -478,14 +478,24 @@ function Foot({ onNav, settings }) {
 // ============================================
 // HOME PAGE — SpaceX hero + Apple sections + Tesla cards
 // ============================================
-function Home({ onNav, onView, allProducts, settings, banners = [] }) {
+function Home({ onNav, onView, allProducts, settings, banners = [], sections = null }) {
   const S = settings || DEFAULT_SETTINGS;
   const trust = S.trustBadges || DEFAULT_SETTINGS.trustBadges;
   const contact = S.contact || DEFAULT_SETTINGS.contact;
 
-  const sportProducts = allProducts.filter(p => p.category === "Spor");
-  const dailyProducts = allProducts.filter(p => p.category === "Günlük");
-  const discountProducts = allProducts.filter(p => p.originalPrice && p.price < p.originalPrice);
+  // Helper: resolve product ID array to product objects
+  const resolve = (ids) => {
+    if (!ids || ids.length === 0) return [];
+    const idSet = new Set(ids);
+    return ids.map(id => allProducts.find(p => p.id === id)).filter(Boolean);
+  };
+
+  // Merchandising sections from server (Phase 11) — fallback to client-side filtering
+  const yeniProducts = sections?.yeni?.length ? resolve(sections.yeni) : allProducts.slice(0, 8);
+  const popularProducts = sections?.popular?.length ? resolve(sections.popular) : [];
+  const bestSellerProducts = sections?.bestSellers?.length ? resolve(sections.bestSellers) : allProducts.slice(0, 12);
+  const dealProducts = sections?.deals?.length ? resolve(sections.deals) : [];
+  const discountProducts = sections?.discounted?.length ? resolve(sections.discounted) : allProducts.filter(p => p.originalPrice && p.price < p.originalPrice);
 
   return (
     <div style={{ background: T.bg }}>
@@ -562,9 +572,19 @@ function Home({ onNav, onView, allProducts, settings, banners = [] }) {
         </div>
       </section>
 
-      {/* ═══ BEST SELLERS — Apple horizontal scroll ═══ */}
-      {allProducts.length > 0 && (
-        <HScrollSection title="Çok Satanlar" subtitle="Popüler" items={allProducts.slice(0, 12)} onView={onView} />
+      {/* ═══ YENİ ÜRÜNLER — Merchandising engine ═══ */}
+      {yeniProducts.length > 0 && (
+        <HScrollSection title="Yeni Ürünler" subtitle="Yeni Gelenler" items={yeniProducts} onView={onView} />
+      )}
+
+      {/* ═══ POPÜLER — Merchandising engine ═══ */}
+      {popularProducts.length > 0 && (
+        <HScrollSection title="Popüler" subtitle="Çok Tercih Edilen" items={popularProducts} onView={onView} />
+      )}
+
+      {/* ═══ ÇOK SATANLAR — Merchandising engine ═══ */}
+      {bestSellerProducts.length > 0 && (
+        <HScrollSection title="Çok Satanlar" subtitle="En Çok Satan" items={bestSellerProducts} onView={onView} />
       )}
 
       {/* ═══ CATEGORIES — Dark grid, Apple-style tiles ═══ */}
@@ -597,9 +617,14 @@ function Home({ onNav, onView, allProducts, settings, banners = [] }) {
         </div>
       </section>
 
-      {/* ═══ DISCOUNT PRODUCTS — Apple scroll section ═══ */}
+      {/* ═══ FIRSATLAR — Merchandising engine ═══ */}
+      {dealProducts.length > 0 && (
+        <HScrollSection title="Fırsatlar" subtitle="Kaçırmayın" items={dealProducts} onView={onView} />
+      )}
+
+      {/* ═══ İNDİRİMLİ ÜRÜNLER — Merchandising engine ═══ */}
       {discountProducts.length > 0 && (
-        <HScrollSection title="İndirimli Ürünler" subtitle="Fırsatlar" items={discountProducts} onView={onView} />
+        <HScrollSection title="İndirimli Ürünler" subtitle="İndirim" items={discountProducts} onView={onView} />
       )}
 
       {/* ═══ PROMO BANNER — SpaceX immersive dark ═══ */}
@@ -836,7 +861,7 @@ function Detail({ product: p, onBack, settings, onNav }) {
 // ============================================
 const ENABLE_STATIC_FALLBACK = false;
 
-export default function App({ dbProducts = [], siteSettings = null, banners = [] }) {
+export default function App({ dbProducts = [], siteSettings = null, banners = [], sections = null }) {
   const S = siteSettings || DEFAULT_SETTINGS;
   const [pg, sPg] = useState("home");
   const [sel, sSel] = useState(null);
@@ -881,7 +906,7 @@ export default function App({ dbProducts = [], siteSettings = null, banners = []
       <GlobalStyles />
       <TopBar settings={S} />
       <Navbar onNav={nav} pg={pg} settings={S} />
-      {pg === "home" && <Home onNav={nav} onView={view} allProducts={allProducts} settings={S} banners={banners} />}
+      {pg === "home" && <Home onNav={nav} onView={view} allProducts={allProducts} settings={S} banners={banners} sections={sections} />}
       {pg === "catalog" && <Catalog key={initCat} initCat={initCat} onView={view} allProducts={allProducts} onNav={nav} settings={S} />}
       {pg === "detail" && sel && <Detail product={sel} onBack={() => nav("catalog")} settings={S} onNav={nav} />}
     </div>

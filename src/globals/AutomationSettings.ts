@@ -272,6 +272,127 @@ export const AutomationSettings: GlobalConfig = {
         },
       ],
     },
+    // ── Story Pipeline Ayarları ─────────────────────────────────
+    // Phase 3: Configurable story targets for multi-platform story publishing.
+    // Each target represents a platform endpoint (Telegram, Instagram, WhatsApp).
+    // WhatsApp is blocked_officially — no official story/status API exists.
+    {
+      name: 'storyTargets',
+      type: 'array',
+      label: '📖 Story Hedefleri',
+      admin: {
+        description:
+          'Story yayınlanacak platformları tanımlayın. ' +
+          'Telegram desteklenir. WhatsApp resmi API ile story yayını desteklenmiyor.',
+        initCollapsed: true,
+      },
+      fields: [
+        {
+          name: 'id',
+          type: 'text',
+          label: 'Hedef ID',
+          required: true,
+          admin: {
+            description: 'Benzersiz tanımlayıcı — ör: telegram-main, instagram-story',
+          },
+        },
+        {
+          name: 'platform',
+          type: 'select',
+          label: 'Platform',
+          required: true,
+          options: [
+            { label: '📱 Telegram', value: 'telegram' },
+            { label: '📸 Instagram', value: 'instagram' },
+            { label: '💬 WhatsApp (Desteklenmiyor)', value: 'whatsapp' },
+          ],
+          admin: {
+            description: 'Hedef platform — WhatsApp resmi API ile story yayını desteklenmiyor',
+          },
+        },
+        {
+          name: 'label',
+          type: 'text',
+          label: 'Etiket',
+          admin: {
+            description: 'Görünen ad — ör: "Ana Telegram Story"',
+          },
+        },
+        {
+          name: 'enabled',
+          type: 'checkbox',
+          label: 'Aktif',
+          defaultValue: true,
+          admin: {
+            description: 'Bu hedef aktif mi?',
+          },
+        },
+        {
+          name: 'mode',
+          type: 'select',
+          label: 'Mod',
+          defaultValue: 'story',
+          options: [
+            { label: '📖 Story', value: 'story' },
+            { label: '📊 Status', value: 'status' },
+            { label: '🎬 Reel', value: 'reel' },
+          ],
+          admin: {
+            description: 'Yayın tipi',
+          },
+        },
+        {
+          name: 'businessConnectionId',
+          type: 'text',
+          label: 'Business Connection ID',
+          admin: {
+            description: 'Telegram Business API bağlantı ID\'si (opsiyonel)',
+          },
+        },
+        {
+          name: 'defaultAudience',
+          type: 'text',
+          label: 'Varsayılan Hedef Kitle',
+          admin: {
+            description: 'Varsayılan story hedef kitlesi (opsiyonel)',
+          },
+        },
+        {
+          name: 'defaultLink',
+          type: 'text',
+          label: 'Varsayılan Link',
+          admin: {
+            description: 'Story\'ye eklenecek varsayılan URL — ör: uygunayakkabi.com',
+          },
+        },
+        {
+          name: 'defaultCaptionTemplate',
+          type: 'textarea',
+          label: 'Varsayılan Açıklama Şablonu',
+          admin: {
+            description: 'Story açıklama şablonu — {title}, {price}, {sizes} değişkenleri kullanılabilir',
+          },
+        },
+        {
+          name: 'priority',
+          type: 'number',
+          label: 'Öncelik',
+          defaultValue: 1,
+          admin: {
+            description: 'Düşük sayı = yüksek öncelik. Çoklu hedeflerde sıralama için.',
+          },
+        },
+        {
+          name: 'requiresApproval',
+          type: 'checkbox',
+          label: 'Onay Gerekli',
+          defaultValue: false,
+          admin: {
+            description: 'Bu hedefe yayın yapmadan önce operatör onayı gerekli mi?',
+          },
+        },
+      ],
+    },
     // ── Telegram Ayarları ─────────────────────────────────────
     {
       name: 'telegram',

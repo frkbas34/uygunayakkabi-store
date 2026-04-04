@@ -669,6 +669,258 @@ export async function POST(req: NextRequest) {
         await answerCallbackQuery(cbQueryId, '⛔ Luma devre dışı — #gorsel kullanın')
       }
 
+      // ── Phase 4: Story callback handlers ───────────────────────────────────
+      // storyapprove:{jobId} — approve a story job
+      if (cbData.startsWith('storyapprove:')) {
+        const jobId = cbData.split(':')[1]
+        try {
+          const job = await (await getPayload()).findByID({ collection: 'story-jobs', id: jobId })
+          if (!job) {
+            await answerCallbackQuery(cbQueryId, '❌ Story job bulunamadı')
+          } else if ((job as Record<string, unknown>).approvalState === 'approved') {
+            await answerCallbackQuery(cbQueryId, '✅ Zaten onaylandı')
+          } else {
+            // Move to approved — actual publish will happen when Telegram Story API is confirmed
+            await (await getPayload()).update({
+              collection: 'story-jobs',
+              id: jobId,
+              data: {
+                approvalState: 'approved',
+                status: 'approved',
+              },
+            })
+            await answerCallbackQuery(cbQueryId, '✅ Story onaylandı')
+            await sendTelegramMessage(
+              cbChatId,
+              `✅ Story #${jobId} onaylandı.\n\n` +
+                '⚠️ Telegram Bot API henüz story yayını desteklemiyor.\n' +
+                'Durum: approved — gerçek yayın Telegram Story API aktif olduğunda çalışacak.',
+            )
+          }
+        } catch (err) {
+          await answerCallbackQuery(cbQueryId, '❌ Hata oluştu')
+          console.error('[telegram/webhook] storyapprove callback failed:', err)
+        }
+      }
+
+      // storyreject:{jobId} — reject a story job
+      if (cbData.startsWith('storyreject:')) {
+        const jobId = cbData.split(':')[1]
+        try {
+          await (await getPayload()).update({
+            collection: 'story-jobs',
+            id: jobId,
+            data: {
+              approvalState: 'rejected',
+              status: 'failed',
+              errorLog: JSON.stringify({ reason: 'Rejected by operator', at: new Date().toISOString() }),
+            },
+          })
+          await answerCallbackQuery(cbQueryId, '❌ Story reddedildi')
+          await sendTelegramMessage(cbChatId, `❌ Story #${jobId} reddedildi.`)
+        } catch (err) {
+          await answerCallbackQuery(cbQueryId, '❌ Hata oluştu')
+          console.error('[telegram/webhook] storyreject callback failed:', err)
+        }
+      }
+
+      // storyretry:{jobId} — retry a failed story job
+      if (cbData.startsWith('storyretry:')) {
+        const jobId = cbData.split(':')[1]
+        try {
+          const job = await (await getPayload()).findByID({ collection: 'story-jobs', id: jobId })
+          const attempts = ((job as Record<string, unknown>)?.attemptCount as number) ?? 0
+          await (await getPayload()).update({
+            collection: 'story-jobs',
+            id: jobId,
+            data: {
+              status: 'queued',
+              approvalState: 'not_required',
+              attemptCount: attempts + 1,
+              errorLog: '',
+            },
+          })
+          await answerCallbackQuery(cbQueryId, '🔄 Yeniden kuyruğa alındı')
+          await sendTelegramMessage(
+            cbChatId,
+            `🔄 Story #${jobId} yeniden kuyruğa alındı (deneme ${attempts + 1}).`,
+          )
+        } catch (err) {
+          await answerCallbackQuery(cbQueryId, '❌ Hata oluştu')
+          console.error('[telegram/webhook] storyretry callback failed:', err)
+        }
+      }
+
+      // ── Phase 5: Confirmation wizard callback handlers ───────────────────
+      // wz_cat:{value} — category selection
+      if (cbData.startsWith('wz_cat:')) {
+        try {
+          const { getWizardSession, setWizardSession, getNextWizardStep, getPricePrompt, getSizesPrompt, getTargetsPrompt } =
+            await import('@/lib/confirmationWizard')
+          const session = getWizardSession(cbChatId)
+          if (!session || session.step !== 'category') {
+            await answerCallbackQuery(cbQueryId, '⚠️ Aktif sihirbaz yok')
+            return NextResponse.json({ ok: true })
+          }
+          const catValue = cbData.replace('wz_cat:', '')
+          session.collected.category = catValue
+          await answerCallbackQuery(cbQueryId, `✅ Kategori: ${catValue}`)
+
+          // Determine next step
+          const payloadInst = await getPayload()
+          const product = await payloadInst.findByID({ collection: 'products', id: session.productId })
+          const nextStep = getNextWizardStep(product as any, session.collected)
+          session.step = nextStep
+          setWizardSession(cbChatId, session)
+
+          if (nextStep === 'price') {
+            await sendTelegramMessage(cbChatId, getPricePrompt())
+          } else if (nextStep === 'sizes') {
+            await sendTelegramMessage(cbChatId, getSizesPrompt())
+          } else if (nextStep === 'targets') {
+            const tgtPrompt = getTargetsPrompt()
+            await sendTelegramMessageWithKeyboard(cbChatId, tgtPrompt.text, tgtPrompt.keyboard)
+          } else if (nextStep === 'summary') {
+            // Jump to summary
+            const { formatConfirmationSummary } = await import('@/lib/confirmationWizard')
+            const summary = formatConfirmationSummary(product as any, session.collected)
+            await sendTelegramMessageWithKeyboard(cbChatId, summary, [
+              [
+                { text: '✅ Onayla', callback_data: `wz_confirm:${session.productId}` },
+                { text: '❌ İptal', callback_data: `wz_cancel:${session.productId}` },
+              ],
+            ])
+            session.step = 'summary'
+            setWizardSession(cbChatId, session)
+          }
+        } catch (err) {
+          await answerCallbackQuery(cbQueryId, '❌ Hata')
+          console.error('[telegram/webhook] wz_cat callback failed:', err)
+        }
+        return NextResponse.json({ ok: true })
+      }
+
+      // wz_tgt:{value} — channel target selection (multi-select)
+      if (cbData.startsWith('wz_tgt:')) {
+        try {
+          const { getWizardSession, setWizardSession, formatConfirmationSummary, CHANNEL_OPTIONS } =
+            await import('@/lib/confirmationWizard')
+          const session = getWizardSession(cbChatId)
+          if (!session || session.step !== 'targets') {
+            await answerCallbackQuery(cbQueryId, '⚠️ Aktif sihirbaz yok')
+            return NextResponse.json({ ok: true })
+          }
+
+          const tgtValue = cbData.replace('wz_tgt:', '')
+
+          if (tgtValue === 'done') {
+            // Finalize targets
+            if (!session.collected.channelTargets || session.collected.channelTargets.length === 0) {
+              session.collected.channelTargets = ['website'] // Default fallback
+            }
+            await answerCallbackQuery(cbQueryId, `✅ Hedefler: ${session.collected.channelTargets.join(', ')}`)
+
+            // Show summary
+            const payloadInst = await getPayload()
+            const product = await payloadInst.findByID({ collection: 'products', id: session.productId })
+            const summary = formatConfirmationSummary(product as any, session.collected)
+            await sendTelegramMessageWithKeyboard(cbChatId, summary, [
+              [
+                { text: '✅ Onayla', callback_data: `wz_confirm:${session.productId}` },
+                { text: '❌ İptal', callback_data: `wz_cancel:${session.productId}` },
+              ],
+            ])
+            session.step = 'summary'
+            setWizardSession(cbChatId, session)
+          } else if (tgtValue === 'all') {
+            session.collected.channelTargets = CHANNEL_OPTIONS.map((o) => o.value)
+            await answerCallbackQuery(cbQueryId, `✅ Tümü seçildi`)
+            setWizardSession(cbChatId, session)
+          } else {
+            // Toggle individual target
+            if (!session.collected.channelTargets) session.collected.channelTargets = []
+            const idx = session.collected.channelTargets.indexOf(tgtValue)
+            if (idx >= 0) {
+              session.collected.channelTargets.splice(idx, 1)
+              await answerCallbackQuery(cbQueryId, `➖ ${tgtValue} çıkarıldı`)
+            } else {
+              session.collected.channelTargets.push(tgtValue)
+              await answerCallbackQuery(cbQueryId, `➕ ${tgtValue} eklendi`)
+            }
+            setWizardSession(cbChatId, session)
+          }
+        } catch (err) {
+          await answerCallbackQuery(cbQueryId, '❌ Hata')
+          console.error('[telegram/webhook] wz_tgt callback failed:', err)
+        }
+        return NextResponse.json({ ok: true })
+      }
+
+      // wz_confirm:{productId} — final confirmation
+      if (cbData.startsWith('wz_confirm:')) {
+        try {
+          const { getWizardSession, clearWizardSession, applyConfirmation } =
+            await import('@/lib/confirmationWizard')
+          const session = getWizardSession(cbChatId)
+          if (!session || session.step !== 'summary') {
+            await answerCallbackQuery(cbQueryId, '⚠️ Aktif onay oturumu yok')
+            return NextResponse.json({ ok: true })
+          }
+
+          const payloadInst = await getPayload()
+          const product = await payloadInst.findByID({ collection: 'products', id: session.productId })
+
+          const result = await applyConfirmation(
+            payloadInst,
+            session.productId,
+            session.collected,
+            product as any,
+            { context: {} } as any, // minimal req — applyConfirmation adds isDispatchUpdate
+          )
+
+          if (result.success) {
+            await answerCallbackQuery(cbQueryId, '✅ Ürün onaylandı!')
+            const variantNote = result.variantsCreated
+              ? `\n📐 ${result.variantsCreated} beden varyantı oluşturuldu.`
+              : ''
+            await sendTelegramMessage(
+              cbChatId,
+              `✅ <b>Ürün #${session.productId} onaylandı!</b>${variantNote}\n\n` +
+                `📋 confirmationStatus = confirmed\n` +
+                `🤖 lastHandledByBot = uygunops\n` +
+                `📝 BotEvent: product.confirmed kaydedildi.\n` +
+                `📝 Geobot içerik üretimi tetiklendi (content.requested).\n\n` +
+                `📊 Durum: <code>/content ${session.productId}</code>`,
+            )
+          } else {
+            await answerCallbackQuery(cbQueryId, '❌ Onay başarısız')
+            await sendTelegramMessage(
+              cbChatId,
+              `❌ Onay hatası: ${result.error}`,
+            )
+          }
+          clearWizardSession(cbChatId)
+        } catch (err) {
+          await answerCallbackQuery(cbQueryId, '❌ Hata')
+          console.error('[telegram/webhook] wz_confirm callback failed:', err)
+        }
+        return NextResponse.json({ ok: true })
+      }
+
+      // wz_cancel:{productId} — cancel wizard
+      if (cbData.startsWith('wz_cancel:')) {
+        try {
+          const { clearWizardSession } = await import('@/lib/confirmationWizard')
+          clearWizardSession(cbChatId)
+          await answerCallbackQuery(cbQueryId, '❌ İptal edildi')
+          await sendTelegramMessage(cbChatId, '❌ Onay sihirbazı iptal edildi.')
+        } catch (err) {
+          await answerCallbackQuery(cbQueryId, '❌ Hata')
+          console.error('[telegram/webhook] wz_cancel callback failed:', err)
+        }
+        return NextResponse.json({ ok: true })
+      }
+
       return NextResponse.json({ ok: true })
     }
 
@@ -684,6 +936,111 @@ export async function POST(req: NextRequest) {
     const messageId: number = message.message_id
 
     const payload = await getPayload()
+
+    // ── Phase 5: Confirmation wizard text input interceptor ───────────────────
+    // If there's an active wizard session expecting text input (price, sizes, stock),
+    // intercept the message BEFORE any other command processing.
+    if (text && !text.startsWith('/') && !text.startsWith('#') && !text.startsWith('STOCK ')) {
+      const { getWizardSession, setWizardSession, clearWizardSession,
+              parsePrice, parseSizes, parseStockNumber, getNextWizardStep,
+              getSizesPrompt, getStockPrompt, getTargetsPrompt, getPricePrompt,
+              formatConfirmationSummary } = await import('@/lib/confirmationWizard')
+      const wizSession = getWizardSession(chatId)
+
+      if (wizSession) {
+        try {
+          if (wizSession.step === 'price') {
+            const price = parsePrice(text)
+            if (!price) {
+              await sendTelegramMessage(chatId, '⚠️ Geçersiz fiyat. Örnek: <code>899</code> veya <code>1299.90</code>')
+              return NextResponse.json({ ok: true })
+            }
+            wizSession.collected.price = price
+            await sendTelegramMessage(chatId, `✅ Fiyat: ₺${price}`)
+
+            const product = await payload.findByID({ collection: 'products', id: wizSession.productId })
+            const nextStep = getNextWizardStep(product as any, wizSession.collected)
+            wizSession.step = nextStep
+            setWizardSession(chatId, wizSession)
+
+            if (nextStep === 'sizes') {
+              await sendTelegramMessage(chatId, getSizesPrompt())
+            } else if (nextStep === 'targets') {
+              const tgtPrompt = getTargetsPrompt()
+              await sendTelegramMessageWithKeyboard(chatId, tgtPrompt.text, tgtPrompt.keyboard)
+            } else if (nextStep === 'summary') {
+              const summary = formatConfirmationSummary(product as any, wizSession.collected)
+              await sendTelegramMessageWithKeyboard(chatId, summary, [
+                [
+                  { text: '✅ Onayla', callback_data: `wz_confirm:${wizSession.productId}` },
+                  { text: '❌ İptal', callback_data: `wz_cancel:${wizSession.productId}` },
+                ],
+              ])
+              wizSession.step = 'summary'
+              setWizardSession(chatId, wizSession)
+            }
+            return NextResponse.json({ ok: true })
+          }
+
+          if (wizSession.step === 'sizes') {
+            const sizes = parseSizes(text)
+            if (!sizes) {
+              await sendTelegramMessage(chatId, '⚠️ Geçersiz beden formatı. Örnek: <code>38-44</code> veya <code>38,39,40,41,42</code>')
+              return NextResponse.json({ ok: true })
+            }
+            wizSession.collected.sizes = sizes.join(',')
+            await sendTelegramMessage(chatId, `✅ Bedenler: ${sizes.join(', ')}`)
+
+            // Next: stock per size
+            wizSession.step = 'stock'
+            setWizardSession(chatId, wizSession)
+            await sendTelegramMessage(chatId, getStockPrompt(sizes))
+            return NextResponse.json({ ok: true })
+          }
+
+          if (wizSession.step === 'stock') {
+            const stock = parseStockNumber(text)
+            if (stock === null) {
+              await sendTelegramMessage(chatId, '⚠️ Geçersiz stok sayısı. Pozitif tam sayı girin.')
+              return NextResponse.json({ ok: true })
+            }
+            wizSession.collected.stockPerSize = stock
+            const sizes = wizSession.collected.sizes?.split(',') ?? []
+            const total = sizes.length * stock
+            await sendTelegramMessage(chatId, `✅ Her bedenden ${stock} adet → Toplam: ${total}`)
+
+            const product = await payload.findByID({ collection: 'products', id: wizSession.productId })
+            const nextStep = getNextWizardStep(product as any, wizSession.collected)
+            wizSession.step = nextStep
+            setWizardSession(chatId, wizSession)
+
+            if (nextStep === 'targets') {
+              const tgtPrompt = getTargetsPrompt()
+              await sendTelegramMessageWithKeyboard(chatId, tgtPrompt.text, tgtPrompt.keyboard)
+            } else if (nextStep === 'summary') {
+              const summary = formatConfirmationSummary(product as any, wizSession.collected)
+              await sendTelegramMessageWithKeyboard(chatId, summary, [
+                [
+                  { text: '✅ Onayla', callback_data: `wz_confirm:${wizSession.productId}` },
+                  { text: '❌ İptal', callback_data: `wz_cancel:${wizSession.productId}` },
+                ],
+              ])
+              wizSession.step = 'summary'
+              setWizardSession(chatId, wizSession)
+            }
+            return NextResponse.json({ ok: true })
+          }
+
+          // If wizard is active but step doesn't expect text input, let it fall through
+          // (e.g., summary step waiting for button, or targets step waiting for button)
+        } catch (wizErr) {
+          console.error('[telegram/webhook] wizard text interceptor failed:', wizErr)
+          clearWizardSession(chatId)
+          await sendTelegramMessage(chatId, '❌ Sihirbaz hatası. /confirm komutuyla tekrar başlayabilirsiniz.')
+          return NextResponse.json({ ok: true })
+        }
+      }
+    }
 
     // ── Fotoğraf → otomatik ürün oluştur ──────────────────────────────────────
     // Artık "bunu ürüne çevir" yazmak GEREKM. Her fotoğraf otomatik ürüne dönüşür.
@@ -954,9 +1311,9 @@ export async function POST(req: NextRequest) {
         if (!brand) missing.push('Marka')
 
         const missingBlock = missing.length > 0
-          ? `\n💡 <i>Admin'den tamamla: ${missing.join(', ')} — </i>` +
-            `<a href="https://www.uygunayakkabi.com/admin/collections/products/${productId}">aç</a>`
-          : ''
+          ? `\n💡 <i>Eksik: ${missing.join(', ')}</i>` +
+            `\n📋 <code>/confirm ${productId}</code> — Onay sihirbazıyla tamamla`
+          : `\n📋 <code>/confirm ${productId}</code> — Ürünü onayla`
 
         const confidenceBar = parsedCaption?.parseConfidence
           ? ` (${parsedCaption.parseConfidence}% güven)`
@@ -1646,6 +2003,989 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: true })
     }
 
+    // ── Phase 11: Merchandising Commands ────────────────────────────────────
+    // /merch status <id> — show merchandising state
+    // /merch popular add/remove <id> — toggle manual popular flag
+    // /merch deal add/remove <id> — toggle manual deal flag
+    // /merch bestseller pin/unpin/exclude/include <id> — bestseller controls
+    // /merch preview — show section summaries
+    if (text.startsWith('/merch')) {
+      const parts = text.trim().split(/\s+/)
+      const subCmd = parts[1]?.toLowerCase()
+
+      // /merch (no arg) — help
+      if (!subCmd) {
+        await sendTelegramMessage(
+          chatId,
+          '🏪 <b>Merchandising Yönetimi</b>\n\n' +
+            '/merch status <id> — Ürün merchandising durumu\n' +
+            '/merch preview — Bölüm özetleri\n' +
+            '/merch popular add <id> — Popüler olarak işaretle\n' +
+            '/merch popular remove <id> — Popüler işaretini kaldır\n' +
+            '/merch deal add <id> — Fırsat olarak işaretle\n' +
+            '/merch deal remove <id> — Fırsat işaretini kaldır\n' +
+            '/merch bestseller pin <id> — Çok Satanlar\'a sabitle\n' +
+            '/merch bestseller unpin <id> — Sabitlemeyi kaldır\n' +
+            '/merch bestseller exclude <id> — Çok Satanlar\'dan hariç tut\n' +
+            '/merch bestseller include <id> — Hariç tutmayı kaldır',
+        )
+        return NextResponse.json({ ok: true })
+      }
+
+      // /merch preview — show section summaries
+      if (subCmd === 'preview') {
+        try {
+          const { resolveHomepageSections, isHomepageEligible } = await import('@/lib/merchandising')
+          const allProducts = await payload.find({
+            collection: 'products',
+            where: { status: { in: ['active', 'soldout'] } },
+            depth: 0,
+            limit: 200,
+          })
+          const eligible = allProducts.docs.filter((p: any) => isHomepageEligible(p as any))
+          const sections = resolveHomepageSections(eligible as any)
+
+          const lines = [
+            `🏪 <b>Merchandising Önizleme</b>`,
+            ``,
+            `Toplam: ${allProducts.docs.length} ürün | Uygun: ${eligible.length}`,
+            ``,
+            `📌 <b>Yeni:</b> ${sections.yeni.length} ürün`,
+            ...sections.yeni.slice(0, 3).map((p: any) => `  • ${p.title ?? `#${p.id}`}`),
+            sections.yeni.length > 3 ? `  ... +${sections.yeni.length - 3} daha` : '',
+            ``,
+            `⭐ <b>Popüler:</b> ${sections.popular.length} ürün`,
+            ...sections.popular.slice(0, 3).map((p: any) => `  • ${p.title ?? `#${p.id}`}`),
+            sections.popular.length > 3 ? `  ... +${sections.popular.length - 3} daha` : '',
+            ``,
+            `🏆 <b>Çok Satanlar:</b> ${sections.bestSellers.length} ürün`,
+            ...sections.bestSellers.slice(0, 3).map((p: any) => `  • ${p.title ?? `#${p.id}`}`),
+            sections.bestSellers.length > 3 ? `  ... +${sections.bestSellers.length - 3} daha` : '',
+            ``,
+            `🔥 <b>Fırsatlar:</b> ${sections.deals.length} ürün`,
+            ...sections.deals.slice(0, 3).map((p: any) => `  • ${p.title ?? `#${p.id}`}`),
+            sections.deals.length > 3 ? `  ... +${sections.deals.length - 3} daha` : '',
+            ``,
+            `💰 <b>İndirimli:</b> ${sections.discounted.length} ürün`,
+            ...sections.discounted.slice(0, 3).map((p: any) => `  • ${p.title ?? `#${p.id}`}`),
+            sections.discounted.length > 3 ? `  ... +${sections.discounted.length - 3} daha` : '',
+          ].filter(l => l !== '')
+
+          await sendTelegramMessage(chatId, lines.join('\n'))
+        } catch (err) {
+          await sendTelegramMessage(chatId, `❌ Hata: ${err instanceof Error ? err.message : String(err)}`)
+        }
+        return NextResponse.json({ ok: true })
+      }
+
+      // /merch status <id> — show merchandising state for a product
+      if (subCmd === 'status') {
+        const productId = parseInt(parts[2] ?? '')
+        if (isNaN(productId)) {
+          await sendTelegramMessage(chatId, '⚠️ Kullanım: /merch status <productId>')
+          return NextResponse.json({ ok: true })
+        }
+
+        try {
+          const product = await payload.findByID({ collection: 'products', id: productId, depth: 0 })
+          if (!product) {
+            await sendTelegramMessage(chatId, `❌ Ürün #${productId} bulunamadı.`)
+            return NextResponse.json({ ok: true })
+          }
+
+          const { isHomepageEligible, isNewProduct, isPopularProduct, isBestSellerProduct, isDealProduct, isDiscountedProduct } = await import('@/lib/merchandising')
+          const p = product as any
+          const m = p.merchandising ?? {}
+          const eligible = isHomepageEligible(p)
+
+          const lines = [
+            `🏪 <b>Merchandising — ${p.title ?? `Ürün #${productId}`}</b>`,
+            ``,
+            `<b>Durum:</b> ${p.status} | sellable: ${p.workflow?.sellable ?? '—'} | stockState: ${p.workflow?.stockState ?? '—'}`,
+            `<b>Homepage uygun:</b> ${eligible ? '✅ Evet' : '❌ Hayır'}`,
+            ``,
+            `<b>Bölüm Üyelikleri:</b>`,
+            `  ${isNewProduct(p) ? '✅' : '❌'} Yeni (publishedAt: ${m.publishedAt ? new Date(m.publishedAt).toLocaleDateString('tr-TR') : '—'}, newUntil: ${m.newUntil ? new Date(m.newUntil).toLocaleDateString('tr-TR') : '—'})`,
+            `  ${isPopularProduct(p) ? '✅' : '❌'} Popüler (manualPopular: ${m.manualPopular ?? false})`,
+            `  ${isBestSellerProduct(p) ? '✅' : '❌'} Çok Satanlar (score: ${m.bestSellerScore ?? 0}, pinned: ${m.bestSellerPinned ?? false}, excluded: ${m.bestSellerExcluded ?? false})`,
+            `  ${isDealProduct(p) ? '✅' : '❌'} Fırsat (manualDeal: ${m.manualDeal ?? false})`,
+            `  ${isDiscountedProduct(p) ? '✅' : '❌'} İndirimli (price: ${p.price}, original: ${p.originalPrice ?? '—'})`,
+            ``,
+            `<b>Diğer:</b>`,
+            `  homepageHidden: ${m.homepageHidden ?? false}`,
+            `  totalUnitsSold: ${m.totalUnitsSold ?? 0}`,
+          ]
+
+          await sendTelegramMessage(chatId, lines.join('\n'))
+        } catch (err) {
+          await sendTelegramMessage(chatId, `❌ Hata: ${err instanceof Error ? err.message : String(err)}`)
+        }
+        return NextResponse.json({ ok: true })
+      }
+
+      // /merch popular add/remove <id>
+      // /merch deal add/remove <id>
+      // /merch bestseller pin/unpin/exclude/include <id>
+      const action = parts[2]?.toLowerCase()
+      const targetId = parseInt(parts[3] ?? parts[2] ?? '')
+
+      // Validate command structure
+      if (!['popular', 'deal', 'bestseller'].includes(subCmd)) {
+        await sendTelegramMessage(chatId, '⚠️ Bilinmeyen alt komut. /merch yazarak yardım alın.')
+        return NextResponse.json({ ok: true })
+      }
+
+      if (!action || isNaN(targetId)) {
+        await sendTelegramMessage(chatId, `⚠️ Kullanım: /merch ${subCmd} <action> <productId>`)
+        return NextResponse.json({ ok: true })
+      }
+
+      try {
+        const product = await payload.findByID({ collection: 'products', id: targetId, depth: 0 })
+        if (!product) {
+          await sendTelegramMessage(chatId, `❌ Ürün #${targetId} bulunamadı.`)
+          return NextResponse.json({ ok: true })
+        }
+
+        const currentMerch = (product as any).merchandising ?? {}
+        let updateField: string | null = null
+        let updateValue: boolean | null = null
+        let actionLabel = ''
+
+        if (subCmd === 'popular') {
+          if (action === 'add') { updateField = 'manualPopular'; updateValue = true; actionLabel = 'Popüler olarak işaretlendi' }
+          else if (action === 'remove') { updateField = 'manualPopular'; updateValue = false; actionLabel = 'Popüler işareti kaldırıldı' }
+        } else if (subCmd === 'deal') {
+          if (action === 'add') { updateField = 'manualDeal'; updateValue = true; actionLabel = 'Fırsat olarak işaretlendi' }
+          else if (action === 'remove') { updateField = 'manualDeal'; updateValue = false; actionLabel = 'Fırsat işareti kaldırıldı' }
+        } else if (subCmd === 'bestseller') {
+          if (action === 'pin') { updateField = 'bestSellerPinned'; updateValue = true; actionLabel = 'Çok Satanlar\'a sabitlendi' }
+          else if (action === 'unpin') { updateField = 'bestSellerPinned'; updateValue = false; actionLabel = 'Sabitleme kaldırıldı' }
+          else if (action === 'exclude') { updateField = 'bestSellerExcluded'; updateValue = true; actionLabel = 'Çok Satanlar\'dan hariç tutuldu' }
+          else if (action === 'include') { updateField = 'bestSellerExcluded'; updateValue = false; actionLabel = 'Hariç tutma kaldırıldı' }
+        }
+
+        if (!updateField || updateValue === null) {
+          await sendTelegramMessage(chatId, `⚠️ Bilinmeyen aksiyon: ${subCmd} ${action}. /merch yazarak yardım alın.`)
+          return NextResponse.json({ ok: true })
+        }
+
+        await payload.update({
+          collection: 'products',
+          id: targetId,
+          data: {
+            merchandising: {
+              ...currentMerch,
+              [updateField]: updateValue,
+            },
+          },
+          context: { isDispatchUpdate: true },
+        })
+
+        const { isHomepageEligible } = await import('@/lib/merchandising')
+        const updated = await payload.findByID({ collection: 'products', id: targetId, depth: 0 })
+        const eligible = isHomepageEligible(updated as any)
+
+        await sendTelegramMessage(
+          chatId,
+          `✅ <b>${(product as any).title ?? `Ürün #${targetId}`}</b>\n\n` +
+            `${actionLabel}\n` +
+            `Homepage uygun: ${eligible ? '✅' : '❌'}\n\n` +
+            `/merch status ${targetId} — Detaylı durum`,
+        )
+      } catch (err) {
+        await sendTelegramMessage(chatId, `❌ Hata: ${err instanceof Error ? err.message : String(err)}`)
+      }
+      return NextResponse.json({ ok: true })
+    }
+
+    // ── Phase 12: Pipeline Status Command ─────────────────────────────────
+    // /pipeline {productId} — full lifecycle pipeline visibility
+    if (text.startsWith('/pipeline')) {
+      const parts = text.trim().split(/\s+/)
+      const arg = parts[1]
+
+      if (!arg) {
+        await sendTelegramMessage(
+          chatId,
+          '🔄 <b>Pipeline Durumu</b>\n\n' +
+            '/pipeline <id> — Ürünün tüm yaşam döngüsünü göster\n\n' +
+            'Intake → Görsel → Onay → İçerik → Audit → Yayın Hazırlığı → Yayın → Stok → Vitrin → Story\n\n' +
+            'Her aşamanın güncel durumu tek bakışta görünür.',
+        )
+        return NextResponse.json({ ok: true })
+      }
+
+      const productId = parseInt(arg)
+      if (isNaN(productId)) {
+        await sendTelegramMessage(chatId, '⚠️ Geçersiz ürün ID.')
+        return NextResponse.json({ ok: true })
+      }
+
+      try {
+        const product = await payload.findByID({ collection: 'products', id: productId, depth: 1 })
+        if (!product) {
+          await sendTelegramMessage(chatId, `❌ Ürün #${productId} bulunamadı.`)
+          return NextResponse.json({ ok: true })
+        }
+
+        const {
+          computePipelineStatus, formatPipelineMessage,
+          evaluatePublishReadiness, formatReadinessMessage,
+          detectStateIncoherence, formatCoherenceMessage,
+        } = await import('@/lib/publishReadiness')
+
+        const pipeline = computePipelineStatus(product as any)
+        const pipelineMsg = formatPipelineMessage(pipeline)
+
+        const readiness = evaluatePublishReadiness(product as any)
+        const readinessMsg = formatReadinessMessage(product as any, readiness)
+
+        const coherenceIssues = detectStateIncoherence(product as any)
+        const coherenceMsg = coherenceIssues.length > 0
+          ? '\n\n' + formatCoherenceMessage(product as any, coherenceIssues)
+          : ''
+
+        await sendTelegramMessage(chatId, pipelineMsg + '\n\n' + readinessMsg + coherenceMsg)
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err)
+        await sendTelegramMessage(chatId, `❌ Hata: ${msg}`)
+      }
+      return NextResponse.json({ ok: true })
+    }
+
+    // ── Phase 13: System Diagnostics Command ────────────────────────────────
+    // /diagnostics — lightweight system health check
+    if (text.startsWith('/diagnostics')) {
+      try {
+        const lines: string[] = ['🔧 <b>System Diagnostics</b>', '']
+
+        // 1. Database connectivity
+        try {
+          const productCount = await payload.count({ collection: 'products' })
+          lines.push(`✅ <b>DB:</b> Connected — ${productCount.totalDocs} products`)
+        } catch {
+          lines.push('❌ <b>DB:</b> Connection failed')
+        }
+
+        // 2. Environment check
+        const envChecks = [
+          { name: 'TELEGRAM_BOT_TOKEN', val: !!process.env.TELEGRAM_BOT_TOKEN },
+          { name: 'GEMINI_API_KEY', val: !!process.env.GEMINI_API_KEY },
+          { name: 'SHOPIER_PAT', val: !!process.env.SHOPIER_PAT },
+          { name: 'BLOB_READ_WRITE_TOKEN', val: !!process.env.BLOB_READ_WRITE_TOKEN },
+          { name: 'CLAID_API_KEY', val: !!process.env.CLAID_API_KEY },
+          { name: 'OPENAI_API_KEY', val: !!process.env.OPENAI_API_KEY },
+        ]
+        const envOk = envChecks.filter(e => e.val).length
+        const envMissing = envChecks.filter(e => !e.val).map(e => e.name)
+        lines.push(`${envOk === envChecks.length ? '✅' : '🟡'} <b>Env:</b> ${envOk}/${envChecks.length} keys set${envMissing.length > 0 ? ` — missing: ${envMissing.join(', ')}` : ''}`)
+
+        // 3. Recent BotEvents
+        try {
+          const recentEvents = await payload.find({ collection: 'bot-events', limit: 1, sort: '-createdAt' })
+          if (recentEvents.docs.length > 0) {
+            const latest = recentEvents.docs[0] as any
+            lines.push(`✅ <b>Events:</b> Latest: ${latest.eventType} (${latest.status}) — ${new Date(latest.createdAt).toLocaleString('tr-TR')}`)
+          } else {
+            lines.push('➖ <b>Events:</b> No BotEvents recorded')
+          }
+        } catch {
+          lines.push('❌ <b>Events:</b> BotEvents query failed (table may not exist)')
+        }
+
+        // 4. Recent orders
+        try {
+          const recentOrders = await payload.find({ collection: 'orders', limit: 1, sort: '-createdAt' })
+          lines.push(`✅ <b>Orders:</b> ${recentOrders.totalDocs} total`)
+        } catch {
+          lines.push('❌ <b>Orders:</b> Query failed')
+        }
+
+        // 5. Active/soldout counts
+        try {
+          const activeCount = await payload.count({ collection: 'products', where: { status: { equals: 'active' } } })
+          const soldoutCount = await payload.count({ collection: 'products', where: { status: { equals: 'soldout' } } })
+          const draftCount = await payload.count({ collection: 'products', where: { status: { equals: 'draft' } } })
+          lines.push(`📊 <b>Products:</b> ${activeCount.totalDocs} active, ${soldoutCount.totalDocs} soldout, ${draftCount.totalDocs} draft`)
+        } catch {
+          lines.push('❌ <b>Products:</b> Count query failed')
+        }
+
+        // 6. Runtime
+        lines.push(`⚙️ <b>Runtime:</b> NODE_ENV=${process.env.NODE_ENV || 'undefined'}`)
+        lines.push(`🕐 <b>Server time:</b> ${new Date().toLocaleString('tr-TR', { timeZone: 'Europe/Istanbul' })}`)
+
+        await sendTelegramMessage(chatId, lines.join('\n'))
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err)
+        await sendTelegramMessage(chatId, `❌ Diagnostics error: ${msg}`)
+      }
+      return NextResponse.json({ ok: true })
+    }
+
+    // ── Phase 9: Stock Status Command ──────────────────────────────────────
+    // /stok {productId} — show stock status and state
+    if (text.startsWith('/stok')) {
+      const parts = text.trim().split(/\s+/)
+      const arg = parts[1]
+
+      if (!arg) {
+        await sendTelegramMessage(
+          chatId,
+          '📦 <b>Stok Durumu</b>\n\n' +
+            '/stok <id> — Ürün stok durumunu göster\n\n' +
+            'Tüm beden stokları, efektif stok, workflow durumu görüntülenir.',
+        )
+        return NextResponse.json({ ok: true })
+      }
+
+      const productId = parseInt(arg)
+      if (isNaN(productId)) {
+        await sendTelegramMessage(chatId, '⚠️ Geçersiz ürün ID.')
+        return NextResponse.json({ ok: true })
+      }
+
+      try {
+        const product = await payload.findByID({ collection: 'products', id: productId, depth: 0 })
+        if (!product) {
+          await sendTelegramMessage(chatId, `❌ Ürün #${productId} bulunamadı.`)
+          return NextResponse.json({ ok: true })
+        }
+
+        const { getStockSnapshot, formatStockStatusMessage } = await import('@/lib/stockReaction')
+        const snapshot = await getStockSnapshot(payload, productId, product.stockQuantity as number)
+        const statusMsg = formatStockStatusMessage(product as any, snapshot)
+        await sendTelegramMessage(chatId, statusMsg)
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err)
+        await sendTelegramMessage(chatId, `❌ Hata: ${msg}`)
+      }
+      return NextResponse.json({ ok: true })
+    }
+
+    // ── Phase 8: Mentix Audit Commands ─────────────────────────────────────
+    // /audit {productId} — show audit status or run audit
+    // /audit {productId} run — force re-run audit
+    if (text.startsWith('/audit')) {
+      const parts = text.trim().split(/\s+/)
+      const arg = parts[1]
+      const subCommand = parts[2]?.toLowerCase()
+
+      // /audit (no arg) — show help
+      if (!arg) {
+        await sendTelegramMessage(
+          chatId,
+          '🔍 <b>Mentix Audit</b>\n\n' +
+            '/audit <id> — Audit durumunu göster\n' +
+            '/audit <id> run — Auditi çalıştır veya yeniden çalıştır\n\n' +
+            'İçerik hazır olduktan sonra (contentStatus=ready) audit otomatik tetiklenir.\n' +
+            '4 boyut: Görsel, Ticari, Keşif, Genel değerlendirme.',
+        )
+        return NextResponse.json({ ok: true })
+      }
+
+      const productId = parseInt(arg)
+      if (isNaN(productId)) {
+        await sendTelegramMessage(chatId, '⚠️ Geçersiz ürün ID.')
+        return NextResponse.json({ ok: true })
+      }
+
+      try {
+        const product = await payload.findByID({ collection: 'products', id: productId, depth: 1 })
+        if (!product) {
+          await sendTelegramMessage(chatId, `❌ Ürün #${productId} bulunamadı.`)
+          return NextResponse.json({ ok: true })
+        }
+
+        // /audit {id} run — force run audit
+        if (subCommand === 'run') {
+          const { isAuditEligible, triggerAudit, formatAuditStatusMessage } = await import('@/lib/mentixAudit')
+          if (!isAuditEligible(product as any)) {
+            const reason = (product as any).workflow?.confirmationStatus !== 'confirmed'
+              ? 'Ürün henüz onaylanmadı. Önce /confirm kullanın.'
+              : (product as any).workflow?.contentStatus === 'pending'
+                ? 'İçerik henüz üretilmedi. Önce /content <id> trigger kullanın.'
+                : 'Audit uygun değil — ürün durumunu kontrol edin.'
+            await sendTelegramMessage(chatId, `⚠️ Audit çalıştırılamadı:\n${reason}`)
+            return NextResponse.json({ ok: true })
+          }
+
+          const result = await triggerAudit(
+            payload,
+            product as any,
+            'telegram_command',
+            { context: {} } as any,
+          )
+
+          if (result.triggered && result.auditResult) {
+            const ar = result.auditResult
+            const statusEmoji = ar.overallResult === 'approved' ? '✅' :
+              ar.overallResult === 'approved_with_warning' ? '⚠️' :
+              ar.overallResult === 'needs_revision' ? '🔄' :
+              ar.overallResult === 'failed' ? '❌' : '⏳'
+            await sendTelegramMessage(
+              chatId,
+              `${statusEmoji} <b>Mentix Audit — Ürün #${productId}</b>\n\n` +
+                `📋 overallResult = ${ar.overallResult}\n` +
+                `${ar.approvedForPublish ? '✅ Yayına uygun!' : '⛔ Yayına uygun değil.'}\n\n` +
+                `👁 Görsel: ${ar.visual.result} | 🛒 Ticari: ${ar.commerce.result} | 🔍 Keşif: ${ar.discovery.result}\n` +
+                (ar.allWarnings.length > 0 ? `\n⚠️ Uyarılar:\n${ar.allWarnings.map(w => `• ${w}`).join('\n')}\n` : '') +
+                `\n📝 BotEvent: audit sonuç olayı kaydedildi.`,
+            )
+          } else {
+            await sendTelegramMessage(chatId, `❌ Audit hatası: ${result.error}`)
+          }
+          return NextResponse.json({ ok: true })
+        }
+
+        // /audit {id} — show audit status
+        const { formatAuditStatusMessage } = await import('@/lib/mentixAudit')
+        const statusMsg = formatAuditStatusMessage(product as any)
+        await sendTelegramMessage(chatId, statusMsg)
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err)
+        await sendTelegramMessage(chatId, `❌ Hata: ${msg}`)
+      }
+      return NextResponse.json({ ok: true })
+    }
+
+    // ── Phase 6: Content Pack Commands ──────────────────────────────────────
+    // /content {productId} — show content status or trigger generation
+    // /content {productId} trigger — manually trigger content generation
+    if (text.startsWith('/content')) {
+      const parts = text.trim().split(/\s+/)
+      const arg = parts[1]
+      const subCommand = parts[2]?.toLowerCase()
+
+      // /content (no arg) — show help
+      if (!arg) {
+        await sendTelegramMessage(
+          chatId,
+          '📝 <b>İçerik Yönetimi (Geobot)</b>\n\n' +
+            '/content <id> — İçerik durumunu göster\n' +
+            '/content <id> trigger — İçerik üretimini tetikle (Gemini AI)\n\n' +
+            'Ürün onaylandıktan sonra Geobot içerik üretimi otomatik tetiklenir.\n' +
+            'Commerce Pack (5 kanal) + Discovery Pack (SEO makale) üretir.',
+        )
+        return NextResponse.json({ ok: true })
+      }
+
+      const productId = parseInt(arg)
+      if (isNaN(productId)) {
+        await sendTelegramMessage(chatId, '⚠️ Geçersiz ürün ID.')
+        return NextResponse.json({ ok: true })
+      }
+
+      try {
+        const product = await payload.findByID({ collection: 'products', id: productId, depth: 0 })
+        if (!product) {
+          await sendTelegramMessage(chatId, `❌ Ürün #${productId} bulunamadı.`)
+          return NextResponse.json({ ok: true })
+        }
+
+        // /content {id} trigger — manually trigger content generation
+        if (subCommand === 'trigger') {
+          const { isContentEligible, triggerContentGeneration } = await import('@/lib/contentPack')
+          if (!isContentEligible(product as any)) {
+            const reason = (product as any).workflow?.confirmationStatus !== 'confirmed'
+              ? 'Ürün henüz onaylanmadı. Önce /confirm kullanın.'
+              : 'İçerik zaten hazır (contentStatus=ready).'
+            await sendTelegramMessage(chatId, `⚠️ İçerik üretimi uygun değil:\n${reason}`)
+            return NextResponse.json({ ok: true })
+          }
+
+          const result = await triggerContentGeneration(
+            payload,
+            product as any,
+            'telegram_command',
+            { context: {} } as any,
+          )
+
+          if (result.triggered) {
+            const statusEmoji = result.contentStatus === 'ready' ? '✅' :
+              result.contentStatus === 'commerce_generated' ? '🛒' :
+              result.contentStatus === 'discovery_generated' ? '🔍' :
+              result.contentStatus === 'failed' ? '❌' : '⏳'
+            await sendTelegramMessage(
+              chatId,
+              `${statusEmoji} <b>İçerik üretimi — Ürün #${productId}</b>\n\n` +
+                `📋 contentStatus = ${result.contentStatus}\n` +
+                `🤖 lastHandledByBot = geobot\n` +
+                `📝 BotEvent: content.requested + sonuç olayları kaydedildi.\n\n` +
+                (result.contentStatus === 'ready'
+                  ? '✅ Commerce + Discovery pack üretildi! Blog yazısı oluşturuldu (taslak).'
+                  : result.contentStatus === 'failed'
+                    ? `❌ Üretim hatası: ${result.error ?? 'bilinmeyen'}`
+                    : `⏳ Kısmi üretim — /content ${productId} ile durumu kontrol edin.`),
+            )
+          } else {
+            await sendTelegramMessage(chatId, `❌ Tetikleme hatası: ${result.error}`)
+          }
+          return NextResponse.json({ ok: true })
+        }
+
+        // /content {id} — show content status
+        const { formatContentStatusMessage } = await import('@/lib/contentPack')
+        const statusMsg = formatContentStatusMessage(product as any)
+        await sendTelegramMessage(chatId, statusMsg)
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err)
+        await sendTelegramMessage(chatId, `❌ Hata: ${msg}`)
+      }
+      return NextResponse.json({ ok: true })
+    }
+
+    // ── Phase 5: Product Confirmation Wizard ─────────────────────────────────
+    // /confirm {productId} — start confirmation wizard or show status
+    // /confirm_cancel — cancel active wizard session
+    if (text.startsWith('/confirm')) {
+      const parts = text.trim().split(/\s+/)
+      const command = parts[0].toLowerCase()
+      const arg = parts[1]
+
+      // /confirm (no arg) — show help
+      if (command === '/confirm' && !arg) {
+        await sendTelegramMessage(
+          chatId,
+          '📋 <b>Ürün Onay Sihirbazı</b>\n\n' +
+            '/confirm <id> — Ürünü onaylamaya başla\n' +
+            '/confirm_cancel — Aktif sihirbazı iptal et\n\n' +
+            'Sihirbaz sırasıyla kategori, fiyat, beden, stok ve yayın hedeflerini sorar. ' +
+            'Zaten dolu olan alanlar atlanır.',
+        )
+        return NextResponse.json({ ok: true })
+      }
+
+      // /confirm_cancel — cancel active wizard
+      if (command === '/confirm_cancel') {
+        const { clearWizardSession, getWizardSession } = await import('@/lib/confirmationWizard')
+        const existing = getWizardSession(chatId)
+        if (existing) {
+          clearWizardSession(chatId)
+          await sendTelegramMessage(chatId, '❌ Onay sihirbazı iptal edildi.')
+        } else {
+          await sendTelegramMessage(chatId, 'ℹ️ Aktif sihirbaz oturumu yok.')
+        }
+        return NextResponse.json({ ok: true })
+      }
+
+      // /confirm {productId} — start wizard
+      if (command === '/confirm' && arg) {
+        const productId = parseInt(arg)
+        if (isNaN(productId)) {
+          await sendTelegramMessage(chatId, '⚠️ Geçersiz ürün ID.')
+          return NextResponse.json({ ok: true })
+        }
+
+        try {
+          const product = await payload.findByID({
+            collection: 'products',
+            id: productId,
+            depth: 1, // resolve variants
+          })
+
+          if (!product) {
+            await sendTelegramMessage(chatId, `❌ Ürün #${productId} bulunamadı.`)
+            return NextResponse.json({ ok: true })
+          }
+
+          const {
+            checkConfirmationFields,
+            getNextWizardStep,
+            setWizardSession,
+            clearWizardSession,
+            getCategoryPrompt,
+            getPricePrompt,
+            getSizesPrompt,
+            getTargetsPrompt,
+            formatConfirmationSummary,
+          } = await import('@/lib/confirmationWizard')
+
+          // Check current status
+          const check = checkConfirmationFields(product as any)
+
+          // Already confirmed
+          if (check.alreadyConfirmed) {
+            const lines = [
+              `✅ <b>Ürün #${productId} zaten onaylı.</b>`,
+              ``,
+              `📋 Onay zamanı: ${(product as any).workflow?.productConfirmedAt ?? '—'}`,
+              `🤖 Son bot: ${(product as any).workflow?.lastHandledByBot ?? '—'}`,
+            ]
+            if (check.missing.length > 0) {
+              lines.push(``)
+              lines.push(`⚠️ Eksik alanlar: ${check.missing.map((m) => m.label).join(', ')}`)
+              lines.push(`Tekrar onaylamak için: /confirm ${productId} force`)
+            }
+            await sendTelegramMessage(chatId, lines.join('\n'))
+            // Allow force re-confirmation
+            if (parts[2]?.toLowerCase() !== 'force') {
+              return NextResponse.json({ ok: true })
+            }
+          }
+
+          // If all required fields are present → show summary directly
+          if (check.ready) {
+            const summary = formatConfirmationSummary(product as any, {})
+            await sendTelegramMessageWithKeyboard(chatId, summary, [
+              [
+                { text: '✅ Onayla', callback_data: `wz_confirm:${productId}` },
+                { text: '❌ İptal', callback_data: `wz_cancel:${productId}` },
+              ],
+            ])
+            setWizardSession(chatId, {
+              productId,
+              chatId,
+              step: 'summary',
+              collected: {},
+              startedAt: Date.now(),
+            })
+            return NextResponse.json({ ok: true })
+          }
+
+          // Missing fields → start wizard
+          const missingList = check.missing.map((m) => `  ❌ ${m.label}`).join('\n')
+          const presentList = check.present.map((m) => `  ✅ ${m.label}: ${m.value}`).join('\n')
+          const optionalList = check.optional
+            .filter((m) => !m.present)
+            .map((m) => `  ⚠️ ${m.label}`)
+            .join('\n')
+
+          const statusLines = [
+            `📋 <b>Ürün #${productId} — ${(product as any).title ?? 'İsimsiz'}</b>`,
+            ``,
+            `<b>Mevcut:</b>`,
+            presentList || '  (yok)',
+            ``,
+            `<b>Eksik (zorunlu):</b>`,
+            missingList,
+          ]
+          if (optionalList) {
+            statusLines.push(``, `<b>Eksik (opsiyonel):</b>`, optionalList)
+          }
+          statusLines.push(
+            ``,
+            `<b>Görsel:</b> ${check.visualReady ? '✅ Hazır' : '⚠️ Görsel yok'}`,
+            ``,
+            `Sihirbaz başlıyor...`,
+          )
+          await sendTelegramMessage(chatId, statusLines.join('\n'))
+
+          // Initialize wizard
+          const collected: Record<string, unknown> = {}
+          const nextStep = getNextWizardStep(product as any, collected as any)
+
+          clearWizardSession(chatId) // Clear any stale session
+          setWizardSession(chatId, {
+            productId,
+            chatId,
+            step: nextStep,
+            collected: collected as any,
+            startedAt: Date.now(),
+          })
+
+          // Send first prompt
+          if (nextStep === 'category') {
+            const catPrompt = getCategoryPrompt()
+            await sendTelegramMessageWithKeyboard(chatId, catPrompt.text, catPrompt.keyboard)
+          } else if (nextStep === 'price') {
+            await sendTelegramMessage(chatId, getPricePrompt())
+          } else if (nextStep === 'sizes') {
+            await sendTelegramMessage(chatId, getSizesPrompt())
+          } else if (nextStep === 'targets') {
+            const tgtPrompt = getTargetsPrompt()
+            await sendTelegramMessageWithKeyboard(chatId, tgtPrompt.text, tgtPrompt.keyboard)
+          }
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err)
+          await sendTelegramMessage(chatId, `❌ Hata: ${msg}`)
+        }
+        return NextResponse.json({ ok: true })
+      }
+    }
+
+    // ── Phase 4: Story operator commands ─────────────────────────────────────
+    // /story {productId} — create/queue a story job
+    // /restory {productId} — retry story for a product
+    // /targets {productId} — show resolved story targets
+    // /approve_story {jobId} — approve a pending story
+    // /reject_story {jobId} — reject a pending story
+    if (text.startsWith('/story') && !text.startsWith('/story_')) {
+      const parts = text.trim().split(/\s+/)
+      const command = parts[0].toLowerCase()
+      const arg = parts[1]
+
+      // /story (no subcommand) — show help
+      if (command === '/story' && !arg) {
+        await sendTelegramMessage(
+          chatId,
+          '📖 Story komutları:\n\n' +
+            '/story <id> — Story oluştur\n' +
+            '/restory <id> — Tekrar dene\n' +
+            '/targets <id> — Hedefleri göster\n' +
+            '/approve_story <jobId> — Onayla\n' +
+            '/reject_story <jobId> — Reddet',
+        )
+        return NextResponse.json({ ok: true })
+      }
+
+      // /story {productId} — create story job
+      if (command === '/story' && arg) {
+        try {
+          const { docs } = await payload.find({
+            collection: 'products',
+            where: { id: { equals: arg } },
+            depth: 1,
+            limit: 1,
+          })
+          if (docs.length === 0) {
+            await sendTelegramMessage(chatId, `❌ Ürün bulunamadı: ${arg}`)
+            return NextResponse.json({ ok: true })
+          }
+          const product = docs[0] as Record<string, unknown>
+
+          if (product.status !== 'active') {
+            await sendTelegramMessage(chatId, `⚠️ Ürün aktif değil (durum: ${product.status}). Sadece aktif ürünlere story oluşturulabilir.`)
+            return NextResponse.json({ ok: true })
+          }
+
+          // Dispatch story using the Phase 3 foundation
+          const { dispatchStory } = await import('@/lib/storyDispatch')
+          const { fetchAutomationSettings } = await import('@/lib/automationDecision')
+          const settings = await fetchAutomationSettings(payload)
+          const storyTargets = (settings as Record<string, unknown>)?.storyTargets as any[] | undefined
+
+          const result = await dispatchStory(
+            product as any,
+            storyTargets ?? null,
+            payload as any,
+            'telegram_command',
+          )
+
+          if (result.jobCreated) {
+            const statusEmoji: Record<string, string> = {
+              queued: '🔄',
+              awaiting_asset: '🖼️',
+              awaiting_approval: '⏳',
+              blocked_officially: '🚫',
+            }
+            const lines = [
+              `${statusEmoji[result.status] ?? '📖'} Story Job Oluşturuldu`,
+              ``,
+              `Ürün: ${product.title ?? arg}`,
+              `Job ID: ${result.storyJobId}`,
+              `Durum: ${result.status}`,
+              `Hedefler: ${result.targets.join(', ') || 'Yok'}`,
+            ]
+            if (result.blockedTargets.length > 0) {
+              lines.push(`🚫 Engelli: ${result.blockedTargets.join(', ')}`)
+            }
+            if (result.status === 'awaiting_asset') {
+              lines.push(`\n⚠️ Uygun görsel bulunamadı — ürüne görsel ekleyin.`)
+            }
+
+            // Add truthful note about Telegram Story API
+            lines.push(``)
+            lines.push(`⚠️ Not: Telegram Bot API henüz story yayını desteklemiyor.`)
+            lines.push(`Durum takibi ve onay akışı aktif — gerçek yayın API desteği geldiğinde çalışacak.`)
+
+            // Approval keyboard if awaiting
+            if (result.status === 'awaiting_approval') {
+              await sendTelegramMessageWithKeyboard(chatId, lines.join('\n'), [
+                [
+                  { text: '✅ Onayla', callback_data: `storyapprove:${result.storyJobId}` },
+                  { text: '❌ Reddet', callback_data: `storyreject:${result.storyJobId}` },
+                ],
+              ])
+            } else {
+              await sendTelegramMessage(chatId, lines.join('\n'))
+            }
+          } else {
+            await sendTelegramMessage(
+              chatId,
+              `${result.status === 'blocked_officially' ? '🚫' : '❌'} Story oluşturulamadı\n\n` +
+                `Durum: ${result.status}\n` +
+                (result.error ? `Hata: ${result.error}` : ''),
+            )
+          }
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err)
+          await sendTelegramMessage(chatId, `❌ Story hatası: ${msg}`)
+        }
+        return NextResponse.json({ ok: true })
+      }
+    }
+
+    // /restory {productId} — retry story
+    if (text.startsWith('/restory')) {
+      const arg = text.trim().split(/\s+/)[1]
+      if (!arg) {
+        await sendTelegramMessage(chatId, '⚠️ Kullanım: /restory <productId>')
+        return NextResponse.json({ ok: true })
+      }
+      try {
+        const { docs } = await payload.find({
+          collection: 'products',
+          where: { id: { equals: arg } },
+          depth: 1,
+          limit: 1,
+        })
+        if (docs.length === 0) {
+          await sendTelegramMessage(chatId, `❌ Ürün bulunamadı: ${arg}`)
+          return NextResponse.json({ ok: true })
+        }
+        const product = docs[0] as Record<string, unknown>
+
+        const { dispatchStory } = await import('@/lib/storyDispatch')
+        const { fetchAutomationSettings } = await import('@/lib/automationDecision')
+        const settings = await fetchAutomationSettings(payload)
+        const storyTargets = (settings as Record<string, unknown>)?.storyTargets as any[] | undefined
+
+        const result = await dispatchStory(
+          product as any,
+          storyTargets ?? null,
+          payload as any,
+          'retry',
+        )
+
+        await sendTelegramMessage(
+          chatId,
+          `🔄 Re-Story ${result.jobCreated ? 'oluşturuldu' : 'başarısız'}\n\n` +
+            `Ürün: ${product.title ?? arg}\n` +
+            `Durum: ${result.status}\n` +
+            (result.storyJobId ? `Job ID: ${result.storyJobId}` : '') +
+            (result.error ? `\nHata: ${result.error}` : ''),
+        )
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err)
+        await sendTelegramMessage(chatId, `❌ Restory hatası: ${msg}`)
+      }
+      return NextResponse.json({ ok: true })
+    }
+
+    // /targets {productId} — show resolved story targets
+    if (text.startsWith('/targets')) {
+      const arg = text.trim().split(/\s+/)[1]
+      if (!arg) {
+        await sendTelegramMessage(chatId, '⚠️ Kullanım: /targets <productId>')
+        return NextResponse.json({ ok: true })
+      }
+      try {
+        const { docs } = await payload.find({
+          collection: 'products',
+          where: { id: { equals: arg } },
+          depth: 0,
+          limit: 1,
+        })
+        if (docs.length === 0) {
+          await sendTelegramMessage(chatId, `❌ Ürün bulunamadı: ${arg}`)
+          return NextResponse.json({ ok: true })
+        }
+        const product = docs[0] as Record<string, unknown>
+        const storySettings = product.storySettings as Record<string, unknown> | undefined
+
+        const { resolveProductTargets } = await import('@/lib/storyTargets')
+        const { fetchAutomationSettings } = await import('@/lib/automationDecision')
+        const settings = await fetchAutomationSettings(payload)
+        const globalTargets = (settings as Record<string, unknown>)?.storyTargets as any[] | undefined
+
+        const resolved = resolveProductTargets(storySettings as any, globalTargets ?? null)
+
+        const lines = [
+          `📡 Story Hedefleri — ${product.title ?? arg}`,
+          ``,
+          `Ürün story: ${storySettings?.enabled ? '✅ Aktif' : '❌ Devre dışı'}`,
+          `Auto-on-publish: ${storySettings?.autoOnPublish ? '✅' : '❌'}`,
+          ``,
+        ]
+
+        if (resolved.length === 0) {
+          lines.push('⚠️ Yapılandırılmış hedef yok.')
+        } else {
+          for (const t of resolved) {
+            const statusIcon = !t.supported ? '🚫' : t.enabled ? '✅' : '❌'
+            lines.push(
+              `${statusIcon} ${t.label} (${t.platform})` +
+                (!t.supported ? ` — ${t.blockReason}` : '') +
+                (t.requiresApproval ? ' [onay gerekli]' : ''),
+            )
+          }
+        }
+
+        // Truthful API status note
+        lines.push(``)
+        lines.push(`⚠️ Telegram Bot API henüz story yayını desteklemiyor.`)
+        lines.push(`WhatsApp resmi story API: blocked_officially`)
+
+        await sendTelegramMessage(chatId, lines.join('\n'))
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err)
+        await sendTelegramMessage(chatId, `❌ Targets hatası: ${msg}`)
+      }
+      return NextResponse.json({ ok: true })
+    }
+
+    // /approve_story {jobId} — approve a pending story job
+    if (text.startsWith('/approve_story')) {
+      const jobId = text.trim().split(/\s+/)[1]
+      if (!jobId) {
+        await sendTelegramMessage(chatId, '⚠️ Kullanım: /approve_story <jobId>')
+        return NextResponse.json({ ok: true })
+      }
+      try {
+        const job = await payload.findByID({ collection: 'story-jobs', id: jobId }) as Record<string, unknown>
+        if (!job) {
+          await sendTelegramMessage(chatId, `❌ Story job bulunamadı: ${jobId}`)
+          return NextResponse.json({ ok: true })
+        }
+        if (job.approvalState === 'approved') {
+          await sendTelegramMessage(chatId, `✅ Story #${jobId} zaten onaylanmış.`)
+          return NextResponse.json({ ok: true })
+        }
+        await payload.update({
+          collection: 'story-jobs',
+          id: jobId,
+          data: { approvalState: 'approved', status: 'approved' },
+        })
+        await sendTelegramMessage(
+          chatId,
+          `✅ Story #${jobId} onaylandı.\n\n` +
+            '⚠️ Telegram Bot API henüz story yayını desteklemiyor.\n' +
+            'Durum: approved — gerçek yayın API desteği geldiğinde çalışacak.',
+        )
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err)
+        await sendTelegramMessage(chatId, `❌ Approve hatası: ${msg}`)
+      }
+      return NextResponse.json({ ok: true })
+    }
+
+    // /reject_story {jobId} — reject a pending story job
+    if (text.startsWith('/reject_story')) {
+      const jobId = text.trim().split(/\s+/)[1]
+      if (!jobId) {
+        await sendTelegramMessage(chatId, '⚠️ Kullanım: /reject_story <jobId>')
+        return NextResponse.json({ ok: true })
+      }
+      try {
+        await payload.update({
+          collection: 'story-jobs',
+          id: jobId,
+          data: {
+            approvalState: 'rejected',
+            status: 'failed',
+            errorLog: JSON.stringify({ reason: 'Rejected by operator via /reject_story', at: new Date().toISOString() }),
+          },
+        })
+        await sendTelegramMessage(chatId, `❌ Story #${jobId} reddedildi.`)
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err)
+        await sendTelegramMessage(chatId, `❌ Reject hatası: ${msg}`)
+      }
+      return NextResponse.json({ ok: true })
+    }
+
     // ── STOCK UPDATE komutu ────────────────────────────────────────────────────
     if (text.startsWith('STOCK SKU:')) {
       const stockUpdate = parseStockUpdate(text)
@@ -1706,6 +3046,29 @@ export async function POST(req: NextRequest) {
         } else {
           results.push(`Beden ${size}: bulunamadı`)
         }
+      }
+
+      // Phase 9: Central stock reaction after variant updates
+      try {
+        const { reactToStockChange, formatStockStatusMessage, getStockSnapshot } = await import('@/lib/stockReaction')
+        const reactionResult = await reactToStockChange(payload, product as any, 'telegram')
+        if (reactionResult.reacted && reactionResult.transition) {
+          const t = reactionResult.transition
+          if (t.isSoldoutTransition) {
+            results.push(`\n🔴 TÜKENDİ — Stok sıfırlandı. Ürün satılabilir değil.`)
+            results.push(`  Merchandising bölümlerinden çıkarıldı.`)
+          } else if (t.isRestockTransition) {
+            results.push(`\n🔄 TEKRAR STOKTA — Ürün tekrar satılabilir.`)
+            results.push(`  Merchandising bölümlerine geri eklendi.`)
+          } else if (t.newState === 'low_stock') {
+            results.push(`\n⚠️ Az stok — toplam: ${reactionResult.snapshot.effectiveStock}`)
+          }
+        }
+      } catch (stockErr) {
+        console.error(
+          `[telegram] stockReaction failed (non-blocking):`,
+          stockErr instanceof Error ? stockErr.message : String(stockErr),
+        )
       }
 
       await sendTelegramMessage(chatId, `✅ Stok güncellendi (${sku}):\n${results.join('\n')}`)
@@ -1789,3 +3152,4 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
   }
 }
+                                                                              

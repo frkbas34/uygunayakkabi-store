@@ -1670,3 +1670,814 @@ Previous key was expired/unauthorized for gpt-image-1. New key generated from Op
 Updated via Vercel internal API: `PATCH /api/v10/projects/uygunayakkabi-store/env/764gO7z42RX0uvI0`
 
 **Status:** ACTIVE
+
+---
+
+## D-102 — Phase 1 Schema Foundation: Workflow + Merchandising + BotEvents (2026-04-03)
+
+**Decision:**
+Add workflow state tracking, merchandising fields, HomepageMerchandisingSettings global, and BotEvents collection as additive schema foundation for autonomous bot orchestration and homepage merchandising.
+
+**Reason:**
+The project needs structured workflow state to track products through the autonomous bot pipeline (uygunops → geobot → mentix → system). Additionally, homepage merchandising needs dedicated fields (Yeni, Popüler, Çok Satanlar, Fırsatlar, İndirimli) and a centralized settings global. BotEvents provides the event-tracking backbone for bot-to-bot communication.
+
+**Implementation:**
+Phase 1 is schema-only — no query engine, no Telegram commands, no automation logic.
+
+Files changed:
+- `src/collections/Products.ts` — added `workflow` group (10 fields) and `merchandising` group (12 fields)
+- `src/globals/HomepageMerchandisingSettings.ts` — new global (section toggles, item limits, timing, scoring, behavior)
+- `src/collections/BotEvents.ts` — new collection (eventType, product, sourceBot, targetBot, status, payload, notes, processedAt)
+- `payload.config.ts` — registered BotEvents collection and HomepageMerchandisingSettings global
+
+**DB/Schema Push Notes:**
+- All new fields have safe defaults — existing records unaffected
+- `push: true` in dev will auto-create columns locally
+- Production (Neon): columns must be manually created via SQL after deploy
+- BotEvents creates a new `bot_events` table
+- HomepageMerchandisingSettings creates a new `homepage_merchandising_settings` table
+- Both need `payload_locked_documents_rels` column entries after deploy
+
+**Compatibility:** Fully backward compatible — no existing fields modified, removed, or renamed.
+
+**Status:** ACTIVE
+
+---
+
+## D-103 — Phase 2 Merchandising Logic: Homepage Section Helpers (2026-04-04)
+
+**Decision:**
+Create `src/lib/merchandising.ts` as a pure, stateless helper library for all homepage merchandising section membership resolution, scoring, and new-window calculation.
+
+**Reason:**
+Phase 1 laid the schema foundation. Phase 2 adds the logic layer that determines which products appear in which homepage section. This must be reusable across future API routes, Telegram commands, and cron sync jobs.
+
+**Implementation:**
+
+File: `src/lib/merchandising.ts`
+
+Central eligibility gate (`isHomepageEligible`):
+- status === 'active'
+- workflow.stockState !== 'sold_out'
+- workflow.sellable !== false (null = legacy safe fallback to active)
+- merchandising.homepageHidden !== true
+
+Section rules:
+- Yeni: eligible + publishedAt exists + now <= newUntil (or publishedAt + newWindowDays fallback)
+- Popüler: eligible + manualPopular === true
+- Çok Satanlar: eligible + not excluded + (pinned OR score >= minimum)
+- Fırsatlar: eligible + manualDeal === true
+- İndirimli: eligible + originalPrice > price
+
+Scoring formula:
+  score = totalUnitsSold + (recentUnitsSold7d × weight7d) + (recentUnitsSold30d × weight30d)
+
+New window: calculateNewWindow() returns publishedAt + newUntil (default 7 days)
+
+Membership resolution: getXxxProducts() functions apply section toggles, limits, and sort order.
+
+Also changed: `HomepageMerchandisingSettings.timing.newWindowDays` default from 14 → 7 per business requirement.
+
+**Legacy compatibility:**
+Products with null workflow.sellable fall back to status === 'active'. No backfill migration required.
+
+**Phase 3 dependencies:**
+- Homepage API route to call resolveHomepageSections()
+- Merchandising sync cron to update bestSellerScore on products
+- Storefront UI to render the sections
+- Telegram commands for manual merchandising flags
+
+**Status:** ACTIVE
+
+---
+
+## D-104 — Phase 3 Story Pipeline Foundation (2026-04-04)
+
+**Decision:**
+Implement non-blocking Telegram Story pipeline foundation: schema, collection, target model, dispatch helpers. WhatsApp story publishing treated as blocked_officially.
+
+**Reason:**
+Stories are a key marketing channel. The pipeline must be decoupled from product publish — story failure must never block a product from going live. Telegram is the primary supported target. WhatsApp Business API has no official story/status endpoint.
+
+**Implementation:**
+
+Schema changes:
+- Products.storySettings group (6 fields): enabled, autoOnPublish, skipApproval, captionMode, primaryAsset, storyTargets
+- Products.sourceMeta extended (8 fields): storyStatus, storyQueuedAt, storyPublishedAt, storyTargetsPublished, storyTargetsFailed, lastStoryError, lastStoryAsset, lastStoryCaption
+- AutomationSettings.storyTargets: configurable array with per-target config (id, platform, label, enabled, mode, businessConnectionId, defaultAudience, defaultLink, defaultCaptionTemplate, priority, requiresApproval)
+
+New collection:
+- StoryJobs (slug: story-jobs) — 12 fields tracking story job lifecycle through queued → awaiting_asset → awaiting_approval → approved → publishing → published pipeline
+
+New libs:
+- src/lib/storyTargets.ts — target resolution, blocked platform detection, product-global target merging
+- src/lib/storyDispatch.ts — non-blocking dispatch: asset resolution (priority: main image → generative → awaiting_asset), caption generation (title/price/sizes/CTA), StoryJob creation, sourceMeta tracking
+
+**Non-blocking architecture:**
+- dispatchStory() catches all errors internally, never throws
+- Story failure results are logged but do not interrupt caller
+- safeUpdateSourceMeta() uses isDispatchUpdate context flag (same pattern as channel dispatch)
+- blocked_officially status for WhatsApp — not counted as system failure
+
+**WhatsApp policy:**
+- WhatsApp targets can exist in config model (for future-proofing)
+- Always default to disabled
+- Logic treats whatsapp platform as blocked_officially
+- No real WhatsApp story API call will ever be attempted
+
+**Compatibility:** Fully additive — no existing fields modified, no hooks changed, no publish flow altered.
+
+**Status:** ACTIVE
+
+---
+
+## D-105 — Phase 4 Story Pipeline Wiring (2026-04-04)
+
+**Decision:**
+Wire story dispatch into Products afterChange hook (non-blocking). Add Telegram operator commands for story management. CRITICAL: No fake Telegram story publishing — Bot API does not support stories; all statuses must remain truthful.
+
+**Reason:**
+Phase 3 laid the foundation (schema, collection, dispatch helpers). Phase 4 integrates these into the live product flow and provides operator controls. The key constraint: Telegram Bot API cannot publish stories — only Business API connections can. Rather than faking success with sendPhoto/sendVideo, the system keeps statuses truthful (queued, approved, awaiting_approval) and documents the limitation clearly for operators.
+
+**Implementation:**
+
+Products.ts afterChange hook (after channel dispatch):
+- Non-blocking story trigger inside `isStatusTransition` check
+- Calls `shouldAutoTriggerStory()` → `dispatchStory()`
+- Wrapped in try/catch — failure logged but never thrown
+- Uses `isDispatchUpdate` context flag pattern (same as channel dispatch)
+
+Telegram route.ts — New text commands:
+- `/story {productId}` — queue story with inline approval keyboard
+- `/restory {productId}` — retry failed story job
+- `/targets {productId}` — show product story target config + global targets
+- `/approve_story {jobId}` — approve pending story
+- `/reject_story {jobId}` — reject pending story
+
+Telegram route.ts — New callback query handlers:
+- `storyapprove:{jobId}` — update StoryJob to approved, note Telegram Bot API limitation
+- `storyreject:{jobId}` — update StoryJob to failed with rejection reason
+- `storyretry:{jobId}` — reset StoryJob to queued for retry
+
+All commands include truthful "Telegram Bot API henüz story yayını desteklemiyor" note.
+
+**No fake publish rule:**
+- sendPhoto/sendVideo must NOT be used to simulate story publish
+- Job status transitions: queued → awaiting_approval → approved (stops here until real API support)
+- Never set status to "published" without actual confirmed story publish
+- WhatsApp remains blocked_officially (from D-104)
+
+**Backward compatibility:**
+- Products without storySettings (null/undefined) are skipped by shouldAutoTriggerStory()
+- Existing afterChange hook flow unchanged — story trigger appended after channel dispatch
+- No existing fields modified
+
+**Status:** ACTIVE
+
+---
+
+## D-106 — Phase 5 Product Confirmation Wizard (2026-04-04)
+
+**Decision:**
+Implement Telegram-based product confirmation wizard that guides operators through completing missing commercial fields before marking a product as confirmed.
+
+**Reason:**
+Products created via Telegram photo intake often lack commercial data (price, sizes, stock, category). Before any autonomous content generation or publishing logic can run, the product must be structurally confirmed by an operator. The confirmation wizard provides a guided, practical flow without requiring the operator to switch to the admin panel.
+
+**Implementation:**
+
+New file: `src/lib/confirmationWizard.ts`
+- Pure logic library — no side effects except through explicit `applyConfirmation()` call
+- `checkConfirmationFields(product)` — evaluates required (category, price, sizes, stock, channelTargets) and optional (brand, productType) fields
+- `getNextWizardStep(product, collected)` — state machine skips already-present fields
+- Input parsers: `parsePrice()` (₺/TL/number), `parseSizes()` (range "38-44", CSV, space-separated), `parseStockNumber()`, `parseChannelTargets()`
+- `formatConfirmationSummary()` — structured summary with all fields + visual readiness
+- `applyConfirmation()` — updates product, creates variants, sets workflow state, emits BotEvent
+- In-memory wizard sessions (Map keyed by chatId, 30-minute auto-expiry)
+
+Telegram route changes:
+- Callback handlers: `wz_cat`, `wz_tgt` (multi-select with toggle), `wz_confirm`, `wz_cancel`
+- Text input interceptor: intercepts plain text when wizard expects price/sizes/stock input
+- Commands: `/confirm {id}`, `/confirm_cancel`, `/confirm {id} force`
+- Product creation message now shows `/confirm {id}` hint
+
+State transitions on confirmation:
+- `workflow.confirmationStatus` → `confirmed`
+- `workflow.productConfirmedAt` → current ISO datetime
+- `workflow.lastHandledByBot` → `uygunops`
+- `workflow.workflowStatus` → `confirmed` (only if currently in draft/visual_pending/visual_ready/confirmation_pending)
+
+BotEvent emitted:
+- eventType: `product.confirmed`
+- sourceBot: `uygunops`
+- status: `processed`
+- payload: { fieldsCollected, variantsCreated, confirmedAt, previousWorkflowStatus }
+
+**Compatibility:**
+- Fully additive — no existing hooks, fields, or flows modified
+- Products with null workflow fields are safely handled (null checks throughout)
+- Legacy products can be confirmed via `/confirm {id}` without side effects on other systems
+- Wizard text interceptor only fires for plain text (not /, #, or STOCK commands)
+- One wizard session per chat — starting a new `/confirm` clears any previous session
+
+**What this phase does NOT include:**
+- Geobot content generation (next phase)
+- Mentix audit layer (future phase)
+- Full soldout automation (future phase)
+- Auto-triggering confirmation from product creation (operator-initiated only)
+
+**Status:** ACTIVE
+
+---
+
+## D-107 — Phase 6 Geobot Content Pack Foundation (2026-04-04)
+
+**Decision:**
+Add content schema (commercePack + discoveryPack) to Products, create content lifecycle helper library, wire auto-trigger after product confirmation, add Telegram content commands. Geobot AI runtime is NOT yet connected — all statuses remain truthful.
+
+**Reason:**
+Confirmed products need structured content before publishing. The system must track two content layers: channel-specific commerce copy (website, Instagram, X, Facebook, Shopier) and long-form discovery/SEO content (article, meta, FAQ, keywords). This phase builds the foundation so that when Geobot runtime is ready, it has a clean schema, state model, and trigger path to work with.
+
+**Implementation:**
+
+Products.ts — new `content` group (after merchandising, before legacy fields):
+- `content.commercePack` (group): websiteDescription (textarea), instagramCaption (textarea), xPost (textarea), facebookCopy (textarea), shopierCopy (textarea), highlights (json), confidence (number, readOnly), warnings (json, readOnly), generatedAt (date, readOnly)
+- `content.discoveryPack` (group): articleTitle (text), articleBody (textarea), metaTitle (text), metaDescription (textarea), faq (json), keywordEntities (json), internalLinkTargets (json), confidence (number, readOnly), warnings (json, readOnly), generatedAt (date, readOnly)
+- `content.linkedBlogPost` (relationship → blog-posts)
+- `content.contentGenerationSource` (select: none/geobot/manual/import, readOnly)
+- `content.lastContentGenerationAt` (date, readOnly)
+
+New file: `src/lib/contentPack.ts`
+- Types: CommercePack, DiscoveryPack, ContentGroup, ContentProduct, ContentStatus, ContentReadinessResult, ContentTriggerResult
+- Pack creation: createEmptyCommercePack(), createEmptyDiscoveryPack()
+- Readiness: checkCommercePackComplete(), checkDiscoveryPackComplete(), checkContentReadiness()
+- Eligibility: isContentEligible(), shouldAutoTriggerContent()
+- Trigger: triggerContentGeneration() — sets content_pending, emits content.requested
+- Status updates: markCommerceGenerated(), markDiscoveryGenerated(), markContentFailed(), emitContentReady()
+- Telegram: formatContentStatusMessage()
+
+confirmationWizard.ts — applyConfirmation() extended:
+- After BotEvent(product.confirmed), non-blocking call to triggerContentGeneration()
+- Wrapped in try/catch — content trigger failure never blocks confirmation
+
+Telegram route.ts:
+- `/content {id}` — show content status with pack completeness
+- `/content {id} trigger` — manually trigger content generation
+- Confirmation success message updated with content trigger note
+
+BotEvents emitted:
+- content.requested (sourceBot=uygunops, targetBot=geobot, status=pending)
+- content.commerce_generated (sourceBot=geobot, status=processed) — future
+- content.discovery_generated (sourceBot=geobot, status=processed) — future
+- content.ready (sourceBot=geobot, status=processed) — future
+- content.failed (sourceBot=geobot, status=failed) — future
+
+State transition model:
+- workflowStatus: confirmed → content_pending (on trigger)
+- contentStatus: pending → commerce_generated → ready (or pending → discovery_generated → ready)
+- workflowStatus: content_pending → content_ready (when contentStatus=ready)
+
+**No fake generation rule:**
+- triggerContentGeneration() only sets states and emits events
+- Content is never marked as generated without real output
+- Geobot runtime will be wired in Phase 7
+
+**Backward compatibility:**
+- Products without content group (null) are fully safe — all checks handle null/undefined
+- Existing contentStatus enum (Phase 1) is reused — no schema change needed
+- Auto-trigger only fires for confirmed products with contentStatus=pending
+- No existing hooks, fields, or flows modified
+
+**What Phase 7 will build:**
+- Geobot AI runtime integration (Gemini/Claude content generation)
+- Listen for content.requested BotEvents
+- Generate commerce pack content with product context
+- Generate discovery pack content with SEO optimization
+- Create/link BlogPost from discovery pack
+- Mentix audit layer for content quality
+
+**Status:** ACTIVE
+
+---
+
+## D-108 — Phase 7 Geobot AI Runtime Wiring (2026-04-04)
+
+**Decision:**
+Wire real AI content generation into the content pack foundation using Gemini 2.5 Flash. Commerce and discovery packs are generated from confirmed product data. BlogPost auto-created from discovery content.
+
+**Reason:**
+Phase 6 built the schema and trigger foundation but deferred actual AI generation. Phase 7 completes the pipeline by calling Gemini to produce real, truthful content. The same API key and fetch pattern used for image generation vision tasks is reused for text generation.
+
+**Implementation:**
+
+New file: `src/lib/geobotRuntime.ts`
+- `callGeminiText(prompt)` — raw fetch to Gemini REST API (gemini-2.5-flash, responseMimeType=application/json, maxOutputTokens=4096, temperature=0.7)
+- `buildProductContext(product)` — structured Turkish product summary from confirmed data
+- `generateCommercePack(product)` — prompt instructs per-channel differentiation (website 200-400ch, Instagram with hashtags, X max 250ch, Facebook conversational, Shopier practical). Returns JSON with confidence scoring.
+- `generateDiscoveryPack(product)` — prompt instructs 800-1500 word article with ## sections, FAQ (3+ items), keyword cluster, internal link targets. Returns JSON with length/quality validation.
+- `generateFullContentPack(product)` — runs commerce then discovery sequentially. Partial success allowed.
+
+Updated: `src/lib/contentPack.ts` — `triggerContentGeneration()`:
+- Phase 6 version: set pending + emit event only
+- Phase 7 version: set pending → call geobotRuntime → write results → update states → emit events → create BlogPost
+- Brand name resolved from relationship ID before passing to prompts
+- Variants resolved from IDs if not populated
+- If GEMINI_API_KEY missing: stays pending (graceful degradation, not failure)
+- On API error: contentStatus=failed, error logged, BotEvent(content.failed) emitted
+
+BlogPost creation:
+- Auto-created from discoveryPack.articleTitle + articleBody
+- Lexical richText format (root → paragraph → text node)
+- SEO group populated (metaTitle, metaDescription, keywords from keywordEntities)
+- status=draft (operator review before publish)
+- source=ai, author=Geobot
+- relatedProducts linked
+- slug auto-generated with Turkish char normalization + product ID suffix for uniqueness
+- Linked back to product via content.linkedBlogPost
+
+Updated: Telegram `/content {id} trigger` response — shows real generation results with contentStatus emoji
+
+**Truthfulness guarantee:**
+- Content is never marked as generated without real Gemini API output
+- If one pack fails, only the succeeded pack's status is reflected
+- contentStatus=ready requires BOTH packs to have real content
+- Failed API calls result in contentStatus=failed, not fake success
+- GEMINI_API_KEY absence results in contentStatus=pending, not failure
+
+**BotEvents trail (for a successful full generation):**
+1. content.requested (sourceBot=uygunops, targetBot=geobot, status=pending)
+2. content.commerce_generated (sourceBot=geobot, status=processed, confidence=N%)
+3. content.discovery_generated (sourceBot=geobot, status=processed, confidence=N%)
+4. content.ready (sourceBot=geobot, status=processed)
+
+**Backward compatibility:**
+- Products without content group (null) are safely skipped
+- Products with GEMINI_API_KEY missing get pending status, not failure
+- Existing confirmation wizard unchanged — just calls updated triggerContentGeneration
+- No existing hooks, fields, or collections modified
+- BlogPost creation is non-blocking — failure doesn't affect content status
+
+**What Phase 8 will build:**
+- Mentix audit layer for content quality review
+- Content preview in Telegram (operator can review before publish)
+- auditStatus flow: content_ready → audit_pending → approved/needs_revision
+- Content update/regeneration commands
+- Publish-ready automation after audit approval
+
+**Status:** ACTIVE
+
+## D-109 — Phase 8 Mentix Audit + Content Review Layer (2026-04-04)
+
+**Decision:**
+Add a 4-dimension audit layer that evaluates products before they become publish-ready. Audit covers visual, commerce, discovery, and overall dimensions. Auto-triggered after content generation completes (contentStatus=ready). Operator can also trigger manually via `/audit` Telegram command.
+
+**Reason:**
+Content generated by Geobot AI needs quality review before products are published to channels. This ensures visual completeness, commerce copy quality, discovery content depth, and overall product readiness are validated. The audit bridges the gap between content_ready and publish_ready in the workflow progression.
+
+**Implementation:**
+
+New fields on Products: `auditResult` group (9 fields):
+- `visualAudit` (select: not_reviewed/pass/pass_with_warning/fail)
+- `commerceAudit` (select: same)
+- `discoveryAudit` (select: same)
+- `overallResult` (select: not_reviewed/approved/approved_with_warning/needs_revision/failed)
+- `approvedForPublish` (checkbox, readOnly, default false)
+- `warnings` (json, readOnly)
+- `revisionNotes` (textarea)
+- `auditedAt` (date, readOnly)
+- `auditedByBot` (select: mentix/operator/system, readOnly)
+
+New file: `src/lib/mentixAudit.ts` (~340 lines)
+- `isAuditEligible(product)` — confirmed + content not pending
+- `shouldAutoTriggerAudit(product)` — eligible + contentStatus=ready + not already approved
+- `auditVisual(product)` — checks images/generativeGallery exist, visualStatus not rejected
+- `auditCommerce(product)` — checks websiteDescription/instagramCaption/shopierCopy, confidence >= 50
+- `auditDiscovery(product)` — checks article, FAQ >= 2, keywords >= 3, blog linked, confidence >= 50
+- `runFullAudit(product)` — runs all 4 dimensions, overall result
+- `triggerAudit(payload, product, source, req)` — sets audit_pending, runs audit, writes results, emits BotEvents
+- `formatAuditStatusMessage(product)` — Telegram audit status display
+
+Updated: `src/lib/contentPack.ts` — `triggerContentGeneration()`:
+- After emitContentReady (contentStatus=ready): non-blocking auto-trigger audit via dynamic import
+- Re-fetches product with depth=1 for accurate audit
+- shouldAutoTriggerAudit check prevents duplicate runs
+
+New Telegram command: `/audit {id}` — show audit status, `/audit {id} run` — force run audit
+
+**BotEvents trail (for auto-triggered audit after content.ready):**
+1. audit.requested (sourceBot=system/operator, status=pending)
+2. audit.started (sourceBot=mentix, status=pending)
+3. audit.approved / audit.approved_with_warning / audit.needs_revision / audit.failed (sourceBot=mentix, status=processed)
+
+**State transitions:**
+- workflow.auditStatus: not_required → pending → approved/approved_with_warning/needs_revision/failed
+- workflow.workflowStatus: content_ready → audit_pending → publish_ready (on approval)
+- auditResult.approvedForPublish = true ONLY when overallResult is approved or approved_with_warning
+
+**Backward compatibility:**
+- Products without auditResult fields (null) safely pass
+- Audit auto-trigger is non-blocking — failure doesn't affect content status
+- Dynamic import prevents module load errors from breaking content generation
+- No existing hooks, fields, or collections modified
+- Existing workflow.auditStatus enum (Phase 1) reused
+
+**Status:** ACTIVE
+
+## D-110 — Phase 9 Order / Stock / Soldout Autonomy (2026-04-04)
+
+**Decision:**
+Centralize stock-change reaction logic so the system automatically transitions products between sellable/soldout states when inventory changes. Single entry point (`reactToStockChange()`) called from all stock-change sources.
+
+**Reason:**
+Stock decrements happened in two places (Shopier webhook, Telegram STOCK command) but neither triggered any automated state transitions. Products could reach zero stock without being marked soldout, remaining in merchandising sections despite having no inventory. This phase closes that gap with a truthful, deterministic reaction layer.
+
+**Implementation:**
+
+New file: `src/lib/stockReaction.ts` (~350 lines)
+- `getStockSnapshot(payload, productId)` — computes effective stock from variant-level stock (preferred) + product-level stockQuantity fallback
+- `determineStockState(effectiveStock, previousState)` — state machine: in_stock / low_stock / sold_out / restocked
+- `computeTransition(product, snapshot)` — detects soldout/restock transitions
+- `reactToStockChange(payload, productOrId, source, req)` — central reaction:
+  1. Computes stock snapshot
+  2. Determines state transition
+  3. Updates workflow.stockState, workflow.sellable, workflow.workflowStatus, product.status
+  4. Syncs product-level stockQuantity from variant total (if variants exist)
+  5. Emits BotEvents: stock.changed, product.soldout, product.restocked
+- `formatStockStatusMessage(product, snapshot)` — Telegram display with per-variant breakdown
+- LOW_STOCK_THRESHOLD = 3 (products with ≤ 3 total stock get low_stock warning)
+
+Updated: `src/app/api/webhooks/shopier/route.ts`
+- `decrementStockForOrder()` now returns array of affected product IDs
+- After decrement, calls `reactToStockChange()` for each affected product (non-blocking)
+- Source = 'shopier'
+
+Updated: `src/app/api/telegram/route.ts`
+- After STOCK SKU command processes variant updates, calls `reactToStockChange()`
+- Response includes soldout/restock/low-stock notifications inline
+- New `/stok {id}` command: shows full stock status with variant breakdown
+
+**Merchandising integration:**
+- `isHomepageEligible()` in merchandising.ts already checks:
+  - `status !== 'active'` → excludes soldout
+  - `workflow.stockState === 'sold_out'` → excludes
+  - `workflow.sellable === false` → excludes
+- When reactToStockChange sets sold_out state → product excluded from ALL 5 sections (Yeni, Popüler, Çok Satanlar, Fırsatlar, İndirimli)
+- When restocked → product re-eligible automatically
+- No changes needed to merchandising.ts — Phase 2 already built the right gates
+
+**Soldout behavior:**
+- product.status = 'soldout' — storefront shows "Tükendi" badge
+- workflow.workflowStatus = 'soldout'
+- workflow.stockState = 'sold_out'
+- workflow.sellable = false
+- Product page stays live (visible but not sellable)
+- Excluded from all homepage merchandising sections
+- Product NOT deleted
+
+**Restock behavior:**
+- product.status = 'active'
+- workflow.workflowStatus = 'active'
+- workflow.stockState = in_stock or low_stock (settled immediately)
+- workflow.sellable = true
+- Product re-eligible for merchandising sections
+- If within newUntil window, can re-enter Yeni section
+
+**BotEvents:**
+1. stock.changed — emitted on EVERY stock change (audit trail)
+2. product.soldout — emitted when stock hits zero
+3. product.restocked — emitted when stock goes from zero → positive
+
+**Truthfulness guarantees:**
+- Never marks sold_out unless effective stock = 0
+- Never marks restocked unless previous state was sold_out
+- Uses isDispatchUpdate context flag to prevent re-trigger loops
+- 'restocked' is transitional — settled immediately to in_stock/low_stock
+
+**Backward compatibility:**
+- Products without workflow fields (legacy null) treated as in_stock/sellable
+- Shopier flow unchanged — stock decrement logic identical, reaction added after
+- Telegram STOCK command unchanged — variant updates work same, reaction added after
+- No admin UI changes required
+- No new collections or schema fields
+
+**What Phase 10 should build:**
+- Website order flow stock decrement integration
+- Shopier stock sync-back (inbound)
+- Admin UI stock edit hook
+- Homepage integration: use merchandising.ts resolveHomepageSections() in page.tsx
+- Low stock Telegram alerts
+- Refund → stock increment
+
+**Status:** ACTIVE
+
+## D-111 — Phase 10 Website Order + Homepage Integration + Stock Recovery (2026-04-04)
+
+**Decision:**
+Complete the stock reaction coverage by integrating all remaining stock-change sources, wiring homepage to the merchandising engine, adding refund stock restoration, and building low-stock operator alerts.
+
+**Reason:**
+Phase 9 centralized stock reaction but only covered Shopier webhook and Telegram stock commands. Admin stock edits in Payload, non-Shopier orders, and refunds were not triggering stock reactions. The homepage was also rendering raw active products without applying merchandising filters, meaning soldout products could theoretically appear.
+
+**Implementation:**
+
+**A) Homepage Merchandising Integration**
+Updated: `src/app/(app)/page.tsx`
+- Imports `resolveHomepageSections()` and `isHomepageEligible()` from merchandising.ts
+- Fetches both active AND soldout products (status in ['active', 'soldout'])
+- Fetches HomepageMerchandisingSettings global for section toggles/limits
+- Applies `isHomepageEligible()` server-side — filters out soldout, non-sellable, hidden products
+- Calls `resolveHomepageSections()` for section computation (logged for observability)
+- Passes only eligible products to UygunApp client component
+- Soldout products never reach the client → automatic merchandising exclusion
+
+**B) Variants afterChange Hook**
+Updated: `src/collections/Variants.ts`
+- New `afterChange` hook triggers `reactToStockChange()` when variant stock changes
+- Only fires on update when stock actually changed (prevStock !== newStock)
+- Uses `isDispatchUpdate` context flag to prevent infinite loops
+- Source = 'admin' (covers Payload admin panel edits)
+- Non-blocking — errors logged but never thrown
+
+**C) Orders afterChange Hook**
+Updated: `src/collections/Orders.ts`
+- New `afterChange` hook triggers stock decrement on order creation
+- Skips Shopier orders (handled in webhook separately)
+- Skips dispatch updates (prevents loops)
+- Decrements product-level stockQuantity AND variant stock (if size specified)
+- Creates InventoryLog entry
+- Calls `reactToStockChange()` for soldout/restock detection
+- Covers: website orders, phone orders, telegram orders, manual admin orders
+
+**D) Refund Stock Restoration**
+Updated: `src/app/api/webhooks/shopier/route.ts` — `handleRefundRequested()`
+- After marking order as cancelled: restores product-level stockQuantity
+- Restores variant stock if size is specified on the order
+- Creates InventoryLog with positive change (reason: "Shopier iade: {refundId}")
+- Calls `reactToStockChange()` — may trigger product.restocked event
+- Non-blocking — errors logged but order cancellation not blocked
+
+**E) Low-Stock Telegram Alerts**
+Updated: `src/lib/stockReaction.ts`
+- New `sendStockAlertToTelegram()` function
+- Fires on: soldout transition, restock transition, low_stock state
+- Sends HTML-formatted Telegram message with: product title, stock details, variant breakdown, source
+- Uses TELEGRAM_BOT_TOKEN + TELEGRAM_CHAT_ID env vars (same as existing bot)
+- Non-blocking — alert failure never blocks stock reaction
+
+**Backward compatibility:**
+- Homepage: passes only eligible products instead of all active — existing UygunApp client code works unchanged
+- Variants hook: only fires on stock change, not on other field edits — safe for existing flows
+- Orders hook: skips Shopier source — no double-decrement risk
+- Refund: only restores stock if product and quantity exist on order — safe for legacy orders
+- All new hooks use isDispatchUpdate context to prevent loops
+
+**What Phase 11 should build:**
+- Wire UygunApp client to render merchandising sections (Yeni, Popüler, etc.) from server data
+- Shopier stock sync-back (poll Shopier inventory → update local stock)
+- Telegram merchandising commands (#yeni, #populer, #deal)
+- Merchandising sync cron (periodic bestSellerScore recalculation from order data)
+- Website checkout/cart/payment integration (PayTR or equivalent)
+
+**Status:** ACTIVE
+
+---
+
+## D-112 — Phase 11 Homepage Merchandising UI + Telegram Merch Commands (2026-04-04)
+
+**Decision:**
+Wire UygunApp client to render real merchandising sections from server-resolved data, and add comprehensive `/merch` Telegram commands for operator-driven merchandising control.
+
+**Reason:**
+Phase 10 wired server-side merchandising resolution (resolveHomepageSections + isHomepageEligible) but the client still rendered hardcoded sections. Operators also had no way to manually control merchandising fields (popular, deal, bestseller) without editing Payload admin directly.
+
+**Implementation:**
+
+**A) Server → Client Section Data Flow**
+Updated: `src/app/(app)/page.tsx`
+- Builds `sectionIds` object after `resolveHomepageSections()` call
+- Maps each section (yeni, popular, bestSellers, deals, discounted) to product ID arrays using `db_${p.id}` format
+- Passes `sections={sectionIds}` prop to `<App>` component
+
+Updated: `src/app/(app)/UygunApp.d.ts`
+- Added `HomepageSections` interface with 5 section arrays (string[])
+- Extended `AppProps` with optional `sections?: HomepageSections | null`
+
+**B) Client-Side Merchandising Section Rendering**
+Updated: `src/app/(app)/UygunApp.jsx`
+- `App` component accepts and forwards `sections` prop to `Home`
+- `Home` component resolves server-provided section IDs to product objects via `resolve(ids)` helper
+- 5 real merchandising sections rendered: Yeni Ürünler, Popüler, Çok Satanlar, Fırsatlar, İndirimli Ürünler
+- Each section has client-side fallback if server data is empty (e.g., yeni falls back to first 8 products)
+- Popüler and Fırsatlar sections only render when server provides data (no false content)
+- Section order: Yeni → Popüler → Çok Satanlar → Fırsatlar → İndirimli
+
+**C) Telegram /merch Commands**
+Updated: `src/app/api/telegram/route.ts`
+- `/merch` — help text listing all subcommands
+- `/merch preview` — shows all 5 sections with product counts and names
+- `/merch status {id}` — shows full merchandising state: flags, section membership, stock, eligibility
+- `/merch popular add/remove {id}` — toggles `merchandising.isPopular` field
+- `/merch deal add/remove {id}` — toggles `merchandising.isDeal` field
+- `/merch bestseller pin/unpin/exclude/include {id}` — controls `merchandising.bestSellerPinned` and `merchandising.excludeFromMerchandising`
+- All commands use Payload update with `isDispatchUpdate` context to prevent hook re-triggers
+- Section membership computed live via resolveHomepageSections for status display
+
+**Backward compatibility:**
+- UygunApp sections prop is optional — null/undefined falls back to client-side filtering (same as before)
+- page.tsx passes sectionIds only when merchandising engine returns data
+- All /merch commands are new — no existing Telegram commands affected
+- Product field updates use existing merchandising schema fields (Phase 1, D-102)
+
+**What Phase 12 should build:**
+- Shopier stock sync-back (poll Shopier inventory → update local stock)
+- Merchandising sync cron (periodic bestSellerScore recalculation from order data)
+- Website checkout/cart/payment integration
+- Telegram merchandising commands for section limits/toggles (HomepageMerchandisingSettings)
+
+**Status:** ACTIVE
+
+---
+
+## D-113 — Phase 12 Final Publish Autonomy + Orchestration Polish (2026-04-04)
+
+**Decision:**
+Create a central publish readiness evaluation layer, wire it into the post-audit flow, add full pipeline visibility for operators, and implement state coherence validation.
+
+**Reason:**
+The system had all building blocks (confirmation, content generation, audit, stock reaction, merchandising, story dispatch) but lacked a unified readiness gate. Audit approval alone was setting workflowStatus='publish_ready' without verifying other dimensions (visuals, stock, targets). Operators had no single command to see the full lifecycle state. No mechanism existed to detect contradictory states.
+
+**Implementation:**
+
+**A) Central Publish Readiness Evaluation**
+Created: `src/lib/publishReadiness.ts`
+- `evaluatePublishReadiness(product)` — checks 6 dimensions:
+  1. Confirmation — confirmationStatus='confirmed'
+  2. Visuals — images exist (original or AI) and not rejected
+  3. Content — contentStatus='ready' (both packs)
+  4. Audit — approvedForPublish=true or auditStatus='not_required'
+  5. Sellable — stock exists, not sold_out, sellable≠false
+  6. Publish targets — channelTargets array non-empty
+- Returns: not_ready (0-2 passed), partially_ready (3-5), ready (all 6)
+- Pure function — no side effects, no database calls
+
+**B) Readiness Wired into Post-Audit Flow**
+Updated: `src/lib/mentixAudit.ts` — `triggerAudit()`
+- After audit result is computed, evaluates full publish readiness via dynamic import
+- Re-fetches product with latest data, overlays new audit result for evaluation
+- `workflowStatus='publish_ready'` ONLY set when `readiness.level === 'ready'` (all 6 dimensions)
+- Previous behavior: audit approval alone → publish_ready (could bypass missing content/stock/targets)
+- Fallback: if readiness eval fails, uses audit-only approval (backward compat)
+- Emits `product.publish_ready` BotEvent when fully ready
+
+**C) Pipeline Visibility**
+Updated: `src/app/api/telegram/route.ts`
+- `/pipeline {id}` — shows full lifecycle in 3 sections:
+  1. 10-stage pipeline: Intake → Visuals → Confirmation → Content → Audit → Readiness → Publish → Stock → Merchandising → Story
+  2. Publish readiness: 6 dimensions with pass/fail and detail
+  3. State coherence: detected contradictions if any
+- Compact Telegram HTML format
+
+**D) State Coherence Validation**
+Added to: `src/lib/publishReadiness.ts`
+- `detectStateIncoherence(product)` — 7 validation rules:
+  1. status=active but workflowStatus pre-publish
+  2. status=soldout but stockState ≠ sold_out
+  3. status=soldout but sellable=true
+  4. approvedForPublish=true but auditStatus failed/needs_revision
+  5. workflowStatus=publish_ready but confirmationStatus ≠ confirmed
+  6. contentStatus=ready but workflowStatus before content_ready
+  7. sellable=true but stockState=sold_out
+- Returns CoherenceIssue[] with severity (warning/error) — diagnostic only, does not auto-fix
+- Shown in /pipeline output when issues detected
+
+**Backward compatibility:**
+- publishReadiness.ts is a new file — no existing code affected
+- mentixAudit change: stricter than before (requires ALL dimensions, not just audit). Fallback preserves old behavior if readiness eval fails
+- /pipeline is a new command — no overlap with existing commands
+- All existing commands (/stok, /audit, /content, /confirm, /merch) unchanged
+- Legacy products (no workflow fields) handled via null-safe checks throughout
+
+**What Phase 13 should build:**
+- Shopier stock sync-back (poll Shopier inventory → update local stock)
+- Merchandising sync cron (periodic bestSellerScore recalculation from order data)
+- Website checkout/cart/payment integration
+- Auto-publish flow: when publish_ready + operator approves → activate product
+- Telegram merchandising commands for HomepageMerchandisingSettings
+
+**Status:** ACTIVE
+
+---
+
+## D-114 — Phase 13 Production Hardening + Smoke Test + Migration Pack (2026-04-04)
+
+**Decision:**
+Create a comprehensive production readiness layer: migration checklist, deploy checklist, smoke test plan, production truth matrix, and lightweight operational diagnostics.
+
+**Reason:**
+The system now has 12 phases of autonomous pipeline features (intake → visual → confirm → content → audit → readiness → publish → stock → merchandising → story). Before deploying this to production, the operator needs: clear migration requirements (push:true doesn't run in prod), honest subsystem status assessment, structured test plan, and operational visibility.
+
+**Implementation:**
+
+**A) Migration Pack**
+Created: `project-control/MIGRATION_NOTES.md`
+- Complete inventory: 14 collections, 3 globals, 80+ Products columns
+- SQL DDL examples for all Phase 1-12 column additions
+- payload_locked_documents_rels requirements
+- Migration order and caveats (exact column names may vary)
+- push:true limitation documented
+
+**B) Deploy Checklist**
+Created: `project-control/DEPLOY_CHECKLIST.md`
+- All 43+ env vars classified (critical/required/optional)
+- Feature status matrix: prod-validated vs code-complete vs partial vs blocked
+- Deploy sequence: database → code → post-deploy validation
+- Security checklist (hardcoded secret found, token rotation)
+- Known risks documented
+
+**C) Smoke Test Plan**
+Created: `project-control/SMOKE_TESTS.md`
+- 15 test scenarios covering full pipeline lifecycle
+- Each test: trigger, expected DB result, expected Telegram output, fail behavior
+- Full end-to-end 12-step integration test plan
+- Story pipeline truthfulness explicitly documented
+
+**D) Production Truth Matrix**
+Created: `project-control/PRODUCTION_TRUTH_MATRIX.md`
+- Every subsystem classified: PROD-VALIDATED / IMPLEMENTED / PARTIAL / BLOCKED / SCAFFOLDED
+- 22 subsystems prod-validated, 28 implemented but not prod-validated
+- 2 subsystems blocked (Telegram stories, WhatsApp stories — API limitations)
+- 4 subsystems scaffolded (Dolap, X, LinkedIn, Threads)
+- 1 not implemented (website checkout)
+
+**E) /diagnostics Telegram Command**
+Updated: `src/app/api/telegram/route.ts`
+- `/diagnostics` — lightweight system health check:
+  - Database connectivity + product count
+  - Environment variable presence check (6 critical keys)
+  - Latest BotEvent info
+  - Order count
+  - Product status breakdown (active/soldout/draft)
+  - Runtime info (NODE_ENV, server time)
+
+**Backward compatibility:**
+- All new files are documentation only — no production code changes except /diagnostics
+- /diagnostics is a new read-only command — no risk to existing flows
+- No existing code modified except single insertion in route.ts
+
+**What Phase 14 should build:**
+- Deploy Phases 1-13 to production with proper migration
+- Run smoke test plan and validate
+- Shopier stock sync-back
+- Merchandising sync cron
+- Website checkout/cart/payment
+- Auto-publish operator approval flow
+
+**Status:** ACTIVE
+
+---
+
+## D-115 — Production Hardening Execution — Prep Phase (2026-04-04)
+
+**Decision:**
+Execute hardcoded secret cleanup, env var truth pass, and migration/deploy doc improvements to make the repo deploy-safe.
+
+**Reason:**
+Phase 13 (D-114) identified 1 hardcoded secret, 6 missing env vars in .env.example, and 3 stale env vars. These needed to be fixed in code before the repo could be considered deploy-prep-ready.
+
+**Implementation:**
+
+**A) Hardcoded Secret Fix**
+Updated: `src/app/api/generate-api-key/route.ts`
+- Removed hardcoded string `'uygun-setup-2026-mentix'`
+- Replaced with `process.env.GENERATE_API_KEY_SECRET`
+- Added guard: returns 500 "Service not configured" if env var not set
+- Added console.warn for missing env var
+- Behavior preserved: same header check, same 401 on mismatch
+
+**B) .env.example Truth Pass**
+Updated: `.env.example`
+- Added 7 missing vars: `TELEGRAM_CHAT_ID`, `ANTHROPIC_API_KEY`, `GEMINI_VISION_MODEL`, `INSTAGRAM_PAGE_ID`, `INSTAGRAM_USER_ID`, `OPENAI_IMAGE_MODEL`, `GENERATE_API_KEY_SECRET`
+- Marked 3 stale vars as removed (N8N_INTAKE_WEBHOOK, N8N_API_KEY, N8N_BASE_URL — no code references)
+- Reorganized into classified sections: Critical / Core Operator / AI / Commerce / Social / Optional
+- Added "NOTE: not yet implemented" markers on X and LinkedIn OAuth sections
+- Commented out optional override vars to reduce noise
+
+**C) Production Doc Improvements**
+Updated: `project-control/MIGRATION_NOTES.md`
+- Added exact migration procedure (Step 1-5): capture DDL from local dev, diff against prod, apply in order
+- Clarified that SQL in the doc is approximate — must verify against actual Drizzle output
+
+Updated: `project-control/DEPLOY_CHECKLIST.md`
+- Marked hardcoded secret fix as done
+- Added GENERATE_API_KEY_SECRET to optional env vars
+- Removed stale N8N_API_KEY reference
+
+Updated: `project-control/PRODUCTION_TRUTH_MATRIX.md`
+- Updated timestamp
+
+**Backward compatibility:**
+- generate-api-key route now requires GENERATE_API_KEY_SECRET env var — endpoint returns 500 if not set (safe: prevents unauthorized key gen)
+- .env.example changes are documentation only — no runtime effect
+- All production doc changes are informational
+
+**Status:** ACTIVE

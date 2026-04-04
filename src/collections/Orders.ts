@@ -17,6 +17,95 @@ export const Orders: CollectionConfig = {
         return data
       },
     ],
+    afterChange: [
+      // Phase 10: Decrement stock + trigger stock reaction for non-Shopier orders.
+      // Shopier orders already handle stock in their webhook — this covers website/manual/phone orders.
+      async ({ doc, operation, req }) => {
+        // Only on create (new order), not on status updates
+        if (operation !== 'create') return doc
+        // Skip if this is already handled by dispatch (e.g. Shopier webhook creates order + decrements stock separately)
+        if (req?.context?.isDispatchUpdate) return doc
+        // Skip Shopier orders — their stock is handled in the webhook's decrementStockForOrder
+        if ((doc as any).source === 'shopier') return doc
+
+        const productRef = (doc as any).product
+        const productId = typeof productRef === 'object' ? productRef?.id : productRef
+        const qty = ((doc as any).quantity as number) ?? 1
+        const size = ((doc as any).size as string) ?? ''
+
+        if (!productId || qty <= 0) return doc
+
+        try {
+          const payload = req.payload
+
+          // Decrement product-level stockQuantity
+          const product = await payload.findByID({ collection: 'products', id: productId, depth: 0 })
+          if (!product) return doc
+
+          const currentStock = (product.stockQuantity as number) ?? 0
+          const newStock = Math.max(0, currentStock - qty)
+
+          await payload.update({
+            collection: 'products',
+            id: productId,
+            data: { stockQuantity: newStock },
+            context: { isDispatchUpdate: true },
+          })
+
+          // If size is specified, also decrement variant stock
+          if (size) {
+            const { docs: variants } = await payload.find({
+              collection: 'variants',
+              where: {
+                and: [
+                  { product: { equals: productId } },
+                  { size: { equals: size } },
+                ],
+              },
+              limit: 1,
+            })
+            if (variants.length > 0) {
+              const variant = variants[0]
+              const vStock = (variant.stock as number) ?? 0
+              await payload.update({
+                collection: 'variants',
+                id: variant.id,
+                data: { stock: Math.max(0, vStock - qty) },
+                context: { isDispatchUpdate: true },
+              })
+            }
+          }
+
+          // Create InventoryLog
+          await payload.create({
+            collection: 'inventory-logs',
+            data: {
+              sku: (product.sku as string) ?? `product-${productId}`,
+              size: size || 'N/A',
+              change: -qty,
+              reason: `Sipariş: ${(doc as any).orderNumber ?? doc.id} (kaynak: ${(doc as any).source ?? 'unknown'})`,
+              source: (doc as any).source === 'telegram' ? 'telegram' : 'system',
+              timestamp: new Date().toISOString(),
+            },
+          })
+
+          // Trigger central stock reaction
+          const { reactToStockChange } = await import('@/lib/stockReaction')
+          const result = await reactToStockChange(payload, productId, 'system', req)
+          console.log(
+            `[Orders.afterChange] stock decremented — order=${(doc as any).orderNumber} product=${productId} ` +
+              `qty=-${qty} events=[${result.eventsEmitted.join(',')}]`,
+          )
+        } catch (err) {
+          console.error(
+            `[Orders.afterChange] stock decrement failed (non-blocking):`,
+            err instanceof Error ? err.message : String(err),
+          )
+        }
+
+        return doc
+      },
+    ],
   },
   fields: [
     // ── Sipariş Numarası ──────────────────────────────────────

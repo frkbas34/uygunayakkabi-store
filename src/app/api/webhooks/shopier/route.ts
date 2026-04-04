@@ -230,7 +230,25 @@ async function handleOrderCreated(
     console.log(`[webhook/shopier] order.created — Payload Order created for shopierOrderId=${shopierOrderId}`)
 
     // ── Stock decrement + InventoryLog per item ────────────────────────────
-    await decrementStockForOrder(payload, items, shopierOrderId)
+    const affectedProductIds = await decrementStockForOrder(payload, items, shopierOrderId)
+
+    // ── Phase 9: Central stock reaction for each affected product ────────
+    try {
+      const { reactToStockChange } = await import('@/lib/stockReaction')
+      for (const pid of affectedProductIds) {
+        const result = await reactToStockChange(payload, pid, 'shopier')
+        if (result.reacted) {
+          console.log(
+            `[webhook/shopier] stockReaction — product=${pid} events=[${result.eventsEmitted.join(',')}]`,
+          )
+        }
+      }
+    } catch (stockErr) {
+      console.error(
+        `[webhook/shopier] stockReaction failed (non-blocking):`,
+        stockErr instanceof Error ? stockErr.message : String(stockErr),
+      )
+    }
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err)
     console.error(`[webhook/shopier] order.created — failed to create Payload Order: ${msg}`)
@@ -309,16 +327,87 @@ async function handleRefundRequested(
         limit: 1,
       })
       if (existing.docs.length > 0) {
-        const currentNotes = (existing.docs[0].notes as string) ?? ''
+        const order = existing.docs[0] as any
+        const currentNotes = (order.notes as string) ?? ''
         await payload.update({
           collection: 'orders',
-          id: existing.docs[0].id as number,
+          id: order.id as number,
           data: {
             status: 'cancelled',
             notes: `${currentNotes}\n\nİade talebi: ${refundId}`.trim(),
           },
         })
-        console.log(`[webhook/shopier] refund.requested — Order ${existing.docs[0].id} → cancelled`)
+        console.log(`[webhook/shopier] refund.requested — Order ${order.id} → cancelled`)
+
+        // Phase 10: Restore stock on refund — increment product stock back
+        const productId = typeof order.product === 'object' ? order.product?.id : order.product
+        const qty = (order.quantity as number) ?? 1
+        const size = (order.size as string) ?? ''
+
+        if (productId && qty > 0) {
+          try {
+            // Increment product-level stockQuantity
+            const product = await payload.findByID({ collection: 'products', id: productId, depth: 0 })
+            if (product) {
+              const currentStock = (product.stockQuantity as number) ?? 0
+              await payload.update({
+                collection: 'products',
+                id: productId,
+                data: { stockQuantity: currentStock + qty },
+                context: { isDispatchUpdate: true },
+              })
+
+              // Create InventoryLog for stock restoration
+              await payload.create({
+                collection: 'inventory-logs',
+                data: {
+                  sku: (product.sku as string) ?? `product-${productId}`,
+                  size: size || 'N/A',
+                  change: qty,
+                  reason: `Shopier iade: ${refundId} (sipariş: ${orderId})`,
+                  source: 'shopier',
+                  timestamp: new Date().toISOString(),
+                },
+              })
+
+              // If size is specified, also increment variant stock
+              if (size) {
+                const { docs: variants } = await payload.find({
+                  collection: 'variants',
+                  where: {
+                    and: [
+                      { product: { equals: productId } },
+                      { size: { equals: size } },
+                    ],
+                  },
+                  limit: 1,
+                })
+                if (variants.length > 0) {
+                  const variant = variants[0]
+                  await payload.update({
+                    collection: 'variants',
+                    id: variant.id,
+                    data: { stock: ((variant.stock as number) ?? 0) + qty },
+                    context: { isDispatchUpdate: true },
+                  })
+                }
+              }
+
+              // Trigger central stock reaction (may trigger restock)
+              const { reactToStockChange } = await import('@/lib/stockReaction')
+              const stockResult = await reactToStockChange(payload, productId, 'shopier')
+              console.log(
+                `[webhook/shopier] refund stock restored — product=${productId} +${qty} ` +
+                  `events=[${stockResult.eventsEmitted.join(',')}]`,
+              )
+            }
+          } catch (stockErr) {
+            console.error(
+              `[webhook/shopier] refund stock restoration failed (non-blocking):`,
+              stockErr instanceof Error ? stockErr.message : String(stockErr),
+            )
+          }
+        }
       }
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err)
@@ -355,7 +444,8 @@ async function decrementStockForOrder(
   payload: Awaited<ReturnType<typeof getPayload>>,
   items: Array<Record<string, unknown>>,
   shopierOrderId: string,
-): Promise<void> {
+): Promise<Array<number | string>> {
+  const affectedProductIds: Array<number | string> = []
   for (const item of items) {
     const shopierProductId = item.id ? String(item.id) : null
     const qty = (item.quantity as number) ?? 1
@@ -402,6 +492,8 @@ async function decrementStockForOrder(
         },
       })
 
+      affectedProductIds.push(productId)
+
       console.log(
         `[webhook/shopier] stock — product ${productId} (${sku}) ` +
           `stock: ${currentStock} → ${newStock} (−${qty}), InventoryLog created`,
@@ -411,6 +503,9 @@ async function decrementStockForOrder(
       console.error(`[webhook/shopier] stock — failed for shopierProductId=${shopierProductId}: ${msg}`)
     }
   }
+
+  // Return unique product IDs for stock reaction
+  return [...new Set(affectedProductIds)]
 }
 
 // ── Telegram notification helper ────────────────────────────────────────────

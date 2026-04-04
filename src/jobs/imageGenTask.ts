@@ -1153,32 +1153,82 @@ async function overlayStockNumber(
   const width = metadata.width || 1024
   const height = metadata.height || 1024
 
-  // SVG overlay: low-key premium stock number — bottom-right corner.
-  // Spec: "Low opacity (70–80%), must NOT distract from the product."
-  // Pill bg at 0.25 opacity, text at 0.72 — subtle but readable.
-  // Pill bg at 0.30 opacity, text at 0.85 — subtle but clearly readable.
+  // v29: Two-layer approach — pill background + text rendered separately.
+  // This avoids relying on SVG text which needs system fonts (may not exist on Vercel).
+  // Layer 1: Dark semi-transparent pill (pure SVG rect — no font needed)
+  // Layer 2: White text rendered via sharp's Pango text API (font built into libvips)
   const fontSize = Math.max(14, Math.round(width * 0.022)) // ~22px on 1024px
   const paddingX = Math.round(fontSize * 0.6)
   const paddingY = Math.round(fontSize * 0.4)
-  const textWidth = stockNumber.length * fontSize * 0.62 // approximate monospace-ish width
+  const textWidth = stockNumber.length * fontSize * 0.62
   const boxWidth = Math.round(textWidth + paddingX * 2)
   const boxHeight = Math.round(fontSize + paddingY * 2)
   const margin = Math.round(width * 0.015) // ~15px margin on 1024px
 
   // Pill position — bottom-right
-  const rectX = width - boxWidth - margin
-  const rectY = height - boxHeight - margin
-  // Text position — horizontally centered in pill, vertically centered via dy
-  const textX = rectX + Math.round(boxWidth / 2)
-  const textY = rectY + Math.round(boxHeight / 2)
+  const pillLeft = width - boxWidth - margin
+  const pillTop  = height - boxHeight - margin
 
-  const svgOverlay = Buffer.from(`<svg width="${width}" height="${height}" xmlns="http://www.w3.org/2000/svg">
-  <rect x="${rectX}" y="${rectY}" width="${boxWidth}" height="${boxHeight}" rx="4" ry="4" fill="rgba(0,0,0,0.30)"/>
-  <text x="${textX}" y="${textY}" dy="0.35em" font-family="Arial,Helvetica,sans-serif" font-size="${fontSize}" font-weight="600" fill="rgba(255,255,255,0.85)" text-anchor="middle">${stockNumber}</text>
-</svg>`)
+  // Layer 1: Full-size SVG with just the pill rectangle (no text — no font needed)
+  const pillSvg = Buffer.from(
+    `<svg width="${width}" height="${height}" xmlns="http://www.w3.org/2000/svg">` +
+    `<rect x="${pillLeft}" y="${pillTop}" width="${boxWidth}" height="${boxHeight}" rx="4" ry="4" fill="rgba(0,0,0,0.30)"/>` +
+    `</svg>`,
+  )
+
+  // Layer 2: Render text via sharp's built-in Pango text engine (no system fonts needed)
+  // Pango is compiled into libvips which sharp bundles — works on Vercel serverless.
+  let textImage: Buffer
+  try {
+    textImage = await sharp({
+      text: {
+        text: `<span foreground="white" font_weight="bold">${stockNumber}</span>`,
+        rgba: true,
+        dpi: Math.round(fontSize * 7.2), // scale DPI to approximate desired font size
+        font: 'sans-serif',
+      },
+    })
+      .ensureAlpha()
+      .png()
+      .toBuffer()
+  } catch {
+    // Fallback: if Pango text fails, use SVG text (original approach)
+    console.warn('[overlayStockNumber v29] Pango text failed — falling back to SVG text')
+    const fallbackSvg = Buffer.from(
+      `<svg width="${boxWidth}" height="${boxHeight}" xmlns="http://www.w3.org/2000/svg">` +
+      `<text x="${Math.round(boxWidth / 2)}" y="${Math.round(boxHeight / 2)}" dy="0.35em" ` +
+      `font-family="monospace,sans-serif" font-size="${fontSize}" font-weight="600" ` +
+      `fill="rgba(255,255,255,0.85)" text-anchor="middle">${stockNumber}</text>` +
+      `</svg>`,
+    )
+    textImage = await sharp(fallbackSvg).ensureAlpha().png().toBuffer()
+  }
+
+  // Resize text image to fit inside pill with padding
+  const textMeta = await sharp(textImage).metadata()
+  const maxTextW = boxWidth - paddingX * 2
+  const maxTextH = boxHeight - paddingY * 2
+  const resizedText = await sharp(textImage)
+    .resize(maxTextW, maxTextH, { fit: 'inside' })
+    .ensureAlpha()
+    .png()
+    .toBuffer()
+
+  const resizedMeta = await sharp(resizedText).metadata()
+  const textLeft = pillLeft + Math.round((boxWidth - (resizedMeta.width || maxTextW)) / 2)
+  const textTop  = pillTop + Math.round((boxHeight - (resizedMeta.height || maxTextH)) / 2)
+
+  console.log(
+    `[overlayStockNumber v29] stockNumber="${stockNumber}" fontSize=${fontSize} ` +
+    `pill=${boxWidth}x${boxHeight} at (${pillLeft},${pillTop}) text at (${textLeft},${textTop}) ` +
+    `textSize=${resizedMeta.width}x${resizedMeta.height} pangoTextSize=${textMeta?.width}x${textMeta?.height}`,
+  )
 
   return sharp(imageBuffer)
-    .composite([{ input: svgOverlay, top: 0, left: 0 }])
+    .composite([
+      { input: pillSvg, top: 0, left: 0 },
+      { input: resizedText, top: textTop, left: textLeft },
+    ])
     .jpeg({ quality: 92 })
     .toBuffer()
 }

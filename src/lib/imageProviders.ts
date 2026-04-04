@@ -1265,35 +1265,35 @@ export async function generateByEditing(
       `scenes=${scenes.map((s) => s.name).join(',')}`,
     )
 
-    // Resize shoe to 768×768 (fit:contain with white bg) then pad to 1024×1024.
-    // This guarantees at least 128px white border on all sides, giving the model
-    // visual room for recomposition even on square photos.
+    // ── Compute batch background FIRST so padding matches the target bg ──
+    // BUG FIX v29: white padding caused the model to reproduce white borders.
+    const mainColor    = identityLock.mainColor
+    const refAngle     = identityLock.referenceAngle || 'unknown'
+    const zoneBlock    = identityLock.protectedZoneBlock || ''
+    const hasBrandZones = geminiKey && (identityLock.protectedZones?.length ?? 0) > 0
+    const premiumBackground = getBackgroundForColor(mainColor)
+    const padHex = parseBackgroundHex(premiumBackground) || '#EDEDED'
+    const padRgb = hexToRgb(padHex)
+
+    console.log(
+      `[generateByEditing v12] protected zones: ${hasBrandZones ? (identityLock.protectedZones?.map((z) => z.name).join(',')) : 'none'}`,
+    )
+
+    // Resize shoe to 768×768 then pad to 1024×1024 using batch bg color (not white)
     const innerBuffer = await sharp(referenceImage)
-      .resize(768, 768, { fit: 'contain', background: { r: 255, g: 255, b: 255, alpha: 1 } })
+      .resize(768, 768, { fit: 'contain', background: { r: padRgb.r, g: padRgb.g, b: padRgb.b, alpha: 1 } })
       .png()
       .toBuffer()
 
     const pngBuffer = await sharp(innerBuffer)
       .extend({
         top: 128, bottom: 128, left: 128, right: 128,
-        background: { r: 255, g: 255, b: 255, alpha: 1 },
+        background: { r: padRgb.r, g: padRgb.g, b: padRgb.b, alpha: 1 },
       })
       .png()
       .toBuffer()
 
-    console.log(`[generateByEditing v12] PNG 1024×1024 ready — ${pngBuffer.length}b (shoe at 768×768 center)`)
-
-    const mainColor    = identityLock.mainColor
-    const refAngle     = identityLock.referenceAngle || 'unknown'
-    const zoneBlock    = identityLock.protectedZoneBlock || ''
-    const hasBrandZones = geminiKey && (identityLock.protectedZones?.length ?? 0) > 0
-
-    console.log(
-      `[generateByEditing v12] protected zones: ${hasBrandZones ? (identityLock.protectedZones?.map((z) => z.name).join(',')) : 'none'}`,
-    )
-
-    // Compute premium background once (same for all studio slots in this batch)
-    const premiumBackground = getBackgroundForColor(mainColor)
+    console.log(`[generateByEditing v29] PNG 1024×1024 ready — ${pngBuffer.length}b padColor=${padHex}`)
 
     for (const scene of scenes) {
       // Replace placeholders in scene instructions
@@ -1632,28 +1632,35 @@ export async function generateByGeminiPro(
       `scenes=${scenes.map((s) => s.name).join(',')}`,
     )
 
-    // Same 768×768 → 1024×1024 padding as generateByEditing
-    const innerBuffer = await sharp(referenceImage)
-      .resize(768, 768, { fit: 'contain', background: { r: 255, g: 255, b: 255, alpha: 1 } })
-      .png()
-      .toBuffer()
-
-    const pngBuffer = await sharp(innerBuffer)
-      .extend({
-        top: 128, bottom: 128, left: 128, right: 128,
-        background: { r: 255, g: 255, b: 255, alpha: 1 },
-      })
-      .png()
-      .toBuffer()
-
-    console.log(`[generateByGeminiPro v14] PNG 1024×1024 ready — ${pngBuffer.length}b`)
-
+    // ── Compute batch background FIRST so padding matches the target bg ──
+    // BUG FIX v29: Previously padding was white (#FFFFFF), which caused Gemini
+    // to reproduce white borders in its output ("inset" / "floating canvas" look).
+    // Now padding uses the actual batch background color so the model sees the
+    // correct context color around the shoe — no white border to reproduce.
     const mainColor   = identityLock.mainColor
     const refAngle    = identityLock.referenceAngle || 'unknown'
     const zoneBlock   = identityLock.protectedZoneBlock || ''
     const hasBrandZones = (identityLock.protectedZones?.length ?? 0) > 0
 
     const premiumBackground = getBackgroundForColor(mainColor)
+    const padHex = parseBackgroundHex(premiumBackground) || '#EDEDED'
+    const padRgb = hexToRgb(padHex)
+
+    // Resize shoe to 768×768 then pad to 1024×1024 using batch background color
+    const innerBuffer = await sharp(referenceImage)
+      .resize(768, 768, { fit: 'contain', background: { r: padRgb.r, g: padRgb.g, b: padRgb.b, alpha: 1 } })
+      .png()
+      .toBuffer()
+
+    const pngBuffer = await sharp(innerBuffer)
+      .extend({
+        top: 128, bottom: 128, left: 128, right: 128,
+        background: { r: padRgb.r, g: padRgb.g, b: padRgb.b, alpha: 1 },
+      })
+      .png()
+      .toBuffer()
+
+    console.log(`[generateByGeminiPro v29] PNG 1024×1024 ready — ${pngBuffer.length}b padColor=${padHex}`)
     const multiAngleBlock = buildMultiAngleBlock(additionalImages?.length || 0)
 
     for (const scene of scenes) {
@@ -1740,7 +1747,7 @@ export async function generateByGeminiPro(
           const reinforcedPrompt = correctionLines.join('\n') + '\n\n' + fullPrompt
 
           console.warn(
-            `[generateByGeminiPro v28] ✗ ${scene.name} fidelity issues — ` +
+            `[generateByGeminiPro v29] ✗ ${scene.name} fidelity issues — ` +
             `color=${colorCheck.match} brand=${brandCheck?.pass ?? 'skip'} ` +
             `shot=${shotCheck.pass} bg=${bgCheck.pass} ` +
             `(bgDetected="${bgCheck.detectedBackground.slice(0, 60)}") — retrying`,
@@ -1792,16 +1799,16 @@ export async function generateByGeminiPro(
             const bgHex = parseBackgroundHex(premiumBackground)
             if (bgHex) {
               try {
-                console.log(`[generateByGeminiPro v28] bg still drifted on ${scene.name} after retry — enforcing ${bgHex} via post-process`)
+                console.log(`[generateByGeminiPro v29] bg still drifted on ${scene.name} after retry — enforcing ${bgHex} via post-process`)
                 finalBuf = await enforceSlotBackground(finalBuf, bgHex)
                 slotLog.bgCheckPass = true // mark as corrected
                 ;(slotLog as Record<string, unknown>).bgEnforced = true
                 // Remove bg warning from rejection reason since we fixed it
                 const filteredWarnings = warnings.filter((w) => !w.startsWith('background drift'))
                 slotLog.rejectionReason = filteredWarnings.length > 0 ? filteredWarnings.join('; ') : undefined
-                console.log(`[generateByGeminiPro v28] ✓ ${scene.name} background enforced via post-process`)
+                console.log(`[generateByGeminiPro v29] ✓ ${scene.name} background enforced via post-process`)
               } catch (enforceErr) {
-                console.warn(`[generateByGeminiPro v28] bg enforcement failed for ${scene.name}:`, enforceErr instanceof Error ? enforceErr.message : enforceErr)
+                console.warn(`[generateByGeminiPro v29] bg enforcement failed for ${scene.name}:`, enforceErr instanceof Error ? enforceErr.message : enforceErr)
                 // Keep the retried image as-is — don't lose it
               }
             }
@@ -1817,16 +1824,33 @@ export async function generateByGeminiPro(
         result.errors.push(`${scene.name}: ${slotErrMsg}`)
       }
 
+      // ── v29: UNCONDITIONAL background enforcement on every successful slot ──
+      // Previously this only ran after retry+fail. Now it runs on ALL slots
+      // to guarantee deterministic batch background regardless of what Gemini produced.
+      // This is the safety net that eliminates background mismatch across the batch.
+      if (finalBuf) {
+        const bgHex = parseBackgroundHex(premiumBackground)
+        if (bgHex) {
+          try {
+            finalBuf = await enforceSlotBackground(finalBuf, bgHex)
+            ;(slotLog as Record<string, unknown>).bgEnforced = true
+            console.log(`[generateByGeminiPro v29] ✓ ${scene.name} bg enforced to ${bgHex}`)
+          } catch (enforceErr) {
+            console.warn(`[generateByGeminiPro v29] bg enforcement failed for ${scene.name}:`, enforceErr instanceof Error ? enforceErr.message : enforceErr)
+          }
+        }
+      }
+
       if (finalBuf) {
         result.buffers.push(finalBuf)
         result.successCount++
         slotLog.success = true
         slotLog.outputSizeBytes = finalBuf.length
         console.log(
-          `[generateByGeminiPro v28] ✓ ${scene.name} — ${finalBuf.length}b ` +
+          `[generateByGeminiPro v29] ✓ ${scene.name} — ${finalBuf.length}b ` +
           `(attempts=${slotLog.attempts} color=${slotLog.colorCheckPass ?? 'skip'} ` +
           `brand=${slotLog.brandFidelityPass ?? 'skip'} shot=${slotLog.shotCompliancePass ?? 'skip'} ` +
-          `bg=${slotLog.bgCheckPass ?? 'skip'})`,
+          `bg=${slotLog.bgCheckPass ?? 'skip'} bgEnforced=${(slotLog as Record<string, unknown>).bgEnforced ?? false})`,
         )
       } else {
         const msg = `${scene.name}: null after ${slotLog.attempts} attempts`
@@ -1849,7 +1873,7 @@ export async function generateByGeminiPro(
     if (s.colorCheckPass === false || s.brandFidelityPass === false || s.shotCompliancePass === false || s.bgCheckPass === false) return '⚠'
     return '✓'
   }).join('')
-  console.log(`[generateByGeminiPro v28] done — ${result.successCount}/${result.promptCount} [${slotSummary}]`)
+  console.log(`[generateByGeminiPro v29] done — ${result.successCount}/${result.promptCount} [${slotSummary}]`)
 
   return { results: [result], buffers: result.buffers, slotLogs }
 }

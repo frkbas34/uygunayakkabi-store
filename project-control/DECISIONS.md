@@ -2481,3 +2481,47 @@ Updated: `project-control/PRODUCTION_TRUTH_MATRIX.md`
 - All production doc changes are informational
 
 **Status:** ACTIVE
+
+---
+
+## D-116a — sellable=false Bug Fix: reactToStockChange After Variant Creation
+**Decision:**
+Call `reactToStockChange()` explicitly in `applyConfirmation()` after variant creation. The Variants afterChange hook only fires on `operation === 'update'`, not on `create`. During confirmation, variants are created (not updated), leaving sellable at its defaultValue of false.
+
+**Reason:**
+Product 125 had sellable=false despite confirmed status + stock + variants. Root cause: Variants afterChange hook guard `if (operation !== 'update') return doc` skips create operations. Without explicit call, sellable stays at schema default (false) forever for newly confirmed products.
+
+**Status:** ACTIVE
+
+---
+
+## D-116b — Discovery Pack maxOutputTokens Increase to 8192
+**Decision:**
+Increase Gemini `maxOutputTokens` from 4096 to 8192 for discovery pack generation. Commerce pack stays at 4096.
+
+**Reason:**
+Discovery pack prompt requests 800-1500 word Turkish article + FAQ + meta + keywords in JSON. At ~1.5-2 tokens/word for Turkish, the article alone needs 1200-3000 tokens. With JSON structure overhead, 4096 was consistently insufficient — discovery pack silently failed on every attempt.
+
+**Status:** ACTIVE
+
+---
+
+## D-116c — Content Retry for Partial Failures
+**Decision:**
+Add `canRetriggerContent()` function and `/content <id> retry` Telegram command. `triggerContentGeneration()` now accounts for existing packs in DB when determining final contentStatus (e.g., existing commercePack + newly generated discoveryPack → 'ready').
+
+**Reason:**
+`shouldAutoTriggerContent()` only fires for contentStatus='pending'. Once set to 'commerce_generated' (partial failure), there was no retry path. Operator had no way to regenerate the missing pack.
+
+**Status:** ACTIVE
+
+---
+
+## D-116d — /activate Telegram Command for Product Activation
+**Decision:**
+Add `/activate <id>` Telegram command that validates 6/6 publish readiness, then sets status=active + merchandising.publishedAt/newUntil + workflow.workflowStatus=active + publishStatus=published. Goes through Payload `update()` to trigger afterChange hooks (channel dispatch, story, Shopier sync).
+
+**Reason:**
+No existing Telegram command for product activation. The only path was Payload admin UI. Operators need a Telegram-based activation flow to complete the product lifecycle without leaving the bot interface.
+
+**Status:** ACTIVE

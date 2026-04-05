@@ -2623,7 +2623,8 @@ export async function POST(req: NextRequest) {
           chatId,
           '📝 <b>İçerik Yönetimi (Geobot)</b>\n\n' +
             '/content <id> — İçerik durumunu göster\n' +
-            '/content <id> trigger — İçerik üretimini tetikle (Gemini AI)\n\n' +
+            '/content <id> trigger — İçerik üretimini tetikle (Gemini AI)\n' +
+            '/content <id> retry — Kısmi/başarısız içeriği tekrar dene\n\n' +
             'Ürün onaylandıktan sonra Geobot içerik üretimi otomatik tetiklenir.\n' +
             'Commerce Pack (5 kanal) + Discovery Pack (SEO makale) üretir.',
         )
@@ -2680,6 +2681,58 @@ export async function POST(req: NextRequest) {
             )
           } else {
             await sendTelegramMessage(chatId, `❌ Tetikleme hatası: ${result.error}`)
+          }
+          return NextResponse.json({ ok: true })
+        }
+
+        // /content {id} retry — retrigger for partial/failed content
+        if (subCommand === 'retry') {
+          const { canRetriggerContent, triggerContentGeneration } = await import('@/lib/contentPack')
+          if (!canRetriggerContent(product as any)) {
+            const cs = (product as any).workflow?.contentStatus ?? 'unknown'
+            const reason = cs === 'ready'
+              ? 'İçerik zaten tam (commerce + discovery). Tekrar denemeye gerek yok.'
+              : cs === 'pending'
+                ? 'İçerik henüz üretilmedi. /content <id> trigger kullanın.'
+                : (product as any).workflow?.confirmationStatus !== 'confirmed'
+                  ? 'Ürün henüz onaylanmadı. Önce /confirm kullanın.'
+                  : `Mevcut durum (${cs}) retry için uygun değil.`
+            await sendTelegramMessage(chatId, `⚠️ Retry uygun değil:\n${reason}`)
+            return NextResponse.json({ ok: true })
+          }
+
+          const currentStatus = (product as any).workflow?.contentStatus
+          await sendTelegramMessage(
+            chatId,
+            `🔄 <b>İçerik retry başlatılıyor — Ürün #${productId}</b>\n` +
+              `Mevcut durum: ${currentStatus}\n` +
+              `Eksik pack yeniden üretilecek...`,
+          )
+
+          const result = await triggerContentGeneration(
+            payload,
+            product as any,
+            'retry',
+            { context: {} } as any,
+          )
+
+          if (result.triggered) {
+            const statusEmoji = result.contentStatus === 'ready' ? '✅' :
+              result.contentStatus === 'commerce_generated' ? '🛒' :
+              result.contentStatus === 'discovery_generated' ? '🔍' :
+              result.contentStatus === 'failed' ? '❌' : '⏳'
+            await sendTelegramMessage(
+              chatId,
+              `${statusEmoji} <b>Retry sonucu — Ürün #${productId}</b>\n\n` +
+                `📋 contentStatus = ${result.contentStatus}\n` +
+                (result.contentStatus === 'ready'
+                  ? '✅ Commerce + Discovery pack tamamlandı!'
+                  : result.contentStatus === 'failed'
+                    ? `❌ Retry hatası: ${result.error ?? 'bilinmeyen'}`
+                    : `⏳ Hâlâ kısmi — /content ${productId} ile durumu kontrol edin.`),
+            )
+          } else {
+            await sendTelegramMessage(chatId, `❌ Retry hatası: ${result.error}`)
           }
           return NextResponse.json({ ok: true })
         }

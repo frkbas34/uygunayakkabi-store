@@ -229,6 +229,17 @@ export function shouldAutoTriggerContent(product: ContentProduct): boolean {
   return !contentStatus || contentStatus === 'pending'
 }
 
+/**
+ * Check if a product can be retried for content generation.
+ * Returns true if content is in a partial state (commerce_generated / discovery_generated)
+ * or failed, meaning a retry could complete the missing pack.
+ */
+export function canRetriggerContent(product: ContentProduct): boolean {
+  if (!isContentEligible(product)) return false
+  const contentStatus = product.workflow?.contentStatus
+  return contentStatus === 'commerce_generated' || contentStatus === 'discovery_generated' || contentStatus === 'failed'
+}
+
 // ── Geobot trigger ────────────────────────────────────────────────────
 
 /**
@@ -372,12 +383,16 @@ export async function triggerContentGeneration(
     }
 
     // 6. Determine truthful contentStatus
+    // On retry, account for packs that already exist in the product (from a previous partial run)
+    // so that e.g. existing commercePack + newly generated discoveryPack → 'ready'
+    const hasCommerce = !!result.commercePack || !!(product.content?.commercePack?.websiteDescription)
+    const hasDiscovery = !!result.discoveryPack || !!(product.content?.discoveryPack?.articleTitle)
     let finalContentStatus: ContentStatus = 'failed'
-    if (result.commercePack && result.discoveryPack) {
+    if (hasCommerce && hasDiscovery) {
       finalContentStatus = 'ready'
-    } else if (result.discoveryPack) {
+    } else if (hasDiscovery) {
       finalContentStatus = 'discovery_generated'
-    } else if (result.commercePack) {
+    } else if (hasCommerce) {
       finalContentStatus = 'commerce_generated'
     }
 

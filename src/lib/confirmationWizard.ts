@@ -544,6 +544,27 @@ export async function applyConfirmation(
       })
     }
 
+    // 3b. Evaluate sellable via central stock reaction
+    // Variant creation (operation='create') does not trigger the Variants afterChange hook
+    // (which only reacts on 'update'), so sellable would stay at its default false.
+    // Explicitly call reactToStockChange to set sellable + stockState correctly.
+    if (variantsCreated > 0) {
+      try {
+        const { reactToStockChange } = await import('@/lib/stockReaction')
+        const stockResult = await reactToStockChange(payload, productId, 'system', req)
+        console.log(
+          `[confirmationWizard] stockReaction after variant creation — product=${productId} ` +
+            `reacted=${stockResult.reacted} sellable=${stockResult.transition?.newSellable ?? '—'} ` +
+            `stockState=${stockResult.transition?.newState ?? '—'}`,
+        )
+      } catch (stockErr) {
+        console.error(
+          `[confirmationWizard] stockReaction failed (non-blocking) — product=${productId}: ` +
+            (stockErr instanceof Error ? stockErr.message : String(stockErr)),
+        )
+      }
+    }
+
     // 4. Emit BotEvent
     await payload.create({
       collection: 'bot-events',

@@ -86,27 +86,28 @@ async function editMessageText(
 }
 
 /** Build inline keyboard for size multi-select */
-const DEFAULT_SIZES = ['36', '37', '38', '39', '40', '41', '42', '43', '44', '45']
+const DEFAULT_SIZES = ['39', '40', '41', '42', '43', '44', '45']
 
 function buildSizeKeyboard(
   selectedSizes: Set<string>,
 ): Array<Array<{ text: string; callback_data: string }>> {
   const rows: Array<Array<{ text: string; callback_data: string }>> = []
-  // 5 sizes per row
-  for (let i = 0; i < DEFAULT_SIZES.length; i += 5) {
-    const row = DEFAULT_SIZES.slice(i, i + 5).map((size) => ({
+  // Row 1: 39, 40, 41  |  Row 2: 42, 43, 44  |  Row 3: 45
+  const layout = [[0, 3], [3, 6], [6, 7]]
+  for (const [start, end] of layout) {
+    const row = DEFAULT_SIZES.slice(start, end).map((size) => ({
       text: selectedSizes.has(size) ? `✅ ${size}` : size,
       callback_data: `wz_size:${size}`,
     }))
     rows.push(row)
   }
-  // Action row
+  // Action rows
   rows.push([
     { text: '🔄 Tümünü Seç', callback_data: 'wz_size:all' },
     { text: '🗑 Temizle', callback_data: 'wz_size:clear' },
   ])
   rows.push([
-    { text: '➡️ Devam', callback_data: 'wz_size:done' },
+    { text: '✅ Devam', callback_data: 'wz_size:done' },
   ])
   return rows
 }

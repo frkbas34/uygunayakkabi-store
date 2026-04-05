@@ -1,6 +1,6 @@
 # TASK QUEUE — Uygunayakkabi
 
-_Last updated: 2026-04-05 (Phase 19 Channel Dispatch D-116; Phase 18 Stock Lifecycle D-116; Phase 17 Activation D-116; Phase 16 Bot Validation D-116; Phase 13 Prep — D-115; Phase 13 D-114; Phase 12 D-113; Phase 11 D-112; Phase 10 D-111; Phases 1-9 complete)_
+_Last updated: 2026-04-05 (VF-6 Visual-First Pipeline E2E Validation D-117; Phase 19 Channel Dispatch D-116; Phase 18 Stock Lifecycle D-116; Phase 17 Activation D-116; Phase 16 Bot Validation D-116; Phase 13 Prep — D-115; Phase 13 D-114; Phase 12 D-113; Phase 11 D-112; Phase 10 D-111; Phases 1-9 complete)_
 
 ---
 
@@ -19,47 +19,35 @@ The workspace CANNOT be updated with a simple `git pull` — histories have dive
 This will discard local uncommitted changes and diverged local commits — IRREVERSIBLE.
 Do NOT execute without operator confirmation.
 
-### Blocker 2: No AI Image Gen Job Proven End-to-End — CRITICAL
-No AI image generation job (Gemini, OpenAI, Luma) has produced a confirmed successful result in production. Step 25 has been deployed through multiple iterations but the operator has never confirmed "this works, images match the product."
+### Blocker 2: No AI Image Gen Job Proven End-to-End — RESOLVED
+~~No AI image generation job proven in production.~~ RESOLVED by VF-6 validation (2026-04-05). Product #180 / Job #147: Gemini image gen → preview → approval → generative gallery attached (6 images). visualStatus transitions verified: pending→approved. Full pipeline proven end-to-end.
 
 ---
 
-## 🟢 NOW — Current Sprint (HARD RESET RECOVERY PASS — 2026-04-01)
+## 🟢 NOW — Current Sprint (VISUAL-FIRST PIPELINE VALIDATED — 2026-04-05)
 
-### Priority 1: Prove Claid.ai End-to-End (FIRST RECOVERY TARGET)
-Claid is the simplest provider: 1 API call, no generative uncertainty, deterministic output.
-`CLAID_API_KEY` is confirmed set in Vercel.
+### ✅ Visual-First Pipeline: PROD-VALIDATED (D-117)
+Full end-to-end pipeline proven on product #180:
+- Intake → Image Gen → Visual Approval → /confirm Wizard → Content Gen → Audit → Activation → Homepage
+- All gates enforced: /confirm blocked pre-approval, /content blocked pre-approval
+- Confirmation wizard: category buttons, productType buttons, sizes multi-select, stock manual, brand text, targets multi-select, summary+confirm
+- Content: commerce+discovery packs generated at 100% confidence
+- Audit: approved_with_warning, all 3 dimensions pass
+- Activation: status=active, Yeni badge, homepage visible
+- 11 bot events across full lifecycle
 
-**Test procedure:**
-1. Find a product ID in Telegram that has an original photo attached
-2. Send `#claid {productId}` to the Telegram bot
-3. Select `🧹 Ürün Temizleme` (cleanup mode) from the keyboard
-4. Wait for Claid result photo to appear in Telegram
-5. Click `✅ Ürüne Ekle` to approve
-6. Verify the image appears in the product's `generativeGallery` in Payload admin
+### Priority 1: Process Backlog Products Through Visual-First Pipeline
+170+ draft products from pre-VF-2 era have visualStatus=pending despite having preview jobs.
+These need operator-driven approval one by one (or batch tool) to unlock confirmation.
 
-**Success criteria:**
-- Bot replies with mode selection keyboard → ✓
-- Photo received in Telegram with approval keyboard → ✓
-- Approval stores image in `generativeGallery` → ✓
+### Priority 2: Homepage Size Display Fix
+Homepage JSON shows default size range [38-45] instead of actual DB variants.
+Pre-existing storefront rendering issue — not a VF regression.
+Investigate `page.tsx` or product serialization logic.
 
-**Failure investigation:**
-- No keyboard → check `#claid` trigger regex and callback routing
-- No photo → check Vercel logs for `[claidTask]` entries; check `CLAID_API_KEY` in env
-- HTTP error from Claid → check response body in Vercel logs
-
-### Priority 2: Gemini Image Gen Diagnosis (AFTER Claid proven)
-Current state: `#gorsel` → Gemini Pro → `gemini-2.0-flash-preview-image-generation`
-Key unknown: does this model actually accept `inlineData` reference images?
-D-100 tested older models and found them all text-to-image only. This model was not in D-100's test list.
-
-**Diagnosis test:**
-1. Send `#gorsel {productId}` to Telegram
-2. Check Vercel logs for `[GeminiImageGenerate]` entries
-3. Look for: model name, HTTP status, finishReason, presence of image part
-4. If HTTP 404 → model not available, need different model ID
-5. If HTTP 200 but wrong product → model ignores inlineData, need text-only approach
-6. If HTTP 200 and correct product → SUCCESS, document in DECISIONS.md
+### Priority 3: Instagram/Facebook Live Dispatch Validation
+Both channels are deployed but never dispatched through the current pipeline.
+Token valid until 2026-05-21. Add instagram+facebook to a product's channelTargets and test.
 
 ### Step 21b — Shopier Stock Decrement on Order
 1. On `order.created` webhook: decrement `products.stockQuantity`

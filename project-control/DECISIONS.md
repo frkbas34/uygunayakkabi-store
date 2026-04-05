@@ -2557,3 +2557,33 @@ Classified all 7 external channels + website based on production evidence: Autom
 3. No end-to-end pipeline validation for Instagram or Facebook (last verified via direct test, not pipeline)
 
 **Status:** ACTIVE
+
+---
+
+## D-117 — Visual-First Pipeline Enforcement + E2E Validation
+**Decision:**
+Enforced visual-first pipeline order across the entire product lifecycle. Visual approval is now a prerequisite for both commercial confirmation and content generation.
+
+**Implementation (VF-2 through VF-5, commits 00a5666..619c20d):**
+- VF-2: visualStatus written truthfully during image-gen lifecycle (9 transition points)
+- VF-3: /confirm gated on visualStatus===approved with per-state operator messages
+- VF-4: content generation gated on visualStatus===approved (auto-trigger, manual, retry)
+- VF-5: confirmation wizard UX: productType buttons, brand text input with find-or-create
+- VF-5 hotfix: brands collection uses `name` field not `title` — fixed in 619c20d
+
+**E2E Validation (VF-6, product #180, job #147):**
+- A: Intake PASS — draft product, correct initial state
+- B: Image Gen PASS — visualStatus pending→approved, workflowStatus draft→visual_ready
+- C: Visual Gate PASS — /confirm and /content both blocked when visualStatus=pending
+- D: Wizard PASS — productType(Erkek), price(999), sizes(40-43), stock(3), brand(TestMarka), targets(website+instagram)
+- E: Content PASS — auto-triggered, commerce+discovery 100% confidence
+- F: Audit PASS — approved_with_warning, all dimensions pass
+- G: Activation PASS — status=active, Yeni badge, 7-day window
+- H: Homepage PASS — product visible with correct data
+
+**Known issues found:**
+1. Brand field name mismatch (name vs title) — FIXED
+2. Homepage size array shows default range instead of DB variants — PRE-EXISTING, not VF regression
+3. 170+ pre-VF-2 products have visualStatus=pending despite having preview jobs — need operator-driven approval
+
+**Status:** ACTIVE — This is now the production operating model.

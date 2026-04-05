@@ -21,11 +21,15 @@ export const maxDuration = 300
 async function sendTelegramMessage(chatId: number, text: string): Promise<void> {
   const token = process.env.TELEGRAM_BOT_TOKEN
   if (!token) return
-  await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+  const res = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ chat_id: chatId, text, parse_mode: 'HTML' }),
   })
+  if (!res.ok) {
+    const errBody = await res.text()
+    console.error(`[telegram/sendMessage] FAILED ${res.status}: chatId=${chatId} body=${errBody} msgPreview=${text.substring(0, 100)}`)
+  }
 }
 
 /** Send a message with Telegram inline keyboard buttons */

@@ -21,10 +21,12 @@ export const maxDuration = 300
 async function sendTelegramMessage(chatId: number, text: string): Promise<void> {
   const token = process.env.TELEGRAM_BOT_TOKEN
   if (!token) return
+  // Telegram API limit: 4096 chars for sendMessage
+  const safeText = text.length > 4000 ? text.substring(0, 4000) + '\n\n⚠️ (mesaj kesildi — çok uzun)' : text
   const res = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ chat_id: chatId, text, parse_mode: 'HTML' }),
+    body: JSON.stringify({ chat_id: chatId, text: safeText, parse_mode: 'HTML' }),
   })
   if (!res.ok) {
     const errBody = await res.text()

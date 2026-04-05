@@ -2525,3 +2525,14 @@ Add `/activate <id>` Telegram command that validates 6/6 publish readiness, then
 No existing Telegram command for product activation. The only path was Payload admin UI. Operators need a Telegram-based activation flow to complete the product lifecycle without leaving the bot interface.
 
 **Status:** ACTIVE
+
+---
+
+## D-116e — Explicit Workflow Fields in stockReaction Update
+**Decision:**
+Replace `...(product.workflow ?? {})` spread in `reactToStockChange()` with explicit field enumeration (`workflowStatus`, `visualStatus`, `confirmationStatus`, `contentStatus`, `auditStatus`, `publishStatus`, `productConfirmedAt`, `stockState`, `sellable`, `lastHandledByBot`).
+
+**Reason:**
+The workflow spread included Payload CMS internal/metadata fields from the fetched document that caused the `payload.update()` call to fail silently. The product update never persisted during restock transitions (soldout → active), leaving the product in an inconsistent state (variant stock > 0 but product-level status still soldout). Explicit field enumeration ensures only valid schema fields are sent in the update payload.
+
+**Status:** ACTIVE

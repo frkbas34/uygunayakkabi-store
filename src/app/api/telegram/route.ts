@@ -34,24 +34,89 @@ async function sendTelegramMessage(chatId: number, text: string): Promise<void> 
   }
 }
 
-/** Send a message with Telegram inline keyboard buttons */
+/** Send a message with Telegram inline keyboard buttons. Returns the sent message ID. */
 async function sendTelegramMessageWithKeyboard(
   chatId: number,
   text: string,
   keyboard: Array<Array<{ text: string; callback_data: string }>>,
-): Promise<void> {
+): Promise<number | null> {
   const token = process.env.TELEGRAM_BOT_TOKEN
-  if (!token) return
-  await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+  if (!token) return null
+  const safeText = text.length > 4000 ? text.substring(0, 4000) + '\n\n⚠️ (mesaj kesildi)' : text
+  const res = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       chat_id: chatId,
-      text,
+      text: safeText,
       parse_mode: 'HTML',
       reply_markup: { inline_keyboard: keyboard },
     }),
   })
+  if (!res.ok) return null
+  try {
+    const data = await res.json()
+    return data?.result?.message_id ?? null
+  } catch {
+    return null
+  }
+}
+
+/** Edit an existing message's text and inline keyboard */
+async function editMessageText(
+  chatId: number,
+  messageId: number,
+  text: string,
+  keyboard?: Array<Array<{ text: string; callback_data: string }>>,
+): Promise<void> {
+  const token = process.env.TELEGRAM_BOT_TOKEN
+  if (!token) return
+  const safeText = text.length > 4000 ? text.substring(0, 4000) + '\n\n⚠️ (mesaj kesildi)' : text
+  await fetch(`https://api.telegram.org/bot${token}/editMessageText`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      chat_id: chatId,
+      message_id: messageId,
+      text: safeText,
+      parse_mode: 'HTML',
+      ...(keyboard ? { reply_markup: { inline_keyboard: keyboard } } : {}),
+    }),
+  })
+}
+
+/** Build inline keyboard for size multi-select */
+const DEFAULT_SIZES = ['36', '37', '38', '39', '40', '41', '42', '43', '44', '45']
+
+function buildSizeKeyboard(
+  selectedSizes: Set<string>,
+): Array<Array<{ text: string; callback_data: string }>> {
+  const rows: Array<Array<{ text: string; callback_data: string }>> = []
+  // 5 sizes per row
+  for (let i = 0; i < DEFAULT_SIZES.length; i += 5) {
+    const row = DEFAULT_SIZES.slice(i, i + 5).map((size) => ({
+      text: selectedSizes.has(size) ? `✅ ${size}` : size,
+      callback_data: `wz_size:${size}`,
+    }))
+    rows.push(row)
+  }
+  // Action row
+  rows.push([
+    { text: '🔄 Tümünü Seç', callback_data: 'wz_size:all' },
+    { text: '🗑 Temizle', callback_data: 'wz_size:clear' },
+  ])
+  rows.push([
+    { text: '➡️ Devam', callback_data: 'wz_size:done' },
+  ])
+  return rows
+}
+
+function formatSizeSelectionText(selectedSizes: Set<string>): string {
+  if (selectedSizes.size === 0) {
+    return '👟 <b>Beden seçin:</b>\n\nAşağıdaki butonlara tıklayarak bedenleri seçin/kaldırın.'
+  }
+  const sorted = Array.from(selectedSizes).sort((a, b) => Number(a) - Number(b))
+  return `👟 <b>Beden seçin:</b>\n\n✅ Seçili: <b>${sorted.join(', ')}</b> (${sorted.length} beden)`
 }
 
 /** Dismiss the loading spinner on a Telegram button after user clicks it */
@@ -785,7 +850,14 @@ export async function POST(req: NextRequest) {
           if (nextStep === 'price') {
             await sendTelegramMessage(cbChatId, getPricePrompt())
           } else if (nextStep === 'sizes') {
-            await sendTelegramMessage(cbChatId, getSizesPrompt())
+            session.pendingSizes = []
+            const msgId = await sendTelegramMessageWithKeyboard(
+              cbChatId,
+              formatSizeSelectionText(new Set()),
+              buildSizeKeyboard(new Set()),
+            )
+            if (msgId) session.sizeMessageId = msgId
+            setWizardSession(cbChatId, session)
           } else if (nextStep === 'targets') {
             const tgtPrompt = getTargetsPrompt()
             await sendTelegramMessageWithKeyboard(cbChatId, tgtPrompt.text, tgtPrompt.keyboard)
@@ -861,6 +933,86 @@ export async function POST(req: NextRequest) {
         } catch (err) {
           await answerCallbackQuery(cbQueryId, '❌ Hata')
           console.error('[telegram/webhook] wz_tgt callback failed:', err)
+        }
+        return NextResponse.json({ ok: true })
+      }
+
+      // wz_size:{value} — size multi-select toggle
+      if (cbData.startsWith('wz_size:')) {
+        try {
+          const { getWizardSession, setWizardSession, getNextWizardStep,
+                  getTargetsPrompt, formatConfirmationSummary, getStockPrompt } = await import('@/lib/confirmationWizard')
+          const session = getWizardSession(cbChatId)
+          if (!session || session.step !== 'sizes') {
+            await answerCallbackQuery(cbQueryId, '⚠️ Aktif beden seçimi yok')
+            return NextResponse.json({ ok: true })
+          }
+
+          const action = cbData.replace('wz_size:', '')
+          const selected = new Set(session.pendingSizes ?? [])
+
+          if (action === 'all') {
+            // Select all defaults
+            DEFAULT_SIZES.forEach((s) => selected.add(s))
+            await answerCallbackQuery(cbQueryId, '✅ Tümü seçildi')
+          } else if (action === 'clear') {
+            selected.clear()
+            await answerCallbackQuery(cbQueryId, '🗑 Temizlendi')
+          } else if (action === 'done') {
+            // Finalize size selection
+            if (selected.size === 0) {
+              await answerCallbackQuery(cbQueryId, '⚠️ En az 1 beden seçin')
+              return NextResponse.json({ ok: true })
+            }
+            const sortedSizes = Array.from(selected).sort((a, b) => Number(a) - Number(b))
+            session.collected.sizes = sortedSizes.join(',')
+            session.pendingSizes = undefined
+            session.sizeMessageId = undefined
+
+            // Update the keyboard message to show final selection
+            const cbMsgId = body?.callback_query?.message?.message_id
+            if (cbMsgId) {
+              await editMessageText(
+                cbChatId,
+                cbMsgId,
+                `✅ <b>Seçilen bedenler:</b> ${sortedSizes.join(', ')}`,
+              )
+            }
+
+            await answerCallbackQuery(cbQueryId, `✅ ${sortedSizes.length} beden seçildi`)
+
+            // Move to stock step
+            session.step = 'stock'
+            setWizardSession(cbChatId, session)
+            await sendTelegramMessage(cbChatId, getStockPrompt(sortedSizes))
+            return NextResponse.json({ ok: true })
+          } else {
+            // Toggle individual size
+            if (selected.has(action)) {
+              selected.delete(action)
+              await answerCallbackQuery(cbQueryId, `➖ ${action} kaldırıldı`)
+            } else {
+              selected.add(action)
+              await answerCallbackQuery(cbQueryId, `➕ ${action} eklendi`)
+            }
+          }
+
+          // Update session and refresh keyboard
+          session.pendingSizes = Array.from(selected)
+          setWizardSession(cbChatId, session)
+
+          const cbMsgId = body?.callback_query?.message?.message_id
+          if (cbMsgId) {
+            await editMessageText(
+              cbChatId,
+              cbMsgId,
+              formatSizeSelectionText(selected),
+              buildSizeKeyboard(selected),
+            )
+          }
+        } catch (err) {
+          await answerCallbackQuery(cbQueryId, '❌ Hata')
+          console.error('[telegram/webhook] wz_size callback failed:', err)
         }
         return NextResponse.json({ ok: true })
       }
@@ -973,7 +1125,14 @@ export async function POST(req: NextRequest) {
             setWizardSession(chatId, wizSession)
 
             if (nextStep === 'sizes') {
-              await sendTelegramMessage(chatId, getSizesPrompt())
+              wizSession.pendingSizes = []
+              const sizeMsg = await sendTelegramMessageWithKeyboard(
+                chatId,
+                formatSizeSelectionText(new Set()),
+                buildSizeKeyboard(new Set()),
+              )
+              if (sizeMsg) wizSession.sizeMessageId = sizeMsg
+              setWizardSession(chatId, wizSession)
             } else if (nextStep === 'targets') {
               const tgtPrompt = getTargetsPrompt()
               await sendTelegramMessageWithKeyboard(chatId, tgtPrompt.text, tgtPrompt.keyboard)
@@ -992,18 +1151,8 @@ export async function POST(req: NextRequest) {
           }
 
           if (wizSession.step === 'sizes') {
-            const sizes = parseSizes(text)
-            if (!sizes) {
-              await sendTelegramMessage(chatId, '⚠️ Geçersiz beden formatı. Örnek: <code>38-44</code> veya <code>38,39,40,41,42</code>')
-              return NextResponse.json({ ok: true })
-            }
-            wizSession.collected.sizes = sizes.join(',')
-            await sendTelegramMessage(chatId, `✅ Bedenler: ${sizes.join(', ')}`)
-
-            // Next: stock per size
-            wizSession.step = 'stock'
-            setWizardSession(chatId, wizSession)
-            await sendTelegramMessage(chatId, getStockPrompt(sizes))
+            // Sizes step now uses inline keyboard buttons — redirect user
+            await sendTelegramMessage(chatId, '👆 Yukarıdaki butonları kullanarak bedenleri seçin, sonra <b>Devam</b> basın.')
             return NextResponse.json({ ok: true })
           }
 
@@ -2686,13 +2835,14 @@ export async function POST(req: NextRequest) {
           const nextStep = getNextWizardStep(product as any, collected as any)
 
           clearWizardSession(chatId) // Clear any stale session
-          setWizardSession(chatId, {
+          const wizState = {
             productId,
             chatId,
             step: nextStep,
             collected: collected as any,
             startedAt: Date.now(),
-          })
+          } as any
+          setWizardSession(chatId, wizState)
 
           // Send first prompt
           if (nextStep === 'category') {
@@ -2701,7 +2851,14 @@ export async function POST(req: NextRequest) {
           } else if (nextStep === 'price') {
             await sendTelegramMessage(chatId, getPricePrompt())
           } else if (nextStep === 'sizes') {
-            await sendTelegramMessage(chatId, getSizesPrompt())
+            wizState.pendingSizes = []
+            const sizeMsg = await sendTelegramMessageWithKeyboard(
+              chatId,
+              formatSizeSelectionText(new Set()),
+              buildSizeKeyboard(new Set()),
+            )
+            if (sizeMsg) wizState.sizeMessageId = sizeMsg
+            setWizardSession(chatId, wizState)
           } else if (nextStep === 'targets') {
             const tgtPrompt = getTargetsPrompt()
             await sendTelegramMessageWithKeyboard(chatId, tgtPrompt.text, tgtPrompt.keyboard)

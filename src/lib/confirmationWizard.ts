@@ -82,6 +82,10 @@ export interface WizardState {
     stockPerSize?: number
     channelTargets?: string[]
   }
+  /** Temporary set of selected sizes during inline keyboard multi-select */
+  pendingSizes?: string[]
+  /** Message ID of the size selection keyboard message (for editMessageText) */
+  sizeMessageId?: number
   startedAt: number // Date.now()
 }
 

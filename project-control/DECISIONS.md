@@ -2587,3 +2587,26 @@ Enforced visual-first pipeline order across the entire product lifecycle. Visual
 3. 170+ pre-VF-2 products have visualStatus=pending despite having preview jobs — need operator-driven approval
 
 **Status:** ACTIVE — This is now the production operating model.
+
+---
+
+## D-117b — VF-7 Legacy Backlog Normalization
+**Decision:**
+Normalized 61 pre-VF-2 products whose workflow.visualStatus was inconsistent with their actual image generation evidence. Applied directly to Neon production DB.
+
+**Rules applied (evidence-based only, no faked approvals):**
+1. **5 products** with approved image-gen jobs + generative gallery attached → `visualStatus=approved`, `workflowStatus=visual_ready`. (Products: 122, 145, 146, 152, 159)
+2. **54 products** with preview image-gen jobs but `visualStatus=pending` → `visualStatus=preview`, `workflowStatus=visual_pending`. These still need operator visual approval.
+3. **2 products** (#123, #125) already confirmed/active pre-VF-2 with original images → retroactive `visualStatus=approved`. Operator implicitly accepted these products commercially.
+
+**Post-normalization state (95 total products):**
+- approved: 8 (5 newly eligible for /confirm)
+- preview: 53 (need operator visual approval to unlock pipeline)
+- pending: 34 (no image gen attempted yet)
+- Remaining inconsistencies: 0
+
+**Risks:**
+- Rule 3 is a retroactive assumption — operator accepted these products before VF gates existed. Acceptable because they were already commercially validated.
+- The 54 preview products still need human approval — normalization only made the state truthful, not approved.
+
+**Status:** COMPLETED

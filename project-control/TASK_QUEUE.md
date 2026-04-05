@@ -1,6 +1,6 @@
 # TASK QUEUE — Uygunayakkabi
 
-_Last updated: 2026-04-05 (VF-6 Visual-First Pipeline E2E Validation D-117; Phase 19 Channel Dispatch D-116; Phase 18 Stock Lifecycle D-116; Phase 17 Activation D-116; Phase 16 Bot Validation D-116; Phase 13 Prep — D-115; Phase 13 D-114; Phase 12 D-113; Phase 11 D-112; Phase 10 D-111; Phases 1-9 complete)_
+_Last updated: 2026-04-05 (VF-7 Legacy Backlog Normalization D-117b; VF-6 Visual-First Pipeline E2E Validation D-117; Phase 19 Channel Dispatch D-116; Phase 18 Stock Lifecycle D-116; Phase 17 Activation D-116; Phase 16 Bot Validation D-116; Phase 13 Prep — D-115; Phase 13 D-114; Phase 12 D-113; Phase 11 D-112; Phase 10 D-111; Phases 1-9 complete)_
 
 ---
 
@@ -36,9 +36,9 @@ Full end-to-end pipeline proven on product #180:
 - Activation: status=active, Yeni badge, homepage visible
 - 11 bot events across full lifecycle
 
-### Priority 1: Process Backlog Products Through Visual-First Pipeline
-170+ draft products from pre-VF-2 era have visualStatus=pending despite having preview jobs.
-These need operator-driven approval one by one (or batch tool) to unlock confirmation.
+### Priority 1: Operator Visual Approval of 53 Preview Products
+VF-7 normalized the backlog. 53 products now have vis=preview (images generated, awaiting operator approval). 5 products already vis=approved and ready for /confirm. 34 products have no image gen yet (vis=pending).
+Operator action: review preview images for the 53 products and approve/reject via Telegram buttons.
 
 ### Priority 2: Homepage Size Display Fix
 Homepage JSON shows default size range [38-45] instead of actual DB variants.

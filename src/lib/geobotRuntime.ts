@@ -63,7 +63,7 @@ export interface GeobotGenerationResult {
 
 const GEMINI_TEXT_MODEL = 'gemini-2.5-flash'
 
-async function callGeminiText(prompt: string): Promise<string> {
+async function callGeminiText(prompt: string, maxOutputTokens = 4096): Promise<string> {
   const apiKey = process.env.GEMINI_API_KEY
   if (!apiKey) {
     throw new Error('GEMINI_API_KEY is not configured')
@@ -78,7 +78,7 @@ async function callGeminiText(prompt: string): Promise<string> {
       contents: [{ parts: [{ text: prompt }] }],
       generationConfig: {
         responseMimeType: 'application/json',
-        maxOutputTokens: 4096,
+        maxOutputTokens,
         temperature: 0.7,
       },
     }),
@@ -247,14 +247,22 @@ export async function generateDiscoveryPack(
   product: GeobotProductContext,
 ): Promise<DiscoveryPackOutput> {
   const prompt = buildDiscoveryPrompt(product)
-  const raw = await callGeminiText(prompt)
+  // Discovery pack needs higher token limit: 800-1500 word article + FAQ + metadata in JSON
+  const raw = await callGeminiText(prompt, 8192)
 
   const jsonMatch = raw.match(/\{[\s\S]*\}/)
   if (!jsonMatch) {
-    throw new Error('Discovery pack: Gemini response is not valid JSON')
+    console.error(`[geobotRuntime] Discovery pack raw response (first 500): ${raw.slice(0, 500)}`)
+    throw new Error(`Discovery pack: Gemini response is not valid JSON (length=${raw.length})`)
   }
 
-  const parsed = JSON.parse(jsonMatch[0])
+  let parsed: any
+  try {
+    parsed = JSON.parse(jsonMatch[0])
+  } catch (parseErr) {
+    console.error(`[geobotRuntime] Discovery JSON parse failed. Raw length=${raw.length}, match length=${jsonMatch[0].length}`)
+    throw new Error(`Discovery pack: JSON parse error — ${parseErr instanceof Error ? parseErr.message : String(parseErr)}`)
+  }
   const warnings: string[] = []
 
   // Validate required fields
@@ -340,7 +348,8 @@ export async function generateFullContentPack(
     )
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err)
-    console.error(`[geobotRuntime] Discovery pack failed for product ${product.id}:`, msg)
+    const stack = err instanceof Error ? err.stack?.split('\n').slice(0, 3).join(' | ') : ''
+    console.error(`[geobotRuntime] Discovery pack FAILED for product ${product.id}: ${msg} ${stack}`)
     errors.push(`Discovery: ${msg}`)
   }
 

@@ -499,6 +499,9 @@ export async function POST(req: NextRequest) {
 
     const body = await req.json()
 
+    // DEBUG: Log incoming update keys to diagnose missing message field
+    console.log('[telegram/debug] update keys:', Object.keys(body), 'has message:', !!body?.message, 'has edited_message:', !!body?.edited_message, 'has my_chat_member:', !!body?.my_chat_member)
+
     // ── Inline keyboard button clicks ─────────────────────────────────────
     // Handles clicks on mode-selection buttons sent after product creation.
     // callback_data format: "imagegen:{productId}:{mode|skip}"

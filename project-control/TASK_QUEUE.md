@@ -45,9 +45,22 @@ Homepage JSON shows default size range [38-45] instead of actual DB variants.
 Pre-existing storefront rendering issue — not a VF regression.
 Investigate `page.tsx` or product serialization logic.
 
-### Priority 3: Instagram/Facebook Live Dispatch Validation
-Both channels are deployed but never dispatched through the current pipeline.
-Token valid until 2026-05-21. Add instagram+facebook to a product's channelTargets and test.
+### Blocker 3: Media Storage — All Files on Ephemeral Local FS — CRITICAL
+459 media files stored as local relative URLs (`/api/media/file/...`). Zero Vercel Blob URLs.
+`BLOB_READ_WRITE_TOKEN` not set in Vercel production — Vercel Blob storage disabled.
+Files disappear on serverless function recycle. Product #180 image returns 404.
+**Fix:** Set `BLOB_READ_WRITE_TOKEN` in Vercel, then re-ingest all media through Blob-enabled pipeline.
+This blocks ALL external channel publishing that requires image URLs (Instagram, Facebook, Shopier).
+
+### Blocker 4: Instagram/Facebook Dispatch — 3 Config Blockers (Phase 20) — ACTIVE
+Dispatch attempted on product #180. Both channels failed:
+- **P20-1**: Instagram userId `17841443128892405` invalid — no Facebook Page connected to Meta app. `/me/accounts` returns empty.
+- **P20-2**: `INSTAGRAM_PAGE_ID` env var not set in Vercel — Facebook direct publish skipped.
+- **P20-3**: Media URLs return 404 (see Blocker 3).
+**Fix:** (A) Connect FB Page to app in Meta Business Settings, get correct IG Business Account ID. (B) Set `INSTAGRAM_PAGE_ID` in Vercel. (C) Fix media storage (Blocker 3).
+
+### Priority 3: Re-validate Instagram/Facebook Dispatch After Blocker Fixes
+After Blockers 3+4 resolved: re-trigger dispatch on product #180 and verify both channels publish successfully.
 
 ### Step 21b — Shopier Stock Decrement on Order
 1. On `order.created` webhook: decrement `products.stockQuantity`

@@ -259,9 +259,19 @@ export async function reactToStockChange(
 
     const updateData: Record<string, unknown> = {}
 
-    // Workflow updates
+    // Workflow updates — only set fields we actually manage
+    // Avoid spreading the full product.workflow which may contain Payload
+    // internal fields or stale data that causes silent update failures.
+    const wf = product.workflow ?? {} as Record<string, unknown>
     const workflowUpdate: Record<string, unknown> = {
-      ...(product.workflow ?? {}),
+      workflowStatus: wf.workflowStatus,
+      visualStatus: wf.visualStatus,
+      confirmationStatus: wf.confirmationStatus,
+      contentStatus: wf.contentStatus,
+      auditStatus: wf.auditStatus,
+      publishStatus: wf.publishStatus,
+      productConfirmedAt: wf.productConfirmedAt,
+      // Fields we're updating:
       stockState: transition.newState,
       sellable: transition.newSellable,
       lastHandledByBot: 'system',
@@ -273,7 +283,7 @@ export async function reactToStockChange(
       const settledState = settleRestockedState(snapshot.effectiveStock)
       workflowUpdate.stockState = settledState
       // If product was soldout in workflowStatus, move back to active
-      if (product.workflow?.workflowStatus === 'soldout') {
+      if (wf.workflowStatus === 'soldout') {
         workflowUpdate.workflowStatus = 'active'
       }
     }
@@ -299,12 +309,26 @@ export async function reactToStockChange(
     }
 
     // 6. Apply update
-    await payload.update({
-      collection: 'products',
-      id: product.id,
-      data: updateData,
-      req: updateReq,
-    })
+    console.log(
+      `[stockReaction] Applying update — product=${product.id} ` +
+        `status=${updateData.status ?? 'unchanged'} ` +
+        `stockState=${workflowUpdate.stockState} sellable=${workflowUpdate.sellable} ` +
+        `stockQty=${updateData.stockQuantity ?? 'unchanged'}`,
+    )
+    try {
+      await payload.update({
+        collection: 'products',
+        id: product.id,
+        data: updateData,
+        req: updateReq,
+      })
+    } catch (updateErr) {
+      const updateMsg = updateErr instanceof Error ? updateErr.message : String(updateErr)
+      console.error(
+        `[stockReaction] Product update FAILED — product=${product.id}: ${updateMsg}`,
+      )
+      throw updateErr
+    }
 
     console.log(
       `[stockReaction] product=${product.id} source=${source} ` +

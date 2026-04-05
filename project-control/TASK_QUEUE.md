@@ -1,6 +1,6 @@
 # TASK QUEUE — Uygunayakkabi
 
-_Last updated: 2026-04-05 (VF-7 Legacy Backlog Normalization D-117b; VF-6 Visual-First Pipeline E2E Validation D-117; Phase 19 Channel Dispatch D-116; Phase 18 Stock Lifecycle D-116; Phase 17 Activation D-116; Phase 16 Bot Validation D-116; Phase 13 Prep — D-115; Phase 13 D-114; Phase 12 D-113; Phase 11 D-112; Phase 10 D-111; Phases 1-9 complete)_
+_Last updated: 2026-04-06 (Phase 21 Operator Runbook; VF-7 Legacy Backlog Normalization D-117b; VF-6 Visual-First Pipeline E2E Validation D-117; Phase 19 Channel Dispatch D-116; Phase 18 Stock Lifecycle D-116; Phase 17 Activation D-116; Phase 16 Bot Validation D-116; Phase 13 Prep — D-115; Phase 13 D-114; Phase 12 D-113; Phase 11 D-112; Phase 10 D-111; Phases 1-9 complete)_
 
 ---
 
@@ -25,6 +25,10 @@ Do NOT execute without operator confirmation.
 ---
 
 ## 🟢 NOW — Current Sprint (VISUAL-FIRST PIPELINE VALIDATED — 2026-04-05)
+
+### ✅ Phase 21 Operator Runbook: COMPLETED (2026-04-06)
+Comprehensive operator-facing daily SOP created: `project-control/OPERATOR_RUNBOOK.md`.
+Covers daily flow, all commands, pipeline stages, automated behaviors, exception handling, critical warnings, daily checklist, and key thresholds.
 
 ### ✅ Visual-First Pipeline: PROD-VALIDATED (D-117)
 Full end-to-end pipeline proven on product #180:

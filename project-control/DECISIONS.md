@@ -2613,29 +2613,24 @@ Normalized 61 pre-VF-2 products whose workflow.visualStatus was inconsistent wit
 
 ---
 
-## D-118 — Phase 20: Instagram/Facebook Dispatch Validation — BLOCKED
+## D-118 — Phase 20A: Instagram/Facebook Dispatch Validation — RESOLVED
 
 **Decision:**
-Attempted real Instagram/Facebook dispatch on product #180 through the full pipeline (status=active, channelTargets=[website,instagram,facebook]). Three infrastructure blockers found. No code bugs — all issues are configuration/environment.
+Phase 20 blockers fully diagnosed and resolved. Original D-118 assessment was partially incorrect — env vars were present, media storage was operational. True root causes identified and fixed.
 
-**Blockers:**
+**Root Causes Found (correcting original D-118):**
 
-1. **P20-1: Instagram userId Invalid.** The stored userId `17841443128892405` returns Graph API error 100/33 ("Object does not exist"). Token debug shows valid token (app: Uygunayakkabı, 5 scopes including instagram_content_publish) but `/me/accounts` returns empty — no Facebook Pages are connected to the app. Without a linked Page, the Instagram Business Account ID cannot be resolved. Facebook user ID confirmed: `122097085238922240`.
+1. **P20-1 RESOLVED: Facebook Page was DEACTIVATED.** The stored userId `17841443128892405` was valid all along. The Graph API error 100/33 occurred because the Facebook Page "UygunAyakkabı" (ID: 1040379692491003) was deactivated in Meta Business Suite. After re-activating the page: `GET /{pageId}?fields=instagram_business_account` confirmed userId `17841443128892405` (username: uygunayakkabi_34). `/me/accounts` returning empty was a separate issue (app not re-authorized with page) but does not affect direct API calls.
 
-2. **P20-2: INSTAGRAM_PAGE_ID Env Var Missing.** Products.ts afterChange hook injects `facebookPageId` from `process.env.INSTAGRAM_PAGE_ID`. This env var is not set in Vercel production. Without it, the Facebook direct publish path is skipped entirely. Falls through to n8n webhook which is not configured.
+2. **P20-2 RESOLVED: Env vars were present.** `INSTAGRAM_PAGE_ID=1040379692491003` set since Mar 22. `BLOB_READ_WRITE_TOKEN` set since Mar 10. The original assessment was wrong.
 
-3. **P20-3: Media Storage on Ephemeral Filesystem.** All 459 media files in DB have local relative URLs (`/api/media/file/...`). Zero Vercel Blob URLs. `BLOB_READ_WRITE_TOKEN` is not set in Vercel, so `vercelBlobStorage` plugin is disabled. Files written at runtime on Vercel serverless are ephemeral. Product #180's image returns HTTP 404. Meta servers cannot fetch images for container creation.
+3. **P20-3 RESOLVED: Code bug — depth=0 in afterChange hook.** The afterChange hook passed `doc` (depth=0) to `dispatchProductToChannels()`. At depth=0, `images[].image` is a bare numeric ID (e.g., 686) not a populated object. `extractMediaUrls()` tried to read `686.url` → undefined → returned empty array. With no mediaUrls, both Instagram and Facebook direct API conditions failed (`mediaUrls.length > 0` check) and fell through to the n8n webhook path. **Fix:** Added `req.payload.findByID({ collection: 'products', id: doc.id, depth: 1 })` before dispatch call. Commit `ca4ccad`.
 
-**Required Operator Actions:**
-- (A) In Meta Business Settings: connect the Facebook Page to the "Uygunayakkabı" app. Re-authorize the app selecting the Page. Then query `/me/accounts?fields=instagram_business_account` to get the correct Instagram Business Account ID. Update `instagram_tokens_user_id` in AutomationSettings admin.
-- (B) In Vercel Dashboard: set `INSTAGRAM_PAGE_ID` to the correct Facebook Page ID. Set `BLOB_READ_WRITE_TOKEN` for Vercel Blob storage.
-- (C) After Blob is enabled: re-upload or re-ingest product media so URLs point to Vercel Blob (persistent `https://` URLs).
+4. **Media serving confirmed working.** Payload `/api/media/file/` static handler correctly proxies from Vercel Blob. Files uploaded via Telegram bot's `payload.create({ file })` are stored in Blob automatically. Previous 404 was transient.
 
-**Dispatch code verified correct:**
-- `extractMediaUrls()` properly absolutizes relative URLs using `NEXT_PUBLIC_SERVER_URL`
-- `publishInstagramDirectly()` correctly validates https:// prefix, calls Graph API v21.0 `/{userId}/media`
-- `publishFacebookDirectly()` correctly exchanges user token for page token, posts to `/{pageId}/photos`
-- `evaluateChannelEligibility()` three-gate system works correctly (product channelTargets, product publish flag, global flag all passed)
-- `buildDispatchPayload()` includes mediaUrls, caption, all product fields
+**Manual API Verification:**
+- Instagram: container created (id: 18066372815437630) + published (postId: 18016666670834577) ✅
+- Facebook: page token exchange succeeded + photo posted (postId: 1040379692491003_122103937328884171) ✅
+- Both using product #180's image via Payload static handler URL
 
-**Status:** BLOCKED — awaiting operator environment configuration
+**Status:** RESOLVED — code fix deployed (ca4ccad), awaiting automated dispatch verification after Vercel rebuild

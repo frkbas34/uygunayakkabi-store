@@ -2358,6 +2358,132 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: true })
     }
 
+    // ── Phase 17: Product Activation Command ────────────────────────────────
+    // /activate {productId} — safely transition a publish-ready product to active
+    if (text.startsWith('/activate')) {
+      const parts = text.trim().split(/\s+/)
+      const arg = parts[1]
+
+      if (!arg) {
+        await sendTelegramMessage(
+          chatId,
+          '🚀 <b>Ürün Aktivasyonu</b>\n\n' +
+            '/activate <id> — Publish-ready ürünü aktif et (website yayını)\n\n' +
+            'Koşullar: tüm publish readiness boyutları sağlanmalı (6/6).\n' +
+            'Aktivasyon otomatik olarak:\n' +
+            '• status → active\n' +
+            '• merchandising.publishedAt ayarlar (Yeni bölümüne girer)\n' +
+            '• Kanal dispatch tetikler (Shopier, Instagram vb.)',
+        )
+        return NextResponse.json({ ok: true })
+      }
+
+      const productId = parseInt(arg)
+      if (isNaN(productId)) {
+        await sendTelegramMessage(chatId, '⚠️ Geçersiz ürün ID.')
+        return NextResponse.json({ ok: true })
+      }
+
+      try {
+        const product = await payload.findByID({ collection: 'products', id: productId, depth: 1 })
+        if (!product) {
+          await sendTelegramMessage(chatId, `❌ Ürün #${productId} bulunamadı.`)
+          return NextResponse.json({ ok: true })
+        }
+
+        // Guard: already active
+        if ((product as any).status === 'active') {
+          await sendTelegramMessage(chatId, `✅ Ürün #${productId} zaten aktif. Tekrar dispatch için Admin'den forceRedispatch kullanın.`)
+          return NextResponse.json({ ok: true })
+        }
+
+        // Guard: check publish readiness (all 6 dimensions)
+        const { evaluatePublishReadiness, formatReadinessMessage } = await import('@/lib/publishReadiness')
+        const readiness = evaluatePublishReadiness(product as any)
+
+        if (readiness.level !== 'ready') {
+          await sendTelegramMessage(
+            chatId,
+            `⚠️ <b>Aktivasyon engellendi — Ürün #${productId}</b>\n\n` +
+              `Publish readiness: ${readiness.passedCount}/${readiness.totalCount}\n` +
+              `Tüm boyutların (6/6) sağlanması gerekiyor.\n\n` +
+              `<b>Engelleyenler:</b>\n` +
+              readiness.blockers.map(b => `❌ ${b}`).join('\n') +
+              `\n\n/pipeline ${productId} — Detaylı durum`,
+          )
+          return NextResponse.json({ ok: true })
+        }
+
+        // All checks passed — activate
+        await sendTelegramMessage(
+          chatId,
+          `🚀 <b>Aktivasyon başlatılıyor — Ürün #${productId}</b>\n` +
+            `${(product as any).title ?? 'Untitled'}\n` +
+            `Readiness: ${readiness.passedCount}/${readiness.totalCount} ✅`,
+        )
+
+        // Calculate merchandising dates
+        const { calculateNewWindow } = await import('@/lib/merchandising')
+        const { publishedAt, newUntil } = calculateNewWindow()
+
+        // Activate via payload.update — this triggers the afterChange hook
+        // which handles channel dispatch, Shopier sync, story dispatch, etc.
+        await payload.update({
+          collection: 'products',
+          id: productId,
+          data: {
+            status: 'active',
+            workflow: {
+              ...((product as any).workflow ?? {}),
+              workflowStatus: 'active',
+              publishStatus: 'published',
+              lastHandledByBot: 'uygunops',
+            },
+            merchandising: {
+              ...((product as any).merchandising ?? {}),
+              publishedAt,
+              newUntil,
+            },
+          },
+        })
+
+        // Emit BotEvent
+        await payload.create({
+          collection: 'bot-events',
+          data: {
+            eventType: 'product.activated',
+            product: productId,
+            sourceBot: 'uygunops',
+            status: 'processed',
+            payload: {
+              previousStatus: (product as any).status,
+              activatedAt: new Date().toISOString(),
+              publishedAt,
+              newUntil,
+              readinessScore: `${readiness.passedCount}/${readiness.totalCount}`,
+            },
+            notes: `Product ${productId} activated via Telegram /activate command. Status: draft→active. Website publish + merchandising dates set.`,
+            processedAt: new Date().toISOString(),
+          },
+        })
+
+        await sendTelegramMessage(
+          chatId,
+          `✅ <b>Ürün #${productId} AKTİF!</b>\n\n` +
+            `🟢 status = active\n` +
+            `📅 publishedAt = ${publishedAt.split('T')[0]}\n` +
+            `📅 newUntil = ${newUntil.split('T')[0]} (Yeni bölümünde görünecek)\n` +
+            `🔄 Kanal dispatch tetiklendi (afterChange hook)\n\n` +
+            `/pipeline ${productId} — Pipeline durumu\n` +
+            `/merch status ${productId} — Merchandising durumu`,
+        )
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err)
+        await sendTelegramMessage(chatId, `❌ Aktivasyon hatası: ${msg}`)
+      }
+      return NextResponse.json({ ok: true })
+    }
+
     // ── Phase 12: Pipeline Status Command ─────────────────────────────────
     // /pipeline {productId} — full lifecycle pipeline visibility
     if (text.startsWith('/pipeline')) {

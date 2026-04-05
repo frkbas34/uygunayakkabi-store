@@ -61,6 +61,7 @@ export interface ContentProduct {
   content?: ContentGroup | null
   workflow?: {
     workflowStatus?: string | null
+    visualStatus?: string | null
     confirmationStatus?: string | null
     contentStatus?: string | null
     lastHandledByBot?: string | null
@@ -205,9 +206,12 @@ export function checkContentReadiness(product: ContentProduct): ContentReadiness
 
 /**
  * Check if a product is eligible for content generation.
- * Must be confirmed and not already fully generated.
+ * VF-4: Must have approved visuals, be confirmed, and not already fully generated.
  */
 export function isContentEligible(product: ContentProduct): boolean {
+  // VF-4: Must have operator-approved visuals
+  if (product.workflow?.visualStatus !== 'approved') return false
+
   // Must be confirmed
   if (product.workflow?.confirmationStatus !== 'confirmed') return false
 

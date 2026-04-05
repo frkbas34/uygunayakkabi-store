@@ -2911,10 +2911,23 @@ export async function POST(req: NextRequest) {
         if (subCommand === 'trigger') {
           const { isContentEligible, triggerContentGeneration } = await import('@/lib/contentPack')
           if (!isContentEligible(product as any)) {
-            const reason = (product as any).workflow?.confirmationStatus !== 'confirmed'
-              ? 'Ürün henüz onaylanmadı. Önce /confirm kullanın.'
-              : 'İçerik zaten hazır (contentStatus=ready).'
-            await sendTelegramMessage(chatId, `⚠️ İçerik üretimi uygun değil:\n${reason}`)
+            // VF-4: Determine which gate is blocking
+            const vs = (product as any).workflow?.visualStatus ?? 'pending'
+            const cs = (product as any).workflow?.confirmationStatus
+            const contentSt = (product as any).workflow?.contentStatus
+            const reason = contentSt === 'ready'
+              ? 'İçerik zaten hazır (contentStatus=ready).'
+              : vs !== 'approved'
+                ? `Görseller henüz onaylanmamış (visualStatus=${vs}). Önce #gorsel ${productId} ile görsel üretin ve onaylayın.`
+                : cs !== 'confirmed'
+                  ? 'Ürün henüz onaylanmadı. Önce /confirm kullanın.'
+                  : 'İçerik üretimi uygun değil.'
+            await sendTelegramMessage(
+              chatId,
+              `⚠️ <b>İçerik üretimi uygun değil — Ürün #${productId}</b>\n\n` +
+                `${reason}\n\n` +
+                `<b>Akış:</b> Görsel üret → Onayla → /confirm → /content`,
+            )
             return NextResponse.json({ ok: true })
           }
 
@@ -2953,14 +2966,20 @@ export async function POST(req: NextRequest) {
           const { canRetriggerContent, triggerContentGeneration } = await import('@/lib/contentPack')
           if (!canRetriggerContent(product as any)) {
             const cs = (product as any).workflow?.contentStatus ?? 'unknown'
+            const vs = (product as any).workflow?.visualStatus ?? 'pending'
             const reason = cs === 'ready'
               ? 'İçerik zaten tam (commerce + discovery). Tekrar denemeye gerek yok.'
-              : cs === 'pending'
-                ? 'İçerik henüz üretilmedi. /content <id> trigger kullanın.'
-                : (product as any).workflow?.confirmationStatus !== 'confirmed'
-                  ? 'Ürün henüz onaylanmadı. Önce /confirm kullanın.'
-                  : `Mevcut durum (${cs}) retry için uygun değil.`
-            await sendTelegramMessage(chatId, `⚠️ Retry uygun değil:\n${reason}`)
+              : vs !== 'approved'
+                ? `Görseller henüz onaylanmamış (visualStatus=${vs}). Önce görselleri onaylayın.`
+                : cs === 'pending'
+                  ? 'İçerik henüz üretilmedi. /content <id> trigger kullanın.'
+                  : (product as any).workflow?.confirmationStatus !== 'confirmed'
+                    ? 'Ürün henüz onaylanmadı. Önce /confirm kullanın.'
+                    : `Mevcut durum (${cs}) retry için uygun değil.`
+            await sendTelegramMessage(
+              chatId,
+              `⚠️ <b>Retry uygun değil — Ürün #${productId}</b>\n\n${reason}`,
+            )
             return NextResponse.json({ ok: true })
           }
 

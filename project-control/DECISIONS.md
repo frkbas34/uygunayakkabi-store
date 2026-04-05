@@ -2633,4 +2633,15 @@ Phase 20 blockers fully diagnosed and resolved. Original D-118 assessment was pa
 - Facebook: page token exchange succeeded + photo posted (postId: 1040379692491003_122103937328884171) ✅
 - Both using product #180's image via Payload static handler URL
 
-**Status:** RESOLVED — code fix deployed (ca4ccad), awaiting automated dispatch verification after Vercel rebuild
+**Additional Root Cause Found During Validation:**
+
+5. **fetchAutomationSettings() was silently failing.** The `automation_settings_story_targets` table (for the `storyTargets` array field in AutomationSettings global) did not exist in Neon. This is another instance of Blocker 0 (push:true doesn't work in production). The Payload query for AutomationSettings includes a LEFT JOIN to this table — when it didn't exist, the entire query failed. `fetchAutomationSettings()` caught the error and returned `null`. With `settings = null`, `instagramTokens` was `undefined`, so the direct API conditions (`instagramTokens?.accessToken`) were false. **Fix:** Created the table manually via DDL in Neon.
+
+**Automated Dispatch Validation (FINAL):**
+- Dispatch triggered via `forceRedispatch=true` PATCH on product #180
+- Instagram: `dispatched=true`, `mode=direct`, `postId=18085404884600056`, `containerId=18066373853437630`
+- Facebook: `dispatched=true`, `mode=direct`, `postId=122103938528884171`, `pageId=1040379692491003`, `tokenMode=page-token`
+- `dispatchedChannels=["instagram","facebook"]`
+- Media URL used: `https://uygunayakkabi.com/api/media/file/tg-180-1775323061276.jpg`
+
+**Status:** PROD-VALIDATED — both channels publish successfully through automated pipeline

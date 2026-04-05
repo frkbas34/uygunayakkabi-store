@@ -1149,6 +1149,20 @@ export async function POST(req: NextRequest) {
           const payloadInst = await getPayload()
           const product = await payloadInst.findByID({ collection: 'products', id: session.productId })
 
+          // VF-3: Double-check visual gate at final confirmation (prevents stale button bypass)
+          const confirmVisualStatus = (product as any).workflow?.visualStatus ?? 'pending'
+          if (confirmVisualStatus !== 'approved') {
+            await answerCallbackQuery(cbQueryId, '⛔ Görseller onaylanmamış')
+            await sendTelegramMessage(
+              cbChatId,
+              `⛔ <b>Onay uygulanamadı — Ürün #${session.productId}</b>\n\n` +
+                `Görsel durumu: <code>${confirmVisualStatus}</code>\n` +
+                `Önce görselleri onaylayın, sonra tekrar /confirm çalıştırın.`,
+            )
+            clearWizardSession(cbChatId)
+            return NextResponse.json({ ok: true })
+          }
+
           const result = await applyConfirmation(
             payloadInst,
             session.productId,
@@ -3048,6 +3062,33 @@ export async function POST(req: NextRequest) {
 
           if (!product) {
             await sendTelegramMessage(chatId, `❌ Ürün #${productId} bulunamadı.`)
+            return NextResponse.json({ ok: true })
+          }
+
+          // ── VF-3: Visual approval gate ────────────────────────────────────
+          // Commercial confirmation requires visual approval first.
+          // Only visualStatus === 'approved' may proceed.
+          const visualStatus = (product as any).workflow?.visualStatus ?? 'pending'
+          const isForceReconfirm = parts[2]?.toLowerCase() === 'force'
+          const alreadyConfirmed = (product as any).workflow?.confirmationStatus === 'confirmed'
+
+          // Skip visual gate ONLY for force re-confirmation of already-confirmed products
+          // (operator fixing fields on a product that already passed the gate before)
+          if (visualStatus !== 'approved' && !(isForceReconfirm && alreadyConfirmed)) {
+            const visualGateMessages: Record<string, string> = {
+              generating: '⏳ Görsel üretimi devam ediyor. Tamamlanmasını bekleyin, sonra görselleri onaylayın.',
+              preview:    '👁️ Görseller hazır ama henüz onaylanmadı. Önce Telegram\'daki önizlemeyi onaylayın (✅ butonuna basın).',
+              rejected:   '❌ Görseller reddedilmiş. Yeniden üretim başlatın: <code>#gorsel ' + productId + '</code>',
+              pending:    '🖼️ Henüz görsel üretimi yapılmamış. Önce görsel üretin ve onaylayın:\n<code>#gorsel ' + productId + '</code>',
+            }
+            const msg = visualGateMessages[visualStatus] ?? visualGateMessages.pending
+            await sendTelegramMessage(
+              chatId,
+              `⛔ <b>Onay başlatılamadı — Ürün #${productId}</b>\n\n` +
+                `${msg}\n\n` +
+                `<b>Akış:</b> Görsel üret → Onayla → /confirm\n` +
+                `/pipeline ${productId} — Detaylı durum`,
+            )
             return NextResponse.json({ ok: true })
           }
 

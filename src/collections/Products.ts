@@ -151,8 +151,17 @@ export const Products: CollectionConfig = {
             settings.instagramTokens.facebookPageId = process.env.INSTAGRAM_PAGE_ID
           }
 
+          // Re-fetch the product at depth=1 so that relationship fields
+          // (especially images[].image.url) are populated with full objects
+          // instead of bare IDs.  The afterChange `doc` is depth=0 by default.
+          const populatedProduct = await req.payload.findByID({
+            collection: 'products',
+            id: doc.id,
+            depth: 1,
+          })
+
           const { results, dispatchedChannels } = await dispatchProductToChannels(
-            doc as Record<string, unknown>,
+            populatedProduct as Record<string, unknown>,
             settings,
             triggerReason,
           )

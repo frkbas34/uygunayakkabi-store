@@ -1,6 +1,6 @@
 # PROJECT STATE — Uygunayakkabi
 
-_Last updated: 2026-04-05 (Phase 17 Product Activation Validation — D-116; Phase 16 Telegram Bot End-to-End Validation — D-116; Phase 13 Prep — D-115; Phase 13 Production Hardening + Migration Pack — D-114; Phase 12 D-113; Phase 11 D-112; Phase 10 Homepage + Order + Stock Recovery — D-111; Phase 9 Order/Stock/Soldout Autonomy — D-110; Phase 8 Mentix Audit + Content Review — D-109; Phase 7 Geobot AI Runtime Wiring — D-108; Phase 6 Geobot Content Pack Foundation — D-107; Phase 5 Product Confirmation Wizard — D-106; Phase 4 Story Pipeline Wiring — D-105; Phase 3 Story Pipeline Foundation — D-104; Phase 2 Merchandising Logic — D-103; Phase 1 Schema Foundation — D-102; workspace sync required)_
+_Last updated: 2026-04-05 (Phase 19 External Channel Dispatch Validation — D-116; Phase 18 Stock Lifecycle — D-116; Phase 17 Product Activation — D-116; Phase 16 Telegram Bot E2E — D-116; Phase 13 Prep — D-115; Phase 13 Production Hardening + Migration Pack — D-114; Phase 12 D-113; Phase 11 D-112; Phase 10 D-111; Phase 9 D-110; Phase 8 D-109; Phase 7 D-108; Phase 6 D-107; Phase 5 D-106; Phase 4 D-105; Phase 3 D-104; Phase 2 D-103; Phase 1 D-102)_
 
 ## Current Status
 
@@ -24,6 +24,7 @@ _Last updated: 2026-04-05 (Phase 17 Product Activation Validation — D-116; Pha
 **Phase 13 Prep — Production Hardening Execution** (2026-04-04) — Hardcoded secret cleanup: `generate-api-key/route.ts` migrated from hardcoded `'uygun-setup-2026-mentix'` to `GENERATE_API_KEY_SECRET` env var with guard. `.env.example` rewritten: 7 missing vars added, 3 stale vars removed, classified sections. MIGRATION_NOTES.md improved with exact DDL capture procedure (5-step). DEPLOY_CHECKLIST.md and PRODUCTION_TRUTH_MATRIX.md updated with D-115 status. No production mutations — prep only. D-115.
 **Phase 13 Production Hardening + Migration Pack DEPLOYED** (2026-04-04) — Production readiness documentation layer. MIGRATION_NOTES.md: complete schema inventory (14 collections, 3 globals, 80+ Products columns) with SQL DDL and migration order. DEPLOY_CHECKLIST.md: 43+ env vars classified, deploy sequence, security checklist. SMOKE_TESTS.md: 15 test scenarios + full e2e 12-step plan. PRODUCTION_TRUTH_MATRIX.md: honest status of every subsystem (22 prod-validated, 28 implemented not validated, 2 blocked, 4 scaffolded). `/diagnostics` Telegram command: DB connectivity, env check, event/order/product counts, runtime info. D-114.
 **Phase 18 Post-Publish Stock Lifecycle Validation PROD-VALIDATED** (2026-04-05) — Full stock lifecycle validated on product 125: in_stock → low_stock (threshold ≤3) → sold_out → restocked → in_stock. Soldout transition sets status=soldout, sellable=false, workflowStatus=soldout, emits product.soldout BotEvent. Homepage correctly excludes soldout products. Product page stays live with "Tükendi" badge. Restock recovery bugfix: stockReaction.ts workflow spread (`...product.workflow`) included Payload internal fields causing silent update failure — fixed with explicit field enumeration. After fix: restock correctly sets status=active, sellable=true, stockState=in_stock (settled from restocked), emits product.restocked. Homepage re-includes product. Full BotEvent trail: stock.changed (18), product.soldout (1), product.restocked (1). D-116.
+**Phase 19 External Channel Dispatch Validation COMPLETED** (2026-04-05) — Full audit of all 7 external channels + website. Website: PROD-VALIDATED (implicit via status=active, homepage visibility confirmed Phase 17-18). Instagram: DEPLOYED NOT VALIDATED — direct Graph API path ready (accessToken valid until 2026-05-21, userId present, N8N webhook also set), but product 125 has channels_publish_instagram=false so never dispatched. Facebook: DEPLOYED NOT VALIDATED — same Meta token, facebookPageId injected from INSTAGRAM_PAGE_ID env var (1040379692491003), but product 125 has channels_publish_facebook=false. Shopier: BLOCKED — global flag disabled + SHOPIER_PAT status unknown. Dolap/X/LinkedIn/Threads: BLOCKED — global flags disabled, no N8N webhooks configured, n8n-only dispatch path. Global AutomationSettings: only website/instagram/facebook enabled. Instagram tokens connected 2026-03-22, expire 2026-05-21. No automated token refresh mechanism. Historical note: Instagram and Facebook were verified working on 2026-03-22 with live posts, but no dispatch has occurred through the current Phase 1-19 pipeline flow. To validate: add instagram/facebook to a product's channelTargets and trigger dispatch. D-116.
 **Phase 16 Telegram Bot End-to-End Validation PROD-VALIDATED** (2026-04-05) — Full end-to-end Telegram bot validation. Webhook secret token fixed (missing from registration). 8 missing DB columns added (push:true silent failure on sourceMeta story fields). Telegram 4096 char limit handled with message truncation. Size selector UX: inline keyboard multi-select with 39-45 range, toggle/all/clear/done. /confirm wizard fully validated on products 123, 124, 125. Bugs fixed: (1) sellable=false after confirmation — Variants afterChange hook only fires on update, not create; added explicit reactToStockChange() call in applyConfirmation(). (2) Discovery pack NULL — maxOutputTokens 4096 too low for Turkish SEO article; raised to 8192; added canRetriggerContent() + /content retry command; contentStatus determination now accounts for existing packs on retry. Product 125 fully pipeline-complete: confirmed, content ready (100% confidence both packs), audit approved_with_warning, sellable=true, 6/6 readiness. D-116.
 **Phase 17 Product Activation Validation PROD-VALIDATED** (2026-04-05) — Safe product activation via Telegram. /activate command added: validates all 6 publish readiness dimensions, sets status=active, merchandising.publishedAt/newUntil (7-day Yeni window), workflow.workflowStatus=active, publishStatus=published. Triggers afterChange hook for channel dispatch. Product 125 activated: status=active, visible on homepage in Yeni section, product page accessible, all pipeline stages green. First full end-to-end product lifecycle completed: Telegram intake → confirmation → content generation → audit → activation → homepage visibility. D-116.
 **Phase 12 Final Publish Autonomy + Orchestration Polish DEPLOYED** (2026-04-04) — Central publish readiness evaluation layer (`src/lib/publishReadiness.ts`) with 6-dimension check (confirmation, visuals, content, audit, sellable, publish targets). Readiness wired into mentixAudit: workflowStatus='publish_ready' only when ALL dimensions pass (not just audit approval). `/pipeline {id}` Telegram command shows full 10-stage lifecycle with readiness breakdown and state coherence check. `detectStateIncoherence()` catches contradictory states (e.g., soldout+sellable, publish_ready without confirmation). BotEvent `product.publish_ready` emitted on full readiness. D-113.
@@ -61,11 +62,25 @@ _Last updated: 2026-04-05 (Phase 17 Product Activation Validation — D-116; Pha
   - Creates container + publishes media via Graph API
   - Returns `instagramPostId`, caption with dynamic hashtags
   - Verified live on @uygunayakkabi342026 (2026-03-22)
+  - Phase 19: Token valid until 2026-05-21. No auto-refresh. Ready but not dispatched via pipeline yet.
 
 - **Facebook Page Direct Publish** — `src/lib/channelDispatch.ts::publishFacebookDirectly()`
   - Uses Page Access Token (not user token)
   - Posts to UygunAyakkabı page (`1040379692491003`)
   - Verified with facebookPostId `122093848160884171` (2026-03-22)
+  - Phase 19: facebookPageId injected from INSTAGRAM_PAGE_ID env var (not in DB). Ready but not dispatched via pipeline yet.
+
+### External Channel Summary (Phase 19 — 2026-04-05)
+| Channel | Status | Path | Global Flag | Credentials |
+|---------|--------|------|-------------|-------------|
+| Website | PROD-VALIDATED | implicit | true | — |
+| Instagram | DEPLOYED, NOT VALIDATED | Direct Graph API | true | Token valid (2026-05-21) |
+| Facebook | DEPLOYED, NOT VALIDATED | Direct Graph API | true | Shared IG token |
+| Shopier | BLOCKED | Jobs Queue | false | Unknown |
+| Dolap | BLOCKED | n8n only | false | No webhook |
+| X | BLOCKED | n8n only | false | No webhook |
+| LinkedIn | BLOCKED | n8n only | false | No webhook |
+| Threads | BLOCKED | n8n only | false | No webhook |
 
 ### Mentix Intelligence Layer
 - **13 skills deployed** on VPS (Hetzner 2-CPU)

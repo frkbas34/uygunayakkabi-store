@@ -2536,3 +2536,24 @@ Replace `...(product.workflow ?? {})` spread in `reactToStockChange()` with expl
 The workflow spread included Payload CMS internal/metadata fields from the fetched document that caused the `payload.update()` call to fail silently. The product update never persisted during restock transitions (soldout → active), leaving the product in an inconsistent state (variant stock > 0 but product-level status still soldout). Explicit field enumeration ensures only valid schema fields are sent in the update payload.
 
 **Status:** ACTIVE
+
+---
+
+## D-116f — Phase 19 External Channel Dispatch Classification
+**Decision:**
+Classified all 7 external channels + website based on production evidence: AutomationSettings global flags, Instagram token state, env var presence (via dispatchNotes webhookConfigured field), and product-level channel config.
+
+**Findings (VERIFIED):**
+- Website: PROD-VALIDATED (implicit via status=active)
+- Instagram: DEPLOYED, NOT VALIDATED — Direct Graph API path. Token valid until 2026-05-21 (connected 2026-03-22). userId present. N8N webhook also configured. Was live-tested 2026-03-22 but never dispatched through Phase 1-19 pipeline.
+- Facebook: DEPLOYED, NOT VALIDATED — Same Meta token. facebookPageId injected from INSTAGRAM_PAGE_ID env var (not in DB column, D-077 risk). Was live-tested 2026-03-22.
+- Shopier: BLOCKED — Global flag disabled, SHOPIER_PAT status unknown.
+- Dolap/X/LinkedIn/Threads: BLOCKED — Global flags disabled, no N8N webhooks set, n8n-only dispatch paths.
+- Product 125 only has channelTargets=[website] — no external dispatch was ever attempted during activation.
+
+**Risks identified:**
+1. Instagram token has no automated refresh (manual re-auth needed before 2026-05-21)
+2. Facebook facebookPageId not persisted in DB — relies on env var injection
+3. No end-to-end pipeline validation for Instagram or Facebook (last verified via direct test, not pipeline)
+
+**Status:** ACTIVE

@@ -292,6 +292,91 @@ Sadece JSON döndür, başka açıklama ekleme.`
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// VF-2: Visual status helper — writes visualStatus + workflowStatus on PRODUCT
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Update the product-level visual lifecycle fields truthfully.
+ *
+ * VF-2 Foundation: visualStatus was defined in schema (Phase 1 D-102) but
+ * never written by any code path. This helper makes the visual lifecycle
+ * real by persisting state changes on the product document whenever the
+ * image-generation pipeline advances.
+ *
+ * Uses isDispatchUpdate context flag to prevent Products afterChange hook
+ * from re-triggering channel dispatch on these metadata writes.
+ */
+async function updateProductVisualStatus(
+  payload: Awaited<ReturnType<typeof import('@/lib/payload').getPayload>>,
+  productId: number | string,
+  visualStatus: 'pending' | 'generating' | 'preview' | 'approved' | 'rejected',
+  workflowStatusOverride?: string,
+): Promise<void> {
+  try {
+    // Fetch current product to read existing workflow fields
+    const product = await payload.findByID({
+      collection: 'products',
+      id: productId,
+      depth: 0,
+    }) as Record<string, unknown>
+
+    const wf = (product.workflow ?? {}) as Record<string, unknown>
+
+    // Determine workflowStatus transition:
+    // - generating/preview → visual_pending (if still in early stages)
+    // - approved → visual_ready (if not yet confirmed or later)
+    // - rejected → keep current workflowStatus (operator can re-generate)
+    // Only advance workflowStatus if the product hasn't progressed past visual stages
+    const earlyStages = ['draft', 'visual_pending', undefined, null, '']
+    const currentWfStatus = wf.workflowStatus as string | undefined
+
+    let newWorkflowStatus = currentWfStatus
+    if (workflowStatusOverride) {
+      newWorkflowStatus = workflowStatusOverride
+    } else if (earlyStages.includes(currentWfStatus)) {
+      if (visualStatus === 'generating' || visualStatus === 'preview') {
+        newWorkflowStatus = 'visual_pending'
+      } else if (visualStatus === 'approved') {
+        newWorkflowStatus = 'visual_ready'
+      }
+      // rejected: keep current workflowStatus — don't regress
+    }
+
+    await payload.update({
+      collection: 'products',
+      id: productId,
+      data: {
+        workflow: {
+          workflowStatus: newWorkflowStatus,
+          visualStatus,
+          confirmationStatus: wf.confirmationStatus,
+          contentStatus: wf.contentStatus,
+          auditStatus: wf.auditStatus,
+          publishStatus: wf.publishStatus,
+          productConfirmedAt: wf.productConfirmedAt,
+          stockState: wf.stockState,
+          sellable: wf.sellable,
+          lastHandledByBot: wf.lastHandledByBot,
+        },
+      },
+      context: { isDispatchUpdate: true },
+    })
+
+    console.log(
+      `[VF-2] visualStatus updated — product=${productId} ` +
+        `visualStatus=${visualStatus} workflowStatus=${newWorkflowStatus}`,
+    )
+  } catch (err) {
+    // Non-blocking: visual status write failure should never break the image gen pipeline
+    const msg = err instanceof Error ? err.message : String(err)
+    console.error(
+      `[VF-2] visualStatus update FAILED (non-blocking) — product=${productId} ` +
+        `target=${visualStatus}: ${msg}`,
+    )
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Image-gen approval helpers (v10 Telegram preview/approval flow)
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -378,6 +463,9 @@ async function approveImageGenJob(
     },
   })
 
+  // VF-2: Set product visualStatus = approved when operator approves visuals
+  await updateProductVisualStatus(payload, productId, 'approved')
+
   const isPartial = slotsStr !== 'all' && approvedMediaIds.length < allMediaIds.length
   const slotNote = isPartial ? ` (${approvedMediaIds.length}/${allMediaIds.length} slot)` : ''
 
@@ -399,11 +487,26 @@ async function rejectImageGenJob(
   jobId: string,
   chatId: number,
 ): Promise<void> {
+  // Resolve product ID for visual status update
+  const jobDoc = await payload.findByID({
+    collection: 'image-generation-jobs',
+    id: jobId,
+    depth: 0,
+  }) as Record<string, unknown>
+  const productRef = jobDoc.product as { id: number } | number | null
+  const productId = productRef ? (typeof productRef === 'object' ? productRef.id : productRef) : null
+
   await payload.update({
     collection: 'image-generation-jobs',
     id: jobId,
     data: { status: 'rejected' },
   })
+
+  // VF-2: Set product visualStatus = rejected when operator rejects visuals
+  if (productId) {
+    await updateProductVisualStatus(payload, productId, 'rejected')
+  }
+
   await sendTelegramMessage(
     chatId,
     `❌ <b>Görseller reddedildi</b>\n\n` +
@@ -470,6 +573,11 @@ async function regenImageGenJob(
     input: { jobId, stage: currentStage, provider: 'gemini-pro' },
     overrideAccess: true,
   })
+
+  // VF-2: Set product visualStatus = generating when re-generation starts
+  if (productId) {
+    await updateProductVisualStatus(payload, productId, 'generating')
+  }
 
   await sendTelegramMessage(
     chatId,
@@ -539,6 +647,11 @@ async function startPremiumImageGenJob(
     input: { jobId: newJobId, stage: 'premium', provider: premiumProvider },
     overrideAccess: true,
   })
+
+  // VF-2: Set product visualStatus = generating when premium Stage 2 starts
+  // Note: if Stage 1 was already approved, this reverts to generating for Stage 2.
+  // This is truthful — new images are being generated and need review.
+  await updateProductVisualStatus(payload, productId, 'generating')
 
   await sendTelegramMessage(
     chatId,
@@ -633,6 +746,10 @@ export async function POST(req: NextRequest) {
               input: { jobId: String(cbJobDoc.id), stage: 'standard', provider: 'gemini-pro' },
               overrideAccess: true,
             })
+
+            // VF-2: Set product visualStatus = generating when inline button triggers gen
+            await updateProductVisualStatus(cbPayload, cbProductId, 'generating')
+
             await sendTelegramMessage(
               cbChatId,
               `✨ <b>Gemini Pro görsel üretimi başlatıldı!</b>\n\n` +
@@ -1503,6 +1620,9 @@ export async function POST(req: NextRequest) {
               overrideAccess: true,
             })
             autoGenJobId = String(autoJobDoc.id)
+
+            // VF-2: Set product visualStatus = generating when auto-gen starts at intake
+            await updateProductVisualStatus(payload, productId, 'generating')
           } catch (err) {
             console.error('[telegram/webhook] auto gen queue failed:', err)
           }
@@ -1688,6 +1808,9 @@ export async function POST(req: NextRequest) {
         input: { jobId: String(jobDoc.id), stage: 'standard', provider: 'gemini-pro' },
         overrideAccess: true,
       })
+
+      // VF-2: Set product visualStatus = generating when image gen starts
+      await updateProductVisualStatus(payload, gorselProductId, 'generating')
 
       await sendTelegramMessage(
         chatId,

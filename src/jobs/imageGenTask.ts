@@ -58,6 +58,12 @@ export const imageGenTask: TaskConfig<{
     if (!jobId) return
 
     try {
+      const jobDoc = await req.payload.findByID({
+        collection: 'image-generation-jobs',
+        id: jobId,
+        depth: 0,
+      }) as Record<string, unknown>
+
       await req.payload.update({
         collection: 'image-generation-jobs',
         id: jobId,
@@ -67,6 +73,38 @@ export const imageGenTask: TaskConfig<{
           generationCompletedAt: new Date().toISOString(),
         },
       })
+
+      // VF-2: Revert product visualStatus to pending on job failure
+      const productRef = jobDoc.product as { id: number } | number | null
+      const failProductId = productRef ? (typeof productRef === 'object' ? productRef.id : productRef) : null
+      if (failProductId) {
+        try {
+          const pDoc = await req.payload.findByID({ collection: 'products', id: failProductId, depth: 0 }) as Record<string, unknown>
+          const wf = (pDoc.workflow ?? {}) as Record<string, unknown>
+          await req.payload.update({
+            collection: 'products',
+            id: failProductId,
+            data: {
+              workflow: {
+                workflowStatus: wf.workflowStatus,
+                visualStatus: 'pending',
+                confirmationStatus: wf.confirmationStatus,
+                contentStatus: wf.contentStatus,
+                auditStatus: wf.auditStatus,
+                publishStatus: wf.publishStatus,
+                productConfirmedAt: wf.productConfirmedAt,
+                stockState: wf.stockState,
+                sellable: wf.sellable,
+                lastHandledByBot: wf.lastHandledByBot,
+              },
+            },
+            context: { isDispatchUpdate: true },
+          })
+          console.log(`[VF-2] visualStatus reverted to pending on failure — product=${failProductId}`)
+        } catch (vsErr) {
+          console.error(`[VF-2] visualStatus revert on failure FAILED (non-blocking):`, vsErr)
+        }
+      }
     } catch (err) {
       console.error('[imageGenTask] onFail cleanup error:', err)
     }
@@ -666,6 +704,35 @@ export const imageGenTask: TaskConfig<{
         data: { status: 'preview', ...jobUpdateData },
       })
       console.log(`[imageGenTask v14] step9 — job status set to preview`)
+
+      // VF-2: Set product visualStatus = preview when images are ready for operator review
+      try {
+        const pDoc = await payload.findByID({ collection: 'products', id: productId, depth: 0 }) as Record<string, unknown>
+        const wf = (pDoc.workflow ?? {}) as Record<string, unknown>
+        await payload.update({
+          collection: 'products',
+          id: productId,
+          data: {
+            workflow: {
+              workflowStatus: ['draft', 'visual_pending', undefined, null, ''].includes(wf.workflowStatus as string | undefined) ? 'visual_pending' : wf.workflowStatus,
+              visualStatus: 'preview',
+              confirmationStatus: wf.confirmationStatus,
+              contentStatus: wf.contentStatus,
+              auditStatus: wf.auditStatus,
+              publishStatus: wf.publishStatus,
+              productConfirmedAt: wf.productConfirmedAt,
+              stockState: wf.stockState,
+              sellable: wf.sellable,
+              lastHandledByBot: wf.lastHandledByBot,
+            },
+          },
+          context: { isDispatchUpdate: true },
+        })
+        console.log(`[VF-2] visualStatus updated — product=${productId} visualStatus=preview`)
+      } catch (vsErr) {
+        const vsMsg = vsErr instanceof Error ? vsErr.message : String(vsErr)
+        console.error(`[VF-2] visualStatus preview update FAILED (non-blocking) — product=${productId}: ${vsMsg}`)
+      }
     } catch (enumErr) {
       // 'preview' not in Postgres enum yet — fall back to 'review' (always valid)
       const errMsg = enumErr instanceof Error ? enumErr.message : String(enumErr)

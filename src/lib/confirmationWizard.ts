@@ -64,9 +64,11 @@ export interface ConfirmationResult {
 
 export type WizardStep =
   | 'category'
+  | 'productType'
   | 'price'
   | 'sizes'
   | 'stock'
+  | 'brand'
   | 'targets'
   | 'summary'
   | 'done'
@@ -77,9 +79,11 @@ export interface WizardState {
   step: WizardStep
   collected: {
     category?: string
+    productType?: string
     price?: number
     sizes?: string // e.g. "38,39,40,41,42"
     stockPerSize?: number
+    brand?: string
     channelTargets?: string[]
   }
   /** Temporary set of selected sizes during inline keyboard multi-select */
@@ -99,6 +103,13 @@ export const CATEGORY_OPTIONS = [
   { label: 'Sandalet', value: 'Sandalet' },
   { label: 'Krampon', value: 'Krampon' },
   { label: 'Cüzdan', value: 'Cüzdan' },
+]
+
+export const PRODUCT_TYPE_OPTIONS = [
+  { label: '👟 Erkek', value: 'Erkek' },
+  { label: '👠 Kadın', value: 'Kadın' },
+  { label: '🧒 Çocuk', value: 'Çocuk' },
+  { label: '👫 Unisex', value: 'Unisex' },
 ]
 
 export const CHANNEL_OPTIONS = [
@@ -256,22 +267,28 @@ export function getNextWizardStep(
   product: ConfirmableProduct,
   collected: WizardState['collected'],
 ): WizardStep {
-  // Category
+  // Category (button)
   if (!product.category && !collected.category) return 'category'
 
-  // Price
+  // Product Type (button) — VF-5
+  if (!product.productType && !collected.productType) return 'productType'
+
+  // Price (text — only if missing from intake)
   const hasPrice = (typeof product.price === 'number' && product.price > 0) || collected.price
   if (!hasPrice) return 'price'
 
-  // Sizes
+  // Sizes (button multi-select)
   const hasVariants =
     (product.variants ?? []).filter((v) => v.size && (v.stock ?? 0) > 0).length > 0
   if (!hasVariants && !collected.sizes) return 'sizes'
 
-  // Stock per size (only if sizes were just collected in wizard and no variants existed)
+  // Stock per size (text — only if sizes were just collected)
   if (!hasVariants && collected.sizes && !collected.stockPerSize) return 'stock'
 
-  // Channel targets
+  // Brand (text) — VF-5
+  if (!product.brand && !collected.brand) return 'brand'
+
+  // Channel targets (button multi-select)
   const hasTargets = (product.channelTargets ?? []).length > 0 || collected.channelTargets
   if (!hasTargets) return 'targets'
 
@@ -381,27 +398,23 @@ export function formatConfirmationSummary(
         ? '✅ AI Görseller'
         : '⚠️ Görsel Yok'
 
-  // Optional fields
-  const optionals: string[] = []
-  if (!product.brand) optionals.push('Marka')
-  if (!product.productType) optionals.push('Ürün Tipi')
+  // Product type and brand — from collected or existing
+  const productTypeStr = collected.productType ?? product.productType ?? '—'
+  const brandStr = collected.brand ?? (product.brand ? `ID:${product.brand}` : '—')
 
   const lines = [
     `📋 <b>ÜRÜN ONAY ÖZETİ</b>`,
     ``,
     `<b>Ürün:</b> ${title} (ID: ${product.id})`,
     `<b>Kategori:</b> ${category}`,
+    `<b>Ürün Tipi:</b> ${productTypeStr}`,
+    `<b>Marka:</b> ${brandStr}`,
     `<b>Fiyat:</b> ${priceStr}`,
     `<b>Bedenler:</b> ${sizesStr}`,
     `<b>Toplam Stok:</b> ${totalStock} adet`,
     `<b>Yayın Hedefleri:</b> ${targetsStr}`,
     `<b>Görsel Durumu:</b> ${visualStr}`,
   ]
-
-  if (optionals.length > 0) {
-    lines.push(``)
-    lines.push(`⚠️ <b>Eksik (opsiyonel):</b> ${optionals.join(', ')}`)
-  }
 
   lines.push(``)
   lines.push(`Onaylamak için aşağıdaki butonu kullanın.`)
@@ -419,6 +432,15 @@ export function getCategoryPrompt(): { text: string; keyboard: Array<Array<{ tex
       CATEGORY_OPTIONS.slice(3, 6).map((o) => ({ text: o.label, callback_data: `wz_cat:${o.value}` })),
       CATEGORY_OPTIONS.slice(6).map((o) => ({ text: o.label, callback_data: `wz_cat:${o.value}` })),
     ].filter((row) => row.length > 0),
+  }
+}
+
+export function getProductTypePrompt(): { text: string; keyboard: Array<Array<{ text: string; callback_data: string }>> } {
+  return {
+    text: '👤 <b>Ürün tipi seçin:</b>',
+    keyboard: [
+      PRODUCT_TYPE_OPTIONS.map((o) => ({ text: o.label, callback_data: `wz_ptype:${o.value}` })),
+    ],
   }
 }
 
@@ -442,6 +464,10 @@ export function getStockPrompt(sizes: string[]): string {
     `Tek sayı yazın, her bedene eşit uygulanır.\n\n` +
     `Örnek: <code>3</code> → her bedenden 3 adet`
   )
+}
+
+export function getBrandPrompt(): string {
+  return '🏷️ <b>Marka adı girin:</b>\n\nÖrnek: <code>Nike</code>, <code>Adidas</code>, <code>Skechers</code>'
 }
 
 export function getTargetsPrompt(): { text: string; keyboard: Array<Array<{ text: string; callback_data: string }>> } {
@@ -497,9 +523,45 @@ export async function applyConfirmation(
       productUpdate.category = collected.category
     }
 
+    // Product Type — VF-5
+    if (collected.productType) {
+      productUpdate.productType = collected.productType
+    }
+
     // Price
     if (collected.price) {
       productUpdate.price = collected.price
+    }
+
+    // Brand (text name) — VF-5: stored directly as brand field
+    // Brand is a relationship field (ID), so we look up or create the brand.
+    // For now, store as-is — the brand field accepts text in intake, so this is consistent.
+    if (collected.brand) {
+      // Try to find existing brand by title
+      try {
+        const { docs: brandDocs } = await payload.find({
+          collection: 'brands',
+          where: { title: { equals: collected.brand } },
+          limit: 1,
+          depth: 0,
+        })
+        if (brandDocs.length > 0) {
+          productUpdate.brand = brandDocs[0].id
+        } else {
+          // Create new brand
+          const newBrand = await payload.create({
+            collection: 'brands',
+            data: { title: collected.brand },
+          })
+          productUpdate.brand = newBrand.id
+        }
+      } catch (brandErr) {
+        // Non-blocking — brand is optional, just log
+        console.error(
+          `[confirmationWizard] Brand lookup/create failed (non-blocking) — brand="${collected.brand}":`,
+          brandErr instanceof Error ? brandErr.message : String(brandErr),
+        )
+      }
     }
 
     // Channel targets

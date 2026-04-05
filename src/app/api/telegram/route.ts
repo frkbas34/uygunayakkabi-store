@@ -947,7 +947,8 @@ export async function POST(req: NextRequest) {
       // wz_cat:{value} — category selection
       if (cbData.startsWith('wz_cat:')) {
         try {
-          const { getWizardSession, setWizardSession, getNextWizardStep, getPricePrompt, getSizesPrompt, getTargetsPrompt } =
+          const { getWizardSession, setWizardSession, getNextWizardStep, getPricePrompt, getSizesPrompt,
+                  getTargetsPrompt, getProductTypePrompt, getBrandPrompt, formatConfirmationSummary: fmtSummary } =
             await import('@/lib/confirmationWizard')
           const session = getWizardSession(cbChatId)
           if (!session || session.step !== 'category') {
@@ -957,6 +958,65 @@ export async function POST(req: NextRequest) {
           const catValue = cbData.replace('wz_cat:', '')
           session.collected.category = catValue
           await answerCallbackQuery(cbQueryId, `✅ Kategori: ${catValue}`)
+
+          // Determine next step
+          const payloadInst = await getPayload()
+          const product = await payloadInst.findByID({ collection: 'products', id: session.productId })
+          const nextStep = getNextWizardStep(product as any, session.collected)
+          session.step = nextStep
+          setWizardSession(cbChatId, session)
+
+          if (nextStep === 'productType') {
+            const ptypePrompt = getProductTypePrompt()
+            await sendTelegramMessageWithKeyboard(cbChatId, ptypePrompt.text, ptypePrompt.keyboard)
+          } else if (nextStep === 'price') {
+            await sendTelegramMessage(cbChatId, getPricePrompt())
+          } else if (nextStep === 'sizes') {
+            session.pendingSizes = []
+            const msgId = await sendTelegramMessageWithKeyboard(
+              cbChatId,
+              formatSizeSelectionText(new Set()),
+              buildSizeKeyboard(new Set()),
+            )
+            if (msgId) session.sizeMessageId = msgId
+            setWizardSession(cbChatId, session)
+          } else if (nextStep === 'brand') {
+            await sendTelegramMessage(cbChatId, getBrandPrompt())
+          } else if (nextStep === 'targets') {
+            const tgtPrompt = getTargetsPrompt()
+            await sendTelegramMessageWithKeyboard(cbChatId, tgtPrompt.text, tgtPrompt.keyboard)
+          } else if (nextStep === 'summary') {
+            const summary = fmtSummary(product as any, session.collected)
+            await sendTelegramMessageWithKeyboard(cbChatId, summary, [
+              [
+                { text: '✅ Onayla', callback_data: `wz_confirm:${session.productId}` },
+                { text: '❌ İptal', callback_data: `wz_cancel:${session.productId}` },
+              ],
+            ])
+            session.step = 'summary'
+            setWizardSession(cbChatId, session)
+          }
+        } catch (err) {
+          await answerCallbackQuery(cbQueryId, '❌ Hata')
+          console.error('[telegram/webhook] wz_cat callback failed:', err)
+        }
+        return NextResponse.json({ ok: true })
+      }
+
+      // wz_ptype:{value} — product type selection (VF-5)
+      if (cbData.startsWith('wz_ptype:')) {
+        try {
+          const { getWizardSession, setWizardSession, getNextWizardStep, getPricePrompt,
+                  getSizesPrompt, getTargetsPrompt, getBrandPrompt, formatConfirmationSummary } =
+            await import('@/lib/confirmationWizard')
+          const session = getWizardSession(cbChatId)
+          if (!session || session.step !== 'productType') {
+            await answerCallbackQuery(cbQueryId, '⚠️ Aktif sihirbaz yok')
+            return NextResponse.json({ ok: true })
+          }
+          const ptypeValue = cbData.replace('wz_ptype:', '')
+          session.collected.productType = ptypeValue
+          await answerCallbackQuery(cbQueryId, `✅ Ürün tipi: ${ptypeValue}`)
 
           // Determine next step
           const payloadInst = await getPayload()
@@ -976,12 +1036,12 @@ export async function POST(req: NextRequest) {
             )
             if (msgId) session.sizeMessageId = msgId
             setWizardSession(cbChatId, session)
+          } else if (nextStep === 'brand') {
+            await sendTelegramMessage(cbChatId, getBrandPrompt())
           } else if (nextStep === 'targets') {
             const tgtPrompt = getTargetsPrompt()
             await sendTelegramMessageWithKeyboard(cbChatId, tgtPrompt.text, tgtPrompt.keyboard)
           } else if (nextStep === 'summary') {
-            // Jump to summary
-            const { formatConfirmationSummary } = await import('@/lib/confirmationWizard')
             const summary = formatConfirmationSummary(product as any, session.collected)
             await sendTelegramMessageWithKeyboard(cbChatId, summary, [
               [
@@ -994,7 +1054,7 @@ export async function POST(req: NextRequest) {
           }
         } catch (err) {
           await answerCallbackQuery(cbQueryId, '❌ Hata')
-          console.error('[telegram/webhook] wz_cat callback failed:', err)
+          console.error('[telegram/webhook] wz_ptype callback failed:', err)
         }
         return NextResponse.json({ ok: true })
       }
@@ -1265,6 +1325,9 @@ export async function POST(req: NextRequest) {
               )
               if (sizeMsg) wizSession.sizeMessageId = sizeMsg
               setWizardSession(chatId, wizSession)
+            } else if (nextStep === 'brand') {
+              const { getBrandPrompt } = await import('@/lib/confirmationWizard')
+              await sendTelegramMessage(chatId, getBrandPrompt())
             } else if (nextStep === 'targets') {
               const tgtPrompt = getTargetsPrompt()
               await sendTelegramMessageWithKeyboard(chatId, tgtPrompt.text, tgtPrompt.keyboard)
@@ -1298,6 +1361,40 @@ export async function POST(req: NextRequest) {
             const sizes = wizSession.collected.sizes?.split(',') ?? []
             const total = sizes.length * stock
             await sendTelegramMessage(chatId, `✅ Her bedenden ${stock} adet → Toplam: ${total}`)
+
+            const product = await payload.findByID({ collection: 'products', id: wizSession.productId })
+            const nextStep = getNextWizardStep(product as any, wizSession.collected)
+            wizSession.step = nextStep
+            setWizardSession(chatId, wizSession)
+
+            if (nextStep === 'brand') {
+              const { getBrandPrompt } = await import('@/lib/confirmationWizard')
+              await sendTelegramMessage(chatId, getBrandPrompt())
+            } else if (nextStep === 'targets') {
+              const tgtPrompt = getTargetsPrompt()
+              await sendTelegramMessageWithKeyboard(chatId, tgtPrompt.text, tgtPrompt.keyboard)
+            } else if (nextStep === 'summary') {
+              const summary = formatConfirmationSummary(product as any, wizSession.collected)
+              await sendTelegramMessageWithKeyboard(chatId, summary, [
+                [
+                  { text: '✅ Onayla', callback_data: `wz_confirm:${wizSession.productId}` },
+                  { text: '❌ İptal', callback_data: `wz_cancel:${wizSession.productId}` },
+                ],
+              ])
+              wizSession.step = 'summary'
+              setWizardSession(chatId, wizSession)
+            }
+            return NextResponse.json({ ok: true })
+          }
+
+          if (wizSession.step === 'brand') {
+            const brandText = text.trim()
+            if (!brandText || brandText.length < 2) {
+              await sendTelegramMessage(chatId, '⚠️ Geçersiz marka adı. En az 2 karakter girin.')
+              return NextResponse.json({ ok: true })
+            }
+            wizSession.collected.brand = brandText
+            await sendTelegramMessage(chatId, `✅ Marka: ${brandText}`)
 
             const product = await payload.findByID({ collection: 'products', id: wizSession.productId })
             const nextStep = getNextWizardStep(product as any, wizSession.collected)
@@ -3117,9 +3214,11 @@ export async function POST(req: NextRequest) {
             setWizardSession,
             clearWizardSession,
             getCategoryPrompt,
+            getProductTypePrompt,
             getPricePrompt,
             getSizesPrompt,
             getTargetsPrompt,
+            getBrandPrompt,
             formatConfirmationSummary,
           } = await import('@/lib/confirmationWizard')
 
@@ -3211,6 +3310,9 @@ export async function POST(req: NextRequest) {
           if (nextStep === 'category') {
             const catPrompt = getCategoryPrompt()
             await sendTelegramMessageWithKeyboard(chatId, catPrompt.text, catPrompt.keyboard)
+          } else if (nextStep === 'productType') {
+            const ptypePrompt = getProductTypePrompt()
+            await sendTelegramMessageWithKeyboard(chatId, ptypePrompt.text, ptypePrompt.keyboard)
           } else if (nextStep === 'price') {
             await sendTelegramMessage(chatId, getPricePrompt())
           } else if (nextStep === 'sizes') {
@@ -3222,6 +3324,8 @@ export async function POST(req: NextRequest) {
             )
             if (sizeMsg) wizState.sizeMessageId = sizeMsg
             setWizardSession(chatId, wizState)
+          } else if (nextStep === 'brand') {
+            await sendTelegramMessage(chatId, getBrandPrompt())
           } else if (nextStep === 'targets') {
             const tgtPrompt = getTargetsPrompt()
             await sendTelegramMessageWithKeyboard(chatId, tgtPrompt.text, tgtPrompt.keyboard)

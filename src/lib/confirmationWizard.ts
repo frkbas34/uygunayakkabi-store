@@ -537,11 +537,11 @@ export async function applyConfirmation(
     // Brand is a relationship field (ID), so we look up or create the brand.
     // For now, store as-is — the brand field accepts text in intake, so this is consistent.
     if (collected.brand) {
-      // Try to find existing brand by title
+      // Try to find existing brand by name
       try {
         const { docs: brandDocs } = await payload.find({
           collection: 'brands',
-          where: { title: { equals: collected.brand } },
+          where: { name: { equals: collected.brand } },
           limit: 1,
           depth: 0,
         })
@@ -551,7 +551,7 @@ export async function applyConfirmation(
           // Create new brand
           const newBrand = await payload.create({
             collection: 'brands',
-            data: { title: collected.brand },
+            data: { name: collected.brand },
           })
           productUpdate.brand = newBrand.id
         }

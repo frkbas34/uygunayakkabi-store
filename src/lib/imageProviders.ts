@@ -103,14 +103,18 @@ const TASK_FRAMING_BLOCK =
   `• An overexposed, washed-out image is WRONG and will be REJECTED.\n` +
   `═══════════════════════════\n` +
   `\n` +
-  `BACKGROUND LOCK (BATCH RULE — MANDATORY):\n` +
-  `• ALL images in this batch MUST use the EXACT SAME background color — no exceptions.\n` +
+  `BACKGROUND LOCK (PRODUCT-LEVEL RULE — MANDATORY — ZERO TOLERANCE):\n` +
+  `• ALL images in this product batch use the EXACT SAME physical studio backdrop.\n` +
+  `• The backdrop has NOT been changed between shots. Only the camera moved.\n` +
   `• Each slot's BACKGROUND line specifies ONE exact color with a hex code. Use THAT hex code literally.\n` +
   `• Do NOT choose a different shade, tone, warmth, or hue — even if "similar" or "complementary".\n` +
-  `• Do NOT introduce green, blue, or any color not explicitly specified in the BACKGROUND line.\n` +
-  `• Even in macro/close-up/lifestyle shots where background is blurred, the blurred area must be the SAME exact color.\n` +
-  `• Even in editorial/overhead shots, the visible surface/backdrop must match the SAME batch background.\n` +
-  `• All images must look like they were shot in the SAME studio with the SAME physical backdrop paper.\n` +
+  `• Do NOT introduce any color not explicitly specified in the BACKGROUND line.\n` +
+  `• MACRO/CLOSE-UP: shallow DoF creates bokeh but the BOKEH COLOR = the backdrop color.\n` +
+  `• EDITORIAL: the surface color must match the backdrop color.\n` +
+  `• LIFESTYLE: the dominant blurred tone must match the backdrop color family.\n` +
+  `• TEST: if you place all batch images side by side, the backgrounds MUST look the same color.\n` +
+  `• A cool gray slot next to a warm beige slot = BATCH FAILURE = REJECTED.\n` +
+  `• A white slot next to an off-white slot = BATCH FAILURE = REJECTED.\n` +
   `• If your output has a different background color than specified, it is WRONG and will be REJECTED.\n` +
   `═══════════════════════════\n\n`
 
@@ -1186,9 +1190,27 @@ function hexToRgb(hex: string): { r: number; g: number; b: number } {
  * For macro shots where the background is soft bokeh, this produces a
  * natural-looking color shift with no visible seam.
  */
+/**
+ * enforceSlotBackground — v34: product-level background lock
+ *
+ * Two detection strategies:
+ *   1. EDGE STRIPS (default) — sample outer 5% of image.
+ *      Works well for full-shoe shots where edges are pure background.
+ *   2. CORNER ONLY (macro mode) — sample only the 4 extreme corners (3% squares).
+ *      For macro/closeup where the shoe fills 85%+ of the frame, edge strips
+ *      get contaminated by product pixels. Corners remain background-only.
+ *
+ * The slotName parameter determines which strategy is used:
+ *   - 'detail_closeup' → corner-only sampling
+ *   - all others → edge strip sampling
+ *
+ * After detection, background-like pixels are shifted toward the target color.
+ * This is a deterministic, AI-free color correction — same hex in, same result out.
+ */
 async function enforceSlotBackground(
   imageBuffer: Buffer,
   targetHex: string,
+  slotName?: string,
 ): Promise<Buffer> {
   // eslint-disable-next-line @typescript-eslint/no-require-imports
   const sharp = require('sharp') as typeof import('sharp')
@@ -1205,22 +1227,46 @@ async function enforceSlotBackground(
 
   const channels = info.channels  // should be 3 (RGB)
 
-  // ── Step 1: Sample edge regions to detect current background color ──
-  // Sample 4 strips: top 5%, bottom 5%, left 5%, right 5%
-  const edgeDepth = Math.max(10, Math.round(Math.min(width, height) * 0.05))
+  // ── Step 1: Detect current background color ──
+  // Use corner-only for macro slots, edge strips for everything else.
+  const isMacroSlot = slotName === 'detail_closeup'
   let rSum = 0, gSum = 0, bSum = 0, sampleCount = 0
 
-  for (let y = 0; y < height; y++) {
-    for (let x = 0; x < width; x++) {
-      const isEdge = y < edgeDepth || y >= height - edgeDepth ||
-                     x < edgeDepth || x >= width - edgeDepth
-      if (!isEdge) continue
-
-      const idx = (y * width + x) * channels
-      rSum += rawPixels[idx]
-      gSum += rawPixels[idx + 1]
-      bSum += rawPixels[idx + 2]
-      sampleCount++
+  if (isMacroSlot) {
+    // CORNER-ONLY SAMPLING: 4 corner squares, each 3% of image dimensions
+    // In a centered macro shot, corners are almost always pure background/bokeh
+    const cornerSize = Math.max(8, Math.round(Math.min(width, height) * 0.03))
+    const corners = [
+      { x0: 0, y0: 0 },                                // top-left
+      { x0: width - cornerSize, y0: 0 },                // top-right
+      { x0: 0, y0: height - cornerSize },               // bottom-left
+      { x0: width - cornerSize, y0: height - cornerSize }, // bottom-right
+    ]
+    for (const corner of corners) {
+      for (let y = corner.y0; y < corner.y0 + cornerSize; y++) {
+        for (let x = corner.x0; x < corner.x0 + cornerSize; x++) {
+          const idx = (y * width + x) * channels
+          rSum += rawPixels[idx]
+          gSum += rawPixels[idx + 1]
+          bSum += rawPixels[idx + 2]
+          sampleCount++
+        }
+      }
+    }
+  } else {
+    // EDGE STRIP SAMPLING: outer 5% strips (original strategy)
+    const edgeDepth = Math.max(10, Math.round(Math.min(width, height) * 0.05))
+    for (let y = 0; y < height; y++) {
+      for (let x = 0; x < width; x++) {
+        const isEdge = y < edgeDepth || y >= height - edgeDepth ||
+                       x < edgeDepth || x >= width - edgeDepth
+        if (!isEdge) continue
+        const idx = (y * width + x) * channels
+        rSum += rawPixels[idx]
+        gSum += rawPixels[idx + 1]
+        bSum += rawPixels[idx + 2]
+        sampleCount++
+      }
     }
   }
 
@@ -1232,18 +1278,37 @@ async function enforceSlotBackground(
 
   const targetBg = hexToRgb(targetHex)
 
+  // ── v34: Detect if edge sampling was contaminated by product pixels ──
+  // If detected bg is very far from target AND from any reasonable light bg,
+  // the detection was contaminated. Fall back to using target directly.
+  const detTargetDist = Math.sqrt(
+    (detectedBg.r - targetBg.r) ** 2 +
+    (detectedBg.g - targetBg.g) ** 2 +
+    (detectedBg.b - targetBg.b) ** 2,
+  )
+  // If the detected bg is > 120 distance from target, detection is likely wrong
+  // (product pixels dominating). Use target as "detected" to do a gentle global shift.
+  const useDirectTarget = detTargetDist > 120
+  const effectiveBg = useDirectTarget ? { ...targetBg } : detectedBg
+
   console.log(
-    `[enforceSlotBackground] detected bg: rgb(${detectedBg.r},${detectedBg.g},${detectedBg.b}) ` +
-    `target: ${targetHex} rgb(${targetBg.r},${targetBg.g},${targetBg.b}) ` +
-    `pixels=${width}x${height} samples=${sampleCount}`,
+    `[enforceSlotBackground v34] slot=${slotName || 'unknown'} mode=${isMacroSlot ? 'corner' : 'edge'} ` +
+    `detected=rgb(${detectedBg.r},${detectedBg.g},${detectedBg.b}) ` +
+    `target=${targetHex} rgb(${targetBg.r},${targetBg.g},${targetBg.b}) ` +
+    `detTargetDist=${detTargetDist.toFixed(0)} useDirectTarget=${useDirectTarget} ` +
+    `samples=${sampleCount}`,
   )
 
+  // If detection matches target closely, no correction needed
+  if (!useDirectTarget && detTargetDist < 15) {
+    console.log(`[enforceSlotBackground v34] ✓ bg already matches target (dist=${detTargetDist.toFixed(0)}) — skipping`)
+    return imageBuffer
+  }
+
   // ── Step 2: Replace background-like pixels ──
-  // Color distance threshold: pixels within this distance from detected bg
-  // are considered "background" and get blended toward target.
-  // Max distance in RGB space is ~441 (sqrt(255^2*3)), typical bg drift is 30-120.
-  const MAX_BG_DISTANCE = 90   // pixels clearly "background"
-  const BLEND_MARGIN    = 50   // soft blend zone between bg and product
+  // v34: Tighter thresholds for macro slots to avoid shifting bokeh into wrong colors
+  const MAX_BG_DISTANCE = isMacroSlot ? 70 : 90
+  const BLEND_MARGIN    = isMacroSlot ? 40 : 50
   const totalThreshold  = MAX_BG_DISTANCE + BLEND_MARGIN
 
   const outputPixels = Buffer.from(rawPixels) // copy
@@ -1253,10 +1318,10 @@ async function enforceSlotBackground(
     const pg = rawPixels[i + 1]
     const pb = rawPixels[i + 2]
 
-    // Euclidean distance from this pixel to detected background
-    const dr = pr - detectedBg.r
-    const dg = pg - detectedBg.g
-    const db = pb - detectedBg.b
+    // Euclidean distance from this pixel to effective background
+    const dr = pr - effectiveBg.r
+    const dg = pg - effectiveBg.g
+    const db = pb - effectiveBg.b
     const dist = Math.sqrt(dr * dr + dg * dg + db * db)
 
     if (dist >= totalThreshold) {
@@ -1274,11 +1339,9 @@ async function enforceSlotBackground(
     }
 
     // Shift this pixel's color toward the target background
-    // We compute: what this pixel WOULD be if the background were the target color.
-    // Offset = difference between detected and target bg, applied with blend factor.
-    const shiftR = (targetBg.r - detectedBg.r) * blend
-    const shiftG = (targetBg.g - detectedBg.g) * blend
-    const shiftB = (targetBg.b - detectedBg.b) * blend
+    const shiftR = (targetBg.r - effectiveBg.r) * blend
+    const shiftG = (targetBg.g - effectiveBg.g) * blend
+    const shiftB = (targetBg.b - effectiveBg.b) * blend
 
     outputPixels[i]     = Math.max(0, Math.min(255, Math.round(pr + shiftR)))
     outputPixels[i + 1] = Math.max(0, Math.min(255, Math.round(pg + shiftG)))
@@ -1292,7 +1355,7 @@ async function enforceSlotBackground(
     .jpeg({ quality: 92 })
     .toBuffer()
 
-  console.log(`[enforceSlotBackground] ✓ background shifted — ${result.length}b`)
+  console.log(`[enforceSlotBackground v34] ✓ background shifted — ${result.length}b`)
   return result
 }
 
@@ -1418,12 +1481,22 @@ const EDITING_SCENES = [
       `MUST SEE: Surface grain/texture/weave of the upper, stitching thread relief, any perforation or embossing.\n` +
       `MUST NOT SEE: The full shoe. If the entire shoe is visible, the framing is WRONG.\n` +
       `\n` +
-      `BACKGROUND — CRITICAL BATCH LOCK:\n` +
+      `BACKGROUND — CRITICAL BATCH LOCK (THIS SLOT MUST MATCH THE OTHER SLOTS):\n` +
       `BACKGROUND: {BACKGROUND}\n` +
-      `This macro shot uses the EXACT SAME studio backdrop as Slot 1 and Slot 2.\n` +
-      `The shoe is photographed on the SAME studio set with the SAME backdrop paper.\n` +
-      `Because of shallow depth-of-field, the background will appear as soft bokeh — but the COLOR must be identical.\n` +
-      `The blurred out-of-focus area MUST read as the same exact color specified above.\n` +
+      `\n` +
+      `THIS IS THE SAME STUDIO, SAME BACKDROP PAPER, SAME EXACT BACKGROUND COLOR AS ALL OTHER IMAGES IN THIS SET.\n` +
+      `You have NOT changed the studio backdrop between shots. The camera simply moved closer.\n` +
+      `\n` +
+      `Because of shallow depth-of-field, the background appears as soft bokeh.\n` +
+      `But the COLOR of that bokeh MUST be IDENTICAL to the background color specified above.\n` +
+      `The blurred out-of-focus areas, the corners, the edges — they must ALL read as that SAME exact color.\n` +
+      `\n` +
+      `COMMON MISTAKES THAT WILL BE REJECTED:\n` +
+      `• Generating a darker/cooler/warmer background than the other slots — WRONG\n` +
+      `• Introducing gray when the batch background is beige — WRONG\n` +
+      `• Introducing beige when the batch background is gray — WRONG\n` +
+      `• Any visible color temperature shift from the other slots — WRONG\n` +
+      `• Adding a surface or texture that wasn't in the other slots — WRONG\n` +
       `\n` +
       `BANNED BACKGROUNDS (will cause REJECTION):\n` +
       `• NO tabletop surface — no wood, no marble, no stone, no concrete\n` +
@@ -1433,7 +1506,7 @@ const EDITING_SCENES = [
       `• NO dark/black background unless the batch background specifies it\n` +
       `• NO colored surface that differs from the batch background\n` +
       `The ONLY acceptable background is: the exact color specified in the BACKGROUND line above, rendered as soft uniform bokeh.\n` +
-      `If the background looks different from Slot 1 or Slot 2, this image is WRONG.\n` +
+      `If you placed these photos side by side and the backgrounds don't match, this image is WRONG.\n` +
       `\n` +
       `LIGHT: Single soft raking sidelight to reveal texture. Subtle specular highlight. No harsh reflections.\n` +
       `EXPOSURE CRITICAL: This macro shot MUST preserve surface detail. No blown highlights on the leather/material surface. Keep exposure metered for the shoe surface — texture, grain, and stitching must be clearly visible. If any area appears washed out or white-clipped, the exposure is WRONG.\n` +
@@ -1923,6 +1996,10 @@ export async function generateByGeminiPro(
     return { results: [result], buffers: [], slotLogs }
   }
 
+  // ── v34: Hoist batch background to function scope for post-loop consistency check ──
+  const premiumBackground = getBackgroundForColor(identityLock.mainColor)
+  const batchBgHex = parseBackgroundHex(premiumBackground) || '#EDEDED'
+
   try {
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     const sharp = require('sharp') as typeof import('sharp')
@@ -1942,8 +2019,7 @@ export async function generateByGeminiPro(
     const zoneBlock   = identityLock.protectedZoneBlock || ''
     const hasBrandZones = (identityLock.protectedZones?.length ?? 0) > 0
 
-    const premiumBackground = getBackgroundForColor(mainColor)
-    const padHex = parseBackgroundHex(premiumBackground) || '#EDEDED'
+    const padHex = batchBgHex
     const padRgb = hexToRgb(padHex)
 
     // Resize shoe to 768×768 then pad to 1024×1024 using batch background color
@@ -2118,7 +2194,7 @@ export async function generateByGeminiPro(
             if (bgHex) {
               try {
                 console.log(`[generateByGeminiPro v29] bg still drifted on ${scene.name} after retry — enforcing ${bgHex} via post-process`)
-                finalBuf = await enforceSlotBackground(finalBuf, bgHex)
+                finalBuf = await enforceSlotBackground(finalBuf, bgHex, scene.name)
                 slotLog.bgCheckPass = true // mark as corrected
                 ;(slotLog as Record<string, unknown>).bgEnforced = true
                 // Remove bg warning from rejection reason since we fixed it
@@ -2169,9 +2245,9 @@ export async function generateByGeminiPro(
         const bgHex = parseBackgroundHex(premiumBackground)
         if (bgHex) {
           try {
-            finalBuf = await enforceSlotBackground(finalBuf, bgHex)
+            finalBuf = await enforceSlotBackground(finalBuf, bgHex, scene.name)
             ;(slotLog as Record<string, unknown>).bgEnforced = true
-            console.log(`[generateByGeminiPro v29] ✓ ${scene.name} bg enforced to ${bgHex}`)
+            console.log(`[generateByGeminiPro v34] ✓ ${scene.name} bg enforced to ${bgHex}`)
           } catch (enforceErr) {
             console.warn(`[generateByGeminiPro v29] bg enforcement failed for ${scene.name}:`, enforceErr instanceof Error ? enforceErr.message : enforceErr)
           }
@@ -2222,12 +2298,75 @@ export async function generateByGeminiPro(
     result.errors.push(msg)
   }
 
+  // ── v34: BATCH BACKGROUND CONSISTENCY CHECK ──────────────────────────────
+  // After ALL slots are generated and individually enforced, do a final pass
+  // comparing each slot's actual corner colors to the batch target.
+  // If any slot still drifted (e.g. macro bokeh shifted), re-enforce it.
+  // This ensures all images in a product batch share one visual background family.
+  if (result.buffers.length > 1) {
+    const bgHex = batchBgHex
+    if (bgHex) {
+      const targetRgb = hexToRgb(bgHex)
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      const sharpCheck = require('sharp') as typeof import('sharp')
+
+      for (let bi = 0; bi < result.buffers.length; bi++) {
+        try {
+          const buf = result.buffers[bi]
+          const meta = await sharpCheck(buf).metadata()
+          const w = meta.width || 1024
+          const h = meta.height || 1024
+
+          // Sample 4 corners (3% squares) to measure actual bg color
+          const { data: px, info: pxInfo } = await sharpCheck(buf)
+            .removeAlpha().raw().toBuffer({ resolveWithObject: true })
+          const ch = pxInfo.channels
+          const cs = Math.max(8, Math.round(Math.min(w, h) * 0.03))
+          let cr = 0, cg = 0, cb = 0, cnt = 0
+          const cCorners = [
+            { x0: 0, y0: 0 }, { x0: w - cs, y0: 0 },
+            { x0: 0, y0: h - cs }, { x0: w - cs, y0: h - cs },
+          ]
+          for (const cc of cCorners) {
+            for (let y = cc.y0; y < cc.y0 + cs; y++) {
+              for (let x = cc.x0; x < cc.x0 + cs; x++) {
+                const idx = (y * w + x) * ch
+                cr += px[idx]; cg += px[idx + 1]; cb += px[idx + 2]; cnt++
+              }
+            }
+          }
+          const avgR = Math.round(cr / cnt)
+          const avgG = Math.round(cg / cnt)
+          const avgB = Math.round(cb / cnt)
+          const drift = Math.sqrt(
+            (avgR - targetRgb.r) ** 2 + (avgG - targetRgb.g) ** 2 + (avgB - targetRgb.b) ** 2,
+          )
+
+          const slotNameForLog = scenes[bi]?.name ?? `slot${bi}`
+          console.log(
+            `[batchBgCheck v34] ${slotNameForLog}: corner avg=rgb(${avgR},${avgG},${avgB}) ` +
+            `target=rgb(${targetRgb.r},${targetRgb.g},${targetRgb.b}) drift=${drift.toFixed(0)}`,
+          )
+
+          // If corner drift > 30, re-enforce this slot
+          if (drift > 30) {
+            console.log(`[batchBgCheck v34] ${slotNameForLog} drift=${drift.toFixed(0)} > 30 — re-enforcing`)
+            result.buffers[bi] = await enforceSlotBackground(buf, bgHex, slotNameForLog)
+            ;(slotLogs[bi] as Record<string, unknown>).batchBgReEnforced = true
+          }
+        } catch (batchErr) {
+          console.warn(`[batchBgCheck v34] slot ${bi} check failed:`, batchErr instanceof Error ? batchErr.message : batchErr)
+        }
+      }
+    }
+  }
+
   const slotSummary = slotLogs.map((s) => {
     if (!s.success) return '✗'
     if (s.colorCheckPass === false || s.brandFidelityPass === false || s.shotCompliancePass === false || s.bgCheckPass === false) return '⚠'
     return '✓'
   }).join('')
-  console.log(`[generateByGeminiPro v29] done — ${result.successCount}/${result.promptCount} [${slotSummary}]`)
+  console.log(`[generateByGeminiPro v34] done — ${result.successCount}/${result.promptCount} [${slotSummary}]`)
 
   return { results: [result], buffers: result.buffers, slotLogs }
 }

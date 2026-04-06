@@ -1243,44 +1243,22 @@ async function overlayStockNumber(
     `</svg>`,
   )
 
-  // Layer 2: Render text via sharp's Pango text engine — NO MARKUP.
-  // v30 FIX: Pango XML markup (<span foreground="white">) produces broken
-  // tofu/box characters on Vercel serverless. Instead: render plain black text
-  // then negate to white. This uses only plain-text Pango (no XML parsing),
-  // which is reliable across all environments.
-  let textImage: Buffer
-  try {
-    // Step 2a: Render plain black text (no markup — most reliable)
-    const blackText = await sharp({
-      text: {
-        text: stockNumber,
-        rgba: true,
-        dpi: Math.round(fontSize * 7.2), // scale DPI to approximate desired font size
-        font: 'monospace',
-      },
-    })
-      .ensureAlpha()
-      .png()
-      .toBuffer()
-
-    // Step 2b: Negate black→white (keep alpha untouched)
-    textImage = await sharp(blackText)
-      .negate({ alpha: false })
-      .ensureAlpha()
-      .png()
-      .toBuffer()
-  } catch (pangoErr) {
-    // Fallback: if Pango text fails entirely, use SVG text
-    console.warn('[overlayStockNumber v30] Pango text failed — falling back to SVG text:', pangoErr instanceof Error ? pangoErr.message : pangoErr)
-    const fallbackSvg = Buffer.from(
-      `<svg width="${boxWidth}" height="${boxHeight}" xmlns="http://www.w3.org/2000/svg">` +
-      `<text x="${Math.round(boxWidth / 2)}" y="${Math.round(boxHeight / 2)}" dy="0.35em" ` +
-      `font-family="monospace,sans-serif" font-size="${fontSize}" font-weight="600" ` +
-      `fill="rgba(255,255,255,0.85)" text-anchor="middle">${stockNumber}</text>` +
-      `</svg>`,
-    )
-    textImage = await sharp(fallbackSvg).ensureAlpha().png().toBuffer()
-  }
+  // Layer 2: Render white text via SVG (librsvg).
+  // v31 FIX: Pango text API (sharp({ text: {...} })) renders tofu/broken boxes
+  // on Vercel serverless — both with XML markup (v29) and plain text + negate (v30).
+  // The monospace font simply isn't available in Vercel's libvips Pango.
+  // SVG text via librsvg uses a different font resolution path and renders
+  // correctly with standard font-family fallbacks. Confirmed working in
+  // prior SVG overlay work (see feedback_svg_sharp.md: dy="0.35em" fix).
+  const textSvg = Buffer.from(
+    `<svg width="${boxWidth}" height="${boxHeight}" xmlns="http://www.w3.org/2000/svg">` +
+    `<text x="${Math.round(boxWidth / 2)}" y="${Math.round(boxHeight / 2)}" dy="0.35em" ` +
+    `font-family="monospace,Courier New,Courier,Liberation Mono,sans-serif" ` +
+    `font-size="${fontSize}" font-weight="600" letter-spacing="0.5" ` +
+    `fill="rgba(255,255,255,0.85)" text-anchor="middle">${stockNumber}</text>` +
+    `</svg>`,
+  )
+  const textImage = await sharp(textSvg).ensureAlpha().png().toBuffer()
 
   // Resize text image to fit inside pill with padding
   const textMeta = await sharp(textImage).metadata()
@@ -1297,9 +1275,9 @@ async function overlayStockNumber(
   const textTop  = pillTop + Math.round((boxHeight - (resizedMeta.height || maxTextH)) / 2)
 
   console.log(
-    `[overlayStockNumber v30] stockNumber="${stockNumber}" fontSize=${fontSize} ` +
+    `[overlayStockNumber v31-svg] stockNumber="${stockNumber}" fontSize=${fontSize} ` +
     `pill=${boxWidth}x${boxHeight} at (${pillLeft},${pillTop}) text at (${textLeft},${textTop}) ` +
-    `textSize=${resizedMeta.width}x${resizedMeta.height} pangoTextSize=${textMeta?.width}x${textMeta?.height}`,
+    `textSize=${resizedMeta.width}x${resizedMeta.height} svgTextSize=${textMeta?.width}x${textMeta?.height}`,
   )
 
   return sharp(imageBuffer)

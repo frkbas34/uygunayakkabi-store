@@ -1208,6 +1208,96 @@ async function checkBackgroundConsistency(
   }
 }
 
+/**
+ * 5×7 bitmap pixel font — completely font-independent.
+ *
+ * v32 FIX: Vercel serverless has NO usable fonts for either Pango text rendering
+ * or SVG text (librsvg). Tested: XML markup (v29), plain text + negate (v30),
+ * SVG <text> with font-family fallbacks (v31) — all produce tofu/broken boxes.
+ *
+ * Solution: render characters as SVG <rect> elements from hardcoded 5×7 bitmaps.
+ * Each row is a 5-bit number (MSB = leftmost pixel). Zero font dependencies.
+ * Covers: 0-9, A-Z (uppercase only), plus fallback '?' for unknown chars.
+ */
+const PIXEL_FONT: Record<string, number[]> = {
+  '0': [0x0E, 0x11, 0x13, 0x15, 0x19, 0x11, 0x0E],
+  '1': [0x04, 0x0C, 0x04, 0x04, 0x04, 0x04, 0x0E],
+  '2': [0x0E, 0x11, 0x01, 0x02, 0x04, 0x08, 0x1F],
+  '3': [0x0E, 0x11, 0x01, 0x06, 0x01, 0x11, 0x0E],
+  '4': [0x02, 0x06, 0x0A, 0x12, 0x1F, 0x02, 0x02],
+  '5': [0x1F, 0x10, 0x1E, 0x01, 0x01, 0x11, 0x0E],
+  '6': [0x06, 0x08, 0x10, 0x1E, 0x11, 0x11, 0x0E],
+  '7': [0x1F, 0x01, 0x02, 0x04, 0x08, 0x08, 0x08],
+  '8': [0x0E, 0x11, 0x11, 0x0E, 0x11, 0x11, 0x0E],
+  '9': [0x0E, 0x11, 0x11, 0x0F, 0x01, 0x02, 0x0C],
+  'S': [0x0E, 0x11, 0x10, 0x0E, 0x01, 0x11, 0x0E],
+  'N': [0x11, 0x19, 0x15, 0x13, 0x11, 0x11, 0x11],
+  'A': [0x0E, 0x11, 0x11, 0x1F, 0x11, 0x11, 0x11],
+  'B': [0x1E, 0x11, 0x11, 0x1E, 0x11, 0x11, 0x1E],
+  'C': [0x0E, 0x11, 0x10, 0x10, 0x10, 0x11, 0x0E],
+  'D': [0x1E, 0x11, 0x11, 0x11, 0x11, 0x11, 0x1E],
+  'E': [0x1F, 0x10, 0x10, 0x1E, 0x10, 0x10, 0x1F],
+  'F': [0x1F, 0x10, 0x10, 0x1E, 0x10, 0x10, 0x10],
+  'G': [0x0E, 0x11, 0x10, 0x17, 0x11, 0x11, 0x0E],
+  'H': [0x11, 0x11, 0x11, 0x1F, 0x11, 0x11, 0x11],
+  'I': [0x0E, 0x04, 0x04, 0x04, 0x04, 0x04, 0x0E],
+  'K': [0x11, 0x12, 0x14, 0x18, 0x14, 0x12, 0x11],
+  'L': [0x10, 0x10, 0x10, 0x10, 0x10, 0x10, 0x1F],
+  'M': [0x11, 0x1B, 0x15, 0x11, 0x11, 0x11, 0x11],
+  'P': [0x1E, 0x11, 0x11, 0x1E, 0x10, 0x10, 0x10],
+  'R': [0x1E, 0x11, 0x11, 0x1E, 0x14, 0x12, 0x11],
+  'T': [0x1F, 0x04, 0x04, 0x04, 0x04, 0x04, 0x04],
+  'U': [0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x0E],
+  'V': [0x11, 0x11, 0x11, 0x11, 0x0A, 0x0A, 0x04],
+  'W': [0x11, 0x11, 0x11, 0x15, 0x15, 0x1B, 0x11],
+  'X': [0x11, 0x11, 0x0A, 0x04, 0x0A, 0x11, 0x11],
+  'Y': [0x11, 0x11, 0x0A, 0x04, 0x04, 0x04, 0x04],
+  'Z': [0x1F, 0x01, 0x02, 0x04, 0x08, 0x10, 0x1F],
+  '?': [0x0E, 0x11, 0x01, 0x02, 0x04, 0x00, 0x04],
+}
+
+/**
+ * Renders a string as SVG <rect> elements using the 5×7 pixel font.
+ * Returns an SVG string (no <text> elements — purely geometric).
+ */
+function renderBitmapText(
+  text: string,
+  pixelSize: number,
+  fillColor: string,
+): { svg: string; width: number; height: number } {
+  const CHAR_W = 5
+  const CHAR_H = 7
+  const CHAR_GAP = 1 // 1-pixel gap between characters
+  const totalCharW = CHAR_W + CHAR_GAP
+  const svgW = text.length * totalCharW * pixelSize - CHAR_GAP * pixelSize
+  const svgH = CHAR_H * pixelSize
+
+  const rects: string[] = []
+  for (let ci = 0; ci < text.length; ci++) {
+    const ch = text[ci].toUpperCase()
+    const bitmap = PIXEL_FONT[ch] || PIXEL_FONT['?']
+    const xOffset = ci * totalCharW * pixelSize
+    for (let row = 0; row < CHAR_H; row++) {
+      const rowBits = bitmap[row]
+      for (let col = 0; col < CHAR_W; col++) {
+        if (rowBits & (0x10 >> col)) {
+          rects.push(
+            `<rect x="${xOffset + col * pixelSize}" y="${row * pixelSize}" ` +
+            `width="${pixelSize}" height="${pixelSize}" fill="${fillColor}"/>`,
+          )
+        }
+      }
+    }
+  }
+
+  const svg =
+    `<svg width="${svgW}" height="${svgH}" xmlns="http://www.w3.org/2000/svg">` +
+    rects.join('') +
+    `</svg>`
+
+  return { svg, width: svgW, height: svgH }
+}
+
 async function overlayStockNumber(
   imageBuffer: Buffer,
   stockNumber: string,
@@ -1215,76 +1305,71 @@ async function overlayStockNumber(
   // eslint-disable-next-line @typescript-eslint/no-require-imports
   const sharp = require('sharp') as typeof import('sharp')
 
-  // Get image dimensions
   const metadata = await sharp(imageBuffer).metadata()
   const width = metadata.width || 1024
   const height = metadata.height || 1024
 
-  // v29: Two-layer approach — pill background + text rendered separately.
-  // This avoids relying on SVG text which needs system fonts (may not exist on Vercel).
-  // Layer 1: Dark semi-transparent pill (pure SVG rect — no font needed)
-  // Layer 2: White text rendered via sharp's Pango text API (font built into libvips)
-  const fontSize = Math.max(14, Math.round(width * 0.022)) // ~22px on 1024px
-  const paddingX = Math.round(fontSize * 0.6)
-  const paddingY = Math.round(fontSize * 0.4)
-  const textWidth = stockNumber.length * fontSize * 0.62
-  const boxWidth = Math.round(textWidth + paddingX * 2)
-  const boxHeight = Math.round(fontSize + paddingY * 2)
-  const margin = Math.round(width * 0.015) // ~15px margin on 1024px
+  // v32: Bitmap pixel font overlay — zero font dependencies.
+  // Pixel size scales with image: ~3px per pixel on 1024px image → ~21px tall text
+  const pixelSize = Math.max(2, Math.round(width * 0.003))
+  const CHAR_H = 7
+  const margin = Math.round(width * 0.015)
+  const paddingX = Math.round(pixelSize * 2)
+  const paddingY = Math.round(pixelSize * 1.5)
 
-  // Pill position — bottom-right
+  // Render text as SVG rects
+  const { width: textW, height: textH } = renderBitmapText(
+    stockNumber,
+    pixelSize,
+    'rgba(255,255,255,0.85)',
+  )
+
+  const boxWidth = textW + paddingX * 2
+  const boxHeight = textH + paddingY * 2
   const pillLeft = width - boxWidth - margin
-  const pillTop  = height - boxHeight - margin
+  const pillTop = height - boxHeight - margin
 
-  // Layer 1: Full-size SVG with just the pill rectangle (no text — no font needed)
-  const pillSvg = Buffer.from(
+  // Single SVG with pill background + bitmap text overlaid
+  const combinedSvg = Buffer.from(
     `<svg width="${width}" height="${height}" xmlns="http://www.w3.org/2000/svg">` +
-    `<rect x="${pillLeft}" y="${pillTop}" width="${boxWidth}" height="${boxHeight}" rx="4" ry="4" fill="rgba(0,0,0,0.30)"/>` +
+    `<rect x="${pillLeft}" y="${pillTop}" width="${boxWidth}" height="${boxHeight}" ` +
+    `rx="4" ry="4" fill="rgba(0,0,0,0.35)"/>` +
+    `<g transform="translate(${pillLeft + paddingX},${pillTop + paddingY})">` +
+    // Inline the text rects from renderBitmapText
+    (() => {
+      const CHAR_W = 5
+      const CHAR_GAP = 1
+      const totalCharW = CHAR_W + CHAR_GAP
+      const rects: string[] = []
+      for (let ci = 0; ci < stockNumber.length; ci++) {
+        const ch = stockNumber[ci].toUpperCase()
+        const bitmap = PIXEL_FONT[ch] || PIXEL_FONT['?']
+        const xOff = ci * totalCharW * pixelSize
+        for (let row = 0; row < CHAR_H; row++) {
+          const rowBits = bitmap[row]
+          for (let col = 0; col < CHAR_W; col++) {
+            if (rowBits & (0x10 >> col)) {
+              rects.push(
+                `<rect x="${xOff + col * pixelSize}" y="${row * pixelSize}" ` +
+                `width="${pixelSize}" height="${pixelSize}" fill="rgba(255,255,255,0.85)"/>`,
+              )
+            }
+          }
+        }
+      }
+      return rects.join('')
+    })() +
+    `</g>` +
     `</svg>`,
   )
-
-  // Layer 2: Render white text via SVG (librsvg).
-  // v31 FIX: Pango text API (sharp({ text: {...} })) renders tofu/broken boxes
-  // on Vercel serverless — both with XML markup (v29) and plain text + negate (v30).
-  // The monospace font simply isn't available in Vercel's libvips Pango.
-  // SVG text via librsvg uses a different font resolution path and renders
-  // correctly with standard font-family fallbacks. Confirmed working in
-  // prior SVG overlay work (see feedback_svg_sharp.md: dy="0.35em" fix).
-  const textSvg = Buffer.from(
-    `<svg width="${boxWidth}" height="${boxHeight}" xmlns="http://www.w3.org/2000/svg">` +
-    `<text x="${Math.round(boxWidth / 2)}" y="${Math.round(boxHeight / 2)}" dy="0.35em" ` +
-    `font-family="monospace,Courier New,Courier,Liberation Mono,sans-serif" ` +
-    `font-size="${fontSize}" font-weight="600" letter-spacing="0.5" ` +
-    `fill="rgba(255,255,255,0.85)" text-anchor="middle">${stockNumber}</text>` +
-    `</svg>`,
-  )
-  const textImage = await sharp(textSvg).ensureAlpha().png().toBuffer()
-
-  // Resize text image to fit inside pill with padding
-  const textMeta = await sharp(textImage).metadata()
-  const maxTextW = boxWidth - paddingX * 2
-  const maxTextH = boxHeight - paddingY * 2
-  const resizedText = await sharp(textImage)
-    .resize(maxTextW, maxTextH, { fit: 'inside' })
-    .ensureAlpha()
-    .png()
-    .toBuffer()
-
-  const resizedMeta = await sharp(resizedText).metadata()
-  const textLeft = pillLeft + Math.round((boxWidth - (resizedMeta.width || maxTextW)) / 2)
-  const textTop  = pillTop + Math.round((boxHeight - (resizedMeta.height || maxTextH)) / 2)
 
   console.log(
-    `[overlayStockNumber v31-svg] stockNumber="${stockNumber}" fontSize=${fontSize} ` +
-    `pill=${boxWidth}x${boxHeight} at (${pillLeft},${pillTop}) text at (${textLeft},${textTop}) ` +
-    `textSize=${resizedMeta.width}x${resizedMeta.height} svgTextSize=${textMeta?.width}x${textMeta?.height}`,
+    `[overlayStockNumber v32-bitmap] stockNumber="${stockNumber}" pixelSize=${pixelSize} ` +
+    `pill=${boxWidth}x${boxHeight} at (${pillLeft},${pillTop}) textSize=${textW}x${textH}`,
   )
 
   return sharp(imageBuffer)
-    .composite([
-      { input: pillSvg, top: 0, left: 0 },
-      { input: resizedText, top: textTop, left: textLeft },
-    ])
+    .composite([{ input: combinedSvg, top: 0, left: 0 }])
     .jpeg({ quality: 92 })
     .toBuffer()
 }

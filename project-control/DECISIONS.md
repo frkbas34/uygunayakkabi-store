@@ -2766,3 +2766,46 @@ Added CENTERING — CRITICAL block to all studio slot prompts: dead-center requi
 centerProduct corrects the offset of each individual generation, but since each `#gorsel` produces entirely new images from Gemini, the correction amount varies per run. The systematic Gemini lower-right bias means centering improves each individual image but results still vary across generations. A more robust approach would add centering-specific QC rejection (reject + retry if offset > N% after correction).
 
 **Status:** DEPLOYED — commit 8c3904d
+
+---
+
+## D-123 — Image Pipeline v37: Centering QC Hard Gate + Sharp Chaining Bugfix
+
+**Decision:**
+Make centering a HARD QC requirement for hero slots (side_angle, commerce_front). After ALL post-processing, measure final centering. If offset exceeds 12% on either axis, reject and regenerate the slot (up to 3 cycles). Also fix a Sharp library chaining bug that was silently undoing centering corrections in v36.
+
+**Root Cause — Sharp Chaining Bug:**
+`sharp(buf).extract(946×872).extend(→1026×1062).resize(1026×1062, {fit:'fill'})` produces wrong output dimensions. Sharp computes resize scale from post-extract dimensions (946×872), NOT post-extend dimensions (1026×1062). Scale factor: 1026/946=1.085 applied to post-extend width 1026→1113, 1062/872=1.218 applied to post-extend height 1062→1293. This silently undid all centering corrections in v36.
+
+**Fix — Split Sharp Instances:**
+Replace single-pipeline `.extract().extend().resize()` with two separate Sharp instances:
+1. `sharp(buf).extract().extend().jpeg().toBuffer()` — guaranteed correct dimensions
+2. `sharp(shifted).resize(w, h, {fit:'fill'}).jpeg().toBuffer()` — only if dimensions mismatch (rounding edge case)
+
+**Fix — measureCentering() QC Function:**
+New function using same bbox detection as centerProduct (edge-based bg, PRODUCT_DIST_THRESHOLD=50). Returns pass/fail plus offset on each axis. Non-hero slots always pass (skip).
+
+**Fix — Centering Retry Loop:**
+Hero slots wrapped in centering retry loop (MAX_CENTERING_CYCLES=3). Each cycle is a full generation + D1-D5 QC + post-processing. If centering QC fails after max cycles, accepts best attempt with warning in slotLog.
+
+**Threshold:**
+MAX_CENTER_OFFSET_PCT = 12% on either axis. Chosen as strict enough to catch visible off-center placement while allowing for normal product asymmetry (shoes are not perfectly symmetric objects).
+
+**SlotLog Fields Added:**
+- `centeringPass: boolean` — QC result
+- `centeringOffsetX: number` — X offset %
+- `centeringOffsetY: number` — Y offset %
+- `centeringAttempts: number` — total generation cycles
+
+**V37 Verification Results (Product #194, Job #171):**
+- side_angle: centeringPass=true, offset X=0% Y=0%, 1 cycle
+- commerce_front: centeringPass=true, offset X=0% Y=0.1%, 1 cycle
+- detail_closeup: centered=true (non-hero, no QC gate), 1 cycle
+- No batch BG re-enforcement triggered (batchBgReEnforced absent)
+- Post-download pixel analysis confirmed 0% offset on both hero slots when SKU overlay region excluded
+- NOTE: SKU stamp (overlayStockNumber) adds dark pill at bottom-right; naive bbox analysis on final images will report false offset due to SKU pixels being detected as "product"
+
+**Files Changed:**
+- `src/lib/imageProviders.ts`: centerProduct() split-sharp fix (~line 1427), measureCentering() new function (~line 1480), SlotLog type expanded, centering retry loop in generateByGeminiPro() (~line 2486-2766)
+
+**Status:** DEPLOYED — commit cd02c19

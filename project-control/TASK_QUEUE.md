@@ -1,6 +1,6 @@
 # TASK QUEUE — Uygunayakkabi
 
-_Last updated: 2026-04-07 (Image Pipeline v36 Centering + Brightness D-122; v35 Brightness Normalization D-121; v34 BG Lock + Slot Reorder D-120; DB Hotfix enum types; Phase 21 Operator Runbook; VF-7 D-117b; VF-6 D-117; Phase 19 D-116; Phase 18 D-116; Phase 17 D-116; Phase 16 D-116; Phase 13 D-115/D-114; Phases 1-12 complete)_
+_Last updated: 2026-04-07 (Image Pipeline v37 Centering QC Gate + Sharp Bugfix D-123; Image Pipeline v36 Centering + Brightness D-122; v35 Brightness Normalization D-121; v34 BG Lock + Slot Reorder D-120; DB Hotfix enum types; Phase 21 Operator Runbook; VF-7 D-117b; VF-6 D-117; Phase 19 D-116; Phase 18 D-116; Phase 17 D-116; Phase 16 D-116; Phase 13 D-115/D-114; Phases 1-12 complete)_
 
 ---
 
@@ -25,6 +25,15 @@ Do NOT execute without operator confirmation.
 ---
 
 ## 🟢 NOW — Current Sprint (VISUAL-FIRST PIPELINE VALIDATED — 2026-04-05)
+
+### ✅ Image Pipeline v37 — Centering QC Hard Gate + Sharp Bugfix: DEPLOYED (2026-04-07)
+- Fixed Sharp chaining bug: `.extract().extend().resize()` computed resize from post-extract dims, undoing centering
+- Fix: split into two separate Sharp instances (extract+extend first, conditional resize second)
+- measureCentering() QC function added: 12% offset threshold on either axis
+- Centering retry loop: up to 3 full gen cycles per hero slot (side_angle, commerce_front)
+- V37 verification: both heroes pass QC first cycle, 0% offset confirmed via pixel analysis
+- SKU stamp (overlayStockNumber) causes false positives in naive post-download bbox analysis — not a real offset
+- D-123, commit cd02c19
 
 ### ✅ Image Pipeline v36 — Centering + Tighter Brightness: DEPLOYED (2026-04-07)
 - centerProduct(): detects product bbox, measures offset from image center, shifts composition

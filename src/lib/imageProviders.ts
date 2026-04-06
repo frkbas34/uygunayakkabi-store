@@ -85,6 +85,19 @@ const TASK_FRAMING_BLOCK =
   `• Soft studio lighting, natural soft shadow under the shoe.\n` +
   `• No harsh reflections, no dramatic lighting — realistic commercial look.\n` +
   `\n` +
+  `═══ EXPOSURE & BRIGHTNESS CONTROL — MANDATORY ═══\n` +
+  `• Balanced exposure is CRITICAL. The shoe must retain full surface detail.\n` +
+  `• NO blown highlights — every part of the shoe surface must show visible texture.\n` +
+  `• NO washed-out or overexposed areas — leather grain, stitching, and material must be clearly readable.\n` +
+  `• NO high-key white flooding — the background may be light but must NOT bleed into the product.\n` +
+  `• Preserve the true tonal range of the product: darks stay dark, midtones stay rich, highlights stay controlled.\n` +
+  `• Lighting must illuminate the shoe WITHOUT flattening its surface detail.\n` +
+  `• If the shoe is dark (black, navy, dark brown): expose for the shoe, not the background. Keep shadows rich.\n` +
+  `• If the shoe is light (white, cream, beige): use subtle shadows and contrast to define edges and texture.\n` +
+  `• Think: a professional photographer who meters for the product, not the background.\n` +
+  `• An overexposed, washed-out image is WRONG and will be REJECTED.\n` +
+  `═══════════════════════════\n` +
+  `\n` +
   `BACKGROUND LOCK (BATCH RULE — MANDATORY):\n` +
   `• ALL images in this batch MUST use the EXACT SAME background color — no exceptions.\n` +
   `• Each slot's BACKGROUND line specifies ONE exact color with a hex code. Use THAT hex code literally.\n` +
@@ -180,6 +193,10 @@ export type SlotLog = {
   /** v28: per-slot background compliance check */
   bgCheckPass?: boolean
   detectedBackground?: string
+  /** v30: brightness / overexposure quality gate */
+  brightnessCheckPass?: boolean
+  meanBrightness?: number
+  highlightPercent?: number
   rejectionReason?: string
 }
 
@@ -867,6 +884,68 @@ async function checkSlotBackground(
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Step D5: Brightness / Overexposure Check — Production Quality Gate (v30)
+// ─────────────────────────────────────────────────────────────────────────────
+// Uses sharp (already in pipeline) to compute image brightness statistics.
+// Rejects images where:
+//   1. Mean brightness > 210 (out of 255) — image is globally overexposed
+//   2. More than 35% of pixels are near-white (> 240) — blown highlights
+// These thresholds are calibrated to allow light backgrounds while catching
+// washed-out product surfaces. Fail-open on errors (returns pass=true).
+
+async function checkBrightnessExposure(
+  imageBuffer: Buffer,
+  slotName: string,
+): Promise<{ pass: boolean; meanBrightness: number; highlightPercent: number; correctionHint: string }> {
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const sharp = require('sharp') as typeof import('sharp')
+
+    // Convert to greyscale and get raw pixel data for brightness analysis
+    const { data, info } = await sharp(imageBuffer)
+      .greyscale()
+      .raw()
+      .toBuffer({ resolveWithObject: true })
+
+    const totalPixels = info.width * info.height
+    let sum = 0
+    let nearWhiteCount = 0 // pixels > 240
+
+    for (let i = 0; i < data.length; i++) {
+      const val = data[i]
+      sum += val
+      if (val > 240) nearWhiteCount++
+    }
+
+    const meanBrightness = Math.round(sum / totalPixels)
+    const highlightPercent = Math.round((nearWhiteCount / totalPixels) * 100)
+
+    // Thresholds: background will be light (~230-250) but product area should
+    // pull the mean down. If mean > 210 the product itself is overexposed.
+    // highlight > 35% means too much of the image is blown out.
+    const isTooMean = meanBrightness > 210
+    const isTooHighlight = highlightPercent > 35
+    const pass = !isTooMean && !isTooHighlight
+
+    console.log(
+      `[checkBrightness] slot=${slotName} mean=${meanBrightness}/255 highlight=${highlightPercent}% pass=${pass}`,
+    )
+
+    const correctionHint = pass ? '' :
+      `CRITICAL EXPOSURE CORRECTION: The previous output was overexposed ` +
+      `(mean brightness ${meanBrightness}/255, ${highlightPercent}% near-white pixels). ` +
+      `Reduce overall brightness. Use controlled, balanced studio lighting. ` +
+      `The shoe surface MUST retain visible texture, grain, and stitching detail. ` +
+      `No blown highlights. No washed-out areas. Meter exposure for the shoe, not the background.`
+
+    return { pass, meanBrightness, highlightPercent, correctionHint }
+  } catch (err) {
+    console.warn('[checkBrightness] error:', err instanceof Error ? err.message : err)
+    return { pass: true, meanBrightness: 0, highlightPercent: 0, correctionHint: '' }
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Background Enforcement — Deterministic Post-Processing (v28)
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -1161,6 +1240,7 @@ const EDITING_SCENES = [
       `If the background looks different from Slot 1 or Slot 2, this image is WRONG.\n` +
       `\n` +
       `LIGHT: Single soft raking sidelight to reveal texture. Subtle specular highlight. No harsh reflections.\n` +
+      `EXPOSURE CRITICAL: This macro shot MUST preserve surface detail. No blown highlights on the leather/material surface. Keep exposure metered for the shoe surface — texture, grain, and stitching must be clearly visible. If any area appears washed out or white-clipped, the exposure is WRONG.\n` +
       `OUTPUT: Full-bleed photograph. No frames, no borders, no margins, no mockup. No watermark, no text, no logo overlay.\n` +
       `THIS IS NOT: a full-shoe shot, a side profile, an editorial placement, a tabletop composition, a framed image.\n` +
       `COLOR: The shoe is {COLOR}. Output MUST be {COLOR}. Other colors = REJECTED.`,
@@ -1195,6 +1275,7 @@ const EDITING_SCENES = [
       `MUST NOT SEE: Face, upper body. The shoe is the hero — the person is secondary.\n` +
       `BACKGROUND: {BACKGROUND} This is the SAME EXACT background color as all other slots in this batch. In this lifestyle shot the background appears as warm soft bokeh, but the DOMINANT COLOR TONE must match the batch background exactly. Do NOT introduce green, blue, or any color not specified. The blurred environment must read as the same color family as the studio backdrop.\n` +
       `LIGHT: Warm natural golden-hour side light. Authentic, non-studio. Soft shadows. No harsh reflections.\n` +
+      `EXPOSURE CRITICAL: Golden-hour light must NOT wash out the shoe. Keep the shoe properly exposed — leather detail, color accuracy, and texture must be fully visible. Avoid overblown sunlit areas on the shoe surface. The shoe is the subject, not a silhouette.\n` +
       `OUTPUT: Full-bleed photograph. No frames, no borders, no margins, no mockup. No watermark, no text, no logo overlay.\n` +
       `THIS IS NOT: an isolated product shot, a studio photo, an overhead view, a framed image.\n` +
       `COLOR: The shoe is {COLOR}. Output MUST be {COLOR}. Other colors = REJECTED.\n` +
@@ -1342,7 +1423,13 @@ export async function generateByEditing(
             slotLog.brandFidelityNotes = brandCheck.reinforcementHint || undefined
           }
 
-          const needsRetry = !colorCheck.match || (brandCheck !== null && !brandCheck.pass)
+          // ── Step D5: Brightness check (v30) ─────────────────────────
+          const brightnessCheck = await checkBrightnessExposure(jpegBuf, scene.name)
+          slotLog.brightnessCheckPass = brightnessCheck.pass
+          slotLog.meanBrightness = brightnessCheck.meanBrightness
+          slotLog.highlightPercent = brightnessCheck.highlightPercent
+
+          const needsRetry = !colorCheck.match || (brandCheck !== null && !brandCheck.pass) || !brightnessCheck.pass
 
           if (needsRetry) {
             // ── Build combined reinforcement preamble ────────────────────
@@ -1360,6 +1447,9 @@ export async function generateByEditing(
                 `Do NOT invent fake brand text, logos, or marks. ` +
                 `Reproduce the exact original branding zones described above.`,
               )
+            }
+            if (!brightnessCheck.pass && brightnessCheck.correctionHint) {
+              correctionLines.push(brightnessCheck.correctionHint)
             }
             const reinforcedPrompt = correctionLines.join('\n') + '\n\n' + fullPrompt
 
@@ -1388,10 +1478,19 @@ export async function generateByEditing(
                 slotLog.brandFidelityNotes = retryBrand.reinforcementHint || undefined
               }
 
+              // Re-check brightness on retry
+              if (!brightnessCheck.pass) {
+                const retryBrightness = await checkBrightnessExposure(retryJpeg, scene.name)
+                slotLog.brightnessCheckPass = retryBrightness.pass
+                slotLog.meanBrightness = retryBrightness.meanBrightness
+                slotLog.highlightPercent = retryBrightness.highlightPercent
+              }
+
               // Build rejection reason summary if still failing after retry
               const warnings: string[] = []
               if (!retryColor.match) warnings.push(`color drift: expected ${mainColor} got ${retryColor.detectedColor}`)
               if (slotLog.brandFidelityPass === false) warnings.push(`brand zones drifted: ${slotLog.brandFidelityNotes || 'unknown'}`)
+              if (slotLog.brightnessCheckPass === false) warnings.push(`overexposed: mean=${slotLog.meanBrightness}/255 highlight=${slotLog.highlightPercent}%`)
               if (warnings.length > 0) slotLog.rejectionReason = warnings.join('; ')
 
               // Accept image regardless — operator can judge from preview
@@ -1722,7 +1821,13 @@ export async function generateByGeminiPro(
         slotLog.bgCheckPass = bgCheck.pass
         slotLog.detectedBackground = bgCheck.detectedBackground
 
-        const needsRetry = !colorCheck.match || (brandCheck !== null && !brandCheck.pass) || !shotCheck.pass || !bgCheck.pass
+        // Step D5: Brightness / overexposure check (v30)
+        const brightnessCheck = await checkBrightnessExposure(jpegBuf, scene.name)
+        slotLog.brightnessCheckPass = brightnessCheck.pass
+        slotLog.meanBrightness = brightnessCheck.meanBrightness
+        slotLog.highlightPercent = brightnessCheck.highlightPercent
+
+        const needsRetry = !colorCheck.match || (brandCheck !== null && !brandCheck.pass) || !shotCheck.pass || !bgCheck.pass || !brightnessCheck.pass
 
         if (needsRetry) {
           const correctionLines: string[] = []
@@ -1743,6 +1848,9 @@ export async function generateByGeminiPro(
           }
           if (!bgCheck.pass && bgCheck.correctionHint) {
             correctionLines.push(bgCheck.correctionHint)
+          }
+          if (!brightnessCheck.pass && brightnessCheck.correctionHint) {
+            correctionLines.push(brightnessCheck.correctionHint)
           }
           const reinforcedPrompt = correctionLines.join('\n') + '\n\n' + fullPrompt
 
@@ -1783,11 +1891,20 @@ export async function generateByGeminiPro(
             slotLog.detectedBackground = retryBgCheck.detectedBackground
           }
 
+          // Re-check brightness on retry (only if first attempt failed brightness check)
+          if (!brightnessCheck.pass) {
+            const retryBrightness = await checkBrightnessExposure(retryJpeg, scene.name)
+            slotLog.brightnessCheckPass = retryBrightness.pass
+            slotLog.meanBrightness = retryBrightness.meanBrightness
+            slotLog.highlightPercent = retryBrightness.highlightPercent
+          }
+
           const warnings: string[] = []
           if (!retryColor.match) warnings.push(`color drift: expected ${mainColor} got ${retryColor.detectedColor}`)
           if (slotLog.brandFidelityPass === false) warnings.push(`brand zones drifted: ${slotLog.brandFidelityNotes || 'unknown'}`)
           if (slotLog.shotCompliancePass === false) warnings.push(`angle wrong: got "${slotLog.detectedShot || 'unknown'}"`)
           if (slotLog.bgCheckPass === false) warnings.push(`background drift: got "${slotLog.detectedBackground || 'unknown'}" expected batch bg`)
+          if (slotLog.brightnessCheckPass === false) warnings.push(`overexposed: mean=${slotLog.meanBrightness}/255 highlight=${slotLog.highlightPercent}%`)
           if (warnings.length > 0) slotLog.rejectionReason = warnings.join('; ')
 
           finalBuf = retryJpeg

@@ -64,9 +64,14 @@ const TASK_FRAMING_BLOCK =
   `• The shoe must NOT appear tiny or distant inside a large empty canvas.\n` +
   `• The shoe must NOT be excessively zoomed in (except for macro/detail slot).\n` +
   `• All standard product shots must maintain a consistent, premium product-to-frame ratio.\n` +
-  `CENTERING: The shoe must be centered or deliberately composed with controlled premium placement.\n` +
-  `• Never place the shoe awkwardly near an edge.\n` +
-  `• Composition must look intentional and premium — like a professional catalog photo.\n` +
+  `CENTERING — CRITICAL:\n` +
+  `• The shoe must be DEAD CENTER in the image frame — both horizontally AND vertically.\n` +
+  `• Equal whitespace on LEFT and RIGHT. Equal whitespace on TOP and BOTTOM.\n` +
+  `• The visual center of the shoe should align with the geometric center of the image.\n` +
+  `• Do NOT place the shoe in the lower half or shifted to one side.\n` +
+  `• Do NOT leave disproportionate empty space on any side.\n` +
+  `• Think: if you draw crosshairs at the image center, the shoe should sit symmetrically on them.\n` +
+  `• Off-center placement is WRONG and will be REJECTED.\n` +
   `ANTI-INSET RULE (CRITICAL — ZERO TOLERANCE):\n` +
   `• Do NOT generate an image-inside-an-image. Do NOT create a framed-photo look.\n` +
   `• Do NOT create visible outer borders or a poster/card/mockup presentation.\n` +
@@ -1209,9 +1214,12 @@ async function normalizeBrightness(
   const meanLum = lumSum / productPixelCount
 
   // ── Determine correction ──
-  const TARGET_LOW  = 100
-  const TARGET_HIGH = 170
-  const TARGET_MID  = 135
+  // v36: tightened from 100-170 to 85-145. v35 band was too permissive —
+  // brown leather at lum 110-120 still appeared washed. Narrower band
+  // ensures richer product tones with more visible texture detail.
+  const TARGET_LOW  = 85
+  const TARGET_HIGH = 145
+  const TARGET_MID  = 115
 
   let gamma = 1.0
 
@@ -1280,6 +1288,158 @@ async function normalizeBrightness(
 
   console.log(`[normalizeBrightness v35] ✓ gamma=${gamma.toFixed(3)} applied — ${result.length}b`)
   return result
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Product Centering — Deterministic Post-Processing (v36)
+// ─────────────────────────────────────────────────────────────────────────────
+// Gemini consistently places shoes in the lower-right quadrant.
+// This function detects the product bounding box, computes the offset from
+// image center, and if the offset exceeds a threshold, shifts the product
+// to be centered by cropping and extending with the background color.
+//
+// Only operates on full-shoe slots (not macro/detail_closeup where the
+// product intentionally fills the frame asymmetrically).
+
+async function centerProduct(
+  imageBuffer: Buffer,
+  targetBgHex?: string,
+  slotName?: string,
+): Promise<Buffer> {
+  // Skip centering for macro/closeup slots — product intentionally fills frame
+  if (slotName === 'detail_closeup') {
+    return imageBuffer
+  }
+
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const sharp = require('sharp') as typeof import('sharp')
+
+  const metadata = await sharp(imageBuffer).metadata()
+  const width  = metadata.width  || 1024
+  const height = metadata.height || 1024
+
+  const { data: rawPixels, info } = await sharp(imageBuffer)
+    .removeAlpha()
+    .raw()
+    .toBuffer({ resolveWithObject: true })
+
+  const channels = info.channels
+
+  // ── Detect background color from edges (same as normalizeBrightness) ──
+  const edgeDepth = Math.max(8, Math.round(Math.min(width, height) * 0.04))
+  let bgR = 0, bgG = 0, bgB = 0, bgCount = 0
+
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      const isEdge = y < edgeDepth || y >= height - edgeDepth ||
+                     x < edgeDepth || x >= width - edgeDepth
+      if (!isEdge) continue
+      const idx = (y * width + x) * channels
+      bgR += rawPixels[idx]
+      bgG += rawPixels[idx + 1]
+      bgB += rawPixels[idx + 2]
+      bgCount++
+    }
+  }
+
+  const detBg = {
+    r: Math.round(bgR / bgCount),
+    g: Math.round(bgG / bgCount),
+    b: Math.round(bgB / bgCount),
+  }
+
+  const bgRef = targetBgHex ? hexToRgb(targetBgHex) : detBg
+
+  // ── Find product bounding box ──
+  const PRODUCT_DIST_THRESHOLD = 50
+  let minX = width, maxX = 0, minY = height, maxY = 0
+
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      const idx = (y * width + x) * channels
+      const dr = rawPixels[idx] - bgRef.r
+      const dg = rawPixels[idx + 1] - bgRef.g
+      const db = rawPixels[idx + 2] - bgRef.b
+      const dist = Math.sqrt(dr * dr + dg * dg + db * db)
+      if (dist > PRODUCT_DIST_THRESHOLD) {
+        if (x < minX) minX = x
+        if (x > maxX) maxX = x
+        if (y < minY) minY = y
+        if (y > maxY) maxY = y
+      }
+    }
+  }
+
+  if (maxX <= minX || maxY <= minY) {
+    console.log(`[centerProduct] no product bbox found — skipping`)
+    return imageBuffer
+  }
+
+  const productCenterX = (minX + maxX) / 2
+  const productCenterY = (minY + maxY) / 2
+  const imageCenterX = width / 2
+  const imageCenterY = height / 2
+
+  const offsetX = Math.round(productCenterX - imageCenterX)
+  const offsetY = Math.round(productCenterY - imageCenterY)
+
+  // Only correct if offset > threshold (avoid sub-pixel jitter)
+  const OFFSET_THRESHOLD = 25 // px — below this is "close enough"
+  const needsCorrection = Math.abs(offsetX) > OFFSET_THRESHOLD || Math.abs(offsetY) > OFFSET_THRESHOLD
+
+  console.log(
+    `[centerProduct v36] slot=${slotName || '?'} bbox=(${minX},${minY})→(${maxX},${maxY}) ` +
+    `prodCenter=(${Math.round(productCenterX)},${Math.round(productCenterY)}) ` +
+    `offset=(${offsetX},${offsetY}) threshold=${OFFSET_THRESHOLD} ` +
+    `${needsCorrection ? 'CORRECTING' : 'ok'}`,
+  )
+
+  if (!needsCorrection) return imageBuffer
+
+  // ── Shift the image to center the product ──
+  // Strategy: crop from the side where there's excess background,
+  // then extend the opposite side with background color.
+  // This preserves the product pixels and only adds/removes background.
+
+  // Use the background color for fill (from enforced bg or detected)
+  const fillColor = targetBgHex
+    ? hexToRgb(targetBgHex)
+    : detBg
+
+  // Calculate crop region: shift the view window by -offset
+  // If product is at +80px offset, we need to move the crop window +80px right
+  // (i.e., crop 80px from left, extend 80px on right)
+  const cropLeft   = Math.max(0, offsetX)
+  const cropTop    = Math.max(0, offsetY)
+  const cropRight  = Math.max(0, -offsetX)
+  const cropBottom = Math.max(0, -offsetY)
+
+  // Crop width/height after removing offset margins
+  const cropW = width - cropLeft - cropRight
+  const cropH = height - cropTop - cropBottom
+
+  if (cropW < width * 0.7 || cropH < height * 0.7) {
+    // Safety: don't crop too aggressively — would lose too much product
+    console.warn(`[centerProduct v36] crop too aggressive (${cropW}x${cropH}) — skipping`)
+    return imageBuffer
+  }
+
+  // Extract the shifted crop, then extend back to original dimensions
+  const cropped = await sharp(imageBuffer)
+    .extract({ left: cropLeft, top: cropTop, width: cropW, height: cropH })
+    .extend({
+      top: cropTop > 0 ? 0 : Math.abs(offsetY),
+      bottom: cropTop > 0 ? offsetY : 0,
+      left: cropLeft > 0 ? 0 : Math.abs(offsetX),
+      right: cropLeft > 0 ? offsetX : 0,
+      background: { r: fillColor.r, g: fillColor.g, b: fillColor.b, alpha: 255 },
+    })
+    .resize(width, height, { fit: 'fill' }) // ensure exact original dimensions
+    .jpeg({ quality: 92 })
+    .toBuffer()
+
+  console.log(`[centerProduct v36] ✓ shifted by (${-offsetX},${-offsetY})px — ${cropped.length}b`)
+  return cropped
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -2403,7 +2563,21 @@ export async function generateByGeminiPro(
           finalBuf = await normalizeBrightness(finalBuf, bgHexForNorm)
           ;(slotLog as Record<string, unknown>).brightnessNormalized = true
         } catch (normErr) {
-          console.warn(`[generateByGeminiPro v35] brightness normalization failed for ${scene.name}:`, normErr instanceof Error ? normErr.message : normErr)
+          console.warn(`[generateByGeminiPro v36] brightness normalization failed for ${scene.name}:`, normErr instanceof Error ? normErr.message : normErr)
+        }
+      }
+
+      // ── v36: UNCONDITIONAL product centering on every successful slot ──
+      // Gemini consistently places shoes in the lower-right quadrant.
+      // This detects the product bounding box, measures offset from image center,
+      // and shifts the composition to center the product. Skips detail_closeup.
+      if (finalBuf) {
+        try {
+          const bgHexForCenter = parseBackgroundHex(premiumBackground) || undefined
+          finalBuf = await centerProduct(finalBuf, bgHexForCenter, scene.name)
+          ;(slotLog as Record<string, unknown>).centered = true
+        } catch (centerErr) {
+          console.warn(`[generateByGeminiPro v36] centering failed for ${scene.name}:`, centerErr instanceof Error ? centerErr.message : centerErr)
         }
       }
 
@@ -2413,11 +2587,12 @@ export async function generateByGeminiPro(
         slotLog.success = true
         slotLog.outputSizeBytes = finalBuf.length
         console.log(
-          `[generateByGeminiPro v35] ✓ ${scene.name} — ${finalBuf.length}b ` +
+          `[generateByGeminiPro v36] ✓ ${scene.name} — ${finalBuf.length}b ` +
           `(attempts=${slotLog.attempts} color=${slotLog.colorCheckPass ?? 'skip'} ` +
           `brand=${slotLog.brandFidelityPass ?? 'skip'} shot=${slotLog.shotCompliancePass ?? 'skip'} ` +
           `bg=${slotLog.bgCheckPass ?? 'skip'} bgEnforced=${(slotLog as Record<string, unknown>).bgEnforced ?? false} ` +
-          `brightNorm=${(slotLog as Record<string, unknown>).brightnessNormalized ?? false})`,
+          `brightNorm=${(slotLog as Record<string, unknown>).brightnessNormalized ?? false} ` +
+          `centered=${(slotLog as Record<string, unknown>).centered ?? false})`,
         )
       } else {
         const msg = `${scene.name}: null after ${slotLog.attempts} attempts`

@@ -1,6 +1,6 @@
 # TASK QUEUE — Uygunayakkabi
 
-_Last updated: 2026-04-07 (Image Pipeline v35 Brightness Normalization; v34 BG Lock + Slot Reorder; DB Hotfix enum types; Phase 21 Operator Runbook; VF-7 D-117b; VF-6 D-117; Phase 19 D-116; Phase 18 D-116; Phase 17 D-116; Phase 16 D-116; Phase 13 D-115/D-114; Phases 1-12 complete)_
+_Last updated: 2026-04-07 (Image Pipeline v36 Centering + Brightness D-122; v35 Brightness Normalization D-121; v34 BG Lock + Slot Reorder D-120; DB Hotfix enum types; Phase 21 Operator Runbook; VF-7 D-117b; VF-6 D-117; Phase 19 D-116; Phase 18 D-116; Phase 17 D-116; Phase 16 D-116; Phase 13 D-115/D-114; Phases 1-12 complete)_
 
 ---
 
@@ -25,6 +25,15 @@ Do NOT execute without operator confirmation.
 ---
 
 ## 🟢 NOW — Current Sprint (VISUAL-FIRST PIPELINE VALIDATED — 2026-04-05)
+
+### ✅ Image Pipeline v36 — Centering + Tighter Brightness: DEPLOYED (2026-04-07)
+- centerProduct(): detects product bbox, measures offset from image center, shifts composition
+- Tightened brightness band: TARGET_HIGH 170→145, TARGET_LOW 100→85, TARGET_MID 135→115
+- Added CENTERING—CRITICAL prompt block to all studio slot prompts
+- Pipeline order: bg enforcement → frame crop → brightness norm → centering
+- V36 verification: brightness PASS (product lum 92-109), centering PARTIAL (operational but limited by Gemini generation variance)
+- Known: slot 3 frame + surface bg persists (pre-existing, not v36 regression)
+- D-122, commit 8c3904d
 
 ### ✅ Image Pipeline v35 — Brightness Normalization: DEPLOYED (2026-04-07)
 - Deterministic product-aware brightness normalization added to all outputs

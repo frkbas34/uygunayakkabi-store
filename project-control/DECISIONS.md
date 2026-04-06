@@ -2719,3 +2719,50 @@ Before: final buffer push to results
 - Highlight percent: 35% → 30% (catches more blown highlights)
 
 **Status:** DEPLOYED — commit 88c4d5f
+
+---
+
+## D-122 — Image Pipeline v36: Deterministic Centering + Tighter Brightness Band
+
+**Decision:**
+Add unconditional `centerProduct()` post-processing to correct Gemini's systematic lower-right placement bias. Tighten brightness normalization band from 100-170 to 85-145 product mean luminance.
+
+**Problem — Centering:**
+Gemini 2.5 Flash consistently generates shoes placed in the lower-right quadrant of the frame. Across multiple generations, product center offset from image center is typically +80-110px X, +150-210px Y (7-20% of frame), despite explicit centering prompt instructions.
+
+**Problem — Brightness:**
+v35 band (100-170 product mean lum) was still too permissive for dark leather (brown, espresso). Product appeared correctly measured but visually still too bright for e-commerce presentation.
+
+**Solution — centerProduct():**
+1. Detect background color from image edges (same method as normalizeBrightness)
+2. Find product bounding box via non-bg pixel envelope (color distance > 50 from bg)
+3. Measure offset between product bbox center and image center
+4. If offset > 25px: crop excess bg from the side where product is shifted, extend opposite side with fill color
+5. Safety: skip if required crop > 30% of image dimension
+6. Skip for `detail_closeup` slot (macro — product intentionally fills frame)
+
+**Solution — Brightness Tightening:**
+- TARGET_HIGH: 170 → 145 (darker max for product pixels)
+- TARGET_LOW: 100 → 85 (richer shadows allowed)
+- TARGET_MID: 135 → 115 (midpoint pulls darker)
+
+**Pipeline Position:**
+centerProduct runs LAST in post-processing chain:
+1. Background enforcement (v28)
+2. Frame detection/crop (v28)
+3. Brightness normalization (v35)
+4. Product centering (v36) ← NEW
+
+**Prompt Enhancement:**
+Added CENTERING — CRITICAL block to all studio slot prompts: dead-center requirement, equal whitespace on all sides, explicit rejection language for off-center placement.
+
+**V36 Verification Results (Product #194, Job #169):**
+- Brightness: PASS — product mean lum 92-109 (within 85-145 band), highlights ≤0.1%
+- Centering: PARTIAL — function operational (confirmed via non-1024 output dims + slotLog), but residual offset persists (7-17% X, 14-18% Y) due to Gemini generation variance across runs
+- Background: PASS on slots 1-2 (clean studio gray), slot 3 persistent surface bg
+- Frame: PASS on slots 1-2, slot 3 persistent border
+
+**Known Limitation:**
+centerProduct corrects the offset of each individual generation, but since each `#gorsel` produces entirely new images from Gemini, the correction amount varies per run. The systematic Gemini lower-right bias means centering improves each individual image but results still vary across generations. A more robust approach would add centering-specific QC rejection (reject + retry if offset > N% after correction).
+
+**Status:** DEPLOYED — commit 8c3904d

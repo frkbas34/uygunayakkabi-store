@@ -1,6 +1,6 @@
 # TASK QUEUE — Uygunayakkabi
 
-_Last updated: 2026-04-07 (Image Pipeline v34 BG Lock + Slot Reorder; DB Hotfix enum types; Phase 21 Operator Runbook; VF-7 D-117b; VF-6 D-117; Phase 19 D-116; Phase 18 D-116; Phase 17 D-116; Phase 16 D-116; Phase 13 D-115/D-114; Phases 1-12 complete)_
+_Last updated: 2026-04-07 (Image Pipeline v35 Brightness Normalization; v34 BG Lock + Slot Reorder; DB Hotfix enum types; Phase 21 Operator Runbook; VF-7 D-117b; VF-6 D-117; Phase 19 D-116; Phase 18 D-116; Phase 17 D-116; Phase 16 D-116; Phase 13 D-115/D-114; Phases 1-12 complete)_
 
 ---
 
@@ -26,12 +26,20 @@ Do NOT execute without operator confirmation.
 
 ## 🟢 NOW — Current Sprint (VISUAL-FIRST PIPELINE VALIDATED — 2026-04-05)
 
+### ✅ Image Pipeline v35 — Brightness Normalization: DEPLOYED (2026-04-07)
+- Deterministic product-aware brightness normalization added to all outputs
+- normalizeBrightness(): measures PRODUCT pixel luminance only, selective gamma correction
+- Runs unconditionally on every slot after bg enforcement + frame detection
+- Background pixels preserved (not affected by gamma correction)
+- Target band: product mean luminance 100-170 (was no real enforcement before)
+- Tightened QC thresholds: mean>200 (was 210), highlight>30% (was 35%)
+- Audit confirmed: NO DM/group code divergence — same pipeline for all
+
 ### ✅ Image Pipeline v34 — Background Lock + Slot Reorder: DEPLOYED (2026-04-07)
 - Side-angle is now the primary hero (index 0) across website, channels, Telegram
 - generativeGallery shown on product page + homepage (AI images first, originals as fallback)
 - enforceSlotBackground v34: corner-only sampling for macro, contamination guard, batch consistency check
 - DB hotfix: 3 missing enum types for hasMany select join tables
-- Awaiting Vercel deploy + live image generation test for visual verification
 
 ### ✅ Phase 21 Operator Runbook: COMPLETED (2026-04-06)
 Comprehensive operator-facing daily SOP created: `project-control/OPERATOR_RUNBOOK.md`.

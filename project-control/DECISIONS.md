@@ -2682,3 +2682,40 @@ Created 3 missing PostgreSQL enum types and altered join table columns from varc
 Payload CMS v3's Drizzle adapter generates INSERT statements that cast to enum types. When tables were created by push:true (which may have run in an earlier version or dev mode), they used varchar instead of enum. Production inserts failed when Payload tried to cast to non-existent enum types.
 
 **Status:** APPLIED — product #194 created successfully after fix
+
+---
+
+## D-121 — Image Pipeline v35: Deterministic Brightness Normalization
+
+**Decision:**
+Replace conditional `enforceBrightness()` (v33 sharp.modulate) with unconditional `normalizeBrightness()` using product-pixel-only selective gamma correction. Run on every slot, not just failures.
+
+**Problem:**
+v33/v34 brightness enforcement had three issues:
+1. Thresholds too lenient (mean>210 whole-image including light background) — washed products passed
+2. Enforcement was conditional — only ran after retry failure, not on images that barely passed
+3. `sharp.modulate({ brightness })` affected entire image including background, undoing bg enforcement
+
+**DM vs Group Audit:**
+Confirmed NO code divergence. Both DM and group `#gorsel` commands flow through identical path: `isGorselTrigger → create ImageGenerationJob → queue image-gen task → generateByGeminiPro()`. No chat-type branching anywhere.
+
+**Solution — normalizeBrightness():**
+1. Detect background color from image edges (or use explicit target bg hex)
+2. Classify each pixel as background (color distance < 80 from bg) or product
+3. Measure mean luminance of PRODUCT pixels only (BT.709 formula)
+4. If product mean lum > 170: darken via gamma > 1 (max 1.8)
+5. If product mean lum < 100: brighten via gamma < 1 (min 0.55)
+6. Apply gamma ONLY to product pixels with soft 40px blend margin at boundary
+7. Background pixels are untouched — enforced bg color preserved
+
+**Pipeline Position:**
+Runs UNCONDITIONALLY on every successful slot, after:
+1. Background enforcement (preserves enforced bg)
+2. Frame detection/crop (works on clean image)
+Before: final buffer push to results
+
+**QC Threshold Changes:**
+- Mean brightness: 210 → 200 (triggers retry earlier)
+- Highlight percent: 35% → 30% (catches more blown highlights)
+
+**Status:** DEPLOYED — commit 88c4d5f

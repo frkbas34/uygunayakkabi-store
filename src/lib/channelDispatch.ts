@@ -166,31 +166,39 @@ export function buildChannelWebhookUrl(channel: SupportedChannel): string | unde
  *  3. Relative /media/<filename> if NEXT_PUBLIC_SERVER_URL not set (local only)
  */
 function extractMediaUrls(product: Record<string, unknown>): string[] {
-  const images = product.images as
-    | Array<{ image?: { url?: string; filename?: string } }>
-    | undefined
-
-  if (!Array.isArray(images) || images.length === 0) return []
+  type ImgEntry = { image?: { url?: string; filename?: string } }
 
   // Normalize base URL: strip trailing slash so /media/ join is clean
   const serverUrl = (process.env.NEXT_PUBLIC_SERVER_URL ?? '').replace(/\/$/, '')
 
-  return images
-    .map((img) => {
-      const media = img?.image
-      if (!media) return null
-      // Absolute URL (Vercel Blob or external CDN) — use as-is
-      if (media.url && media.url.startsWith('http')) return media.url
-      // Relative Payload URL (e.g. /api/media/file/x.webp) — make absolute
-      if (media.url) return serverUrl ? `${serverUrl}${media.url}` : media.url
-      // Local dev path — make absolute so VPS-side workers can fetch it
-      if (media.filename) {
-        const relativePath = `/media/${media.filename}`
-        return serverUrl ? `${serverUrl}${relativePath}` : relativePath
-      }
-      return null
-    })
-    .filter((url): url is string => url !== null)
+  const resolveUrls = (entries: ImgEntry[]): string[] =>
+    entries
+      .map((img) => {
+        const media = img?.image
+        if (!media) return null
+        // Absolute URL (Vercel Blob or external CDN) — use as-is
+        if (media.url && media.url.startsWith('http')) return media.url
+        // Relative Payload URL (e.g. /api/media/file/x.webp) — make absolute
+        if (media.url) return serverUrl ? `${serverUrl}${media.url}` : media.url
+        // Local dev path — make absolute so VPS-side workers can fetch it
+        if (media.filename) {
+          const relativePath = `/media/${media.filename}`
+          return serverUrl ? `${serverUrl}${relativePath}` : relativePath
+        }
+        return null
+      })
+      .filter((url): url is string => url !== null)
+
+  // AI-generated images (generativeGallery) take priority — side_angle is [0]
+  const aiImages = product.generativeGallery as ImgEntry[] | undefined
+  const originalImages = product.images as ImgEntry[] | undefined
+
+  const aiUrls = Array.isArray(aiImages) ? resolveUrls(aiImages) : []
+  const origUrls = Array.isArray(originalImages) ? resolveUrls(originalImages) : []
+
+  // AI gallery first (side_angle hero), then originals as supplementary
+  if (aiUrls.length > 0) return [...aiUrls, ...origUrls]
+  return origUrls
 }
 
 // ── Instagram Direct Publish ──────────────────────────────────────────────────

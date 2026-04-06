@@ -36,6 +36,7 @@ type ProductDoc = {
   description?: string | null
   status?: string | null
   images?: ImageEntry[] | null
+  generativeGallery?: ImageEntry[] | null
   variants?: VariantDoc[] | null
 }
 
@@ -76,15 +77,22 @@ export default async function ProductPage({ params }: Props) {
   const variants = variantResult.docs as VariantDoc[]
   const availableSizes = variants.filter((v) => v.stock > 0)
 
-  const images = (product.images ?? [])
-    .map((img) => {
-      const mediaDoc = img.image as MediaDoc
-      // Try url field first, then construct from filename
-      if (mediaDoc?.url) return mediaDoc.url
-      if ((mediaDoc as any)?.filename) return `/media/${(mediaDoc as any).filename}`
-      return null
-    })
-    .filter(Boolean) as string[]
+  // Helper: extract URLs from an image entry array
+  const extractUrls = (entries: ImageEntry[]): string[] =>
+    entries
+      .map((img) => {
+        const mediaDoc = img.image as MediaDoc
+        if (mediaDoc?.url) return mediaDoc.url
+        if ((mediaDoc as any)?.filename) return `/media/${(mediaDoc as any).filename}`
+        return null
+      })
+      .filter(Boolean) as string[]
+
+  // AI-generated images (generativeGallery) come first — side_angle is [0] (primary hero).
+  // Original product images follow as fallback / supplementary.
+  const aiImages = extractUrls(product.generativeGallery ?? [])
+  const originalImages = extractUrls(product.images ?? [])
+  const images = aiImages.length > 0 ? [...aiImages, ...originalImages] : originalImages
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">

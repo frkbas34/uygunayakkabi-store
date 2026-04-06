@@ -1372,26 +1372,8 @@ async function callGPTImageEdit(
  */
 const EDITING_SCENES = [
   {
-    name: 'commerce_front',
-    label: 'Slot 1 — Ön Stüdyo Hero',
-    sceneInstructions:
-      `── SHOT: FRONT STUDIO HERO ──\n` +
-      `Re-photograph this EXACT {COLOR} shoe from the front — same physical object.\n` +
-      `CAMERA: Directly in front of the shoe, lens perpendicular to the toe cap, at mid-shoe height (lacing zone).\n` +
-      `POSITION: Shoe upright on sole, centered, toe cap facing camera dead-on. Both sides equally visible (symmetric).\n` +
-      `COMPOSITION: Full shoe, 70-80% of image height. Top of collar and sole bottom both visible. Centered. Clean even spacing around shoe — NO excessive empty canvas.\n` +
-      `MUST SEE: Toe cap front face, vamp, lace/closure system, collar — the entire FRONT face.\n` +
-      `MUST NOT SEE: Heel counter, side profile, sole edge.\n` +
-      `BACKGROUND: {BACKGROUND} Use this EXACT color. Do not shift or reinterpret.\n` +
-      `LIGHT: Soft studio lighting — overhead softbox + bilateral fill. Natural soft shadow under the shoe only. No harsh reflections.\n` +
-      `OUTPUT: Full-bleed photograph. No frames, no borders, no margins, no mockup. No watermark, no text, no logo overlay.\n` +
-      `THIS IS NOT: a side view, a 3/4 view, a lifestyle shot, a close-up, a framed image.\n` +
-      `COLOR: The shoe is {COLOR}. Output MUST be {COLOR}. Other colors = REJECTED.\n` +
-      `DO NOT repeat the reference angle ({REF_ANGLE}). Generate a clean front hero.`,
-  },
-  {
     name: 'side_angle',
-    label: 'Slot 2 — 90° Yan Profil',
+    label: 'Slot 1 — 90° Yan Profil (PRIMARY)',
     sceneInstructions:
       `── SHOT: PURE LATERAL SIDE PROFILE ──\n` +
       `Re-photograph this EXACT {COLOR} shoe from the side — same physical object.\n` +
@@ -1406,6 +1388,24 @@ const EDITING_SCENES = [
       `THIS IS NOT: a front view, a 3/4 view, a top-down view, a framed image.\n` +
       `COLOR: The shoe is {COLOR}. Output MUST be {COLOR}. Other colors = REJECTED.\n` +
       `DO NOT repeat the reference angle ({REF_ANGLE}). Generate a pure side profile.`,
+  },
+  {
+    name: 'commerce_front',
+    label: 'Slot 2 — Ön Stüdyo Hero',
+    sceneInstructions:
+      `── SHOT: FRONT STUDIO HERO ──\n` +
+      `Re-photograph this EXACT {COLOR} shoe from the front — same physical object.\n` +
+      `CAMERA: Directly in front of the shoe, lens perpendicular to the toe cap, at mid-shoe height (lacing zone).\n` +
+      `POSITION: Shoe upright on sole, centered, toe cap facing camera dead-on. Both sides equally visible (symmetric).\n` +
+      `COMPOSITION: Full shoe, 70-80% of image height. Top of collar and sole bottom both visible. Centered. Clean even spacing around shoe — NO excessive empty canvas.\n` +
+      `MUST SEE: Toe cap front face, vamp, lace/closure system, collar — the entire FRONT face.\n` +
+      `MUST NOT SEE: Heel counter, side profile, sole edge.\n` +
+      `BACKGROUND: {BACKGROUND} Use this EXACT color. Do not shift or reinterpret.\n` +
+      `LIGHT: Soft studio lighting — overhead softbox + bilateral fill. Natural soft shadow under the shoe only. No harsh reflections.\n` +
+      `OUTPUT: Full-bleed photograph. No frames, no borders, no margins, no mockup. No watermark, no text, no logo overlay.\n` +
+      `THIS IS NOT: a side view, a 3/4 view, a lifestyle shot, a close-up, a framed image.\n` +
+      `COLOR: The shoe is {COLOR}. Output MUST be {COLOR}. Other colors = REJECTED.\n` +
+      `DO NOT repeat the reference angle ({REF_ANGLE}). Generate a clean front hero.`,
   },
   {
     name: 'detail_closeup',

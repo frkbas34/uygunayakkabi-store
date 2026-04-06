@@ -171,14 +171,20 @@ export default async function Page() {
 
     dbProducts = productsForHomepage.map((p: any) => {
       const shoeImg = getShoeImage(p.category || 'gunluk');
-      // Primary: images from the product's own images array
+      // AI-generated images (generativeGallery) — side_angle is [0] (primary hero)
+      const aiUrls = getAllMediaUrls(p.generativeGallery || []);
+      // Original product images
       const mediaUrls = getAllMediaUrls(p.images || []);
       // Fallback: images linked via Media's "İlgili Ürün" field
       const reverseUrls = (reverseMediaMap.get(p.id) || [])
         .map((m: any) => m.url || (m.filename ? `/media/${m.filename}` : null))
         .filter(Boolean) as string[];
-      // Use product's own images first, reverse-linked images as fallback
-      const allUrls = mediaUrls.length > 0 ? mediaUrls : reverseUrls;
+      // Priority: AI gallery (side_angle first) > product images > reverse-linked
+      const allUrls = aiUrls.length > 0
+        ? [...aiUrls, ...mediaUrls]
+        : mediaUrls.length > 0
+          ? mediaUrls
+          : reverseUrls;
       const imgSrc = allUrls[0] || shoeImg;
       const img2 = allUrls[1] || shoeImg;
 

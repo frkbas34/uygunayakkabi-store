@@ -206,6 +206,8 @@ export type SlotLog = {
   brightnessCheckPass?: boolean
   meanBrightness?: number
   highlightPercent?: number
+  /** v35: brightness normalization applied */
+  brightnessNormalized?: boolean
   rejectionReason?: string
 }
 
@@ -936,11 +938,12 @@ async function checkBrightnessExposure(
     const meanBrightness = Math.round(sum / totalPixels)
     const highlightPercent = Math.round((nearWhiteCount / totalPixels) * 100)
 
-    // Thresholds: background will be light (~230-250) but product area should
-    // pull the mean down. If mean > 210 the product itself is overexposed.
-    // highlight > 35% means too much of the image is blown out.
-    const isTooMean = meanBrightness > 210
-    const isTooHighlight = highlightPercent > 35
+    // v35: Tighter thresholds. v33 used mean>210 / highlight>35% which was too
+    // lenient — light backgrounds (~230-240) inflated the mean, letting washed-out
+    // products pass. The normalization post-processing is now the real safety net,
+    // but tighter QC here still helps trigger retries with exposure hints.
+    const isTooMean = meanBrightness > 200
+    const isTooHighlight = highlightPercent > 30
     const pass = !isTooMean && !isTooHighlight
 
     console.log(
@@ -1116,33 +1119,167 @@ async function detectAndRemoveFrame(
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Brightness Enforcement — Deterministic Post-Processing (v33)
+// Brightness Normalization — Deterministic Post-Processing (v35)
 // ─────────────────────────────────────────────────────────────────────────────
-// When brightness QC fails after retry, instead of accepting an overexposed
-// image, we apply a gentle brightness reduction via sharp modulation.
-// This preserves the composition while bringing exposure under control.
+// v33 used sharp.modulate() which affected the ENTIRE image (including
+// background), potentially undoing background enforcement. v35 replaces this
+// with product-pixel-only selective gamma correction.
+//
+// Measures PRODUCT pixel luminance (excluding background), then applies gamma
+// correction only to product pixels if they fall outside the safe band.
+// Background pixels are preserved to maintain the enforced background color.
+//
+// Target band: product mean luminance 100–170.
+// Above 170 → darken (gamma > 1) — fixes washed-out / high-key outputs.
+// Below 100 → brighten (gamma < 1) — fixes underexposed outputs.
+//
+// MUST run AFTER background enforcement.
 
-async function enforceBrightness(
+async function normalizeBrightness(
   imageBuffer: Buffer,
-  meanBrightness: number,
+  targetBgHex?: string,
 ): Promise<Buffer> {
   // eslint-disable-next-line @typescript-eslint/no-require-imports
   const sharp = require('sharp') as typeof import('sharp')
 
-  // Target: bring mean brightness to ~195 (comfortably under 210 threshold)
-  // Reduction factor: 195 / currentMean (e.g. 224 → 0.87 = 13% darker)
-  const TARGET_MEAN = 195
-  const reductionFactor = Math.max(0.75, Math.min(0.95, TARGET_MEAN / meanBrightness))
+  const metadata = await sharp(imageBuffer).metadata()
+  const width  = metadata.width  || 1024
+  const height = metadata.height || 1024
+
+  const { data: rawPixels, info } = await sharp(imageBuffer)
+    .removeAlpha()
+    .raw()
+    .toBuffer({ resolveWithObject: true })
+
+  const channels = info.channels // 3 (RGB)
+
+  // ── Detect background color from edges ──
+  const edgeDepth = Math.max(8, Math.round(Math.min(width, height) * 0.04))
+  let bgR = 0, bgG = 0, bgB = 0, bgCount = 0
+
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      const isEdge = y < edgeDepth || y >= height - edgeDepth ||
+                     x < edgeDepth || x >= width - edgeDepth
+      if (!isEdge) continue
+      const idx = (y * width + x) * channels
+      bgR += rawPixels[idx]
+      bgG += rawPixels[idx + 1]
+      bgB += rawPixels[idx + 2]
+      bgCount++
+    }
+  }
+
+  const detBg = {
+    r: Math.round(bgR / bgCount),
+    g: Math.round(bgG / bgCount),
+    b: Math.round(bgB / bgCount),
+  }
+
+  // If we have an explicit target bg hex, use it for more accurate classification
+  const bgRef = targetBgHex ? hexToRgb(targetBgHex) : detBg
+
+  // ── Measure mean luminance of PRODUCT pixels only ──
+  const BG_THRESHOLD = 80
+  let lumSum = 0
+  let productPixelCount = 0
+
+  for (let i = 0; i < rawPixels.length; i += channels) {
+    const pr = rawPixels[i]
+    const pg = rawPixels[i + 1]
+    const pb = rawPixels[i + 2]
+
+    const dr = pr - bgRef.r
+    const dg = pg - bgRef.g
+    const db = pb - bgRef.b
+    const dist = Math.sqrt(dr * dr + dg * dg + db * db)
+
+    if (dist < BG_THRESHOLD) continue
+
+    const lum = 0.2126 * pr + 0.7152 * pg + 0.0722 * pb
+    lumSum += lum
+    productPixelCount++
+  }
+
+  if (productPixelCount < 1000) {
+    console.log(`[normalizeBrightness] only ${productPixelCount} product pixels — skipping`)
+    return imageBuffer
+  }
+
+  const meanLum = lumSum / productPixelCount
+
+  // ── Determine correction ──
+  const TARGET_LOW  = 100
+  const TARGET_HIGH = 170
+  const TARGET_MID  = 135
+
+  let gamma = 1.0
+
+  if (meanLum > TARGET_HIGH) {
+    const currentNorm = meanLum / 255
+    const targetNorm  = TARGET_MID / 255
+    gamma = Math.log(targetNorm) / Math.log(currentNorm)
+    gamma = Math.max(1.05, Math.min(gamma, 1.8))
+  } else if (meanLum < TARGET_LOW) {
+    const currentNorm = meanLum / 255
+    const targetNorm  = TARGET_MID / 255
+    gamma = Math.log(targetNorm) / Math.log(currentNorm)
+    gamma = Math.max(0.55, Math.min(gamma, 0.95))
+  }
 
   console.log(
-    `[enforceBrightness v33] mean=${meanBrightness} target=${TARGET_MEAN} ` +
-    `reductionFactor=${reductionFactor.toFixed(3)}`,
+    `[normalizeBrightness v35] meanLum=${meanLum.toFixed(1)} productPx=${productPixelCount} ` +
+    `bg=rgb(${detBg.r},${detBg.g},${detBg.b}) gamma=${gamma.toFixed(3)} ` +
+    `${gamma === 1.0 ? '(no correction needed)' : gamma > 1 ? '(darkening)' : '(brightening)'}`,
   )
 
-  return sharp(imageBuffer)
-    .modulate({ brightness: reductionFactor })
+  if (gamma === 1.0) return imageBuffer
+
+  // ── Apply selective gamma: product pixels corrected, bg pixels preserved ──
+  const outputPixels = Buffer.from(rawPixels)
+  const BG_BLEND_MARGIN = 40
+
+  for (let i = 0; i < rawPixels.length; i += channels) {
+    const pr = rawPixels[i]
+    const pg = rawPixels[i + 1]
+    const pb = rawPixels[i + 2]
+
+    const dr = pr - bgRef.r
+    const dg = pg - bgRef.g
+    const db = pb - bgRef.b
+    const dist = Math.sqrt(dr * dr + dg * dg + db * db)
+
+    if (dist < BG_THRESHOLD - BG_BLEND_MARGIN) continue // pure bg — skip
+
+    let blend: number
+    if (dist >= BG_THRESHOLD) {
+      blend = 1.0
+    } else {
+      blend = (dist - (BG_THRESHOLD - BG_BLEND_MARGIN)) / BG_BLEND_MARGIN
+    }
+
+    const applyGamma = (val: number): number => {
+      const norm = val / 255
+      return Math.max(0, Math.min(255, Math.round(Math.pow(norm, gamma) * 255)))
+    }
+
+    const corrR = applyGamma(pr)
+    const corrG = applyGamma(pg)
+    const corrB = applyGamma(pb)
+
+    outputPixels[i]     = Math.round(pr + (corrR - pr) * blend)
+    outputPixels[i + 1] = Math.round(pg + (corrG - pg) * blend)
+    outputPixels[i + 2] = Math.round(pb + (corrB - pb) * blend)
+  }
+
+  const result = await sharp(outputPixels, {
+    raw: { width, height, channels },
+  })
     .jpeg({ quality: 92 })
     .toBuffer()
+
+  console.log(`[normalizeBrightness v35] ✓ gamma=${gamma.toFixed(3)} applied — ${result.length}b`)
+  return result
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -2208,24 +2345,8 @@ export async function generateByGeminiPro(
             }
           }
 
-          // ── v33: Deterministic brightness enforcement ──────────────────────
-          // If brightness STILL fails after retry, fix it in post-processing.
-          // Uses sharp modulate() to gently reduce brightness to target range.
-          if (slotLog.brightnessCheckPass === false && finalBuf && typeof slotLog.meanBrightness === 'number' && slotLog.meanBrightness > 210) {
-            try {
-              console.log(`[generateByGeminiPro v33] brightness still failing on ${scene.name} (mean=${slotLog.meanBrightness}) — enforcing via post-process`)
-              finalBuf = await enforceBrightness(finalBuf, slotLog.meanBrightness)
-              ;(slotLog as Record<string, unknown>).brightnessEnforced = true
-              // Re-check after enforcement
-              const enforceCheck = await checkBrightnessExposure(finalBuf, scene.name)
-              slotLog.brightnessCheckPass = enforceCheck.pass
-              slotLog.meanBrightness = enforceCheck.meanBrightness
-              slotLog.highlightPercent = enforceCheck.highlightPercent
-              console.log(`[generateByGeminiPro v33] ✓ ${scene.name} brightness enforced: mean=${enforceCheck.meanBrightness} pass=${enforceCheck.pass}`)
-            } catch (brightErr) {
-              console.warn(`[generateByGeminiPro v33] brightness enforcement failed for ${scene.name}:`, brightErr instanceof Error ? brightErr.message : brightErr)
-            }
-          }
+          // v35: conditional brightness enforcement removed from retry branch.
+          // Brightness normalization is now UNCONDITIONAL on all slots (see below).
         } else {
           finalBuf = jpegBuf
         }
@@ -2271,16 +2392,32 @@ export async function generateByGeminiPro(
         }
       }
 
+      // ── v35: UNCONDITIONAL brightness normalization on every successful slot ──
+      // Runs AFTER bg enforcement and frame removal. Measures PRODUCT pixel
+      // luminance (excluding background) and applies selective gamma correction
+      // if the product is too bright (washed out) or too dark (underexposed).
+      // Background pixels are preserved to maintain the enforced background color.
+      if (finalBuf) {
+        try {
+          const bgHexForNorm = parseBackgroundHex(premiumBackground) || undefined
+          finalBuf = await normalizeBrightness(finalBuf, bgHexForNorm)
+          ;(slotLog as Record<string, unknown>).brightnessNormalized = true
+        } catch (normErr) {
+          console.warn(`[generateByGeminiPro v35] brightness normalization failed for ${scene.name}:`, normErr instanceof Error ? normErr.message : normErr)
+        }
+      }
+
       if (finalBuf) {
         result.buffers.push(finalBuf)
         result.successCount++
         slotLog.success = true
         slotLog.outputSizeBytes = finalBuf.length
         console.log(
-          `[generateByGeminiPro v29] ✓ ${scene.name} — ${finalBuf.length}b ` +
+          `[generateByGeminiPro v35] ✓ ${scene.name} — ${finalBuf.length}b ` +
           `(attempts=${slotLog.attempts} color=${slotLog.colorCheckPass ?? 'skip'} ` +
           `brand=${slotLog.brandFidelityPass ?? 'skip'} shot=${slotLog.shotCompliancePass ?? 'skip'} ` +
-          `bg=${slotLog.bgCheckPass ?? 'skip'} bgEnforced=${(slotLog as Record<string, unknown>).bgEnforced ?? false})`,
+          `bg=${slotLog.bgCheckPass ?? 'skip'} bgEnforced=${(slotLog as Record<string, unknown>).bgEnforced ?? false} ` +
+          `brightNorm=${(slotLog as Record<string, unknown>).brightnessNormalized ?? false})`,
         )
       } else {
         const msg = `${scene.name}: null after ${slotLog.attempts} attempts`

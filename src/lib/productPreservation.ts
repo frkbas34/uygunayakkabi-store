@@ -53,6 +53,9 @@ export const PRODUCT_PRESERVATION_PROHIBITIONS = [
   'adding accessories, extra objects, or props not in the reference',
   'replacing the product with a visually similar but different shoe',
   'adding watermarks, text overlays, or low-resolution noise',
+  'creating a frame, border, inset, or photo-within-photo composition — output must be full-bleed edge-to-edge',
+  'adding decorative edges, outer margins, panel framing, or canvas/poster/mockup presentation',
+  'overexposing or washing out the image — shoe surface texture must remain fully visible',
 ] as const
 
 // ─────────────────────────────────────────────────────────────────────────────

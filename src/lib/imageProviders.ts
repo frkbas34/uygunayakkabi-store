@@ -67,12 +67,17 @@ const TASK_FRAMING_BLOCK =
   `CENTERING: The shoe must be centered or deliberately composed with controlled premium placement.\n` +
   `• Never place the shoe awkwardly near an edge.\n` +
   `• Composition must look intentional and premium — like a professional catalog photo.\n` +
-  `ANTI-INSET RULE (CRITICAL):\n` +
+  `ANTI-INSET RULE (CRITICAL — ZERO TOLERANCE):\n` +
   `• Do NOT generate an image-inside-an-image. Do NOT create a framed-photo look.\n` +
   `• Do NOT create visible outer borders or a poster/card/mockup presentation.\n` +
   `• Do NOT create large white or colored margins that make the scene feel inset.\n` +
+  `• Do NOT place the photo inside a rectangular panel, card, or bordered area.\n` +
+  `• Do NOT add decorative edges, shadow boxing, or vignette framing.\n` +
+  `• Do NOT render the image as if it were printed on paper and photographed.\n` +
   `• The output must be a direct, full-bleed photograph — edge to edge.\n` +
-  `• If your output looks like a photo placed onto a canvas, it is WRONG.\n` +
+  `• The photo content must extend all the way to every edge of the output image.\n` +
+  `• If your output has visible boundaries between "the photo" and "the canvas", it is WRONG.\n` +
+  `• If your output looks like a photo placed onto a surface or inside a border, it is WRONG.\n` +
   `CONSISTENCY RULE:\n` +
   `• All images in this batch must feel like they belong to the same premium catalog system.\n` +
   `• Different slots may have different angles/scenes but the overall visual scale must be consistent.\n` +
@@ -752,10 +757,17 @@ async function checkShotCompliance(
     `REQUIRED SHOT TYPE: ${criteria.required}\n` +
     `PASS if: ${criteria.passRule}\n` +
     `FAIL if any of these are true: ${criteria.failSignals}\n\n` +
+    `ALSO FAIL if the image has ANY of these composition defects:\n` +
+    `• The photo appears inset/framed — there is a visible border, panel, or canvas around the main scene\n` +
+    `• The image looks like a photo placed onto another surface or inside a card/mockup\n` +
+    `• There are decorative edges, shadow boxing, or margin areas that frame the scene\n` +
+    `• The main subject area is noticeably smaller than the full image, with large uniform margins\n` +
+    `A valid image must be full-bleed: the scene extends edge-to-edge with no framing artifacts.\n\n` +
     `Analyze this shoe image and respond with JSON only — no markdown, no code fences:\n` +
     `{"pass": true/false, "detectedShot": "one-sentence description of the actual angle/composition in this image"}\n\n` +
     `Be strict. A slight 3/4 angle when pure front was requested = FAIL. ` +
-    `A slight diagonal when pure side was requested = FAIL.`
+    `A slight diagonal when pure side was requested = FAIL. ` +
+    `Any visible frame, border, or inset panel = FAIL.`
 
   try {
     const res = await fetch(
@@ -943,6 +955,36 @@ async function checkBrightnessExposure(
     console.warn('[checkBrightness] error:', err instanceof Error ? err.message : err)
     return { pass: true, meanBrightness: 0, highlightPercent: 0, correctionHint: '' }
   }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Brightness Enforcement — Deterministic Post-Processing (v33)
+// ─────────────────────────────────────────────────────────────────────────────
+// When brightness QC fails after retry, instead of accepting an overexposed
+// image, we apply a gentle brightness reduction via sharp modulation.
+// This preserves the composition while bringing exposure under control.
+
+async function enforceBrightness(
+  imageBuffer: Buffer,
+  meanBrightness: number,
+): Promise<Buffer> {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const sharp = require('sharp') as typeof import('sharp')
+
+  // Target: bring mean brightness to ~195 (comfortably under 210 threshold)
+  // Reduction factor: 195 / currentMean (e.g. 224 → 0.87 = 13% darker)
+  const TARGET_MEAN = 195
+  const reductionFactor = Math.max(0.75, Math.min(0.95, TARGET_MEAN / meanBrightness))
+
+  console.log(
+    `[enforceBrightness v33] mean=${meanBrightness} target=${TARGET_MEAN} ` +
+    `reductionFactor=${reductionFactor.toFixed(3)}`,
+  )
+
+  return sharp(imageBuffer)
+    .modulate({ brightness: reductionFactor })
+    .jpeg({ quality: 92 })
+    .toBuffer()
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1241,8 +1283,13 @@ const EDITING_SCENES = [
       `\n` +
       `LIGHT: Single soft raking sidelight to reveal texture. Subtle specular highlight. No harsh reflections.\n` +
       `EXPOSURE CRITICAL: This macro shot MUST preserve surface detail. No blown highlights on the leather/material surface. Keep exposure metered for the shoe surface — texture, grain, and stitching must be clearly visible. If any area appears washed out or white-clipped, the exposure is WRONG.\n` +
-      `OUTPUT: Full-bleed photograph. No frames, no borders, no margins, no mockup. No watermark, no text, no logo overlay.\n` +
-      `THIS IS NOT: a full-shoe shot, a side profile, an editorial placement, a tabletop composition, a framed image.\n` +
+      `OUTPUT: Full-bleed photograph — edge to edge. The macro fills the ENTIRE output frame.\n` +
+      `• No frames, no borders, no margins, no mockup, no panel, no inset.\n` +
+      `• The macro subject must extend to ALL edges of the image — no visible boundary between photo and canvas.\n` +
+      `• Do NOT place the close-up inside a rectangular border or panel area.\n` +
+      `• Do NOT render this as a photo-within-a-photo or as an image on a surface.\n` +
+      `• No watermark, no text, no logo overlay.\n` +
+      `THIS IS NOT: a full-shoe shot, a side profile, an editorial placement, a tabletop composition, a framed image, an inset panel.\n` +
       `COLOR: The shoe is {COLOR}. Output MUST be {COLOR}. Other colors = REJECTED.`,
   },
   {
@@ -1928,6 +1975,25 @@ export async function generateByGeminiPro(
                 console.warn(`[generateByGeminiPro v29] bg enforcement failed for ${scene.name}:`, enforceErr instanceof Error ? enforceErr.message : enforceErr)
                 // Keep the retried image as-is — don't lose it
               }
+            }
+          }
+
+          // ── v33: Deterministic brightness enforcement ──────────────────────
+          // If brightness STILL fails after retry, fix it in post-processing.
+          // Uses sharp modulate() to gently reduce brightness to target range.
+          if (slotLog.brightnessCheckPass === false && finalBuf && typeof slotLog.meanBrightness === 'number' && slotLog.meanBrightness > 210) {
+            try {
+              console.log(`[generateByGeminiPro v33] brightness still failing on ${scene.name} (mean=${slotLog.meanBrightness}) — enforcing via post-process`)
+              finalBuf = await enforceBrightness(finalBuf, slotLog.meanBrightness)
+              ;(slotLog as Record<string, unknown>).brightnessEnforced = true
+              // Re-check after enforcement
+              const enforceCheck = await checkBrightnessExposure(finalBuf, scene.name)
+              slotLog.brightnessCheckPass = enforceCheck.pass
+              slotLog.meanBrightness = enforceCheck.meanBrightness
+              slotLog.highlightPercent = enforceCheck.highlightPercent
+              console.log(`[generateByGeminiPro v33] ✓ ${scene.name} brightness enforced: mean=${enforceCheck.meanBrightness} pass=${enforceCheck.pass}`)
+            } catch (brightErr) {
+              console.warn(`[generateByGeminiPro v33] brightness enforcement failed for ${scene.name}:`, brightErr instanceof Error ? brightErr.message : brightErr)
             }
           }
         } else {

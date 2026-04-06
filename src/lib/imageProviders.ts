@@ -1019,13 +1019,15 @@ async function detectAndRemoveFrame(
   const cy2 = Math.round(h * 0.75)
   const centerMean = regionMean(cx1, cy1, cx2, cy2)
 
-  // Frame detection: edge significantly darker than center
-  // A frame border typically has edges 40+ brightness units darker than center
-  const DARKNESS_THRESHOLD = 35
-  const topFrame    = centerMean - topMean > DARKNESS_THRESHOLD
-  const bottomFrame = centerMean - bottomMean > DARKNESS_THRESHOLD
-  const leftFrame   = centerMean - leftMean > DARKNESS_THRESHOLD
-  const rightFrame  = centerMean - rightMean > DARKNESS_THRESHOLD
+  // Frame detection: edge significantly different from center (darker OR lighter).
+  // Dark borders on light content: centerMean - edgeMean > threshold
+  // Light borders on dark content: edgeMean - centerMean > threshold
+  // Both patterns indicate a frame/inset composition.
+  const FRAME_THRESHOLD = 30
+  const topFrame    = Math.abs(centerMean - topMean) > FRAME_THRESHOLD
+  const bottomFrame = Math.abs(centerMean - bottomMean) > FRAME_THRESHOLD
+  const leftFrame   = Math.abs(centerMean - leftMean) > FRAME_THRESHOLD
+  const rightFrame  = Math.abs(centerMean - rightMean) > FRAME_THRESHOLD
 
   const frameDetected = topFrame || bottomFrame || leftFrame || rightFrame
 
@@ -1040,7 +1042,7 @@ async function detectAndRemoveFrame(
 
   // Find inner content boundary by scanning inward from each framed edge
   // Look for the row/column where brightness jumps to near-center level
-  const TRANSITION_THRESHOLD = 20 // within this of center = content area
+  const TRANSITION_THRESHOLD = 25 // within this of center = content area
 
   let cropTop = 0
   let cropBottom = h

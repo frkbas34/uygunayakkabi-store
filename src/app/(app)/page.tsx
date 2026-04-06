@@ -117,12 +117,37 @@ export default async function Page() {
     // Use only eligible products for the homepage (soldout excluded)
     const productsForHomepage = eligibleProducts;
 
+    // ── Variant lookup (sizes + stock) ─────────────────────────────────
+    // The Products.variants hasMany relationship uses products_rels join table,
+    // which may be empty. Variants are reliably linked via their product_id FK.
+    // Batch-fetch all variants for homepage products to get real sizes + stock.
+    const productIds = productsForHomepage.map((p: any) => p.id);
+    let variantMap = new Map<number | string, any[]>();
+    if (productIds.length > 0) {
+      try {
+        const variantResult = await payload.find({
+          collection: 'variants',
+          where: { product: { in: productIds } },
+          depth: 0,
+          limit: 2000,
+        });
+        for (const v of variantResult.docs) {
+          const pid = typeof v.product === 'object' ? (v.product as any).id : v.product;
+          if (pid) {
+            if (!variantMap.has(pid)) variantMap.set(pid, []);
+            variantMap.get(pid)!.push(v);
+          }
+        }
+      } catch (e) {
+        // Non-critical — sizes will fall back to empty
+      }
+    }
+
     // ── Reverse media lookup ──────────────────────────────────────────
     // Some admins link images by setting "İlgili Ürün" on the Media record
     // instead of adding images via the Product's images array.
     // Fetch all media docs that have a product reference so we can use them
     // as fallback images when the product's own images array is empty.
-    const productIds = productsForHomepage.map((p: any) => p.id);
     let reverseMediaMap = new Map<number | string, any[]>();
     if (productIds.length > 0) {
       try {
@@ -157,10 +182,11 @@ export default async function Page() {
       const imgSrc = allUrls[0] || shoeImg;
       const img2 = allUrls[1] || shoeImg;
 
-      // Varyantlardan beden ve stok
-      const variants = Array.isArray(p.variants) ? p.variants : [];
+      // Varyantlardan beden ve stok — use variantMap (product_id FK) instead of
+      // p.variants (hasMany via products_rels, which may be empty)
+      const variants = variantMap.get(p.id) || [];
       const sizes = variants
-        .filter((v: any) => typeof v === 'object' && v?.size)
+        .filter((v: any) => v?.size)
         .map((v: any) => {
           // Extract number from size field — handles "42", "ADS-42", "42 numara" etc.
           const match = String(v.size).match(/(\d+)/);
@@ -170,7 +196,6 @@ export default async function Page() {
         .sort((a: number, b: number) => a - b);
 
       const totalStock = variants
-        .filter((v: any) => typeof v === 'object')
         .reduce((acc: number, v: any) => acc + (Number(v?.stock) || 0), 0);
 
       const badge =
@@ -188,8 +213,8 @@ export default async function Page() {
         // Only use real uploaded images; SVG placeholder only if zero real images exist
         images: allUrls.length > 0 ? allUrls : [shoeImg],
         dbImage: allUrls[0] || null,
-        sizes: sizes.length > 0 ? sizes : [38, 39, 40, 41, 42, 43],
-        stock: totalStock || 5,
+        sizes: sizes,
+        stock: totalStock,
         category: CATEGORY_LABELS[p.category] || p.category || 'Günlük',
         badge,
         slug: p.slug || String(p.id),

@@ -64,7 +64,16 @@ export default async function ProductPage({ params }: Props) {
     notFound()
   }
 
-  const variants = (product.variants as VariantDoc[]) ?? []
+  // Fetch variants via product_id FK — the Products.variants hasMany relationship
+  // uses products_rels join table which may be empty in production.
+  const variantResult = await payload.find({
+    collection: 'variants',
+    where: { product: { equals: product.id } },
+    depth: 0,
+    limit: 50,
+    sort: 'size',
+  })
+  const variants = variantResult.docs as VariantDoc[]
   const availableSizes = variants.filter((v) => v.stock > 0)
 
   const images = (product.images ?? [])

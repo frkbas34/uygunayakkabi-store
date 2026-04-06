@@ -213,6 +213,12 @@ export type SlotLog = {
   highlightPercent?: number
   /** v35: brightness normalization applied */
   brightnessNormalized?: boolean
+  /** v37: centering QC result for hero slots */
+  centeringPass?: boolean
+  centeringOffsetX?: number
+  centeringOffsetY?: number
+  /** v37: total generation cycles (includes centering retries) */
+  centeringAttempts?: number
   rejectionReason?: string
 }
 
@@ -1424,8 +1430,13 @@ async function centerProduct(
     return imageBuffer
   }
 
-  // Extract the shifted crop, then extend back to original dimensions
-  const cropped = await sharp(imageBuffer)
+  // ── v37 FIX: Split into two sharp instances ──
+  // Sharp bug: chaining .extract().extend().resize() in one pipeline causes
+  // resize to compute scale factors from post-extract (not post-extend) dims,
+  // producing wrong output size and UNDOING the centering correction.
+  // Fix: extract+extend in step 1 (correct dims guaranteed), then optional
+  // resize in step 2 only if needed (rounding edge case).
+  const shifted = await sharp(imageBuffer)
     .extract({ left: cropLeft, top: cropTop, width: cropW, height: cropH })
     .extend({
       top: cropTop > 0 ? 0 : Math.abs(offsetY),
@@ -1434,12 +1445,133 @@ async function centerProduct(
       right: cropLeft > 0 ? offsetX : 0,
       background: { r: fillColor.r, g: fillColor.g, b: fillColor.b, alpha: 255 },
     })
-    .resize(width, height, { fit: 'fill' }) // ensure exact original dimensions
     .jpeg({ quality: 92 })
     .toBuffer()
 
-  console.log(`[centerProduct v36] ✓ shifted by (${-offsetX},${-offsetY})px — ${cropped.length}b`)
-  return cropped
+  // Verify output dimensions match input; resize only if off (rounding edge case)
+  const shiftedMeta = await sharp(shifted).metadata()
+  let finalBuf = shifted
+  if (shiftedMeta.width !== width || shiftedMeta.height !== height) {
+    console.log(
+      `[centerProduct v37] dimension mismatch after shift: ` +
+      `${shiftedMeta.width}x${shiftedMeta.height} vs expected ${width}x${height} — resizing`,
+    )
+    finalBuf = await sharp(shifted)
+      .resize(width, height, { fit: 'fill' })
+      .jpeg({ quality: 92 })
+      .toBuffer()
+  }
+
+  console.log(`[centerProduct v37] ✓ shifted by (${-offsetX},${-offsetY})px — ${finalBuf.length}b`)
+  return finalBuf
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Step D6: Centering QC — Post-Processing Quality Gate (v37)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** Hero slots that require strict centering QC */
+const CENTERING_QC_SLOTS = new Set(['side_angle', 'commerce_front'])
+
+/** Maximum acceptable offset from center as % of image dimension */
+const MAX_CENTER_OFFSET_PCT = 12
+
+/**
+ * Measure how centered the product is in the final image.
+ * Returns pass/fail plus offset percentages on each axis.
+ *
+ * Uses edge-based background detection and bounding box envelope —
+ * same algorithm as centerProduct — to ensure consistent measurement.
+ */
+async function measureCentering(
+  imageBuffer: Buffer,
+  targetBgHex?: string,
+  slotName?: string,
+): Promise<{ pass: boolean; offsetXPct: number; offsetYPct: number; offsetXPx: number; offsetYPx: number }> {
+  // Skip non-hero slots — always pass
+  if (!slotName || !CENTERING_QC_SLOTS.has(slotName)) {
+    return { pass: true, offsetXPct: 0, offsetYPct: 0, offsetXPx: 0, offsetYPx: 0 }
+  }
+
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const sharp = require('sharp') as typeof import('sharp')
+
+  const metadata = await sharp(imageBuffer).metadata()
+  const width  = metadata.width  || 1024
+  const height = metadata.height || 1024
+
+  const { data: rawPixels, info } = await sharp(imageBuffer)
+    .removeAlpha()
+    .raw()
+    .toBuffer({ resolveWithObject: true })
+
+  const channels = info.channels
+
+  // Detect background from edges
+  const edgeDepth = Math.max(8, Math.round(Math.min(width, height) * 0.04))
+  let bgR = 0, bgG = 0, bgB = 0, bgCount = 0
+
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      const isEdge = y < edgeDepth || y >= height - edgeDepth ||
+                     x < edgeDepth || x >= width - edgeDepth
+      if (!isEdge) continue
+      const idx = (y * width + x) * channels
+      bgR += rawPixels[idx]
+      bgG += rawPixels[idx + 1]
+      bgB += rawPixels[idx + 2]
+      bgCount++
+    }
+  }
+
+  const detBg = {
+    r: Math.round(bgR / bgCount),
+    g: Math.round(bgG / bgCount),
+    b: Math.round(bgB / bgCount),
+  }
+
+  const bgRef = targetBgHex ? hexToRgb(targetBgHex) : detBg
+
+  // Find product bounding box
+  const PRODUCT_DIST_THRESHOLD = 50
+  let minX = width, maxX = 0, minY = height, maxY = 0
+
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      const idx = (y * width + x) * channels
+      const dr = rawPixels[idx] - bgRef.r
+      const dg = rawPixels[idx + 1] - bgRef.g
+      const db = rawPixels[idx + 2] - bgRef.b
+      if (Math.sqrt(dr * dr + dg * dg + db * db) > PRODUCT_DIST_THRESHOLD) {
+        if (x < minX) minX = x
+        if (x > maxX) maxX = x
+        if (y < minY) minY = y
+        if (y > maxY) maxY = y
+      }
+    }
+  }
+
+  if (maxX <= minX || maxY <= minY) {
+    // No product detected — pass by default (edge case)
+    return { pass: true, offsetXPct: 0, offsetYPct: 0, offsetXPx: 0, offsetYPx: 0 }
+  }
+
+  const productCenterX = (minX + maxX) / 2
+  const productCenterY = (minY + maxY) / 2
+  const offsetX = Math.round(productCenterX - width / 2)
+  const offsetY = Math.round(productCenterY - height / 2)
+  const offsetXPct = Math.abs((offsetX / width) * 100)
+  const offsetYPct = Math.abs((offsetY / height) * 100)
+  const pass = offsetXPct <= MAX_CENTER_OFFSET_PCT && offsetYPct <= MAX_CENTER_OFFSET_PCT
+
+  console.log(
+    `[measureCentering v37] slot=${slotName} ` +
+    `offset=(${offsetX},${offsetY}) = (${offsetXPct.toFixed(1)}%,${offsetYPct.toFixed(1)}%) ` +
+    `threshold=${MAX_CENTER_OFFSET_PCT}% ` +
+    `${pass ? 'PASS' : 'FAIL'}`,
+  )
+
+  return { pass, offsetXPct: Math.round(offsetXPct * 10) / 10, offsetYPct: Math.round(offsetYPct * 10) / 10, offsetXPx: offsetX, offsetYPx: offsetY }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -2361,12 +2493,28 @@ export async function generateByGeminiPro(
 
       let finalBuf: Buffer | null = null
 
+      // ── v37: Centering retry loop for hero slots ──
+      // Hero slots (side_angle, commerce_front) must pass centering QC after
+      // all post-processing. If the final image is still off-center beyond
+      // MAX_CENTER_OFFSET_PCT, the entire slot is regenerated (up to 3 cycles).
+      const isHeroSlot = CENTERING_QC_SLOTS.has(scene.name)
+      const MAX_CENTERING_CYCLES = isHeroSlot ? 3 : 1
+      let centerCycle = 0
+
+      for (centerCycle = 1; centerCycle <= MAX_CENTERING_CYCLES; centerCycle++) {
+        finalBuf = null
+
+        if (centerCycle > 1) {
+          console.log(`[generateByGeminiPro v37] ${scene.name} centering cycle ${centerCycle}/${MAX_CENTERING_CYCLES} — regenerating`)
+          await sleep(2000) // rate limit between full regeneration cycles
+        }
+
       // ── Per-slot try/catch: one slot failure must not abort remaining slots ──
       // callGeminiImageGenerate now throws on API error — catch per slot so the
       // error message is captured in slotLog.rejectionReason and surfaced to Telegram.
       try {
         // ── Attempt 1 ──────────────────────────────────────────────────────────
-        slotLog.attempts = 1
+        slotLog.attempts = (centerCycle - 1) * 2 + 1 // track total API calls across cycles
         let rawBuf = await callGeminiImageGenerate(pngBuffer, fullPrompt, geminiKey, additionalImages)
 
         const jpegBuf = await sharp(rawBuf).jpeg({ quality: 92 }).toBuffer()
@@ -2434,7 +2582,7 @@ export async function generateByGeminiPro(
             `shot=${shotCheck.pass} bg=${bgCheck.pass} ` +
             `(bgDetected="${bgCheck.detectedBackground.slice(0, 60)}") — retrying`,
           )
-          slotLog.attempts = 2
+          slotLog.attempts = (centerCycle - 1) * 2 + 2
           await sleep(2000)
 
           rawBuf = await callGeminiImageGenerate(pngBuffer, reinforcedPrompt, geminiKey, additionalImages)
@@ -2519,9 +2667,6 @@ export async function generateByGeminiPro(
       }
 
       // ── v29: UNCONDITIONAL background enforcement on every successful slot ──
-      // Previously this only ran after retry+fail. Now it runs on ALL slots
-      // to guarantee deterministic batch background regardless of what Gemini produced.
-      // This is the safety net that eliminates background mismatch across the batch.
       if (finalBuf) {
         const bgHex = parseBackgroundHex(premiumBackground)
         if (bgHex) {
@@ -2536,9 +2681,6 @@ export async function generateByGeminiPro(
       }
 
       // ── v33: UNCONDITIONAL frame detection & auto-crop on every successful slot ──
-      // Gemini frequently generates detail_closeup (and sometimes other slots) with
-      // a visible rectangular border/frame. This detector finds dark edge bands and
-      // crops them out, then scales back to original dimensions.
       if (finalBuf) {
         try {
           const frameResult = await detectAndRemoveFrame(finalBuf, scene.name)
@@ -2553,33 +2695,77 @@ export async function generateByGeminiPro(
       }
 
       // ── v35: UNCONDITIONAL brightness normalization on every successful slot ──
-      // Runs AFTER bg enforcement and frame removal. Measures PRODUCT pixel
-      // luminance (excluding background) and applies selective gamma correction
-      // if the product is too bright (washed out) or too dark (underexposed).
-      // Background pixels are preserved to maintain the enforced background color.
       if (finalBuf) {
         try {
           const bgHexForNorm = parseBackgroundHex(premiumBackground) || undefined
           finalBuf = await normalizeBrightness(finalBuf, bgHexForNorm)
           ;(slotLog as Record<string, unknown>).brightnessNormalized = true
         } catch (normErr) {
-          console.warn(`[generateByGeminiPro v36] brightness normalization failed for ${scene.name}:`, normErr instanceof Error ? normErr.message : normErr)
+          console.warn(`[generateByGeminiPro v37] brightness normalization failed for ${scene.name}:`, normErr instanceof Error ? normErr.message : normErr)
         }
       }
 
       // ── v36: UNCONDITIONAL product centering on every successful slot ──
-      // Gemini consistently places shoes in the lower-right quadrant.
-      // This detects the product bounding box, measures offset from image center,
-      // and shifts the composition to center the product. Skips detail_closeup.
       if (finalBuf) {
         try {
           const bgHexForCenter = parseBackgroundHex(premiumBackground) || undefined
           finalBuf = await centerProduct(finalBuf, bgHexForCenter, scene.name)
           ;(slotLog as Record<string, unknown>).centered = true
         } catch (centerErr) {
-          console.warn(`[generateByGeminiPro v36] centering failed for ${scene.name}:`, centerErr instanceof Error ? centerErr.message : centerErr)
+          console.warn(`[generateByGeminiPro v37] centering failed for ${scene.name}:`, centerErr instanceof Error ? centerErr.message : centerErr)
         }
       }
+
+      // ── v37: CENTERING QC — hard gate for hero slots ──
+      // After ALL post-processing, measure final centering. If product is still
+      // off-center beyond MAX_CENTER_OFFSET_PCT, reject and regenerate.
+      if (isHeroSlot && finalBuf) {
+        try {
+          const bgHexForQC = parseBackgroundHex(premiumBackground) || undefined
+          const centerQC = await measureCentering(finalBuf, bgHexForQC, scene.name)
+          slotLog.centeringPass = centerQC.pass
+          slotLog.centeringOffsetX = centerQC.offsetXPct
+          slotLog.centeringOffsetY = centerQC.offsetYPct
+
+          if (centerQC.pass) {
+            console.log(
+              `[generateByGeminiPro v37] ✓ ${scene.name} centering QC passed ` +
+              `(X=${centerQC.offsetXPct}% Y=${centerQC.offsetYPct}%) on cycle ${centerCycle}`,
+            )
+            break // ← exit centering retry loop — slot is good
+          }
+
+          // Failed centering QC
+          if (centerCycle < MAX_CENTERING_CYCLES) {
+            console.warn(
+              `[generateByGeminiPro v37] ✗ ${scene.name} centering QC FAILED ` +
+              `(X=${centerQC.offsetXPct}% Y=${centerQC.offsetYPct}% > ${MAX_CENTER_OFFSET_PCT}%) ` +
+              `cycle ${centerCycle}/${MAX_CENTERING_CYCLES} — will regenerate`,
+            )
+            continue // ← retry the entire generation cycle
+          }
+
+          // Max cycles reached — accept with warning
+          console.warn(
+            `[generateByGeminiPro v37] ⚠ ${scene.name} centering QC FAILED after ` +
+            `${MAX_CENTERING_CYCLES} cycles (X=${centerQC.offsetXPct}% Y=${centerQC.offsetYPct}%) ` +
+            `— accepting best attempt`,
+          )
+          const centerWarning = `centering: X=${centerQC.offsetXPct}% Y=${centerQC.offsetYPct}% (>${MAX_CENTER_OFFSET_PCT}%)`
+          slotLog.rejectionReason = slotLog.rejectionReason
+            ? slotLog.rejectionReason + '; ' + centerWarning
+            : centerWarning
+        } catch (qcErr) {
+          console.warn(`[generateByGeminiPro v37] centering QC error for ${scene.name}:`, qcErr instanceof Error ? qcErr.message : qcErr)
+          // QC error — don't block the slot, accept as-is
+          break
+        }
+      }
+
+      break // ← non-hero slot or centering QC error — exit loop after first cycle
+      } // end centering retry loop
+
+      slotLog.centeringAttempts = centerCycle
 
       if (finalBuf) {
         result.buffers.push(finalBuf)
@@ -2587,18 +2773,21 @@ export async function generateByGeminiPro(
         slotLog.success = true
         slotLog.outputSizeBytes = finalBuf.length
         console.log(
-          `[generateByGeminiPro v36] ✓ ${scene.name} — ${finalBuf.length}b ` +
-          `(attempts=${slotLog.attempts} color=${slotLog.colorCheckPass ?? 'skip'} ` +
+          `[generateByGeminiPro v37] ✓ ${scene.name} — ${finalBuf.length}b ` +
+          `(attempts=${slotLog.attempts} centerCycles=${centerCycle} ` +
+          `color=${slotLog.colorCheckPass ?? 'skip'} ` +
           `brand=${slotLog.brandFidelityPass ?? 'skip'} shot=${slotLog.shotCompliancePass ?? 'skip'} ` +
           `bg=${slotLog.bgCheckPass ?? 'skip'} bgEnforced=${(slotLog as Record<string, unknown>).bgEnforced ?? false} ` +
           `brightNorm=${(slotLog as Record<string, unknown>).brightnessNormalized ?? false} ` +
-          `centered=${(slotLog as Record<string, unknown>).centered ?? false})`,
+          `centered=${(slotLog as Record<string, unknown>).centered ?? false} ` +
+          `centerQC=${slotLog.centeringPass ?? 'skip'} ` +
+          `centerOffset=(${slotLog.centeringOffsetX ?? '?'}%,${slotLog.centeringOffsetY ?? '?'}%))`,
         )
       } else {
-        const msg = `${scene.name}: null after ${slotLog.attempts} attempts`
+        const msg = `${scene.name}: null after ${slotLog.attempts} attempts (${centerCycle} cycles)`
         result.errors.push(msg)
         slotLog.rejectionReason = slotLog.rejectionReason || msg
-        console.warn(`[generateByGeminiPro v20] ✗ ${msg}`)
+        console.warn(`[generateByGeminiPro v37] ✗ ${msg}`)
       }
 
       slotLogs.push(slotLog)

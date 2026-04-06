@@ -2645,3 +2645,40 @@ Phase 20 blockers fully diagnosed and resolved. Original D-118 assessment was pa
 - Media URL used: `https://uygunayakkabi.com/api/media/file/tg-180-1775323061276.jpg`
 
 **Status:** PROD-VALIDATED — both channels publish successfully through automated pipeline
+
+---
+
+## D-119 — Image Pipeline v34: Side-Angle Primary + Product-Level Background Lock
+
+**Decision:**
+Side-angle (90° lateral profile) is the primary/hero image for all products across website, external channels, and Telegram previews. Product-level background lock ensures all generated images share one visual background family.
+
+**Changes:**
+1. EDITING_SCENES reordered: side_angle → index 0, commerce_front → index 1
+2. Website product page + homepage: generativeGallery shown before product.images
+3. Channel dispatch: extractMediaUrls() prefers generativeGallery[0] as hero
+4. enforceSlotBackground v34: dual-mode (corner sampling for macro, edge strips for full-shoe)
+5. Batch background consistency check: post-generation corner drift measurement + re-enforcement
+6. Strengthened prompts with "same studio backdrop" framing
+
+**Root Cause of Slot 3 Drift:**
+enforceSlotBackground used edge-strip sampling (outer 5%) which was contaminated by product pixels in macro/closeup shots where shoe fills 85%+ of frame. Corner-only sampling fixes this.
+
+**Status:** DEPLOYED — awaiting live visual verification
+
+---
+
+## D-120 — DB Hotfix: Missing PostgreSQL Enum Types for hasMany Select Fields
+
+**Decision:**
+Created 3 missing PostgreSQL enum types and altered join table columns from varchar to enum. This is push:true drift incident #4.
+
+**Tables Fixed:**
+- `products_story_settings_story_targets` → `enum_products_story_settings_story_targets` ('telegram','instagram','whatsapp')
+- `products_channel_targets` → `enum_products_channel_targets` ('website','instagram','shopier','dolap','x','facebook','linkedin','threads')
+- `story_jobs_targets` → `enum_story_jobs_targets` ('telegram','instagram','whatsapp')
+
+**Root Cause:**
+Payload CMS v3's Drizzle adapter generates INSERT statements that cast to enum types. When tables were created by push:true (which may have run in an earlier version or dev mode), they used varchar instead of enum. Production inserts failed when Payload tried to cast to non-existent enum types.
+
+**Status:** APPLIED — product #194 created successfully after fix

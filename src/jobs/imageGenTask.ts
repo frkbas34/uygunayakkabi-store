@@ -1243,24 +1243,35 @@ async function overlayStockNumber(
     `</svg>`,
   )
 
-  // Layer 2: Render text via sharp's built-in Pango text engine (no system fonts needed)
-  // Pango is compiled into libvips which sharp bundles — works on Vercel serverless.
+  // Layer 2: Render text via sharp's Pango text engine — NO MARKUP.
+  // v30 FIX: Pango XML markup (<span foreground="white">) produces broken
+  // tofu/box characters on Vercel serverless. Instead: render plain black text
+  // then negate to white. This uses only plain-text Pango (no XML parsing),
+  // which is reliable across all environments.
   let textImage: Buffer
   try {
-    textImage = await sharp({
+    // Step 2a: Render plain black text (no markup — most reliable)
+    const blackText = await sharp({
       text: {
-        text: `<span foreground="white" font_weight="bold">${stockNumber}</span>`,
+        text: stockNumber,
         rgba: true,
         dpi: Math.round(fontSize * 7.2), // scale DPI to approximate desired font size
-        font: 'sans-serif',
+        font: 'monospace',
       },
     })
       .ensureAlpha()
       .png()
       .toBuffer()
-  } catch {
-    // Fallback: if Pango text fails, use SVG text (original approach)
-    console.warn('[overlayStockNumber v29] Pango text failed — falling back to SVG text')
+
+    // Step 2b: Negate black→white (keep alpha untouched)
+    textImage = await sharp(blackText)
+      .negate({ alpha: false })
+      .ensureAlpha()
+      .png()
+      .toBuffer()
+  } catch (pangoErr) {
+    // Fallback: if Pango text fails entirely, use SVG text
+    console.warn('[overlayStockNumber v30] Pango text failed — falling back to SVG text:', pangoErr instanceof Error ? pangoErr.message : pangoErr)
     const fallbackSvg = Buffer.from(
       `<svg width="${boxWidth}" height="${boxHeight}" xmlns="http://www.w3.org/2000/svg">` +
       `<text x="${Math.round(boxWidth / 2)}" y="${Math.round(boxHeight / 2)}" dy="0.35em" ` +
@@ -1286,7 +1297,7 @@ async function overlayStockNumber(
   const textTop  = pillTop + Math.round((boxHeight - (resizedMeta.height || maxTextH)) / 2)
 
   console.log(
-    `[overlayStockNumber v29] stockNumber="${stockNumber}" fontSize=${fontSize} ` +
+    `[overlayStockNumber v30] stockNumber="${stockNumber}" fontSize=${fontSize} ` +
     `pill=${boxWidth}x${boxHeight} at (${pillLeft},${pillTop}) text at (${textLeft},${textTop}) ` +
     `textSize=${resizedMeta.width}x${resizedMeta.height} pangoTextSize=${textMeta?.width}x${textMeta?.height}`,
   )

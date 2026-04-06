@@ -958,6 +958,158 @@ async function checkBrightnessExposure(
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Frame / Inset Detection & Auto-Crop — Deterministic Post-Processing (v33)
+// ─────────────────────────────────────────────────────────────────────────────
+// Gemini frequently generates detail_closeup (and sometimes other slots) with
+// a visible rectangular border/frame — a darker edge forming a "photo on canvas"
+// look. This detector scans the edge bands for a consistent dark border and
+// crops it out, then scales back to original dimensions.
+//
+// Strategy:
+//   1. Sample 4 edge bands (top/bottom/left/right, 3% width)
+//   2. Compute mean brightness of each edge band vs center region
+//   3. If any edge band is significantly darker than center → frame detected
+//   4. Find the inner content boundary by scanning inward from each edge
+//   5. Crop to inner content and resize back to original dimensions
+
+async function detectAndRemoveFrame(
+  imageBuffer: Buffer,
+  slotName: string,
+): Promise<{ buffer: Buffer; frameDetected: boolean }> {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const sharp = require('sharp') as typeof import('sharp')
+
+  const metadata = await sharp(imageBuffer).metadata()
+  const w = metadata.width || 1024
+  const h = metadata.height || 1024
+
+  // Get greyscale raw pixels for analysis
+  const { data } = await sharp(imageBuffer)
+    .greyscale()
+    .raw()
+    .toBuffer({ resolveWithObject: true })
+
+  // Helper: mean brightness of a rectangular region
+  function regionMean(x1: number, y1: number, x2: number, y2: number): number {
+    let sum = 0
+    let count = 0
+    for (let y = y1; y < y2; y++) {
+      for (let x = x1; x < x2; x++) {
+        sum += data[y * w + x]
+        count++
+      }
+    }
+    return count > 0 ? sum / count : 128
+  }
+
+  // Edge band width: 3% of image dimension (≈30px on 1024)
+  const bandW = Math.max(8, Math.round(w * 0.03))
+  const bandH = Math.max(8, Math.round(h * 0.03))
+
+  // Sample edge bands
+  const topMean    = regionMean(bandW, 0, w - bandW, bandH)
+  const bottomMean = regionMean(bandW, h - bandH, w - bandW, h)
+  const leftMean   = regionMean(0, bandH, bandW, h - bandH)
+  const rightMean  = regionMean(w - bandW, bandH, w, h - bandH)
+
+  // Center region mean (middle 50%)
+  const cx1 = Math.round(w * 0.25)
+  const cy1 = Math.round(h * 0.25)
+  const cx2 = Math.round(w * 0.75)
+  const cy2 = Math.round(h * 0.75)
+  const centerMean = regionMean(cx1, cy1, cx2, cy2)
+
+  // Frame detection: edge significantly darker than center
+  // A frame border typically has edges 40+ brightness units darker than center
+  const DARKNESS_THRESHOLD = 35
+  const topFrame    = centerMean - topMean > DARKNESS_THRESHOLD
+  const bottomFrame = centerMean - bottomMean > DARKNESS_THRESHOLD
+  const leftFrame   = centerMean - leftMean > DARKNESS_THRESHOLD
+  const rightFrame  = centerMean - rightMean > DARKNESS_THRESHOLD
+
+  const frameDetected = topFrame || bottomFrame || leftFrame || rightFrame
+
+  console.log(
+    `[detectFrame v33] slot=${slotName} edges=[T:${Math.round(topMean)} B:${Math.round(bottomMean)} L:${Math.round(leftMean)} R:${Math.round(rightMean)}] ` +
+    `center=${Math.round(centerMean)} frame=[T:${topFrame} B:${bottomFrame} L:${leftFrame} R:${rightFrame}] detected=${frameDetected}`,
+  )
+
+  if (!frameDetected) {
+    return { buffer: imageBuffer, frameDetected: false }
+  }
+
+  // Find inner content boundary by scanning inward from each framed edge
+  // Look for the row/column where brightness jumps to near-center level
+  const TRANSITION_THRESHOLD = 20 // within this of center = content area
+
+  let cropTop = 0
+  let cropBottom = h
+  let cropLeft = 0
+  let cropRight = w
+
+  if (topFrame) {
+    for (let y = 0; y < Math.round(h * 0.15); y++) {
+      const rowMean = regionMean(Math.round(w * 0.3), y, Math.round(w * 0.7), y + 1)
+      if (Math.abs(rowMean - centerMean) < TRANSITION_THRESHOLD) {
+        cropTop = Math.max(0, y - 2)
+        break
+      }
+    }
+  }
+  if (bottomFrame) {
+    for (let y = h - 1; y > Math.round(h * 0.85); y--) {
+      const rowMean = regionMean(Math.round(w * 0.3), y, Math.round(w * 0.7), y + 1)
+      if (Math.abs(rowMean - centerMean) < TRANSITION_THRESHOLD) {
+        cropBottom = Math.min(h, y + 3)
+        break
+      }
+    }
+  }
+  if (leftFrame) {
+    for (let x = 0; x < Math.round(w * 0.15); x++) {
+      const colMean = regionMean(x, Math.round(h * 0.3), x + 1, Math.round(h * 0.7))
+      if (Math.abs(colMean - centerMean) < TRANSITION_THRESHOLD) {
+        cropLeft = Math.max(0, x - 2)
+        break
+      }
+    }
+  }
+  if (rightFrame) {
+    for (let x = w - 1; x > Math.round(w * 0.85); x--) {
+      const colMean = regionMean(x, Math.round(h * 0.3), x + 1, Math.round(h * 0.7))
+      if (Math.abs(colMean - centerMean) < TRANSITION_THRESHOLD) {
+        cropRight = Math.min(w, x + 3)
+        break
+      }
+    }
+  }
+
+  const innerW = cropRight - cropLeft
+  const innerH = cropBottom - cropTop
+
+  // Safety: don't crop if the detected inner region is too small (< 70% of original)
+  if (innerW < w * 0.7 || innerH < h * 0.7) {
+    console.warn(
+      `[detectFrame v33] crop too aggressive (${innerW}x${innerH} from ${w}x${h}) — skipping`,
+    )
+    return { buffer: imageBuffer, frameDetected: true }
+  }
+
+  console.log(
+    `[detectFrame v33] cropping ${slotName}: (${cropLeft},${cropTop})→(${cropRight},${cropBottom}) = ${innerW}x${innerH} → resize to ${w}x${h}`,
+  )
+
+  // Crop inner content and resize back to original dimensions
+  const cropped = await sharp(imageBuffer)
+    .extract({ left: cropLeft, top: cropTop, width: innerW, height: innerH })
+    .resize(w, h, { fit: 'fill' })
+    .jpeg({ quality: 92 })
+    .toBuffer()
+
+  return { buffer: cropped, frameDetected: true }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Brightness Enforcement — Deterministic Post-Processing (v33)
 // ─────────────────────────────────────────────────────────────────────────────
 // When brightness QC fails after retry, instead of accepting an overexposed
@@ -2021,6 +2173,23 @@ export async function generateByGeminiPro(
           } catch (enforceErr) {
             console.warn(`[generateByGeminiPro v29] bg enforcement failed for ${scene.name}:`, enforceErr instanceof Error ? enforceErr.message : enforceErr)
           }
+        }
+      }
+
+      // ── v33: UNCONDITIONAL frame detection & auto-crop on every successful slot ──
+      // Gemini frequently generates detail_closeup (and sometimes other slots) with
+      // a visible rectangular border/frame. This detector finds dark edge bands and
+      // crops them out, then scales back to original dimensions.
+      if (finalBuf) {
+        try {
+          const frameResult = await detectAndRemoveFrame(finalBuf, scene.name)
+          if (frameResult.frameDetected) {
+            finalBuf = frameResult.buffer
+            ;(slotLog as Record<string, unknown>).frameCropped = true
+            console.log(`[generateByGeminiPro v33] ✓ ${scene.name} frame detected and cropped`)
+          }
+        } catch (frameErr) {
+          console.warn(`[generateByGeminiPro v33] frame detection failed for ${scene.name}:`, frameErr instanceof Error ? frameErr.message : frameErr)
         }
       }
 

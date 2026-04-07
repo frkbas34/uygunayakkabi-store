@@ -3039,3 +3039,84 @@ Do NOT modify ANY of the above without explicit operator approval in a future ta
 **Status:**  
 ACTIVE — PRODUCTION BASELINE LOCKED at commit e99e9cb (v50)
 
+
+---
+
+## D-130 — Content Architecture Audit + Production Plan
+**Decision:**  
+Audit the Geobot content system and define the production content architecture.
+
+**Current Reality (VERIFIED):**
+
+The content GENERATION layer is fully implemented:
+- `geobotRuntime.ts` (364 lines) — Real Gemini 2.5 Flash AI generation
+- `contentPack.ts` (860 lines) — Full lifecycle: trigger, write, blog creation, audit handoff
+- Product schema has complete content fields: commercePack (5 channels) + discoveryPack (SEO/GEO)
+- BlogPosts collection (186 lines) with SEO fields, auto-creation from discoveryPack
+- Telegram `/content` command: show, trigger, retry
+- Auto-trigger after product confirmation
+- BotEvent tracking for full content pipeline
+- Mentix audit auto-trigger after content ready
+
+The content CONSUMPTION layer is NOT wired:
+- Storefront product page uses `product.description` (basic field), NOT `commercePack.websiteDescription`
+- Channel dispatch (Instagram) builds caption from `product.description`, NOT `commercePack.instagramCaption`
+- Shopier dispatch does NOT use `commercePack.shopierCopy`
+- No `/blog` or `/blog/[slug]` frontend routes exist — BlogPosts collection has data but no public pages
+- No SEO meta tags from `discoveryPack.metaTitle` / `metaDescription` in page `<head>`
+- No FAQ rendering on product pages from `discoveryPack.faq`
+- No structured data (JSON-LD) generated from content packs
+
+**Content Types That Exist (IMPLEMENTED):**
+
+| Type | Field | Status |
+|------|-------|--------|
+| Website product description | commercePack.websiteDescription | Generated, NOT rendered |
+| Instagram caption | commercePack.instagramCaption | Generated, NOT used in dispatch |
+| X/Twitter post | commercePack.xPost | Generated, NOT used |
+| Facebook copy | commercePack.facebookCopy | Generated, NOT used |
+| Shopier description | commercePack.shopierCopy | Generated, NOT used in dispatch |
+| Product highlights | commercePack.highlights | Generated, NOT rendered |
+| SEO article | discoveryPack.articleBody | Generated, stored in BlogPost (draft) |
+| SEO meta title | discoveryPack.metaTitle | Generated, NOT in page head |
+| SEO meta description | discoveryPack.metaDescription | Generated, NOT in page head |
+| FAQ | discoveryPack.faq | Generated, NOT rendered |
+| Keywords/entities | discoveryPack.keywordEntities | Generated, NOT used |
+| Internal link targets | discoveryPack.internalLinkTargets | Generated, NOT used |
+| BlogPost | BlogPosts collection | Auto-created as draft, no public pages |
+
+**What Is MISSING (consumption/wiring):**
+
+1. Storefront must render `commercePack.websiteDescription` instead of basic `description`
+2. Product page needs `discoveryPack.metaTitle` + `metaDescription` in `<head>`
+3. Product page should render `commercePack.highlights` as feature list
+4. Product page should render `discoveryPack.faq` as expandable FAQ section
+5. `/blog` listing page + `/blog/[slug]` detail page for BlogPosts
+6. Blog pages need proper SEO meta from BlogPost.seo fields
+7. Channel dispatch must use AI-generated captions (instagramCaption, facebookCopy, etc.)
+8. Structured data (JSON-LD Product + FAQ) from content pack fields
+9. Sitemap inclusion for blog posts
+
+**Proposed Production Content Architecture:**
+
+Phase A — Wire existing content to storefront:
+- Product page: websiteDescription, highlights, FAQ, SEO meta
+- JSON-LD structured data
+
+Phase B — Blog frontend:
+- `/blog` listing page
+- `/blog/[slug]` detail page
+- Blog SEO meta + sitemap entry
+
+Phase C — Channel dispatch wiring:
+- Instagram: use instagramCaption from commercePack
+- Shopier: use shopierCopy from commercePack
+- X/Facebook: use xPost/facebookCopy when channels go live
+
+Phase D — Content quality loop:
+- Operator review/edit flow for AI-generated content
+- Content regeneration on product update
+
+**Status:**  
+ACTIVE — Architecture defined, implementation phases planned
+

@@ -420,3 +420,42 @@ Any modification to `src/lib/imageProviders.ts` or `src/jobs/imageGenTask.ts` th
 - New features unrelated to image generation
 - Bug fixes that don't alter visual output
 
+
+---
+
+## CONTENT ARCHITECTURE — Implementation Phases (2026-04-07)
+
+**Status:** PLANNED — Awaiting operator approval to begin
+
+### Phase A — Wire Content to Storefront (HIGHEST PRIORITY)
+- [ ] Product page: render `commercePack.websiteDescription` (fallback to `description` if empty)
+- [ ] Product page: render `commercePack.highlights` as feature bullet list
+- [ ] Product page: render `discoveryPack.faq` as expandable FAQ accordion
+- [ ] Product page `<head>`: use `discoveryPack.metaTitle` + `metaDescription` for SEO meta
+- [ ] Product page: add JSON-LD Product structured data
+- [ ] Product page: add JSON-LD FAQPage structured data (if FAQ exists)
+
+### Phase B — Blog Frontend
+- [ ] Create `/blog` listing page (published BlogPosts, paginated)
+- [ ] Create `/blog/[slug]` detail page (article body, featured image, SEO fields)
+- [ ] Blog detail page: proper `<head>` meta from BlogPost.seo fields
+- [ ] Blog listing: category filter (general, product, style, announcement, seo)
+- [ ] Add blog posts to sitemap.xml
+
+### Phase C — Channel Dispatch Wiring
+- [ ] Instagram dispatch: use `commercePack.instagramCaption` instead of building from `description`
+- [ ] Shopier dispatch: use `commercePack.shopierCopy` for product description
+- [ ] X dispatch: use `commercePack.xPost` when X channel goes live
+- [ ] Facebook dispatch: use `commercePack.facebookCopy` when Facebook channel goes live
+
+### Phase D — Content Quality (DEFERRED)
+- [ ] Operator content review UI in admin (preview all 5 channel copies)
+- [ ] Content regeneration on product field update
+- [ ] Analytics feedback loop (click-through, engagement)
+
+### Dependencies
+- Phase A has NO blockers — can start immediately
+- Phase B has NO blockers — can run parallel with Phase A
+- Phase C depends on channel integrations being live
+- Phase D is future enhancement
+

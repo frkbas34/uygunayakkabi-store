@@ -576,3 +576,60 @@ KEY IMPROVEMENTS in v8 vs v7:
 ### Commit Reference
 Locked at commit e99e9cb (v50) on main branch.
 
+
+---
+
+## Content Architecture — Audit Complete (2026-04-07)
+
+**Status:** ARCHITECTURE DEFINED — Awaiting operator approval for implementation phases
+
+### What EXISTS (VERIFIED IMPLEMENTED)
+- **geobotRuntime.ts**: Real Gemini 2.5 Flash content generation (commerce + discovery packs)
+- **contentPack.ts**: Full lifecycle — trigger, write to product, blog creation, audit handoff
+- **Product schema**: commercePack (5 channel copies) + discoveryPack (SEO article, FAQ, meta, keywords)
+- **BlogPosts collection**: Auto-created from discoveryPack as draft
+- **Telegram `/content` command**: show, trigger, retry
+- **Auto-trigger**: Fires after product confirmation
+- **BotEvent tracking**: content.requested → commerce_generated → discovery_generated → ready
+- **Mentix audit**: Auto-triggered when content reaches 'ready'
+
+### What Is NOT WIRED (gap)
+- Storefront uses `product.description`, NOT `commercePack.websiteDescription`
+- Channel dispatch uses `product.description`, NOT AI-generated captions
+- No blog frontend pages (`/blog`, `/blog/[slug]`)
+- No SEO meta tags from discoveryPack in page `<head>`
+- No FAQ rendering on product pages
+- No JSON-LD structured data
+- No sitemap for blog posts
+
+### Content Outputs Per Approved Product
+| # | Output | Source | Consumer | Status |
+|---|--------|--------|----------|--------|
+| 1 | Website description | commercePack.websiteDescription | Product page | NOT WIRED |
+| 2 | Product highlights | commercePack.highlights | Product page | NOT WIRED |
+| 3 | Instagram caption | commercePack.instagramCaption | channelDispatch | NOT WIRED |
+| 4 | Facebook copy | commercePack.facebookCopy | channelDispatch | NOT WIRED |
+| 5 | X/Twitter post | commercePack.xPost | channelDispatch | NOT WIRED |
+| 6 | Shopier description | commercePack.shopierCopy | channelDispatch | NOT WIRED |
+| 7 | SEO meta title | discoveryPack.metaTitle | Product page head | NOT WIRED |
+| 8 | SEO meta description | discoveryPack.metaDescription | Product page head | NOT WIRED |
+| 9 | SEO article / blog post | discoveryPack.articleBody → BlogPost | Blog pages | NO FRONTEND |
+| 10 | FAQ | discoveryPack.faq | Product page | NOT WIRED |
+| 11 | Keywords | discoveryPack.keywordEntities | Structured data | NOT WIRED |
+| 12 | JSON-LD Product schema | All content fields | Product page | NOT IMPLEMENTED |
+| 13 | JSON-LD FAQ schema | discoveryPack.faq | Product page | NOT IMPLEMENTED |
+
+### Geobot Ownership
+Geobot owns ALL AI content generation:
+- Commerce pack (5 channel-specific copies + highlights)
+- Discovery pack (SEO article, meta, FAQ, keywords, internal links)
+- BlogPost auto-creation (draft status, operator reviews)
+- Content status tracking and BotEvent emission
+- Content retry on partial/failed states
+
+Geobot does NOT own:
+- Content rendering on storefront (frontend responsibility)
+- Content dispatch to channels (channelDispatch responsibility)
+- Content approval/editing (operator responsibility via admin panel)
+- Blog publishing (operator sets status from draft → published)
+

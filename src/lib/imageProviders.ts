@@ -91,9 +91,10 @@ const TASK_FRAMING_BLOCK =
   `\n` +
   `QUALITY STANDARD:\n` +
   `• Premium e-commerce photography — think Zara / Nike / luxury catalog quality.\n` +
-  `• Ultra clean, high clarity, high sharpness, no noise, no clutter.\n` +
-  `• Soft studio lighting, natural soft shadow under the shoe.\n` +
-  `• No harsh reflections, no dramatic lighting — realistic commercial look.\n` +
+  `• Clean, natural clarity — NOT artificially sharp or hyper-crisp. The image should look like a real camera photo, not AI-generated.\n` +
+  `• Soft, warm, NATURAL light — like warm diffused daylight from a large window or softbox. NOT harsh studio flash.\n` +
+  `• Gentle, natural shadows under the shoe. Warm color temperature throughout.\n` +
+  `• No harsh reflections, no dramatic lighting, no razor-sharp highlight edges.\n` +
   `• VISUAL TONE: Rich, warm, DARK. NOT bright. NOT airy. NOT high-key. NOT washed out.\n` +
   `• The background is a CLEARLY VISIBLE COLOR — medium grey or warm sand, NOT white or near-white.\n` +
   `• The overall mood must feel grounded, weighty, and premium — like a luxury leather goods catalog printed on matte paper.\n` +
@@ -764,10 +765,10 @@ async function checkShotCompliance(
       correction: 'Camera must be at exactly 90° to the side. The toe FRONT FACE must NOT be visible. The sole profile must be fully exposed from toe to heel.',
     },
     close_shot_hero: {
-      required: '3/4 front close hero — camera low at 30-45° from the front-side, full shoe visible at tighter framing, vamp and toe detail prominent',
-      passRule: 'the shoe is seen from a front-side 3/4 angle showing the vamp, toe shape, and lacing/closure area as the dominant features, the full shoe is visible (toe to heel), framing is tighter than side_angle but the entire shoe is still in frame',
-      failSignals: 'pure front dead-on (no side angle visible), pure side profile (no front face visible), heel counter dominant (back view), top-down overhead, macro close-up of a detail only, partial shoe cropped out, framed/inset look',
-      correction: 'Camera must be at 30-45° from the front-side at low-mid height. The vamp and toe area must be the hero. Full shoe must be visible — not a macro crop. Not a back view.',
+      required: 'CLOSE 3/4 front hero — camera low at 30-45° from the front-side, shoe fills 85-92% of frame, tighter/closer than other slots, vamp and toe detail prominent',
+      passRule: 'the shoe is seen from a front-side 3/4 angle, the shoe fills most of the frame (close crop, minimal background visible), the vamp and toe area are the dominant features, full shoe is in frame',
+      failSignals: 'shoe looks small/distant (too much empty space around it — same framing as other slots), pure front dead-on, pure side profile, heel counter dominant, top-down, macro of one detail only, partial shoe cropped out, framed/inset look',
+      correction: 'Camera must be CLOSER to the shoe than other slots. The shoe should fill 85-92% of image height with minimal background. 3/4 front angle at low height. Vamp and toe area as hero. Full shoe visible but CLOSE.',
     },
     tabletop_editorial: {
       required: 'overhead editorial at 55-65° — top of shoe (tongue, lacing) dominant, marble surface',
@@ -1316,6 +1317,27 @@ async function normalizeBrightness(
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Image Softening — v41: Natural look, reduce AI sharpness
+// ─────────────────────────────────────────────────────────────────────────────
+//
+// Gemini generates hyper-sharp images that look artificial. Real product photos
+// have subtle softness from lens optics. This applies a gentle gaussian blur
+// (sigma 0.6) to produce a natural, premium look — like a real camera shot.
+//
+async function softenImage(imageBuffer: Buffer): Promise<Buffer> {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const sharp = require('sharp') as typeof import('sharp')
+
+  const result = await sharp(imageBuffer)
+    .blur(0.6) // subtle gaussian — just enough to remove AI-crisp edges
+    .jpeg({ quality: 88 }) // slightly lower quality also aids natural feel
+    .toBuffer()
+
+  console.log(`[softenImage v41] ✓ softened — ${result.length}b`)
+  return result
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Product Centering — Deterministic Post-Processing (v36)
 // ─────────────────────────────────────────────────────────────────────────────
 // Gemini consistently places shoes in the lower-right quadrant.
@@ -1859,7 +1881,7 @@ const EDITING_SCENES = [
       `MUST SEE: Complete sole profile (toe to heel), arch curve, heel counter height, collar line. The sole silhouette is the dominant visual.\n` +
       `MUST NOT SEE: Toe cap front face (if you can see the front of the toe, the angle is WRONG).\n` +
       `BACKGROUND: {BACKGROUND} Use this EXACT color — identical to all other slots.\n` +
-      `LIGHT: Soft studio lighting — key from front-left 45°, fill from opposite. Natural soft shadow. No harsh reflections.\n` +
+      `LIGHT: Soft, warm, natural-looking light — like warm diffused daylight from a large softbox. Gentle shadow under the shoe. Warm color temperature. Soft gradients on the shoe surface — NOT razor-sharp highlights, NOT harsh flash.\n` +
       `OUTPUT: Full-bleed photograph. No frames, no borders, no margins, no mockup. No watermark, no text, no logo overlay.\n` +
       `THIS IS NOT: a front view, a 3/4 view, a top-down view, a framed image.\n` +
       `COLOR: The shoe is {COLOR}. Output MUST be {COLOR}. Other colors = REJECTED.\n` +
@@ -1877,7 +1899,7 @@ const EDITING_SCENES = [
       `MUST SEE: Toe cap front face, vamp, lace/closure system, collar — the entire FRONT face.\n` +
       `MUST NOT SEE: Heel counter, side profile, sole edge.\n` +
       `BACKGROUND: {BACKGROUND} Use this EXACT color. Do not shift or reinterpret.\n` +
-      `LIGHT: Soft studio lighting — overhead softbox + bilateral fill. Natural soft shadow under the shoe only. No harsh reflections.\n` +
+      `LIGHT: Soft, warm, natural-looking light — like warm diffused daylight. Gentle shadow under the shoe. Warm color temperature. Soft gradients — NOT razor-sharp highlights, NOT harsh flash.\n` +
       `OUTPUT: Full-bleed photograph. No frames, no borders, no margins, no mockup. No watermark, no text, no logo overlay.\n` +
       `THIS IS NOT: a side view, a 3/4 view, a lifestyle shot, a close-up, a framed image.\n` +
       `COLOR: The shoe is {COLOR}. Output MUST be {COLOR}. Other colors = REJECTED.\n` +
@@ -1887,19 +1909,19 @@ const EDITING_SCENES = [
     name: 'close_shot_hero',
     label: 'Slot 3 — 3/4 Yakın Hero',
     sceneInstructions:
-      `── SHOT: 3/4 FRONT CLOSE HERO ──\n` +
-      `Re-photograph this EXACT {COLOR} shoe from a front-side angle at tighter framing — same physical object.\n` +
-      `CAMERA: Low to mid height, 30–45° from the front-side. The lens captures the vamp, toe shape, and lacing/closure zone as the dominant features, with one side of the shoe also visible.\n` +
+      `── SHOT: CLOSE-UP 3/4 HERO — TIGHTER THAN ALL OTHER SLOTS ──\n` +
+      `Re-photograph this EXACT {COLOR} shoe from a 3/4 front angle at CLOSE RANGE — same physical object.\n` +
+      `CAMERA: Low height (near sole level), 30–45° from the front-side. CLOSER to the shoe than any other slot. The camera is MOVED IN so the shoe fills most of the frame.\n` +
       `POSITION: Shoe upright on sole, angled so the toe-vamp area faces the camera. Toe pointing slightly toward camera.\n` +
-      `COMPOSITION: Full shoe visible from toe to heel — tighter framing than side_angle but the ENTIRE shoe is still in frame. Shoe fills 78-85% of image height. Centered. Clean even spacing — NO excessive empty canvas.\n` +
-      `MUST SEE: Toe shape and toe cap detail, vamp surface texture, lacing or closure system, one side of the upper. The front-quarter of the shoe is the hero.\n` +
-      `MUST NOT SEE: Heel counter as dominant (that would be a back view). Do NOT crop or hide any part of the shoe.\n` +
+      `COMPOSITION: CLOSE CROP — the shoe fills 85-92% of the image height. The shoe should feel LARGE in the frame, almost touching the edges. Minimal background visible. Full shoe must still be in frame (toe to heel) but with very little empty space around it. This is NOT the same distance as slots 1 or 2 — this is CLOSER.\n` +
+      `MUST SEE: Toe shape detail, vamp leather/material texture up close, lacing or closure system, stitching detail. The texture and material quality of the shoe should be clearly visible because the camera is close.\n` +
+      `MUST NOT SEE: Excessive empty background. Heel counter as dominant (that would be a back view).\n` +
       `BACKGROUND: {BACKGROUND} Use this EXACT color — identical to all other slots in this batch. Same studio, same backdrop, same color.\n` +
-      `LIGHT: Soft studio lighting — key from front-left 45°, fill from opposite side. Natural soft shadow under the shoe. No harsh reflections. Rich, warm tones.\n` +
+      `LIGHT: Soft, warm, natural-looking light. NOT harsh studio flash. Think: warm diffused daylight from a large window. Gentle shadow under the shoe. Warm tone. Soft gradients on the shoe surface — NOT razor-sharp highlights.\n` +
       `OUTPUT: Full-bleed photograph. No frames, no borders, no margins, no mockup. No watermark, no text, no logo overlay.\n` +
-      `THIS IS NOT: a pure front dead-on view, a pure side profile, a macro close-up, a top-down view, a back view, a framed image.\n` +
+      `THIS IS NOT: a far-away product shot, a pure front dead-on view, a side profile, a macro of one detail, a top-down, a back view, a framed image.\n` +
       `COLOR: The shoe is {COLOR}. Output MUST be {COLOR}. Other colors = REJECTED.\n` +
-      `DO NOT repeat the reference angle ({REF_ANGLE}). Generate a clean 3/4 front close hero.`,
+      `DO NOT repeat the reference angle ({REF_ANGLE}). Generate a CLOSE 3/4 front hero — closer than any other slot.`,
   },
   {
     name: 'tabletop_editorial',
@@ -2178,6 +2200,11 @@ export async function generateByEditing(
         if (rawBuf) {
           finalBuf = await sharp(rawBuf).jpeg({ quality: 92 }).toBuffer()
         }
+      }
+
+      // v41: soften before final output
+      if (finalBuf) {
+        try { finalBuf = await softenImage(finalBuf) } catch { /* non-critical */ }
       }
 
       if (finalBuf) {
@@ -2719,6 +2746,17 @@ export async function generateByGeminiPro(
       } // end centering retry loop
 
       slotLog.centeringAttempts = centerCycle
+
+      // ── v41: UNCONDITIONAL image softening — last step before final output ──
+      // Removes AI-crisp sharpness for a natural, real-camera look.
+      if (finalBuf) {
+        try {
+          finalBuf = await softenImage(finalBuf)
+          ;(slotLog as Record<string, unknown>).softened = true
+        } catch (softErr) {
+          console.warn(`[generateByGeminiPro v41] softening failed for ${scene.name}:`, softErr instanceof Error ? softErr.message : softErr)
+        }
+      }
 
       if (finalBuf) {
         result.buffers.push(finalBuf)

@@ -1001,15 +1001,97 @@ async function generateStockNumber(
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Stock Number Overlay
+// Stock Number Overlay — v32 Bitmap Pixel Font (Vercel-safe, zero font deps)
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
- * Overlay a stock number text on the bottom-right corner of a JPEG buffer.
- * Uses sharp's composite with an SVG text overlay.
- *
- * Produces a small, semi-transparent label that's readable but not intrusive.
- * Returns a new JPEG buffer with the overlay baked in.
+ * 5×7 bitmap pixel font for digits 0-9 and common letters.
+ * Each entry is a 7-element array of 5-bit rows (MSB = leftmost pixel).
+ * Renders via SVG <rect> elements — no <text>, no font-family, works everywhere.
+ */
+const PIXEL_FONT: Record<string, number[]> = {
+  '0': [0x0E, 0x11, 0x13, 0x15, 0x19, 0x11, 0x0E],
+  '1': [0x04, 0x0C, 0x04, 0x04, 0x04, 0x04, 0x0E],
+  '2': [0x0E, 0x11, 0x01, 0x02, 0x04, 0x08, 0x1F],
+  '3': [0x0E, 0x11, 0x01, 0x06, 0x01, 0x11, 0x0E],
+  '4': [0x02, 0x06, 0x0A, 0x12, 0x1F, 0x02, 0x02],
+  '5': [0x1F, 0x10, 0x1E, 0x01, 0x01, 0x11, 0x0E],
+  '6': [0x06, 0x08, 0x10, 0x1E, 0x11, 0x11, 0x0E],
+  '7': [0x1F, 0x01, 0x02, 0x04, 0x08, 0x08, 0x08],
+  '8': [0x0E, 0x11, 0x11, 0x0E, 0x11, 0x11, 0x0E],
+  '9': [0x0E, 0x11, 0x11, 0x0F, 0x01, 0x02, 0x0C],
+  'S': [0x0E, 0x11, 0x10, 0x0E, 0x01, 0x11, 0x0E],
+  'N': [0x11, 0x19, 0x15, 0x13, 0x11, 0x11, 0x11],
+  'A': [0x0E, 0x11, 0x11, 0x1F, 0x11, 0x11, 0x11],
+  'B': [0x1E, 0x11, 0x11, 0x1E, 0x11, 0x11, 0x1E],
+  'C': [0x0E, 0x11, 0x10, 0x10, 0x10, 0x11, 0x0E],
+  'D': [0x1E, 0x11, 0x11, 0x11, 0x11, 0x11, 0x1E],
+  'E': [0x1F, 0x10, 0x10, 0x1E, 0x10, 0x10, 0x1F],
+  'F': [0x1F, 0x10, 0x10, 0x1E, 0x10, 0x10, 0x10],
+  'G': [0x0E, 0x11, 0x10, 0x17, 0x11, 0x11, 0x0E],
+  'H': [0x11, 0x11, 0x11, 0x1F, 0x11, 0x11, 0x11],
+  'I': [0x0E, 0x04, 0x04, 0x04, 0x04, 0x04, 0x0E],
+  'K': [0x11, 0x12, 0x14, 0x18, 0x14, 0x12, 0x11],
+  'L': [0x10, 0x10, 0x10, 0x10, 0x10, 0x10, 0x1F],
+  'M': [0x11, 0x1B, 0x15, 0x11, 0x11, 0x11, 0x11],
+  'P': [0x1E, 0x11, 0x11, 0x1E, 0x10, 0x10, 0x10],
+  'R': [0x1E, 0x11, 0x11, 0x1E, 0x14, 0x12, 0x11],
+  'T': [0x1F, 0x04, 0x04, 0x04, 0x04, 0x04, 0x04],
+  'U': [0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x0E],
+  'V': [0x11, 0x11, 0x11, 0x11, 0x0A, 0x0A, 0x04],
+  'W': [0x11, 0x11, 0x11, 0x15, 0x15, 0x1B, 0x11],
+  'X': [0x11, 0x11, 0x0A, 0x04, 0x0A, 0x11, 0x11],
+  'Y': [0x11, 0x11, 0x0A, 0x04, 0x04, 0x04, 0x04],
+  'Z': [0x1F, 0x01, 0x02, 0x04, 0x08, 0x10, 0x1F],
+  '?': [0x0E, 0x11, 0x01, 0x02, 0x04, 0x00, 0x04],
+}
+
+/**
+ * Renders a string as SVG <rect> elements using the 5×7 pixel font.
+ * Returns an SVG string (no <text> elements — purely geometric).
+ */
+function renderBitmapText(
+  text: string,
+  pixelSize: number,
+  fillColor: string,
+): { svg: string; width: number; height: number } {
+  const CHAR_W = 5
+  const CHAR_H = 7
+  const CHAR_GAP = 1 // 1-pixel gap between characters
+  const totalCharW = CHAR_W + CHAR_GAP
+  const svgW = text.length * totalCharW * pixelSize - CHAR_GAP * pixelSize
+  const svgH = CHAR_H * pixelSize
+
+  const rects: string[] = []
+  for (let ci = 0; ci < text.length; ci++) {
+    const ch = text[ci].toUpperCase()
+    const bitmap = PIXEL_FONT[ch] || PIXEL_FONT['?']
+    const xOffset = ci * totalCharW * pixelSize
+    for (let row = 0; row < CHAR_H; row++) {
+      const rowBits = bitmap[row]
+      for (let col = 0; col < CHAR_W; col++) {
+        if (rowBits & (0x10 >> col)) {
+          rects.push(
+            `<rect x="${xOffset + col * pixelSize}" y="${row * pixelSize}" ` +
+            `width="${pixelSize}" height="${pixelSize}" fill="${fillColor}"/>`,
+          )
+        }
+      }
+    }
+  }
+
+  const svg =
+    `<svg width="${svgW}" height="${svgH}" xmlns="http://www.w3.org/2000/svg">` +
+    rects.join('') +
+    `</svg>`
+
+  return { svg, width: svgW, height: svgH }
+}
+
+/**
+ * Overlay a stock number on the bottom-right corner of a JPEG buffer.
+ * v32 bitmap pixel font — uses SVG <rect> elements only, zero font dependencies.
+ * Works on Vercel serverless (no system fonts needed).
  */
 async function overlayStockNumber(
   imageBuffer: Buffer,
@@ -1018,48 +1100,71 @@ async function overlayStockNumber(
   // eslint-disable-next-line @typescript-eslint/no-require-imports
   const sharp = require('sharp') as typeof import('sharp')
 
-  // Get image dimensions
   const metadata = await sharp(imageBuffer).metadata()
   const width = metadata.width || 1024
   const height = metadata.height || 1024
 
-  // SVG overlay: low-key premium stock number — bottom-right corner.
-  // Spec: "Low opacity (70–80%), must NOT distract from the product."
-  // Pill bg at 0.25 opacity, text at 0.72 — subtle but readable.
-  const fontSize = Math.max(13, Math.round(width * 0.019)) // ~19px on 1024px (slightly smaller)
-  const paddingX = Math.round(fontSize * 0.55)
-  const paddingY = Math.round(fontSize * 0.25)
-  const textWidth = stockNumber.length * fontSize * 0.6 // approximate
-  const boxWidth = Math.round(textWidth + paddingX * 2)
-  const boxHeight = Math.round(fontSize + paddingY * 2)
-  const margin = Math.round(width * 0.012) // ~12px margin on 1024px
+  // v32: Bitmap pixel font overlay — zero font dependencies.
+  // Pixel size scales with image: ~3px per pixel on 1024px image → ~21px tall text
+  const pixelSize = Math.max(2, Math.round(width * 0.003))
+  const CHAR_H = 7
+  const margin = Math.round(width * 0.015)
+  const paddingX = Math.round(pixelSize * 2)
+  const paddingY = Math.round(pixelSize * 1.5)
 
-  const svgOverlay = Buffer.from(`
-    <svg width="${width}" height="${height}" xmlns="http://www.w3.org/2000/svg">
-      <rect
-        x="${width - boxWidth - margin}"
-        y="${height - boxHeight - margin}"
-        width="${boxWidth}"
-        height="${boxHeight}"
-        rx="3"
-        ry="3"
-        fill="rgba(0,0,0,0.25)"
-      />
-      <text
-        x="${width - margin - paddingX}"
-        y="${height - margin - paddingY}"
-        font-family="Arial, Helvetica, sans-serif"
-        font-size="${fontSize}"
-        font-weight="500"
-        fill="rgba(255,255,255,0.72)"
-        text-anchor="end"
-        dominant-baseline="auto"
-      >${stockNumber}</text>
-    </svg>
-  `)
+  // Render text as SVG rects
+  const { width: textW, height: textH } = renderBitmapText(
+    stockNumber,
+    pixelSize,
+    'rgba(255,255,255,0.85)',
+  )
+
+  const boxWidth = textW + paddingX * 2
+  const boxHeight = textH + paddingY * 2
+  const pillLeft = width - boxWidth - margin
+  const pillTop = height - boxHeight - margin
+
+  // Single SVG with pill background + bitmap text overlaid
+  const combinedSvg = Buffer.from(
+    `<svg width="${width}" height="${height}" xmlns="http://www.w3.org/2000/svg">` +
+    `<rect x="${pillLeft}" y="${pillTop}" width="${boxWidth}" height="${boxHeight}" ` +
+    `rx="4" ry="4" fill="rgba(0,0,0,0.35)"/>` +
+    `<g transform="translate(${pillLeft + paddingX},${pillTop + paddingY})">` +
+    // Inline the text rects from renderBitmapText
+    (() => {
+      const CHAR_W = 5
+      const CHAR_GAP = 1
+      const totalCharW = CHAR_W + CHAR_GAP
+      const rects: string[] = []
+      for (let ci = 0; ci < stockNumber.length; ci++) {
+        const ch = stockNumber[ci].toUpperCase()
+        const bitmap = PIXEL_FONT[ch] || PIXEL_FONT['?']
+        const xOff = ci * totalCharW * pixelSize
+        for (let row = 0; row < CHAR_H; row++) {
+          const rowBits = bitmap[row]
+          for (let col = 0; col < CHAR_W; col++) {
+            if (rowBits & (0x10 >> col)) {
+              rects.push(
+                `<rect x="${xOff + col * pixelSize}" y="${row * pixelSize}" ` +
+                `width="${pixelSize}" height="${pixelSize}" fill="rgba(255,255,255,0.85)"/>`,
+              )
+            }
+          }
+        }
+      }
+      return rects.join('')
+    })() +
+    `</g>` +
+    `</svg>`,
+  )
+
+  console.log(
+    `[overlayStockNumber v32-bitmap] stockNumber="${stockNumber}" pixelSize=${pixelSize} ` +
+    `pill=${boxWidth}x${boxHeight} at (${pillLeft},${pillTop}) textSize=${textW}x${textH}`,
+  )
 
   return sharp(imageBuffer)
-    .composite([{ input: svgOverlay, top: 0, left: 0 }])
+    .composite([{ input: combinedSvg, top: 0, left: 0 }])
     .jpeg({ quality: 92 })
     .toBuffer()
 }

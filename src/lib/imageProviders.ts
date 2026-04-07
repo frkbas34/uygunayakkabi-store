@@ -821,8 +821,11 @@ const EDITING_SCENES = [
       `MUST NOT SEE: Heel counter, side profile, sole edge.\n` +
       `BACKGROUND: {BACKGROUND}\n` +
       `LIGHT: Soft studio lighting — overhead softbox + bilateral fill. Natural soft shadow under the shoe only. No harsh reflections.\n` +
-      `OUTPUT: Full-bleed photograph. No frames, no borders, no margins, no mockup. No watermark, no text, no logo overlay.\n` +
-      `THIS IS NOT: a side view, a 3/4 view, a lifestyle shot, a close-up, a framed image.\n` +
+      `OUTPUT: Full-bleed photograph that fills the ENTIRE canvas edge to edge. The image IS the photo — NOT a photo of a photo.\n` +
+      `CRITICAL ANTI-FRAME: Do NOT render any border, frame, shadow-box, rounded-corner card, drop-shadow rectangle, or picture-inside-picture effect. ` +
+      `Do NOT place the shoe on a "floating card" or "product tile". The background must extend to ALL four edges with ZERO visible boundary. ` +
+      `If there is ANY rectangular outline or visible edge that is not the canvas edge, the image is REJECTED.\n` +
+      `THIS IS NOT: a side view, a 3/4 view, a lifestyle shot, a close-up, a framed image, a product card, a mockup.\n` +
       `COLOR: The shoe is {COLOR}. Output MUST be {COLOR}. Other colors = REJECTED.\n` +
       `DO NOT repeat the reference angle ({REF_ANGLE}). Generate a clean front hero.`,
   },
@@ -838,8 +841,11 @@ const EDITING_SCENES = [
       `MUST NOT SEE: The full shoe. If the entire shoe is visible, the framing is WRONG.\n` +
       `BACKGROUND: {BACKGROUND} The blurred bokeh tone MUST match the same background color as all other slots in this batch. No identifiable objects.\n` +
       `LIGHT: Single soft raking sidelight to reveal texture. Subtle specular highlight. No harsh reflections.\n` +
-      `OUTPUT: Full-bleed photograph. No frames, no borders, no margins, no mockup. No watermark, no text, no logo overlay.\n` +
-      `THIS IS NOT: a full-shoe shot, a side profile, an editorial placement, a framed image.\n` +
+      `OUTPUT: Full-bleed photograph that fills the ENTIRE canvas edge to edge. The image IS the photo — NOT a photo of a photo.\n` +
+      `CRITICAL ANTI-FRAME: Do NOT render any border, frame, shadow-box, rounded-corner card, drop-shadow rectangle, or picture-inside-picture effect. ` +
+      `Do NOT place the texture on a "floating card" or "product tile". The background/bokeh must extend to ALL four edges with ZERO visible boundary. ` +
+      `If there is ANY rectangular outline or visible edge that is not the canvas edge, the image is REJECTED.\n` +
+      `THIS IS NOT: a full-shoe shot, a side profile, an editorial placement, a framed image, a product card, a mockup.\n` +
       `COLOR: The shoe is {COLOR}. Output MUST be {COLOR}. Other colors = REJECTED.`,
   },
   {

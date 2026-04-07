@@ -58,12 +58,6 @@ export const imageGenTask: TaskConfig<{
     if (!jobId) return
 
     try {
-      const jobDoc = await req.payload.findByID({
-        collection: 'image-generation-jobs',
-        id: jobId,
-        depth: 0,
-      }) as Record<string, unknown>
-
       await req.payload.update({
         collection: 'image-generation-jobs',
         id: jobId,
@@ -73,38 +67,6 @@ export const imageGenTask: TaskConfig<{
           generationCompletedAt: new Date().toISOString(),
         },
       })
-
-      // VF-2: Revert product visualStatus to pending on job failure
-      const productRef = jobDoc.product as { id: number } | number | null
-      const failProductId = productRef ? (typeof productRef === 'object' ? productRef.id : productRef) : null
-      if (failProductId) {
-        try {
-          const pDoc = await req.payload.findByID({ collection: 'products', id: failProductId, depth: 0 }) as Record<string, unknown>
-          const wf = (pDoc.workflow ?? {}) as Record<string, unknown>
-          await req.payload.update({
-            collection: 'products',
-            id: failProductId,
-            data: {
-              workflow: {
-                workflowStatus: wf.workflowStatus,
-                visualStatus: 'pending',
-                confirmationStatus: wf.confirmationStatus,
-                contentStatus: wf.contentStatus,
-                auditStatus: wf.auditStatus,
-                publishStatus: wf.publishStatus,
-                productConfirmedAt: wf.productConfirmedAt,
-                stockState: wf.stockState,
-                sellable: wf.sellable,
-                lastHandledByBot: wf.lastHandledByBot,
-              },
-            },
-            context: { isDispatchUpdate: true },
-          })
-          console.log(`[VF-2] visualStatus reverted to pending on failure — product=${failProductId}`)
-        } catch (vsErr) {
-          console.error(`[VF-2] visualStatus revert on failure FAILED (non-blocking):`, vsErr)
-        }
-      }
     } catch (err) {
       console.error('[imageGenTask] onFail cleanup error:', err)
     }
@@ -338,7 +300,7 @@ export const imageGenTask: TaskConfig<{
 
     // ── Step 5: STEP B — Identity Lock Extraction ────────────────────────────
     // generateByEditing / generateByGeminiPro imported later in Step 6 (provider-routed)
-    const { extractIdentityLock, getBackgroundForColor } = await import('../lib/imageProviders')
+    const { extractIdentityLock } = await import('../lib/imageProviders')
     type IdentityLock = Awaited<ReturnType<typeof extractIdentityLock>>
 
     let identityLock: NonNullable<IdentityLock>
@@ -349,7 +311,6 @@ export const imageGenTask: TaskConfig<{
         referenceImage,
         referenceImageMime || 'image/jpeg',
         process.env.GEMINI_API_KEY,
-        additionalReferenceImages.length > 0 ? additionalReferenceImages : undefined,
       )
 
       if (lock) {
@@ -386,8 +347,8 @@ export const imageGenTask: TaskConfig<{
     // ── Step 6: STEP C — Image Generation (provider-routed) ─────────────────
     // v14: provider='openai' → generateByEditing (gpt-image-1, default, unchanged)
     //      provider='gemini-pro' → generateByGeminiPro (Gemini image gen, optional)
-    const ALL_SLOT_NAMES  = ['side_angle', 'commerce_front', 'detail_closeup', 'tabletop_editorial', 'worn_lifestyle']
-    const ALL_SLOT_LABELS = ['Slot 1 — Yan Profil (PRIMARY)', 'Slot 2 — Ön Hero', 'Slot 3 — Makro', 'Slot 4 — Editoryal', 'Slot 5 — Lifestyle']
+    const ALL_SLOT_NAMES  = ['commerce_front', 'side_angle', 'detail_closeup', 'tabletop_editorial', 'worn_lifestyle']
+    const ALL_SLOT_LABELS = ['Slot 1 — Ön Hero', 'Slot 2 — Yan Profil', 'Slot 3 — Makro', 'Slot 4 — Editoryal', 'Slot 5 — Lifestyle']
     const slotNames  = sceneIndices.map((i) => ALL_SLOT_NAMES[i])
     const slotLabels = sceneIndices.map((i) => ALL_SLOT_LABELS[i])
 
@@ -489,31 +450,6 @@ export const imageGenTask: TaskConfig<{
       throw new Error(apiErrorSummary ? `${msg} API: ${apiErrorSummary}` : msg)
     }
 
-    // ── Step 6c: Background consistency check ────────────────────────────────
-    // Gemini Vision compares backgrounds across generated images.
-    // Fail-open: if check errors, generation proceeds normally.
-    if (generatedBuffers.length >= 2) {
-      try {
-        const mainColorForBg = (identityLockMeta.mainColor as string) || ''
-        const batchBackground = mainColorForBg ? getBackgroundForColor(mainColorForBg) : 'neutral light grey'
-        const bgResult = await checkBackgroundConsistency(generatedBuffers, batchBackground)
-        if (!bgResult.consistent) {
-          console.warn('[imageGenTask] BG drift! Slots: ' + bgResult.driftedSlots.join(',') + ' -- ' + (bgResult.detail || ''))
-          for (const dIdx of bgResult.driftedSlots) {
-            const li = dIdx - 1
-            if (slotLogsSummary[li]) {
-              (slotLogsSummary[li] as Record<string, unknown>).bgDrift = true;
-              (slotLogsSummary[li] as Record<string, unknown>).bgDriftDetail = bgResult.detail
-            }
-          }
-        } else {
-          console.log('[imageGenTask] Background consistency check passed')
-        }
-      } catch (bgErr) {
-        console.warn('[imageGenTask] BG check failed (non-blocking):', bgErr instanceof Error ? bgErr.message : bgErr)
-      }
-    }
-
     // ── Step 6b: Overlay stockNumber on each generated image ──────────────
     // Deterministic post-process — NOT prompt-based. Uses sharp composite
     // to render the stock number in the bottom-right corner of every image.
@@ -571,11 +507,11 @@ export const imageGenTask: TaskConfig<{
 
     // ── Build per-slot icon array (ARRAY not string — avoids emoji indexing bugs) ─
     // v12: ⚠️ also shown when brandFidelityPass=false (brand zones drifted)
-    // v28: ⚠️ also shown when bgCheckPass=false (background drift detected)
-    const slotIconArr: string[] = (slotLogsSummary as Array<{ success?: boolean; colorCheckPass?: boolean; brandFidelityPass?: boolean; shotCompliancePass?: boolean; bgCheckPass?: boolean }>)
+    // v20: ⚠️ also shown when shotCompliancePass=false (angle drift detected)
+    const slotIconArr: string[] = (slotLogsSummary as Array<{ success?: boolean; colorCheckPass?: boolean; brandFidelityPass?: boolean; shotCompliancePass?: boolean }>)
       .map((s) => {
         if (s.success === false) return '❌'
-        if (s.colorCheckPass === false || s.brandFidelityPass === false || s.shotCompliancePass === false || s.bgCheckPass === false) return '⚠️'
+        if (s.colorCheckPass === false || s.brandFidelityPass === false || s.shotCompliancePass === false) return '⚠️'
         return '✅'
       })
     // Joined string for approval keyboard summary only
@@ -596,22 +532,17 @@ export const imageGenTask: TaskConfig<{
       )
 
       // Build album items — filter out missing/empty buffers
-      // Clean captions — product-focused, no provider/metadata clutter.
-      // Slot diagnostics are in the approval keyboard message + job metadata.
-      const CLEAN_SLOT_LABELS = ['Yan Profil', 'Ön Görünüm', 'Detay Makro', 'Editoryal', 'Lifestyle']
       const albumItems: Array<{ buf: Buffer; caption: string; filename: string }> = []
       for (let i = 0; i < generatedBuffers.length; i++) {
         const buf = generatedBuffers[i]
         if (!buf || buf.length === 0) {
-          console.warn(`[imageGenTask v28] step8 — skipping slot ${i + 1}: buffer missing or empty`)
+          console.warn(`[imageGenTask v25] step8 — skipping slot ${i + 1}: buffer missing or empty`)
           continue
         }
-        const cleanLabel = CLEAN_SLOT_LABELS[sceneIndices[i]] || `Görsel ${i + 1}`
+        const slotLabel = slotLabels[i] || `Görsel ${i + 1}`
+        const slotIcon = slotIconArr[i] || '✅'
         const filename = `${slotNames[i] || `slot-${i}`}.jpg`
-        // First image in album gets the product title + stock number; rest get just the slot label
-        const caption = i === 0
-          ? `📦 <b>${productTitle}</b>${stockNumber ? ` — ${stockNumber}` : ''}\n${cleanLabel}`
-          : cleanLabel
+        const caption = `${slotIcon} <b>${slotLabel}</b> — ${providerDisplayLabel}`
         albumItems.push({ buf, caption, filename })
       }
 
@@ -656,23 +587,12 @@ export const imageGenTask: TaskConfig<{
       generationCompletedAt: new Date().toISOString(),
       providerResults: JSON.stringify({
         pipeline: pipelineLabel,
-        provider,
+        provider,                // v14: actual provider used
         mode: `${mode} (cosmetic)`,
-        // v28: comprehensive batch context for debugging
-        batchContext: {
-          stockNumber: stockNumber || null,
-          referenceImageCount: 1 + additionalReferenceImages.length,
-          chosenBackground: (identityLockMeta.mainColor as string)
-            ? getBackgroundForColor(identityLockMeta.mainColor as string)
-            : null,
-          stage,
-          sceneIndices,
-        },
         humanSummary: (slotLogsSummary as Array<{
           label?: string; slot?: string; provider?: string; attempts?: number;
           success?: boolean; colorCheckPass?: boolean; brandFidelityPass?: boolean;
           brandFidelityScore?: string; shotCompliancePass?: boolean; detectedShot?: string;
-          bgCheckPass?: boolean; detectedBackground?: string; bgEnforced?: boolean;
           rejectionReason?: string;
         }>).map((sl, idx) => {
           const slotName  = sl.label ?? sl.slot ?? `Slot ${idx + 1}`
@@ -682,9 +602,8 @@ export const imageGenTask: TaskConfig<{
           const color     = sl.colorCheckPass != null ? (sl.colorCheckPass ? 'color:✓' : 'color:✗') : ''
           const brand     = sl.brandFidelityPass != null ? (sl.brandFidelityPass ? 'brand:✓' : `brand:✗(${sl.brandFidelityScore ?? ''})`) : ''
           const shot      = sl.shotCompliancePass != null ? (sl.shotCompliancePass ? 'shot:✓' : `shot:✗(${sl.detectedShot?.slice(0, 40) ?? ''})`) : ''
-          const bg        = sl.bgCheckPass != null ? (sl.bgCheckPass ? (sl.bgEnforced ? 'bg:enforced' : 'bg:✓') : `bg:✗(${sl.detectedBackground?.slice(0, 30) ?? ''})`) : ''
           const rejection = sl.rejectionReason ? ` REJECTED:${sl.rejectionReason}` : ''
-          const checks    = [color, brand, shot, bg].filter(Boolean).join(' ')
+          const checks    = [color, brand, shot].filter(Boolean).join(' ')
           return `${slotName} → ${prov} / ${tries} attempt${tries > 1 ? 's' : ''} / ${ok}${checks ? ' ' + checks : ''}${rejection}`
         }),
         summary: providerResultsSummary,
@@ -704,35 +623,6 @@ export const imageGenTask: TaskConfig<{
         data: { status: 'preview', ...jobUpdateData },
       })
       console.log(`[imageGenTask v14] step9 — job status set to preview`)
-
-      // VF-2: Set product visualStatus = preview when images are ready for operator review
-      try {
-        const pDoc = await payload.findByID({ collection: 'products', id: productId, depth: 0 }) as Record<string, unknown>
-        const wf = (pDoc.workflow ?? {}) as Record<string, unknown>
-        await payload.update({
-          collection: 'products',
-          id: productId,
-          data: {
-            workflow: {
-              workflowStatus: ['draft', 'visual_pending', undefined, null, ''].includes(wf.workflowStatus as string | undefined) ? 'visual_pending' : wf.workflowStatus,
-              visualStatus: 'preview',
-              confirmationStatus: wf.confirmationStatus,
-              contentStatus: wf.contentStatus,
-              auditStatus: wf.auditStatus,
-              publishStatus: wf.publishStatus,
-              productConfirmedAt: wf.productConfirmedAt,
-              stockState: wf.stockState,
-              sellable: wf.sellable,
-              lastHandledByBot: wf.lastHandledByBot,
-            },
-          },
-          context: { isDispatchUpdate: true },
-        })
-        console.log(`[VF-2] visualStatus updated — product=${productId} visualStatus=preview`)
-      } catch (vsErr) {
-        const vsMsg = vsErr instanceof Error ? vsErr.message : String(vsErr)
-        console.error(`[VF-2] visualStatus preview update FAILED (non-blocking) — product=${productId}: ${vsMsg}`)
-      }
     } catch (enumErr) {
       // 'preview' not in Postgres enum yet — fall back to 'review' (always valid)
       const errMsg = enumErr instanceof Error ? enumErr.message : String(enumErr)
@@ -757,17 +647,7 @@ export const imageGenTask: TaskConfig<{
       }
     }
 
-    // ── Final batch summary log ────────────────────────────────────────────
-    const bgEnforcedCount = (slotLogsSummary as Array<{ bgEnforced?: boolean }>).filter((s) => s.bgEnforced).length
-    const retryCount = (slotLogsSummary as Array<{ attempts?: number }>).filter((s) => (s.attempts ?? 1) > 1).length
-    console.log(
-      `[imageGenTask v28] ═══ BATCH COMPLETE ═══ ` +
-      `job=${jobId} product=${productId} images=${mediaIds.length} ` +
-      `stock=${stockNumber || 'none'} refs=1+${additionalReferenceImages.length} ` +
-      `provider=${provider} stage=${stage} ` +
-      `retries=${retryCount} bgEnforced=${bgEnforcedCount} ` +
-      `slots=[${slotIconArr.join('')}]`,
-    )
+    console.log(`[imageGenTask v14] done — jobId=${jobId} product=${productId} images=${mediaIds.length} status=preview`)
 
     return {
       output: {
@@ -985,9 +865,10 @@ async function sendApprovalKeyboard(
   const token = process.env.TELEGRAM_BOT_TOKEN
   if (!token) return
 
-  const colorLine    = mainColor     ? ` · ${mainColor}`  : ''
+  const colorLine    = mainColor     ? `\n🎨 Renk kilidi: <b>${mainColor}</b>`  : ''
+  const providerLine = providerLabel ? `\n🤖 Provider: <b>${providerLabel}</b>` : ''
   const isStandard = stage !== 'premium'
-  const stageLabel = isStandard ? '1-3' : '4-5'
+  const stageLabel = isStandard ? 'Slot 1-3' : 'Slot 4-5'
 
   // ── Build per-image individual buttons ──────────────────────────────────
   // Uses 1-based slotsStr format that approveImageGenJob() already handles.
@@ -1013,9 +894,11 @@ async function sendApprovalKeyboard(
     : `İstediğiniz görseli seçin veya tümünü onaylayın:`
 
   const text =
-    `${isStandard ? '📸' : '🌟'} <b>${imageCount} önizleme hazır</b> (${stageLabel}${colorLine})\n\n` +
+    `${isStandard ? '📸' : '🌟'} <b>${imageCount} önizleme hazır (${stageLabel})</b>\n\n` +
     `📦 <b>${productTitle}</b>` +
-    (slotIcons ? ` ${slotIcons}` : '') +
+    colorLine +
+    providerLine +
+    (slotIcons ? `\n🎯 Slotlar: ${slotIcons}` : '') +
     `\n\n` +
     stageNote
 
@@ -1085,30 +968,25 @@ async function generateStockNumber(
   payload: { find: Function },
 ): Promise<string> {
   try {
-    // Find ALL existing stockNumbers and compute the max numerically.
-    // We cannot rely on sort: '-stockNumber' because Payload/Postgres does
-    // text-based sorting (SN9 > SN1000). Instead, fetch all and compute max.
+    // Find the highest existing stockNumber
     const { docs } = await payload.find({
       collection: 'products',
       where: {
         stockNumber: { exists: true },
       },
-      limit: 0, // fetch all
+      sort: '-stockNumber',
+      limit: 1,
       depth: 0,
     })
 
-    let maxNum = 0
-    for (const doc of docs) {
-      const sn = doc.stockNumber as string | undefined
-      if (!sn) continue
-      const match = sn.match(/^SN(\d+)$/)
+    let nextNum = 1
+    if (docs.length > 0) {
+      const current = docs[0].stockNumber as string
+      const match = current?.match(/^SN(\d+)$/)
       if (match) {
-        const num = parseInt(match[1], 10)
-        if (num > maxNum) maxNum = num
+        nextNum = parseInt(match[1], 10) + 1
       }
     }
-
-    let nextNum = maxNum + 1
 
     // Clamp to 4 digits (SN0001–SN9999)
     if (nextNum > 9999) nextNum = nextNum % 10000 || 1
@@ -1133,171 +1011,6 @@ async function generateStockNumber(
  * Produces a small, semi-transparent label that's readable but not intrusive.
  * Returns a new JPEG buffer with the overlay baked in.
  */
-// ─────────────────────────────────────────────────────────────────────────────
-// Background Consistency Check
-// ─────────────────────────────────────────────────────────────────────────────
-
-/**
- * Check whether all generated images in a batch share the same background color.
- * Uses Gemini Vision to compare. Fail-open on any error.
- */
-async function checkBackgroundConsistency(
-  buffers: Buffer[],
-  expectedBackground: string,
-): Promise<{ consistent: boolean; driftedSlots: number[]; detail?: string }> {
-  if (buffers.length < 2) return { consistent: true, driftedSlots: [] }
-
-  const apiKey = process.env.GEMINI_API_KEY
-  if (!apiKey) return { consistent: true, driftedSlots: [] }
-
-  try {
-    const imageParts = buffers.map((buf) => ({
-      inlineData: { mimeType: 'image/jpeg' as const, data: buf.toString('base64') },
-    }))
-
-    const prompt =
-      'You are a QC inspector for e-commerce product photography.\n' +
-      'Intended background for ALL images: ' + expectedBackground + '\n\n' +
-      'I am showing you ' + buffers.length + ' product images that should ALL have the EXACT SAME background color.\n' +
-      'Compare the background color/tone across all images.\n\n' +
-      'Respond in EXACT JSON format only:\n' +
-      '{"consistent": true/false, "driftedSlots": [1-based slot numbers that differ], "detail": "brief explanation"}\n' +
-      'Mark consistent if all backgrounds look the same color.\n' +
-      'Mark inconsistent ONLY if one or more images have a VISIBLY DIFFERENT background color from the others.'
-
-    const model = process.env.GEMINI_VISION_MODEL || 'gemini-2.0-flash'
-    const url = 'https://generativelanguage.googleapis.com/v1beta/models/' + model + ':generateContent?key=' + apiKey
-
-    const res = await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        contents: [{ parts: [...imageParts, { text: prompt }] }],
-        generationConfig: { temperature: 0.1, maxOutputTokens: 300 },
-      }),
-    })
-
-    if (!res.ok) {
-      console.warn('[bgCheck] Gemini API error: ' + res.status)
-      return { consistent: true, driftedSlots: [] }
-    }
-
-    const data = await res.json() as {
-      candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>
-    }
-    const text = data.candidates?.[0]?.content?.parts?.[0]?.text || ''
-    const jsonMatch = text.match(/\{[\s\S]*?\}/)
-    if (!jsonMatch) {
-      console.warn('[bgCheck] Could not parse response:', text.slice(0, 200))
-      return { consistent: true, driftedSlots: [] }
-    }
-
-    const result = JSON.parse(jsonMatch[0]) as {
-      consistent?: boolean; driftedSlots?: number[]; detail?: string
-    }
-
-    console.log('[bgCheck] consistent=' + result.consistent + ' drifted=' + JSON.stringify(result.driftedSlots) + ' detail=' + result.detail)
-    return {
-      consistent: result.consistent !== false,
-      driftedSlots: Array.isArray(result.driftedSlots) ? result.driftedSlots : [],
-      detail: result.detail,
-    }
-  } catch (err) {
-    console.warn('[bgCheck] Error:', err instanceof Error ? err.message : err)
-    return { consistent: true, driftedSlots: [] }
-  }
-}
-
-/**
- * 5×7 bitmap pixel font — completely font-independent.
- *
- * v32 FIX: Vercel serverless has NO usable fonts for either Pango text rendering
- * or SVG text (librsvg). Tested: XML markup (v29), plain text + negate (v30),
- * SVG <text> with font-family fallbacks (v31) — all produce tofu/broken boxes.
- *
- * Solution: render characters as SVG <rect> elements from hardcoded 5×7 bitmaps.
- * Each row is a 5-bit number (MSB = leftmost pixel). Zero font dependencies.
- * Covers: 0-9, A-Z (uppercase only), plus fallback '?' for unknown chars.
- */
-const PIXEL_FONT: Record<string, number[]> = {
-  '0': [0x0E, 0x11, 0x13, 0x15, 0x19, 0x11, 0x0E],
-  '1': [0x04, 0x0C, 0x04, 0x04, 0x04, 0x04, 0x0E],
-  '2': [0x0E, 0x11, 0x01, 0x02, 0x04, 0x08, 0x1F],
-  '3': [0x0E, 0x11, 0x01, 0x06, 0x01, 0x11, 0x0E],
-  '4': [0x02, 0x06, 0x0A, 0x12, 0x1F, 0x02, 0x02],
-  '5': [0x1F, 0x10, 0x1E, 0x01, 0x01, 0x11, 0x0E],
-  '6': [0x06, 0x08, 0x10, 0x1E, 0x11, 0x11, 0x0E],
-  '7': [0x1F, 0x01, 0x02, 0x04, 0x08, 0x08, 0x08],
-  '8': [0x0E, 0x11, 0x11, 0x0E, 0x11, 0x11, 0x0E],
-  '9': [0x0E, 0x11, 0x11, 0x0F, 0x01, 0x02, 0x0C],
-  'S': [0x0E, 0x11, 0x10, 0x0E, 0x01, 0x11, 0x0E],
-  'N': [0x11, 0x19, 0x15, 0x13, 0x11, 0x11, 0x11],
-  'A': [0x0E, 0x11, 0x11, 0x1F, 0x11, 0x11, 0x11],
-  'B': [0x1E, 0x11, 0x11, 0x1E, 0x11, 0x11, 0x1E],
-  'C': [0x0E, 0x11, 0x10, 0x10, 0x10, 0x11, 0x0E],
-  'D': [0x1E, 0x11, 0x11, 0x11, 0x11, 0x11, 0x1E],
-  'E': [0x1F, 0x10, 0x10, 0x1E, 0x10, 0x10, 0x1F],
-  'F': [0x1F, 0x10, 0x10, 0x1E, 0x10, 0x10, 0x10],
-  'G': [0x0E, 0x11, 0x10, 0x17, 0x11, 0x11, 0x0E],
-  'H': [0x11, 0x11, 0x11, 0x1F, 0x11, 0x11, 0x11],
-  'I': [0x0E, 0x04, 0x04, 0x04, 0x04, 0x04, 0x0E],
-  'K': [0x11, 0x12, 0x14, 0x18, 0x14, 0x12, 0x11],
-  'L': [0x10, 0x10, 0x10, 0x10, 0x10, 0x10, 0x1F],
-  'M': [0x11, 0x1B, 0x15, 0x11, 0x11, 0x11, 0x11],
-  'P': [0x1E, 0x11, 0x11, 0x1E, 0x10, 0x10, 0x10],
-  'R': [0x1E, 0x11, 0x11, 0x1E, 0x14, 0x12, 0x11],
-  'T': [0x1F, 0x04, 0x04, 0x04, 0x04, 0x04, 0x04],
-  'U': [0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x0E],
-  'V': [0x11, 0x11, 0x11, 0x11, 0x0A, 0x0A, 0x04],
-  'W': [0x11, 0x11, 0x11, 0x15, 0x15, 0x1B, 0x11],
-  'X': [0x11, 0x11, 0x0A, 0x04, 0x0A, 0x11, 0x11],
-  'Y': [0x11, 0x11, 0x0A, 0x04, 0x04, 0x04, 0x04],
-  'Z': [0x1F, 0x01, 0x02, 0x04, 0x08, 0x10, 0x1F],
-  '?': [0x0E, 0x11, 0x01, 0x02, 0x04, 0x00, 0x04],
-}
-
-/**
- * Renders a string as SVG <rect> elements using the 5×7 pixel font.
- * Returns an SVG string (no <text> elements — purely geometric).
- */
-function renderBitmapText(
-  text: string,
-  pixelSize: number,
-  fillColor: string,
-): { svg: string; width: number; height: number } {
-  const CHAR_W = 5
-  const CHAR_H = 7
-  const CHAR_GAP = 1 // 1-pixel gap between characters
-  const totalCharW = CHAR_W + CHAR_GAP
-  const svgW = text.length * totalCharW * pixelSize - CHAR_GAP * pixelSize
-  const svgH = CHAR_H * pixelSize
-
-  const rects: string[] = []
-  for (let ci = 0; ci < text.length; ci++) {
-    const ch = text[ci].toUpperCase()
-    const bitmap = PIXEL_FONT[ch] || PIXEL_FONT['?']
-    const xOffset = ci * totalCharW * pixelSize
-    for (let row = 0; row < CHAR_H; row++) {
-      const rowBits = bitmap[row]
-      for (let col = 0; col < CHAR_W; col++) {
-        if (rowBits & (0x10 >> col)) {
-          rects.push(
-            `<rect x="${xOffset + col * pixelSize}" y="${row * pixelSize}" ` +
-            `width="${pixelSize}" height="${pixelSize}" fill="${fillColor}"/>`,
-          )
-        }
-      }
-    }
-  }
-
-  const svg =
-    `<svg width="${svgW}" height="${svgH}" xmlns="http://www.w3.org/2000/svg">` +
-    rects.join('') +
-    `</svg>`
-
-  return { svg, width: svgW, height: svgH }
-}
-
 async function overlayStockNumber(
   imageBuffer: Buffer,
   stockNumber: string,
@@ -1305,71 +1018,48 @@ async function overlayStockNumber(
   // eslint-disable-next-line @typescript-eslint/no-require-imports
   const sharp = require('sharp') as typeof import('sharp')
 
+  // Get image dimensions
   const metadata = await sharp(imageBuffer).metadata()
   const width = metadata.width || 1024
   const height = metadata.height || 1024
 
-  // v32: Bitmap pixel font overlay — zero font dependencies.
-  // Pixel size scales with image: ~3px per pixel on 1024px image → ~21px tall text
-  const pixelSize = Math.max(2, Math.round(width * 0.003))
-  const CHAR_H = 7
-  const margin = Math.round(width * 0.015)
-  const paddingX = Math.round(pixelSize * 2)
-  const paddingY = Math.round(pixelSize * 1.5)
+  // SVG overlay: low-key premium stock number — bottom-right corner.
+  // Spec: "Low opacity (70–80%), must NOT distract from the product."
+  // Pill bg at 0.25 opacity, text at 0.72 — subtle but readable.
+  const fontSize = Math.max(13, Math.round(width * 0.019)) // ~19px on 1024px (slightly smaller)
+  const paddingX = Math.round(fontSize * 0.55)
+  const paddingY = Math.round(fontSize * 0.25)
+  const textWidth = stockNumber.length * fontSize * 0.6 // approximate
+  const boxWidth = Math.round(textWidth + paddingX * 2)
+  const boxHeight = Math.round(fontSize + paddingY * 2)
+  const margin = Math.round(width * 0.012) // ~12px margin on 1024px
 
-  // Render text as SVG rects
-  const { width: textW, height: textH } = renderBitmapText(
-    stockNumber,
-    pixelSize,
-    'rgba(255,255,255,0.85)',
-  )
-
-  const boxWidth = textW + paddingX * 2
-  const boxHeight = textH + paddingY * 2
-  const pillLeft = width - boxWidth - margin
-  const pillTop = height - boxHeight - margin
-
-  // Single SVG with pill background + bitmap text overlaid
-  const combinedSvg = Buffer.from(
-    `<svg width="${width}" height="${height}" xmlns="http://www.w3.org/2000/svg">` +
-    `<rect x="${pillLeft}" y="${pillTop}" width="${boxWidth}" height="${boxHeight}" ` +
-    `rx="4" ry="4" fill="rgba(0,0,0,0.35)"/>` +
-    `<g transform="translate(${pillLeft + paddingX},${pillTop + paddingY})">` +
-    // Inline the text rects from renderBitmapText
-    (() => {
-      const CHAR_W = 5
-      const CHAR_GAP = 1
-      const totalCharW = CHAR_W + CHAR_GAP
-      const rects: string[] = []
-      for (let ci = 0; ci < stockNumber.length; ci++) {
-        const ch = stockNumber[ci].toUpperCase()
-        const bitmap = PIXEL_FONT[ch] || PIXEL_FONT['?']
-        const xOff = ci * totalCharW * pixelSize
-        for (let row = 0; row < CHAR_H; row++) {
-          const rowBits = bitmap[row]
-          for (let col = 0; col < CHAR_W; col++) {
-            if (rowBits & (0x10 >> col)) {
-              rects.push(
-                `<rect x="${xOff + col * pixelSize}" y="${row * pixelSize}" ` +
-                `width="${pixelSize}" height="${pixelSize}" fill="rgba(255,255,255,0.85)"/>`,
-              )
-            }
-          }
-        }
-      }
-      return rects.join('')
-    })() +
-    `</g>` +
-    `</svg>`,
-  )
-
-  console.log(
-    `[overlayStockNumber v32-bitmap] stockNumber="${stockNumber}" pixelSize=${pixelSize} ` +
-    `pill=${boxWidth}x${boxHeight} at (${pillLeft},${pillTop}) textSize=${textW}x${textH}`,
-  )
+  const svgOverlay = Buffer.from(`
+    <svg width="${width}" height="${height}" xmlns="http://www.w3.org/2000/svg">
+      <rect
+        x="${width - boxWidth - margin}"
+        y="${height - boxHeight - margin}"
+        width="${boxWidth}"
+        height="${boxHeight}"
+        rx="3"
+        ry="3"
+        fill="rgba(0,0,0,0.25)"
+      />
+      <text
+        x="${width - margin - paddingX}"
+        y="${height - margin - paddingY}"
+        font-family="Arial, Helvetica, sans-serif"
+        font-size="${fontSize}"
+        font-weight="500"
+        fill="rgba(255,255,255,0.72)"
+        text-anchor="end"
+        dominant-baseline="auto"
+      >${stockNumber}</text>
+    </svg>
+  `)
 
   return sharp(imageBuffer)
-    .composite([{ input: combinedSvg, top: 0, left: 0 }])
+    .composite([{ input: svgOverlay, top: 0, left: 0 }])
     .jpeg({ quality: 92 })
     .toBuffer()
 }

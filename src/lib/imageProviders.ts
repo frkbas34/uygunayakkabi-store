@@ -59,92 +59,12 @@ const TASK_FRAMING_BLOCK =
   `• The output must look like a direct camera shot, NOT like an image placed inside another image.\n` +
   `• NO watermarks, NO logos, NO branding overlays, NO text of any kind in the image.\n` +
   `\n` +
-  `═══ IMAGE NORMALIZATION — MANDATORY ═══\n` +
-  `SUBJECT SCALE: The shoe must occupy 65-80% of the image frame (height or width, whichever is dominant).\n` +
-  `• The shoe must NOT appear tiny or distant inside a large empty canvas.\n` +
-  `• The shoe must NOT be excessively zoomed in (except for macro/detail slot).\n` +
-  `• All standard product shots must maintain a consistent, premium product-to-frame ratio.\n` +
-  `CENTERING — CRITICAL:\n` +
-  `• The shoe must be DEAD CENTER in the image frame — both horizontally AND vertically.\n` +
-  `• Equal whitespace on LEFT and RIGHT. Equal whitespace on TOP and BOTTOM.\n` +
-  `• The visual center of the shoe should align with the geometric center of the image.\n` +
-  `• Do NOT place the shoe in the lower half or shifted to one side.\n` +
-  `• Do NOT leave disproportionate empty space on any side.\n` +
-  `• Think: if you draw crosshairs at the image center, the shoe should sit symmetrically on them.\n` +
-  `• Off-center placement is WRONG and will be REJECTED.\n` +
-  `ANTI-INSET RULE (CRITICAL — ZERO TOLERANCE):\n` +
-  `• Do NOT generate an image-inside-an-image. Do NOT create a framed-photo look.\n` +
-  `• Do NOT create visible outer borders or a poster/card/mockup presentation.\n` +
-  `• Do NOT create large white or colored margins that make the scene feel inset.\n` +
-  `• Do NOT place the photo inside a rectangular panel, card, or bordered area.\n` +
-  `• Do NOT add decorative edges, shadow boxing, or vignette framing.\n` +
-  `• Do NOT render the image as if it were printed on paper and photographed.\n` +
-  `• The output must be a direct, full-bleed photograph — edge to edge.\n` +
-  `• The photo content must extend all the way to every edge of the output image.\n` +
-  `• If your output has visible boundaries between "the photo" and "the canvas", it is WRONG.\n` +
-  `• If your output looks like a photo placed onto a surface or inside a border, it is WRONG.\n` +
-  `CONSISTENCY RULE:\n` +
-  `• All images in this batch must feel like they belong to the same premium catalog system.\n` +
-  `• Different slots may have different angles/scenes but the overall visual scale must be consistent.\n` +
-  `• When placed side by side on a website, these images must look professionally harmonized.\n` +
-  `═══════════════════════════\n` +
-  `\n` +
   `QUALITY STANDARD:\n` +
   `• Premium e-commerce photography — think Zara / Nike / luxury catalog quality.\n` +
   `• Ultra clean, high clarity, high sharpness, no noise, no clutter.\n` +
   `• Soft studio lighting, natural soft shadow under the shoe.\n` +
   `• No harsh reflections, no dramatic lighting — realistic commercial look.\n` +
-  `\n` +
-  `═══ EXPOSURE & BRIGHTNESS CONTROL — MANDATORY ═══\n` +
-  `• Balanced exposure is CRITICAL. The shoe must retain full surface detail.\n` +
-  `• NO blown highlights — every part of the shoe surface must show visible texture.\n` +
-  `• NO washed-out or overexposed areas — leather grain, stitching, and material must be clearly readable.\n` +
-  `• NO high-key white flooding — the background may be light but must NOT bleed into the product.\n` +
-  `• Preserve the true tonal range of the product: darks stay dark, midtones stay rich, highlights stay controlled.\n` +
-  `• Lighting must illuminate the shoe WITHOUT flattening its surface detail.\n` +
-  `• If the shoe is dark (black, navy, dark brown): expose for the shoe, not the background. Keep shadows rich.\n` +
-  `• If the shoe is light (white, cream, beige): use subtle shadows and contrast to define edges and texture.\n` +
-  `• Think: a professional photographer who meters for the product, not the background.\n` +
-  `• An overexposed, washed-out image is WRONG and will be REJECTED.\n` +
-  `═══════════════════════════\n` +
-  `\n` +
-  `BACKGROUND LOCK (PRODUCT-LEVEL RULE — MANDATORY — ZERO TOLERANCE):\n` +
-  `• ALL images in this product batch use the EXACT SAME physical studio backdrop.\n` +
-  `• The backdrop has NOT been changed between shots. Only the camera moved.\n` +
-  `• Each slot's BACKGROUND line specifies ONE exact color with a hex code. Use THAT hex code literally.\n` +
-  `• Do NOT choose a different shade, tone, warmth, or hue — even if "similar" or "complementary".\n` +
-  `• Do NOT introduce any color not explicitly specified in the BACKGROUND line.\n` +
-  `• MACRO/CLOSE-UP: shallow DoF creates bokeh but the BOKEH COLOR = the backdrop color.\n` +
-  `• EDITORIAL: the surface color must match the backdrop color.\n` +
-  `• LIFESTYLE: the dominant blurred tone must match the backdrop color family.\n` +
-  `• TEST: if you place all batch images side by side, the backgrounds MUST look the same color.\n` +
-  `• A cool gray slot next to a warm beige slot = BATCH FAILURE = REJECTED.\n` +
-  `• A white slot next to an off-white slot = BATCH FAILURE = REJECTED.\n` +
-  `• If your output has a different background color than specified, it is WRONG and will be REJECTED.\n` +
   `═══════════════════════════\n\n`
-
-/**
- * Multi-angle reference block — injected when multiple reference images are provided.
- * Tells the generation model that these are all the SAME product from different angles,
- * improving product identity preservation.
- */
-function buildMultiAngleBlock(additionalCount: number): string {
-  if (additionalCount <= 0) return ''
-  const total = 1 + additionalCount
-  return (
-    `═══ MULTI-ANGLE REFERENCE PACK ═══\n` +
-    `You have been given ${total} reference images of the SAME EXACT shoe from different angles.\n` +
-    `These are NOT different shoes. This is ONE physical product photographed ${total} times.\n` +
-    `Use ALL reference images together to understand:\n` +
-    `• The complete 3D shape of this shoe — what the front, side, and back look like.\n` +
-    `• Logo and branding placement on all visible faces.\n` +
-    `• Sole shape, heel profile, and construction details from multiple perspectives.\n` +
-    `• Material consistency — the same leather/suede/mesh appears from every angle.\n` +
-    `The first image is the PRIMARY reference. Additional images provide supplementary angles.\n` +
-    `Your generated output must be faithful to ALL reference angles — the shoe identity must match.\n` +
-    `═══════════════════════════\n\n`
-  )
-}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Premium Background Selection Engine
@@ -152,27 +72,32 @@ function buildMultiAngleBlock(additionalCount: number): string {
 // Maps shoe color → premium contrasting background for studio shots.
 // Goal: background supports the product, never competes. Soft, minimal, premium.
 
-export function getBackgroundForColor(mainColor: string): string {
+function getBackgroundForColor(mainColor: string): string {
   const c = mainColor.toLowerCase()
 
-  // Returns ONE EXACT background per shoe color — no "or" options.
-  // This ensures all slots in a batch use the identical background.
-
+  // Black / dark shoes → warm beige or soft light grey
   if (c.includes('black') || c.includes('siyah'))
-    return 'warm beige (#F5F0E8). Solid, uniform, soft premium studio tone. No gradient, no variation.'
+    return 'warm beige (#F5F0E8) or soft light grey (#ECECEC). Soft, minimal, premium studio feel.'
+  // White / off-white shoes → light grey or very soft pastel blue
   if (c.includes('white') || c.includes('beyaz') || c.includes('off-white'))
-    return 'light warm grey (#E5E3E0). Solid, uniform tone. NOT white — shoe must clearly contrast.'
+    return 'light grey (#E8E8E8) or very soft pastel blue (#EDF2F7). NOT white — the shoe must contrast.'
+  // Brown / espresso shoes → cream or muted green
   if (c.includes('brown') || c.includes('kahve') || c.includes('espresso'))
-    return 'warm cream (#F5F1E6). Solid, uniform, soft natural tone. No gradient, no variation.'
+    return 'warm cream (#F5F1E6) or muted sage green (#E8EDEA). Soft, natural, premium.'
+  // Tan / tobacco / camel shoes → off-white or warm sand
   if (c.includes('tan') || c.includes('tobacco') || c.includes('camel') || c.includes('taba'))
-    return 'off-white (#FAF8F5). Solid, uniform, barely-there warmth. No gradient, no variation.'
+    return 'off-white (#FAF8F5) or warm sand (#F0EDE5). Barely-there warmth.'
+  // Grey shoes → clean white or very soft blue
   if (c.includes('grey') || c.includes('gray') || c.includes('gri'))
-    return 'clean white (#FAFAFA). Solid, uniform, bright crisp tone. No gradient, no variation.'
+    return 'clean white (#FFFFFF) or very soft blue (#F0F4F8). Bright, crisp contrast.'
+  // Navy / dark blue shoes → light grey or beige
   if (c.includes('navy') || c.includes('lacivert') || (c.includes('blue') && c.includes('dark')))
-    return 'light grey (#EDEDED). Solid, uniform, neutral tone. No gradient, no variation.'
+    return 'light grey (#EDEDED) or warm beige (#F3EDE4). Neutral warmth for contrast.'
+  // Red shoes → neutral off-white
   if (c.includes('red') || c.includes('kırmızı') || c.includes('bordo') || c.includes('burgundy'))
-    return 'neutral off-white (#F7F5F3). Solid, uniform, minimal tone. No gradient, no variation.'
-  return 'neutral light grey (#EDEDED). Solid, uniform, soft premium studio tone. No gradient, no variation.'
+    return 'neutral off-white (#F7F5F3) or soft grey (#EBEBEB). Minimal, does not compete with the red.'
+  // Colorful / patterned / anything else → neutral light grey or off-white
+  return 'neutral light grey (#EDEDED) or off-white (#F7F5F3). Soft, minimal, premium studio feel.'
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -204,15 +129,6 @@ export type SlotLog = {
   /** v20: shot composition compliance check */
   shotCompliancePass?: boolean
   detectedShot?: string
-  /** v28: per-slot background compliance check */
-  bgCheckPass?: boolean
-  detectedBackground?: string
-  /** v30: brightness / overexposure quality gate */
-  brightnessCheckPass?: boolean
-  meanBrightness?: number
-  highlightPercent?: number
-  /** v35: brightness normalization applied */
-  brightnessNormalized?: boolean
   rejectionReason?: string
 }
 
@@ -353,25 +269,11 @@ export async function extractIdentityLock(
   imageBuffer: Buffer,
   imageMime: string,
   apiKey: string,
-  additionalImages?: Array<{ data: Buffer; mime: string }>,
 ): Promise<IdentityLock | null> {
   const visionModel = 'gemini-2.5-flash'
 
-  // Multi-angle framing: if additional reference images are provided,
-  // explicitly tell Gemini these are different angles of the SAME product.
-  const hasMultiAngle = additionalImages && additionalImages.length > 0
-  const totalImages = 1 + (additionalImages?.length || 0)
-
-  const multiAnglePrefix = hasMultiAngle
-    ? `IMPORTANT: You are receiving ${totalImages} photos of the SAME EXACT physical shoe taken from different angles. ` +
-      `These are NOT different shoes — they are the SAME product photographed from ${totalImages} different perspectives. ` +
-      `Use ALL ${totalImages} images together to build a complete, precise identity of this one shoe. ` +
-      `Cross-reference details across angles: what you can't see from the front may be visible from the side or back.\n\n`
-    : ''
-
   const prompt =
-    multiAnglePrefix +
-    `You are a product photography expert. Analyze this shoe photo${hasMultiAngle ? ' set' : ''} and extract a precise identity description. ` +
+    `You are a product photography expert. Analyze this shoe photo and extract a precise identity description. ` +
     `Respond with a JSON object ONLY — no explanation, no markdown, no code fences. Required fields:\n` +
     `- "productClass": specific type (e.g. "low-top lace-up sneaker", "wingtip brogue oxford", "chelsea boot")\n` +
     `- "mainColor": primary color of the upper — be EXACT (e.g. "black", "tan brown", "all-white", "navy blue")\n` +
@@ -382,9 +284,9 @@ export async function extractIdentityLock(
     `- "heelProfile": (e.g. "flat", "block heel 3cm", "stacked 2cm")\n` +
     `- "closureType": (e.g. "lace-up", "slip-on", "side-zip", "chelsea elastic")\n` +
     `- "distinctiveFeatures": comma-separated details (e.g. "brogue perforations, contrast stitching")\n` +
-    `- "referenceAngle": the camera angle in the PRIMARY (first) photo (e.g. "45° front-left", "straight front", "overhead", "side profile")\n` +
+    `- "referenceAngle": the camera angle in THIS photo (e.g. "45° front-left", "straight front", "overhead", "side profile")\n` +
     `- "protectedZones": array of brand-critical visible zones. Include ONLY zones where a logo, text mark, ` +
-    `stripe pattern, or distinctive graphic element is CLEARLY VISIBLE in ANY of the provided images. For each zone include:\n` +
+    `stripe pattern, or distinctive graphic element is CLEARLY VISIBLE. For each zone include:\n` +
     `  - "name": one of "tongue_label" | "side_branding" | "heel_tab" | "toe_cap_overlay" | "ankle_patch" | "other"\n` +
     `  - "description": exactly what is visible (e.g. "white Nike Swoosh on black tongue patch", "three white parallel stripes on lateral side")\n` +
     `  - "mustPreserve": what specifically must not change (e.g. "swoosh shape and white-on-black contrast", "exactly 3 stripes, white, evenly spaced")\n` +
@@ -393,18 +295,6 @@ export async function extractIdentityLock(
     `Be extremely precise on color — black vs brown vs tan matters enormously.`
 
   try {
-    // Build image parts: primary image first, then additional angles
-    const imageParts: Array<Record<string, unknown>> = [
-      { inlineData: { mimeType: imageMime, data: imageBuffer.toString('base64') } },
-    ]
-    if (additionalImages) {
-      for (const img of additionalImages.slice(0, 3)) {
-        imageParts.push({
-          inlineData: { mimeType: img.mime, data: img.data.toString('base64') },
-        })
-      }
-    }
-
     const res = await fetch(
       `https://generativelanguage.googleapis.com/v1beta/models/${visionModel}:generateContent?key=${apiKey}`,
       {
@@ -412,7 +302,7 @@ export async function extractIdentityLock(
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           contents: [{ parts: [
-            ...imageParts,
+            { inlineData: { mimeType: imageMime, data: imageBuffer.toString('base64') } },
             { text: prompt },
           ] }],
           generationConfig: { responseMimeType: 'application/json', maxOutputTokens: 900 },
@@ -484,8 +374,7 @@ export async function extractIdentityLock(
 
     console.log(
       `[extractIdentityLock] ✓ ${productClass} | ${mainColor} | ${material} | ref=${refAngle} | ` +
-      `zones=${protectedZones.length} (${protectedZones.map((z) => z.name).join(',') || 'none'}) | ` +
-      `images=${totalImages} (${hasMultiAngle ? 'multi-angle' : 'single'})`,
+      `zones=${protectedZones.length} (${protectedZones.map((z) => z.name).join(',') || 'none'})`,
     )
 
     return {
@@ -768,17 +657,10 @@ async function checkShotCompliance(
     `REQUIRED SHOT TYPE: ${criteria.required}\n` +
     `PASS if: ${criteria.passRule}\n` +
     `FAIL if any of these are true: ${criteria.failSignals}\n\n` +
-    `ALSO FAIL if the image has ANY of these composition defects:\n` +
-    `• The photo appears inset/framed — there is a visible border, panel, or canvas around the main scene\n` +
-    `• The image looks like a photo placed onto another surface or inside a card/mockup\n` +
-    `• There are decorative edges, shadow boxing, or margin areas that frame the scene\n` +
-    `• The main subject area is noticeably smaller than the full image, with large uniform margins\n` +
-    `A valid image must be full-bleed: the scene extends edge-to-edge with no framing artifacts.\n\n` +
     `Analyze this shoe image and respond with JSON only — no markdown, no code fences:\n` +
     `{"pass": true/false, "detectedShot": "one-sentence description of the actual angle/composition in this image"}\n\n` +
     `Be strict. A slight 3/4 angle when pure front was requested = FAIL. ` +
-    `A slight diagonal when pure side was requested = FAIL. ` +
-    `Any visible frame, border, or inset panel = FAIL.`
+    `A slight diagonal when pure side was requested = FAIL.`
 
   try {
     const res = await fetch(
@@ -820,840 +702,6 @@ async function checkShotCompliance(
     console.warn('[checkShotCompliance] error:', err instanceof Error ? err.message : err)
     return { pass: true, detectedShot: 'unknown', correctionHint: '' }
   }
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Step D4 — Per-Slot Background Check (v28)
-// ─────────────────────────────────────────────────────────────────────────────
-
-/**
- * Gemini Vision check: does the generated image's background match the
- * intended batch background color?
- *
- * This is a PER-SLOT check (unlike checkBackgroundConsistency which runs
- * on the whole batch post-generation). It catches individual slot drift
- * immediately so the slot can be retried.
- *
- * On API failure: defaults to pass=true (never block on transient errors).
- */
-async function checkSlotBackground(
-  generatedImage: Buffer,
-  expectedBackground: string,
-  slotName: string,
-  apiKey: string,
-): Promise<{ pass: boolean; detectedBackground: string; correctionHint: string }> {
-  const visionModel = 'gemini-2.5-flash'
-
-  const prompt =
-    `You are a QC inspector for e-commerce product photography background consistency.\n\n` +
-    `EXPECTED BACKGROUND: ${expectedBackground}\n` +
-    `SLOT TYPE: ${slotName}\n\n` +
-    `Look at this product image and evaluate the background:\n` +
-    `1. What is the dominant background color/surface in this image?\n` +
-    `2. Does it match the expected background color specified above?\n\n` +
-    `PASS if: the background is clearly the same color family as expected (e.g. both warm beige, both light grey).\n` +
-    `FAIL if:\n` +
-    `- Background is a different color (e.g. expected beige but got green/grey/brown)\n` +
-    `- Background shows a textured surface (wood, marble, fabric, stone, tiles) instead of a clean studio backdrop\n` +
-    `- Background shows an environmental scene instead of the specified studio color\n` +
-    `- Background is dark/black when a light color was specified (or vice versa)\n\n` +
-    `Respond with JSON only — no markdown, no code fences:\n` +
-    `{"pass": true/false, "detectedBackground": "brief description of the actual background"}\n` +
-    `Be strict. Different color tone = FAIL. Textured surface when solid color was specified = FAIL.`
-
-  try {
-    const res = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/${visionModel}:generateContent?key=${apiKey}`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          contents: [{ parts: [
-            { inlineData: { mimeType: 'image/jpeg', data: generatedImage.toString('base64') } },
-            { text: prompt },
-          ] }],
-          generationConfig: { responseMimeType: 'application/json', maxOutputTokens: 150 },
-        }),
-      },
-    )
-
-    if (!res.ok) {
-      console.warn(`[checkSlotBackground] HTTP ${res.status}`)
-      return { pass: true, detectedBackground: 'unknown', correctionHint: '' }
-    }
-
-    const data = await res.json()
-    const text: string | undefined = data?.candidates?.[0]?.content?.parts?.[0]?.text
-    if (!text) return { pass: true, detectedBackground: 'unknown', correctionHint: '' }
-
-    const parsed = JSON.parse(text.trim())
-    const pass = parsed.pass ?? true
-    const detectedBackground = parsed.detectedBackground || 'unknown'
-    const correctionHint = pass ? '' :
-      `CRITICAL BACKGROUND CORRECTION: The output background is "${detectedBackground}" ` +
-      `but the batch background MUST be: ${expectedBackground}. ` +
-      `Do NOT use a tabletop, textured surface, wood, marble, or any environmental background. ` +
-      `Use ONLY the exact studio backdrop color specified: ${expectedBackground}. ` +
-      `The background must be a clean, uniform, solid color — not a surface or texture.`
-
-    console.log(
-      `[checkSlotBackground] slot=${slotName} pass=${pass} detected="${detectedBackground.slice(0, 80)}" expected="${expectedBackground.slice(0, 40)}"`,
-    )
-    return { pass, detectedBackground, correctionHint }
-  } catch (err) {
-    console.warn('[checkSlotBackground] error:', err instanceof Error ? err.message : err)
-    return { pass: true, detectedBackground: 'unknown', correctionHint: '' }
-  }
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Step D5: Brightness / Overexposure Check — Production Quality Gate (v30)
-// ─────────────────────────────────────────────────────────────────────────────
-// Uses sharp (already in pipeline) to compute image brightness statistics.
-// Rejects images where:
-//   1. Mean brightness > 210 (out of 255) — image is globally overexposed
-//   2. More than 35% of pixels are near-white (> 240) — blown highlights
-// These thresholds are calibrated to allow light backgrounds while catching
-// washed-out product surfaces. Fail-open on errors (returns pass=true).
-
-async function checkBrightnessExposure(
-  imageBuffer: Buffer,
-  slotName: string,
-): Promise<{ pass: boolean; meanBrightness: number; highlightPercent: number; correctionHint: string }> {
-  try {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const sharp = require('sharp') as typeof import('sharp')
-
-    // Convert to greyscale and get raw pixel data for brightness analysis
-    const { data, info } = await sharp(imageBuffer)
-      .greyscale()
-      .raw()
-      .toBuffer({ resolveWithObject: true })
-
-    const totalPixels = info.width * info.height
-    let sum = 0
-    let nearWhiteCount = 0 // pixels > 240
-
-    for (let i = 0; i < data.length; i++) {
-      const val = data[i]
-      sum += val
-      if (val > 240) nearWhiteCount++
-    }
-
-    const meanBrightness = Math.round(sum / totalPixels)
-    const highlightPercent = Math.round((nearWhiteCount / totalPixels) * 100)
-
-    // v35: Tighter thresholds. v33 used mean>210 / highlight>35% which was too
-    // lenient — light backgrounds (~230-240) inflated the mean, letting washed-out
-    // products pass. The normalization post-processing is now the real safety net,
-    // but tighter QC here still helps trigger retries with exposure hints.
-    const isTooMean = meanBrightness > 200
-    const isTooHighlight = highlightPercent > 30
-    const pass = !isTooMean && !isTooHighlight
-
-    console.log(
-      `[checkBrightness] slot=${slotName} mean=${meanBrightness}/255 highlight=${highlightPercent}% pass=${pass}`,
-    )
-
-    const correctionHint = pass ? '' :
-      `CRITICAL EXPOSURE CORRECTION: The previous output was overexposed ` +
-      `(mean brightness ${meanBrightness}/255, ${highlightPercent}% near-white pixels). ` +
-      `Reduce overall brightness. Use controlled, balanced studio lighting. ` +
-      `The shoe surface MUST retain visible texture, grain, and stitching detail. ` +
-      `No blown highlights. No washed-out areas. Meter exposure for the shoe, not the background.`
-
-    return { pass, meanBrightness, highlightPercent, correctionHint }
-  } catch (err) {
-    console.warn('[checkBrightness] error:', err instanceof Error ? err.message : err)
-    return { pass: true, meanBrightness: 0, highlightPercent: 0, correctionHint: '' }
-  }
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Frame / Inset Detection & Auto-Crop — Deterministic Post-Processing (v33)
-// ─────────────────────────────────────────────────────────────────────────────
-// Gemini frequently generates detail_closeup (and sometimes other slots) with
-// a visible rectangular border/frame — a darker edge forming a "photo on canvas"
-// look. This detector scans the edge bands for a consistent dark border and
-// crops it out, then scales back to original dimensions.
-//
-// Strategy:
-//   1. Sample 4 edge bands (top/bottom/left/right, 3% width)
-//   2. Compute mean brightness of each edge band vs center region
-//   3. If any edge band is significantly darker than center → frame detected
-//   4. Find the inner content boundary by scanning inward from each edge
-//   5. Crop to inner content and resize back to original dimensions
-
-async function detectAndRemoveFrame(
-  imageBuffer: Buffer,
-  slotName: string,
-): Promise<{ buffer: Buffer; frameDetected: boolean }> {
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
-  const sharp = require('sharp') as typeof import('sharp')
-
-  const metadata = await sharp(imageBuffer).metadata()
-  const w = metadata.width || 1024
-  const h = metadata.height || 1024
-
-  // Get greyscale raw pixels for analysis
-  const { data } = await sharp(imageBuffer)
-    .greyscale()
-    .raw()
-    .toBuffer({ resolveWithObject: true })
-
-  // Helper: mean brightness of a rectangular region
-  function regionMean(x1: number, y1: number, x2: number, y2: number): number {
-    let sum = 0
-    let count = 0
-    for (let y = y1; y < y2; y++) {
-      for (let x = x1; x < x2; x++) {
-        sum += data[y * w + x]
-        count++
-      }
-    }
-    return count > 0 ? sum / count : 128
-  }
-
-  // Edge band width: 3% of image dimension (≈30px on 1024)
-  const bandW = Math.max(8, Math.round(w * 0.03))
-  const bandH = Math.max(8, Math.round(h * 0.03))
-
-  // Sample edge bands
-  const topMean    = regionMean(bandW, 0, w - bandW, bandH)
-  const bottomMean = regionMean(bandW, h - bandH, w - bandW, h)
-  const leftMean   = regionMean(0, bandH, bandW, h - bandH)
-  const rightMean  = regionMean(w - bandW, bandH, w, h - bandH)
-
-  // Center region mean (middle 50%)
-  const cx1 = Math.round(w * 0.25)
-  const cy1 = Math.round(h * 0.25)
-  const cx2 = Math.round(w * 0.75)
-  const cy2 = Math.round(h * 0.75)
-  const centerMean = regionMean(cx1, cy1, cx2, cy2)
-
-  // Frame detection: edge significantly different from center (darker OR lighter).
-  // Dark borders on light content: centerMean - edgeMean > threshold
-  // Light borders on dark content: edgeMean - centerMean > threshold
-  // Both patterns indicate a frame/inset composition.
-  const FRAME_THRESHOLD = 30
-  const topFrame    = Math.abs(centerMean - topMean) > FRAME_THRESHOLD
-  const bottomFrame = Math.abs(centerMean - bottomMean) > FRAME_THRESHOLD
-  const leftFrame   = Math.abs(centerMean - leftMean) > FRAME_THRESHOLD
-  const rightFrame  = Math.abs(centerMean - rightMean) > FRAME_THRESHOLD
-
-  const frameDetected = topFrame || bottomFrame || leftFrame || rightFrame
-
-  console.log(
-    `[detectFrame v33] slot=${slotName} edges=[T:${Math.round(topMean)} B:${Math.round(bottomMean)} L:${Math.round(leftMean)} R:${Math.round(rightMean)}] ` +
-    `center=${Math.round(centerMean)} frame=[T:${topFrame} B:${bottomFrame} L:${leftFrame} R:${rightFrame}] detected=${frameDetected}`,
-  )
-
-  if (!frameDetected) {
-    return { buffer: imageBuffer, frameDetected: false }
-  }
-
-  // Find inner content boundary by scanning inward from each framed edge
-  // Look for the row/column where brightness jumps to near-center level
-  const TRANSITION_THRESHOLD = 25 // within this of center = content area
-
-  let cropTop = 0
-  let cropBottom = h
-  let cropLeft = 0
-  let cropRight = w
-
-  if (topFrame) {
-    for (let y = 0; y < Math.round(h * 0.15); y++) {
-      const rowMean = regionMean(Math.round(w * 0.3), y, Math.round(w * 0.7), y + 1)
-      if (Math.abs(rowMean - centerMean) < TRANSITION_THRESHOLD) {
-        cropTop = Math.max(0, y - 2)
-        break
-      }
-    }
-  }
-  if (bottomFrame) {
-    for (let y = h - 1; y > Math.round(h * 0.85); y--) {
-      const rowMean = regionMean(Math.round(w * 0.3), y, Math.round(w * 0.7), y + 1)
-      if (Math.abs(rowMean - centerMean) < TRANSITION_THRESHOLD) {
-        cropBottom = Math.min(h, y + 3)
-        break
-      }
-    }
-  }
-  if (leftFrame) {
-    for (let x = 0; x < Math.round(w * 0.15); x++) {
-      const colMean = regionMean(x, Math.round(h * 0.3), x + 1, Math.round(h * 0.7))
-      if (Math.abs(colMean - centerMean) < TRANSITION_THRESHOLD) {
-        cropLeft = Math.max(0, x - 2)
-        break
-      }
-    }
-  }
-  if (rightFrame) {
-    for (let x = w - 1; x > Math.round(w * 0.85); x--) {
-      const colMean = regionMean(x, Math.round(h * 0.3), x + 1, Math.round(h * 0.7))
-      if (Math.abs(colMean - centerMean) < TRANSITION_THRESHOLD) {
-        cropRight = Math.min(w, x + 3)
-        break
-      }
-    }
-  }
-
-  const innerW = cropRight - cropLeft
-  const innerH = cropBottom - cropTop
-
-  // Safety: don't crop if the detected inner region is too small (< 70% of original)
-  if (innerW < w * 0.7 || innerH < h * 0.7) {
-    console.warn(
-      `[detectFrame v33] crop too aggressive (${innerW}x${innerH} from ${w}x${h}) — skipping`,
-    )
-    return { buffer: imageBuffer, frameDetected: true }
-  }
-
-  console.log(
-    `[detectFrame v33] cropping ${slotName}: (${cropLeft},${cropTop})→(${cropRight},${cropBottom}) = ${innerW}x${innerH} → resize to ${w}x${h}`,
-  )
-
-  // Crop inner content and resize back to original dimensions
-  const cropped = await sharp(imageBuffer)
-    .extract({ left: cropLeft, top: cropTop, width: innerW, height: innerH })
-    .resize(w, h, { fit: 'fill' })
-    .jpeg({ quality: 92 })
-    .toBuffer()
-
-  return { buffer: cropped, frameDetected: true }
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Brightness Normalization — Deterministic Post-Processing (v35)
-// ─────────────────────────────────────────────────────────────────────────────
-// v33 used sharp.modulate() which affected the ENTIRE image (including
-// background), potentially undoing background enforcement. v35 replaces this
-// with product-pixel-only selective gamma correction.
-//
-// Measures PRODUCT pixel luminance (excluding background), then applies gamma
-// correction only to product pixels if they fall outside the safe band.
-// Background pixels are preserved to maintain the enforced background color.
-//
-// Target band: product mean luminance 100–170.
-// Above 170 → darken (gamma > 1) — fixes washed-out / high-key outputs.
-// Below 100 → brighten (gamma < 1) — fixes underexposed outputs.
-//
-// MUST run AFTER background enforcement.
-
-async function normalizeBrightness(
-  imageBuffer: Buffer,
-  targetBgHex?: string,
-): Promise<Buffer> {
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
-  const sharp = require('sharp') as typeof import('sharp')
-
-  const metadata = await sharp(imageBuffer).metadata()
-  const width  = metadata.width  || 1024
-  const height = metadata.height || 1024
-
-  const { data: rawPixels, info } = await sharp(imageBuffer)
-    .removeAlpha()
-    .raw()
-    .toBuffer({ resolveWithObject: true })
-
-  const channels = info.channels // 3 (RGB)
-
-  // ── Detect background color from edges ──
-  const edgeDepth = Math.max(8, Math.round(Math.min(width, height) * 0.04))
-  let bgR = 0, bgG = 0, bgB = 0, bgCount = 0
-
-  for (let y = 0; y < height; y++) {
-    for (let x = 0; x < width; x++) {
-      const isEdge = y < edgeDepth || y >= height - edgeDepth ||
-                     x < edgeDepth || x >= width - edgeDepth
-      if (!isEdge) continue
-      const idx = (y * width + x) * channels
-      bgR += rawPixels[idx]
-      bgG += rawPixels[idx + 1]
-      bgB += rawPixels[idx + 2]
-      bgCount++
-    }
-  }
-
-  const detBg = {
-    r: Math.round(bgR / bgCount),
-    g: Math.round(bgG / bgCount),
-    b: Math.round(bgB / bgCount),
-  }
-
-  // If we have an explicit target bg hex, use it for more accurate classification
-  const bgRef = targetBgHex ? hexToRgb(targetBgHex) : detBg
-
-  // ── Measure mean luminance of PRODUCT pixels only ──
-  const BG_THRESHOLD = 80
-  let lumSum = 0
-  let productPixelCount = 0
-
-  for (let i = 0; i < rawPixels.length; i += channels) {
-    const pr = rawPixels[i]
-    const pg = rawPixels[i + 1]
-    const pb = rawPixels[i + 2]
-
-    const dr = pr - bgRef.r
-    const dg = pg - bgRef.g
-    const db = pb - bgRef.b
-    const dist = Math.sqrt(dr * dr + dg * dg + db * db)
-
-    if (dist < BG_THRESHOLD) continue
-
-    const lum = 0.2126 * pr + 0.7152 * pg + 0.0722 * pb
-    lumSum += lum
-    productPixelCount++
-  }
-
-  if (productPixelCount < 1000) {
-    console.log(`[normalizeBrightness] only ${productPixelCount} product pixels — skipping`)
-    return imageBuffer
-  }
-
-  const meanLum = lumSum / productPixelCount
-
-  // ── Determine correction ──
-  // v36: tightened from 100-170 to 85-145. v35 band was too permissive —
-  // brown leather at lum 110-120 still appeared washed. Narrower band
-  // ensures richer product tones with more visible texture detail.
-  const TARGET_LOW  = 85
-  const TARGET_HIGH = 145
-  const TARGET_MID  = 115
-
-  let gamma = 1.0
-
-  if (meanLum > TARGET_HIGH) {
-    const currentNorm = meanLum / 255
-    const targetNorm  = TARGET_MID / 255
-    gamma = Math.log(targetNorm) / Math.log(currentNorm)
-    gamma = Math.max(1.05, Math.min(gamma, 1.8))
-  } else if (meanLum < TARGET_LOW) {
-    const currentNorm = meanLum / 255
-    const targetNorm  = TARGET_MID / 255
-    gamma = Math.log(targetNorm) / Math.log(currentNorm)
-    gamma = Math.max(0.55, Math.min(gamma, 0.95))
-  }
-
-  console.log(
-    `[normalizeBrightness v35] meanLum=${meanLum.toFixed(1)} productPx=${productPixelCount} ` +
-    `bg=rgb(${detBg.r},${detBg.g},${detBg.b}) gamma=${gamma.toFixed(3)} ` +
-    `${gamma === 1.0 ? '(no correction needed)' : gamma > 1 ? '(darkening)' : '(brightening)'}`,
-  )
-
-  if (gamma === 1.0) return imageBuffer
-
-  // ── Apply selective gamma: product pixels corrected, bg pixels preserved ──
-  const outputPixels = Buffer.from(rawPixels)
-  const BG_BLEND_MARGIN = 40
-
-  for (let i = 0; i < rawPixels.length; i += channels) {
-    const pr = rawPixels[i]
-    const pg = rawPixels[i + 1]
-    const pb = rawPixels[i + 2]
-
-    const dr = pr - bgRef.r
-    const dg = pg - bgRef.g
-    const db = pb - bgRef.b
-    const dist = Math.sqrt(dr * dr + dg * dg + db * db)
-
-    if (dist < BG_THRESHOLD - BG_BLEND_MARGIN) continue // pure bg — skip
-
-    let blend: number
-    if (dist >= BG_THRESHOLD) {
-      blend = 1.0
-    } else {
-      blend = (dist - (BG_THRESHOLD - BG_BLEND_MARGIN)) / BG_BLEND_MARGIN
-    }
-
-    const applyGamma = (val: number): number => {
-      const norm = val / 255
-      return Math.max(0, Math.min(255, Math.round(Math.pow(norm, gamma) * 255)))
-    }
-
-    const corrR = applyGamma(pr)
-    const corrG = applyGamma(pg)
-    const corrB = applyGamma(pb)
-
-    outputPixels[i]     = Math.round(pr + (corrR - pr) * blend)
-    outputPixels[i + 1] = Math.round(pg + (corrG - pg) * blend)
-    outputPixels[i + 2] = Math.round(pb + (corrB - pb) * blend)
-  }
-
-  const result = await sharp(outputPixels, {
-    raw: { width, height, channels },
-  })
-    .jpeg({ quality: 92 })
-    .toBuffer()
-
-  console.log(`[normalizeBrightness v35] ✓ gamma=${gamma.toFixed(3)} applied — ${result.length}b`)
-  return result
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Product Centering — Deterministic Post-Processing (v36)
-// ─────────────────────────────────────────────────────────────────────────────
-// Gemini consistently places shoes in the lower-right quadrant.
-// This function detects the product bounding box, computes the offset from
-// image center, and if the offset exceeds a threshold, shifts the product
-// to be centered by cropping and extending with the background color.
-//
-// Only operates on full-shoe slots (not macro/detail_closeup where the
-// product intentionally fills the frame asymmetrically).
-
-async function centerProduct(
-  imageBuffer: Buffer,
-  targetBgHex?: string,
-  slotName?: string,
-): Promise<Buffer> {
-  // Skip centering for macro/closeup slots — product intentionally fills frame
-  if (slotName === 'detail_closeup') {
-    return imageBuffer
-  }
-
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
-  const sharp = require('sharp') as typeof import('sharp')
-
-  const metadata = await sharp(imageBuffer).metadata()
-  const width  = metadata.width  || 1024
-  const height = metadata.height || 1024
-
-  const { data: rawPixels, info } = await sharp(imageBuffer)
-    .removeAlpha()
-    .raw()
-    .toBuffer({ resolveWithObject: true })
-
-  const channels = info.channels
-
-  // ── Detect background color from edges (same as normalizeBrightness) ──
-  const edgeDepth = Math.max(8, Math.round(Math.min(width, height) * 0.04))
-  let bgR = 0, bgG = 0, bgB = 0, bgCount = 0
-
-  for (let y = 0; y < height; y++) {
-    for (let x = 0; x < width; x++) {
-      const isEdge = y < edgeDepth || y >= height - edgeDepth ||
-                     x < edgeDepth || x >= width - edgeDepth
-      if (!isEdge) continue
-      const idx = (y * width + x) * channels
-      bgR += rawPixels[idx]
-      bgG += rawPixels[idx + 1]
-      bgB += rawPixels[idx + 2]
-      bgCount++
-    }
-  }
-
-  const detBg = {
-    r: Math.round(bgR / bgCount),
-    g: Math.round(bgG / bgCount),
-    b: Math.round(bgB / bgCount),
-  }
-
-  const bgRef = targetBgHex ? hexToRgb(targetBgHex) : detBg
-
-  // ── Find product bounding box ──
-  const PRODUCT_DIST_THRESHOLD = 50
-  let minX = width, maxX = 0, minY = height, maxY = 0
-
-  for (let y = 0; y < height; y++) {
-    for (let x = 0; x < width; x++) {
-      const idx = (y * width + x) * channels
-      const dr = rawPixels[idx] - bgRef.r
-      const dg = rawPixels[idx + 1] - bgRef.g
-      const db = rawPixels[idx + 2] - bgRef.b
-      const dist = Math.sqrt(dr * dr + dg * dg + db * db)
-      if (dist > PRODUCT_DIST_THRESHOLD) {
-        if (x < minX) minX = x
-        if (x > maxX) maxX = x
-        if (y < minY) minY = y
-        if (y > maxY) maxY = y
-      }
-    }
-  }
-
-  if (maxX <= minX || maxY <= minY) {
-    console.log(`[centerProduct] no product bbox found — skipping`)
-    return imageBuffer
-  }
-
-  const productCenterX = (minX + maxX) / 2
-  const productCenterY = (minY + maxY) / 2
-  const imageCenterX = width / 2
-  const imageCenterY = height / 2
-
-  const offsetX = Math.round(productCenterX - imageCenterX)
-  const offsetY = Math.round(productCenterY - imageCenterY)
-
-  // Only correct if offset > threshold (avoid sub-pixel jitter)
-  const OFFSET_THRESHOLD = 25 // px — below this is "close enough"
-  const needsCorrection = Math.abs(offsetX) > OFFSET_THRESHOLD || Math.abs(offsetY) > OFFSET_THRESHOLD
-
-  console.log(
-    `[centerProduct v36] slot=${slotName || '?'} bbox=(${minX},${minY})→(${maxX},${maxY}) ` +
-    `prodCenter=(${Math.round(productCenterX)},${Math.round(productCenterY)}) ` +
-    `offset=(${offsetX},${offsetY}) threshold=${OFFSET_THRESHOLD} ` +
-    `${needsCorrection ? 'CORRECTING' : 'ok'}`,
-  )
-
-  if (!needsCorrection) return imageBuffer
-
-  // ── Shift the image to center the product ──
-  // Strategy: crop from the side where there's excess background,
-  // then extend the opposite side with background color.
-  // This preserves the product pixels and only adds/removes background.
-
-  // Use the background color for fill (from enforced bg or detected)
-  const fillColor = targetBgHex
-    ? hexToRgb(targetBgHex)
-    : detBg
-
-  // Calculate crop region: shift the view window by -offset
-  // If product is at +80px offset, we need to move the crop window +80px right
-  // (i.e., crop 80px from left, extend 80px on right)
-  const cropLeft   = Math.max(0, offsetX)
-  const cropTop    = Math.max(0, offsetY)
-  const cropRight  = Math.max(0, -offsetX)
-  const cropBottom = Math.max(0, -offsetY)
-
-  // Crop width/height after removing offset margins
-  const cropW = width - cropLeft - cropRight
-  const cropH = height - cropTop - cropBottom
-
-  if (cropW < width * 0.7 || cropH < height * 0.7) {
-    // Safety: don't crop too aggressively — would lose too much product
-    console.warn(`[centerProduct v36] crop too aggressive (${cropW}x${cropH}) — skipping`)
-    return imageBuffer
-  }
-
-  // Extract the shifted crop, then extend back to original dimensions
-  const cropped = await sharp(imageBuffer)
-    .extract({ left: cropLeft, top: cropTop, width: cropW, height: cropH })
-    .extend({
-      top: cropTop > 0 ? 0 : Math.abs(offsetY),
-      bottom: cropTop > 0 ? offsetY : 0,
-      left: cropLeft > 0 ? 0 : Math.abs(offsetX),
-      right: cropLeft > 0 ? offsetX : 0,
-      background: { r: fillColor.r, g: fillColor.g, b: fillColor.b, alpha: 255 },
-    })
-    .resize(width, height, { fit: 'fill' }) // ensure exact original dimensions
-    .jpeg({ quality: 92 })
-    .toBuffer()
-
-  console.log(`[centerProduct v36] ✓ shifted by (${-offsetX},${-offsetY})px — ${cropped.length}b`)
-  return cropped
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Background Enforcement — Deterministic Post-Processing (v28)
-// ─────────────────────────────────────────────────────────────────────────────
-
-/**
- * Parse hex color from a background description string like:
- * "warm beige (#F5F0E8). Solid, uniform..." → "#F5F0E8"
- * Returns null if no hex code found.
- */
-function parseBackgroundHex(bgDescription: string): string | null {
-  const match = bgDescription.match(/#([0-9A-Fa-f]{6})/)
-  return match ? match[0] : null
-}
-
-/**
- * Convert hex color string (#RRGGBB) to {r, g, b}.
- */
-function hexToRgb(hex: string): { r: number; g: number; b: number } {
-  const h = hex.replace('#', '')
-  return {
-    r: parseInt(h.substring(0, 2), 16),
-    g: parseInt(h.substring(2, 4), 16),
-    b: parseInt(h.substring(4, 6), 16),
-  }
-}
-
-/**
- * Deterministic background enforcement for macro/close-up slots.
- *
- * When Gemini fails to match the batch background even after retry,
- * this function replaces the background color using sharp pixel manipulation.
- *
- * Strategy:
- *   1. Sample edge/corner regions to detect the current (wrong) background color.
- *   2. For each pixel, compute color distance from the detected background.
- *   3. Pixels that are "background-like" (close to detected bg) get blended
- *      toward the target background color.
- *   4. Product pixels (far from detected bg color) are untouched.
- *
- * This preserves the macro product texture while correcting the background
- * color deterministically — no AI involved.
- *
- * For macro shots where the background is soft bokeh, this produces a
- * natural-looking color shift with no visible seam.
- */
-/**
- * enforceSlotBackground — v34: product-level background lock
- *
- * Two detection strategies:
- *   1. EDGE STRIPS (default) — sample outer 5% of image.
- *      Works well for full-shoe shots where edges are pure background.
- *   2. CORNER ONLY (macro mode) — sample only the 4 extreme corners (3% squares).
- *      For macro/closeup where the shoe fills 85%+ of the frame, edge strips
- *      get contaminated by product pixels. Corners remain background-only.
- *
- * The slotName parameter determines which strategy is used:
- *   - 'detail_closeup' → corner-only sampling
- *   - all others → edge strip sampling
- *
- * After detection, background-like pixels are shifted toward the target color.
- * This is a deterministic, AI-free color correction — same hex in, same result out.
- */
-async function enforceSlotBackground(
-  imageBuffer: Buffer,
-  targetHex: string,
-  slotName?: string,
-): Promise<Buffer> {
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
-  const sharp = require('sharp') as typeof import('sharp')
-
-  const metadata = await sharp(imageBuffer).metadata()
-  const width  = metadata.width  || 1024
-  const height = metadata.height || 1024
-
-  // Extract raw RGB pixel data
-  const { data: rawPixels, info } = await sharp(imageBuffer)
-    .removeAlpha()
-    .raw()
-    .toBuffer({ resolveWithObject: true })
-
-  const channels = info.channels  // should be 3 (RGB)
-
-  // ── Step 1: Detect current background color ──
-  // Use corner-only for macro slots, edge strips for everything else.
-  const isMacroSlot = slotName === 'detail_closeup'
-  let rSum = 0, gSum = 0, bSum = 0, sampleCount = 0
-
-  if (isMacroSlot) {
-    // CORNER-ONLY SAMPLING: 4 corner squares, each 3% of image dimensions
-    // In a centered macro shot, corners are almost always pure background/bokeh
-    const cornerSize = Math.max(8, Math.round(Math.min(width, height) * 0.03))
-    const corners = [
-      { x0: 0, y0: 0 },                                // top-left
-      { x0: width - cornerSize, y0: 0 },                // top-right
-      { x0: 0, y0: height - cornerSize },               // bottom-left
-      { x0: width - cornerSize, y0: height - cornerSize }, // bottom-right
-    ]
-    for (const corner of corners) {
-      for (let y = corner.y0; y < corner.y0 + cornerSize; y++) {
-        for (let x = corner.x0; x < corner.x0 + cornerSize; x++) {
-          const idx = (y * width + x) * channels
-          rSum += rawPixels[idx]
-          gSum += rawPixels[idx + 1]
-          bSum += rawPixels[idx + 2]
-          sampleCount++
-        }
-      }
-    }
-  } else {
-    // EDGE STRIP SAMPLING: outer 5% strips (original strategy)
-    const edgeDepth = Math.max(10, Math.round(Math.min(width, height) * 0.05))
-    for (let y = 0; y < height; y++) {
-      for (let x = 0; x < width; x++) {
-        const isEdge = y < edgeDepth || y >= height - edgeDepth ||
-                       x < edgeDepth || x >= width - edgeDepth
-        if (!isEdge) continue
-        const idx = (y * width + x) * channels
-        rSum += rawPixels[idx]
-        gSum += rawPixels[idx + 1]
-        bSum += rawPixels[idx + 2]
-        sampleCount++
-      }
-    }
-  }
-
-  const detectedBg = {
-    r: Math.round(rSum / sampleCount),
-    g: Math.round(gSum / sampleCount),
-    b: Math.round(bSum / sampleCount),
-  }
-
-  const targetBg = hexToRgb(targetHex)
-
-  // ── v34: Detect if edge sampling was contaminated by product pixels ──
-  // If detected bg is very far from target AND from any reasonable light bg,
-  // the detection was contaminated. Fall back to using target directly.
-  const detTargetDist = Math.sqrt(
-    (detectedBg.r - targetBg.r) ** 2 +
-    (detectedBg.g - targetBg.g) ** 2 +
-    (detectedBg.b - targetBg.b) ** 2,
-  )
-  // If the detected bg is > 120 distance from target, detection is likely wrong
-  // (product pixels dominating). Use target as "detected" to do a gentle global shift.
-  const useDirectTarget = detTargetDist > 120
-  const effectiveBg = useDirectTarget ? { ...targetBg } : detectedBg
-
-  console.log(
-    `[enforceSlotBackground v34] slot=${slotName || 'unknown'} mode=${isMacroSlot ? 'corner' : 'edge'} ` +
-    `detected=rgb(${detectedBg.r},${detectedBg.g},${detectedBg.b}) ` +
-    `target=${targetHex} rgb(${targetBg.r},${targetBg.g},${targetBg.b}) ` +
-    `detTargetDist=${detTargetDist.toFixed(0)} useDirectTarget=${useDirectTarget} ` +
-    `samples=${sampleCount}`,
-  )
-
-  // If detection matches target closely, no correction needed
-  if (!useDirectTarget && detTargetDist < 15) {
-    console.log(`[enforceSlotBackground v34] ✓ bg already matches target (dist=${detTargetDist.toFixed(0)}) — skipping`)
-    return imageBuffer
-  }
-
-  // ── Step 2: Replace background-like pixels ──
-  // v34: Tighter thresholds for macro slots to avoid shifting bokeh into wrong colors
-  const MAX_BG_DISTANCE = isMacroSlot ? 70 : 90
-  const BLEND_MARGIN    = isMacroSlot ? 40 : 50
-  const totalThreshold  = MAX_BG_DISTANCE + BLEND_MARGIN
-
-  const outputPixels = Buffer.from(rawPixels) // copy
-
-  for (let i = 0; i < rawPixels.length; i += channels) {
-    const pr = rawPixels[i]
-    const pg = rawPixels[i + 1]
-    const pb = rawPixels[i + 2]
-
-    // Euclidean distance from this pixel to effective background
-    const dr = pr - effectiveBg.r
-    const dg = pg - effectiveBg.g
-    const db = pb - effectiveBg.b
-    const dist = Math.sqrt(dr * dr + dg * dg + db * db)
-
-    if (dist >= totalThreshold) {
-      // Product pixel — leave untouched
-      continue
-    }
-
-    // Blend factor: 1.0 = full replacement (very close to bg), 0.0 = no change
-    let blend: number
-    if (dist <= MAX_BG_DISTANCE) {
-      blend = 1.0
-    } else {
-      // Soft gradient in the margin zone
-      blend = 1.0 - (dist - MAX_BG_DISTANCE) / BLEND_MARGIN
-    }
-
-    // Shift this pixel's color toward the target background
-    const shiftR = (targetBg.r - effectiveBg.r) * blend
-    const shiftG = (targetBg.g - effectiveBg.g) * blend
-    const shiftB = (targetBg.b - effectiveBg.b) * blend
-
-    outputPixels[i]     = Math.max(0, Math.min(255, Math.round(pr + shiftR)))
-    outputPixels[i + 1] = Math.max(0, Math.min(255, Math.round(pg + shiftG)))
-    outputPixels[i + 2] = Math.max(0, Math.min(255, Math.round(pb + shiftB)))
-  }
-
-  // ── Step 3: Reconstruct JPEG from modified pixel data ──
-  const result = await sharp(outputPixels, {
-    raw: { width, height, channels },
-  })
-    .jpeg({ quality: 92 })
-    .toBuffer()
-
-  console.log(`[enforceSlotBackground v34] ✓ background shifted — ${result.length}b`)
-  return result
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1732,40 +780,40 @@ async function callGPTImageEdit(
  */
 const EDITING_SCENES = [
   {
-    name: 'side_angle',
-    label: 'Slot 1 — 90° Yan Profil (PRIMARY)',
-    sceneInstructions:
-      `── SHOT: PURE LATERAL SIDE PROFILE ──\n` +
-      `Re-photograph this EXACT {COLOR} shoe from the side — same physical object.\n` +
-      `CAMERA: Exactly 90° to the side (medial or lateral), at sole level. Looking directly at the side face.\n` +
-      `POSITION: Shoe horizontal — toe pointing LEFT, heel on RIGHT.\n` +
-      `COMPOSITION: Full shoe from toe tip to heel counter. Entire sole edge visible. Shoe fills 75-80% of image width. Centered. Clean even spacing — NO excessive empty canvas.\n` +
-      `MUST SEE: Complete sole profile (toe to heel), arch curve, heel counter height, collar line. The sole silhouette is the dominant visual.\n` +
-      `MUST NOT SEE: Toe cap front face (if you can see the front of the toe, the angle is WRONG).\n` +
-      `BACKGROUND: {BACKGROUND} Use this EXACT color — identical to all other slots.\n` +
-      `LIGHT: Soft studio lighting — key from front-left 45°, fill from opposite. Natural soft shadow. No harsh reflections.\n` +
-      `OUTPUT: Full-bleed photograph. No frames, no borders, no margins, no mockup. No watermark, no text, no logo overlay.\n` +
-      `THIS IS NOT: a front view, a 3/4 view, a top-down view, a framed image.\n` +
-      `COLOR: The shoe is {COLOR}. Output MUST be {COLOR}. Other colors = REJECTED.\n` +
-      `DO NOT repeat the reference angle ({REF_ANGLE}). Generate a pure side profile.`,
-  },
-  {
     name: 'commerce_front',
-    label: 'Slot 2 — Ön Stüdyo Hero',
+    label: 'Slot 1 — Ön Stüdyo Hero',
     sceneInstructions:
       `── SHOT: FRONT STUDIO HERO ──\n` +
       `Re-photograph this EXACT {COLOR} shoe from the front — same physical object.\n` +
       `CAMERA: Directly in front of the shoe, lens perpendicular to the toe cap, at mid-shoe height (lacing zone).\n` +
       `POSITION: Shoe upright on sole, centered, toe cap facing camera dead-on. Both sides equally visible (symmetric).\n` +
-      `COMPOSITION: Full shoe, 70-80% of image height. Top of collar and sole bottom both visible. Centered. Clean even spacing around shoe — NO excessive empty canvas.\n` +
+      `COMPOSITION: Full shoe, 70% of image height. Top of collar and sole bottom both visible. Centered. Clean spacing around shoe.\n` +
       `MUST SEE: Toe cap front face, vamp, lace/closure system, collar — the entire FRONT face.\n` +
       `MUST NOT SEE: Heel counter, side profile, sole edge.\n` +
-      `BACKGROUND: {BACKGROUND} Use this EXACT color. Do not shift or reinterpret.\n` +
+      `BACKGROUND: {BACKGROUND}\n` +
       `LIGHT: Soft studio lighting — overhead softbox + bilateral fill. Natural soft shadow under the shoe only. No harsh reflections.\n` +
       `OUTPUT: Full-bleed photograph. No frames, no borders, no margins, no mockup. No watermark, no text, no logo overlay.\n` +
       `THIS IS NOT: a side view, a 3/4 view, a lifestyle shot, a close-up, a framed image.\n` +
       `COLOR: The shoe is {COLOR}. Output MUST be {COLOR}. Other colors = REJECTED.\n` +
       `DO NOT repeat the reference angle ({REF_ANGLE}). Generate a clean front hero.`,
+  },
+  {
+    name: 'side_angle',
+    label: 'Slot 2 — 90° Yan Profil',
+    sceneInstructions:
+      `── SHOT: PURE LATERAL SIDE PROFILE ──\n` +
+      `Re-photograph this EXACT {COLOR} shoe from the side — same physical object.\n` +
+      `CAMERA: Exactly 90° to the side (medial or lateral), at sole level. Looking directly at the side face.\n` +
+      `POSITION: Shoe horizontal — toe pointing LEFT, heel on RIGHT.\n` +
+      `COMPOSITION: Full shoe from toe tip to heel counter. Entire sole edge visible. Shoe fills 75% of image width. Centered. Clean spacing.\n` +
+      `MUST SEE: Complete sole profile (toe to heel), arch curve, heel counter height, collar line. The sole silhouette is the dominant visual.\n` +
+      `MUST NOT SEE: Toe cap front face (if you can see the front of the toe, the angle is WRONG).\n` +
+      `BACKGROUND: {BACKGROUND}\n` +
+      `LIGHT: Soft studio lighting — key from front-left 45°, fill from opposite. Natural soft shadow. No harsh reflections.\n` +
+      `OUTPUT: Full-bleed photograph. No frames, no borders, no margins, no mockup. No watermark, no text, no logo overlay.\n` +
+      `THIS IS NOT: a front view, a 3/4 view, a top-down view, a framed image.\n` +
+      `COLOR: The shoe is {COLOR}. Output MUST be {COLOR}. Other colors = REJECTED.\n` +
+      `DO NOT repeat the reference angle ({REF_ANGLE}). Generate a pure side profile.`,
   },
   {
     name: 'detail_closeup',
@@ -1777,43 +825,10 @@ const EDITING_SCENES = [
       `COMPOSITION: Upper material fills 85–90% of image area. Very shallow depth of field. Toe area sharp, heel blurred.\n` +
       `MUST SEE: Surface grain/texture/weave of the upper, stitching thread relief, any perforation or embossing.\n` +
       `MUST NOT SEE: The full shoe. If the entire shoe is visible, the framing is WRONG.\n` +
-      `\n` +
-      `BACKGROUND — CRITICAL BATCH LOCK (THIS SLOT MUST MATCH THE OTHER SLOTS):\n` +
-      `BACKGROUND: {BACKGROUND}\n` +
-      `\n` +
-      `THIS IS THE SAME STUDIO, SAME BACKDROP PAPER, SAME EXACT BACKGROUND COLOR AS ALL OTHER IMAGES IN THIS SET.\n` +
-      `You have NOT changed the studio backdrop between shots. The camera simply moved closer.\n` +
-      `\n` +
-      `Because of shallow depth-of-field, the background appears as soft bokeh.\n` +
-      `But the COLOR of that bokeh MUST be IDENTICAL to the background color specified above.\n` +
-      `The blurred out-of-focus areas, the corners, the edges — they must ALL read as that SAME exact color.\n` +
-      `\n` +
-      `COMMON MISTAKES THAT WILL BE REJECTED:\n` +
-      `• Generating a darker/cooler/warmer background than the other slots — WRONG\n` +
-      `• Introducing gray when the batch background is beige — WRONG\n` +
-      `• Introducing beige when the batch background is gray — WRONG\n` +
-      `• Any visible color temperature shift from the other slots — WRONG\n` +
-      `• Adding a surface or texture that wasn't in the other slots — WRONG\n` +
-      `\n` +
-      `BANNED BACKGROUNDS (will cause REJECTION):\n` +
-      `• NO tabletop surface — no wood, no marble, no stone, no concrete\n` +
-      `• NO textured floor — no tiles, no carpet, no parquet\n` +
-      `• NO environmental/real-world surface — no grass, no pavement, no fabric\n` +
-      `• NO surface carried over from the reference photo\n` +
-      `• NO dark/black background unless the batch background specifies it\n` +
-      `• NO colored surface that differs from the batch background\n` +
-      `The ONLY acceptable background is: the exact color specified in the BACKGROUND line above, rendered as soft uniform bokeh.\n` +
-      `If you placed these photos side by side and the backgrounds don't match, this image is WRONG.\n` +
-      `\n` +
+      `BACKGROUND: Blurred neutral bokeh from {BACKGROUND} No identifiable objects.\n` +
       `LIGHT: Single soft raking sidelight to reveal texture. Subtle specular highlight. No harsh reflections.\n` +
-      `EXPOSURE CRITICAL: This macro shot MUST preserve surface detail. No blown highlights on the leather/material surface. Keep exposure metered for the shoe surface — texture, grain, and stitching must be clearly visible. If any area appears washed out or white-clipped, the exposure is WRONG.\n` +
-      `OUTPUT: Full-bleed photograph — edge to edge. The macro fills the ENTIRE output frame.\n` +
-      `• No frames, no borders, no margins, no mockup, no panel, no inset.\n` +
-      `• The macro subject must extend to ALL edges of the image — no visible boundary between photo and canvas.\n` +
-      `• Do NOT place the close-up inside a rectangular border or panel area.\n` +
-      `• Do NOT render this as a photo-within-a-photo or as an image on a surface.\n` +
-      `• No watermark, no text, no logo overlay.\n` +
-      `THIS IS NOT: a full-shoe shot, a side profile, an editorial placement, a tabletop composition, a framed image, an inset panel.\n` +
+      `OUTPUT: Full-bleed photograph. No frames, no borders, no margins, no mockup. No watermark, no text, no logo overlay.\n` +
+      `THIS IS NOT: a full-shoe shot, a side profile, an editorial placement, a framed image.\n` +
       `COLOR: The shoe is {COLOR}. Output MUST be {COLOR}. Other colors = REJECTED.`,
   },
   {
@@ -1824,10 +839,10 @@ const EDITING_SCENES = [
       `Re-photograph this EXACT {COLOR} shoe from an elevated angle — same physical object.\n` +
       `CAMERA: Above and in front, looking DOWN at 55–65°. Three-quarter overhead perspective.\n` +
       `POSITION: Shoe resting upright on a clean premium surface.\n` +
-      `COMPOSITION: Full shoe visible from above-front. Top face dominant (tongue, lacing from above, toe from overhead). Shoe fills 65-75% of image area. Centered. No props. NO excessive empty canvas.\n` +
+      `COMPOSITION: Full shoe visible from above-front. Top face dominant (tongue, lacing from above, toe from overhead). Shoe fills 65% of image area. Centered. No props.\n` +
       `MUST SEE: Tongue, lace pattern from above, toe shape from overhead, upper opening. This reveals parts invisible in front/side views.\n` +
       `MUST NOT SEE: The front face of the toe (that's slot 1), the side profile (that's slot 2).\n` +
-      `BACKGROUND: {BACKGROUND} Use this EXACT color — identical to all other slots in this batch. The surface the shoe rests on should be clean and premium but the dominant visible background color MUST match the other slots exactly. No gradient, no tone shift, no reinterpretation.\n` +
+      `SURFACE: Clean surface that complements the shoe. {BACKGROUND} Very soft gradient allowed but barely noticeable.\n` +
       `LIGHT: Soft diffused studio light from upper-left. Gentle natural shadow lower-right. No harsh reflections.\n` +
       `OUTPUT: Full-bleed photograph. No frames, no borders, no margins, no mockup. No watermark, no text, no logo overlay.\n` +
       `THIS IS NOT: a front hero, a side profile, a close-up macro, a framed image.\n` +
@@ -1841,12 +856,11 @@ const EDITING_SCENES = [
       `── SHOT: LIFESTYLE — SHOE WORN ON A FOOT ──\n` +
       `Re-photograph this EXACT {COLOR} shoe in a lifestyle worn setting — same physical object.\n` +
       `CAMERA: Low ground level, 10–15 cm above floor, to the side of the foot.\n` +
-      `COMPOSITION: One foot wearing the shoe. Full shoe visible with lower leg/ankle above collar. Ground surface in lower frame. Shoe fills 65-75% of image area. Centered. NO excessive empty canvas.\n` +
+      `COMPOSITION: One foot wearing the shoe. Full shoe visible with lower leg/ankle above collar. Ground surface in lower frame. Shoe fills 65% of image area. Centered.\n` +
       `MUST SEE: The shoe ON a foot in natural weight-bearing position, ground contact, ankle/lower leg.\n` +
       `MUST NOT SEE: Face, upper body. The shoe is the hero — the person is secondary.\n` +
-      `BACKGROUND: {BACKGROUND} This is the SAME EXACT background color as all other slots in this batch. In this lifestyle shot the background appears as warm soft bokeh, but the DOMINANT COLOR TONE must match the batch background exactly. Do NOT introduce green, blue, or any color not specified. The blurred environment must read as the same color family as the studio backdrop.\n` +
+      `ENVIRONMENT: Warm blurred lifestyle setting — wooden floor, cobblestone, or garden. Soft bokeh background.\n` +
       `LIGHT: Warm natural golden-hour side light. Authentic, non-studio. Soft shadows. No harsh reflections.\n` +
-      `EXPOSURE CRITICAL: Golden-hour light must NOT wash out the shoe. Keep the shoe properly exposed — leather detail, color accuracy, and texture must be fully visible. Avoid overblown sunlit areas on the shoe surface. The shoe is the subject, not a silhouette.\n` +
       `OUTPUT: Full-bleed photograph. No frames, no borders, no margins, no mockup. No watermark, no text, no logo overlay.\n` +
       `THIS IS NOT: an isolated product shot, a studio photo, an overhead view, a framed image.\n` +
       `COLOR: The shoe is {COLOR}. Output MUST be {COLOR}. Other colors = REJECTED.\n` +
@@ -1917,35 +931,35 @@ export async function generateByEditing(
       `scenes=${scenes.map((s) => s.name).join(',')}`,
     )
 
-    // ── Compute batch background FIRST so padding matches the target bg ──
-    // BUG FIX v29: white padding caused the model to reproduce white borders.
-    const mainColor    = identityLock.mainColor
-    const refAngle     = identityLock.referenceAngle || 'unknown'
-    const zoneBlock    = identityLock.protectedZoneBlock || ''
-    const hasBrandZones = geminiKey && (identityLock.protectedZones?.length ?? 0) > 0
-    const premiumBackground = getBackgroundForColor(mainColor)
-    const padHex = parseBackgroundHex(premiumBackground) || '#EDEDED'
-    const padRgb = hexToRgb(padHex)
-
-    console.log(
-      `[generateByEditing v12] protected zones: ${hasBrandZones ? (identityLock.protectedZones?.map((z) => z.name).join(',')) : 'none'}`,
-    )
-
-    // Resize shoe to 768×768 then pad to 1024×1024 using batch bg color (not white)
+    // Resize shoe to 768×768 (fit:contain with white bg) then pad to 1024×1024.
+    // This guarantees at least 128px white border on all sides, giving the model
+    // visual room for recomposition even on square photos.
     const innerBuffer = await sharp(referenceImage)
-      .resize(768, 768, { fit: 'contain', background: { r: padRgb.r, g: padRgb.g, b: padRgb.b, alpha: 1 } })
+      .resize(768, 768, { fit: 'contain', background: { r: 255, g: 255, b: 255, alpha: 1 } })
       .png()
       .toBuffer()
 
     const pngBuffer = await sharp(innerBuffer)
       .extend({
         top: 128, bottom: 128, left: 128, right: 128,
-        background: { r: padRgb.r, g: padRgb.g, b: padRgb.b, alpha: 1 },
+        background: { r: 255, g: 255, b: 255, alpha: 1 },
       })
       .png()
       .toBuffer()
 
-    console.log(`[generateByEditing v29] PNG 1024×1024 ready — ${pngBuffer.length}b padColor=${padHex}`)
+    console.log(`[generateByEditing v12] PNG 1024×1024 ready — ${pngBuffer.length}b (shoe at 768×768 center)`)
+
+    const mainColor    = identityLock.mainColor
+    const refAngle     = identityLock.referenceAngle || 'unknown'
+    const zoneBlock    = identityLock.protectedZoneBlock || ''
+    const hasBrandZones = geminiKey && (identityLock.protectedZones?.length ?? 0) > 0
+
+    console.log(
+      `[generateByEditing v12] protected zones: ${hasBrandZones ? (identityLock.protectedZones?.map((z) => z.name).join(',')) : 'none'}`,
+    )
+
+    // Compute premium background once (same for all studio slots in this batch)
+    const premiumBackground = getBackgroundForColor(mainColor)
 
     for (const scene of scenes) {
       // Replace placeholders in scene instructions
@@ -1994,13 +1008,7 @@ export async function generateByEditing(
             slotLog.brandFidelityNotes = brandCheck.reinforcementHint || undefined
           }
 
-          // ── Step D5: Brightness check (v30) ─────────────────────────
-          const brightnessCheck = await checkBrightnessExposure(jpegBuf, scene.name)
-          slotLog.brightnessCheckPass = brightnessCheck.pass
-          slotLog.meanBrightness = brightnessCheck.meanBrightness
-          slotLog.highlightPercent = brightnessCheck.highlightPercent
-
-          const needsRetry = !colorCheck.match || (brandCheck !== null && !brandCheck.pass) || !brightnessCheck.pass
+          const needsRetry = !colorCheck.match || (brandCheck !== null && !brandCheck.pass)
 
           if (needsRetry) {
             // ── Build combined reinforcement preamble ────────────────────
@@ -2018,9 +1026,6 @@ export async function generateByEditing(
                 `Do NOT invent fake brand text, logos, or marks. ` +
                 `Reproduce the exact original branding zones described above.`,
               )
-            }
-            if (!brightnessCheck.pass && brightnessCheck.correctionHint) {
-              correctionLines.push(brightnessCheck.correctionHint)
             }
             const reinforcedPrompt = correctionLines.join('\n') + '\n\n' + fullPrompt
 
@@ -2049,19 +1054,10 @@ export async function generateByEditing(
                 slotLog.brandFidelityNotes = retryBrand.reinforcementHint || undefined
               }
 
-              // Re-check brightness on retry
-              if (!brightnessCheck.pass) {
-                const retryBrightness = await checkBrightnessExposure(retryJpeg, scene.name)
-                slotLog.brightnessCheckPass = retryBrightness.pass
-                slotLog.meanBrightness = retryBrightness.meanBrightness
-                slotLog.highlightPercent = retryBrightness.highlightPercent
-              }
-
               // Build rejection reason summary if still failing after retry
               const warnings: string[] = []
               if (!retryColor.match) warnings.push(`color drift: expected ${mainColor} got ${retryColor.detectedColor}`)
               if (slotLog.brandFidelityPass === false) warnings.push(`brand zones drifted: ${slotLog.brandFidelityNotes || 'unknown'}`)
-              if (slotLog.brightnessCheckPass === false) warnings.push(`overexposed: mean=${slotLog.meanBrightness}/255 highlight=${slotLog.highlightPercent}%`)
               if (warnings.length > 0) slotLog.rejectionReason = warnings.join('; ')
 
               // Accept image regardless — operator can judge from preview
@@ -2293,10 +1289,6 @@ export async function generateByGeminiPro(
     return { results: [result], buffers: [], slotLogs }
   }
 
-  // ── v34: Hoist batch background to function scope for post-loop consistency check ──
-  const premiumBackground = getBackgroundForColor(identityLock.mainColor)
-  const batchBgHex = parseBackgroundHex(premiumBackground) || '#EDEDED'
-
   try {
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     const sharp = require('sharp') as typeof import('sharp')
@@ -2306,35 +1298,28 @@ export async function generateByGeminiPro(
       `scenes=${scenes.map((s) => s.name).join(',')}`,
     )
 
-    // ── Compute batch background FIRST so padding matches the target bg ──
-    // BUG FIX v29: Previously padding was white (#FFFFFF), which caused Gemini
-    // to reproduce white borders in its output ("inset" / "floating canvas" look).
-    // Now padding uses the actual batch background color so the model sees the
-    // correct context color around the shoe — no white border to reproduce.
-    const mainColor   = identityLock.mainColor
-    const refAngle    = identityLock.referenceAngle || 'unknown'
-    const zoneBlock   = identityLock.protectedZoneBlock || ''
-    const hasBrandZones = (identityLock.protectedZones?.length ?? 0) > 0
-
-    const padHex = batchBgHex
-    const padRgb = hexToRgb(padHex)
-
-    // Resize shoe to 768×768 then pad to 1024×1024 using batch background color
+    // Same 768×768 → 1024×1024 padding as generateByEditing
     const innerBuffer = await sharp(referenceImage)
-      .resize(768, 768, { fit: 'contain', background: { r: padRgb.r, g: padRgb.g, b: padRgb.b, alpha: 1 } })
+      .resize(768, 768, { fit: 'contain', background: { r: 255, g: 255, b: 255, alpha: 1 } })
       .png()
       .toBuffer()
 
     const pngBuffer = await sharp(innerBuffer)
       .extend({
         top: 128, bottom: 128, left: 128, right: 128,
-        background: { r: padRgb.r, g: padRgb.g, b: padRgb.b, alpha: 1 },
+        background: { r: 255, g: 255, b: 255, alpha: 1 },
       })
       .png()
       .toBuffer()
 
-    console.log(`[generateByGeminiPro v29] PNG 1024×1024 ready — ${pngBuffer.length}b padColor=${padHex}`)
-    const multiAngleBlock = buildMultiAngleBlock(additionalImages?.length || 0)
+    console.log(`[generateByGeminiPro v14] PNG 1024×1024 ready — ${pngBuffer.length}b`)
+
+    const mainColor   = identityLock.mainColor
+    const refAngle    = identityLock.referenceAngle || 'unknown'
+    const zoneBlock   = identityLock.protectedZoneBlock || ''
+    const hasBrandZones = (identityLock.protectedZones?.length ?? 0) > 0
+
+    const premiumBackground = getBackgroundForColor(mainColor)
 
     for (const scene of scenes) {
       const sceneText = scene.sceneInstructions
@@ -2342,14 +1327,8 @@ export async function generateByGeminiPro(
         .replace(/\{REF_ANGLE\}/g, refAngle)
         .replace(/\{BACKGROUND\}/g, premiumBackground)
 
-      // 6-block prompt structure:
-      //   1. TASK_FRAMING_BLOCK — task framing + normalization rules
-      //   2. multiAngleBlock — multi-angle reference framing (if applicable)
-      //   3. identityLock.promptBlock — product identity + color lock
-      //   4. zoneBlock — protected brand zones
-      //   5. sceneText — camera angle, framing, background, lighting
-      //   6. CANONICAL_PROHIBITIONS_BLOCK — master prohibitions
-      const fullPrompt = TASK_FRAMING_BLOCK + multiAngleBlock + identityLock.promptBlock + zoneBlock + sceneText + CANONICAL_PROHIBITIONS_BLOCK
+      // Same 5-block prompt structure as generateByEditing
+      const fullPrompt = TASK_FRAMING_BLOCK + identityLock.promptBlock + zoneBlock + sceneText + CANONICAL_PROHIBITIONS_BLOCK
 
       const slotLog: SlotLog = {
         slot: scene.name,
@@ -2390,18 +1369,7 @@ export async function generateByGeminiPro(
         slotLog.shotCompliancePass = shotCheck.pass
         slotLog.detectedShot = shotCheck.detectedShot
 
-        // Step D4: Per-slot background check (v28)
-        const bgCheck = await checkSlotBackground(jpegBuf, premiumBackground, scene.name, geminiKey)
-        slotLog.bgCheckPass = bgCheck.pass
-        slotLog.detectedBackground = bgCheck.detectedBackground
-
-        // Step D5: Brightness / overexposure check (v30)
-        const brightnessCheck = await checkBrightnessExposure(jpegBuf, scene.name)
-        slotLog.brightnessCheckPass = brightnessCheck.pass
-        slotLog.meanBrightness = brightnessCheck.meanBrightness
-        slotLog.highlightPercent = brightnessCheck.highlightPercent
-
-        const needsRetry = !colorCheck.match || (brandCheck !== null && !brandCheck.pass) || !shotCheck.pass || !bgCheck.pass || !brightnessCheck.pass
+        const needsRetry = !colorCheck.match || (brandCheck !== null && !brandCheck.pass) || !shotCheck.pass
 
         if (needsRetry) {
           const correctionLines: string[] = []
@@ -2420,19 +1388,12 @@ export async function generateByGeminiPro(
           if (!shotCheck.pass && shotCheck.correctionHint) {
             correctionLines.push(shotCheck.correctionHint)
           }
-          if (!bgCheck.pass && bgCheck.correctionHint) {
-            correctionLines.push(bgCheck.correctionHint)
-          }
-          if (!brightnessCheck.pass && brightnessCheck.correctionHint) {
-            correctionLines.push(brightnessCheck.correctionHint)
-          }
           const reinforcedPrompt = correctionLines.join('\n') + '\n\n' + fullPrompt
 
           console.warn(
-            `[generateByGeminiPro v29] ✗ ${scene.name} fidelity issues — ` +
+            `[generateByGeminiPro v20] ✗ ${scene.name} fidelity issues — ` +
             `color=${colorCheck.match} brand=${brandCheck?.pass ?? 'skip'} ` +
-            `shot=${shotCheck.pass} bg=${bgCheck.pass} ` +
-            `(bgDetected="${bgCheck.detectedBackground.slice(0, 60)}") — retrying`,
+            `shot=${shotCheck.pass} (detected="${shotCheck.detectedShot.slice(0, 60)}") — retrying`,
           )
           slotLog.attempts = 2
           await sleep(2000)
@@ -2458,55 +1419,13 @@ export async function generateByGeminiPro(
             slotLog.detectedShot = retryShotCheck.detectedShot
           }
 
-          // Re-check background on retry (only if first attempt failed bg check)
-          if (!bgCheck.pass) {
-            const retryBgCheck = await checkSlotBackground(retryJpeg, premiumBackground, scene.name, geminiKey)
-            slotLog.bgCheckPass = retryBgCheck.pass
-            slotLog.detectedBackground = retryBgCheck.detectedBackground
-          }
-
-          // Re-check brightness on retry (only if first attempt failed brightness check)
-          if (!brightnessCheck.pass) {
-            const retryBrightness = await checkBrightnessExposure(retryJpeg, scene.name)
-            slotLog.brightnessCheckPass = retryBrightness.pass
-            slotLog.meanBrightness = retryBrightness.meanBrightness
-            slotLog.highlightPercent = retryBrightness.highlightPercent
-          }
-
           const warnings: string[] = []
           if (!retryColor.match) warnings.push(`color drift: expected ${mainColor} got ${retryColor.detectedColor}`)
           if (slotLog.brandFidelityPass === false) warnings.push(`brand zones drifted: ${slotLog.brandFidelityNotes || 'unknown'}`)
           if (slotLog.shotCompliancePass === false) warnings.push(`angle wrong: got "${slotLog.detectedShot || 'unknown'}"`)
-          if (slotLog.bgCheckPass === false) warnings.push(`background drift: got "${slotLog.detectedBackground || 'unknown'}" expected batch bg`)
-          if (slotLog.brightnessCheckPass === false) warnings.push(`overexposed: mean=${slotLog.meanBrightness}/255 highlight=${slotLog.highlightPercent}%`)
           if (warnings.length > 0) slotLog.rejectionReason = warnings.join('; ')
 
           finalBuf = retryJpeg
-
-          // ── Step D5: Deterministic background enforcement (v28) ──────────
-          // If background STILL drifts after retry, fix it in post-processing.
-          // Only applied to slots that failed bg check — typically detail_closeup.
-          if (slotLog.bgCheckPass === false && finalBuf) {
-            const bgHex = parseBackgroundHex(premiumBackground)
-            if (bgHex) {
-              try {
-                console.log(`[generateByGeminiPro v29] bg still drifted on ${scene.name} after retry — enforcing ${bgHex} via post-process`)
-                finalBuf = await enforceSlotBackground(finalBuf, bgHex, scene.name)
-                slotLog.bgCheckPass = true // mark as corrected
-                ;(slotLog as Record<string, unknown>).bgEnforced = true
-                // Remove bg warning from rejection reason since we fixed it
-                const filteredWarnings = warnings.filter((w) => !w.startsWith('background drift'))
-                slotLog.rejectionReason = filteredWarnings.length > 0 ? filteredWarnings.join('; ') : undefined
-                console.log(`[generateByGeminiPro v29] ✓ ${scene.name} background enforced via post-process`)
-              } catch (enforceErr) {
-                console.warn(`[generateByGeminiPro v29] bg enforcement failed for ${scene.name}:`, enforceErr instanceof Error ? enforceErr.message : enforceErr)
-                // Keep the retried image as-is — don't lose it
-              }
-            }
-          }
-
-          // v35: conditional brightness enforcement removed from retry branch.
-          // Brightness normalization is now UNCONDITIONAL on all slots (see below).
         } else {
           finalBuf = jpegBuf
         }
@@ -2518,81 +1437,15 @@ export async function generateByGeminiPro(
         result.errors.push(`${scene.name}: ${slotErrMsg}`)
       }
 
-      // ── v29: UNCONDITIONAL background enforcement on every successful slot ──
-      // Previously this only ran after retry+fail. Now it runs on ALL slots
-      // to guarantee deterministic batch background regardless of what Gemini produced.
-      // This is the safety net that eliminates background mismatch across the batch.
-      if (finalBuf) {
-        const bgHex = parseBackgroundHex(premiumBackground)
-        if (bgHex) {
-          try {
-            finalBuf = await enforceSlotBackground(finalBuf, bgHex, scene.name)
-            ;(slotLog as Record<string, unknown>).bgEnforced = true
-            console.log(`[generateByGeminiPro v34] ✓ ${scene.name} bg enforced to ${bgHex}`)
-          } catch (enforceErr) {
-            console.warn(`[generateByGeminiPro v29] bg enforcement failed for ${scene.name}:`, enforceErr instanceof Error ? enforceErr.message : enforceErr)
-          }
-        }
-      }
-
-      // ── v33: UNCONDITIONAL frame detection & auto-crop on every successful slot ──
-      // Gemini frequently generates detail_closeup (and sometimes other slots) with
-      // a visible rectangular border/frame. This detector finds dark edge bands and
-      // crops them out, then scales back to original dimensions.
-      if (finalBuf) {
-        try {
-          const frameResult = await detectAndRemoveFrame(finalBuf, scene.name)
-          if (frameResult.frameDetected) {
-            finalBuf = frameResult.buffer
-            ;(slotLog as Record<string, unknown>).frameCropped = true
-            console.log(`[generateByGeminiPro v33] ✓ ${scene.name} frame detected and cropped`)
-          }
-        } catch (frameErr) {
-          console.warn(`[generateByGeminiPro v33] frame detection failed for ${scene.name}:`, frameErr instanceof Error ? frameErr.message : frameErr)
-        }
-      }
-
-      // ── v35: UNCONDITIONAL brightness normalization on every successful slot ──
-      // Runs AFTER bg enforcement and frame removal. Measures PRODUCT pixel
-      // luminance (excluding background) and applies selective gamma correction
-      // if the product is too bright (washed out) or too dark (underexposed).
-      // Background pixels are preserved to maintain the enforced background color.
-      if (finalBuf) {
-        try {
-          const bgHexForNorm = parseBackgroundHex(premiumBackground) || undefined
-          finalBuf = await normalizeBrightness(finalBuf, bgHexForNorm)
-          ;(slotLog as Record<string, unknown>).brightnessNormalized = true
-        } catch (normErr) {
-          console.warn(`[generateByGeminiPro v36] brightness normalization failed for ${scene.name}:`, normErr instanceof Error ? normErr.message : normErr)
-        }
-      }
-
-      // ── v36: UNCONDITIONAL product centering on every successful slot ──
-      // Gemini consistently places shoes in the lower-right quadrant.
-      // This detects the product bounding box, measures offset from image center,
-      // and shifts the composition to center the product. Skips detail_closeup.
-      if (finalBuf) {
-        try {
-          const bgHexForCenter = parseBackgroundHex(premiumBackground) || undefined
-          finalBuf = await centerProduct(finalBuf, bgHexForCenter, scene.name)
-          ;(slotLog as Record<string, unknown>).centered = true
-        } catch (centerErr) {
-          console.warn(`[generateByGeminiPro v36] centering failed for ${scene.name}:`, centerErr instanceof Error ? centerErr.message : centerErr)
-        }
-      }
-
       if (finalBuf) {
         result.buffers.push(finalBuf)
         result.successCount++
         slotLog.success = true
         slotLog.outputSizeBytes = finalBuf.length
         console.log(
-          `[generateByGeminiPro v36] ✓ ${scene.name} — ${finalBuf.length}b ` +
+          `[generateByGeminiPro v20] ✓ ${scene.name} — ${finalBuf.length}b ` +
           `(attempts=${slotLog.attempts} color=${slotLog.colorCheckPass ?? 'skip'} ` +
-          `brand=${slotLog.brandFidelityPass ?? 'skip'} shot=${slotLog.shotCompliancePass ?? 'skip'} ` +
-          `bg=${slotLog.bgCheckPass ?? 'skip'} bgEnforced=${(slotLog as Record<string, unknown>).bgEnforced ?? false} ` +
-          `brightNorm=${(slotLog as Record<string, unknown>).brightnessNormalized ?? false} ` +
-          `centered=${(slotLog as Record<string, unknown>).centered ?? false})`,
+          `brand=${slotLog.brandFidelityPass ?? 'skip'} shot=${slotLog.shotCompliancePass ?? 'skip'})`,
         )
       } else {
         const msg = `${scene.name}: null after ${slotLog.attempts} attempts`
@@ -2610,75 +1463,12 @@ export async function generateByGeminiPro(
     result.errors.push(msg)
   }
 
-  // ── v34: BATCH BACKGROUND CONSISTENCY CHECK ──────────────────────────────
-  // After ALL slots are generated and individually enforced, do a final pass
-  // comparing each slot's actual corner colors to the batch target.
-  // If any slot still drifted (e.g. macro bokeh shifted), re-enforce it.
-  // This ensures all images in a product batch share one visual background family.
-  if (result.buffers.length > 1) {
-    const bgHex = batchBgHex
-    if (bgHex) {
-      const targetRgb = hexToRgb(bgHex)
-      // eslint-disable-next-line @typescript-eslint/no-require-imports
-      const sharpCheck = require('sharp') as typeof import('sharp')
-
-      for (let bi = 0; bi < result.buffers.length; bi++) {
-        try {
-          const buf = result.buffers[bi]
-          const meta = await sharpCheck(buf).metadata()
-          const w = meta.width || 1024
-          const h = meta.height || 1024
-
-          // Sample 4 corners (3% squares) to measure actual bg color
-          const { data: px, info: pxInfo } = await sharpCheck(buf)
-            .removeAlpha().raw().toBuffer({ resolveWithObject: true })
-          const ch = pxInfo.channels
-          const cs = Math.max(8, Math.round(Math.min(w, h) * 0.03))
-          let cr = 0, cg = 0, cb = 0, cnt = 0
-          const cCorners = [
-            { x0: 0, y0: 0 }, { x0: w - cs, y0: 0 },
-            { x0: 0, y0: h - cs }, { x0: w - cs, y0: h - cs },
-          ]
-          for (const cc of cCorners) {
-            for (let y = cc.y0; y < cc.y0 + cs; y++) {
-              for (let x = cc.x0; x < cc.x0 + cs; x++) {
-                const idx = (y * w + x) * ch
-                cr += px[idx]; cg += px[idx + 1]; cb += px[idx + 2]; cnt++
-              }
-            }
-          }
-          const avgR = Math.round(cr / cnt)
-          const avgG = Math.round(cg / cnt)
-          const avgB = Math.round(cb / cnt)
-          const drift = Math.sqrt(
-            (avgR - targetRgb.r) ** 2 + (avgG - targetRgb.g) ** 2 + (avgB - targetRgb.b) ** 2,
-          )
-
-          const slotNameForLog = scenes[bi]?.name ?? `slot${bi}`
-          console.log(
-            `[batchBgCheck v34] ${slotNameForLog}: corner avg=rgb(${avgR},${avgG},${avgB}) ` +
-            `target=rgb(${targetRgb.r},${targetRgb.g},${targetRgb.b}) drift=${drift.toFixed(0)}`,
-          )
-
-          // If corner drift > 30, re-enforce this slot
-          if (drift > 30) {
-            console.log(`[batchBgCheck v34] ${slotNameForLog} drift=${drift.toFixed(0)} > 30 — re-enforcing`)
-            result.buffers[bi] = await enforceSlotBackground(buf, bgHex, slotNameForLog)
-            ;(slotLogs[bi] as Record<string, unknown>).batchBgReEnforced = true
-          }
-        } catch (batchErr) {
-          console.warn(`[batchBgCheck v34] slot ${bi} check failed:`, batchErr instanceof Error ? batchErr.message : batchErr)
-        }
-      }
-    }
-  }
-
   const slotSummary = slotLogs.map((s) => {
     if (!s.success) return '✗'
-    if (s.colorCheckPass === false || s.brandFidelityPass === false || s.shotCompliancePass === false || s.bgCheckPass === false) return '⚠'
+    if (s.colorCheckPass === false || s.brandFidelityPass === false || s.shotCompliancePass === false) return '⚠'
     return '✓'
   }).join('')
-  console.log(`[generateByGeminiPro v34] done — ${result.successCount}/${result.promptCount} [${slotSummary}]`)
+  console.log(`[generateByGeminiPro v20] done — ${result.successCount}/${result.promptCount} [${slotSummary}]`)
 
   return { results: [result], buffers: result.buffers, slotLogs }
 }

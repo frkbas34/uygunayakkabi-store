@@ -2969,3 +2969,24 @@ v28-v42 added layers of pixel-manipulation post-processing (brightness normaliza
 - `src/lib/imagePromptBuilder.ts`: prompt order, header comment
 
 **Status:** DEPLOYED
+
+---
+
+## D-128 — Image Pipeline v47: Slots 1-3 Locked — Confirmed Working
+**Decision:**  
+Lock slots 1-3 prompt definitions as confirmed working by operator.
+
+**Details:**
+- Slot 1 (side_angle): 90° lateral profile — CONFIRMED WORKING
+- Slot 2 (commerce_front): Front studio hero — CONFIRMED WORKING
+- Slot 3 (detail_closeup): Detail close-up of toe/vamp, 25-35cm, moderate depth — CONFIRMED WORKING
+- Triple-layer anti-frame active on all slots (per-slot + TASK_FRAMING_BLOCK + ANTI_FRAME_FINAL_BLOCK)
+- v32 bitmap pixel font SN overlay restored and working on Vercel
+- v27 raw Gemini baseline preserved — NO post-processing
+
+**Constraint:**  
+Do NOT modify slot 1-3 sceneInstructions, TASK_FRAMING_BLOCK, or overlayStockNumber without explicit operator approval.
+
+**Status:**  
+ACTIVE — locked at commit 5cfcd4f (v47)
+

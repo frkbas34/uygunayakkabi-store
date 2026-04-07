@@ -2845,4 +2845,4 @@ Strengthened TASK_FRAMING_BLOCK background lock section: removed macro/editorial
 **No-Frame Enforcement (verified, no changes needed):**
 Already hardened at 3 levels: (1) TASK_FRAMING_BLOCK anti-inset rules, (2) D3 shot compliance includes frame detection, (3) `detectAndRemoveFrame` post-processing runs unconditionally.
 
-**Status:** DEPLOYED — commit TBD
+**Status:** DEPLOYED — commit b6a5bd7

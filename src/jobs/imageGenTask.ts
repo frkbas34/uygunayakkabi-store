@@ -347,8 +347,8 @@ export const imageGenTask: TaskConfig<{
     // ── Step 6: STEP C — Image Generation (provider-routed) ─────────────────
     // v14: provider='openai' → generateByEditing (gpt-image-1, default, unchanged)
     //      provider='gemini-pro' → generateByGeminiPro (Gemini image gen, optional)
-    const ALL_SLOT_NAMES  = ['commerce_front', 'side_angle', 'detail_closeup', 'tabletop_editorial', 'worn_lifestyle']
-    const ALL_SLOT_LABELS = ['Slot 1 — Ön Hero', 'Slot 2 — Yan Profil', 'Slot 3 — Makro', 'Slot 4 — Editoryal', 'Slot 5 — Lifestyle']
+    const ALL_SLOT_NAMES  = ['side_angle', 'commerce_front', 'detail_closeup', 'tabletop_editorial', 'worn_lifestyle']
+    const ALL_SLOT_LABELS = ['Slot 1 — Yan Profil (PRIMARY)', 'Slot 2 — Ön Hero', 'Slot 3 — Makro', 'Slot 4 — Editoryal', 'Slot 5 — Lifestyle']
     const slotNames  = sceneIndices.map((i) => ALL_SLOT_NAMES[i])
     const slotLabels = sceneIndices.map((i) => ALL_SLOT_LABELS[i])
 

@@ -59,6 +59,21 @@ const TASK_FRAMING_BLOCK =
   `• The output must look like a direct camera shot, NOT like an image placed inside another image.\n` +
   `• NO watermarks, NO logos, NO branding overlays, NO text of any kind in the image.\n` +
   `\n` +
+  `ANTI-FRAME RULE (ZERO TOLERANCE):\n` +
+  `• Do NOT generate an image-inside-an-image. Do NOT create a framed-photo look.\n` +
+  `• Do NOT create visible outer borders or a poster/card/mockup presentation.\n` +
+  `• Do NOT place the photo inside a rectangular panel, card, or bordered area.\n` +
+  `• Do NOT add decorative edges, shadow boxing, or vignette framing.\n` +
+  `• Do NOT render the image as if it were printed on paper and photographed.\n` +
+  `• The photo content must extend all the way to every edge of the output image.\n` +
+  `• If your output has visible boundaries between "the photo" and "the canvas", it is WRONG.\n` +
+  `\n` +
+  `BACKGROUND CONSISTENCY (ALL SLOTS):\n` +
+  `• All images in this batch share ONE studio backdrop color.\n` +
+  `• Each slot specifies a BACKGROUND line — use that EXACT color.\n` +
+  `• Slot 1 sets the background for the batch. All other slots MUST match.\n` +
+  `• No slot may drift to a different color, shade, or warmth.\n` +
+  `\n` +
   `QUALITY STANDARD:\n` +
   `• Premium e-commerce photography — think Zara / Nike / luxury catalog quality.\n` +
   `• Ultra clean, high clarity, high sharpness, no noise, no clutter.\n` +
@@ -75,29 +90,25 @@ const TASK_FRAMING_BLOCK =
 function getBackgroundForColor(mainColor: string): string {
   const c = mainColor.toLowerCase()
 
-  // Black / dark shoes → warm beige or soft light grey
+  // v43: ONE exact background per shoe color — no "or" options.
+  // All slots in a batch MUST use this identical background.
+  // This prevents slot-to-slot drift.
+
   if (c.includes('black') || c.includes('siyah'))
-    return 'warm beige (#F5F0E8) or soft light grey (#ECECEC). Soft, minimal, premium studio feel.'
-  // White / off-white shoes → light grey or very soft pastel blue
+    return 'warm beige (#F5F0E8). Solid, uniform, soft premium studio tone. Use this EXACT color for ALL slots in this batch. No gradient.'
   if (c.includes('white') || c.includes('beyaz') || c.includes('off-white'))
-    return 'light grey (#E8E8E8) or very soft pastel blue (#EDF2F7). NOT white — the shoe must contrast.'
-  // Brown / espresso shoes → cream or muted green
+    return 'light grey (#E8E8E8). Solid, uniform tone. NOT white — shoe must contrast. Use this EXACT color for ALL slots. No gradient.'
   if (c.includes('brown') || c.includes('kahve') || c.includes('espresso'))
-    return 'warm cream (#F5F1E6) or muted sage green (#E8EDEA). Soft, natural, premium.'
-  // Tan / tobacco / camel shoes → off-white or warm sand
+    return 'warm cream (#F5F1E6). Solid, uniform, soft natural tone. Use this EXACT color for ALL slots. No gradient.'
   if (c.includes('tan') || c.includes('tobacco') || c.includes('camel') || c.includes('taba'))
-    return 'off-white (#FAF8F5) or warm sand (#F0EDE5). Barely-there warmth.'
-  // Grey shoes → clean white or very soft blue
+    return 'off-white (#FAF8F5). Solid, uniform, barely-there warmth. Use this EXACT color for ALL slots. No gradient.'
   if (c.includes('grey') || c.includes('gray') || c.includes('gri'))
-    return 'clean white (#FFFFFF) or very soft blue (#F0F4F8). Bright, crisp contrast.'
-  // Navy / dark blue shoes → light grey or beige
+    return 'clean white (#FFFFFF). Solid, uniform, bright crisp contrast. Use this EXACT color for ALL slots. No gradient.'
   if (c.includes('navy') || c.includes('lacivert') || (c.includes('blue') && c.includes('dark')))
-    return 'light grey (#EDEDED) or warm beige (#F3EDE4). Neutral warmth for contrast.'
-  // Red shoes → neutral off-white
+    return 'light grey (#EDEDED). Solid, uniform, neutral warmth. Use this EXACT color for ALL slots. No gradient.'
   if (c.includes('red') || c.includes('kırmızı') || c.includes('bordo') || c.includes('burgundy'))
-    return 'neutral off-white (#F7F5F3) or soft grey (#EBEBEB). Minimal, does not compete with the red.'
-  // Colorful / patterned / anything else → neutral light grey or off-white
-  return 'neutral light grey (#EDEDED) or off-white (#F7F5F3). Soft, minimal, premium studio feel.'
+    return 'neutral off-white (#F7F5F3). Solid, uniform, minimal. Use this EXACT color for ALL slots. No gradient.'
+  return 'neutral light grey (#EDEDED). Solid, uniform, soft premium studio tone. Use this EXACT color for ALL slots. No gradient.'
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -780,26 +791,8 @@ async function callGPTImageEdit(
  */
 const EDITING_SCENES = [
   {
-    name: 'commerce_front',
-    label: 'Slot 1 — Ön Stüdyo Hero',
-    sceneInstructions:
-      `── SHOT: FRONT STUDIO HERO ──\n` +
-      `Re-photograph this EXACT {COLOR} shoe from the front — same physical object.\n` +
-      `CAMERA: Directly in front of the shoe, lens perpendicular to the toe cap, at mid-shoe height (lacing zone).\n` +
-      `POSITION: Shoe upright on sole, centered, toe cap facing camera dead-on. Both sides equally visible (symmetric).\n` +
-      `COMPOSITION: Full shoe, 70% of image height. Top of collar and sole bottom both visible. Centered. Clean spacing around shoe.\n` +
-      `MUST SEE: Toe cap front face, vamp, lace/closure system, collar — the entire FRONT face.\n` +
-      `MUST NOT SEE: Heel counter, side profile, sole edge.\n` +
-      `BACKGROUND: {BACKGROUND}\n` +
-      `LIGHT: Soft studio lighting — overhead softbox + bilateral fill. Natural soft shadow under the shoe only. No harsh reflections.\n` +
-      `OUTPUT: Full-bleed photograph. No frames, no borders, no margins, no mockup. No watermark, no text, no logo overlay.\n` +
-      `THIS IS NOT: a side view, a 3/4 view, a lifestyle shot, a close-up, a framed image.\n` +
-      `COLOR: The shoe is {COLOR}. Output MUST be {COLOR}. Other colors = REJECTED.\n` +
-      `DO NOT repeat the reference angle ({REF_ANGLE}). Generate a clean front hero.`,
-  },
-  {
     name: 'side_angle',
-    label: 'Slot 2 — 90° Yan Profil',
+    label: 'Slot 1 — 90° Yan Profil (PRIMARY)',
     sceneInstructions:
       `── SHOT: PURE LATERAL SIDE PROFILE ──\n` +
       `Re-photograph this EXACT {COLOR} shoe from the side — same physical object.\n` +
@@ -816,6 +809,24 @@ const EDITING_SCENES = [
       `DO NOT repeat the reference angle ({REF_ANGLE}). Generate a pure side profile.`,
   },
   {
+    name: 'commerce_front',
+    label: 'Slot 2 — Ön Stüdyo Hero',
+    sceneInstructions:
+      `── SHOT: FRONT STUDIO HERO ──\n` +
+      `Re-photograph this EXACT {COLOR} shoe from the front — same physical object.\n` +
+      `CAMERA: Directly in front of the shoe, lens perpendicular to the toe cap, at mid-shoe height (lacing zone).\n` +
+      `POSITION: Shoe upright on sole, centered, toe cap facing camera dead-on. Both sides equally visible (symmetric).\n` +
+      `COMPOSITION: Full shoe, 70% of image height. Top of collar and sole bottom both visible. Centered. Clean spacing around shoe.\n` +
+      `MUST SEE: Toe cap front face, vamp, lace/closure system, collar — the entire FRONT face.\n` +
+      `MUST NOT SEE: Heel counter, side profile, sole edge.\n` +
+      `BACKGROUND: {BACKGROUND}\n` +
+      `LIGHT: Soft studio lighting — overhead softbox + bilateral fill. Natural soft shadow under the shoe only. No harsh reflections.\n` +
+      `OUTPUT: Full-bleed photograph. No frames, no borders, no margins, no mockup. No watermark, no text, no logo overlay.\n` +
+      `THIS IS NOT: a side view, a 3/4 view, a lifestyle shot, a close-up, a framed image.\n` +
+      `COLOR: The shoe is {COLOR}. Output MUST be {COLOR}. Other colors = REJECTED.\n` +
+      `DO NOT repeat the reference angle ({REF_ANGLE}). Generate a clean front hero.`,
+  },
+  {
     name: 'detail_closeup',
     label: 'Slot 3 — Malzeme Makro',
     sceneInstructions:
@@ -825,7 +836,7 @@ const EDITING_SCENES = [
       `COMPOSITION: Upper material fills 85–90% of image area. Very shallow depth of field. Toe area sharp, heel blurred.\n` +
       `MUST SEE: Surface grain/texture/weave of the upper, stitching thread relief, any perforation or embossing.\n` +
       `MUST NOT SEE: The full shoe. If the entire shoe is visible, the framing is WRONG.\n` +
-      `BACKGROUND: Blurred neutral bokeh from {BACKGROUND} No identifiable objects.\n` +
+      `BACKGROUND: {BACKGROUND} The blurred bokeh tone MUST match the same background color as all other slots in this batch. No identifiable objects.\n` +
       `LIGHT: Single soft raking sidelight to reveal texture. Subtle specular highlight. No harsh reflections.\n` +
       `OUTPUT: Full-bleed photograph. No frames, no borders, no margins, no mockup. No watermark, no text, no logo overlay.\n` +
       `THIS IS NOT: a full-shoe shot, a side profile, an editorial placement, a framed image.\n` +

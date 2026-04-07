@@ -5,8 +5,8 @@
  * Each prompt targets a different visual angle optimized for e-commerce.
  *
  * Concepts:
- *  1. commerce_front    — White-bg product shot, straight-on
- *  2. side_angle        — 45° studio angle
+ *  1. side_angle        — 45° studio angle (PRIMARY HERO)
+ *  2. commerce_front    — White-bg product shot, straight-on
  *  3. detail_closeup    — Material/texture macro
  *  4. tabletop_editorial — Lifestyle tabletop composition
  *  5. worn_lifestyle    — Worn in a real-world setting
@@ -158,7 +158,18 @@ export function buildPromptSet(product: ProductContext, hasReferenceImage = fals
   // with stacked block heel") rather than a generic "shoe".
   // The hasReferenceImage flag is kept for future compatibility only.
   return [
-    // ── 1. Commerce Front ────────────────────────────────────────────────────
+    // ── 1. Side Angle (PRIMARY) ─────────────────────────────────────────────
+    {
+      concept: 'side_angle',
+      label: 'Ürün — Yan Açı (Stüdyo)',
+      prompt:
+        `Professional product studio photograph of ${fullDesc}, ` +
+        `45-degree side angle view, white or light grey seamless background, ` +
+        `soft-box studio lighting, fine detail visible, ` +
+        `commercial product photography, no shadows on background, high resolution, no text`,
+    },
+
+    // ── 2. Commerce Front ────────────────────────────────────────────────────
     {
       concept: 'commerce_front',
       label: 'Ürün — Ön Görünüm (Beyaz Fon)',
@@ -168,17 +179,6 @@ export function buildPromptSet(product: ProductContext, hasReferenceImage = fals
         `clean studio lighting with soft shadows, sharp focus, ` +
         `commercial e-commerce product photography style, no text or labels, ` +
         `4K quality, isolated product`,
-    },
-
-    // ── 2. Side Angle ────────────────────────────────────────────────────────
-    {
-      concept: 'side_angle',
-      label: 'Ürün — Yan Açı (Stüdyo)',
-      prompt:
-        `Professional product studio photograph of ${fullDesc}, ` +
-        `45-degree side angle view, white or light grey seamless background, ` +
-        `soft-box studio lighting, fine detail visible, ` +
-        `commercial product photography, no shadows on background, high resolution, no text`,
     },
 
     // ── 3. Detail Closeup ────────────────────────────────────────────────────

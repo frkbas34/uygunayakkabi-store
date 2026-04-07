@@ -2916,4 +2916,56 @@ v39 hex codes (~79% luminance) were still perceived as near-white on screen. The
 **Files Changed:**
 - `src/lib/imageProviders.ts`: getBackgroundForColor, enforceSlotBackground, normalizeBrightness, checkBrightnessExposure, TASK_FRAMING_BLOCK
 
-**Status:** DEPLOYED — commit 4c3fbc3
+**Status:** REVERTED — superseded by D-127
+
+---
+
+## D-127 — Image Pipeline v43: Full Rollback to v27 + Baseline Lock
+
+**Decision:**
+Operator rejected ALL post-processing changes from v28-v42. Full rollback to v27 clean baseline (raw Gemini output only). Then apply three surgical, prompt-only fixes: side hero as slot 1, background lock (one color per shoe), anti-frame hardening.
+
+**Context:**
+v28-v42 added layers of pixel-manipulation post-processing (brightness normalization, centering, bg enforcement, frame detection, softening). Each iteration made images worse — too dark, painting-like, gradient backgrounds, sole bleed. Operator explicitly requested full removal. The v27 raw Gemini output is the approved visual standard.
+
+**What was REMOVED (v28-v42, permanently):**
+- `normalizeBrightness` (v35) — gamma correction on product pixels
+- `centerProduct` (v36) — bbox-based product centering
+- `enforceSlotBackground` (v28-v34) — pixel-level bg color replacement
+- `detectAndRemoveFrame` (v33) — frame/border detection and crop
+- `softenImage` (v41) — gaussian blur softening
+- `measureCentering` / centering QC gate (v37)
+- `checkBrightnessExposure` (v30) — brightness QC gate
+- `checkSlotBackground` (v28) — background color QC gate
+
+**What was PRESERVED from v27 baseline:**
+- Raw Gemini image generation (no pixel manipulation)
+- Color match check (Gemini Vision)
+- Brand fidelity check (Gemini Vision)
+- Shot compliance check (Gemini Vision)
+- Stock number overlay
+- Current visual quality, brightness, lighting, sharpness
+
+**Three prompt-only fixes applied on top of v27:**
+
+1. **Slot order → side_angle first**: EDITING_SCENES[0] = side_angle (was commerce_front). generativeGallery[0] = side profile = website hero. Standard `#gorsel` produces [side_angle, commerce_front, detail_closeup].
+
+2. **Background lock**: getBackgroundForColor returns ONE exact color per shoe color (removed "or" options). TASK_FRAMING_BLOCK adds "BACKGROUND CONSISTENCY" section — all slots must use identical backdrop. Detail closeup bokeh must match batch color.
+
+3. **Anti-frame hardening**: TASK_FRAMING_BLOCK adds 7-line "ANTI-FRAME RULE (ZERO TOLERANCE)" section. Explicit bans: image-inside-image, bordered panels, decorative edges, shadow boxing, vignette, printed-on-paper look.
+
+**Slot Map (v43):**
+| Slot | Index | Name | Stage |
+|------|-------|------|-------|
+| 1 | 0 | side_angle | standard (PRIMARY) |
+| 2 | 1 | commerce_front | standard |
+| 3 | 2 | detail_closeup | standard |
+| 4 | 3 | tabletop_editorial | premium |
+| 5 | 4 | worn_lifestyle | premium |
+
+**Files Changed:**
+- `src/lib/imageProviders.ts`: EDITING_SCENES order, getBackgroundForColor, TASK_FRAMING_BLOCK
+- `src/jobs/imageGenTask.ts`: ALL_SLOT_NAMES, ALL_SLOT_LABELS
+- `src/lib/imagePromptBuilder.ts`: prompt order, header comment
+
+**Status:** DEPLOYED

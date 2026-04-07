@@ -94,20 +94,26 @@ const TASK_FRAMING_BLOCK =
   `• Ultra clean, high clarity, high sharpness, no noise, no clutter.\n` +
   `• Soft studio lighting, natural soft shadow under the shoe.\n` +
   `• No harsh reflections, no dramatic lighting — realistic commercial look.\n` +
-  `• VISUAL TONE: Rich, warm, slightly dark. NOT bright or airy. NOT high-key.\n` +
-  `• The overall mood must feel grounded and premium — like a physical catalog page, not a web-store white-blast.\n` +
+  `• VISUAL TONE: Rich, warm, DARK. NOT bright. NOT airy. NOT high-key. NOT washed out.\n` +
+  `• The background is a CLEARLY VISIBLE COLOR — medium grey or warm sand, NOT white or near-white.\n` +
+  `• The overall mood must feel grounded, weighty, and premium — like a luxury leather goods catalog printed on matte paper.\n` +
+  `• If you generate an image that looks bright, airy, or white-dominated, it is WRONG and will be REJECTED.\n` +
   `\n` +
   `═══ EXPOSURE & BRIGHTNESS CONTROL — MANDATORY ═══\n` +
-  `• DARK & RICH exposure is the standard. The shoe must retain full surface detail with rich midtones.\n` +
+  `• DARK & RICH exposure is the MANDATORY standard. Every image must have rich, deep midtones.\n` +
+  `• The overall image must feel DARK — like a premium catalog shot with subdued, warm lighting.\n` +
   `• NO blown highlights — every part of the shoe surface must show visible texture.\n` +
-  `• NO washed-out or overexposed areas — leather grain, stitching, and material must be clearly readable.\n` +
-  `• NO high-key white flooding — the background is a VISIBLE COLOR (not near-white). It must read as a distinct backdrop.\n` +
+  `• NO washed-out, overexposed, or bright areas anywhere in the image.\n` +
+  `• NO high-key lighting. NO white flooding. NO airy/bright studio look.\n` +
+  `• The background is a VISIBLY COLORED medium-tone surface (not white, not light grey, not near-white).\n` +
+  `• The background must be OBVIOUSLY DARKER than 80% luminance — think warm concrete, natural stone, slate.\n` +
   `• Preserve the true tonal range of the product: darks stay dark, midtones stay rich, highlights stay controlled.\n` +
   `• Lighting must illuminate the shoe WITHOUT flattening its surface detail.\n` +
   `• If the shoe is dark (black, navy, dark brown): expose for the shoe, not the background. Keep shadows rich and deep.\n` +
-  `• If the shoe is light (white, cream, beige): use subtle shadows and contrast to define edges and texture. Do NOT let the shoe merge with the background.\n` +
-  `• Think: a professional photographer who meters for the product in a warmly-lit studio with a colored backdrop — NOT a white infinity curve.\n` +
-  `• An overexposed, washed-out, or bright-flooded image is WRONG and will be REJECTED.\n` +
+  `• If the shoe is light (white, cream, beige): the background MUST be clearly darker. Strong contrast. Do NOT let the shoe merge with the background.\n` +
+  `• Think: a premium leather goods photographer in a warmly-lit studio with a COLORED backdrop — NOT a white infinity curve. NOT a bright web-store photo.\n` +
+  `• Imagine the image printed on heavy matte paper in a luxury catalog — that is the target tone.\n` +
+  `• An overexposed, washed-out, bright, or white-dominated image is WRONG and will be REJECTED.\n` +
   `═══════════════════════════\n` +
   `\n` +
   `═══ GLOBAL BACKGROUND LOCK (PRODUCT-LEVEL — ZERO TOLERANCE) ═══\n` +
@@ -166,23 +172,24 @@ export function getBackgroundForColor(mainColor: string): string {
 
   // Returns ONE EXACT background per shoe color — no "or" options.
   // This ensures all slots in a batch use the identical background.
-  // v39: all hex codes shifted darker — visible studio color, not near-white.
+  // v40: AGGRESSIVE — dropped to ~55-65% luminance. These are CLEARLY COLORED
+  // studio backdrops, not light/white. Think: warm concrete, slate, clay.
 
   if (c.includes('black') || c.includes('siyah'))
-    return 'warm sand (#D4C9B8). Solid, uniform, warm studio tone. Clearly visible color — not white. No gradient.'
+    return 'warm sand (#B8A68E). Solid, uniform, visibly warm sand tone. This is NOT white or light grey — it is a clearly colored warm studio backdrop. No gradient.'
   if (c.includes('white') || c.includes('beyaz') || c.includes('off-white'))
-    return 'medium warm grey (#B8B5B0). Solid, uniform tone. Clearly darker than the shoe — strong contrast. No gradient.'
+    return 'medium grey (#9A9590). Solid, uniform medium grey. MUST be clearly darker than the white shoe — strong visible contrast. This is NOT light — it is a definite grey. No gradient.'
   if (c.includes('brown') || c.includes('kahve') || c.includes('espresso'))
-    return 'warm stone (#D6CCBE). Solid, uniform, warm natural studio tone. Clearly visible color. No gradient.'
+    return 'warm stone (#BCA898). Solid, uniform warm stone. Visibly colored, not light. Think: natural sandstone. No gradient.'
   if (c.includes('tan') || c.includes('tobacco') || c.includes('camel') || c.includes('taba'))
-    return 'cool light grey (#C8C6C3). Solid, uniform, cool neutral studio tone. Clearly visible. No gradient.'
+    return 'cool grey (#A8A5A2). Solid, uniform cool grey. Clearly visible as a grey tone — not white. No gradient.'
   if (c.includes('grey') || c.includes('gray') || c.includes('gri'))
-    return 'warm off-white (#D9D5CE). Solid, uniform, warm tone to contrast cool shoe. Clearly visible. No gradient.'
+    return 'warm beige (#BFB5A8). Solid, uniform warm beige to contrast cool shoe. Clearly colored. No gradient.'
   if (c.includes('navy') || c.includes('lacivert') || (c.includes('blue') && c.includes('dark')))
-    return 'warm light grey (#C9C4BC). Solid, uniform, warm neutral tone. Clearly visible. No gradient.'
+    return 'warm grey (#ADA59C). Solid, uniform warm grey. Clearly visible — not white or near-white. No gradient.'
   if (c.includes('red') || c.includes('kırmızı') || c.includes('bordo') || c.includes('burgundy'))
-    return 'cool grey (#C2C0BD). Solid, uniform, cool neutral tone. Clearly visible. No gradient.'
-  return 'warm neutral grey (#CBC7C0). Solid, uniform, warm studio tone. Clearly visible color — not white. No gradient.'
+    return 'cool slate grey (#A09D9A). Solid, uniform cool slate. Clearly visible as a medium grey — not light. No gradient.'
+  return 'warm neutral grey (#AFA89E). Solid, uniform warm grey studio tone. This is CLEARLY colored — not white. No gradient.'
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -959,12 +966,12 @@ async function checkBrightnessExposure(
     const meanBrightness = Math.round(sum / totalPixels)
     const highlightPercent = Math.round((nearWhiteCount / totalPixels) * 100)
 
-    // v39: Tighter QC. With darker backgrounds (~75% lum), the overall mean should
-    // be substantially lower. Mean >185 or highlight >25% triggers a retry.
-    // The normalization post-processing is the real safety net, but tighter QC
-    // catches overexposure earlier and triggers retries with darker exposure hints.
-    const isTooMean = meanBrightness > 185
-    const isTooHighlight = highlightPercent > 25
+    // v40: AGGRESSIVE QC. With darker backgrounds (~60% lum), overall mean should
+    // be much lower. Mean >165 or highlight >18% triggers retry with darker hints.
+    // Post-processing (normalizeBrightness + enforceSlotBackground) is the real
+    // safety net, but tight QC forces Gemini to produce darker output initially.
+    const isTooMean = meanBrightness > 165
+    const isTooHighlight = highlightPercent > 18
     const pass = !isTooMean && !isTooHighlight
 
     console.log(
@@ -972,11 +979,13 @@ async function checkBrightnessExposure(
     )
 
     const correctionHint = pass ? '' :
-      `CRITICAL EXPOSURE CORRECTION: The previous output was overexposed ` +
+      `CRITICAL EXPOSURE CORRECTION: The previous output was TOO BRIGHT and OVEREXPOSED ` +
       `(mean brightness ${meanBrightness}/255, ${highlightPercent}% near-white pixels). ` +
-      `Reduce overall brightness. Use controlled, balanced studio lighting. ` +
-      `The shoe surface MUST retain visible texture, grain, and stitching detail. ` +
-      `No blown highlights. No washed-out areas. Meter exposure for the shoe, not the background.`
+      `This is UNACCEPTABLE. Generate a MUCH DARKER image. ` +
+      `REDUCE exposure by at least 2 stops. Use warm, subdued studio lighting — NOT bright/airy. ` +
+      `The background MUST be a visible medium-tone color, NOT white or near-white. ` +
+      `The shoe surface MUST show rich texture, grain, and stitching detail with deep midtones. ` +
+      `Think: luxury catalog shot on matte paper — dark, rich, warm. NOT a web-store bright photo.`
 
     return { pass, meanBrightness, highlightPercent, correctionHint }
   } catch (err) {
@@ -1230,12 +1239,12 @@ async function normalizeBrightness(
   const meanLum = lumSum / productPixelCount
 
   // ── Determine correction ──
-  // v39: shifted darker — 70-120 band. Previous 85-145 still produced
-  // a bright/washed look. New midpoint 95 pulls product tones substantially
-  // darker for a richer, more grounded premium feel.
-  const TARGET_LOW  = 70
-  const TARGET_HIGH = 120
-  const TARGET_MID  = 95
+  // v40: AGGRESSIVE — band 60-105, midpoint 82. This produces visibly rich,
+  // dark, premium product tones. No more washed/bright look.
+  // Previous v39 band (70-120, mid 95) was still too bright.
+  const TARGET_LOW  = 60
+  const TARGET_HIGH = 105
+  const TARGET_MID  = 82
 
   let gamma = 1.0
 
@@ -1243,12 +1252,12 @@ async function normalizeBrightness(
     const currentNorm = meanLum / 255
     const targetNorm  = TARGET_MID / 255
     gamma = Math.log(targetNorm) / Math.log(currentNorm)
-    gamma = Math.max(1.05, Math.min(gamma, 1.8))
+    gamma = Math.max(1.08, Math.min(gamma, 2.2))
   } else if (meanLum < TARGET_LOW) {
     const currentNorm = meanLum / 255
     const targetNorm  = TARGET_MID / 255
     gamma = Math.log(targetNorm) / Math.log(currentNorm)
-    gamma = Math.max(0.55, Math.min(gamma, 0.95))
+    gamma = Math.max(0.5, Math.min(gamma, 0.92))
   }
 
   console.log(
@@ -1711,8 +1720,10 @@ async function enforceSlotBackground(
     return imageBuffer
   }
 
-  // ── Step 2: Replace background-like pixels ──
-  // v38: Unified thresholds — all slots are full-shoe studio shots now
+  // ── Step 2: HARD REPLACE background-like pixels ──
+  // v40: HARD REPLACE mode — background pixels are SET to the target color,
+  // not shifted. This guarantees the exact hex regardless of what Gemini generated.
+  // Only a soft blend margin at the product edge preserves smooth transitions.
   const MAX_BG_DISTANCE = 90
   const BLEND_MARGIN    = 50
   const totalThreshold  = MAX_BG_DISTANCE + BLEND_MARGIN
@@ -1740,18 +1751,14 @@ async function enforceSlotBackground(
     if (dist <= MAX_BG_DISTANCE) {
       blend = 1.0
     } else {
-      // Soft gradient in the margin zone
+      // Soft gradient in the margin zone for smooth product-to-bg transition
       blend = 1.0 - (dist - MAX_BG_DISTANCE) / BLEND_MARGIN
     }
 
-    // Shift this pixel's color toward the target background
-    const shiftR = (targetBg.r - effectiveBg.r) * blend
-    const shiftG = (targetBg.g - effectiveBg.g) * blend
-    const shiftB = (targetBg.b - effectiveBg.b) * blend
-
-    outputPixels[i]     = Math.max(0, Math.min(255, Math.round(pr + shiftR)))
-    outputPixels[i + 1] = Math.max(0, Math.min(255, Math.round(pg + shiftG)))
-    outputPixels[i + 2] = Math.max(0, Math.min(255, Math.round(pb + shiftB)))
+    // v40: HARD REPLACE — set pixel directly to target color (blended at edges)
+    outputPixels[i]     = Math.max(0, Math.min(255, Math.round(pr + (targetBg.r - pr) * blend)))
+    outputPixels[i + 1] = Math.max(0, Math.min(255, Math.round(pg + (targetBg.g - pg) * blend)))
+    outputPixels[i + 2] = Math.max(0, Math.min(255, Math.round(pb + (targetBg.b - pb) * blend)))
   }
 
   // ── Step 3: Reconstruct JPEG from modified pixel data ──

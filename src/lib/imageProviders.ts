@@ -31,6 +31,24 @@ const CANONICAL_PROHIBITIONS_BLOCK =
   `═══════════════════════════\n`
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Anti-frame enforcer — placed LAST in prompt for maximum recency attention
+// ─────────────────────────────────────────────────────────────────────────────
+const ANTI_FRAME_FINAL_BLOCK =
+  `\n\n═══ FINAL OUTPUT RULE — NO FRAMES (MANDATORY) ═══\n` +
+  `Before you output, verify: does the generated image contain ANY of these?\n` +
+  `• A visible border, outline, or edge that is NOT the canvas edge\n` +
+  `• A rectangular "card", "tile", or "panel" effect around the product\n` +
+  `• A shadow-box, drop-shadow rectangle, or rounded-corner frame\n` +
+  `• A white/gray margin between the photo content and the canvas edge\n` +
+  `• An image-inside-an-image or photo-on-a-background appearance\n` +
+  `• Any decorative edge, vignette border, or poster presentation\n` +
+  `If YES to ANY of the above → your output is WRONG. Regenerate WITHOUT any frame.\n` +
+  `The background color/scene MUST extend to ALL FOUR edges of the output canvas.\n` +
+  `There must be ZERO pixels of border/margin between the photo content and the canvas edge.\n` +
+  `This is a raw camera photograph, NOT a product card, NOT a mockup, NOT a framed print.\n` +
+  `═══════════════════════════════════════════════════\n`
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Task framing — tells the model WHAT IT IS DOING before any details
 // ─────────────────────────────────────────────────────────────────────────────
 // This block is injected BEFORE the identity lock in every generation prompt.
@@ -803,8 +821,11 @@ const EDITING_SCENES = [
       `MUST NOT SEE: Toe cap front face (if you can see the front of the toe, the angle is WRONG).\n` +
       `BACKGROUND: {BACKGROUND}\n` +
       `LIGHT: Soft studio lighting — key from front-left 45°, fill from opposite. Natural soft shadow. No harsh reflections.\n` +
-      `OUTPUT: Full-bleed photograph. No frames, no borders, no margins, no mockup. No watermark, no text, no logo overlay.\n` +
-      `THIS IS NOT: a front view, a 3/4 view, a top-down view, a framed image.\n` +
+      `OUTPUT: Full-bleed photograph that fills the ENTIRE canvas edge to edge. The image IS the photo — NOT a photo of a photo.\n` +
+      `CRITICAL ANTI-FRAME: Do NOT render any border, frame, shadow-box, rounded-corner card, drop-shadow rectangle, or picture-inside-picture effect. ` +
+      `Do NOT place the shoe on a "floating card" or "product tile". The background must extend to ALL four edges with ZERO visible boundary. ` +
+      `If there is ANY rectangular outline or visible edge that is not the canvas edge, the image is REJECTED.\n` +
+      `THIS IS NOT: a front view, a 3/4 view, a top-down view, a framed image, a product card, a mockup.\n` +
       `COLOR: The shoe is {COLOR}. Output MUST be {COLOR}. Other colors = REJECTED.\n` +
       `DO NOT repeat the reference angle ({REF_ANGLE}). Generate a pure side profile.`,
   },
@@ -861,8 +882,11 @@ const EDITING_SCENES = [
       `MUST NOT SEE: The front face of the toe (that's slot 1), the side profile (that's slot 2).\n` +
       `SURFACE: Clean surface that complements the shoe. {BACKGROUND} Very soft gradient allowed but barely noticeable.\n` +
       `LIGHT: Soft diffused studio light from upper-left. Gentle natural shadow lower-right. No harsh reflections.\n` +
-      `OUTPUT: Full-bleed photograph. No frames, no borders, no margins, no mockup. No watermark, no text, no logo overlay.\n` +
-      `THIS IS NOT: a front hero, a side profile, a close-up macro, a framed image.\n` +
+      `OUTPUT: Full-bleed photograph that fills the ENTIRE canvas edge to edge. The image IS the photo — NOT a photo of a photo.\n` +
+      `CRITICAL ANTI-FRAME: Do NOT render any border, frame, shadow-box, rounded-corner card, drop-shadow rectangle, or picture-inside-picture effect. ` +
+      `Do NOT place the shoe on a "floating card" or "product tile". The surface/background must extend to ALL four edges with ZERO visible boundary. ` +
+      `If there is ANY rectangular outline or visible edge that is not the canvas edge, the image is REJECTED.\n` +
+      `THIS IS NOT: a front hero, a side profile, a close-up macro, a framed image, a product card, a mockup.\n` +
       `COLOR: The shoe is {COLOR}. Output MUST be {COLOR}. Other colors = REJECTED.\n` +
       `DO NOT repeat the reference angle ({REF_ANGLE}). Generate an overhead editorial.`,
   },
@@ -878,8 +902,11 @@ const EDITING_SCENES = [
       `MUST NOT SEE: Face, upper body. The shoe is the hero — the person is secondary.\n` +
       `ENVIRONMENT: Warm blurred lifestyle setting — wooden floor, cobblestone, or garden. Soft bokeh background.\n` +
       `LIGHT: Warm natural golden-hour side light. Authentic, non-studio. Soft shadows. No harsh reflections.\n` +
-      `OUTPUT: Full-bleed photograph. No frames, no borders, no margins, no mockup. No watermark, no text, no logo overlay.\n` +
-      `THIS IS NOT: an isolated product shot, a studio photo, an overhead view, a framed image.\n` +
+      `OUTPUT: Full-bleed photograph that fills the ENTIRE canvas edge to edge. The image IS the photo — NOT a photo of a photo.\n` +
+      `CRITICAL ANTI-FRAME: Do NOT render any border, frame, shadow-box, rounded-corner card, drop-shadow rectangle, or picture-inside-picture effect. ` +
+      `Do NOT place the scene inside a "floating card" or bordered area. The scene must extend to ALL four edges with ZERO visible boundary. ` +
+      `If there is ANY rectangular outline or visible edge that is not the canvas edge, the image is REJECTED.\n` +
+      `THIS IS NOT: an isolated product shot, a studio photo, an overhead view, a framed image, a product card, a mockup.\n` +
       `COLOR: The shoe is {COLOR}. Output MUST be {COLOR}. Other colors = REJECTED.\n` +
       `DO NOT repeat the reference angle ({REF_ANGLE}). Generate a lifestyle worn shot.`,
   },
@@ -991,7 +1018,7 @@ export async function generateByEditing(
       //   3. zoneBlock — protected brand zones
       //   4. sceneText — camera angle, framing, background, lighting
       //   5. CANONICAL_PROHIBITIONS_BLOCK — 11 canonical prohibitions from productPreservation.ts
-      const fullPrompt = TASK_FRAMING_BLOCK + identityLock.promptBlock + zoneBlock + sceneText + CANONICAL_PROHIBITIONS_BLOCK
+      const fullPrompt = TASK_FRAMING_BLOCK + identityLock.promptBlock + zoneBlock + sceneText + CANONICAL_PROHIBITIONS_BLOCK + ANTI_FRAME_FINAL_BLOCK
 
       const slotLog: SlotLog = {
         slot: scene.name,
@@ -1345,7 +1372,7 @@ export async function generateByGeminiPro(
         .replace(/\{BACKGROUND\}/g, premiumBackground)
 
       // Same 5-block prompt structure as generateByEditing
-      const fullPrompt = TASK_FRAMING_BLOCK + identityLock.promptBlock + zoneBlock + sceneText + CANONICAL_PROHIBITIONS_BLOCK
+      const fullPrompt = TASK_FRAMING_BLOCK + identityLock.promptBlock + zoneBlock + sceneText + CANONICAL_PROHIBITIONS_BLOCK + ANTI_FRAME_FINAL_BLOCK
 
       const slotLog: SlotLog = {
         slot: scene.name,

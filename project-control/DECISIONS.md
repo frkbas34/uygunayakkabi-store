@@ -2889,4 +2889,31 @@ Quality standard section updated: added "VISUAL TONE: Rich, warm, slightly dark.
 | 4 | tabletop_editorial | 55-65° overhead editorial, marble surface | premium |
 | 5 | worn_lifestyle | Lifestyle worn shot, human foot, outdoor | premium |
 
-**Status:** DEPLOYED
+**Status:** SUPERSEDED by D-126
+
+---
+
+## D-126 — Image Pipeline v40: Aggressive Visual Enforcement
+
+**Decision:**
+v39 was too subtle — operator confirmed problems persisted. v40 applies aggressive, multi-layer enforcement to guarantee visible backgrounds and dark/rich product tones.
+
+**Root Cause:**
+v39 hex codes (~79% luminance) were still perceived as near-white on screen. The shift-based background enforcement preserved whatever Gemini generated rather than forcing the target. Brightness normalization band (70-120, mid 95) still allowed bright-looking output.
+
+**Changes:**
+
+1. **Background hex codes → ~60% luminance**: All colors dropped ~20% further. E.g. black shoe: #D4C9B8 (79%) → #B8A68E (61%). These are now undeniably colored — warm sand, medium grey, slate — not interpretable as white.
+
+2. **enforceSlotBackground → HARD REPLACE**: Background-classified pixels are now SET to the exact target RGB, not shifted relative to Gemini's output. Formula changed from `pixel + (target - detected) * blend` to `pixel + (target - pixel) * blend`. Guarantees exact target color regardless of what Gemini generated.
+
+3. **normalizeBrightness band → 60-105, mid 82**: Down from 70-120/95. Max darkening gamma raised from 1.8 to 2.2. Product pixels will be visibly darker.
+
+4. **QC brightness thresholds → mean>165, highlight>18%**: Down from 185/25%. Forces Gemini to retry with darker output.
+
+5. **TASK_FRAMING_BLOCK**: Added aggressive anti-white/anti-bright language. Retry hint demands "2 stops darker." Background described as "medium-tone surface, NOT white, NOT light grey."
+
+**Files Changed:**
+- `src/lib/imageProviders.ts`: getBackgroundForColor, enforceSlotBackground, normalizeBrightness, checkBrightnessExposure, TASK_FRAMING_BLOCK
+
+**Status:** DEPLOYED — commit 4c3fbc3

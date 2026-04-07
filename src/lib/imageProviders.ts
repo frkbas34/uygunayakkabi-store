@@ -967,12 +967,11 @@ async function checkBrightnessExposure(
     const meanBrightness = Math.round(sum / totalPixels)
     const highlightPercent = Math.round((nearWhiteCount / totalPixels) * 100)
 
-    // v40: AGGRESSIVE QC. With darker backgrounds (~60% lum), overall mean should
-    // be much lower. Mean >165 or highlight >18% triggers retry with darker hints.
-    // Post-processing (normalizeBrightness + enforceSlotBackground) is the real
-    // safety net, but tight QC forces Gemini to produce darker output initially.
-    const isTooMean = meanBrightness > 165
-    const isTooHighlight = highlightPercent > 18
+    // v42: BALANCED QC. v40 (165/18%) was over-aggressive — forced too-dark output.
+    // Mean >180 or highlight >22% triggers retry. This catches genuinely overexposed
+    // images while allowing natural warm brightness through.
+    const isTooMean = meanBrightness > 180
+    const isTooHighlight = highlightPercent > 22
     const pass = !isTooMean && !isTooHighlight
 
     console.log(
@@ -1240,12 +1239,14 @@ async function normalizeBrightness(
   const meanLum = lumSum / productPixelCount
 
   // ── Determine correction ──
-  // v40: AGGRESSIVE — band 60-105, midpoint 82. This produces visibly rich,
-  // dark, premium product tones. No more washed/bright look.
-  // Previous v39 band (70-120, mid 95) was still too bright.
-  const TARGET_LOW  = 60
-  const TARGET_HIGH = 105
-  const TARGET_MID  = 82
+  // v42: BALANCED — band 72-118, midpoint 92. v40 (60-105/82) was too dark —
+  // crushed midtones and made the shoe look like a painting. v39 (70-120/95)
+  // was slightly too bright. This is the calibrated middle: warm, rich, natural
+  // without the muddy/underexposed look. Max gamma capped at 1.6 to prevent
+  // detail-destroying over-darkening.
+  const TARGET_LOW  = 72
+  const TARGET_HIGH = 118
+  const TARGET_MID  = 92
 
   let gamma = 1.0
 
@@ -1253,12 +1254,12 @@ async function normalizeBrightness(
     const currentNorm = meanLum / 255
     const targetNorm  = TARGET_MID / 255
     gamma = Math.log(targetNorm) / Math.log(currentNorm)
-    gamma = Math.max(1.08, Math.min(gamma, 2.2))
+    gamma = Math.max(1.05, Math.min(gamma, 1.6))
   } else if (meanLum < TARGET_LOW) {
     const currentNorm = meanLum / 255
     const targetNorm  = TARGET_MID / 255
     gamma = Math.log(targetNorm) / Math.log(currentNorm)
-    gamma = Math.max(0.5, Math.min(gamma, 0.92))
+    gamma = Math.max(0.55, Math.min(gamma, 0.95))
   }
 
   console.log(
@@ -1328,12 +1329,15 @@ async function softenImage(imageBuffer: Buffer): Promise<Buffer> {
   // eslint-disable-next-line @typescript-eslint/no-require-imports
   const sharp = require('sharp') as typeof import('sharp')
 
+  // v42: sigma 0.3 (was 0.6). 0.6 was too aggressive — destroyed leather grain
+  // and made the shoe look like a painting. 0.3 just takes the AI-crisp digital
+  // edge off while preserving real texture detail like stitching and grain.
   const result = await sharp(imageBuffer)
-    .blur(0.6) // subtle gaussian — just enough to remove AI-crisp edges
-    .jpeg({ quality: 88 }) // slightly lower quality also aids natural feel
+    .blur(0.3) // very subtle — removes digital crispness only
+    .jpeg({ quality: 90 }) // v42: bumped from 88 to 90 to preserve more detail
     .toBuffer()
 
-  console.log(`[softenImage v41] ✓ softened — ${result.length}b`)
+  console.log(`[softenImage v42] ✓ softened — ${result.length}b`)
   return result
 }
 
@@ -1743,11 +1747,15 @@ async function enforceSlotBackground(
   }
 
   // ── Step 2: HARD REPLACE background-like pixels ──
-  // v40: HARD REPLACE mode — background pixels are SET to the target color,
-  // not shifted. This guarantees the exact hex regardless of what Gemini generated.
-  // Only a soft blend margin at the product edge preserves smooth transitions.
-  const MAX_BG_DISTANCE = 90
-  const BLEND_MARGIN    = 50
+  // v42: Dual-distance check — a pixel is "background" if it's close to EITHER
+  // the detected bg color OR the target bg color. This fixes gradient backgrounds
+  // where Gemini produces varying shades — all get caught and replaced.
+  //
+  // WHITE-SHOE PROTECTION: If a pixel has high luminance (>210) AND is far from
+  // both bg references, it's likely a white shoe part (sole, upper) and must NOT
+  // be touched. This prevents enforcement from eating white/cream product surfaces.
+  const MAX_BG_DISTANCE = 80  // v42: tightened from 90 to reduce product bleed
+  const BLEND_MARGIN    = 40  // v42: tightened from 50 for sharper product edges
   const totalThreshold  = MAX_BG_DISTANCE + BLEND_MARGIN
 
   const outputPixels = Buffer.from(rawPixels) // copy
@@ -1757,14 +1765,30 @@ async function enforceSlotBackground(
     const pg = rawPixels[i + 1]
     const pb = rawPixels[i + 2]
 
-    // Euclidean distance from this pixel to effective background
-    const dr = pr - effectiveBg.r
-    const dg = pg - effectiveBg.g
-    const db = pb - effectiveBg.b
-    const dist = Math.sqrt(dr * dr + dg * dg + db * db)
+    // Distance from DETECTED background (what Gemini actually produced)
+    const dr1 = pr - effectiveBg.r
+    const dg1 = pg - effectiveBg.g
+    const db1 = pb - effectiveBg.b
+    const distFromDetected = Math.sqrt(dr1 * dr1 + dg1 * dg1 + db1 * db1)
+
+    // Distance from TARGET background (what we want)
+    const dr2 = pr - targetBg.r
+    const dg2 = pg - targetBg.g
+    const db2 = pb - targetBg.b
+    const distFromTarget = Math.sqrt(dr2 * dr2 + dg2 * dg2 + db2 * db2)
+
+    // Use the SMALLER distance — pixel is bg-like if close to either reference
+    const dist = Math.min(distFromDetected, distFromTarget)
 
     if (dist >= totalThreshold) {
       // Product pixel — leave untouched
+      continue
+    }
+
+    // WHITE-SHOE PROTECTION: high-luminance pixels far from bg are product
+    const pixelLum = 0.2126 * pr + 0.7152 * pg + 0.0722 * pb
+    if (pixelLum > 210 && distFromDetected > 60 && distFromTarget > 60) {
+      // Bright pixel far from both backgrounds — likely white shoe/sole
       continue
     }
 
@@ -1777,7 +1801,7 @@ async function enforceSlotBackground(
       blend = 1.0 - (dist - MAX_BG_DISTANCE) / BLEND_MARGIN
     }
 
-    // v40: HARD REPLACE — set pixel directly to target color (blended at edges)
+    // HARD REPLACE — set pixel directly to target color (blended at edges)
     outputPixels[i]     = Math.max(0, Math.min(255, Math.round(pr + (targetBg.r - pr) * blend)))
     outputPixels[i + 1] = Math.max(0, Math.min(255, Math.round(pg + (targetBg.g - pg) * blend)))
     outputPixels[i + 2] = Math.max(0, Math.min(255, Math.round(pb + (targetBg.b - pb) * blend)))

@@ -2809,3 +2809,40 @@ MAX_CENTER_OFFSET_PCT = 12% on either axis. Chosen as strict enough to catch vis
 - `src/lib/imageProviders.ts`: centerProduct() split-sharp fix (~line 1427), measureCentering() new function (~line 1480), SlotLog type expanded, centering retry loop in generateByGeminiPro() (~line 2486-2766)
 
 **Status:** DEPLOYED — commit cd02c19
+
+---
+
+## D-124 — Image Pipeline v38: Slot 3 Rebuild + Global Background Lock
+
+**Decision:**
+Replace slot 3 (`detail_closeup` macro) with a production-stable 3/4 rear hero (`back_hero`). Formalize global background-lock where slot 1 is the background-family source and all other slots must match. Remove all macro-specific code paths.
+
+**Problem — Slot 3 Macro:**
+The `detail_closeup` macro slot was the least stable slot in the pipeline. Recurring issues: (1) Gemini generates frames/borders/inset panels ~30-40% of the time. (2) Shallow DoF bokeh color drifts from batch background despite 21 lines of prompt instructions. (3) Surface/tabletop bleed from reference photos despite explicit bans. (4) Required special-case code: corner-only bg sampling, tighter enforcement thresholds, centering skip, no centering QC. The macro framing instruction ("full shoe must NOT be visible") fundamentally conflicts with the pipeline's full-shoe assumptions.
+
+**Problem — Background Lock:**
+Background lock was enforced at code level (`getBackgroundForColor` + `enforceSlotBackground` + batch check) but the prompt-level lock had macro/editorial/lifestyle exceptions that weakened it. The global framing block mentioned "bokeh color = backdrop color" for macro, "surface color" for editorial, and "dominant blurred tone" for lifestyle — all weaker than "same exact color."
+
+**Solution — New Slot 3 (`back_hero`):**
+3/4 rear hero shot: camera 30-45° behind the shoe, heel counter dominant, full shoe visible, standard studio background. This angle reveals genuinely different product features (heel counter, pull tab, rear stitching) that slots 1-2 don't show. Being a full-shoe shot, ALL existing post-processing works on it: bg enforcement (edge-strip mode), frame detection, brightness normalization, centering, centering QC.
+
+**Solution — Global Background Lock:**
+Strengthened TASK_FRAMING_BLOCK background lock section: removed macro/editorial/lifestyle exceptions. New rule: "Slot 1 sets the background-family. Slots 2-5 MUST produce the same color." Rejection test: "any visible color temperature shift between slots = REJECTED." Existing code-level enforcement unchanged (already correct): `getBackgroundForColor` → same hex for all slots, `enforceSlotBackground` → pixel-level correction, batch bg check → post-loop re-enforcement.
+
+**Code Removed:**
+- `isMacroSlot` flag and corner-only sampling mode in `enforceSlotBackground`
+- Tighter macro thresholds (MAX_BG_DISTANCE=70, BLEND_MARGIN=40) — now unified at 90/50
+- `centerProduct` skip for `detail_closeup` — all slots get centering now
+- `detail_closeup` shot criteria in SHOT_CRITERIA — replaced with `back_hero`
+- Macro exception in TASK_FRAMING_BLOCK scale rule
+- 21-line macro-specific background instruction block in EDITING_SCENES[2]
+
+**Files Changed:**
+- `src/lib/imageProviders.ts`: EDITING_SCENES[2] replaced, SHOT_CRITERIA updated, centerProduct skip removed, CENTERING_QC_SLOTS expanded, enforceSlotBackground simplified, TASK_FRAMING_BLOCK background lock strengthened
+- `src/jobs/imageGenTask.ts`: ALL_SLOT_NAMES[2], ALL_SLOT_LABELS[2], CLEAN_SLOT_LABELS[2] updated
+- `src/lib/imagePromptBuilder.ts`: concept type and prompt updated (legacy builder, not active)
+
+**No-Frame Enforcement (verified, no changes needed):**
+Already hardened at 3 levels: (1) TASK_FRAMING_BLOCK anti-inset rules, (2) D3 shot compliance includes frame detection, (3) `detectAndRemoveFrame` post-processing runs unconditionally.
+
+**Status:** DEPLOYED — commit TBD

@@ -62,8 +62,8 @@ const TASK_FRAMING_BLOCK =
   `═══ IMAGE NORMALIZATION — MANDATORY ═══\n` +
   `SUBJECT SCALE: The shoe must occupy 65-80% of the image frame (height or width, whichever is dominant).\n` +
   `• The shoe must NOT appear tiny or distant inside a large empty canvas.\n` +
-  `• The shoe must NOT be excessively zoomed in (except for macro/detail slot).\n` +
-  `• All standard product shots must maintain a consistent, premium product-to-frame ratio.\n` +
+  `• The shoe must NOT be excessively zoomed in — show the FULL shoe in every slot.\n` +
+  `• All product shots must maintain a consistent, premium product-to-frame ratio.\n` +
   `CENTERING — CRITICAL:\n` +
   `• The shoe must be DEAD CENTER in the image frame — both horizontally AND vertically.\n` +
   `• Equal whitespace on LEFT and RIGHT. Equal whitespace on TOP and BOTTOM.\n` +
@@ -108,19 +108,24 @@ const TASK_FRAMING_BLOCK =
   `• An overexposed, washed-out image is WRONG and will be REJECTED.\n` +
   `═══════════════════════════\n` +
   `\n` +
-  `BACKGROUND LOCK (PRODUCT-LEVEL RULE — MANDATORY — ZERO TOLERANCE):\n` +
-  `• ALL images in this product batch use the EXACT SAME physical studio backdrop.\n` +
-  `• The backdrop has NOT been changed between shots. Only the camera moved.\n` +
+  `═══ GLOBAL BACKGROUND LOCK (PRODUCT-LEVEL — ZERO TOLERANCE) ═══\n` +
+  `ALL images in this product batch share ONE physical studio backdrop.\n` +
+  `The backdrop has NOT been changed between shots. Only the camera position changed.\n` +
+  `\n` +
+  `RULES:\n` +
   `• Each slot's BACKGROUND line specifies ONE exact color with a hex code. Use THAT hex code literally.\n` +
-  `• Do NOT choose a different shade, tone, warmth, or hue — even if "similar" or "complementary".\n` +
-  `• Do NOT introduce any color not explicitly specified in the BACKGROUND line.\n` +
-  `• MACRO/CLOSE-UP: shallow DoF creates bokeh but the BOKEH COLOR = the backdrop color.\n` +
-  `• EDITORIAL: the surface color must match the backdrop color.\n` +
-  `• LIFESTYLE: the dominant blurred tone must match the backdrop color family.\n` +
-  `• TEST: if you place all batch images side by side, the backgrounds MUST look the same color.\n` +
-  `• A cool gray slot next to a warm beige slot = BATCH FAILURE = REJECTED.\n` +
-  `• A white slot next to an off-white slot = BATCH FAILURE = REJECTED.\n` +
-  `• If your output has a different background color than specified, it is WRONG and will be REJECTED.\n` +
+  `• Slot 1 (side profile) sets the background-family for the entire batch.\n` +
+  `• Slots 2, 3, 4, and 5 MUST produce the same background color as Slot 1.\n` +
+  `• No slot may independently drift to a different color, shade, warmth, or hue.\n` +
+  `• Do NOT introduce any surface, texture, tabletop, wood, marble, fabric, or environmental element.\n` +
+  `• The background is a SOLID, UNIFORM studio color — nothing else.\n` +
+  `\n` +
+  `REJECTION TEST:\n` +
+  `• Place all batch images side by side. The backgrounds MUST be the same color.\n` +
+  `• A cool gray next to a warm beige = REJECTED.\n` +
+  `• A white next to an off-white = REJECTED.\n` +
+  `• Any visible color temperature shift between slots = REJECTED.\n` +
+  `• Any textured surface or environmental background = REJECTED.\n` +
   `═══════════════════════════\n\n`
 
 /**
@@ -746,11 +751,11 @@ async function checkShotCompliance(
       failSignals: 'toe front face visible, slight diagonal (3/4 from front), heel hidden, angled top-down',
       correction: 'Camera must be at exactly 90° to the side. The toe FRONT FACE must NOT be visible. The sole profile must be fully exposed from toe to heel.',
     },
-    detail_closeup: {
-      required: 'macro close-up of material texture — full shoe silhouette NOT visible, surface fills frame',
-      passRule: 'the frame shows material texture/grain at close range, the full shoe silhouette is not in the frame',
-      failSignals: 'full shoe visible in frame, standard product angle, no macro framing, wide shot',
-      correction: 'Camera must be 15-20cm from the upper surface. The full shoe must NOT be visible. Only surface texture should fill the frame.',
+    back_hero: {
+      required: '3/4 rear hero — heel counter dominant, camera behind and to the side at 30-45°, full shoe visible',
+      passRule: 'the heel counter back face is clearly visible as the dominant feature, the shoe is seen from behind at an angle, the full shoe is in frame',
+      failSignals: 'toe cap front face visible (camera too far forward), pure side profile (not rear enough), top-down overhead, macro close-up, only partial shoe visible',
+      correction: 'Camera must be BEHIND the shoe at 30-45° from the heel. The heel counter must be the dominant feature. The toe should point AWAY from camera. Full shoe must be visible.',
     },
     tabletop_editorial: {
       required: 'overhead editorial at 55-65° — top of shoe (tongue, lacing) dominant, marble surface',
@@ -978,7 +983,7 @@ async function checkBrightnessExposure(
 // ─────────────────────────────────────────────────────────────────────────────
 // Frame / Inset Detection & Auto-Crop — Deterministic Post-Processing (v33)
 // ─────────────────────────────────────────────────────────────────────────────
-// Gemini frequently generates detail_closeup (and sometimes other slots) with
+// Gemini sometimes generates slots with
 // a visible rectangular border/frame — a darker edge forming a "photo on canvas"
 // look. This detector scans the edge bands for a consistent dark border and
 // crops it out, then scales back to original dimensions.
@@ -1304,7 +1309,7 @@ async function normalizeBrightness(
 // image center, and if the offset exceeds a threshold, shifts the product
 // to be centered by cropping and extending with the background color.
 //
-// Only operates on full-shoe slots (not macro/detail_closeup where the
+// Operates on all full-shoe slots (v38: all standard slots are full-shoe; the
 // product intentionally fills the frame asymmetrically).
 
 async function centerProduct(
@@ -1312,10 +1317,8 @@ async function centerProduct(
   targetBgHex?: string,
   slotName?: string,
 ): Promise<Buffer> {
-  // Skip centering for macro/closeup slots — product intentionally fills frame
-  if (slotName === 'detail_closeup') {
-    return imageBuffer
-  }
+  // v38: All slots are now full-shoe shots — no skip needed
+  // (Previously skipped detail_closeup which was a macro slot)
 
   // eslint-disable-next-line @typescript-eslint/no-require-imports
   const sharp = require('sharp') as typeof import('sharp')
@@ -1470,8 +1473,8 @@ async function centerProduct(
 // Step D6: Centering QC — Post-Processing Quality Gate (v37)
 // ─────────────────────────────────────────────────────────────────────────────
 
-/** Hero slots that require strict centering QC */
-const CENTERING_QC_SLOTS = new Set(['side_angle', 'commerce_front'])
+/** v38: All standard slots require strict centering QC (all are full-shoe shots now) */
+const CENTERING_QC_SLOTS = new Set(['side_angle', 'commerce_front', 'back_hero'])
 
 /** Maximum acceptable offset from center as % of image dimension */
 const MAX_CENTER_OFFSET_PCT = 12
@@ -1620,18 +1623,10 @@ function hexToRgb(hex: string): { r: number; g: number; b: number } {
  * natural-looking color shift with no visible seam.
  */
 /**
- * enforceSlotBackground — v34: product-level background lock
+ * enforceSlotBackground — v38: global background lock enforcement
  *
- * Two detection strategies:
- *   1. EDGE STRIPS (default) — sample outer 5% of image.
- *      Works well for full-shoe shots where edges are pure background.
- *   2. CORNER ONLY (macro mode) — sample only the 4 extreme corners (3% squares).
- *      For macro/closeup where the shoe fills 85%+ of the frame, edge strips
- *      get contaminated by product pixels. Corners remain background-only.
- *
- * The slotName parameter determines which strategy is used:
- *   - 'detail_closeup' → corner-only sampling
- *   - all others → edge strip sampling
+ * All slots use edge strip sampling (outer 5% of image) for bg detection.
+ * v38: all standard slots are full-shoe shots — unified strategy.
  *
  * After detection, background-like pixels are shifted toward the target color.
  * This is a deterministic, AI-free color correction — same hex in, same result out.
@@ -1657,45 +1652,22 @@ async function enforceSlotBackground(
   const channels = info.channels  // should be 3 (RGB)
 
   // ── Step 1: Detect current background color ──
-  // Use corner-only for macro slots, edge strips for everything else.
-  const isMacroSlot = slotName === 'detail_closeup'
+  // v38: All slots are full-shoe shots — unified edge strip sampling for all.
+  // (Previously had corner-only mode for macro slot which no longer exists.)
   let rSum = 0, gSum = 0, bSum = 0, sampleCount = 0
 
-  if (isMacroSlot) {
-    // CORNER-ONLY SAMPLING: 4 corner squares, each 3% of image dimensions
-    // In a centered macro shot, corners are almost always pure background/bokeh
-    const cornerSize = Math.max(8, Math.round(Math.min(width, height) * 0.03))
-    const corners = [
-      { x0: 0, y0: 0 },                                // top-left
-      { x0: width - cornerSize, y0: 0 },                // top-right
-      { x0: 0, y0: height - cornerSize },               // bottom-left
-      { x0: width - cornerSize, y0: height - cornerSize }, // bottom-right
-    ]
-    for (const corner of corners) {
-      for (let y = corner.y0; y < corner.y0 + cornerSize; y++) {
-        for (let x = corner.x0; x < corner.x0 + cornerSize; x++) {
-          const idx = (y * width + x) * channels
-          rSum += rawPixels[idx]
-          gSum += rawPixels[idx + 1]
-          bSum += rawPixels[idx + 2]
-          sampleCount++
-        }
-      }
-    }
-  } else {
-    // EDGE STRIP SAMPLING: outer 5% strips (original strategy)
-    const edgeDepth = Math.max(10, Math.round(Math.min(width, height) * 0.05))
-    for (let y = 0; y < height; y++) {
-      for (let x = 0; x < width; x++) {
-        const isEdge = y < edgeDepth || y >= height - edgeDepth ||
-                       x < edgeDepth || x >= width - edgeDepth
-        if (!isEdge) continue
-        const idx = (y * width + x) * channels
-        rSum += rawPixels[idx]
-        gSum += rawPixels[idx + 1]
-        bSum += rawPixels[idx + 2]
-        sampleCount++
-      }
+  // EDGE STRIP SAMPLING: outer 5% strips
+  const edgeDepth = Math.max(10, Math.round(Math.min(width, height) * 0.05))
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      const isEdge = y < edgeDepth || y >= height - edgeDepth ||
+                     x < edgeDepth || x >= width - edgeDepth
+      if (!isEdge) continue
+      const idx = (y * width + x) * channels
+      rSum += rawPixels[idx]
+      gSum += rawPixels[idx + 1]
+      bSum += rawPixels[idx + 2]
+      sampleCount++
     }
   }
 
@@ -1721,7 +1693,7 @@ async function enforceSlotBackground(
   const effectiveBg = useDirectTarget ? { ...targetBg } : detectedBg
 
   console.log(
-    `[enforceSlotBackground v34] slot=${slotName || 'unknown'} mode=${isMacroSlot ? 'corner' : 'edge'} ` +
+    `[enforceSlotBackground v38] slot=${slotName || 'unknown'} mode=edge ` +
     `detected=rgb(${detectedBg.r},${detectedBg.g},${detectedBg.b}) ` +
     `target=${targetHex} rgb(${targetBg.r},${targetBg.g},${targetBg.b}) ` +
     `detTargetDist=${detTargetDist.toFixed(0)} useDirectTarget=${useDirectTarget} ` +
@@ -1735,9 +1707,9 @@ async function enforceSlotBackground(
   }
 
   // ── Step 2: Replace background-like pixels ──
-  // v34: Tighter thresholds for macro slots to avoid shifting bokeh into wrong colors
-  const MAX_BG_DISTANCE = isMacroSlot ? 70 : 90
-  const BLEND_MARGIN    = isMacroSlot ? 40 : 50
+  // v38: Unified thresholds — all slots are full-shoe studio shots now
+  const MAX_BG_DISTANCE = 90
+  const BLEND_MARGIN    = 50
   const totalThreshold  = MAX_BG_DISTANCE + BLEND_MARGIN
 
   const outputPixels = Buffer.from(rawPixels) // copy
@@ -1900,53 +1872,22 @@ const EDITING_SCENES = [
       `DO NOT repeat the reference angle ({REF_ANGLE}). Generate a clean front hero.`,
   },
   {
-    name: 'detail_closeup',
-    label: 'Slot 3 — Malzeme Makro',
+    name: 'back_hero',
+    label: 'Slot 3 — 3/4 Arka Hero',
     sceneInstructions:
-      `── SHOT: MATERIAL MACRO CLOSE-UP ──\n` +
-      `Re-photograph this EXACT {COLOR} shoe — macro close-up of the upper material — same physical object.\n` +
-      `CAMERA: 15–20 cm from the vamp/toe-cap surface. Slightly above, 20–30° down. Macro focal length.\n` +
-      `COMPOSITION: Upper material fills 85–90% of image area. Very shallow depth of field. Toe area sharp, heel blurred.\n` +
-      `MUST SEE: Surface grain/texture/weave of the upper, stitching thread relief, any perforation or embossing.\n` +
-      `MUST NOT SEE: The full shoe. If the entire shoe is visible, the framing is WRONG.\n` +
-      `\n` +
-      `BACKGROUND — CRITICAL BATCH LOCK (THIS SLOT MUST MATCH THE OTHER SLOTS):\n` +
-      `BACKGROUND: {BACKGROUND}\n` +
-      `\n` +
-      `THIS IS THE SAME STUDIO, SAME BACKDROP PAPER, SAME EXACT BACKGROUND COLOR AS ALL OTHER IMAGES IN THIS SET.\n` +
-      `You have NOT changed the studio backdrop between shots. The camera simply moved closer.\n` +
-      `\n` +
-      `Because of shallow depth-of-field, the background appears as soft bokeh.\n` +
-      `But the COLOR of that bokeh MUST be IDENTICAL to the background color specified above.\n` +
-      `The blurred out-of-focus areas, the corners, the edges — they must ALL read as that SAME exact color.\n` +
-      `\n` +
-      `COMMON MISTAKES THAT WILL BE REJECTED:\n` +
-      `• Generating a darker/cooler/warmer background than the other slots — WRONG\n` +
-      `• Introducing gray when the batch background is beige — WRONG\n` +
-      `• Introducing beige when the batch background is gray — WRONG\n` +
-      `• Any visible color temperature shift from the other slots — WRONG\n` +
-      `• Adding a surface or texture that wasn't in the other slots — WRONG\n` +
-      `\n` +
-      `BANNED BACKGROUNDS (will cause REJECTION):\n` +
-      `• NO tabletop surface — no wood, no marble, no stone, no concrete\n` +
-      `• NO textured floor — no tiles, no carpet, no parquet\n` +
-      `• NO environmental/real-world surface — no grass, no pavement, no fabric\n` +
-      `• NO surface carried over from the reference photo\n` +
-      `• NO dark/black background unless the batch background specifies it\n` +
-      `• NO colored surface that differs from the batch background\n` +
-      `The ONLY acceptable background is: the exact color specified in the BACKGROUND line above, rendered as soft uniform bokeh.\n` +
-      `If you placed these photos side by side and the backgrounds don't match, this image is WRONG.\n` +
-      `\n` +
-      `LIGHT: Single soft raking sidelight to reveal texture. Subtle specular highlight. No harsh reflections.\n` +
-      `EXPOSURE CRITICAL: This macro shot MUST preserve surface detail. No blown highlights on the leather/material surface. Keep exposure metered for the shoe surface — texture, grain, and stitching must be clearly visible. If any area appears washed out or white-clipped, the exposure is WRONG.\n` +
-      `OUTPUT: Full-bleed photograph — edge to edge. The macro fills the ENTIRE output frame.\n` +
-      `• No frames, no borders, no margins, no mockup, no panel, no inset.\n` +
-      `• The macro subject must extend to ALL edges of the image — no visible boundary between photo and canvas.\n` +
-      `• Do NOT place the close-up inside a rectangular border or panel area.\n` +
-      `• Do NOT render this as a photo-within-a-photo or as an image on a surface.\n` +
-      `• No watermark, no text, no logo overlay.\n` +
-      `THIS IS NOT: a full-shoe shot, a side profile, an editorial placement, a tabletop composition, a framed image, an inset panel.\n` +
-      `COLOR: The shoe is {COLOR}. Output MUST be {COLOR}. Other colors = REJECTED.`,
+      `── SHOT: 3/4 REAR HERO ──\n` +
+      `Re-photograph this EXACT {COLOR} shoe from the back-quarter angle — same physical object.\n` +
+      `CAMERA: Behind and slightly to one side (30–45° from the heel), at mid-shoe height. The camera sees the heel counter and one side of the shoe.\n` +
+      `POSITION: Shoe upright on its sole, angled so the heel faces the camera. Toe pointing AWAY from camera.\n` +
+      `COMPOSITION: Full shoe visible. Shoe fills 70-80% of image height. Centered. Clean even spacing around shoe — NO excessive empty canvas.\n` +
+      `MUST SEE: Heel counter (full height), back pull-tab or loop if present, rear stitching, one side of the upper, sole heel area. The BACK of the shoe is the hero of this angle.\n` +
+      `MUST NOT SEE: Toe cap front face. If the front of the toe is clearly visible, the angle is WRONG — the camera is too far forward.\n` +
+      `BACKGROUND: {BACKGROUND} Use this EXACT color — identical to all other slots in this batch. Same studio, same backdrop, same color.\n` +
+      `LIGHT: Soft studio lighting — key from rear-left 45°, fill from opposite. Natural soft shadow under the shoe. No harsh reflections.\n` +
+      `OUTPUT: Full-bleed photograph. No frames, no borders, no margins, no mockup. No watermark, no text, no logo overlay.\n` +
+      `THIS IS NOT: a front view, a pure side profile, a macro close-up, a top-down view, a framed image.\n` +
+      `COLOR: The shoe is {COLOR}. Output MUST be {COLOR}. Other colors = REJECTED.\n` +
+      `DO NOT repeat the reference angle ({REF_ANGLE}). Generate a clean 3/4 rear hero.`,
   },
   {
     name: 'tabletop_editorial',
@@ -2633,7 +2574,7 @@ export async function generateByGeminiPro(
 
           // ── Step D5: Deterministic background enforcement (v28) ──────────
           // If background STILL drifts after retry, fix it in post-processing.
-          // Only applied to slots that failed bg check — typically detail_closeup.
+          // Only applied to slots that still fail bg check after retry.
           if (slotLog.bgCheckPass === false && finalBuf) {
             const bgHex = parseBackgroundHex(premiumBackground)
             if (bgHex) {

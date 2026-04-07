@@ -1,6 +1,6 @@
 # TASK QUEUE — Uygunayakkabi
 
-_Last updated: 2026-04-07 (Image Pipeline v37 Centering QC Gate + Sharp Bugfix D-123; Image Pipeline v36 Centering + Brightness D-122; v35 Brightness Normalization D-121; v34 BG Lock + Slot Reorder D-120; DB Hotfix enum types; Phase 21 Operator Runbook; VF-7 D-117b; VF-6 D-117; Phase 19 D-116; Phase 18 D-116; Phase 17 D-116; Phase 16 D-116; Phase 13 D-115/D-114; Phases 1-12 complete)_
+_Last updated: 2026-04-07 (Image Pipeline v38 Slot 3 Rebuild + Global BG Lock D-124; Image Pipeline v37 Centering QC Gate + Sharp Bugfix D-123; Image Pipeline v36 Centering + Brightness D-122; v35 Brightness Normalization D-121; v34 BG Lock + Slot Reorder D-120; DB Hotfix enum types; Phase 21 Operator Runbook; VF-7 D-117b; VF-6 D-117; Phase 19 D-116; Phase 18 D-116; Phase 17 D-116; Phase 16 D-116; Phase 13 D-115/D-114; Phases 1-12 complete)_
 
 ---
 
@@ -25,6 +25,16 @@ Do NOT execute without operator confirmation.
 ---
 
 ## 🟢 NOW — Current Sprint (VISUAL-FIRST PIPELINE VALIDATED — 2026-04-05)
+
+### ✅ Image Pipeline v38 — Slot 3 Rebuild + Global Background Lock: DEPLOYED (2026-04-07)
+- Replaced `detail_closeup` (macro) with `back_hero` (3/4 rear hero: heel counter, back stitching)
+- New slot 3 is a full-shoe shot → all post-processing works: bg enforcement, frame crop, brightness, centering, centering QC
+- Removed all macro-specific code: corner-only bg sampling, tighter thresholds, centering skip
+- Global background-lock formalized: slot 1 is bg-family source, slots 2-5 must match exactly
+- Removed macro/editorial/lifestyle background exceptions from TASK_FRAMING_BLOCK
+- Unified bg enforcement thresholds (90/50) for all slots
+- No-frame rule verified hardened at all 3 levels (prompt, QC, post-processing)
+- D-124
 
 ### ✅ Image Pipeline v37 — Centering QC Hard Gate + Sharp Bugfix: DEPLOYED (2026-04-07)
 - Fixed Sharp chaining bug: `.extract().extend().resize()` computed resize from post-extract dims, undoing centering

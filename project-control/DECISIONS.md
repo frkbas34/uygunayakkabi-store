@@ -3174,3 +3174,56 @@ Every content field has graceful fallback: Geobot content → basic field → hi
 **Status:**  
 ACTIVE — Phase A complete
 
+
+---
+
+## D-132 — Phase B: Blog Frontend — IMPLEMENTED
+**Decision:**  
+Build the blog frontend to render Geobot-generated blog/article content.
+
+**New Routes:**
+
+| Route | Purpose |
+|-------|---------|
+| `/blog` | Listing of published blog posts, sorted by publishedAt descending |
+| `/blog/[slug]` | Full article detail page with SEO meta, JSON-LD, related products |
+
+**Implementation Details:**
+
+1. **`/blog` listing page:**
+   - Queries BlogPosts where `status === 'published'`, sorted by `-publishedAt`
+   - Card layout: thumbnail, category badge, date, title, excerpt
+   - Static metadata: "Blog — UygunAyakkabı"
+   - Empty state: "Henüz yayınlanmış yazı yok."
+   - Revalidates every 120 seconds
+
+2. **`/blog/[slug]` detail page:**
+   - `generateMetadata()` for SEO: `seo.title` → fallback "{title} — UygunAyakkabı Blog"
+   - `seo.description` → excerpt → title fallback
+   - `seo.keywords` → tags fallback
+   - OpenGraph with `type: article` and `publishedTime`
+   - JSON-LD Article structured data (headline, author, publisher, datePublished)
+   - Featured image rendering
+   - Article body: Lexical richText → text extraction → paragraph/heading/list rendering
+   - Basic Markdown detection (# headings, - bullet lists)
+   - Tags rendered as chips
+   - Related products grid with images, titles, prices (from `relatedProducts` relationship)
+   - Back link to /blog
+   - 404 for non-published posts
+
+3. **Fallback safety:**
+   - Draft/archived posts return 404
+   - Missing content shows "Bu yazının içeriği henüz eklenmedi."
+   - Missing featured image, tags, excerpt — gracefully hidden
+   - Empty related products — section hidden
+
+**Files Created:**
+- `src/app/(app)/blog/page.tsx` — Blog listing
+- `src/app/(app)/blog/[slug]/page.tsx` — Blog detail
+
+**Operator workflow:**
+Geobot auto-creates BlogPosts as `draft`. Operator reviews in admin panel, sets status to `published` (and optionally sets `publishedAt`). Post then appears on `/blog`.
+
+**Status:**  
+ACTIVE — Phase B complete
+

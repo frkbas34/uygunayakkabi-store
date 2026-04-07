@@ -657,3 +657,21 @@ Product page now renders Geobot content with safe fallbacks:
 - `src/app/(app)/products/[slug]/page.tsx` — Rewritten
 - `src/components/ProductFAQ.tsx` — New component
 
+
+---
+
+## Phase B — Blog Frontend (2026-04-07)
+
+**Status:** IMPLEMENTED — D-132
+
+| Route | What | SEO |
+|-------|------|-----|
+| `/blog` | Published posts listing, date-sorted | Static meta |
+| `/blog/[slug]` | Full article, featured image, related products | Dynamic meta from seo fields, JSON-LD Article |
+
+**Rendering:** Lexical richText → text extraction → paragraph/heading/list rendering with basic Markdown detection.
+
+**Operator workflow:** Geobot creates posts as `draft` → operator sets `published` in admin → appears on `/blog`.
+
+**Files:** `src/app/(app)/blog/page.tsx`, `src/app/(app)/blog/[slug]/page.tsx`
+

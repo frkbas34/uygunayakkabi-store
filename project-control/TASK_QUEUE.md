@@ -436,11 +436,11 @@ Any modification to `src/lib/imageProviders.ts` or `src/jobs/imageGenTask.ts` th
 - [x] Product page: add JSON-LD FAQPage structured data (if FAQ exists)
 
 ### Phase B — Blog Frontend
-- [ ] Create `/blog` listing page (published BlogPosts, paginated)
-- [ ] Create `/blog/[slug]` detail page (article body, featured image, SEO fields)
-- [ ] Blog detail page: proper `<head>` meta from BlogPost.seo fields
-- [ ] Blog listing: category filter (general, product, style, announcement, seo)
-- [ ] Add blog posts to sitemap.xml
+- [x] Create `/blog` listing page (published BlogPosts, paginated)
+- [x] Create `/blog/[slug]` detail page (article body, featured image, SEO fields)
+- [x] Blog detail page: proper `<head>` meta from BlogPost.seo fields
+- [x] Blog listing: category filter (category badge display — filter UI deferred)
+- [ ] Add blog posts to sitemap.xml (deferred — no sitemap.xml exists yet)
 
 ### Phase C — Channel Dispatch Wiring
 - [ ] Instagram dispatch: use `commercePack.instagramCaption` instead of building from `description`

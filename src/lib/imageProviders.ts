@@ -126,6 +126,14 @@ function getBackgroundForColor(mainColor: string): string {
     return 'light grey (#EDEDED). Solid, uniform, neutral warmth. Use this EXACT color for ALL slots. No gradient.'
   if (c.includes('red') || c.includes('kırmızı') || c.includes('bordo') || c.includes('burgundy'))
     return 'neutral off-white (#F7F5F3). Solid, uniform, minimal. Use this EXACT color for ALL slots. No gradient.'
+  if (c.includes('green') || c.includes('yeşil') || c.includes('olive') || c.includes('haki') || c.includes('khaki'))
+    return 'warm cream (#F5F0E8). Solid, uniform, soft warm studio tone. Use this EXACT color for ALL slots. No gradient.'
+  if (c.includes('blue') || c.includes('mavi'))
+    return 'warm off-white (#F5F2ED). Solid, uniform, soft warm studio tone. Use this EXACT color for ALL slots. No gradient.'
+  if (c.includes('pink') || c.includes('pembe') || c.includes('rose'))
+    return 'light grey (#ECECEC). Solid, uniform, neutral studio tone. Use this EXACT color for ALL slots. No gradient.'
+  if (c.includes('beige') || c.includes('cream') || c.includes('krem'))
+    return 'warm grey (#E0DDD8). Solid, uniform, subtle contrast. Use this EXACT color for ALL slots. No gradient.'
   return 'neutral light grey (#EDEDED). Solid, uniform, soft premium studio tone. Use this EXACT color for ALL slots. No gradient.'
 }
 
@@ -874,14 +882,14 @@ const EDITING_SCENES = [
     name: 'detail_closeup',
     label: 'Slot 3 — Detay Yakın Çekim',
     sceneInstructions:
-      `── SHOT: DETAIL CLOSE-UP — TOE/VAMP AREA ──\n` +
-      `Re-photograph this EXACT {COLOR} shoe — a close-up focusing on the front half (toe cap + vamp + lacing area) — same physical object.\n` +
-      `CAMERA: 25–35 cm from the shoe. Slightly above, 15–25° down. Standard lens, NOT macro.\n` +
-      `FRAMING: Show the front half of the shoe (toe cap, vamp, lower lacing area). The heel and back half should be out of frame or heavily blurred. ` +
-      `The shoe portion fills 80% of image area. Some studio background is visible around the shoe.\n` +
-      `COMPOSITION: Medium depth of field. Toe cap area sharp. Stitching, texture, and material details clearly visible. Heel/back blurred or cropped.\n` +
-      `MUST SEE: Toe cap detail, vamp material texture, stitching, any perforations or logos on the front half.\n` +
-      `MUST NOT: Show the entire shoe from toe to heel in sharp focus — this is NOT a full product shot.\n` +
+      `── SHOT: DETAIL CLOSE-UP — 3/4 ANGLE FROM ABOVE ──\n` +
+      `Re-photograph this EXACT {COLOR} shoe — a close-up from a 3/4 angle focusing on the toe and vamp area — same physical object.\n` +
+      `CAMERA: 18–25 cm from the shoe. Positioned at 30–45° to the side (not straight-on), looking down at 25–35°. This gives a three-quarter perspective that reveals both the top and one side.\n` +
+      `FRAMING: Show the toe cap, vamp, and lacing/buckle area from a 3/4 angle. The heel should be blurred or partially out of frame. ` +
+      `The shoe portion fills 85% of image area. Some studio background visible around the shoe.\n` +
+      `COMPOSITION: Shallow depth of field. Toe cap and vamp area sharp with visible material detail. Back of shoe soft/blurred.\n` +
+      `MUST SEE: Toe cap detail, vamp material texture and pattern, stitching, buckles/hardware, any perforations or logos on the front area.\n` +
+      `MUST NOT: Show the entire shoe from toe to heel in sharp focus — this is NOT a full product shot. Do NOT shoot straight-on from the front.\n` +
       `BACKGROUND: {BACKGROUND} — This is a STUDIO shot. The shoe must be on a clean, solid-color studio backdrop. ` +
       `Do NOT use the reference photo's surface/floor. Do NOT use stone, concrete, marble, or any textured surface. ` +
       `The background is a smooth, uniform studio color as specified above.\n` +

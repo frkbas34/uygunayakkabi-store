@@ -2990,3 +2990,52 @@ Do NOT modify slot 1-3 sceneInstructions, TASK_FRAMING_BLOCK, or overlayStockNum
 **Status:**  
 ACTIVE — locked at commit 5cfcd4f (v47)
 
+
+---
+
+## D-129 — Image Pipeline v50: FULL BASELINE LOCKED — Operator Approved
+**Decision:**  
+Lock the ENTIRE image generation pipeline as the approved production baseline. No further changes without explicit operator approval.
+
+**Locked Components (commit e99e9cb):**
+
+| Component | State | Details |
+|-----------|-------|---------|
+| Slot 1 (side_angle) | LOCKED | 90° lateral profile, PRIMARY hero |
+| Slot 2 (commerce_front) | LOCKED | Front studio hero |
+| Slot 3 (detail_closeup) | LOCKED | 3/4 angle close-up, 18-25cm, toe/vamp focus |
+| Slot 4 (tabletop_editorial) | LOCKED | Overhead 55-65°, seamless studio floor |
+| Slot 5 (worn_lifestyle) | LOCKED | Ground-level lifestyle, worn on foot |
+| TASK_FRAMING_BLOCK | LOCKED | Global framing + anti-frame + background consistency |
+| ANTI_FRAME_FINAL_BLOCK | LOCKED | End-of-prompt frame verification checklist |
+| CANONICAL_PROHIBITIONS_BLOCK | LOCKED | Product preservation rules |
+| getBackgroundForColor() | LOCKED | Color→backdrop map (black/white/brown/tan/grey/navy/red/green/blue/pink/beige + default) |
+| getBackgroundRGB() | LOCKED | Hex parser for input padding color |
+| Input padding | LOCKED | Background-color padding (NOT white) — root cause fix for frames |
+| overlayStockNumber() | LOCKED | v32 bitmap pixel font (SVG rects, zero font deps) |
+| QC checks | LOCKED | Color match, brand fidelity, shot compliance (all Gemini Vision) |
+| Visual baseline | LOCKED | v27 raw Gemini output — NO post-processing |
+
+**Constraint:**  
+Do NOT modify ANY of the above without explicit operator approval in a future task. This includes:
+- Slot ordering, slot prompts, slot camera angles
+- Background color mappings
+- Input image padding logic
+- Anti-frame instructions
+- SN overlay function
+- QC check thresholds
+- Brightness, sharpness, or any visual quality parameters
+
+**Version History:**
+- v27 (e13623e): Raw Gemini baseline — all post-processing removed
+- v43: Slot order fix + background lock + anti-frame hardening
+- v44: Bitmap SN overlay restored + slots 2-3 anti-frame
+- v45: Triple-layer anti-frame (per-slot + global + final block)
+- v46-v47: Slot 3 extreme macro → pulled back to moderate close-up
+- v48: Slots 4-5 rewritten with deep integrated anti-frame
+- v49: ROOT CAUSE frame fix — background-color padding instead of white
+- v50: Green/blue/pink/beige color maps + slot 3 closer 3/4 angle
+
+**Status:**  
+ACTIVE — PRODUCTION BASELINE LOCKED at commit e99e9cb (v50)
+

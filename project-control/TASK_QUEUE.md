@@ -386,3 +386,37 @@ Infrastructure, collections, schema, storefront — all validated in production.
 - Blocker 4: Product save 500 (products_channel_targets) → id column fixed to SERIAL (2026-03-17)
 - Blocker 5: Instagram publish error 100/33 → direct publish bypass (2026-03-22)
 </details>
+
+---
+
+## IMAGE GENERATION — FROZEN (2026-04-07)
+
+**Status:** BASELINE LOCKED — D-129
+
+The image generation pipeline is frozen at v50 (commit e99e9cb). All components listed below are NOT to be modified without explicit operator approval:
+
+### Frozen Items
+- [ ] ~~Image pipeline slot prompts~~ — LOCKED
+- [ ] ~~Background color mappings~~ — LOCKED
+- [ ] ~~Anti-frame instructions~~ — LOCKED
+- [ ] ~~Input image padding logic~~ — LOCKED
+- [ ] ~~SN overlay (bitmap pixel font)~~ — LOCKED
+- [ ] ~~QC checks (color/brand/shot)~~ — LOCKED
+- [ ] ~~Visual quality parameters~~ — LOCKED
+
+### Requires Explicit Operator Approval To Change
+Any modification to `src/lib/imageProviders.ts` or `src/jobs/imageGenTask.ts` that affects:
+- Slot ordering or slot prompt text
+- Background color hex values or color-to-backdrop logic
+- Anti-frame prompt blocks
+- Input image resize/padding behavior
+- Stock number overlay rendering
+- Brightness, sharpness, contrast, or any visual post-processing
+- QC check thresholds or pass/fail logic
+
+### What CAN Still Be Changed (without image-gen approval)
+- Telegram command handling (non-prompt logic)
+- Product data flow / job orchestration (non-visual)
+- New features unrelated to image generation
+- Bug fixes that don't alter visual output
+

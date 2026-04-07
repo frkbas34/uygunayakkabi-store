@@ -526,3 +526,53 @@ KEY IMPROVEMENTS in v8 vs v7:
 - v8 deployed: input validation gate, structured 9-field identity lock, strict 5-slot prompts, no silent Gemini fallback, per-slot slotLogs
 - **NEXT ACTION**: Test with `#gorsel #dengeli` on a real shoe product — score each of 5 outputs
 - **If Case A** (different compositions + sho
+---
+
+## Image Pipeline v50 — PRODUCTION BASELINE LOCKED (2026-04-07)
+
+**Status:** LOCKED — Operator Approved — D-129
+
+**DO NOT MODIFY without explicit operator approval.**
+
+### Locked Visual Baseline
+- Raw Gemini 2.5 Flash output — NO post-processing (no brightness, sharpness, softness adjustments)
+- Input image padding uses background color (NOT white) — eliminates frame artifact
+- v32 bitmap pixel font SN overlay (SVG rects, zero font dependencies, Vercel-safe)
+
+### Locked Slot Map
+| Slot | Index | Name | Stage | Description |
+|------|-------|------|-------|-------------|
+| 1 | 0 | side_angle | standard (PRIMARY) | 90° lateral profile, hero image |
+| 2 | 1 | commerce_front | standard | Front studio hero |
+| 3 | 2 | detail_closeup | standard | 3/4 angle close-up (18-25cm), toe/vamp |
+| 4 | 3 | tabletop_editorial | premium | Overhead 55-65°, seamless studio floor |
+| 5 | 4 | worn_lifestyle | premium | Ground-level lifestyle, worn on foot |
+
+### Locked Background Color Map
+| Shoe Color | Backdrop | Hex |
+|-----------|----------|-----|
+| Black/Siyah | Warm beige | #F5F0E8 |
+| White/Beyaz | Light grey | #E8E8E8 |
+| Brown/Kahve | Warm cream | #F5F1E6 |
+| Tan/Taba | Off-white | #FAF8F5 |
+| Grey/Gri | Clean white | #FFFFFF |
+| Navy/Lacivert | Light grey | #EDEDED |
+| Red/Kırmızı/Bordo | Neutral off-white | #F7F5F3 |
+| Green/Yeşil/Olive | Warm cream | #F5F0E8 |
+| Blue/Mavi | Warm off-white | #F5F2ED |
+| Pink/Pembe | Light grey | #ECECEC |
+| Beige/Krem | Warm grey | #E0DDD8 |
+| Default | Neutral light grey | #EDEDED |
+
+### Anti-Frame System (Triple Layer)
+1. TASK_FRAMING_BLOCK — global "ANTI-FRAME RULE (ZERO TOLERANCE)" section
+2. Per-slot CRITICAL ANTI-FRAME block in every sceneInstructions
+3. ANTI_FRAME_FINAL_BLOCK — end-of-prompt verification checklist
+
+### Key Files (DO NOT MODIFY)
+- `src/lib/imageProviders.ts` — EDITING_SCENES, TASK_FRAMING_BLOCK, ANTI_FRAME_FINAL_BLOCK, getBackgroundForColor(), getBackgroundRGB(), generation functions
+- `src/jobs/imageGenTask.ts` — Job orchestration, PIXEL_FONT, renderBitmapText(), overlayStockNumber()
+
+### Commit Reference
+Locked at commit e99e9cb (v50) on main branch.
+

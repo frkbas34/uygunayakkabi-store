@@ -428,12 +428,12 @@ Any modification to `src/lib/imageProviders.ts` or `src/jobs/imageGenTask.ts` th
 **Status:** PLANNED — Awaiting operator approval to begin
 
 ### Phase A — Wire Content to Storefront (HIGHEST PRIORITY)
-- [ ] Product page: render `commercePack.websiteDescription` (fallback to `description` if empty)
-- [ ] Product page: render `commercePack.highlights` as feature bullet list
-- [ ] Product page: render `discoveryPack.faq` as expandable FAQ accordion
-- [ ] Product page `<head>`: use `discoveryPack.metaTitle` + `metaDescription` for SEO meta
-- [ ] Product page: add JSON-LD Product structured data
-- [ ] Product page: add JSON-LD FAQPage structured data (if FAQ exists)
+- [x] Product page: render `commercePack.websiteDescription` (fallback to `description` if empty)
+- [x] Product page: render `commercePack.highlights` as feature bullet list
+- [x] Product page: render `discoveryPack.faq` as expandable FAQ accordion
+- [x] Product page <head>: use discoveryPack.metaTitle + metaDescription for SEO meta
+- [x] Product page: add JSON-LD Product structured data
+- [x] Product page: add JSON-LD FAQPage structured data (if FAQ exists)
 
 ### Phase B — Blog Frontend
 - [ ] Create `/blog` listing page (published BlogPosts, paginated)

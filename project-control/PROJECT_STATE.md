@@ -633,3 +633,27 @@ Geobot does NOT own:
 - Content approval/editing (operator responsibility via admin panel)
 - Blog publishing (operator sets status from draft → published)
 
+
+---
+
+## Phase A — Storefront Content Wiring (2026-04-07)
+
+**Status:** IMPLEMENTED — D-131
+
+Product page now renders Geobot content with safe fallbacks:
+
+| Content | Source | Fallback | Rendering |
+|---------|--------|----------|-----------|
+| Description | commercePack.websiteDescription | product.description | Paragraph text |
+| Highlights | commercePack.highlights | hidden | Checkmark list |
+| FAQ | discoveryPack.faq | hidden | Accordion (ProductFAQ component) |
+| Meta title | discoveryPack.metaTitle | "{title} — UygunAyakkabı" | `<head>` via generateMetadata |
+| Meta description | discoveryPack.metaDescription | websiteDescription[:160] | `<head>` via generateMetadata |
+| Keywords | discoveryPack.keywordEntities | omitted | `<meta keywords>` |
+| JSON-LD Product | All product fields | basic fields | `<script type="application/ld+json">` |
+| JSON-LD FAQPage | discoveryPack.faq | omitted | `<script type="application/ld+json">` |
+
+**Files:**
+- `src/app/(app)/products/[slug]/page.tsx` — Rewritten
+- `src/components/ProductFAQ.tsx` — New component
+

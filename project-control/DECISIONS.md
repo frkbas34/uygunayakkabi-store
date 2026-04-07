@@ -3120,3 +3120,57 @@ Phase D — Content quality loop:
 **Status:**  
 ACTIVE — Architecture defined, implementation phases planned
 
+
+---
+
+## D-131 — Phase A: Storefront Content Wiring — IMPLEMENTED
+**Decision:**  
+Wire Geobot-generated content into the storefront product page.
+
+**Changes:**
+
+1. **websiteDescription** (commercePack → fallback to basic description):
+   - Product page now renders `content.commercePack.websiteDescription` first
+   - Falls back to `product.description` if commercePack is empty
+   - Falls back to nothing if both are empty
+
+2. **Highlights** (commercePack.highlights):
+   - Rendered as a checkmark list under "Ürün Özellikleri" heading
+   - Only shows if array has valid string entries
+   - Gracefully hidden if empty
+
+3. **FAQ** (discoveryPack.faq):
+   - New `ProductFAQ` client component with expand/collapse accordion
+   - Renders below the product info grid
+   - Only shows if FAQ array has valid {q, a} entries
+   - Gracefully hidden if empty
+
+4. **SEO Meta** (discoveryPack → fallback):
+   - `generateMetadata()` export for Next.js head management
+   - Title: `discoveryPack.metaTitle` → fallback "{title} — UygunAyakkabı"
+   - Description: `discoveryPack.metaDescription` → `websiteDescription[:160]` → `description[:160]`
+   - Keywords: from `discoveryPack.keywordEntities` if present
+   - OpenGraph title + description set
+
+5. **JSON-LD Product** structured data:
+   - Schema.org Product with name, description, sku, brand, color, material, price, availability, image
+   - Uses websiteDescription (Geobot → fallback) for description
+   - Injected via `<script type="application/ld+json">`
+
+6. **JSON-LD FAQPage** structured data:
+   - Only emitted when FAQ exists
+   - Schema.org FAQPage with Question + Answer entities
+   - Injected via separate `<script type="application/ld+json">`
+
+7. **Bonus: originalPrice + color + material** rendering added to product info grid
+
+**Files Changed:**
+- `src/app/(app)/products/[slug]/page.tsx` — Full rewrite with content wiring
+- `src/components/ProductFAQ.tsx` — New client component for FAQ accordion
+
+**Fallback Safety:**
+Every content field has graceful fallback: Geobot content → basic field → hidden. The page works identically to before if no Geobot content exists.
+
+**Status:**  
+ACTIVE — Phase A complete
+

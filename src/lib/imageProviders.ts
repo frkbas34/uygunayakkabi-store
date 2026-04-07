@@ -659,10 +659,10 @@ async function checkShotCompliance(
       correction: 'Camera must be at exactly 90° to the side. The toe FRONT FACE must NOT be visible. The sole profile must be fully exposed from toe to heel.',
     },
     detail_closeup: {
-      required: 'extreme macro of material texture — shoe surface fills 95-100% of image, NO full shoe outline visible, NO background visible around shoe',
-      passRule: 'only material texture/grain visible at extreme close range, no shoe silhouette outline, no studio background showing around the shoe',
-      failSignals: 'full shoe visible, shoe outline/silhouette recognizable, background color visible around shoe, standard product angle, shoe sitting on surface with space around it',
-      correction: 'Camera must be 8-12cm from the surface. The full shoe must NOT be visible. The material texture must fill the ENTIRE image edge to edge with ZERO background showing. If you can see the shoe outline, you are too far away.',
+      required: 'detail close-up of the front half of the shoe (toe cap + vamp area) — NOT the full shoe, NOT extreme macro',
+      passRule: 'the front portion of the shoe (toe/vamp) fills the frame, material detail and stitching visible, heel is blurred or out of frame',
+      failSignals: 'full shoe in sharp focus from toe to heel, extreme macro showing only texture with no recognizable shoe shape, standard product angle showing entire shoe',
+      correction: 'Camera should be 25-35cm from the shoe, focusing on the toe cap and vamp area. Show the front half with detail — NOT the entire shoe, and NOT an extreme macro of just texture.',
     },
     tabletop_editorial: {
       required: 'overhead editorial at 55-65° — top of shoe (tongue, lacing) dominant, marble surface',
@@ -852,27 +852,24 @@ const EDITING_SCENES = [
   },
   {
     name: 'detail_closeup',
-    label: 'Slot 3 — Malzeme Makro',
+    label: 'Slot 3 — Detay Yakın Çekim',
     sceneInstructions:
-      `── SHOT: EXTREME MATERIAL MACRO — SURFACE ONLY ──\n` +
-      `This is NOT a product shot. This is a MATERIAL TEXTURE photograph.\n` +
-      `Re-photograph the upper material of this EXACT {COLOR} shoe — same physical object.\n` +
-      `CAMERA: Lens 8–12 cm from the shoe surface. Macro mode. The camera is so close that ONLY a small patch of material is visible.\n` +
-      `FRAMING: The shoe material surface FILLS THE ENTIRE IMAGE from edge to edge. There is NO background visible. ` +
-      `The texture/material IS the image — it extends to all four edges like a texture swatch photograph.\n` +
-      `COMPOSITION: 95–100% of the image is shoe surface material. Very shallow depth of field. Center sharp, edges softly blurred.\n` +
-      `MUST SEE: Leather grain, fabric weave, mesh texture, stitching thread in close-up, any perforation or embossing detail.\n` +
-      `MUST NOT: Show the full shoe silhouette. If you can see the OUTLINE of the shoe (toe + heel + sole), you are TOO FAR AWAY. Move CLOSER.\n` +
-      `MUST NOT: Show background color around the shoe. The material itself fills the frame — there is NO studio backdrop visible.\n` +
-      `MUST NOT: Show the shoe sitting on a surface with space around it. That is a product shot, NOT a macro.\n` +
-      `BACKGROUND: NONE — the shoe material IS the background. If the shoe is {COLOR}, the entire image should be dominated by {COLOR} material texture.\n` +
-      `LIGHT: Single soft raking sidelight from the left to reveal surface texture and depth. Subtle specular highlight on material peaks.\n` +
+      `── SHOT: DETAIL CLOSE-UP — TOE/VAMP AREA ──\n` +
+      `Re-photograph this EXACT {COLOR} shoe — a close-up focusing on the front half (toe cap + vamp + lacing area) — same physical object.\n` +
+      `CAMERA: 25–35 cm from the shoe. Slightly above, 15–25° down. Standard lens, NOT macro.\n` +
+      `FRAMING: Show the front half of the shoe (toe cap, vamp, lower lacing area). The heel and back half should be out of frame or heavily blurred. ` +
+      `The shoe portion fills 80% of image area. Some studio background is visible around the shoe.\n` +
+      `COMPOSITION: Medium depth of field. Toe cap area sharp. Stitching, texture, and material details clearly visible. Heel/back blurred or cropped.\n` +
+      `MUST SEE: Toe cap detail, vamp material texture, stitching, any perforations or logos on the front half.\n` +
+      `MUST NOT: Show the entire shoe from toe to heel in sharp focus — this is NOT a full product shot.\n` +
+      `BACKGROUND: {BACKGROUND}\n` +
+      `LIGHT: Soft studio lighting — key from front-left 45°, fill from opposite. Natural soft shadow. No harsh reflections.\n` +
       `OUTPUT: Full-bleed photograph that fills the ENTIRE canvas edge to edge. The image IS the photo — NOT a photo of a photo.\n` +
       `CRITICAL ANTI-FRAME: Do NOT render any border, frame, shadow-box, rounded-corner card, drop-shadow rectangle, or picture-inside-picture effect. ` +
-      `The material texture must extend to ALL four edges with ZERO visible boundary or background gap. ` +
-      `If there is ANY rectangular outline, visible edge, or studio backdrop showing around the shoe material, the image is REJECTED.\n` +
-      `THIS IS NOT: a full-shoe product shot, a zoomed-in shoe on a background, a side profile, an editorial placement, a framed image.\n` +
-      `COLOR: The shoe is {COLOR}. The material texture MUST be {COLOR}. Other colors = REJECTED.`,
+      `Do NOT place the shoe on a "floating card" or "product tile". The background must extend to ALL four edges with ZERO visible boundary. ` +
+      `If there is ANY rectangular outline or visible edge that is not the canvas edge, the image is REJECTED.\n` +
+      `THIS IS NOT: a full-shoe product shot, a side profile, an editorial placement, a framed image, a product card, a mockup.\n` +
+      `COLOR: The shoe is {COLOR}. Output MUST be {COLOR}. Other colors = REJECTED.`,
   },
   {
     name: 'tabletop_editorial',

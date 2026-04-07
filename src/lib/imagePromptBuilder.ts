@@ -7,7 +7,7 @@
  * Concepts:
  *  1. commerce_front    — White-bg product shot, straight-on
  *  2. side_angle        — 45° studio angle
- *  3. back_hero         — 3/4 rear hero (heel counter)
+ *  3. detail_closeup    — Material/texture macro
  *  4. tabletop_editorial — Lifestyle tabletop composition
  *  5. worn_lifestyle    — Worn in a real-world setting
  *
@@ -39,7 +39,7 @@ export type ProductContext = {
 export type PromptConcept =
   | 'commerce_front'
   | 'side_angle'
-  | 'back_hero'
+  | 'detail_closeup'
   | 'tabletop_editorial'
   | 'worn_lifestyle'
 
@@ -181,16 +181,16 @@ export function buildPromptSet(product: ProductContext, hasReferenceImage = fals
         `commercial product photography, no shadows on background, high resolution, no text`,
     },
 
-    // ── 3. Back Hero ────────────────────────────────────────────────────────
+    // ── 3. Detail Closeup ────────────────────────────────────────────────────
     {
-      concept: 'back_hero',
-      label: 'Arka Hero — 3/4 Arka Görünüm',
+      concept: 'detail_closeup',
+      label: 'Detay — Malzeme Dokusu',
       prompt:
-        `Professional product photography of ${fullDesc}, ` +
-        `shot from the rear-quarter angle (30-45° behind), showing the heel counter, ` +
-        `back stitching, and pull tab, ` +
-        `clean studio background, soft even lighting, ` +
-        `commercial e-commerce style, no text`,
+        `Extreme close-up macro product photography showing the texture and material ` +
+        `of ${base || catLabel}, ` +
+        `shallow depth of field, sharp focus on surface details, ` +
+        `professional product photography, warm soft lighting, ` +
+        `luxury fashion editorial style, no background distractions, no text`,
     },
 
     // ── 4. Tabletop Editorial ────────────────────────────────────────────────

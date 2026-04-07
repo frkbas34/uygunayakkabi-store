@@ -494,6 +494,32 @@ KEY IMPROVEMENTS in v8 vs v7:
 
 ---
 
+## Image Pipeline v39 — Visual Standard Reset (DEPLOYED — 2026-04-07)
+
+**Operator Requirement:** Remove bright/washed look from all slots. Backgrounds must be visibly colored (not near-white). Slot 3 must NOT be back_hero — must be a close shot hero.
+
+| Change | Before (v38) | After (v39) |
+|--------|-------------|-------------|
+| Background hex luminance | ~93-98% (near-white) | ~75-80% (visibly colored) |
+| Brightness normalization band | 85-145 (mid 115) | 70-120 (mid 95) |
+| QC brightness mean threshold | >200 | >185 |
+| QC highlight threshold | >30% | >25% |
+| Slot 3 | back_hero (3/4 rear) | close_shot_hero (3/4 front close) |
+| TASK_FRAMING_BLOCK tone | Neutral | "Rich, warm, slightly dark. NOT bright or airy." |
+
+**Slot Map (v39):**
+| Slot | Name | Stage |
+|------|------|-------|
+| 1 | side_angle | standard |
+| 2 | commerce_front | standard |
+| 3 | close_shot_hero | standard |
+| 4 | tabletop_editorial | premium |
+| 5 | worn_lifestyle | premium |
+
+**Status:** DEPLOYED — tsc clean, zero type errors
+
+---
+
 ## Recommended Next Steps
 
 **Step 25 — AI Product Photography Pipeline (IN PROGRESS — awaiting v8 test results)**

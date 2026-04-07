@@ -367,6 +367,17 @@ Infrastructure, collections, schema, storefront — all validated in production.
 </details>
 
 <details>
+<summary>Image Pipeline v39 — Visual Standard Reset (2026-04-07) ✅</summary>
+
+- Background hex map shifted from near-white (~95%) to visibly colored (~78%)
+- Brightness normalization band shifted darker (70-120, mid 95)
+- QC brightness thresholds tightened (mean>185, highlight>25%)
+- Slot 3 rebuilt: back_hero → close_shot_hero (3/4 front close hero)
+- TASK_FRAMING_BLOCK updated: darker/richer visual emphasis
+- Decision: D-125
+</details>
+
+<details>
 <summary>Resolved Blockers ✅</summary>
 
 - Blocker 1: Instagram credentials → OAuth completed (2026-03-22)

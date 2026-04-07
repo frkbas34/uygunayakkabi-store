@@ -94,18 +94,20 @@ const TASK_FRAMING_BLOCK =
   `• Ultra clean, high clarity, high sharpness, no noise, no clutter.\n` +
   `• Soft studio lighting, natural soft shadow under the shoe.\n` +
   `• No harsh reflections, no dramatic lighting — realistic commercial look.\n` +
+  `• VISUAL TONE: Rich, warm, slightly dark. NOT bright or airy. NOT high-key.\n` +
+  `• The overall mood must feel grounded and premium — like a physical catalog page, not a web-store white-blast.\n` +
   `\n` +
   `═══ EXPOSURE & BRIGHTNESS CONTROL — MANDATORY ═══\n` +
-  `• Balanced exposure is CRITICAL. The shoe must retain full surface detail.\n` +
+  `• DARK & RICH exposure is the standard. The shoe must retain full surface detail with rich midtones.\n` +
   `• NO blown highlights — every part of the shoe surface must show visible texture.\n` +
   `• NO washed-out or overexposed areas — leather grain, stitching, and material must be clearly readable.\n` +
-  `• NO high-key white flooding — the background may be light but must NOT bleed into the product.\n` +
+  `• NO high-key white flooding — the background is a VISIBLE COLOR (not near-white). It must read as a distinct backdrop.\n` +
   `• Preserve the true tonal range of the product: darks stay dark, midtones stay rich, highlights stay controlled.\n` +
   `• Lighting must illuminate the shoe WITHOUT flattening its surface detail.\n` +
-  `• If the shoe is dark (black, navy, dark brown): expose for the shoe, not the background. Keep shadows rich.\n` +
-  `• If the shoe is light (white, cream, beige): use subtle shadows and contrast to define edges and texture.\n` +
-  `• Think: a professional photographer who meters for the product, not the background.\n` +
-  `• An overexposed, washed-out image is WRONG and will be REJECTED.\n` +
+  `• If the shoe is dark (black, navy, dark brown): expose for the shoe, not the background. Keep shadows rich and deep.\n` +
+  `• If the shoe is light (white, cream, beige): use subtle shadows and contrast to define edges and texture. Do NOT let the shoe merge with the background.\n` +
+  `• Think: a professional photographer who meters for the product in a warmly-lit studio with a colored backdrop — NOT a white infinity curve.\n` +
+  `• An overexposed, washed-out, or bright-flooded image is WRONG and will be REJECTED.\n` +
   `═══════════════════════════\n` +
   `\n` +
   `═══ GLOBAL BACKGROUND LOCK (PRODUCT-LEVEL — ZERO TOLERANCE) ═══\n` +
@@ -152,32 +154,35 @@ function buildMultiAngleBlock(additionalCount: number): string {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Premium Background Selection Engine
+// Premium Background Selection Engine — v39
 // ─────────────────────────────────────────────────────────────────────────────
-// Maps shoe color → premium contrasting background for studio shots.
-// Goal: background supports the product, never competes. Soft, minimal, premium.
+// Maps shoe color → VISIBLE contrasting background for studio shots.
+// v39: backgrounds are now visibly colored (not near-white). The background
+// must be clearly perceptible as a deliberate studio color, not "invisible."
+// Target: mid-tone neutral or warm studio paper — think 60-80% luminance.
 
 export function getBackgroundForColor(mainColor: string): string {
   const c = mainColor.toLowerCase()
 
   // Returns ONE EXACT background per shoe color — no "or" options.
   // This ensures all slots in a batch use the identical background.
+  // v39: all hex codes shifted darker — visible studio color, not near-white.
 
   if (c.includes('black') || c.includes('siyah'))
-    return 'warm beige (#F5F0E8). Solid, uniform, soft premium studio tone. No gradient, no variation.'
+    return 'warm sand (#D4C9B8). Solid, uniform, warm studio tone. Clearly visible color — not white. No gradient.'
   if (c.includes('white') || c.includes('beyaz') || c.includes('off-white'))
-    return 'light warm grey (#E5E3E0). Solid, uniform tone. NOT white — shoe must clearly contrast.'
+    return 'medium warm grey (#B8B5B0). Solid, uniform tone. Clearly darker than the shoe — strong contrast. No gradient.'
   if (c.includes('brown') || c.includes('kahve') || c.includes('espresso'))
-    return 'warm cream (#F5F1E6). Solid, uniform, soft natural tone. No gradient, no variation.'
+    return 'warm stone (#D6CCBE). Solid, uniform, warm natural studio tone. Clearly visible color. No gradient.'
   if (c.includes('tan') || c.includes('tobacco') || c.includes('camel') || c.includes('taba'))
-    return 'off-white (#FAF8F5). Solid, uniform, barely-there warmth. No gradient, no variation.'
+    return 'cool light grey (#C8C6C3). Solid, uniform, cool neutral studio tone. Clearly visible. No gradient.'
   if (c.includes('grey') || c.includes('gray') || c.includes('gri'))
-    return 'clean white (#FAFAFA). Solid, uniform, bright crisp tone. No gradient, no variation.'
+    return 'warm off-white (#D9D5CE). Solid, uniform, warm tone to contrast cool shoe. Clearly visible. No gradient.'
   if (c.includes('navy') || c.includes('lacivert') || (c.includes('blue') && c.includes('dark')))
-    return 'light grey (#EDEDED). Solid, uniform, neutral tone. No gradient, no variation.'
+    return 'warm light grey (#C9C4BC). Solid, uniform, warm neutral tone. Clearly visible. No gradient.'
   if (c.includes('red') || c.includes('kırmızı') || c.includes('bordo') || c.includes('burgundy'))
-    return 'neutral off-white (#F7F5F3). Solid, uniform, minimal tone. No gradient, no variation.'
-  return 'neutral light grey (#EDEDED). Solid, uniform, soft premium studio tone. No gradient, no variation.'
+    return 'cool grey (#C2C0BD). Solid, uniform, cool neutral tone. Clearly visible. No gradient.'
+  return 'warm neutral grey (#CBC7C0). Solid, uniform, warm studio tone. Clearly visible color — not white. No gradient.'
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -751,11 +756,11 @@ async function checkShotCompliance(
       failSignals: 'toe front face visible, slight diagonal (3/4 from front), heel hidden, angled top-down',
       correction: 'Camera must be at exactly 90° to the side. The toe FRONT FACE must NOT be visible. The sole profile must be fully exposed from toe to heel.',
     },
-    back_hero: {
-      required: '3/4 rear hero — heel counter dominant, camera behind and to the side at 30-45°, full shoe visible',
-      passRule: 'the heel counter back face is clearly visible as the dominant feature, the shoe is seen from behind at an angle, the full shoe is in frame',
-      failSignals: 'toe cap front face visible (camera too far forward), pure side profile (not rear enough), top-down overhead, macro close-up, only partial shoe visible',
-      correction: 'Camera must be BEHIND the shoe at 30-45° from the heel. The heel counter must be the dominant feature. The toe should point AWAY from camera. Full shoe must be visible.',
+    close_shot_hero: {
+      required: '3/4 front close hero — camera low at 30-45° from the front-side, full shoe visible at tighter framing, vamp and toe detail prominent',
+      passRule: 'the shoe is seen from a front-side 3/4 angle showing the vamp, toe shape, and lacing/closure area as the dominant features, the full shoe is visible (toe to heel), framing is tighter than side_angle but the entire shoe is still in frame',
+      failSignals: 'pure front dead-on (no side angle visible), pure side profile (no front face visible), heel counter dominant (back view), top-down overhead, macro close-up of a detail only, partial shoe cropped out, framed/inset look',
+      correction: 'Camera must be at 30-45° from the front-side at low-mid height. The vamp and toe area must be the hero. Full shoe must be visible — not a macro crop. Not a back view.',
     },
     tabletop_editorial: {
       required: 'overhead editorial at 55-65° — top of shoe (tongue, lacing) dominant, marble surface',
@@ -954,12 +959,12 @@ async function checkBrightnessExposure(
     const meanBrightness = Math.round(sum / totalPixels)
     const highlightPercent = Math.round((nearWhiteCount / totalPixels) * 100)
 
-    // v35: Tighter thresholds. v33 used mean>210 / highlight>35% which was too
-    // lenient — light backgrounds (~230-240) inflated the mean, letting washed-out
-    // products pass. The normalization post-processing is now the real safety net,
-    // but tighter QC here still helps trigger retries with exposure hints.
-    const isTooMean = meanBrightness > 200
-    const isTooHighlight = highlightPercent > 30
+    // v39: Tighter QC. With darker backgrounds (~75% lum), the overall mean should
+    // be substantially lower. Mean >185 or highlight >25% triggers a retry.
+    // The normalization post-processing is the real safety net, but tighter QC
+    // catches overexposure earlier and triggers retries with darker exposure hints.
+    const isTooMean = meanBrightness > 185
+    const isTooHighlight = highlightPercent > 25
     const pass = !isTooMean && !isTooHighlight
 
     console.log(
@@ -1225,12 +1230,12 @@ async function normalizeBrightness(
   const meanLum = lumSum / productPixelCount
 
   // ── Determine correction ──
-  // v36: tightened from 100-170 to 85-145. v35 band was too permissive —
-  // brown leather at lum 110-120 still appeared washed. Narrower band
-  // ensures richer product tones with more visible texture detail.
-  const TARGET_LOW  = 85
-  const TARGET_HIGH = 145
-  const TARGET_MID  = 115
+  // v39: shifted darker — 70-120 band. Previous 85-145 still produced
+  // a bright/washed look. New midpoint 95 pulls product tones substantially
+  // darker for a richer, more grounded premium feel.
+  const TARGET_LOW  = 70
+  const TARGET_HIGH = 120
+  const TARGET_MID  = 95
 
   let gamma = 1.0
 
@@ -1474,7 +1479,7 @@ async function centerProduct(
 // ─────────────────────────────────────────────────────────────────────────────
 
 /** v38: All standard slots require strict centering QC (all are full-shoe shots now) */
-const CENTERING_QC_SLOTS = new Set(['side_angle', 'commerce_front', 'back_hero'])
+const CENTERING_QC_SLOTS = new Set(['side_angle', 'commerce_front', 'close_shot_hero'])
 
 /** Maximum acceptable offset from center as % of image dimension */
 const MAX_CENTER_OFFSET_PCT = 12
@@ -1872,22 +1877,22 @@ const EDITING_SCENES = [
       `DO NOT repeat the reference angle ({REF_ANGLE}). Generate a clean front hero.`,
   },
   {
-    name: 'back_hero',
-    label: 'Slot 3 — 3/4 Arka Hero',
+    name: 'close_shot_hero',
+    label: 'Slot 3 — 3/4 Yakın Hero',
     sceneInstructions:
-      `── SHOT: 3/4 REAR HERO ──\n` +
-      `Re-photograph this EXACT {COLOR} shoe from the back-quarter angle — same physical object.\n` +
-      `CAMERA: Behind and slightly to one side (30–45° from the heel), at mid-shoe height. The camera sees the heel counter and one side of the shoe.\n` +
-      `POSITION: Shoe upright on its sole, angled so the heel faces the camera. Toe pointing AWAY from camera.\n` +
-      `COMPOSITION: Full shoe visible. Shoe fills 70-80% of image height. Centered. Clean even spacing around shoe — NO excessive empty canvas.\n` +
-      `MUST SEE: Heel counter (full height), back pull-tab or loop if present, rear stitching, one side of the upper, sole heel area. The BACK of the shoe is the hero of this angle.\n` +
-      `MUST NOT SEE: Toe cap front face. If the front of the toe is clearly visible, the angle is WRONG — the camera is too far forward.\n` +
+      `── SHOT: 3/4 FRONT CLOSE HERO ──\n` +
+      `Re-photograph this EXACT {COLOR} shoe from a front-side angle at tighter framing — same physical object.\n` +
+      `CAMERA: Low to mid height, 30–45° from the front-side. The lens captures the vamp, toe shape, and lacing/closure zone as the dominant features, with one side of the shoe also visible.\n` +
+      `POSITION: Shoe upright on sole, angled so the toe-vamp area faces the camera. Toe pointing slightly toward camera.\n` +
+      `COMPOSITION: Full shoe visible from toe to heel — tighter framing than side_angle but the ENTIRE shoe is still in frame. Shoe fills 78-85% of image height. Centered. Clean even spacing — NO excessive empty canvas.\n` +
+      `MUST SEE: Toe shape and toe cap detail, vamp surface texture, lacing or closure system, one side of the upper. The front-quarter of the shoe is the hero.\n` +
+      `MUST NOT SEE: Heel counter as dominant (that would be a back view). Do NOT crop or hide any part of the shoe.\n` +
       `BACKGROUND: {BACKGROUND} Use this EXACT color — identical to all other slots in this batch. Same studio, same backdrop, same color.\n` +
-      `LIGHT: Soft studio lighting — key from rear-left 45°, fill from opposite. Natural soft shadow under the shoe. No harsh reflections.\n` +
+      `LIGHT: Soft studio lighting — key from front-left 45°, fill from opposite side. Natural soft shadow under the shoe. No harsh reflections. Rich, warm tones.\n` +
       `OUTPUT: Full-bleed photograph. No frames, no borders, no margins, no mockup. No watermark, no text, no logo overlay.\n` +
-      `THIS IS NOT: a front view, a pure side profile, a macro close-up, a top-down view, a framed image.\n` +
+      `THIS IS NOT: a pure front dead-on view, a pure side profile, a macro close-up, a top-down view, a back view, a framed image.\n` +
       `COLOR: The shoe is {COLOR}. Output MUST be {COLOR}. Other colors = REJECTED.\n` +
-      `DO NOT repeat the reference angle ({REF_ANGLE}). Generate a clean 3/4 rear hero.`,
+      `DO NOT repeat the reference angle ({REF_ANGLE}). Generate a clean 3/4 front close hero.`,
   },
   {
     name: 'tabletop_editorial',

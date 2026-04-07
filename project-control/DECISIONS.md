@@ -2846,3 +2846,47 @@ Strengthened TASK_FRAMING_BLOCK background lock section: removed macro/editorial
 Already hardened at 3 levels: (1) TASK_FRAMING_BLOCK anti-inset rules, (2) D3 shot compliance includes frame detection, (3) `detectAndRemoveFrame` post-processing runs unconditionally.
 
 **Status:** DEPLOYED — commit b6a5bd7
+
+---
+
+## D-125 — Image Pipeline v39: Visual Standard Reset — Darker/Richer + Close Shot Hero
+
+**Decision:**
+Operator-driven visual standard reset. Remove the bright/washed look from all slots, shift backgrounds from near-white to visibly colored, rebuild slot 3 as a front-side close hero replacing back_hero.
+
+**Problem — Bright/Washed Look:**
+The operator rejected v38 output as too bright and washed. Background hex values in `getBackgroundForColor()` were ~93-98% luminance (near-white), making them appear as "no background." Brightness normalization band (85-145, mid 115) allowed output that read as overexposed. QC brightness thresholds (mean>200, highlight>30%) were too permissive.
+
+**Problem — Slot 3 (back_hero):**
+Operator explicitly rejected back_hero: "Slot 3 must NOT be back hero." Required instead: "a close shot hero, useful detail-oriented angle, same visual family as slot 1 and slot 2, no frame, no inset, no macro." The back view was not valued enough to occupy a standard-stage slot.
+
+**Solution — Background Color Reset:**
+All `getBackgroundForColor()` hex codes shifted from near-white (~93-98% luminance) to visibly colored (~75-80% luminance): black→#D4C9B8, white→#B8B5B0, brown→#D6CCBE, tan→#C8C6C3, grey→#D9D5CE, navy→#C9C4BC, red→#C2C0BD, default→#CBC7C0.
+
+**Solution — Brightness Normalization Reset:**
+`normalizeBrightness()` target band shifted darker: TARGET_LOW=70 (was 85), TARGET_HIGH=120 (was 145), TARGET_MID=95 (was 115).
+
+**Solution — QC Brightness Tightening:**
+`checkBrightnessExposure()` thresholds tightened: mean>185 (was 200), highlight>25% (was 30%).
+
+**Solution — Slot 3 Rebuild (close_shot_hero):**
+3/4 front-side close hero: camera at 30-45° from the front-side at low-mid height, vamp and toe area as hero, tighter framing (78-85% of image height), full shoe visible. Shows toe shape, vamp texture, lacing/closure detail — genuinely different from side_angle (90° pure side) and commerce_front (dead-on front). Same visual family — all three are studio product shots, no lifestyle or editorial.
+
+**Solution — TASK_FRAMING_BLOCK Darker Emphasis:**
+Quality standard section updated: added "VISUAL TONE: Rich, warm, slightly dark. NOT bright or airy. NOT high-key." Exposure section updated: "DARK & RICH exposure is the standard," background described as "a VISIBLE COLOR (not near-white)," photographer analogy changed from "meters for the product" to "warmly-lit studio with a colored backdrop — NOT a white infinity curve."
+
+**Files Changed:**
+- `src/lib/imageProviders.ts`: getBackgroundForColor hex reset, normalizeBrightness target band, checkBrightnessExposure thresholds, EDITING_SCENES[2] replaced (back_hero→close_shot_hero), SHOT_CRITERIA updated, CENTERING_QC_SLOTS updated, TASK_FRAMING_BLOCK quality+exposure sections updated
+- `src/jobs/imageGenTask.ts`: ALL_SLOT_NAMES[2], ALL_SLOT_LABELS[2], CLEAN_SLOT_LABELS[2] updated
+- `src/lib/imagePromptBuilder.ts`: concept type, comment, label, prompt updated (legacy builder)
+
+**Slot Map After v39:**
+| Slot | Name | Angle | Stage |
+|------|------|-------|-------|
+| 1 | side_angle | 90° pure lateral side profile | standard |
+| 2 | commerce_front | Dead-on front, toe cap facing camera | standard |
+| 3 | close_shot_hero | 3/4 front-side close hero, vamp/toe detail | standard |
+| 4 | tabletop_editorial | 55-65° overhead editorial, marble surface | premium |
+| 5 | worn_lifestyle | Lifestyle worn shot, human foot, outdoor | premium |
+
+**Status:** DEPLOYED

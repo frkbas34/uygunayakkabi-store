@@ -129,6 +129,26 @@ function getBackgroundForColor(mainColor: string): string {
   return 'neutral light grey (#EDEDED). Solid, uniform, soft premium studio tone. Use this EXACT color for ALL slots. No gradient.'
 }
 
+/**
+ * Extract hex color from getBackgroundForColor() output and return RGB.
+ * e.g. "warm beige (#F5F0E8). Solid..." → { r: 245, g: 240, b: 232 }
+ * Falls back to neutral light grey if parsing fails.
+ */
+function getBackgroundRGB(backgroundStr: string): { r: number; g: number; b: number; alpha: number } {
+  const match = backgroundStr.match(/#([0-9A-Fa-f]{6})/)
+  if (match) {
+    const hex = match[1]
+    return {
+      r: parseInt(hex.substring(0, 2), 16),
+      g: parseInt(hex.substring(2, 4), 16),
+      b: parseInt(hex.substring(4, 6), 16),
+      alpha: 1,
+    }
+  }
+  // Fallback: neutral light grey
+  return { r: 237, g: 237, b: 237, alpha: 1 }
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Types
 // ─────────────────────────────────────────────────────────────────────────────
@@ -862,7 +882,9 @@ const EDITING_SCENES = [
       `COMPOSITION: Medium depth of field. Toe cap area sharp. Stitching, texture, and material details clearly visible. Heel/back blurred or cropped.\n` +
       `MUST SEE: Toe cap detail, vamp material texture, stitching, any perforations or logos on the front half.\n` +
       `MUST NOT: Show the entire shoe from toe to heel in sharp focus — this is NOT a full product shot.\n` +
-      `BACKGROUND: {BACKGROUND}\n` +
+      `BACKGROUND: {BACKGROUND} — This is a STUDIO shot. The shoe must be on a clean, solid-color studio backdrop. ` +
+      `Do NOT use the reference photo's surface/floor. Do NOT use stone, concrete, marble, or any textured surface. ` +
+      `The background is a smooth, uniform studio color as specified above.\n` +
       `LIGHT: Soft studio lighting — key from front-left 45°, fill from opposite. Natural soft shadow. No harsh reflections.\n` +
       `OUTPUT: Full-bleed photograph that fills the ENTIRE canvas edge to edge. The image IS the photo — NOT a photo of a photo.\n` +
       `CRITICAL ANTI-FRAME: Do NOT render any border, frame, shadow-box, rounded-corner card, drop-shadow rectangle, or picture-inside-picture effect. ` +
@@ -981,35 +1003,37 @@ export async function generateByEditing(
       `scenes=${scenes.map((s) => s.name).join(',')}`,
     )
 
-    // Resize shoe to 768×768 (fit:contain with white bg) then pad to 1024×1024.
-    // This guarantees at least 128px white border on all sides, giving the model
-    // visual room for recomposition even on square photos.
+    const mainColor    = identityLock.mainColor
+    const refAngle     = identityLock.referenceAngle || 'unknown'
+    const zoneBlock    = identityLock.protectedZoneBlock || ''
+    const hasBrandZones = geminiKey && (identityLock.protectedZones?.length ?? 0) > 0
+
+    // Compute premium background FIRST — needed for input image padding
+    const premiumBackground = getBackgroundForColor(mainColor)
+    const bgRGB = getBackgroundRGB(premiumBackground)
+
+    console.log(
+      `[generateByEditing v12] protected zones: ${hasBrandZones ? (identityLock.protectedZones?.map((z) => z.name).join(',')) : 'none'}`,
+    )
+
+    // v49: Resize shoe to 768×768 then pad to 1024×1024 using BACKGROUND COLOR.
+    // Previously used white (#FFFFFF) for padding — Gemini replicated the white
+    // border as a frame in its output. Using the actual background color makes
+    // the padding blend seamlessly, eliminating the frame artifact.
     const innerBuffer = await sharp(referenceImage)
-      .resize(768, 768, { fit: 'contain', background: { r: 255, g: 255, b: 255, alpha: 1 } })
+      .resize(768, 768, { fit: 'contain', background: bgRGB })
       .png()
       .toBuffer()
 
     const pngBuffer = await sharp(innerBuffer)
       .extend({
         top: 128, bottom: 128, left: 128, right: 128,
-        background: { r: 255, g: 255, b: 255, alpha: 1 },
+        background: bgRGB,
       })
       .png()
       .toBuffer()
 
-    console.log(`[generateByEditing v12] PNG 1024×1024 ready — ${pngBuffer.length}b (shoe at 768×768 center)`)
-
-    const mainColor    = identityLock.mainColor
-    const refAngle     = identityLock.referenceAngle || 'unknown'
-    const zoneBlock    = identityLock.protectedZoneBlock || ''
-    const hasBrandZones = geminiKey && (identityLock.protectedZones?.length ?? 0) > 0
-
-    console.log(
-      `[generateByEditing v12] protected zones: ${hasBrandZones ? (identityLock.protectedZones?.map((z) => z.name).join(',')) : 'none'}`,
-    )
-
-    // Compute premium background once (same for all studio slots in this batch)
-    const premiumBackground = getBackgroundForColor(mainColor)
+    console.log(`[generateByEditing v49] PNG 1024×1024 ready — ${pngBuffer.length}b (shoe at 768×768 center, pad=${JSON.stringify(bgRGB)})`)
 
     for (const scene of scenes) {
       // Replace placeholders in scene instructions
@@ -1348,28 +1372,30 @@ export async function generateByGeminiPro(
       `scenes=${scenes.map((s) => s.name).join(',')}`,
     )
 
-    // Same 768×768 → 1024×1024 padding as generateByEditing
+    const mainColor   = identityLock.mainColor
+    const refAngle    = identityLock.referenceAngle || 'unknown'
+    const zoneBlock   = identityLock.protectedZoneBlock || ''
+    const hasBrandZones = (identityLock.protectedZones?.length ?? 0) > 0
+
+    // Compute background FIRST — needed for padding color
+    const premiumBackground = getBackgroundForColor(mainColor)
+    const bgRGB = getBackgroundRGB(premiumBackground)
+
+    // v49: Use background color for padding instead of white — eliminates frame artifact
     const innerBuffer = await sharp(referenceImage)
-      .resize(768, 768, { fit: 'contain', background: { r: 255, g: 255, b: 255, alpha: 1 } })
+      .resize(768, 768, { fit: 'contain', background: bgRGB })
       .png()
       .toBuffer()
 
     const pngBuffer = await sharp(innerBuffer)
       .extend({
         top: 128, bottom: 128, left: 128, right: 128,
-        background: { r: 255, g: 255, b: 255, alpha: 1 },
+        background: bgRGB,
       })
       .png()
       .toBuffer()
 
-    console.log(`[generateByGeminiPro v14] PNG 1024×1024 ready — ${pngBuffer.length}b`)
-
-    const mainColor   = identityLock.mainColor
-    const refAngle    = identityLock.referenceAngle || 'unknown'
-    const zoneBlock   = identityLock.protectedZoneBlock || ''
-    const hasBrandZones = (identityLock.protectedZones?.length ?? 0) > 0
-
-    const premiumBackground = getBackgroundForColor(mainColor)
+    console.log(`[generateByGeminiPro v49] PNG 1024×1024 ready — ${pngBuffer.length}b (pad=${JSON.stringify(bgRGB)})`)
 
     for (const scene of scenes) {
       const sceneText = scene.sceneInstructions

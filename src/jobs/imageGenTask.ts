@@ -386,8 +386,8 @@ export const imageGenTask: TaskConfig<{
     // ── Step 6: STEP C — Image Generation (provider-routed) ─────────────────
     // v14: provider='openai' → generateByEditing (gpt-image-1, default, unchanged)
     //      provider='gemini-pro' → generateByGeminiPro (Gemini image gen, optional)
-    const ALL_SLOT_NAMES  = ['side_angle', 'commerce_front', 'close_shot_hero', 'tabletop_editorial', 'worn_lifestyle']
-    const ALL_SLOT_LABELS = ['Slot 1 — Yan Profil (PRIMARY)', 'Slot 2 — Ön Hero', 'Slot 3 — Yakın Hero', 'Slot 4 — Editoryal', 'Slot 5 — Lifestyle']
+    const ALL_SLOT_NAMES  = ['side_angle', 'commerce_front', 'back_hero', 'tabletop_editorial', 'worn_lifestyle']
+    const ALL_SLOT_LABELS = ['Slot 1 — Yan Profil (PRIMARY)', 'Slot 2 — Ön Hero', 'Slot 3 — Arka Hero', 'Slot 4 — Editoryal', 'Slot 5 — Lifestyle']
     const slotNames  = sceneIndices.map((i) => ALL_SLOT_NAMES[i])
     const slotLabels = sceneIndices.map((i) => ALL_SLOT_LABELS[i])
 
@@ -598,7 +598,7 @@ export const imageGenTask: TaskConfig<{
       // Build album items — filter out missing/empty buffers
       // Clean captions — product-focused, no provider/metadata clutter.
       // Slot diagnostics are in the approval keyboard message + job metadata.
-      const CLEAN_SLOT_LABELS = ['Yan Profil', 'Ön Görünüm', 'Yakın Hero', 'Editoryal', 'Lifestyle']
+      const CLEAN_SLOT_LABELS = ['Yan Profil', 'Ön Görünüm', 'Arka Hero', 'Editoryal', 'Lifestyle']
       const albumItems: Array<{ buf: Buffer; caption: string; filename: string }> = []
       for (let i = 0; i < generatedBuffers.length; i++) {
         const buf = generatedBuffers[i]

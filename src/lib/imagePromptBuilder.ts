@@ -7,7 +7,7 @@
  * Concepts:
  *  1. commerce_front    — White-bg product shot, straight-on
  *  2. side_angle        — 45° studio angle
- *  3. close_shot_hero    — 3/4 front close hero (vamp/toe detail)
+ *  3. back_hero         — 3/4 rear hero (heel counter)
  *  4. tabletop_editorial — Lifestyle tabletop composition
  *  5. worn_lifestyle    — Worn in a real-world setting
  *
@@ -39,7 +39,7 @@ export type ProductContext = {
 export type PromptConcept =
   | 'commerce_front'
   | 'side_angle'
-  | 'close_shot_hero'
+  | 'back_hero'
   | 'tabletop_editorial'
   | 'worn_lifestyle'
 
@@ -181,16 +181,16 @@ export function buildPromptSet(product: ProductContext, hasReferenceImage = fals
         `commercial product photography, no shadows on background, high resolution, no text`,
     },
 
-    // ── 3. Close Shot Hero ────────────────────────────────────────────────────
+    // ── 3. Back Hero ────────────────────────────────────────────────────────
     {
-      concept: 'close_shot_hero',
-      label: 'Yakın Hero — 3/4 Ön Yakın',
+      concept: 'back_hero',
+      label: 'Arka Hero — 3/4 Arka Görünüm',
       prompt:
         `Professional product photography of ${fullDesc}, ` +
-        `shot from a front-side 3/4 angle (30-45° from the front), tighter framing, ` +
-        `showing the vamp, toe shape, and lacing or closure detail prominently, ` +
-        `full shoe visible, clean studio background, soft even lighting, ` +
-        `rich tones, commercial e-commerce style, no text`,
+        `shot from the rear-quarter angle (30-45° behind), showing the heel counter, ` +
+        `back stitching, and pull tab, ` +
+        `clean studio background, soft even lighting, ` +
+        `commercial e-commerce style, no text`,
     },
 
     // ── 4. Tabletop Editorial ────────────────────────────────────────────────

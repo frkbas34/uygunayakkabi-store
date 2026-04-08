@@ -3377,4 +3377,38 @@ Gate 2 (allowlisting) applies equally to all three activation types.
 - `src/app/api/telegram/route.ts` — Gate 1 block expanded (lines 1293-1319)
 
 **Status:**  
-ACTIVE — Phase K complete
+ACTIVE — Phase K complete, extended by Phase L (D-138)
+
+---
+
+## D-138 — Phase L: Mention Normalization for Group Command Routing — IMPLEMENTED
+**Date:** 2026-04-08  
+**Decision:**  
+Add a text normalization step after both safety gates pass in group chats, before command routing, so mention-prefixed commands behave identically to direct slash commands.
+
+**Problem:**
+`@Uygunops_bot /preview 180` passed the activation gate (Phase K) but `text.startsWith('/preview')` failed because raw text still contained the mention prefix. Similarly, Telegram's inline suffix format `/preview@Uygunops_bot 180` also failed.
+
+**Implementation:**
+After both gates (activation + allowlisting) pass, in group chats only:
+1. Strip leading `@uygunops_bot` prefix + trailing whitespace
+2. Strip inline `@uygunops_bot` anywhere (handles `/cmd@bot` suffix)
+3. Case-insensitive
+4. `text` changed from `const` to `let` to allow reassignment
+5. DM text is never modified
+
+**Patterns now working in group:**
+- `/preview 180` → `/preview 180`
+- `@Uygunops_bot /preview 180` → `/preview 180`
+- `@Uygunops_bot    /preview 180` → `/preview 180`
+- `/preview@Uygunops_bot 180` → `/preview 180`
+- `@UYGUNOPS_BOT /stok` → `/stok`
+
+**What happens with @mention + free text (no command):**
+- `@Uygunops_bot bu kaç lira` → `bu kaç lira` → no handler matches → falls through harmlessly
+
+**Files Changed:**
+- `src/app/api/telegram/route.ts` — Normalization block (lines 1352-1364), `text` const→let
+
+**Status:**  
+ACTIVE — Phase L complete

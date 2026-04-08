@@ -1,6 +1,6 @@
 # TASK QUEUE — Uygunayakkabi
 
-_Last updated: 2026-04-08 (Multi-Bot Support D-139; Phase L Mention Normalization D-138; Phase K Mention/Reply Activation D-137; Phase I Group Onboarding D-136; Phase G Dry-Run Preview D-135; Phase D Channel Dispatch Geobot Wiring D-134; Phase C Blog Discoverability D-133; Image Pipeline v38 D-124; v37 D-123; v36 D-122; v35 D-121; v34 D-120; Phase 21 Operator Runbook; VF-7 D-117b; VF-6 D-117; Phases 16-19 D-116; Phase 13 D-115/D-114; Phases 1-12 complete)_
+_Last updated: 2026-04-08 (Phase N Bot Role Separation D-140; Multi-Bot Support D-139; Phase L D-138; Phase K D-137; Phase I D-136; Phase G D-135; Phase D D-134; Phase C D-133; Image Pipeline v38 D-124; v37 D-123; v36 D-122; v35 D-121; v34 D-120; Phase 21 Operator Runbook; VF-7 D-117b; VF-6 D-117; Phases 16-19 D-116; Phase 13 D-115/D-114; Phases 1-12 complete)_
 
 ---
 
@@ -83,14 +83,17 @@ Full end-to-end pipeline proven on product #180:
 - Activation: status=active, Yeni badge, homepage visible
 - 11 bot events across full lifecycle
 
+### ✅ Phase N — Bot Role Separation: DEPLOYED (2026-04-08)
+- Geo_bot (@Geeeeobot) = GROUP ONLY operator bot → DMs redirect to @Uygunops_bot
+- Uygunops (@Uygunops_bot) = DM ONLY operator bot → group messages silently ignored
+- Both bots share same full command surface, context gates prevent overlap
+- 8 webhook tests passed: DM/group × message/callback × both bots
+- D-140
+
 ### ✅ Multi-Bot Support — Geo_bot (@Geeeeobot) Live in Mentix Group: DEPLOYED (2026-04-08)
-- Geo_bot (`@Geeeeobot`, ID `8728094008`) now shares the same webhook handler as Uygunops_bot
-- Differentiated by `?bot=geo` URL query parameter on webhook URL
-- Per-request token resolution via `getBotToken()` + module-level `_requestBotToken`
+- Geo_bot (`@Geeeeobot`, ID `8728094008`) shares same webhook handler via `?bot=geo`
 - Webhook: `https://www.uygunayakkabi.com/api/telegram?bot=geo` with shared secret_token
-- Geo_bot added to Mentix Grup Bot group, privacy mode disabled (can_read_all_group_messages)
-- 7 live tests passed: DM, group slash/mention/reply, plain text silence, cross-bot isolation
-- Env: `TELEGRAM_GEO_BOT_TOKEN` set on Vercel (all environments)
+- Geo_bot added to Mentix Grup Bot group, privacy mode disabled
 - D-139
 
 ### ✅ Geobot Group Onboarding Phases I/J/K/L: DEPLOYED + VALIDATED (2026-04-08)
@@ -99,14 +102,13 @@ Full end-to-end pipeline proven on product #180:
 - Phase K (D-137): @mention and reply-to-bot activation alongside slash commands
 - Phase L (D-138): Mention normalization — `@Bot /cmd` routes correctly, DM unchanged
 
-### Remaining Geo_bot Parity Gaps (GROUP vs DM)
-These are identified but not yet implemented. The Geo_bot in Mentix group currently handles slash commands, @mentions, and reply-to-bot. The following DM-equivalent capabilities are NOT yet available in group context:
-1. **Photo intake** — `#gorsel` photo-to-product flow (DM only)
-2. **Wizard state** — `/confirm` multi-step wizard keyboard callbacks (may not work in group)
-3. **Stock batch** — multi-line stock update text (DM only)
-4. **Callback queries** — inline keyboard interactions may target wrong bot in group
-5. **Error feedback** — error messages sent to group may be noisy
-6. **Free-text routing** — `@Geeeeobot bu kaç lira` passes gates but has no handler
+### Remaining Geo_bot Group Parity Gaps
+These are identified but not yet tested in group context via Geo_bot:
+1. **Photo intake** — `#gorsel` photo-to-product flow (untested in group)
+2. **Wizard state** — `/confirm` multi-step wizard keyboard callbacks (untested in group)
+3. **Stock batch** — multi-line stock update text (untested in group)
+4. **Error feedback** — error messages sent to group may be noisy for other members
+5. **Free-text routing** — `@Geeeeobot bu kaç lira` passes gates but has no handler
 
 ### Priority 1: Operator Visual Approval of 53 Preview Products
 VF-7 normalized the backlog. 53 products now have vis=preview (images generated, awaiting operator approval). 5 products already vis=approved and ready for /confirm. 34 products have no image gen yet (vis=pending).

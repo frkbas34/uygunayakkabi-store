@@ -3448,3 +3448,55 @@ Geo_bot existed as a separate Telegram bot but had no webhook, no code support, 
 
 **Status:**  
 ACTIVE — Multi-bot operational
+
+---
+
+## D-140 — Phase N: Bot Role Separation (Geo_bot=Group, Uygunops=DM) — IMPLEMENTED
+**Date:** 2026-04-08  
+**Decision:**  
+Enforce a clean context separation between the two bots to prevent overlap and operator confusion. Geo_bot owns group context exclusively; Uygunops owns DM context exclusively.
+
+**Problem:**
+After D-139 multi-bot support, both bots shared the identical command surface. Any command sent to either bot in any context (DM or group) would be processed identically. This creates: duplicate responses if both bots are in the same group, operator confusion about which bot to address, and no clear ownership boundary.
+
+**Role Assignment:**
+
+| Bot | Context | Behavior |
+|-----|---------|----------|
+| Geo_bot (@Geeeeobot) | Group chat | ACTIVE — full command surface |
+| Geo_bot (@Geeeeobot) | Private DM | REDIRECTS — sends Turkish message directing operator to @Uygunops_bot |
+| Uygunops (@Uygunops_bot) | Private DM | ACTIVE — full command surface |
+| Uygunops (@Uygunops_bot) | Group chat | SILENT — logged and ignored |
+
+**Implementation:**
+Two surgical gates added to `route.ts`:
+1. **Message gate** (after chat type detection, before Phase I group gates):
+   - `botParam === 'geo' && !isGroupChat` → send redirect, return
+   - `botParam !== 'geo' && isGroupChat` → log, silently return
+2. **Callback gate** (inside callback_query handler, before any callback processing):
+   - Same logic applied to `cbChatType`
+   - Geo_bot DM callbacks → answerCallbackQuery with redirect text
+   - Uygunops group callbacks → silently acknowledge
+
+**Commands owned by each bot (same set, different context):**
+- All 17 slash commands: /preview, /pipeline, /diagnostics, /stok, /audit, /content, /confirm, /activate, /merch, /shopier, /story, /restory, /targets, /approve_story, /reject_story, /confirm_cancel, /start
+- All hashtag triggers: #gorsel, #geminipro, #karma, #premium, #dengeli
+- All callback queries: imagegen, imgapprove, imgreject, imgregen, imgpremium, wz_cat, wz_ptype, wz_tgt, wz_size, wz_confirm, wz_cancel, storyapprove, storyreject, storyretry
+- STOCK batch text input
+- Photo/media intake
+
+**Validation (8 tests, all passed):**
+1. Uygunops DM /preview 180 → processed ✅
+2. Uygunops GROUP /preview 180 → silently ignored ✅
+3. Geo_bot GROUP /preview 180 → processed ✅
+4. Geo_bot DM /preview 180 → redirect message sent ✅
+5. Geo_bot GROUP @mention → processed ✅
+6. Geo_bot GROUP plain text → silent (Phase I gate) ✅
+7. Geo_bot GROUP callback → processed ✅
+8. Uygunops DM callback → processed ✅
+
+**Files Changed:**
+- `src/app/api/telegram/route.ts` — Two Phase N gate blocks (messages + callbacks)
+
+**Status:**  
+ACTIVE — Bot role separation enforced

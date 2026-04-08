@@ -2720,6 +2720,56 @@ export async function POST(req: NextRequest) {
 
     // ── Phase 12: Pipeline Status Command ─────────────────────────────────
     // /pipeline {productId} — full lifecycle pipeline visibility
+    // ── Phase G: /preview <id> — dry-run dispatch preview ─────────────────
+    if (text.startsWith('/preview')) {
+      const pvParts = text.trim().split(/\s+/)
+      const pvArg = pvParts[1]
+      if (!pvArg) {
+        await sendTelegramMessage(chatId,
+          '👁️ <b>Önizleme (Dry-Run)</b>\n\n' +
+          '/preview &lt;id&gt; — Ürünün kanal iletim önizlemesini göster\n\n' +
+          'Geobot içeriğinin hangi kanallarda kullanılacağını, gerçek gönderi yapmadan görürsünüz.\n' +
+          'Sadece aktif ürünlerde çalışır.')
+        return NextResponse.json({ ok: true })
+      }
+      try {
+        const { docs: pvDocs } = await payload.find({
+          collection: 'products',
+          where: { id: { equals: pvArg } },
+          depth: 0,
+          limit: 1,
+        })
+        if (pvDocs.length === 0) {
+          await sendTelegramMessage(chatId, `❌ Ürün bulunamadı: ${pvArg}`)
+          return NextResponse.json({ ok: true })
+        }
+        const pvDoc = pvDocs[0] as Record<string, unknown>
+        if (pvDoc.status !== 'active') {
+          await sendTelegramMessage(chatId, `❌ Ürün aktif değil (status: ${pvDoc.status}). Önizleme sadece aktif ürünlerde çalışır.`)
+          return NextResponse.json({ ok: true })
+        }
+        const pvMeta = (pvDoc.sourceMeta as Record<string, unknown>) ?? {}
+        // Trigger dry-run by setting both flags — afterChange hook will detect isDryRun
+        await sendTelegramMessage(chatId, `⏳ Önizleme başlatılıyor — Ürün #${pvArg}...`)
+        await payload.update({
+          collection: 'products',
+          id: pvArg as string,
+          data: {
+            sourceMeta: {
+              ...pvMeta,
+              forceRedispatch: true,
+              previewDispatch: true,
+            },
+          },
+        })
+        // Results will be sent by the afterChange hook's Telegram notification
+      } catch (pvErr) {
+        const pvMsg = pvErr instanceof Error ? pvErr.message : String(pvErr)
+        await sendTelegramMessage(chatId, `❌ Önizleme hatası: ${pvMsg}`)
+      }
+      return NextResponse.json({ ok: true })
+    }
+
     if (text.startsWith('/pipeline')) {
       const parts = text.trim().split(/\s+/)
       const arg = parts[1]

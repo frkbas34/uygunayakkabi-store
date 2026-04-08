@@ -718,6 +718,19 @@ export async function POST(req: NextRequest) {
       const cbChatId: number = callbackQuery.message?.chat?.id
       const cbQueryId: string = callbackQuery.id
       const cbData: string = callbackQuery.data || ''
+      const cbChatType: string = callbackQuery.message?.chat?.type || 'private'
+      const cbIsGroup = cbChatType === 'group' || cbChatType === 'supergroup'
+
+      // ── Phase N: Bot role separation for callbacks ───────────────────────
+      if (botParam === 'geo' && !cbIsGroup) {
+        await answerCallbackQuery(cbQueryId, '📌 DM komutları için @Uygunops_bot kullanın.')
+        return NextResponse.json({ ok: true })
+      }
+      if (botParam !== 'geo' && cbIsGroup) {
+        // Uygunops callback in group → silently acknowledge
+        await answerCallbackQuery(cbQueryId)
+        return NextResponse.json({ ok: true })
+      }
 
       if (cbData.startsWith('imagegen:')) {
         const parts = cbData.split(':')
@@ -1312,6 +1325,21 @@ export async function POST(req: NextRequest) {
     const messageId: number = message.message_id
     const chatType: string = message.chat?.type || 'private' // 'private' | 'group' | 'supergroup'
     const isGroupChat = chatType === 'group' || chatType === 'supergroup'
+
+    // ── Phase N: Bot role separation ───────────────────────────────────────────
+    // Geo_bot (@Geeeeobot) = group operator bot → active only in Mentix group
+    // Uygunops (@Uygunops_bot) = DM operator bot → active only in private chats
+    // This prevents overlap and operator confusion.
+    if (botParam === 'geo' && !isGroupChat) {
+      // Geo_bot received a DM → redirect operator to Uygunops
+      await sendTelegramMessage(chatId, '📌 Bu bot sadece grup içinde çalışır.\nDM komutları için @Uygunops_bot kullanın.')
+      return NextResponse.json({ ok: true })
+    }
+    if (botParam !== 'geo' && isGroupChat) {
+      // Uygunops received a group message → silently ignore (Geo_bot owns group)
+      console.log(`[telegram/phase-n] Uygunops ignoring group message in chat ${chatId} — Geo_bot owns group context`)
+      return NextResponse.json({ ok: true })
+    }
 
     // ── Phase I+K: Group chat activation filter ────────────────────────────────
     // In group/supergroup chats the bot only responds to INTENTIONAL activation:

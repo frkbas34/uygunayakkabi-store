@@ -1287,8 +1287,52 @@ export async function POST(req: NextRequest) {
     const text: string = message.text || message.caption || ''
     const chatId: number = message.chat?.id
     const messageId: number = message.message_id
+    const chatType: string = message.chat?.type || 'private' // 'private' | 'group' | 'supergroup'
+    const isGroupChat = chatType === 'group' || chatType === 'supergroup'
+
+    // ── Phase I: Group chat filtering ────────────────────────────────────────
+    // In group/supergroup chats the bot should ONLY respond to explicit /commands.
+    // Photos, plain text, wizard input, etc. are silently ignored to avoid
+    // reacting to normal background group chatter.
+    // DM (private) behaviour remains unchanged.
+    if (isGroupChat) {
+      const isCommand = text.startsWith('/')
+      if (!isCommand) {
+        // Silently ignore non-command messages in groups
+        return NextResponse.json({ ok: true })
+      }
+    }
 
     const payload = await getPayload()
+
+    // ── Phase I: Group allowlisting ──────────────────────────────────────────
+    // When a command arrives from a group chat, verify:
+    //   1. telegram.groupEnabled is ON in AutomationSettings
+    //   2. The sender's Telegram user ID is in telegram.allowedUserIds
+    // If either check fails, silently ignore the message.
+    if (isGroupChat) {
+      try {
+        const autoSettings = await payload.findGlobal({ slug: 'automation-settings' })
+        const telegramSettings = (autoSettings as Record<string, unknown>)?.telegram as Record<string, unknown> | undefined
+        const groupEnabled = telegramSettings?.groupEnabled === true
+        if (!groupEnabled) {
+          console.log(`[telegram/group] Group mode disabled — ignoring command from chat ${chatId}`)
+          return NextResponse.json({ ok: true })
+        }
+
+        const allowedRaw = (telegramSettings?.allowedUserIds as string) || ''
+        const allowedIds = allowedRaw.split(/[\n,]+/).map(s => s.trim()).filter(Boolean)
+        const senderId = String(message.from?.id || '')
+        if (allowedIds.length > 0 && !allowedIds.includes(senderId)) {
+          console.log(`[telegram/group] User ${senderId} not in allowlist — ignoring command from chat ${chatId}`)
+          return NextResponse.json({ ok: true })
+        }
+      } catch (err) {
+        console.error('[telegram/group] Failed to check group settings:', err)
+        // Fail-closed: if we can't verify settings, don't process group messages
+        return NextResponse.json({ ok: true })
+      }
+    }
 
     // ── Phase 5: Confirmation wizard text input interceptor ───────────────────
     // If there's an active wizard session expecting text input (price, sizes, stock),

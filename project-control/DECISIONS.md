@@ -3311,3 +3311,32 @@ No safe way to verify Geobot content integration without creating real public po
 
 **Status:**  
 ACTIVE — Phase G complete
+
+---
+
+## D-136 — Phase I: Mentix Group Onboarding — Safe Group Filtering — IMPLEMENTED
+**Date:** 2026-04-08  
+**Decision:**  
+Add two safety gates to the Telegram bot so it can safely operate inside the Mentix group without reacting to background chatter.
+
+**Problem:**
+The bot had NO chat-type filtering. Adding it to the Mentix group would cause it to process every photo, text, and caption in the group — potentially creating products, triggering wizards, or sending confusing replies.
+
+**Implementation:**
+1. **Command-only filter** (line 1293): In group/supergroup chats, only messages starting with `/` are processed. Photos, plain text, wizard input, and captions are silently ignored.
+2. **Group allowlisting** (line 1308): After `getPayload()`, group commands are checked against:
+   - `telegram.groupEnabled` must be `true` in AutomationSettings
+   - Sender's `from.id` must be in `telegram.allowedUserIds` (if the list is non-empty)
+   - Fail-closed: if settings can't be read, group messages are dropped
+3. **DM behavior unchanged**: Private chat messages bypass both gates entirely.
+4. **Callback queries unchanged**: Inline button clicks (imagegen mode selection etc.) are handled before the message section and are not affected.
+
+**DB changes (Neon):**
+- `telegram_group_enabled` set to `true`
+- `telegram_allowed_user_ids` set to `5450039553` (Furkan)
+
+**Files Changed:**
+- `src/app/api/telegram/route.ts` — Two guard blocks after chatId/messageId extraction
+
+**Status:**  
+ACTIVE — Phase I complete

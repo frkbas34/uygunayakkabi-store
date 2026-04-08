@@ -59,7 +59,7 @@ export default async function Page() {
   let dbProducts: DbProduct[] = [];
   let siteSettings: SiteSettings | null = null;
   let banners: DbBanner[] = [];
-  let sectionIds = { yeni: [] as string[], popular: [] as string[], bestSellers: [] as string[], deals: [] as string[], discounted: [] as string[] };
+  let sectionIds: Record<string, string[]> = { yeni: [], popular: [], bestSellers: [], deals: [], discounted: [] };
 
   try {
     const payload = await getPayload();
@@ -106,7 +106,7 @@ export default async function Page() {
     );
 
     // Build section membership as product ID arrays for client-side rendering
-    sectionIds = {
+    const sectionIds = {
       yeni: sections.yeni.map((p: any) => `db_${p.id}`),
       popular: sections.popular.map((p: any) => `db_${p.id}`),
       bestSellers: sections.bestSellers.map((p: any) => `db_${p.id}`),

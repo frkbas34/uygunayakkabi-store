@@ -31,24 +31,6 @@ const CANONICAL_PROHIBITIONS_BLOCK =
   `═══════════════════════════\n`
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Anti-frame enforcer — placed LAST in prompt for maximum recency attention
-// ─────────────────────────────────────────────────────────────────────────────
-const ANTI_FRAME_FINAL_BLOCK =
-  `\n\n═══ FINAL OUTPUT RULE — NO FRAMES (MANDATORY) ═══\n` +
-  `Before you output, verify: does the generated image contain ANY of these?\n` +
-  `• A visible border, outline, or edge that is NOT the canvas edge\n` +
-  `• A rectangular "card", "tile", or "panel" effect around the product\n` +
-  `• A shadow-box, drop-shadow rectangle, or rounded-corner frame\n` +
-  `• A white/gray margin between the photo content and the canvas edge\n` +
-  `• An image-inside-an-image or photo-on-a-background appearance\n` +
-  `• Any decorative edge, vignette border, or poster presentation\n` +
-  `If YES to ANY of the above → your output is WRONG. Regenerate WITHOUT any frame.\n` +
-  `The background color/scene MUST extend to ALL FOUR edges of the output canvas.\n` +
-  `There must be ZERO pixels of border/margin between the photo content and the canvas edge.\n` +
-  `This is a raw camera photograph, NOT a product card, NOT a mockup, NOT a framed print.\n` +
-  `═══════════════════════════════════════════════════\n`
-
-// ─────────────────────────────────────────────────────────────────────────────
 // Task framing — tells the model WHAT IT IS DOING before any details
 // ─────────────────────────────────────────────────────────────────────────────
 // This block is injected BEFORE the identity lock in every generation prompt.
@@ -77,27 +59,65 @@ const TASK_FRAMING_BLOCK =
   `• The output must look like a direct camera shot, NOT like an image placed inside another image.\n` +
   `• NO watermarks, NO logos, NO branding overlays, NO text of any kind in the image.\n` +
   `\n` +
-  `ANTI-FRAME RULE (ZERO TOLERANCE):\n` +
+  `═══ IMAGE NORMALIZATION — MANDATORY ═══\n` +
+  `SUBJECT SCALE: The shoe must occupy 65-80% of the image frame (height or width, whichever is dominant).\n` +
+  `• The shoe must NOT appear tiny or distant inside a large empty canvas.\n` +
+  `• The shoe must NOT be excessively zoomed in (except for macro/detail slot).\n` +
+  `• All standard product shots must maintain a consistent, premium product-to-frame ratio.\n` +
+  `CENTERING: The shoe must be centered or deliberately composed with controlled premium placement.\n` +
+  `• Never place the shoe awkwardly near an edge.\n` +
+  `• Composition must look intentional and premium — like a professional catalog photo.\n` +
+  `ANTI-INSET RULE (CRITICAL):\n` +
   `• Do NOT generate an image-inside-an-image. Do NOT create a framed-photo look.\n` +
   `• Do NOT create visible outer borders or a poster/card/mockup presentation.\n` +
-  `• Do NOT place the photo inside a rectangular panel, card, or bordered area.\n` +
-  `• Do NOT add decorative edges, shadow boxing, or vignette framing.\n` +
-  `• Do NOT render the image as if it were printed on paper and photographed.\n` +
-  `• The photo content must extend all the way to every edge of the output image.\n` +
-  `• If your output has visible boundaries between "the photo" and "the canvas", it is WRONG.\n` +
-  `\n` +
-  `BACKGROUND CONSISTENCY (ALL SLOTS):\n` +
-  `• All images in this batch share ONE studio backdrop color.\n` +
-  `• Each slot specifies a BACKGROUND line — use that EXACT color.\n` +
-  `• Slot 1 sets the background for the batch. All other slots MUST match.\n` +
-  `• No slot may drift to a different color, shade, or warmth.\n` +
+  `• Do NOT create large white or colored margins that make the scene feel inset.\n` +
+  `• The output must be a direct, full-bleed photograph — edge to edge.\n` +
+  `• If your output looks like a photo placed onto a canvas, it is WRONG.\n` +
+  `CONSISTENCY RULE:\n` +
+  `• All images in this batch must feel like they belong to the same premium catalog system.\n` +
+  `• Different slots may have different angles/scenes but the overall visual scale must be consistent.\n` +
+  `• When placed side by side on a website, these images must look professionally harmonized.\n` +
+  `═══════════════════════════\n` +
   `\n` +
   `QUALITY STANDARD:\n` +
   `• Premium e-commerce photography — think Zara / Nike / luxury catalog quality.\n` +
   `• Ultra clean, high clarity, high sharpness, no noise, no clutter.\n` +
   `• Soft studio lighting, natural soft shadow under the shoe.\n` +
   `• No harsh reflections, no dramatic lighting — realistic commercial look.\n` +
+  `\n` +
+  `BACKGROUND LOCK (BATCH RULE — MANDATORY):\n` +
+  `• ALL images in this batch MUST use the EXACT SAME background color — no exceptions.\n` +
+  `• Each slot's BACKGROUND line specifies ONE exact color with a hex code. Use THAT hex code literally.\n` +
+  `• Do NOT choose a different shade, tone, warmth, or hue — even if "similar" or "complementary".\n` +
+  `• Do NOT introduce green, blue, or any color not explicitly specified in the BACKGROUND line.\n` +
+  `• Even in macro/close-up/lifestyle shots where background is blurred, the blurred area must be the SAME exact color.\n` +
+  `• Even in editorial/overhead shots, the visible surface/backdrop must match the SAME batch background.\n` +
+  `• All images must look like they were shot in the SAME studio with the SAME physical backdrop paper.\n` +
+  `• If your output has a different background color than specified, it is WRONG and will be REJECTED.\n` +
   `═══════════════════════════\n\n`
+
+/**
+ * Multi-angle reference block — injected when multiple reference images are provided.
+ * Tells the generation model that these are all the SAME product from different angles,
+ * improving product identity preservation.
+ */
+function buildMultiAngleBlock(additionalCount: number): string {
+  if (additionalCount <= 0) return ''
+  const total = 1 + additionalCount
+  return (
+    `═══ MULTI-ANGLE REFERENCE PACK ═══\n` +
+    `You have been given ${total} reference images of the SAME EXACT shoe from different angles.\n` +
+    `These are NOT different shoes. This is ONE physical product photographed ${total} times.\n` +
+    `Use ALL reference images together to understand:\n` +
+    `• The complete 3D shape of this shoe — what the front, side, and back look like.\n` +
+    `• Logo and branding placement on all visible faces.\n` +
+    `• Sole shape, heel profile, and construction details from multiple perspectives.\n` +
+    `• Material consistency — the same leather/suede/mesh appears from every angle.\n` +
+    `The first image is the PRIMARY reference. Additional images provide supplementary angles.\n` +
+    `Your generated output must be faithful to ALL reference angles — the shoe identity must match.\n` +
+    `═══════════════════════════\n\n`
+  )
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Premium Background Selection Engine
@@ -105,56 +125,27 @@ const TASK_FRAMING_BLOCK =
 // Maps shoe color → premium contrasting background for studio shots.
 // Goal: background supports the product, never competes. Soft, minimal, premium.
 
-function getBackgroundForColor(mainColor: string): string {
+export function getBackgroundForColor(mainColor: string): string {
   const c = mainColor.toLowerCase()
 
-  // v43: ONE exact background per shoe color — no "or" options.
-  // All slots in a batch MUST use this identical background.
-  // This prevents slot-to-slot drift.
+  // Returns ONE EXACT background per shoe color — no "or" options.
+  // This ensures all slots in a batch use the identical background.
 
   if (c.includes('black') || c.includes('siyah'))
-    return 'warm beige (#F5F0E8). Solid, uniform, soft premium studio tone. Use this EXACT color for ALL slots in this batch. No gradient.'
+    return 'warm beige (#F5F0E8). Solid, uniform, soft premium studio tone. No gradient, no variation.'
   if (c.includes('white') || c.includes('beyaz') || c.includes('off-white'))
-    return 'light grey (#E8E8E8). Solid, uniform tone. NOT white — shoe must contrast. Use this EXACT color for ALL slots. No gradient.'
+    return 'light warm grey (#E5E3E0). Solid, uniform tone. NOT white — shoe must clearly contrast.'
   if (c.includes('brown') || c.includes('kahve') || c.includes('espresso'))
-    return 'warm cream (#F5F1E6). Solid, uniform, soft natural tone. Use this EXACT color for ALL slots. No gradient.'
+    return 'warm cream (#F5F1E6). Solid, uniform, soft natural tone. No gradient, no variation.'
   if (c.includes('tan') || c.includes('tobacco') || c.includes('camel') || c.includes('taba'))
-    return 'off-white (#FAF8F5). Solid, uniform, barely-there warmth. Use this EXACT color for ALL slots. No gradient.'
+    return 'off-white (#FAF8F5). Solid, uniform, barely-there warmth. No gradient, no variation.'
   if (c.includes('grey') || c.includes('gray') || c.includes('gri'))
-    return 'clean white (#FFFFFF). Solid, uniform, bright crisp contrast. Use this EXACT color for ALL slots. No gradient.'
+    return 'clean white (#FAFAFA). Solid, uniform, bright crisp tone. No gradient, no variation.'
   if (c.includes('navy') || c.includes('lacivert') || (c.includes('blue') && c.includes('dark')))
-    return 'light grey (#EDEDED). Solid, uniform, neutral warmth. Use this EXACT color for ALL slots. No gradient.'
+    return 'light grey (#EDEDED). Solid, uniform, neutral tone. No gradient, no variation.'
   if (c.includes('red') || c.includes('kırmızı') || c.includes('bordo') || c.includes('burgundy'))
-    return 'neutral off-white (#F7F5F3). Solid, uniform, minimal. Use this EXACT color for ALL slots. No gradient.'
-  if (c.includes('green') || c.includes('yeşil') || c.includes('olive') || c.includes('haki') || c.includes('khaki'))
-    return 'warm cream (#F5F0E8). Solid, uniform, soft warm studio tone. Use this EXACT color for ALL slots. No gradient.'
-  if (c.includes('blue') || c.includes('mavi'))
-    return 'warm off-white (#F5F2ED). Solid, uniform, soft warm studio tone. Use this EXACT color for ALL slots. No gradient.'
-  if (c.includes('pink') || c.includes('pembe') || c.includes('rose'))
-    return 'light grey (#ECECEC). Solid, uniform, neutral studio tone. Use this EXACT color for ALL slots. No gradient.'
-  if (c.includes('beige') || c.includes('cream') || c.includes('krem'))
-    return 'warm grey (#E0DDD8). Solid, uniform, subtle contrast. Use this EXACT color for ALL slots. No gradient.'
-  return 'neutral light grey (#EDEDED). Solid, uniform, soft premium studio tone. Use this EXACT color for ALL slots. No gradient.'
-}
-
-/**
- * Extract hex color from getBackgroundForColor() output and return RGB.
- * e.g. "warm beige (#F5F0E8). Solid..." → { r: 245, g: 240, b: 232 }
- * Falls back to neutral light grey if parsing fails.
- */
-function getBackgroundRGB(backgroundStr: string): { r: number; g: number; b: number; alpha: number } {
-  const match = backgroundStr.match(/#([0-9A-Fa-f]{6})/)
-  if (match) {
-    const hex = match[1]
-    return {
-      r: parseInt(hex.substring(0, 2), 16),
-      g: parseInt(hex.substring(2, 4), 16),
-      b: parseInt(hex.substring(4, 6), 16),
-      alpha: 1,
-    }
-  }
-  // Fallback: neutral light grey
-  return { r: 237, g: 237, b: 237, alpha: 1 }
+    return 'neutral off-white (#F7F5F3). Solid, uniform, minimal tone. No gradient, no variation.'
+  return 'neutral light grey (#EDEDED). Solid, uniform, soft premium studio tone. No gradient, no variation.'
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -186,6 +177,9 @@ export type SlotLog = {
   /** v20: shot composition compliance check */
   shotCompliancePass?: boolean
   detectedShot?: string
+  /** v28: per-slot background compliance check */
+  bgCheckPass?: boolean
+  detectedBackground?: string
   rejectionReason?: string
 }
 
@@ -326,11 +320,25 @@ export async function extractIdentityLock(
   imageBuffer: Buffer,
   imageMime: string,
   apiKey: string,
+  additionalImages?: Array<{ data: Buffer; mime: string }>,
 ): Promise<IdentityLock | null> {
   const visionModel = 'gemini-2.5-flash'
 
+  // Multi-angle framing: if additional reference images are provided,
+  // explicitly tell Gemini these are different angles of the SAME product.
+  const hasMultiAngle = additionalImages && additionalImages.length > 0
+  const totalImages = 1 + (additionalImages?.length || 0)
+
+  const multiAnglePrefix = hasMultiAngle
+    ? `IMPORTANT: You are receiving ${totalImages} photos of the SAME EXACT physical shoe taken from different angles. ` +
+      `These are NOT different shoes — they are the SAME product photographed from ${totalImages} different perspectives. ` +
+      `Use ALL ${totalImages} images together to build a complete, precise identity of this one shoe. ` +
+      `Cross-reference details across angles: what you can't see from the front may be visible from the side or back.\n\n`
+    : ''
+
   const prompt =
-    `You are a product photography expert. Analyze this shoe photo and extract a precise identity description. ` +
+    multiAnglePrefix +
+    `You are a product photography expert. Analyze this shoe photo${hasMultiAngle ? ' set' : ''} and extract a precise identity description. ` +
     `Respond with a JSON object ONLY — no explanation, no markdown, no code fences. Required fields:\n` +
     `- "productClass": specific type (e.g. "low-top lace-up sneaker", "wingtip brogue oxford", "chelsea boot")\n` +
     `- "mainColor": primary color of the upper — be EXACT (e.g. "black", "tan brown", "all-white", "navy blue")\n` +
@@ -341,9 +349,9 @@ export async function extractIdentityLock(
     `- "heelProfile": (e.g. "flat", "block heel 3cm", "stacked 2cm")\n` +
     `- "closureType": (e.g. "lace-up", "slip-on", "side-zip", "chelsea elastic")\n` +
     `- "distinctiveFeatures": comma-separated details (e.g. "brogue perforations, contrast stitching")\n` +
-    `- "referenceAngle": the camera angle in THIS photo (e.g. "45° front-left", "straight front", "overhead", "side profile")\n` +
+    `- "referenceAngle": the camera angle in the PRIMARY (first) photo (e.g. "45° front-left", "straight front", "overhead", "side profile")\n` +
     `- "protectedZones": array of brand-critical visible zones. Include ONLY zones where a logo, text mark, ` +
-    `stripe pattern, or distinctive graphic element is CLEARLY VISIBLE. For each zone include:\n` +
+    `stripe pattern, or distinctive graphic element is CLEARLY VISIBLE in ANY of the provided images. For each zone include:\n` +
     `  - "name": one of "tongue_label" | "side_branding" | "heel_tab" | "toe_cap_overlay" | "ankle_patch" | "other"\n` +
     `  - "description": exactly what is visible (e.g. "white Nike Swoosh on black tongue patch", "three white parallel stripes on lateral side")\n` +
     `  - "mustPreserve": what specifically must not change (e.g. "swoosh shape and white-on-black contrast", "exactly 3 stripes, white, evenly spaced")\n` +
@@ -352,6 +360,18 @@ export async function extractIdentityLock(
     `Be extremely precise on color — black vs brown vs tan matters enormously.`
 
   try {
+    // Build image parts: primary image first, then additional angles
+    const imageParts: Array<Record<string, unknown>> = [
+      { inlineData: { mimeType: imageMime, data: imageBuffer.toString('base64') } },
+    ]
+    if (additionalImages) {
+      for (const img of additionalImages.slice(0, 3)) {
+        imageParts.push({
+          inlineData: { mimeType: img.mime, data: img.data.toString('base64') },
+        })
+      }
+    }
+
     const res = await fetch(
       `https://generativelanguage.googleapis.com/v1beta/models/${visionModel}:generateContent?key=${apiKey}`,
       {
@@ -359,7 +379,7 @@ export async function extractIdentityLock(
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           contents: [{ parts: [
-            { inlineData: { mimeType: imageMime, data: imageBuffer.toString('base64') } },
+            ...imageParts,
             { text: prompt },
           ] }],
           generationConfig: { responseMimeType: 'application/json', maxOutputTokens: 900 },
@@ -431,7 +451,8 @@ export async function extractIdentityLock(
 
     console.log(
       `[extractIdentityLock] ✓ ${productClass} | ${mainColor} | ${material} | ref=${refAngle} | ` +
-      `zones=${protectedZones.length} (${protectedZones.map((z) => z.name).join(',') || 'none'})`,
+      `zones=${protectedZones.length} (${protectedZones.map((z) => z.name).join(',') || 'none'}) | ` +
+      `images=${totalImages} (${hasMultiAngle ? 'multi-angle' : 'single'})`,
     )
 
     return {
@@ -687,10 +708,10 @@ async function checkShotCompliance(
       correction: 'Camera must be at exactly 90° to the side. The toe FRONT FACE must NOT be visible. The sole profile must be fully exposed from toe to heel.',
     },
     detail_closeup: {
-      required: 'detail close-up of the front half of the shoe (toe cap + vamp area) — NOT the full shoe, NOT extreme macro',
-      passRule: 'the front portion of the shoe (toe/vamp) fills the frame, material detail and stitching visible, heel is blurred or out of frame',
-      failSignals: 'full shoe in sharp focus from toe to heel, extreme macro showing only texture with no recognizable shoe shape, standard product angle showing entire shoe',
-      correction: 'Camera should be 25-35cm from the shoe, focusing on the toe cap and vamp area. Show the front half with detail — NOT the entire shoe, and NOT an extreme macro of just texture.',
+      required: 'macro close-up of material texture — full shoe silhouette NOT visible, surface fills frame',
+      passRule: 'the frame shows material texture/grain at close range, the full shoe silhouette is not in the frame',
+      failSignals: 'full shoe visible in frame, standard product angle, no macro framing, wide shot',
+      correction: 'Camera must be 15-20cm from the upper surface. The full shoe must NOT be visible. Only surface texture should fill the frame.',
     },
     tabletop_editorial: {
       required: 'overhead editorial at 55-65° — top of shoe (tongue, lacing) dominant, marble surface',
@@ -759,6 +780,245 @@ async function checkShotCompliance(
     console.warn('[checkShotCompliance] error:', err instanceof Error ? err.message : err)
     return { pass: true, detectedShot: 'unknown', correctionHint: '' }
   }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Step D4 — Per-Slot Background Check (v28)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Gemini Vision check: does the generated image's background match the
+ * intended batch background color?
+ *
+ * This is a PER-SLOT check (unlike checkBackgroundConsistency which runs
+ * on the whole batch post-generation). It catches individual slot drift
+ * immediately so the slot can be retried.
+ *
+ * On API failure: defaults to pass=true (never block on transient errors).
+ */
+async function checkSlotBackground(
+  generatedImage: Buffer,
+  expectedBackground: string,
+  slotName: string,
+  apiKey: string,
+): Promise<{ pass: boolean; detectedBackground: string; correctionHint: string }> {
+  const visionModel = 'gemini-2.5-flash'
+
+  const prompt =
+    `You are a QC inspector for e-commerce product photography background consistency.\n\n` +
+    `EXPECTED BACKGROUND: ${expectedBackground}\n` +
+    `SLOT TYPE: ${slotName}\n\n` +
+    `Look at this product image and evaluate the background:\n` +
+    `1. What is the dominant background color/surface in this image?\n` +
+    `2. Does it match the expected background color specified above?\n\n` +
+    `PASS if: the background is clearly the same color family as expected (e.g. both warm beige, both light grey).\n` +
+    `FAIL if:\n` +
+    `- Background is a different color (e.g. expected beige but got green/grey/brown)\n` +
+    `- Background shows a textured surface (wood, marble, fabric, stone, tiles) instead of a clean studio backdrop\n` +
+    `- Background shows an environmental scene instead of the specified studio color\n` +
+    `- Background is dark/black when a light color was specified (or vice versa)\n\n` +
+    `Respond with JSON only — no markdown, no code fences:\n` +
+    `{"pass": true/false, "detectedBackground": "brief description of the actual background"}\n` +
+    `Be strict. Different color tone = FAIL. Textured surface when solid color was specified = FAIL.`
+
+  try {
+    const res = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/${visionModel}:generateContent?key=${apiKey}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{ parts: [
+            { inlineData: { mimeType: 'image/jpeg', data: generatedImage.toString('base64') } },
+            { text: prompt },
+          ] }],
+          generationConfig: { responseMimeType: 'application/json', maxOutputTokens: 150 },
+        }),
+      },
+    )
+
+    if (!res.ok) {
+      console.warn(`[checkSlotBackground] HTTP ${res.status}`)
+      return { pass: true, detectedBackground: 'unknown', correctionHint: '' }
+    }
+
+    const data = await res.json()
+    const text: string | undefined = data?.candidates?.[0]?.content?.parts?.[0]?.text
+    if (!text) return { pass: true, detectedBackground: 'unknown', correctionHint: '' }
+
+    const parsed = JSON.parse(text.trim())
+    const pass = parsed.pass ?? true
+    const detectedBackground = parsed.detectedBackground || 'unknown'
+    const correctionHint = pass ? '' :
+      `CRITICAL BACKGROUND CORRECTION: The output background is "${detectedBackground}" ` +
+      `but the batch background MUST be: ${expectedBackground}. ` +
+      `Do NOT use a tabletop, textured surface, wood, marble, or any environmental background. ` +
+      `Use ONLY the exact studio backdrop color specified: ${expectedBackground}. ` +
+      `The background must be a clean, uniform, solid color — not a surface or texture.`
+
+    console.log(
+      `[checkSlotBackground] slot=${slotName} pass=${pass} detected="${detectedBackground.slice(0, 80)}" expected="${expectedBackground.slice(0, 40)}"`,
+    )
+    return { pass, detectedBackground, correctionHint }
+  } catch (err) {
+    console.warn('[checkSlotBackground] error:', err instanceof Error ? err.message : err)
+    return { pass: true, detectedBackground: 'unknown', correctionHint: '' }
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Background Enforcement — Deterministic Post-Processing (v28)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Parse hex color from a background description string like:
+ * "warm beige (#F5F0E8). Solid, uniform..." → "#F5F0E8"
+ * Returns null if no hex code found.
+ */
+function parseBackgroundHex(bgDescription: string): string | null {
+  const match = bgDescription.match(/#([0-9A-Fa-f]{6})/)
+  return match ? match[0] : null
+}
+
+/**
+ * Convert hex color string (#RRGGBB) to {r, g, b}.
+ */
+function hexToRgb(hex: string): { r: number; g: number; b: number } {
+  const h = hex.replace('#', '')
+  return {
+    r: parseInt(h.substring(0, 2), 16),
+    g: parseInt(h.substring(2, 4), 16),
+    b: parseInt(h.substring(4, 6), 16),
+  }
+}
+
+/**
+ * Deterministic background enforcement for macro/close-up slots.
+ *
+ * When Gemini fails to match the batch background even after retry,
+ * this function replaces the background color using sharp pixel manipulation.
+ *
+ * Strategy:
+ *   1. Sample edge/corner regions to detect the current (wrong) background color.
+ *   2. For each pixel, compute color distance from the detected background.
+ *   3. Pixels that are "background-like" (close to detected bg) get blended
+ *      toward the target background color.
+ *   4. Product pixels (far from detected bg color) are untouched.
+ *
+ * This preserves the macro product texture while correcting the background
+ * color deterministically — no AI involved.
+ *
+ * For macro shots where the background is soft bokeh, this produces a
+ * natural-looking color shift with no visible seam.
+ */
+async function enforceSlotBackground(
+  imageBuffer: Buffer,
+  targetHex: string,
+): Promise<Buffer> {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const sharp = require('sharp') as typeof import('sharp')
+
+  const metadata = await sharp(imageBuffer).metadata()
+  const width  = metadata.width  || 1024
+  const height = metadata.height || 1024
+
+  // Extract raw RGB pixel data
+  const { data: rawPixels, info } = await sharp(imageBuffer)
+    .removeAlpha()
+    .raw()
+    .toBuffer({ resolveWithObject: true })
+
+  const channels = info.channels  // should be 3 (RGB)
+
+  // ── Step 1: Sample edge regions to detect current background color ──
+  // Sample 4 strips: top 5%, bottom 5%, left 5%, right 5%
+  const edgeDepth = Math.max(10, Math.round(Math.min(width, height) * 0.05))
+  let rSum = 0, gSum = 0, bSum = 0, sampleCount = 0
+
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      const isEdge = y < edgeDepth || y >= height - edgeDepth ||
+                     x < edgeDepth || x >= width - edgeDepth
+      if (!isEdge) continue
+
+      const idx = (y * width + x) * channels
+      rSum += rawPixels[idx]
+      gSum += rawPixels[idx + 1]
+      bSum += rawPixels[idx + 2]
+      sampleCount++
+    }
+  }
+
+  const detectedBg = {
+    r: Math.round(rSum / sampleCount),
+    g: Math.round(gSum / sampleCount),
+    b: Math.round(bSum / sampleCount),
+  }
+
+  const targetBg = hexToRgb(targetHex)
+
+  console.log(
+    `[enforceSlotBackground] detected bg: rgb(${detectedBg.r},${detectedBg.g},${detectedBg.b}) ` +
+    `target: ${targetHex} rgb(${targetBg.r},${targetBg.g},${targetBg.b}) ` +
+    `pixels=${width}x${height} samples=${sampleCount}`,
+  )
+
+  // ── Step 2: Replace background-like pixels ──
+  // Color distance threshold: pixels within this distance from detected bg
+  // are considered "background" and get blended toward target.
+  // Max distance in RGB space is ~441 (sqrt(255^2*3)), typical bg drift is 30-120.
+  const MAX_BG_DISTANCE = 90   // pixels clearly "background"
+  const BLEND_MARGIN    = 50   // soft blend zone between bg and product
+  const totalThreshold  = MAX_BG_DISTANCE + BLEND_MARGIN
+
+  const outputPixels = Buffer.from(rawPixels) // copy
+
+  for (let i = 0; i < rawPixels.length; i += channels) {
+    const pr = rawPixels[i]
+    const pg = rawPixels[i + 1]
+    const pb = rawPixels[i + 2]
+
+    // Euclidean distance from this pixel to detected background
+    const dr = pr - detectedBg.r
+    const dg = pg - detectedBg.g
+    const db = pb - detectedBg.b
+    const dist = Math.sqrt(dr * dr + dg * dg + db * db)
+
+    if (dist >= totalThreshold) {
+      // Product pixel — leave untouched
+      continue
+    }
+
+    // Blend factor: 1.0 = full replacement (very close to bg), 0.0 = no change
+    let blend: number
+    if (dist <= MAX_BG_DISTANCE) {
+      blend = 1.0
+    } else {
+      // Soft gradient in the margin zone
+      blend = 1.0 - (dist - MAX_BG_DISTANCE) / BLEND_MARGIN
+    }
+
+    // Shift this pixel's color toward the target background
+    // We compute: what this pixel WOULD be if the background were the target color.
+    // Offset = difference between detected and target bg, applied with blend factor.
+    const shiftR = (targetBg.r - detectedBg.r) * blend
+    const shiftG = (targetBg.g - detectedBg.g) * blend
+    const shiftB = (targetBg.b - detectedBg.b) * blend
+
+    outputPixels[i]     = Math.max(0, Math.min(255, Math.round(pr + shiftR)))
+    outputPixels[i + 1] = Math.max(0, Math.min(255, Math.round(pg + shiftG)))
+    outputPixels[i + 2] = Math.max(0, Math.min(255, Math.round(pb + shiftB)))
+  }
+
+  // ── Step 3: Reconstruct JPEG from modified pixel data ──
+  const result = await sharp(outputPixels, {
+    raw: { width, height, channels },
+  })
+    .jpeg({ quality: 92 })
+    .toBuffer()
+
+  console.log(`[enforceSlotBackground] ✓ background shifted — ${result.length}b`)
+  return result
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -837,90 +1097,89 @@ async function callGPTImageEdit(
  */
 const EDITING_SCENES = [
   {
-    name: 'side_angle',
-    label: 'Slot 1 — 90° Yan Profil (PRIMARY)',
-    sceneInstructions:
-      `── SHOT: PURE LATERAL SIDE PROFILE ──\n` +
-      `Re-photograph this EXACT {COLOR} shoe from the side — same physical object.\n` +
-      `CAMERA: Exactly 90° to the side (medial or lateral), at sole level. Looking directly at the side face.\n` +
-      `POSITION: Shoe horizontal — toe pointing LEFT, heel on RIGHT.\n` +
-      `COMPOSITION: Full shoe from toe tip to heel counter. Entire sole edge visible. Shoe fills 75% of image width. Centered. Clean spacing.\n` +
-      `MUST SEE: Complete sole profile (toe to heel), arch curve, heel counter height, collar line. The sole silhouette is the dominant visual.\n` +
-      `MUST NOT SEE: Toe cap front face (if you can see the front of the toe, the angle is WRONG).\n` +
-      `BACKGROUND: {BACKGROUND}\n` +
-      `LIGHT: Soft studio lighting — key from front-left 45°, fill from opposite. Natural soft shadow. No harsh reflections.\n` +
-      `OUTPUT: Full-bleed photograph that fills the ENTIRE canvas edge to edge. The image IS the photo — NOT a photo of a photo.\n` +
-      `CRITICAL ANTI-FRAME: Do NOT render any border, frame, shadow-box, rounded-corner card, drop-shadow rectangle, or picture-inside-picture effect. ` +
-      `Do NOT place the shoe on a "floating card" or "product tile". The background must extend to ALL four edges with ZERO visible boundary. ` +
-      `If there is ANY rectangular outline or visible edge that is not the canvas edge, the image is REJECTED.\n` +
-      `THIS IS NOT: a front view, a 3/4 view, a top-down view, a framed image, a product card, a mockup.\n` +
-      `COLOR: The shoe is {COLOR}. Output MUST be {COLOR}. Other colors = REJECTED.\n` +
-      `DO NOT repeat the reference angle ({REF_ANGLE}). Generate a pure side profile.`,
-  },
-  {
     name: 'commerce_front',
-    label: 'Slot 2 — Ön Stüdyo Hero',
+    label: 'Slot 1 — Ön Stüdyo Hero',
     sceneInstructions:
       `── SHOT: FRONT STUDIO HERO ──\n` +
       `Re-photograph this EXACT {COLOR} shoe from the front — same physical object.\n` +
       `CAMERA: Directly in front of the shoe, lens perpendicular to the toe cap, at mid-shoe height (lacing zone).\n` +
       `POSITION: Shoe upright on sole, centered, toe cap facing camera dead-on. Both sides equally visible (symmetric).\n` +
-      `COMPOSITION: Full shoe, 70% of image height. Top of collar and sole bottom both visible. Centered. Clean spacing around shoe.\n` +
+      `COMPOSITION: Full shoe, 70-80% of image height. Top of collar and sole bottom both visible. Centered. Clean even spacing around shoe — NO excessive empty canvas.\n` +
       `MUST SEE: Toe cap front face, vamp, lace/closure system, collar — the entire FRONT face.\n` +
       `MUST NOT SEE: Heel counter, side profile, sole edge.\n` +
-      `BACKGROUND: {BACKGROUND}\n` +
+      `BACKGROUND: {BACKGROUND} Use this EXACT color. Do not shift or reinterpret.\n` +
       `LIGHT: Soft studio lighting — overhead softbox + bilateral fill. Natural soft shadow under the shoe only. No harsh reflections.\n` +
-      `OUTPUT: Full-bleed photograph that fills the ENTIRE canvas edge to edge. The image IS the photo — NOT a photo of a photo.\n` +
-      `CRITICAL ANTI-FRAME: Do NOT render any border, frame, shadow-box, rounded-corner card, drop-shadow rectangle, or picture-inside-picture effect. ` +
-      `Do NOT place the shoe on a "floating card" or "product tile". The background must extend to ALL four edges with ZERO visible boundary. ` +
-      `If there is ANY rectangular outline or visible edge that is not the canvas edge, the image is REJECTED.\n` +
-      `THIS IS NOT: a side view, a 3/4 view, a lifestyle shot, a close-up, a framed image, a product card, a mockup.\n` +
+      `OUTPUT: Full-bleed photograph. No frames, no borders, no margins, no mockup. No watermark, no text, no logo overlay.\n` +
+      `THIS IS NOT: a side view, a 3/4 view, a lifestyle shot, a close-up, a framed image.\n` +
       `COLOR: The shoe is {COLOR}. Output MUST be {COLOR}. Other colors = REJECTED.\n` +
       `DO NOT repeat the reference angle ({REF_ANGLE}). Generate a clean front hero.`,
   },
   {
-    name: 'detail_closeup',
-    label: 'Slot 3 — Detay Yakın Çekim',
+    name: 'side_angle',
+    label: 'Slot 2 — 90° Yan Profil',
     sceneInstructions:
-      `── SHOT: DETAIL CLOSE-UP — 3/4 ANGLE FROM ABOVE ──\n` +
-      `Re-photograph this EXACT {COLOR} shoe — a close-up from a 3/4 angle focusing on the toe and vamp area — same physical object.\n` +
-      `CAMERA: 18–25 cm from the shoe. Positioned at 30–45° to the side (not straight-on), looking down at 25–35°. This gives a three-quarter perspective that reveals both the top and one side.\n` +
-      `FRAMING: Show the toe cap, vamp, and lacing/buckle area from a 3/4 angle. The heel should be blurred or partially out of frame. ` +
-      `The shoe portion fills 85% of image area. Some studio background visible around the shoe.\n` +
-      `COMPOSITION: Shallow depth of field. Toe cap and vamp area sharp with visible material detail. Back of shoe soft/blurred.\n` +
-      `MUST SEE: Toe cap detail, vamp material texture and pattern, stitching, buckles/hardware, any perforations or logos on the front area.\n` +
-      `MUST NOT: Show the entire shoe from toe to heel in sharp focus — this is NOT a full product shot. Do NOT shoot straight-on from the front.\n` +
-      `BACKGROUND: {BACKGROUND} — This is a STUDIO shot. The shoe must be on a clean, solid-color studio backdrop. ` +
-      `Do NOT use the reference photo's surface/floor. Do NOT use stone, concrete, marble, or any textured surface. ` +
-      `The background is a smooth, uniform studio color as specified above.\n` +
+      `── SHOT: PURE LATERAL SIDE PROFILE ──\n` +
+      `Re-photograph this EXACT {COLOR} shoe from the side — same physical object.\n` +
+      `CAMERA: Exactly 90° to the side (medial or lateral), at sole level. Looking directly at the side face.\n` +
+      `POSITION: Shoe horizontal — toe pointing LEFT, heel on RIGHT.\n` +
+      `COMPOSITION: Full shoe from toe tip to heel counter. Entire sole edge visible. Shoe fills 75-80% of image width. Centered. Clean even spacing — NO excessive empty canvas.\n` +
+      `MUST SEE: Complete sole profile (toe to heel), arch curve, heel counter height, collar line. The sole silhouette is the dominant visual.\n` +
+      `MUST NOT SEE: Toe cap front face (if you can see the front of the toe, the angle is WRONG).\n` +
+      `BACKGROUND: {BACKGROUND} Use this EXACT color — identical to all other slots.\n` +
       `LIGHT: Soft studio lighting — key from front-left 45°, fill from opposite. Natural soft shadow. No harsh reflections.\n` +
-      `OUTPUT: Full-bleed photograph that fills the ENTIRE canvas edge to edge. The image IS the photo — NOT a photo of a photo.\n` +
-      `CRITICAL ANTI-FRAME: Do NOT render any border, frame, shadow-box, rounded-corner card, drop-shadow rectangle, or picture-inside-picture effect. ` +
-      `Do NOT place the shoe on a "floating card" or "product tile". The background must extend to ALL four edges with ZERO visible boundary. ` +
-      `If there is ANY rectangular outline or visible edge that is not the canvas edge, the image is REJECTED.\n` +
-      `THIS IS NOT: a full-shoe product shot, a side profile, an editorial placement, a framed image, a product card, a mockup.\n` +
+      `OUTPUT: Full-bleed photograph. No frames, no borders, no margins, no mockup. No watermark, no text, no logo overlay.\n` +
+      `THIS IS NOT: a front view, a 3/4 view, a top-down view, a framed image.\n` +
+      `COLOR: The shoe is {COLOR}. Output MUST be {COLOR}. Other colors = REJECTED.\n` +
+      `DO NOT repeat the reference angle ({REF_ANGLE}). Generate a pure side profile.`,
+  },
+  {
+    name: 'detail_closeup',
+    label: 'Slot 3 — Malzeme Makro',
+    sceneInstructions:
+      `── SHOT: MATERIAL MACRO CLOSE-UP ──\n` +
+      `Re-photograph this EXACT {COLOR} shoe — macro close-up of the upper material — same physical object.\n` +
+      `CAMERA: 15–20 cm from the vamp/toe-cap surface. Slightly above, 20–30° down. Macro focal length.\n` +
+      `COMPOSITION: Upper material fills 85–90% of image area. Very shallow depth of field. Toe area sharp, heel blurred.\n` +
+      `MUST SEE: Surface grain/texture/weave of the upper, stitching thread relief, any perforation or embossing.\n` +
+      `MUST NOT SEE: The full shoe. If the entire shoe is visible, the framing is WRONG.\n` +
+      `\n` +
+      `BACKGROUND — CRITICAL BATCH LOCK:\n` +
+      `BACKGROUND: {BACKGROUND}\n` +
+      `This macro shot uses the EXACT SAME studio backdrop as Slot 1 and Slot 2.\n` +
+      `The shoe is photographed on the SAME studio set with the SAME backdrop paper.\n` +
+      `Because of shallow depth-of-field, the background will appear as soft bokeh — but the COLOR must be identical.\n` +
+      `The blurred out-of-focus area MUST read as the same exact color specified above.\n` +
+      `\n` +
+      `BANNED BACKGROUNDS (will cause REJECTION):\n` +
+      `• NO tabletop surface — no wood, no marble, no stone, no concrete\n` +
+      `• NO textured floor — no tiles, no carpet, no parquet\n` +
+      `• NO environmental/real-world surface — no grass, no pavement, no fabric\n` +
+      `• NO surface carried over from the reference photo\n` +
+      `• NO dark/black background unless the batch background specifies it\n` +
+      `• NO colored surface that differs from the batch background\n` +
+      `The ONLY acceptable background is: the exact color specified in the BACKGROUND line above, rendered as soft uniform bokeh.\n` +
+      `If the background looks different from Slot 1 or Slot 2, this image is WRONG.\n` +
+      `\n` +
+      `LIGHT: Single soft raking sidelight to reveal texture. Subtle specular highlight. No harsh reflections.\n` +
+      `OUTPUT: Full-bleed photograph. No frames, no borders, no margins, no mockup. No watermark, no text, no logo overlay.\n` +
+      `THIS IS NOT: a full-shoe shot, a side profile, an editorial placement, a tabletop composition, a framed image.\n` +
       `COLOR: The shoe is {COLOR}. Output MUST be {COLOR}. Other colors = REJECTED.`,
   },
   {
     name: 'tabletop_editorial',
     label: 'Slot 4 — Editoryal Üstten',
     sceneInstructions:
-      `── SHOT: OVERHEAD EDITORIAL — RAW CAMERA PHOTOGRAPH ──\n` +
-      `You are generating a RAW photograph taken from above. NOT a product card. NOT a mockup. A direct camera shot.\n` +
+      `── SHOT: OVERHEAD EDITORIAL ──\n` +
       `Re-photograph this EXACT {COLOR} shoe from an elevated angle — same physical object.\n` +
       `CAMERA: Above and in front, looking DOWN at 55–65°. Three-quarter overhead perspective.\n` +
-      `POSITION: Shoe resting upright on a studio floor. The studio floor extends infinitely in all directions — there is NO edge to the floor visible.\n` +
-      `COMPOSITION: Full shoe visible from above-front. Top face dominant (tongue, lacing from above, toe from overhead). Shoe fills 65% of image area. Centered. No props.\n` +
-      `MUST SEE: Tongue, lace pattern from above, toe shape from overhead, upper opening.\n` +
-      `MUST NOT SEE: The front face of the toe, the side profile, ANY edge or boundary of the floor/surface.\n` +
-      `BACKGROUND: {BACKGROUND} — this is the color of the studio FLOOR that the shoe sits on. The floor is seamless and extends to ALL four edges of the image. There is NO wall, NO horizon line, NO edge where the floor ends.\n` +
+      `POSITION: Shoe resting upright on a clean premium surface.\n` +
+      `COMPOSITION: Full shoe visible from above-front. Top face dominant (tongue, lacing from above, toe from overhead). Shoe fills 65-75% of image area. Centered. No props. NO excessive empty canvas.\n` +
+      `MUST SEE: Tongue, lace pattern from above, toe shape from overhead, upper opening. This reveals parts invisible in front/side views.\n` +
+      `MUST NOT SEE: The front face of the toe (that's slot 1), the side profile (that's slot 2).\n` +
+      `BACKGROUND: {BACKGROUND} Use this EXACT color — identical to all other slots in this batch. The surface the shoe rests on should be clean and premium but the dominant visible background color MUST match the other slots exactly. No gradient, no tone shift, no reinterpretation.\n` +
       `LIGHT: Soft diffused studio light from upper-left. Gentle natural shadow lower-right. No harsh reflections.\n` +
-      `OUTPUT: Full-bleed photograph. The studio floor fills the ENTIRE canvas from edge to edge. The shoe sits ON this floor. There is NOTHING between the floor and the canvas edges — no border, no margin, no frame, no card.\n` +
-      `CRITICAL ANTI-FRAME: Do NOT render any border, frame, shadow-box, rounded-corner card, drop-shadow rectangle, or picture-inside-picture effect. ` +
-      `Do NOT render a "product tile" or "floating surface" — the floor is seamless and infinite. ` +
-      `Do NOT add any white or gray margin around the photograph. ` +
-      `If there is ANY rectangular outline or visible edge that is not the canvas edge, the image is REJECTED.\n` +
-      `THIS IS NOT: a product card, a mockup, a poster, a framed print, a catalog layout. It is a RAW overhead photograph.\n` +
+      `OUTPUT: Full-bleed photograph. No frames, no borders, no margins, no mockup. No watermark, no text, no logo overlay.\n` +
+      `THIS IS NOT: a front hero, a side profile, a close-up macro, a framed image.\n` +
       `COLOR: The shoe is {COLOR}. Output MUST be {COLOR}. Other colors = REJECTED.\n` +
       `DO NOT repeat the reference angle ({REF_ANGLE}). Generate an overhead editorial.`,
   },
@@ -928,21 +1187,16 @@ const EDITING_SCENES = [
     name: 'worn_lifestyle',
     label: 'Slot 5 — Lifestyle Giyilmiş',
     sceneInstructions:
-      `── SHOT: LIFESTYLE — SHOE WORN ON A FOOT — RAW CAMERA PHOTOGRAPH ──\n` +
-      `You are generating a RAW photograph taken outdoors. NOT a product card. NOT a mockup. A direct camera shot.\n` +
+      `── SHOT: LIFESTYLE — SHOE WORN ON A FOOT ──\n` +
       `Re-photograph this EXACT {COLOR} shoe in a lifestyle worn setting — same physical object.\n` +
       `CAMERA: Low ground level, 10–15 cm above floor, to the side of the foot.\n` +
-      `COMPOSITION: One foot wearing the shoe. Full shoe visible with lower leg/ankle above collar. Ground surface in lower area of image. Shoe fills 65% of image area. Centered.\n` +
+      `COMPOSITION: One foot wearing the shoe. Full shoe visible with lower leg/ankle above collar. Ground surface in lower frame. Shoe fills 65-75% of image area. Centered. NO excessive empty canvas.\n` +
       `MUST SEE: The shoe ON a foot in natural weight-bearing position, ground contact, ankle/lower leg.\n` +
       `MUST NOT SEE: Face, upper body. The shoe is the hero — the person is secondary.\n` +
-      `ENVIRONMENT: Warm blurred lifestyle setting — wooden floor, cobblestone, or garden path. Soft bokeh background. The environment extends to ALL four edges of the image — there is NO border where the scene ends.\n` +
+      `BACKGROUND: {BACKGROUND} This is the SAME EXACT background color as all other slots in this batch. In this lifestyle shot the background appears as warm soft bokeh, but the DOMINANT COLOR TONE must match the batch background exactly. Do NOT introduce green, blue, or any color not specified. The blurred environment must read as the same color family as the studio backdrop.\n` +
       `LIGHT: Warm natural golden-hour side light. Authentic, non-studio. Soft shadows. No harsh reflections.\n` +
-      `OUTPUT: Full-bleed photograph. The ground, foot, shoe, and blurred background fill the ENTIRE canvas from edge to edge. There is NOTHING between the scene and the canvas edges — no border, no margin, no frame, no card, no vignette border.\n` +
-      `CRITICAL ANTI-FRAME: Do NOT render any border, frame, shadow-box, rounded-corner card, drop-shadow rectangle, or picture-inside-picture effect. ` +
-      `Do NOT render a vignette border or darkened edge frame. Do NOT add any white or gray margin around the photograph. ` +
-      `The lifestyle scene must extend seamlessly to ALL four edges with ZERO visible boundary. ` +
-      `If there is ANY rectangular outline or visible edge that is not the canvas edge, the image is REJECTED.\n` +
-      `THIS IS NOT: a product card, a mockup, a poster, a framed print, a catalog layout, a studio photo. It is a RAW lifestyle photograph.\n` +
+      `OUTPUT: Full-bleed photograph. No frames, no borders, no margins, no mockup. No watermark, no text, no logo overlay.\n` +
+      `THIS IS NOT: an isolated product shot, a studio photo, an overhead view, a framed image.\n` +
       `COLOR: The shoe is {COLOR}. Output MUST be {COLOR}. Other colors = REJECTED.\n` +
       `DO NOT repeat the reference angle ({REF_ANGLE}). Generate a lifestyle worn shot.`,
   },
@@ -1011,37 +1265,35 @@ export async function generateByEditing(
       `scenes=${scenes.map((s) => s.name).join(',')}`,
     )
 
-    const mainColor    = identityLock.mainColor
-    const refAngle     = identityLock.referenceAngle || 'unknown'
-    const zoneBlock    = identityLock.protectedZoneBlock || ''
-    const hasBrandZones = geminiKey && (identityLock.protectedZones?.length ?? 0) > 0
-
-    // Compute premium background FIRST — needed for input image padding
-    const premiumBackground = getBackgroundForColor(mainColor)
-    const bgRGB = getBackgroundRGB(premiumBackground)
-
-    console.log(
-      `[generateByEditing v12] protected zones: ${hasBrandZones ? (identityLock.protectedZones?.map((z) => z.name).join(',')) : 'none'}`,
-    )
-
-    // v49: Resize shoe to 768×768 then pad to 1024×1024 using BACKGROUND COLOR.
-    // Previously used white (#FFFFFF) for padding — Gemini replicated the white
-    // border as a frame in its output. Using the actual background color makes
-    // the padding blend seamlessly, eliminating the frame artifact.
+    // Resize shoe to 768×768 (fit:contain with white bg) then pad to 1024×1024.
+    // This guarantees at least 128px white border on all sides, giving the model
+    // visual room for recomposition even on square photos.
     const innerBuffer = await sharp(referenceImage)
-      .resize(768, 768, { fit: 'contain', background: bgRGB })
+      .resize(768, 768, { fit: 'contain', background: { r: 255, g: 255, b: 255, alpha: 1 } })
       .png()
       .toBuffer()
 
     const pngBuffer = await sharp(innerBuffer)
       .extend({
         top: 128, bottom: 128, left: 128, right: 128,
-        background: bgRGB,
+        background: { r: 255, g: 255, b: 255, alpha: 1 },
       })
       .png()
       .toBuffer()
 
-    console.log(`[generateByEditing v49] PNG 1024×1024 ready — ${pngBuffer.length}b (shoe at 768×768 center, pad=${JSON.stringify(bgRGB)})`)
+    console.log(`[generateByEditing v12] PNG 1024×1024 ready — ${pngBuffer.length}b (shoe at 768×768 center)`)
+
+    const mainColor    = identityLock.mainColor
+    const refAngle     = identityLock.referenceAngle || 'unknown'
+    const zoneBlock    = identityLock.protectedZoneBlock || ''
+    const hasBrandZones = geminiKey && (identityLock.protectedZones?.length ?? 0) > 0
+
+    console.log(
+      `[generateByEditing v12] protected zones: ${hasBrandZones ? (identityLock.protectedZones?.map((z) => z.name).join(',')) : 'none'}`,
+    )
+
+    // Compute premium background once (same for all studio slots in this batch)
+    const premiumBackground = getBackgroundForColor(mainColor)
 
     for (const scene of scenes) {
       // Replace placeholders in scene instructions
@@ -1056,7 +1308,7 @@ export async function generateByEditing(
       //   3. zoneBlock — protected brand zones
       //   4. sceneText — camera angle, framing, background, lighting
       //   5. CANONICAL_PROHIBITIONS_BLOCK — 11 canonical prohibitions from productPreservation.ts
-      const fullPrompt = TASK_FRAMING_BLOCK + identityLock.promptBlock + zoneBlock + sceneText + CANONICAL_PROHIBITIONS_BLOCK + ANTI_FRAME_FINAL_BLOCK
+      const fullPrompt = TASK_FRAMING_BLOCK + identityLock.promptBlock + zoneBlock + sceneText + CANONICAL_PROHIBITIONS_BLOCK
 
       const slotLog: SlotLog = {
         slot: scene.name,
@@ -1380,30 +1632,29 @@ export async function generateByGeminiPro(
       `scenes=${scenes.map((s) => s.name).join(',')}`,
     )
 
-    const mainColor   = identityLock.mainColor
-    const refAngle    = identityLock.referenceAngle || 'unknown'
-    const zoneBlock   = identityLock.protectedZoneBlock || ''
-    const hasBrandZones = (identityLock.protectedZones?.length ?? 0) > 0
-
-    // Compute background FIRST — needed for padding color
-    const premiumBackground = getBackgroundForColor(mainColor)
-    const bgRGB = getBackgroundRGB(premiumBackground)
-
-    // v49: Use background color for padding instead of white — eliminates frame artifact
+    // Same 768×768 → 1024×1024 padding as generateByEditing
     const innerBuffer = await sharp(referenceImage)
-      .resize(768, 768, { fit: 'contain', background: bgRGB })
+      .resize(768, 768, { fit: 'contain', background: { r: 255, g: 255, b: 255, alpha: 1 } })
       .png()
       .toBuffer()
 
     const pngBuffer = await sharp(innerBuffer)
       .extend({
         top: 128, bottom: 128, left: 128, right: 128,
-        background: bgRGB,
+        background: { r: 255, g: 255, b: 255, alpha: 1 },
       })
       .png()
       .toBuffer()
 
-    console.log(`[generateByGeminiPro v49] PNG 1024×1024 ready — ${pngBuffer.length}b (pad=${JSON.stringify(bgRGB)})`)
+    console.log(`[generateByGeminiPro v14] PNG 1024×1024 ready — ${pngBuffer.length}b`)
+
+    const mainColor   = identityLock.mainColor
+    const refAngle    = identityLock.referenceAngle || 'unknown'
+    const zoneBlock   = identityLock.protectedZoneBlock || ''
+    const hasBrandZones = (identityLock.protectedZones?.length ?? 0) > 0
+
+    const premiumBackground = getBackgroundForColor(mainColor)
+    const multiAngleBlock = buildMultiAngleBlock(additionalImages?.length || 0)
 
     for (const scene of scenes) {
       const sceneText = scene.sceneInstructions
@@ -1411,8 +1662,14 @@ export async function generateByGeminiPro(
         .replace(/\{REF_ANGLE\}/g, refAngle)
         .replace(/\{BACKGROUND\}/g, premiumBackground)
 
-      // Same 5-block prompt structure as generateByEditing
-      const fullPrompt = TASK_FRAMING_BLOCK + identityLock.promptBlock + zoneBlock + sceneText + CANONICAL_PROHIBITIONS_BLOCK + ANTI_FRAME_FINAL_BLOCK
+      // 6-block prompt structure:
+      //   1. TASK_FRAMING_BLOCK — task framing + normalization rules
+      //   2. multiAngleBlock — multi-angle reference framing (if applicable)
+      //   3. identityLock.promptBlock — product identity + color lock
+      //   4. zoneBlock — protected brand zones
+      //   5. sceneText — camera angle, framing, background, lighting
+      //   6. CANONICAL_PROHIBITIONS_BLOCK — master prohibitions
+      const fullPrompt = TASK_FRAMING_BLOCK + multiAngleBlock + identityLock.promptBlock + zoneBlock + sceneText + CANONICAL_PROHIBITIONS_BLOCK
 
       const slotLog: SlotLog = {
         slot: scene.name,
@@ -1453,7 +1710,12 @@ export async function generateByGeminiPro(
         slotLog.shotCompliancePass = shotCheck.pass
         slotLog.detectedShot = shotCheck.detectedShot
 
-        const needsRetry = !colorCheck.match || (brandCheck !== null && !brandCheck.pass) || !shotCheck.pass
+        // Step D4: Per-slot background check (v28)
+        const bgCheck = await checkSlotBackground(jpegBuf, premiumBackground, scene.name, geminiKey)
+        slotLog.bgCheckPass = bgCheck.pass
+        slotLog.detectedBackground = bgCheck.detectedBackground
+
+        const needsRetry = !colorCheck.match || (brandCheck !== null && !brandCheck.pass) || !shotCheck.pass || !bgCheck.pass
 
         if (needsRetry) {
           const correctionLines: string[] = []
@@ -1472,12 +1734,16 @@ export async function generateByGeminiPro(
           if (!shotCheck.pass && shotCheck.correctionHint) {
             correctionLines.push(shotCheck.correctionHint)
           }
+          if (!bgCheck.pass && bgCheck.correctionHint) {
+            correctionLines.push(bgCheck.correctionHint)
+          }
           const reinforcedPrompt = correctionLines.join('\n') + '\n\n' + fullPrompt
 
           console.warn(
-            `[generateByGeminiPro v20] ✗ ${scene.name} fidelity issues — ` +
+            `[generateByGeminiPro v28] ✗ ${scene.name} fidelity issues — ` +
             `color=${colorCheck.match} brand=${brandCheck?.pass ?? 'skip'} ` +
-            `shot=${shotCheck.pass} (detected="${shotCheck.detectedShot.slice(0, 60)}") — retrying`,
+            `shot=${shotCheck.pass} bg=${bgCheck.pass} ` +
+            `(bgDetected="${bgCheck.detectedBackground.slice(0, 60)}") — retrying`,
           )
           slotLog.attempts = 2
           await sleep(2000)
@@ -1503,13 +1769,43 @@ export async function generateByGeminiPro(
             slotLog.detectedShot = retryShotCheck.detectedShot
           }
 
+          // Re-check background on retry (only if first attempt failed bg check)
+          if (!bgCheck.pass) {
+            const retryBgCheck = await checkSlotBackground(retryJpeg, premiumBackground, scene.name, geminiKey)
+            slotLog.bgCheckPass = retryBgCheck.pass
+            slotLog.detectedBackground = retryBgCheck.detectedBackground
+          }
+
           const warnings: string[] = []
           if (!retryColor.match) warnings.push(`color drift: expected ${mainColor} got ${retryColor.detectedColor}`)
           if (slotLog.brandFidelityPass === false) warnings.push(`brand zones drifted: ${slotLog.brandFidelityNotes || 'unknown'}`)
           if (slotLog.shotCompliancePass === false) warnings.push(`angle wrong: got "${slotLog.detectedShot || 'unknown'}"`)
+          if (slotLog.bgCheckPass === false) warnings.push(`background drift: got "${slotLog.detectedBackground || 'unknown'}" expected batch bg`)
           if (warnings.length > 0) slotLog.rejectionReason = warnings.join('; ')
 
           finalBuf = retryJpeg
+
+          // ── Step D5: Deterministic background enforcement (v28) ──────────
+          // If background STILL drifts after retry, fix it in post-processing.
+          // Only applied to slots that failed bg check — typically detail_closeup.
+          if (slotLog.bgCheckPass === false && finalBuf) {
+            const bgHex = parseBackgroundHex(premiumBackground)
+            if (bgHex) {
+              try {
+                console.log(`[generateByGeminiPro v28] bg still drifted on ${scene.name} after retry — enforcing ${bgHex} via post-process`)
+                finalBuf = await enforceSlotBackground(finalBuf, bgHex)
+                slotLog.bgCheckPass = true // mark as corrected
+                ;(slotLog as Record<string, unknown>).bgEnforced = true
+                // Remove bg warning from rejection reason since we fixed it
+                const filteredWarnings = warnings.filter((w) => !w.startsWith('background drift'))
+                slotLog.rejectionReason = filteredWarnings.length > 0 ? filteredWarnings.join('; ') : undefined
+                console.log(`[generateByGeminiPro v28] ✓ ${scene.name} background enforced via post-process`)
+              } catch (enforceErr) {
+                console.warn(`[generateByGeminiPro v28] bg enforcement failed for ${scene.name}:`, enforceErr instanceof Error ? enforceErr.message : enforceErr)
+                // Keep the retried image as-is — don't lose it
+              }
+            }
+          }
         } else {
           finalBuf = jpegBuf
         }
@@ -1527,9 +1823,10 @@ export async function generateByGeminiPro(
         slotLog.success = true
         slotLog.outputSizeBytes = finalBuf.length
         console.log(
-          `[generateByGeminiPro v20] ✓ ${scene.name} — ${finalBuf.length}b ` +
+          `[generateByGeminiPro v28] ✓ ${scene.name} — ${finalBuf.length}b ` +
           `(attempts=${slotLog.attempts} color=${slotLog.colorCheckPass ?? 'skip'} ` +
-          `brand=${slotLog.brandFidelityPass ?? 'skip'} shot=${slotLog.shotCompliancePass ?? 'skip'})`,
+          `brand=${slotLog.brandFidelityPass ?? 'skip'} shot=${slotLog.shotCompliancePass ?? 'skip'} ` +
+          `bg=${slotLog.bgCheckPass ?? 'skip'})`,
         )
       } else {
         const msg = `${scene.name}: null after ${slotLog.attempts} attempts`
@@ -1549,10 +1846,10 @@ export async function generateByGeminiPro(
 
   const slotSummary = slotLogs.map((s) => {
     if (!s.success) return '✗'
-    if (s.colorCheckPass === false || s.brandFidelityPass === false || s.shotCompliancePass === false) return '⚠'
+    if (s.colorCheckPass === false || s.brandFidelityPass === false || s.shotCompliancePass === false || s.bgCheckPass === false) return '⚠'
     return '✓'
   }).join('')
-  console.log(`[generateByGeminiPro v20] done — ${result.successCount}/${result.promptCount} [${slotSummary}]`)
+  console.log(`[generateByGeminiPro v28] done — ${result.successCount}/${result.promptCount} [${slotSummary}]`)
 
   return { results: [result], buffers: result.buffers, slotLogs }
 }

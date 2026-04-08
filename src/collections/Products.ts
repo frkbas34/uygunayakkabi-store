@@ -301,7 +301,7 @@ export const Products: CollectionConfig = {
                 const { dispatchStory } = await import('@/lib/storyDispatch')
                 const storyResult = await dispatchStory(
                   doc as any,
-                  (settings as any)?.storyTargets ?? null,
+                  settings?.storyTargets ?? null,
                   req.payload as any,
                   'auto_publish',
                   req,

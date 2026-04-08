@@ -1284,7 +1284,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: true })
     }
 
-    const text: string = message.text || message.caption || ''
+    let text: string = message.text || message.caption || ''
     const chatId: number = message.chat?.id
     const messageId: number = message.message_id
     const chatType: string = message.chat?.type || 'private' // 'private' | 'group' | 'supergroup'
@@ -1347,6 +1347,20 @@ export async function POST(req: NextRequest) {
         // Fail-closed: if we can't verify settings, don't process group messages
         return NextResponse.json({ ok: true })
       }
+    }
+
+    // ── Phase L: Group mention normalization ────────────────────────────────────
+    // Strip leading @bot mention and inline @bot suffix from slash commands so that
+    // "@Uygunops_bot /preview 180" and "/preview@Uygunops_bot 180" route correctly.
+    // Only applied in group chats where the message already passed both gates.
+    // DM text is never modified.
+    if (isGroupChat) {
+      // 1. Strip leading "@Uygunops_bot " prefix (with optional whitespace)
+      const leadingMention = new RegExp('^@' + BOT_USERNAME_LC + '\\s*', 'i')
+      text = text.replace(leadingMention, '').trim()
+      // 2. Strip "@Uygunops_bot" suffix on slash commands: /cmd@Uygunops_bot → /cmd
+      const inlineBotSuffix = new RegExp('@' + BOT_USERNAME_LC, 'gi')
+      text = text.replace(inlineBotSuffix, '').trim()
     }
 
     // ── Phase 5: Confirmation wizard text input interceptor ───────────────────

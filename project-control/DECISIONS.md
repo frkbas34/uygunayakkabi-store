@@ -3277,3 +3277,37 @@ All paths fall back to existing logic if Geobot content is absent. Zero risk to 
 **Status:**  
 ACTIVE — Phase D complete
 
+---
+
+## D-135 — Phase G: Dry-Run Preview Mode for Channel Dispatch — IMPLEMENTED
+**Date:** 2026-04-08  
+**Decision:**  
+Implement a safe preview/dry-run mode for direct-publish channels so operators can verify the exact Geobot-derived caption/body that WOULD be posted, without making any public post.
+
+**Problem:**
+No safe way to verify Geobot content integration without creating real public posts on Instagram/Facebook. This blocked Phase F validation.
+
+**Implementation:**
+1. Added `previewDispatch` checkbox in `sourceMeta` (alongside `forceRedispatch`)
+2. When both `previewDispatch + forceRedispatch` are checked + saved on an active product:
+   - Full dispatch pipeline runs (eligibility, payload building, caption selection)
+   - `dispatchProductToChannels()` receives `{ dryRun: true }` option
+   - `resolvePreviewCaption()` uses the SAME content-selection logic as real publish
+   - NO external API calls made (Instagram Graph API, Facebook Graph API, Shopier, n8n webhooks)
+   - Shopier job queue suppressed, story dispatch suppressed
+3. Preview results written to `sourceMeta.dispatchNotes` with `mode: "preview"`
+4. Each channel result includes: `caption`, `source` (geobot|template-fallback|description-fallback), `geobotField`, `mediaUrl`, `mediaCount`
+5. Telegram notification sent to operator with formatted preview of all channel captions
+6. Both `forceRedispatch` and `previewDispatch` auto-reset after preview completes
+
+**Safety guarantees:**
+- Real publish paths completely unchanged (dryRun defaults to false/undefined)
+- Preview only fires when BOTH checkboxes are checked (previewDispatch alone does nothing)
+- Status transitions (draft→active) never trigger preview — only manual forceRedispatch
+
+**Files Changed:**
+- `src/lib/channelDispatch.ts` — `resolvePreviewCaption()` + dryRun option in orchestrator
+- `src/collections/Products.ts` — `previewDispatch` field + hook logic + Telegram notification
+
+**Status:**  
+ACTIVE — Phase G complete

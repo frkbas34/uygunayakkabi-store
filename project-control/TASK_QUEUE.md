@@ -1,6 +1,6 @@
 # TASK QUEUE — Uygunayakkabi
 
-_Last updated: 2026-04-08 (Phase D Channel Dispatch Geobot Wiring D-134; Phase C Blog Discoverability D-133; Image Pipeline v38 Slot 3 Rebuild + Global BG Lock D-124; Image Pipeline v37 Centering QC Gate + Sharp Bugfix D-123; Image Pipeline v36 Centering + Brightness D-122; v35 Brightness Normalization D-121; v34 BG Lock + Slot Reorder D-120; DB Hotfix enum types; Phase 21 Operator Runbook; VF-7 D-117b; VF-6 D-117; Phase 19 D-116; Phase 18 D-116; Phase 17 D-116; Phase 16 D-116; Phase 13 D-115/D-114; Phases 1-12 complete)_
+_Last updated: 2026-04-08 (Phase G Dry-Run Preview D-135; Phase D Channel Dispatch Geobot Wiring D-134; Phase C Blog Discoverability D-133; Image Pipeline v38 Slot 3 Rebuild + Global BG Lock D-124; Image Pipeline v37 Centering QC Gate + Sharp Bugfix D-123; Image Pipeline v36 Centering + Brightness D-122; v35 Brightness Normalization D-121; v34 BG Lock + Slot Reorder D-120; DB Hotfix enum types; Phase 21 Operator Runbook; VF-7 D-117b; VF-6 D-117; Phase 19 D-116; Phase 18 D-116; Phase 17 D-116; Phase 16 D-116; Phase 13 D-115/D-114; Phases 1-12 complete)_
 
 ---
 

@@ -303,7 +303,13 @@ async function buildShopierProductBody(
 
   const body: ShopierCreateProductBody = {
     title,
-    description: (product.description as string | undefined) || (title + ' — UygunAyakkabı'),
+    // Phase D: prefer Geobot shopierCopy → fallback to basic description → fallback to title
+    description: (() => {
+      const cp = (product.content as Record<string, unknown> | undefined)?.commercePack as Record<string, unknown> | undefined
+      return (cp?.shopierCopy as string | undefined)
+        || (product.description as string | undefined)
+        || (title + ' — UygunAyakkabı')
+    })(),
     type: 'physical',
     media,
     priceData: {

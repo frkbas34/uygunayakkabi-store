@@ -100,6 +100,15 @@ export type ChannelDispatchPayload = {
     telegramMessageId?: string
     source?: string
   }
+  /** Geobot-generated channel-specific copy (Phase D wiring) */
+  geobot?: {
+    websiteDescription?: string
+    instagramCaption?: string
+    xPost?: string
+    facebookCopy?: string
+    shopierCopy?: string
+    highlights?: string[]
+  }
 }
 
 /**
@@ -208,6 +217,11 @@ function extractMediaUrls(product: Record<string, unknown>): string[] {
  * Mirrors the logic in the n8n "Build Caption" node so output is consistent.
  */
 function buildInstagramCaption(payload: ChannelDispatchPayload): string {
+  // Phase D: prefer Geobot-generated Instagram caption when available
+  if (payload.geobot?.instagramCaption) {
+    return payload.geobot.instagramCaption.substring(0, 2200)
+  }
+  // Fallback: build caption from basic product fields
   let c = payload.title
   if (payload.price)         c += '\n\n💰 ' + payload.price + ' TL'
   if (payload.originalPrice) c += '  (Normal: ' + payload.originalPrice + ' TL)'
@@ -252,7 +266,10 @@ async function publishFacebookDirectly(
   }
 
   try {
-    const caption = buildInstagramCaption(payload)
+    // Phase D: prefer Geobot-generated Facebook copy, fallback to Instagram caption builder
+    const caption = payload.geobot?.facebookCopy
+      ? payload.geobot.facebookCopy.substring(0, 2200)
+      : buildInstagramCaption(payload)
 
     // ── Step 1: Get Page Access Token ─────────────────────────────────────────
     const pageTokenRes = await fetch(
@@ -647,6 +664,20 @@ export function buildDispatchPayload(
       telegramMessageId:  automationMeta?.telegramMessageId  as string | undefined,
       source:             product.source                      as string | undefined,
     },
+  }
+
+  // ── Phase D: Inject Geobot commerce pack into dispatch payload ──────────
+  const contentGroup = product.content as Record<string, unknown> | undefined
+  const commercePack = contentGroup?.commercePack as Record<string, unknown> | undefined
+  if (commercePack) {
+    payload.geobot = {
+      websiteDescription: commercePack.websiteDescription as string | undefined,
+      instagramCaption:   commercePack.instagramCaption   as string | undefined,
+      xPost:              commercePack.xPost              as string | undefined,
+      facebookCopy:       commercePack.facebookCopy       as string | undefined,
+      shopierCopy:        commercePack.shopierCopy         as string | undefined,
+      highlights:         commercePack.highlights          as string[] | undefined,
+    }
   }
 
   // Inject Instagram credentials into webhook body for the instagram channel.

@@ -1290,15 +1290,30 @@ export async function POST(req: NextRequest) {
     const chatType: string = message.chat?.type || 'private' // 'private' | 'group' | 'supergroup'
     const isGroupChat = chatType === 'group' || chatType === 'supergroup'
 
-    // ── Phase I: Group chat filtering ────────────────────────────────────────
-    // In group/supergroup chats the bot should ONLY respond to explicit /commands.
-    // Photos, plain text, wizard input, etc. are silently ignored to avoid
-    // reacting to normal background group chatter.
+    // ── Phase I+K: Group chat activation filter ────────────────────────────────
+    // In group/supergroup chats the bot only responds to INTENTIONAL activation:
+    //   1. Slash commands  (/preview, /pipeline, …)
+    //   2. @mention of the bot  (@Uygunops_bot)
+    //   3. Reply to a message authored by the bot
+    // Everything else (photos, plain text, background chatter) is silently ignored.
     // DM (private) behaviour remains unchanged.
+    const BOT_ID = 8702872700
+    const BOT_USERNAME_LC = 'uygunops_bot'
     if (isGroupChat) {
       const isCommand = text.startsWith('/')
-      if (!isCommand) {
-        // Silently ignore non-command messages in groups
+      const isMention = Array.isArray(message.entities) && message.entities.some(
+        (e: { type: string; offset: number; length: number }) => {
+          if (e.type === 'mention') {
+            const mentioned = text.substring(e.offset, e.offset + e.length).toLowerCase()
+            return mentioned === '@' + BOT_USERNAME_LC
+          }
+          return e.type === 'text_mention' && (e as unknown as Record<string, unknown>)?.user?.id === BOT_ID
+        },
+      )
+      const isReplyToBot = message.reply_to_message?.from?.id === BOT_ID
+
+      if (!isCommand && !isMention && !isReplyToBot) {
+        // Silently ignore non-activated messages in groups
         return NextResponse.json({ ok: true })
       }
     }
@@ -1306,7 +1321,7 @@ export async function POST(req: NextRequest) {
     const payload = await getPayload()
 
     // ── Phase I: Group allowlisting ──────────────────────────────────────────
-    // When a command arrives from a group chat, verify:
+    // When an activated message arrives from a group chat, verify:
     //   1. telegram.groupEnabled is ON in AutomationSettings
     //   2. The sender's Telegram user ID is in telegram.allowedUserIds
     // If either check fails, silently ignore the message.

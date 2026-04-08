@@ -3227,3 +3227,53 @@ Geobot auto-creates BlogPosts as `draft`. Operator reviews in admin panel, sets 
 **Status:**  
 ACTIVE — Phase B complete
 
+---
+
+## D-133 — Phase C: Blog Discoverability — IMPLEMENTED
+**Date:** 2026-04-08  
+**Decision:**  
+Add visible Blog link to storefront navigation (desktop + mobile) and footer.
+
+**Implementation:**
+- Desktop navbar: `<a href="/blog">BLOG</a>` after KOLEKSİYON, styled identically to existing nav links
+- Mobile menu: `<a href="/blog">BLOG</a>` after KOLEKSİYON, closes mobile menu on click
+- Footer "Sayfalar" section: `<a href="/blog">Blog</a>` after Koleksiyon
+- Blog is a separate server-rendered Next.js route — uses `<a href>` not SPA `onNav` callback
+
+**Files Changed:**
+- `src/app/(app)/UygunApp.jsx` — 3 insertion points (desktop nav, mobile nav, footer)
+
+**Status:**  
+ACTIVE — Phase C complete, verified in production
+
+---
+
+## D-134 — Phase D: Channel Dispatch Geobot Wiring — IMPLEMENTED
+**Date:** 2026-04-08  
+**Decision:**  
+Wire Geobot-generated channel-specific content into the existing dispatch pipeline so downstream channels receive AI-generated copy instead of basic product descriptions.
+
+**Gap identified:**
+- `buildDispatchPayload()` only included `product.description` — Geobot's `content.commercePack.*` fields were never extracted
+- `buildInstagramCaption()` built captions from basic fields — ignored `instagramCaption`
+- `publishFacebookDirectly()` reused Instagram caption builder — ignored `facebookCopy`
+- `buildShopierProductBody()` used `product.description` — ignored `shopierCopy`
+
+**Implementation:**
+1. Extended `ChannelDispatchPayload` type with optional `geobot` field containing all 6 commerce pack fields
+2. `buildDispatchPayload()` extracts `product.content.commercePack` into `payload.geobot`
+3. `buildInstagramCaption()` prefers `geobot.instagramCaption` when present, falls back to template builder
+4. `publishFacebookDirectly()` prefers `geobot.facebookCopy` when present, falls back to caption builder
+5. `buildShopierProductBody()` prefers `geobot.shopierCopy` → `product.description` → title fallback
+6. All n8n webhook payloads now include `geobot` field for `xPost`, `linkedinCopy`, etc.
+
+**Graceful degradation:**
+All paths fall back to existing logic if Geobot content is absent. Zero risk to products without content generation.
+
+**Files Changed:**
+- `src/lib/channelDispatch.ts` — type extension + payload builder + Instagram/Facebook caption preference
+- `src/lib/shopierSync.ts` — Shopier description preference chain
+
+**Status:**  
+ACTIVE — Phase D complete
+

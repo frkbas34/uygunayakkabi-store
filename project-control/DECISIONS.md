@@ -3339,4 +3339,42 @@ The bot had NO chat-type filtering. Adding it to the Mentix group would cause it
 - `src/app/api/telegram/route.ts` — Two guard blocks after chatId/messageId extraction
 
 **Status:**  
-ACTIVE — Phase I complete
+ACTIVE — Phase I complete, extended by Phase K (D-137)
+
+---
+
+## D-137 — Phase K: @Mention + Reply-to-Bot Activation in Groups — IMPLEMENTED
+**Date:** 2026-04-08  
+**Decision:**  
+Extend group activation filter to support natural interaction patterns beyond slash commands.
+
+**Problem:**
+Group operation was limited to slash commands only. Operators needed more natural ways to activate the bot — mentioning it or replying to its messages — while still ignoring background chatter.
+
+**Implementation:**
+Gate 1 (activation filter) now allows three triggers in group chats:
+1. **Slash commands** — `/preview`, `/pipeline`, `/stok`, etc. (unchanged from Phase I)
+2. **@Uygunops_bot mention** — detected via Telegram `entities` array, both `mention` (public username) and `text_mention` (users without usernames) types checked
+3. **Reply to bot message** — `reply_to_message.from.id === BOT_ID` (8702872700)
+
+Gate 2 (allowlisting) applies equally to all three activation types.
+
+**What is now allowed in group (from allowed user):**
+- `/preview 180`
+- `@Uygunops_bot stok bilgisi`
+- Reply to bot's message with any text
+
+**What is still ignored in group:**
+- Plain text without mention/command/reply
+- Photos without explicit activation
+- Messages from non-allowlisted users (even with @mention or reply)
+
+**Constants:**
+- `BOT_ID = 8702872700`
+- `BOT_USERNAME_LC = 'uygunops_bot'`
+
+**Files Changed:**
+- `src/app/api/telegram/route.ts` — Gate 1 block expanded (lines 1293-1319)
+
+**Status:**  
+ACTIVE — Phase K complete

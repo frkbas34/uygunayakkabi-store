@@ -18,8 +18,17 @@ export const maxDuration = 300
 // Helpers
 // ─────────────────────────────────────────────────────────────────────────────
 
+// ── Multi-bot token resolution ───────────────────────────────────────────────
+// Supports both @Uygunops_bot (TELEGRAM_BOT_TOKEN) and @Geeeeobot (TELEGRAM_GEO_BOT_TOKEN).
+// Per-request token is set at the top of POST() based on the incoming bot ID,
+// then read by all helper functions via getBotToken().
+let _requestBotToken: string | undefined
+function getBotToken(): string | undefined {
+  return _requestBotToken || process.env.TELEGRAM_BOT_TOKEN
+}
+
 async function sendTelegramMessage(chatId: number, text: string): Promise<void> {
-  const token = process.env.TELEGRAM_BOT_TOKEN
+  const token = getBotToken()
   if (!token) return
   // Telegram API limit: 4096 chars for sendMessage
   const safeText = text.length > 4000 ? text.substring(0, 4000) + '\n\n⚠️ (mesaj kesildi — çok uzun)' : text
@@ -40,7 +49,7 @@ async function sendTelegramMessageWithKeyboard(
   text: string,
   keyboard: Array<Array<{ text: string; callback_data: string }>>,
 ): Promise<number | null> {
-  const token = process.env.TELEGRAM_BOT_TOKEN
+  const token = getBotToken()
   if (!token) return null
   const safeText = text.length > 4000 ? text.substring(0, 4000) + '\n\n⚠️ (mesaj kesildi)' : text
   const res = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
@@ -69,7 +78,7 @@ async function editMessageText(
   text: string,
   keyboard?: Array<Array<{ text: string; callback_data: string }>>,
 ): Promise<void> {
-  const token = process.env.TELEGRAM_BOT_TOKEN
+  const token = getBotToken()
   if (!token) return
   const safeText = text.length > 4000 ? text.substring(0, 4000) + '\n\n⚠️ (mesaj kesildi)' : text
   await fetch(`https://api.telegram.org/bot${token}/editMessageText`, {
@@ -122,7 +131,7 @@ function formatSizeSelectionText(selectedSizes: Set<string>): string {
 
 /** Dismiss the loading spinner on a Telegram button after user clicks it */
 async function answerCallbackQuery(callbackQueryId: string, text?: string): Promise<void> {
-  const token = process.env.TELEGRAM_BOT_TOKEN
+  const token = getBotToken()
   if (!token) return
   await fetch(`https://api.telegram.org/bot${token}/answerCallbackQuery`, {
     method: 'POST',
@@ -196,7 +205,7 @@ async function downloadTelegramFile(fileId: string): Promise<{
   ext: string
   contentType: string
 } | null> {
-  const token = process.env.TELEGRAM_BOT_TOKEN
+  const token = getBotToken()
   if (!token) return null
 
   const infoRes = await fetch(
@@ -675,10 +684,24 @@ async function startPremiumImageGenJob(
 
 export async function POST(req: NextRequest) {
   try {
+    // ── Multi-bot token resolution ─────────────────────────────────────────
+    // Geo_bot webhook is set with ?bot=geo query parameter.
+    // Uygunops uses the default path (no query param).
+    const botParam = new URL(req.url).searchParams.get('bot')
+    if (botParam === 'geo' && process.env.TELEGRAM_GEO_BOT_TOKEN) {
+      _requestBotToken = process.env.TELEGRAM_GEO_BOT_TOKEN
+    } else {
+      _requestBotToken = process.env.TELEGRAM_BOT_TOKEN
+    }
+
     // Webhook secret doğrulama
     // TELEGRAM_WEBHOOK_SECRET boşsa atla (ilk kurulum / test için)
+    // Geo_bot uses its own secret (TELEGRAM_GEO_WEBHOOK_SECRET) if configured
     const secret = req.headers.get('X-Telegram-Bot-Api-Secret-Token')
-    if (process.env.TELEGRAM_WEBHOOK_SECRET && secret !== process.env.TELEGRAM_WEBHOOK_SECRET) {
+    const expectedSecret = botParam === 'geo'
+      ? (process.env.TELEGRAM_GEO_WEBHOOK_SECRET || process.env.TELEGRAM_WEBHOOK_SECRET)
+      : process.env.TELEGRAM_WEBHOOK_SECRET
+    if (expectedSecret && secret !== expectedSecret) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
@@ -1297,8 +1320,8 @@ export async function POST(req: NextRequest) {
     //   3. Reply to a message authored by the bot
     // Everything else (photos, plain text, background chatter) is silently ignored.
     // DM (private) behaviour remains unchanged.
-    const BOT_ID = 8702872700
-    const BOT_USERNAME_LC = 'uygunops_bot'
+    const BOT_ID = botParam === 'geo' ? 8728094008 : 8702872700
+    const BOT_USERNAME_LC = botParam === 'geo' ? 'geeeeobot' : 'uygunops_bot'
     if (isGroupChat) {
       const isCommand = text.startsWith('/')
       const isMention = Array.isArray(message.entities) && message.entities.some(
@@ -1552,7 +1575,7 @@ export async function POST(req: NextRequest) {
         //    #hizli / #dengeli / #premium / #karma / #gorsel / #luma / #chatgpt / #geminipro
         //    #claid — gibi görsel tag'leri çıkarılır — "bunu ürüne çevir #claid 1755 TL"
         //    kullanımlarda parseTelegramCaption'ı bozmasın
-        const BOT_MENTIONS = /(@Uygunops_bot|@uygunops_bot|@mentix_aibot|@Mentix)/gi
+        const BOT_MENTIONS = /(@Uygunops_bot|@uygunops_bot|@Geeeeobot|@geeeeobot|@mentix_aibot|@Mentix)/gi
         const GORSEL_TAGS  = /#(gorsel|hizli|dengeli|premium|karma|geminipro|chatgpt|luma|claid)\b/gi
         const combinedText = combinedRaw
         const cleanCaption = combinedText

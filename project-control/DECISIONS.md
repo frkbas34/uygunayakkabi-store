@@ -3412,3 +3412,39 @@ After both gates (activation + allowlisting) pass, in group chats only:
 
 **Status:**  
 ACTIVE — Phase L complete
+
+---
+
+## D-139 — Multi-Bot Support: Geo_bot (@Geeeeobot) Webhook Integration — IMPLEMENTED
+**Date:** 2026-04-08  
+**Decision:**  
+Add multi-bot support so Geo_bot (`@Geeeeobot`, ID `8728094008`) shares the same webhook handler as Uygunops_bot, differentiated by `?bot=geo` URL query parameter.
+
+**Problem:**
+Geo_bot existed as a separate Telegram bot but had no webhook, no code support, and was not in the Mentix group. The intended operating model requires Geo_bot to function as a full operator agent in the Mentix group with near-DM-equivalent capability.
+
+**Implementation:**
+1. Module-level `_requestBotToken` variable + `getBotToken()` helper for per-request bot token scoping
+2. `?bot=geo` URL parameter selects Geo_bot token from `TELEGRAM_GEO_BOT_TOKEN` env var
+3. Webhook secret validation falls back: `TELEGRAM_GEO_WEBHOOK_SECRET` → `TELEGRAM_WEBHOOK_SECRET`
+4. All 5 helper functions (`sendTelegramMessage`, `sendTelegramMessageWithKeyboard`, `editMessageText`, `answerCallbackQuery`, `downloadTelegramFile`) updated to use `getBotToken()`
+5. `BOT_ID` and `BOT_USERNAME_LC` resolved dynamically based on `botParam`
+6. `BOT_MENTIONS` regex extended to include `@Geeeeobot`/`@geeeeobot`
+7. Geo_bot webhook set to `https://www.uygunayakkabi.com/api/telegram?bot=geo` with shared secret_token
+8. Geo_bot added to Mentix group, privacy mode disabled (`can_read_all_group_messages: true`)
+
+**Validation (7 tests passed):**
+- `getMe` identity check ✅
+- `/preview 180` slash command in group ✅
+- `@Geeeeobot /preview 180` mention+command in group ✅
+- Plain text in group — silent ✅
+- `/preview 180` via DM ✅
+- Reply-to-bot command in group ✅
+- Cross-bot isolation (`@Uygunops_bot` mention → Geo_bot stays silent) ✅
+
+**Files Changed:**
+- `src/app/api/telegram/route.ts` — Multi-bot token resolution, dynamic BOT_ID/BOT_USERNAME_LC, getBotToken() pattern
+- Vercel env: `TELEGRAM_GEO_BOT_TOKEN` added to all environments
+
+**Status:**  
+ACTIVE — Multi-bot operational

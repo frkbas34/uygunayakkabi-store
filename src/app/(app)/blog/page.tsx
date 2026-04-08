@@ -38,19 +38,24 @@ const CATEGORY_LABELS: Record<string, string> = {
 }
 
 export default async function BlogListingPage() {
-  const payload = await getPayload()
+  let posts: BlogPostDoc[] = []
 
-  const { docs } = await payload.find({
-    collection: 'blog-posts',
-    where: {
-      status: { equals: 'published' },
-    },
-    depth: 1,
-    limit: 50,
-    sort: '-publishedAt',
-  })
-
-  const posts = docs as BlogPostDoc[]
+  try {
+    const payload = await getPayload()
+    const { docs } = await payload.find({
+      collection: 'blog-posts',
+      where: {
+        status: { equals: 'published' },
+      },
+      depth: 1,
+      limit: 50,
+      sort: '-createdAt',
+    })
+    posts = docs as BlogPostDoc[]
+  } catch (err) {
+    console.error('[blog] Failed to fetch blog posts:', err)
+    // Graceful degradation — show empty state instead of 500
+  }
 
   return (
     <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-12">

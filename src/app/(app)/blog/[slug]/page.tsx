@@ -60,14 +60,19 @@ type BlogPostDoc = {
 // ─────────────────────────────────────────────────────────────────────────────
 
 async function getPost(slug: string): Promise<BlogPostDoc | undefined> {
-  const payload = await getPayload()
-  const { docs } = await payload.find({
-    collection: 'blog-posts',
-    where: { slug: { equals: slug } },
-    depth: 2,
-    limit: 1,
-  })
-  return docs[0] as BlogPostDoc | undefined
+  try {
+    const payload = await getPayload()
+    const { docs } = await payload.find({
+      collection: 'blog-posts',
+      where: { slug: { equals: slug } },
+      depth: 2,
+      limit: 1,
+    })
+    return docs[0] as BlogPostDoc | undefined
+  } catch (err) {
+    console.error(`[blog/${slug}] Failed to fetch blog post:`, err)
+    return undefined
+  }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

@@ -209,6 +209,13 @@ function Navbar({ onNav, pg, settings }) {
               {l.l}
             </span>
           ))}
+          <a href="/blog" style={{
+            fontFamily: T.f, fontSize: 12, fontWeight: 500,
+            color: T.wh3, letterSpacing: "0.14em", textDecoration: "none",
+            transition: "color 0.2s",
+          }}>
+            BLOG
+          </a>
           <a href={waLink(waNum)} target="_blank" rel="noreferrer" style={{
             display: "flex", alignItems: "center", gap: 8,
             fontFamily: T.f, fontSize: 12, fontWeight: 600, letterSpacing: "0.08em",
@@ -235,6 +242,13 @@ function Navbar({ onNav, pg, settings }) {
               {l.l}
             </div>
           ))}
+          <a href="/blog" onClick={() => setMo(false)} style={{
+            display: "block", fontFamily: T.f, fontSize: 14, fontWeight: 500,
+            color: T.wh2, padding: "16px 0", letterSpacing: "0.1em",
+            borderBottom: `1px solid ${T.wh5}`, textDecoration: "none",
+          }}>
+            BLOG
+          </a>
           <a href={waLink(waNum)} target="_blank" rel="noreferrer" style={{
             display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
             marginTop: 16, fontFamily: T.f, fontSize: 13, fontWeight: 600,
@@ -446,6 +460,7 @@ function Foot({ onNav, settings }) {
           {[["Ana Sayfa", "home"], ["Koleksiyon", "catalog"]].map(([l, k]) => (
             <p key={k} onClick={() => onNav(k)} style={{ fontFamily: T.f, fontSize: 13, color: T.wh3, marginBottom: 12, cursor: "pointer" }}>{l}</p>
           ))}
+          <a href="/blog" style={{ display: "block", fontFamily: T.f, fontSize: 13, color: T.wh3, marginBottom: 12, textDecoration: "none" }}>Blog</a>
         </div>
         <div>
           <h5 style={{ fontFamily: T.f, fontSize: 10, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.14em", color: T.wh4, marginBottom: 20 }}>İletişim</h5>

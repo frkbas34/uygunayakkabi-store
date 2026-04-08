@@ -122,6 +122,8 @@ export const Products: CollectionConfig = {
         // Only fires for already-active products (safe: won't re-activate a draft)
         const sourceMeta = (doc.sourceMeta as Record<string, unknown> | undefined) ?? {}
         const forceRedispatch = sourceMeta.forceRedispatch === true
+        // Phase G: dry-run preview mode — runs same logic but skips all external API calls
+        const previewDispatch = sourceMeta.previewDispatch === true
 
         // Determine dispatch trigger reason
         const isStatusTransition = !wasActive && isNowActive
@@ -130,9 +132,12 @@ export const Products: CollectionConfig = {
         // No trigger conditions met — skip
         if (!isStatusTransition && !isForceRedispatch) return doc
 
-        const triggerReason = isForceRedispatch
-          ? `manual-redispatch product=${doc.id}`
-          : `status-transition:draft→active product=${doc.id}`
+        const isDryRun = previewDispatch && isForceRedispatch
+        const triggerReason = isDryRun
+          ? `dry-run-preview product=${doc.id}`
+          : isForceRedispatch
+            ? `manual-redispatch product=${doc.id}`
+            : `status-transition:draft→active product=${doc.id}`
 
         // Dynamic imports to avoid circular dependency issues at module load time
         // and to keep the module graph clean for Payload's build system
@@ -164,14 +169,17 @@ export const Products: CollectionConfig = {
             populatedProduct as Record<string, unknown>,
             settings,
             triggerReason,
+            isDryRun ? { dryRun: true } : undefined,
           )
 
           // ── Step 20: Determine if Shopier sync should be queued ─────────────
           // channelDispatch returns eligible=true + skippedReason='queued-via-jobs-queue'
           // for Shopier when SHOPIER_PAT is set. We queue the job here, after the
           // main dispatch, so it runs non-blocking outside this request lifecycle.
+          // Phase G: never queue Shopier in dry-run mode
           const shopierDispatchResult = results.find((r) => r.channel === 'shopier')
           const shouldQueueShopier =
+            !isDryRun &&
             shopierDispatchResult?.eligible === true &&
             shopierDispatchResult?.skippedReason === 'queued-via-jobs-queue' &&
             Boolean(process.env.SHOPIER_PAT)
@@ -213,7 +221,9 @@ export const Products: CollectionConfig = {
                     )
                   : (sourceMeta.dispatchNotes as string | undefined) ?? '[]',
                 // Step 14: always auto-reset forceRedispatch flag after handling
+                // Phase G: also reset previewDispatch
                 forceRedispatch: false,
+                previewDispatch: false,
                 // Step 20: set Shopier status to 'queued' immediately if job is being enqueued
                 ...(shouldQueueShopier ? { shopierSyncStatus: 'queued' } : {}),
               },
@@ -236,16 +246,55 @@ export const Products: CollectionConfig = {
 
           console.log(
             `[Products] afterChange dispatch — product=${doc.id} ` +
-              `trigger=${isForceRedispatch ? 'force-redispatch' : 'activation'} ` +
+              `trigger=${isDryRun ? 'dry-run-preview' : isForceRedispatch ? 'force-redispatch' : 'activation'} ` +
               `dispatched=[${dispatchedChannels.join(',')}] ` +
               `shopierQueued=${shouldQueueShopier} ` +
-              `total=${results.length} channels evaluated`,
+              `total=${results.length} channels evaluated` +
+              (isDryRun ? ' [DRY-RUN — no external APIs called]' : ''),
           )
+
+          // ── Phase G: Send preview results to Telegram operator ────────────
+          if (isDryRun) {
+            try {
+              const tgToken = process.env.TELEGRAM_BOT_TOKEN
+              const tgChatId = process.env.TELEGRAM_CHAT_ID
+              if (tgToken && tgChatId) {
+                const title = doc.title ?? `Ürün #${doc.id}`
+                const lines = results
+                  .filter((r) => r.publishResult && (r.publishResult as Record<string, unknown>).mode === 'preview')
+                  .map((r) => {
+                    const pr = r.publishResult as Record<string, unknown>
+                    const src = pr.source === 'geobot' ? '✅ GEOBOT' : '⚠️ FALLBACK'
+                    const field = pr.geobotField ? ` (${pr.geobotField})` : ''
+                    const captionStr = String(pr.caption ?? '')
+                    const preview = captionStr.length > 200 ? captionStr.substring(0, 200) + '…' : captionStr
+                    return `<b>${r.channel.toUpperCase()}</b> — ${src}${field}\n<pre>${preview}</pre>`
+                  })
+                const skippedLines = results
+                  .filter((r) => !r.eligible)
+                  .map((r) => `❌ ${r.channel}: ${r.skippedReason ?? 'not eligible'}`)
+                const text =
+                  `👁️ <b>ÖNİZLEME — ${title}</b> (ID: ${doc.id})\n\n` +
+                  (lines.length > 0 ? lines.join('\n\n') : '(Hiçbir kanal uygun değil)') +
+                  (skippedLines.length > 0 ? `\n\n<b>Atlandı:</b>\n${skippedLines.join('\n')}` : '') +
+                  `\n\n<i>Bu bir önizlemedir — gerçek gönderi yapılmadı.</i>`
+                await fetch(`https://api.telegram.org/bot${tgToken}/sendMessage`, {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ chat_id: tgChatId, text, parse_mode: 'HTML' }),
+                })
+              }
+            } catch (tgErr) {
+              console.error(`[Products] Preview Telegram notification failed (non-blocking):`,
+                tgErr instanceof Error ? tgErr.message : String(tgErr))
+            }
+          }
 
           // ── Phase 4: Non-blocking Story trigger ──────────────────────────────
           // Only fires on status transitions (draft→active), not on force-redispatch.
+          // Phase G: never trigger stories in dry-run mode.
           // Story failure is caught silently — never blocks product publish.
-          if (isStatusTransition) {
+          if (isStatusTransition && !isDryRun) {
             try {
               const { shouldAutoTriggerStory } = await import('@/lib/storyTargets')
               if (shouldAutoTriggerStory(doc as Record<string, unknown>)) {
@@ -923,6 +972,21 @@ export const Products: CollectionConfig = {
             description:
               'İşaretleyip kaydedin → dispatch yeniden tetiklenir. ' +
               'Otomatik sıfırlanır. Sadece aktif ürünlerde çalışır.',
+          },
+        },
+        // ── Phase G: Dry-run preview ─────────────────────────
+        // Admin checks this alongside forceRedispatch to see what WOULD be posted
+        // without actually calling external APIs. Results go to dispatchNotes.
+        {
+          name: 'previewDispatch',
+          type: 'checkbox',
+          label: '👁️ Önizleme (Dry-Run Preview)',
+          defaultValue: false,
+          admin: {
+            description:
+              'forceRedispatch ile birlikte işaretleyin → gerçek gönderi yapılmaz, ' +
+              'sadece hangi caption/body kullanılacağını önizleme olarak gösterir. ' +
+              'Sonuçlar İletim Detayları\'nda "mode: preview" ile görünür.',
           },
         },
         // ── Step 20: Shopier Sync Metadata ──────────────────

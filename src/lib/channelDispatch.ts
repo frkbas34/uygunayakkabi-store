@@ -790,6 +790,58 @@ export async function dispatchToChannel(
   }
 }
 
+// ── Phase G: Preview caption resolver ────────────────────────────────────────
+// Uses the SAME content-selection logic as real publish paths.
+// Returns the exact caption that would be sent, plus source attribution.
+
+function resolvePreviewCaption(
+  payload: ChannelDispatchPayload,
+  channel: SupportedChannel,
+  instagramTokens?: { accessToken?: string | null; userId?: string | null; facebookPageId?: string | null },
+): { caption: string; source: string; geobotField?: string } {
+  if (channel === 'instagram') {
+    if (payload.geobot?.instagramCaption) {
+      return { caption: payload.geobot.instagramCaption.substring(0, 2200), source: 'geobot', geobotField: 'instagramCaption' }
+    }
+    return { caption: buildInstagramCaption(payload), source: 'template-fallback' }
+  }
+
+  if (channel === 'facebook') {
+    if (payload.geobot?.facebookCopy) {
+      return { caption: payload.geobot.facebookCopy.substring(0, 2200), source: 'geobot', geobotField: 'facebookCopy' }
+    }
+    return { caption: buildInstagramCaption(payload), source: 'template-fallback' }
+  }
+
+  if (channel === 'shopier') {
+    const cp = payload.geobot
+    if (cp?.shopierCopy) {
+      return { caption: cp.shopierCopy, source: 'geobot', geobotField: 'shopierCopy' }
+    }
+    return { caption: payload.description ?? payload.title, source: 'description-fallback' }
+  }
+
+  if (channel === 'x' || channel === 'threads') {
+    if (payload.geobot?.xPost) {
+      return { caption: payload.geobot.xPost, source: 'geobot', geobotField: 'xPost' }
+    }
+    return { caption: payload.title, source: 'title-fallback' }
+  }
+
+  if (channel === 'linkedin') {
+    if (payload.geobot?.websiteDescription) {
+      return { caption: payload.geobot.websiteDescription, source: 'geobot', geobotField: 'websiteDescription' }
+    }
+    return { caption: payload.description ?? payload.title, source: 'description-fallback' }
+  }
+
+  // Dolap / generic
+  if (payload.geobot?.shopierCopy) {
+    return { caption: payload.geobot.shopierCopy, source: 'geobot', geobotField: 'shopierCopy' }
+  }
+  return { caption: payload.description ?? payload.title, source: 'description-fallback' }
+}
+
 /**
  * Orchestrator: evaluate eligibility + dispatch all eligible channels for a product.
  *
@@ -804,11 +856,13 @@ export async function dispatchProductToChannels(
   product: Record<string, unknown>,
   settings: AutomationSettingsSnapshot | null,
   triggerReason: string,
+  options?: { dryRun?: boolean },
 ): Promise<{
   results: ChannelDispatchResult[]
   dispatchedChannels: SupportedChannel[]
   skippedChannels: Record<SupportedChannel, string>
 }> {
+  const dryRun = options?.dryRun === true
   const { eligible, skipped } = evaluateChannelEligibility(product, settings)
 
   // Extract Instagram/Facebook tokens from settings snapshot.
@@ -840,6 +894,30 @@ export async function dispatchProductToChannels(
   const dispatchedChannels: SupportedChannel[] = []
   for (const channel of eligible) {
     const dispatchPayload = buildDispatchPayload(product, channel, triggerReason, instagramTokens)
+
+    // ── Phase G: Dry-run mode — resolve captions, skip all external API calls ──
+    if (dryRun) {
+      const previewCaption = resolvePreviewCaption(dispatchPayload, channel, instagramTokens)
+      results.push({
+        channel,
+        eligible:          true,
+        dispatched:        false,
+        skippedReason:     'dry-run-preview',
+        webhookConfigured: false,
+        publishResult: {
+          mode:        'preview',
+          caption:     previewCaption.caption,
+          source:      previewCaption.source,
+          mediaUrl:    dispatchPayload.mediaUrls[0] ?? null,
+          mediaCount:  dispatchPayload.mediaUrls.length,
+          geobotField: previewCaption.geobotField ?? null,
+          productId:   dispatchPayload.productId,
+          title:       dispatchPayload.title,
+        },
+        timestamp: new Date().toISOString(),
+      })
+      continue
+    }
 
     // Instagram: direct Graph API publish (bypasses n8n — D-088).
     // Facebook:  direct Graph API photo post (same Meta user token — D-089).

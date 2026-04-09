@@ -492,12 +492,14 @@ async function approveImageGenJob(
   const isPartial = slotsStr !== 'all' && approvedMediaIds.length < allMediaIds.length
   const slotNote = isPartial ? ` (${approvedMediaIds.length}/${allMediaIds.length} slot)` : ''
 
-  await sendTelegramMessage(
+  await sendTelegramMessageWithKeyboard(
     chatId,
     `✅ <b>${approvedMediaIds.length} görsel onaylandı${slotNote}</b>\n\n` +
     `Görseller AI Üretim Galerisi'ne eklendi (ürün sayfası görselleri değişmedi).\n` +
-    `🔗 <a href="https://www.uygunayakkabi.com/admin/collections/products/${productId}">Ürünü admin'de gör</a>\n\n` +
-    `📋 Sonraki adım: <code>/confirm ${productId}</code>`,
+    `🔗 <a href="https://www.uygunayakkabi.com/admin/collections/products/${productId}">Ürünü admin'de gör</a>`,
+    [
+      [{ text: '📋 Bilgileri Gir → Onaya Gönder', callback_data: `wz_start:${productId}` }],
+    ],
   )
 }
 
@@ -753,7 +755,7 @@ export async function POST(req: NextRequest) {
       // Ops Bot (Uygunops) owns: image generation, image approval, wizard callbacks
       // GeoBot owns: story callbacks
       // This teaches operators which bot handles which workflow.
-      const OPS_CB_PREFIXES = ['imagegen:', 'imgapprove:', 'imgreject:', 'imgregen:', 'imgpremium:', 'wz_cat:', 'wz_ptype:', 'wz_tgt:', 'wz_size:', 'wz_confirm:', 'wz_cancel:']
+      const OPS_CB_PREFIXES = ['imagegen:', 'imgapprove:', 'imgreject:', 'imgregen:', 'imgpremium:', 'wz_start:', 'wz_cat:', 'wz_ptype:', 'wz_tgt:', 'wz_size:', 'wz_confirm:', 'wz_cancel:']
       const GEO_CB_PREFIXES = ['storyapprove:', 'storyreject:', 'storyretry:']
       const isOpsCb = OPS_CB_PREFIXES.some(p => cbData.startsWith(p))
       const isGeoCb = GEO_CB_PREFIXES.some(p => cbData.startsWith(p))
@@ -1012,6 +1014,114 @@ export async function POST(req: NextRequest) {
           await answerCallbackQuery(cbQueryId, '❌ Hata oluştu')
           console.error('[telegram/webhook] storyretry callback failed:', err)
         }
+      }
+
+      // ── Phase T2: One-tap wizard start from image approval ────────────────
+      // wz_start:{productId} — launches the confirmation wizard from an inline button
+      if (cbData.startsWith('wz_start:')) {
+        const wzProductId = parseInt(cbData.replace('wz_start:', ''))
+        if (isNaN(wzProductId)) {
+          await answerCallbackQuery(cbQueryId, '⚠️ Geçersiz ürün ID')
+          return NextResponse.json({ ok: true })
+        }
+        await answerCallbackQuery(cbQueryId, '📋 Sihirbaz başlatılıyor...')
+
+        try {
+          const payloadInst = await getPayload()
+          const product = await payloadInst.findByID({ collection: 'products', id: wzProductId, depth: 1 })
+          if (!product) {
+            await sendTelegramMessage(cbChatId, `❌ Ürün #${wzProductId} bulunamadı.`)
+            return NextResponse.json({ ok: true })
+          }
+
+          // Visual gate — same as /confirm
+          const visualStatus = (product as any).workflow?.visualStatus ?? 'pending'
+          if (visualStatus !== 'approved') {
+            await sendTelegramMessage(cbChatId, `⛔ Görseller henüz onaylanmamış (${visualStatus}). Önce görselleri onaylayın.`)
+            return NextResponse.json({ ok: true })
+          }
+
+          // Already confirmed
+          const alreadyConfirmed = (product as any).workflow?.confirmationStatus === 'confirmed'
+          if (alreadyConfirmed) {
+            await sendTelegramMessage(cbChatId,
+              `✅ <b>Ürün #${wzProductId} zaten onaylı.</b>\n` +
+              `Tekrar düzenlemek için: <code>/confirm ${wzProductId} force</code>`)
+            return NextResponse.json({ ok: true })
+          }
+
+          const {
+            checkConfirmationFields, getNextWizardStep, setWizardSession, clearWizardSession,
+            getTitlePrompt, getStockCodePrompt, getCategoryPrompt, getProductTypePrompt,
+            getPricePrompt, getTargetsPrompt, getBrandPrompt, formatConfirmationSummary,
+          } = await import('@/lib/confirmationWizard')
+
+          const check = checkConfirmationFields(product as any)
+          const collected: Record<string, unknown> = {}
+          const nextStep = getNextWizardStep(product as any, collected as any)
+
+          // If everything is already filled, go straight to summary
+          if (check.ready && nextStep === 'summary') {
+            const summary = formatConfirmationSummary(product as any, {} as any)
+            await sendTelegramMessageWithKeyboard(cbChatId, summary, [
+              [
+                { text: '✅ Onayla', callback_data: `wz_confirm:${wzProductId}` },
+                { text: '❌ İptal', callback_data: `wz_cancel:${wzProductId}` },
+              ],
+            ])
+            setWizardSession(cbChatId, {
+              productId: wzProductId, chatId: cbChatId, userId: cbUserId,
+              step: 'summary', collected: {} as any, startedAt: Date.now(),
+            }, cbUserId)
+            return NextResponse.json({ ok: true })
+          }
+
+          // Start wizard — show status then first prompt
+          const missingList = check.missing.map(m => `  ❌ ${m.label}`).join('\n')
+          const presentList = check.present.map(m => `  ✅ ${m.label}: ${m.value}`).join('\n')
+          await sendTelegramMessage(cbChatId,
+            `📋 <b>Ürün #${wzProductId} — ${(product as any).title ?? 'İsimsiz'}</b>\n\n` +
+            `<b>Mevcut:</b>\n${presentList || '  (yok)'}\n\n` +
+            `<b>Eksik:</b>\n${missingList || '  (yok)'}\n\n` +
+            `Sihirbaz başlıyor...`)
+
+          clearWizardSession(cbChatId, cbUserId)
+          const wizState: any = {
+            productId: wzProductId, chatId: cbChatId, userId: cbUserId,
+            step: nextStep, collected, startedAt: Date.now(),
+          }
+          setWizardSession(cbChatId, wizState, cbUserId)
+
+          // Dispatch first prompt
+          if (nextStep === 'title') {
+            await sendTelegramMessage(cbChatId, getTitlePrompt((product as any).title ?? `Ürün #${wzProductId}`))
+          } else if (nextStep === 'stockCode') {
+            await sendTelegramMessage(cbChatId, getStockCodePrompt((product as any).sku ?? '—'))
+          } else if (nextStep === 'category') {
+            const catPrompt = getCategoryPrompt()
+            await sendTelegramMessageWithKeyboard(cbChatId, catPrompt.text, catPrompt.keyboard)
+          } else if (nextStep === 'productType') {
+            const ptypePrompt = getProductTypePrompt()
+            await sendTelegramMessageWithKeyboard(cbChatId, ptypePrompt.text, ptypePrompt.keyboard)
+          } else if (nextStep === 'price') {
+            await sendTelegramMessage(cbChatId, getPricePrompt())
+          } else if (nextStep === 'sizes') {
+            wizState.pendingSizes = []
+            const sizeMsg = await sendTelegramMessageWithKeyboard(cbChatId,
+              formatSizeSelectionText(new Set()), buildSizeKeyboard(new Set()))
+            if (sizeMsg) wizState.sizeMessageId = sizeMsg
+            setWizardSession(cbChatId, wizState, cbUserId)
+          } else if (nextStep === 'brand') {
+            await sendTelegramMessage(cbChatId, getBrandPrompt())
+          } else if (nextStep === 'targets') {
+            const tgtPrompt = getTargetsPrompt()
+            await sendTelegramMessageWithKeyboard(cbChatId, tgtPrompt.text, tgtPrompt.keyboard)
+          }
+        } catch (err) {
+          console.error('[telegram/webhook] wz_start callback failed:', err)
+          await sendTelegramMessage(cbChatId, `❌ Sihirbaz başlatılamadı: ${err instanceof Error ? err.message : 'Bilinmeyen hata'}`)
+        }
+        return NextResponse.json({ ok: true })
       }
 
       // ── Phase 5: Confirmation wizard callback handlers ───────────────────

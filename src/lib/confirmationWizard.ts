@@ -24,6 +24,7 @@
 export interface ConfirmableProduct {
   id: number | string
   title?: string | null
+  sku?: string | null
   category?: string | null
   price?: number | null
   originalPrice?: number | null
@@ -63,6 +64,8 @@ export interface ConfirmationResult {
 }
 
 export type WizardStep =
+  | 'title'
+  | 'stockCode'
   | 'category'
   | 'productType'
   | 'price'
@@ -80,6 +83,8 @@ export interface WizardState {
   userId?: number
   step: WizardStep
   collected: {
+    title?: string
+    stockCode?: string
     category?: string
     productType?: string
     price?: number
@@ -274,6 +279,14 @@ export function getNextWizardStep(
   product: ConfirmableProduct,
   collected: WizardState['collected'],
 ): WizardStep {
+  // Title (text) — Phase T1: ask if still placeholder "Taslak Ürün ..."
+  const isPlaceholderTitle = !product.title || /^Taslak Ürün\s/i.test(product.title)
+  if (isPlaceholderTitle && !collected.title) return 'title'
+
+  // Stock code (text) — Phase T1: ask if SKU is auto-generated TG-xxx
+  const isAutoSku = !product.sku || /^TG-/i.test(product.sku ?? '')
+  if (isAutoSku && !collected.stockCode) return 'stockCode'
+
   // Category (button)
   if (!product.category && !collected.category) return 'category'
 
@@ -355,7 +368,10 @@ export function formatConfirmationSummary(
   product: ConfirmableProduct,
   collected: WizardState['collected'],
 ): string {
-  const title = product.title ?? `Ürün #${product.id}`
+  const title = collected.title ?? product.title ?? `Ürün #${product.id}`
+  const stockCode = (collected.stockCode && collected.stockCode !== '_skip_')
+    ? collected.stockCode
+    : (product.sku ?? '—')
   const category = collected.category ?? product.category ?? '—'
   const price = collected.price ?? product.price
   const priceStr = price ? `₺${price}` : '—'
@@ -413,6 +429,7 @@ export function formatConfirmationSummary(
     `📋 <b>ÜRÜN ONAY ÖZETİ</b>`,
     ``,
     `<b>Ürün:</b> ${title} (ID: ${product.id})`,
+    `<b>Stok Kodu:</b> ${stockCode}`,
     `<b>Kategori:</b> ${category}`,
     `<b>Ürün Tipi:</b> ${productTypeStr}`,
     `<b>Marka:</b> ${brandStr}`,
@@ -430,6 +447,25 @@ export function formatConfirmationSummary(
 }
 
 // ── Step prompt builders ──────────────────────────────────────────────
+
+export function getTitlePrompt(currentTitle: string): string {
+  return (
+    `📝 <b>Ürün adını girin:</b>\n\n` +
+    `Mevcut: <i>${currentTitle}</i>\n\n` +
+    `Gerçek ürün adını yazın.\n` +
+    `Örnek: <code>Nike Air Max 90 Siyah Erkek Ayakkabı</code>`
+  )
+}
+
+export function getStockCodePrompt(currentSku: string): string {
+  return (
+    `🏷️ <b>Stok kodunu girin:</b>\n\n` +
+    `Mevcut (otomatik): <code>${currentSku}</code>\n\n` +
+    `Kendi stok/raf kodunuzu yazın.\n` +
+    `Örnek: <code>NK-AM90-SYH</code>\n\n` +
+    `Atlamak için <code>-</code> yazın.`
+  )
+}
 
 export function getCategoryPrompt(): { text: string; keyboard: Array<Array<{ text: string; callback_data: string }>> } {
   return {
@@ -523,6 +559,16 @@ export async function applyConfirmation(
     const preConfirmStates = ['draft', 'visual_pending', 'visual_ready', 'confirmation_pending']
     if (!currentWfStatus || preConfirmStates.includes(currentWfStatus)) {
       ;(productUpdate.workflow as Record<string, unknown>).workflowStatus = 'confirmed'
+    }
+
+    // Title — Phase T1
+    if (collected.title) {
+      productUpdate.title = collected.title
+    }
+
+    // Stock code → SKU field — Phase T1 (skip sentinel '_skip_' = keep existing auto-SKU)
+    if (collected.stockCode && collected.stockCode !== '_skip_') {
+      productUpdate.sku = collected.stockCode
     }
 
     // Category

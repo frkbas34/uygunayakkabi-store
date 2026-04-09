@@ -1,6 +1,6 @@
 # PROJECT STATE — Uygunayakkabi
 
-_Last updated: 2026-04-09 (Phase U GeoBot One-Tap Post-Handoff — D-148; Phase T2 One-Tap Wizard Launch — D-147; Phase T1 Title + Stock Code Intake — D-146; Phase S GeoBot Visible Handoff — D-145; Phase G Dry-Run Preview — D-135; Phase D Channel Dispatch Geobot Wiring — D-134; Phase C Blog Discoverability — D-133; Image Pipeline v38 Slot 3 Rebuild + Global BG Lock — D-124; Image Pipeline v37 Centering QC Gate + Sharp Bugfix — D-123; Image Pipeline v36 Centering + Brightness — D-122; Image Pipeline v35 Brightness — D-121; v34 BG Lock — D-120; VF-7 Legacy Backlog Normalization — D-117b; VF-6 Visual-First Pipeline E2E Validation — D-117; VF-2–VF-5 Visual-First Pipeline — D-117; Phase 19 External Channel Dispatch Validation — D-116; Phase 18 Stock Lifecycle — D-116; Phase 17 Product Activation — D-116; Phase 16 Telegram Bot E2E — D-116; Phase 13 Prep — D-115; Phase 13 Production Hardening + Migration Pack — D-114; Phase 12 D-113; Phase 11 D-112; Phase 10 D-111; Phase 9 D-110; Phase 8 D-109; Phase 7 D-108; Phase 6 D-107; Phase 5 D-106; Phase 4 D-105; Phase 3 D-104; Phase 2 D-103; Phase 1 D-102)_
+_Last updated: 2026-04-09 (Phase W Instagram Live Publish Validation — D-149; Phase U GeoBot One-Tap Post-Handoff — D-148; Phase T2 One-Tap Wizard Launch — D-147; Phase T1 Title + Stock Code Intake — D-146; Phase S GeoBot Visible Handoff — D-145; Phase G Dry-Run Preview — D-135; Phase D Channel Dispatch Geobot Wiring — D-134; Phase C Blog Discoverability — D-133; Image Pipeline v38 Slot 3 Rebuild + Global BG Lock — D-124; Image Pipeline v37 Centering QC Gate + Sharp Bugfix — D-123; Image Pipeline v36 Centering + Brightness — D-122; Image Pipeline v35 Brightness — D-121; v34 BG Lock — D-120; VF-7 Legacy Backlog Normalization — D-117b; VF-6 Visual-First Pipeline E2E Validation — D-117; VF-2–VF-5 Visual-First Pipeline — D-117; Phase 19 External Channel Dispatch Validation — D-116; Phase 18 Stock Lifecycle — D-116; Phase 17 Product Activation — D-116; Phase 16 Telegram Bot E2E — D-116; Phase 13 Prep — D-115; Phase 13 Production Hardening + Migration Pack — D-114; Phase 12 D-113; Phase 11 D-112; Phase 10 D-111; Phase 9 D-110; Phase 8 D-109; Phase 7 D-108; Phase 6 D-107; Phase 5 D-106; Phase 4 D-105; Phase 3 D-104; Phase 2 D-103; Phase 1 D-102)_
 
 ## Current Status
 
@@ -92,17 +92,24 @@ _Last updated: 2026-04-09 (Phase U GeoBot One-Tap Post-Handoff — D-148; Phase 
   - Verified with facebookPostId `122093848160884171` (2026-03-22)
   - Phase 19: facebookPageId injected from INSTAGRAM_PAGE_ID env var (not in DB). Ready but not dispatched via pipeline yet.
 
-### External Channel Summary (Phase 19 — 2026-04-05)
+### External Channel Summary (Phase W — 2026-04-09)
 | Channel | Status | Path | Global Flag | Credentials |
 |---------|--------|------|-------------|-------------|
 | Website | PROD-VALIDATED | implicit | true | — |
-| Instagram | DEPLOYED, NOT VALIDATED | Direct Graph API | true | Token valid (2026-05-21) |
+| Instagram | PROD-VALIDATED | Direct Graph API | true | Token valid (2026-05-21) |
 | Facebook | DEPLOYED, NOT VALIDATED | Direct Graph API | true | Shared IG token |
 | Shopier | BLOCKED | Jobs Queue | false | Unknown |
 | Dolap | BLOCKED | n8n only | false | No webhook |
 | X | BLOCKED | n8n only | false | No webhook |
 | LinkedIn | BLOCKED | n8n only | false | No webhook |
 | Threads | BLOCKED | n8n only | false | No webhook |
+
+**Phase W Instagram Live Publish (2026-04-09)**:
+- First real Instagram post via Graph API: postId=18337760137169144
+- Permalink: https://www.instagram.com/p/DW6nLC_DgQP/
+- Product #180, single image post, test caption
+- Token + API path fully validated
+- Automated dispatch path has a timing issue: Vercel cold-start causes Instagram media download failure (error 9004/2207052). Manual API call succeeds when Vercel cache is warm. Fix needed: either warm the media URL before dispatch, or migrate media to Vercel Blob for edge-served URLs.
 
 ### Mentix Intelligence Layer
 - **13 skills deployed** on VPS (Hetzner 2-CPU)

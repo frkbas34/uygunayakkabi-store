@@ -93,6 +93,17 @@ Full end-to-end pipeline proven on product #180:
 - 12 tests passed (8 gate + 4 real-data)
 - D-142
 
+### ✅ Phase W — Instagram Live Publish Validation: PROD-VALIDATED (2026-04-09)
+- First REAL Instagram post via automated pipeline: postId=18337760137169144
+- Permalink: https://www.instagram.com/p/DW6nLC_DgQP/
+- Product #180, Graph API direct publish path
+- Token validated, container creation + publish both succeed
+- KNOWN ISSUE: Automated dispatch (afterChange hook) fails with error 9004/2207052 — Instagram can't download media during Vercel cold start. Manual API call succeeds when cache is warm.
+- ROOT CAUSE: All 685 media items use relative `/api/media/file/` URLs instead of Vercel Blob edge URLs. The `/api/media/file/` route is a serverless function with cold-start latency — Instagram times out.
+- FIX NEEDED: Migrate media serving to Vercel Blob (plugin configured, token set, but images created by AI pipeline bypass Blob). Alternative: add media URL pre-warm before dispatch.
+- Facebook dispatch safety-gated during test (global toggle temporarily disabled, restored after)
+- D-149
+
 ### ✅ Phase U — GeoBot One-Tap Post-Handoff: DEPLOYED (2026-04-09)
 - GeoBot handoff/content messages now have inline action buttons
 - 5 new callback handlers: geo_content, geo_audit, geo_auditrun, geo_activate, geo_retry

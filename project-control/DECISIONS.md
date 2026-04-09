@@ -3819,3 +3819,51 @@ GeoBot handoff → "📋 İçerik Durumu" → (content ready) → "🔍 Audit Ba
 
 **Commit:** `bf7e175`  
 **Status:** IMPLEMENTED
+
+---
+
+## D-149 — Phase W: First Real Instagram Live Publish Validation — VERIFIED
+
+**Date:** 2026-04-09  
+**Decision:**  
+Execute the first real Instagram publish to validate the full external channel dispatch path end-to-end.
+
+**Method:**
+1. Temporarily set Product #180 status to `draft` via SQL
+2. Disabled Facebook global toggle (safety — Instagram-only test)
+3. Triggered `geo_activate:180` via Telegram webhook callback → Payload `draft→active` transition
+4. afterChange hook fired `dispatchProductToChannels()` with `dryRun=false`
+5. Instagram dispatch attempted but failed: error 9004/2207052 (media download failure)
+6. Root cause: Vercel serverless cold start — Instagram couldn't download `/api/media/file/` URL in time
+7. Manual API call with same token + URL succeeded after Vercel cache warmed
+8. Container created: 18067074557437630, published: 18337760137169144
+9. Restored Facebook toggle. Product #180 back to active.
+
+**Results:**
+- Instagram postId: `18337760137169144`
+- Permalink: `https://www.instagram.com/p/DW6nLC_DgQP/`
+- Post type: IMAGE
+- Caption: test caption
+- Token + API path: FULLY VALIDATED
+
+**Key Finding — Media URL Blocker:**
+All 685 media items in DB use relative URLs (`/api/media/file/...`) instead of Vercel Blob edge URLs. The Vercel Blob storage plugin is configured but AI-generated images bypass it (likely because `imageGenTask.ts` creates media via `payload.create()` buffer upload which doesn't trigger Blob).
+
+Instagram's Graph API fails to download these URLs during cold starts because:
+- `/api/media/file/` is served by a Vercel serverless function
+- First request after idle triggers cold start (2-5s)
+- Instagram's media fetcher has strict timeout
+- Once warm (Vercel cache HIT), the URL works fine
+
+**Fix Path (Phase W+1):**
+Option A: Pre-warm media URL before dispatch (add `fetch()` call to warm cache)
+Option B: Migrate AI pipeline media storage to Vercel Blob (proper fix — edge-served, no cold start)
+Option C: Upload to external CDN (Cloudinary, already referenced in older code)
+
+**Dry-Run Mechanism Documented:**
+- `dispatchProductToChannels(product, settings, reason, { dryRun: true })` — skips all external APIs
+- `isDryRun = sourceMeta.previewDispatch && isForceRedispatch` (Products.ts afterChange hook)
+- Status transition (`draft→active`) always runs real dispatch (isDryRun = false)
+- `forceRedispatch` without `previewDispatch` also runs real dispatch
+
+**Status:** VERIFIED — Instagram publish works. Media serving blocker identified for automated path.

@@ -1705,8 +1705,8 @@ export async function POST(req: NextRequest) {
           chatId,
           `📸 <b>Ürün fotoğrafı algılandı</b>\n\n` +
             `Ürün ekleme ve görsel üretimi <b>@Uygunops_bot</b> tarafından yapılır.\n\n` +
-            `📌 Bu fotoğrafı <b>@Uygunops_bot</b>'a DM olarak gönderin.\n` +
-            `💡 Opsiyonel: Fiyat ve açıklama ekleyebilirsiniz.`,
+            `📌 Bu fotoğrafı grupta caption'a <b>@Uygunops_bot</b> yazarak gönderin.\n` +
+            `💡 Opsiyonel: Fiyat ve açıklama da ekleyebilirsiniz.`,
         )
       } else {
         await sendTelegramMessage(chatId, '📌 Bu bot sadece grup içinde çalışır.\nDM komutları için @Uygunops_bot kullanın.')
@@ -1714,9 +1714,30 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: true })
     }
     if (botParam !== 'geo' && isGroupChat) {
-      // Uygunops received a group message → silently ignore (Geo_bot owns group)
-      console.log(`[telegram/phase-n] Uygunops ignoring group message in chat ${chatId} — Geo_bot owns group context`)
-      return NextResponse.json({ ok: true })
+      // Phase Y: Uygunops in group — allow photo intake (with @mention or reply-to-bot)
+      // All other group messages still owned by Geo_bot
+      const hasPhoto = !!message.photo || !!(message.reply_to_message?.photo && /[uü]r[uü]ne\s+[cç]evir/i.test(text))
+      const allEntitiesEarly = [
+        ...(Array.isArray(message.entities) ? message.entities : []),
+        ...(Array.isArray(message.caption_entities) ? message.caption_entities : []),
+      ]
+      const isMentionedEarly = allEntitiesEarly.some(
+        (e: { type: string; offset: number; length: number }) => {
+          if (e.type === 'mention') {
+            const mentioned = (message.text || message.caption || '').substring(e.offset, e.offset + e.length).toLowerCase()
+            return mentioned === '@uygunops_bot'
+          }
+          return e.type === 'text_mention' && ((e as unknown as Record<string, unknown>)?.user as Record<string, unknown> | undefined)?.id === 8702872700
+        },
+      )
+      const isReplyToBotEarly = message.reply_to_message?.from?.id === 8702872700
+      const isPhotoIntake = hasPhoto && (isMentionedEarly || isReplyToBotEarly)
+
+      if (!isPhotoIntake) {
+        console.log(`[telegram/phase-n] Uygunops ignoring group message in chat ${chatId} — Geo_bot owns group context`)
+        return NextResponse.json({ ok: true })
+      }
+      console.log(`[telegram/phase-y] Uygunops photo intake in group — chat ${chatId}, mention=${isMentionedEarly}, reply=${isReplyToBotEarly}`)
     }
 
     // ── Phase I+K: Group chat activation filter ────────────────────────────────
@@ -1742,7 +1763,7 @@ export async function POST(req: NextRequest) {
             const mentioned = text.substring(e.offset, e.offset + e.length).toLowerCase()
             return mentioned === '@' + BOT_USERNAME_LC
           }
-          return e.type === 'text_mention' && (e as unknown as Record<string, unknown>)?.user?.id === BOT_ID
+          return e.type === 'text_mention' && ((e as unknown as Record<string, unknown>)?.user as Record<string, unknown> | undefined)?.id === BOT_ID
         },
       )
       const isReplyToBot = message.reply_to_message?.from?.id === BOT_ID
@@ -1859,10 +1880,9 @@ export async function POST(req: NextRequest) {
           chatId,
           `📸 <b>Ürün fotoğrafı algılandı</b>\n\n` +
             `Ürün ekleme ve görsel üretimi <b>@Uygunops_bot</b> tarafından yapılır.\n\n` +
-            `📌 Bu fotoğrafı <b>@Uygunops_bot</b>'a DM olarak gönderin.\n` +
-            `💡 Opsiyonel: Fiyat ve açıklama ekleyebilirsiniz.\n\n` +
-            `<b>GeoBot</b> ne yapar?\n` +
-            `→ İçerik üretimi, audit, yayın kontrolü`,
+            `📌 Bu fotoğrafı caption'a <b>@Uygunops_bot</b> yazarak tekrar gönderin.\n` +
+            `💡 Opsiyonel: Fiyat ve açıklama da ekleyebilirsiniz.\n\n` +
+            `Örnek: Fotoğraf + caption: <code>@Uygunops_bot 1755 TL</code>`,
         )
         return NextResponse.json({ ok: true })
       }
@@ -3854,8 +3874,8 @@ export async function POST(req: NextRequest) {
         if (previewMsg) {
           await sendTelegramMessageWithKeyboard(chatId, previewMsg, [
             [
-              { text: '🔍 Audit Başlat', callback_data: `geo_auditrun:${contentProductId}` },
-              { text: '🚀 Yayına Al', callback_data: `geo_activate:${contentProductId}` },
+              { text: '🔍 Audit Başlat', callback_data: `geo_auditrun:${productId}` },
+              { text: '🚀 Yayına Al', callback_data: `geo_activate:${productId}` },
             ],
           ])
         }

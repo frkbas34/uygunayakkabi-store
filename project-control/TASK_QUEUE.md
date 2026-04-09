@@ -1,6 +1,6 @@
 # TASK QUEUE — Uygunayakkabi
 
-_Last updated: 2026-04-08 (Phase N Bot Role Separation D-140; Multi-Bot Support D-139; Phase L D-138; Phase K D-137; Phase I D-136; Phase G D-135; Phase D D-134; Phase C D-133; Image Pipeline v38 D-124; v37 D-123; v36 D-122; v35 D-121; v34 D-120; Phase 21 Operator Runbook; VF-7 D-117b; VF-6 D-117; Phases 16-19 D-116; Phase 13 D-115/D-114; Phases 1-12 complete)_
+_Last updated: 2026-04-09 (Vercel Build Optimization D-141; Phase N Bot Role Separation D-140; Multi-Bot Support D-139; Phase L D-138; Phase K D-137; Phase I D-136; Phase G D-135; Phase D D-134; Phase C D-133; Image Pipeline v38 D-124; v37 D-123; v36 D-122; v35 D-121; v34 D-120; Phase 21 Operator Runbook; VF-7 D-117b; VF-6 D-117; Phases 16-19 D-116; Phase 13 D-115/D-114; Phases 1-12 complete)_
 
 ---
 
@@ -82,6 +82,15 @@ Full end-to-end pipeline proven on product #180:
 - Audit: approved_with_warning, all 3 dimensions pass
 - Activation: status=active, Yeni badge, homepage visible
 - 11 bot events across full lifecycle
+
+### ✅ Vercel Build Optimization: DEPLOYED (2026-04-09)
+- `ignoreCommand` in vercel.json skips builds for docs-only commits
+- Runtime paths: `src/`, `public/`, config files (`payload.config.ts`, `next.config.ts`, `package.json`, etc.)
+- Non-runtime paths: `project-control/`, `ai-knowledge/`, `docs/`, `mentix-*`, `n8n-workflows/`, `scripts/`, `media/`, root `.md`/`.html`
+- Saves ~40% of wasted build minutes based on recent commit history
+- Safety: always builds on first deploy, empty diff, or mixed (docs+runtime) commits
+- To force a build: use Vercel dashboard Redeploy, or touch any `src/` file
+- D-141
 
 ### ✅ Phase N — Bot Role Separation: DEPLOYED (2026-04-08)
 - Geo_bot (@Geeeeobot) = GROUP ONLY operator bot → DMs redirect to @Uygunops_bot

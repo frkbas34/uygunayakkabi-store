@@ -3500,3 +3500,33 @@ Two surgical gates added to `route.ts`:
 
 **Status:**  
 ACTIVE — Bot role separation enforced
+
+---
+
+## D-141 — Vercel Build Optimization: ignoreCommand for Docs-Only Commits — IMPLEMENTED
+**Date:** 2026-04-09  
+**Decision:**  
+Add a Vercel `ignoreCommand` that skips builds when only non-runtime files changed, reducing unnecessary build usage by ~40%.
+
+**Problem:**
+Every push to main triggers a Vercel build, even for docs-only commits. 8 of last 20 commits were docs-only, each wasting a full Next.js build cycle.
+
+**Implementation:**
+- `scripts/should-build.sh` — compares `VERCEL_GIT_PREVIOUS_SHA` to `VERCEL_GIT_COMMIT_SHA`
+- `vercel.json` — `"ignoreCommand": "bash scripts/should-build.sh"`
+- Exit 0 = skip, Exit 1 = build
+
+**Runtime paths (always build):** `src/`, `public/`, `payload.config.ts`, `next.config.ts`, `tsconfig.json`, `package.json`, `package-lock.json`, `tailwind.config.ts`, `postcss.config.mjs`, `eslint.config.mjs`, `vercel.json`, `seed.ts`, `.npmrc`
+
+**Non-runtime paths (safe to skip):** `project-control/`, `ai-knowledge/`, `docs/`, `mentix-memory/`, `mentix-skills/`, `n8n-workflows/`, `scripts/`, `media/`, root `.md`/`.html`/`.docx` files
+
+**Safety:** No previous SHA → always builds. Empty diff → always builds. Mixed commits → always builds.
+
+**Validation:** 6 tests against real commit pairs — all correct.
+
+**Files Changed:**
+- `scripts/should-build.sh` (new)
+- `vercel.json` (added ignoreCommand)
+
+**Status:**  
+ACTIVE

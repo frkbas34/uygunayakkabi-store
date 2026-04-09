@@ -3867,3 +3867,43 @@ Option C: Upload to external CDN (Cloudinary, already referenced in older code)
 - `forceRedispatch` without `previewDispatch` also runs real dispatch
 
 **Status:** VERIFIED — Instagram publish works. Media serving blocker identified for automated path.
+
+---
+
+## D-150 — Phase W1: Automated Instagram Dispatch Reliability — IMPLEMENTED
+
+**Date:** 2026-04-09  
+**Decision:**  
+Fix the automated Instagram dispatch cold-start failure with a media URL pre-warm + retry strategy. No Vercel Blob migration needed.
+
+**Root Cause (from D-149):**
+Instagram's Graph API container creation failed with error 9004/2207052 because Vercel's serverless function serving `/api/media/file/*` had cold-start latency exceeding Instagram's download timeout.
+
+**Fix Applied:**
+1. `prewarmMediaUrl(imageUrl, channel)` helper added to `channelDispatch.ts`
+   - Fetches the full image via GET before any Graph API call
+   - Consumes the full response body (`arrayBuffer()`) to ensure Vercel CDN caches it
+   - Non-fatal: if pre-warm fails, container creation still attempted
+   - 500ms pause after pre-warm for CDN propagation
+2. Container creation retry: up to 2 attempts for error 9004 with 3s delay
+3. Same pre-warm applied to `publishFacebookDirectly()` for future readiness
+
+**Changes:**
+- `src/lib/channelDispatch.ts`: +88 lines (prewarmMediaUrl helper, retry loop, Facebook pre-warm)
+
+**Test Result:**
+- Product #180, automated `draft→active` via `geo_activate` Telegram callback
+- Pre-warm: status=200, 63555 bytes
+- Container creation: succeeded on first attempt (pre-warm eliminated cold-start)
+- Instagram postId: `18111402145693915`
+- Permalink: `https://www.instagram.com/p/DW6qQFwEl8T/`
+- GeoBot instagramCaption used (not fallback template)
+- dispatchedChannels=["instagram"], mode=direct, success=true
+
+**Alternatives Considered:**
+- Vercel Blob migration: Would solve the root cause (edge-served URLs, no cold start) but requires migrating 685+ existing media items and changing the AI image pipeline. Deferred — pre-warm is sufficient and zero-migration.
+- Cloudinary CDN: Already referenced in older code but would add external dependency and migration effort.
+- Longer Graph API timeout: Not possible — Instagram controls the timeout on their end.
+
+**Commit:** `f0fd0eb`  
+**Status:** IMPLEMENTED + PROD-VALIDATED

@@ -1,6 +1,6 @@
 # PROJECT STATE — Uygunayakkabi
 
-_Last updated: 2026-04-09 (Phase W Instagram Live Publish Validation — D-149; Phase U GeoBot One-Tap Post-Handoff — D-148; Phase T2 One-Tap Wizard Launch — D-147; Phase T1 Title + Stock Code Intake — D-146; Phase S GeoBot Visible Handoff — D-145; Phase G Dry-Run Preview — D-135; Phase D Channel Dispatch Geobot Wiring — D-134; Phase C Blog Discoverability — D-133; Image Pipeline v38 Slot 3 Rebuild + Global BG Lock — D-124; Image Pipeline v37 Centering QC Gate + Sharp Bugfix — D-123; Image Pipeline v36 Centering + Brightness — D-122; Image Pipeline v35 Brightness — D-121; v34 BG Lock — D-120; VF-7 Legacy Backlog Normalization — D-117b; VF-6 Visual-First Pipeline E2E Validation — D-117; VF-2–VF-5 Visual-First Pipeline — D-117; Phase 19 External Channel Dispatch Validation — D-116; Phase 18 Stock Lifecycle — D-116; Phase 17 Product Activation — D-116; Phase 16 Telegram Bot E2E — D-116; Phase 13 Prep — D-115; Phase 13 Production Hardening + Migration Pack — D-114; Phase 12 D-113; Phase 11 D-112; Phase 10 D-111; Phase 9 D-110; Phase 8 D-109; Phase 7 D-108; Phase 6 D-107; Phase 5 D-106; Phase 4 D-105; Phase 3 D-104; Phase 2 D-103; Phase 1 D-102)_
+_Last updated: 2026-04-09 (Phase W1 Automated Instagram Dispatch Reliability — D-150; Phase W Instagram Live Publish Validation — D-149; Phase U GeoBot One-Tap Post-Handoff — D-148; Phase T2 One-Tap Wizard Launch — D-147; Phase T1 Title + Stock Code Intake — D-146; Phase S GeoBot Visible Handoff — D-145; Phase G Dry-Run Preview — D-135; Phase D Channel Dispatch Geobot Wiring — D-134; Phase C Blog Discoverability — D-133; Image Pipeline v38 Slot 3 Rebuild + Global BG Lock — D-124; Image Pipeline v37 Centering QC Gate + Sharp Bugfix — D-123; Image Pipeline v36 Centering + Brightness — D-122; Image Pipeline v35 Brightness — D-121; v34 BG Lock — D-120; VF-7 Legacy Backlog Normalization — D-117b; VF-6 Visual-First Pipeline E2E Validation — D-117; VF-2–VF-5 Visual-First Pipeline — D-117; Phase 19 External Channel Dispatch Validation — D-116; Phase 18 Stock Lifecycle — D-116; Phase 17 Product Activation — D-116; Phase 16 Telegram Bot E2E — D-116; Phase 13 Prep — D-115; Phase 13 Production Hardening + Migration Pack — D-114; Phase 12 D-113; Phase 11 D-112; Phase 10 D-111; Phase 9 D-110; Phase 8 D-109; Phase 7 D-108; Phase 6 D-107; Phase 5 D-106; Phase 4 D-105; Phase 3 D-104; Phase 2 D-103; Phase 1 D-102)_
 
 ## Current Status
 
@@ -109,7 +109,16 @@ _Last updated: 2026-04-09 (Phase W Instagram Live Publish Validation — D-149; 
 - Permalink: https://www.instagram.com/p/DW6nLC_DgQP/
 - Product #180, single image post, test caption
 - Token + API path fully validated
-- Automated dispatch path has a timing issue: Vercel cold-start causes Instagram media download failure (error 9004/2207052). Manual API call succeeds when Vercel cache is warm. Fix needed: either warm the media URL before dispatch, or migrate media to Vercel Blob for edge-served URLs.
+
+**Phase W1 Automated Instagram Dispatch Reliability (2026-04-09)**:
+- Pre-warm fix deployed: `prewarmMediaUrl()` fetches image before Graph API call, populates Vercel CDN cache
+- Retry on error 9004 (media download failure) with 3s delay between attempts
+- Automated dispatch now succeeds end-to-end: postId=18111402145693915
+- Permalink: https://www.instagram.com/p/DW6qQFwEl8T/
+- GeoBot caption used (not fallback template)
+- dispatchedChannels=["instagram"], mode=direct, success=true
+- Same pre-warm applied to Facebook direct publish path for future readiness
+- Vercel Blob migration NOT required for Instagram — pre-warm is sufficient
 
 ### Mentix Intelligence Layer
 - **13 skills deployed** on VPS (Hetzner 2-CPU)

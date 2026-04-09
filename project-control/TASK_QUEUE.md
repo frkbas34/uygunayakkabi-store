@@ -94,15 +94,23 @@ Full end-to-end pipeline proven on product #180:
 - D-142
 
 ### ✅ Phase W — Instagram Live Publish Validation: PROD-VALIDATED (2026-04-09)
-- First REAL Instagram post via automated pipeline: postId=18337760137169144
+- First REAL Instagram post via manual Graph API: postId=18337760137169144
 - Permalink: https://www.instagram.com/p/DW6nLC_DgQP/
-- Product #180, Graph API direct publish path
-- Token validated, container creation + publish both succeed
-- KNOWN ISSUE: Automated dispatch (afterChange hook) fails with error 9004/2207052 — Instagram can't download media during Vercel cold start. Manual API call succeeds when cache is warm.
-- ROOT CAUSE: All 685 media items use relative `/api/media/file/` URLs instead of Vercel Blob edge URLs. The `/api/media/file/` route is a serverless function with cold-start latency — Instagram times out.
-- FIX NEEDED: Migrate media serving to Vercel Blob (plugin configured, token set, but images created by AI pipeline bypass Blob). Alternative: add media URL pre-warm before dispatch.
-- Facebook dispatch safety-gated during test (global toggle temporarily disabled, restored after)
+- Token + API path validated. Cold-start media URL issue identified.
 - D-149
+
+### ✅ Phase W1 — Automated Instagram Dispatch Reliability: PROD-VALIDATED (2026-04-09)
+- `prewarmMediaUrl()` added to channelDispatch.ts — fetches image URL before Graph API call
+- Populates Vercel CDN edge cache so Instagram's fetch gets cache HIT (no cold-start)
+- Retry on error 9004 (media download failure) with 3s delay
+- Same pre-warm applied to Facebook direct publish path
+- Automated dispatch confirmed working: postId=18111402145693915
+- Permalink: https://www.instagram.com/p/DW6qQFwEl8T/
+- GeoBot instagramCaption used, dispatchedChannels=["instagram"], mode=direct
+- No manual fallback needed — fully automated end-to-end
+- Vercel Blob migration NOT required — pre-warm sufficient for reliability
+- Commit: f0fd0eb
+- D-150
 
 ### ✅ Phase U — GeoBot One-Tap Post-Handoff: DEPLOYED (2026-04-09)
 - GeoBot handoff/content messages now have inline action buttons

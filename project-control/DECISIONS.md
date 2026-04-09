@@ -3696,3 +3696,52 @@ Make the two-bot workflow visible to operators. After Ops Bot confirms a product
 
 **Commit:** `41ae58d`  
 **Status:** IMPLEMENTED
+
+## D-146 — Phase T1: Title + Stock Code Wizard Steps + /confirm Nudge — IMPLEMENTED
+**Date:** 2026-04-09  
+**Decision:**  
+Improve the intake package quality before GeoBot handoff by collecting the real product title and operator's stock code during the confirmation wizard, and prompting the operator to start `/confirm` after image approval.
+
+**Problem:**
+- 96% of Telegram products (136/141) still had placeholder titles ("Taslak Ürün DD/MM-XXXX")
+- GeoBot was generating content from meaningless titles
+- Operator's own stock code was never captured (auto-generated TG-xxx only)
+- After image approval, no prompt to continue with `/confirm`
+
+**Changes:**
+
+1. **`confirmationWizard.ts`** — Two new wizard steps:
+   - `title`: Asks for real product name if current title starts with "Taslak Ürün". Min 5 chars. Written to `product.title` in `applyConfirmation()`
+   - `stockCode`: Asks for operator's stock code. Written to `product.sku` field. Operator can type `-` to skip (preserves auto-generated TG-xxx SKU). Min 2 chars if not skipping
+   - Both steps come FIRST in the wizard sequence (before category)
+   - `sku` added to `ConfirmableProduct` interface
+   - Summary now shows stock code
+   - New prompt builders: `getTitlePrompt()`, `getStockCodePrompt()`
+
+2. **`route.ts`** — Wizard text input handlers + nudge:
+   - Text input handlers for `title` and `stockCode` with full next-step dispatch
+   - `/confirm` nudge appended to image approval success message: "📋 Sonraki adım: /confirm {id}"
+   - Ready check now uses `getNextWizardStep` to catch title/stockCode even when traditional required fields are present
+
+**Wizard flow (updated):**
+title → stockCode → category → productType → price → sizes → stock → brand → targets → summary → confirm
+
+**Operator stock code → `sku` field rationale:**
+- `sku` field is editable (not readOnly), labeled "SKU / Stok Kodu", accepts text
+- `stockNumber` (SN0001-SN9999) is readOnly, auto-generated, for AI image rendering — left untouched
+- Auto-generated TG-xxx SKU preserved if operator skips with `-`
+- `sku` has `unique: true` constraint — duplicate entries will fail at DB level (acceptable risk for small operator team)
+
+**No schema changes.** Uses existing `sku` and `title` fields.
+
+**Validation (9 webhook tests):**
+- /confirm starts wizard with title step ✅
+- Title text accepted ✅
+- Stock code skip (`-`) accepted ✅
+- Wizard cancel works ✅
+- Already-confirmed product handling ✅
+- Short title rejection ✅
+- Phase R routing still intact ✅
+
+**Commit:** `bb8220e`  
+**Status:** IMPLEMENTED

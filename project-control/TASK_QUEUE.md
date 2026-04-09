@@ -93,6 +93,15 @@ Full end-to-end pipeline proven on product #180:
 - 12 tests passed (8 gate + 4 real-data)
 - D-142
 
+### ✅ Phase T1 — Title + Stock Code Intake: DEPLOYED (2026-04-09)
+- Wizard now asks for real product title (if placeholder "Taslak Ürün ...")
+- Wizard asks for operator's own stock code (stored in `sku` field, skip with `-`)
+- Image approval success message now shows `/confirm {id}` next step
+- Updated wizard flow: title → stockCode → category → productType → price → sizes → stock → brand → targets → summary → confirm
+- No schema changes — uses existing `title` and `sku` fields
+- 9 webhook tests passed
+- D-146
+
 ### ✅ Phase S — GeoBot Visible Handoff: DEPLOYED (2026-04-09)
 - After Ops Bot confirms a product, GeoBot visibly takes over via Mentix group notification
 - GeoBot reports content generation results (ready/failed) with actionable next steps

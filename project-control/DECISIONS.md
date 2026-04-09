@@ -3907,3 +3907,45 @@ Instagram's Graph API container creation failed with error 9004/2207052 because 
 
 **Commit:** `f0fd0eb`  
 **Status:** IMPLEMENTED + PROD-VALIDATED
+
+---
+
+## D-151 — Phase X: Telegram Content Preview + Wrong-Bot Photo Redirect — IMPLEMENTED
+
+**Date:** 2026-04-09  
+**Decision:**  
+Fix two GeoBot operator UX gaps: (1) content not visible before publish, (2) photos sent to wrong bot get dead-end response.
+
+**Part A — Content Preview:**
+- `formatContentPreviewMessage(product)` added to `contentPack.ts`
+- Shows actual generated channel copy: Instagram caption, Facebook copy, website description, Shopier copy, X post — each truncated for Telegram readability
+- Includes SEO/discovery summary (article title, meta title, meta description)
+- Shows commerce pack highlights if available
+- Returns null if no content generated yet (graceful fallback)
+- Wired into `geo_content:{id}` callback: sends preview after status message with action buttons
+- Wired into `/content {id}` command: sends preview after status message with action buttons
+- Content-ready notification enhanced: includes Instagram caption snippet (200 char preview)
+- "📋 İçerik Durumu" button renamed to "👁️ Önizle" in content-ready notification
+
+**Part B — Wrong-Bot Photo Redirect:**
+- GeoBot DM photo: "📸 Ürün fotoğrafı algılandı → Bu fotoğrafı @Uygunops_bot'a DM olarak gönderin" + role explanation
+- GeoBot group photo (with @mention or "bunu ürüne çevir"): same redirect + "GeoBot ne yapar? → İçerik üretimi, audit, yayın kontrolü"
+- Intercepts BEFORE photo reaches product creation code — no accidental product creation on wrong bot
+- Generic DM redirect still shows for non-photo DMs to GeoBot
+
+**Changes:**
+- `src/lib/contentPack.ts`: +65 lines (`formatContentPreviewMessage`, content-ready notification enhancement)
+- `src/app/api/telegram/route.ts`: +74 lines (geo_content preview, /content preview, DM photo redirect, group photo redirect)
+
+**Validation (4 webhook tests):**
+- `geo_content:180` callback → status + preview rendered ✅
+- Photo DM to GeoBot → photo-aware redirect to Ops Bot ✅
+- Photo with @Geeeeobot in group → photo redirect ✅
+- `/content 180` in group → status + preview ✅
+
+**What operator now sees:**
+1. Content preview: readable channel-specific copy with next-step buttons (Audit, Yayına Al)
+2. Wrong-bot photo: clear explanation of which bot does what + where to send the photo
+
+**Commit:** `c50517f`  
+**Status:** IMPLEMENTED

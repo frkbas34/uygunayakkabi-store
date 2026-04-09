@@ -93,6 +93,16 @@ Full end-to-end pipeline proven on product #180:
 - 12 tests passed (8 gate + 4 real-data)
 - D-142
 
+### ✅ Phase X — Telegram Content Preview + Wrong-Bot Redirect: DEPLOYED (2026-04-09)
+- Part A: `formatContentPreviewMessage()` shows actual channel copy (IG, FB, web, Shopier, X) + SEO summary
+- Content-ready notification now includes Instagram caption snippet preview
+- `geo_content` callback and `/content {id}` command show preview + action buttons (Audit / Yayına Al)
+- Part B: Photo → GeoBot DM gets "send to @Uygunops_bot" with role explanation
+- Photo → GeoBot group with @mention gets same redirect
+- 4 webhook tests passed (content preview, DM photo, group photo, /content command)
+- Commit: c50517f
+- D-151
+
 ### ✅ Phase W — Instagram Live Publish Validation: PROD-VALIDATED (2026-04-09)
 - First REAL Instagram post via manual Graph API: postId=18337760137169144
 - Permalink: https://www.instagram.com/p/DW6nLC_DgQP/

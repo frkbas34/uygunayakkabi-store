@@ -1,6 +1,6 @@
 # TASK QUEUE — Uygunayakkabi
 
-_Last updated: 2026-04-09 (Vercel Build Optimization D-141; Phase N Bot Role Separation D-140; Multi-Bot Support D-139; Phase L D-138; Phase K D-137; Phase I D-136; Phase G D-135; Phase D D-134; Phase C D-133; Image Pipeline v38 D-124; v37 D-123; v36 D-122; v35 D-121; v34 D-120; Phase 21 Operator Runbook; VF-7 D-117b; VF-6 D-117; Phases 16-19 D-116; Phase 13 D-115/D-114; Phases 1-12 complete)_
+_Last updated: 2026-04-09 (Phase O Group Parity D-142; Vercel Build Optimization D-141; Phase N Bot Role Separation D-140; Multi-Bot Support D-139; Phase L D-138; Phase K D-137; Phase I D-136; Phase G D-135; Phase D D-134; Phase C D-133; Image Pipeline v38 D-124; v37 D-123; v36 D-122; v35 D-121; v34 D-120; Phase 21 Operator Runbook; VF-7 D-117b; VF-6 D-117; Phases 16-19 D-116; Phase 13 D-115/D-114; Phases 1-12 complete)_
 
 ---
 
@@ -83,6 +83,16 @@ Full end-to-end pipeline proven on product #180:
 - Activation: status=active, Yeni badge, homepage visible
 - 11 bot events across full lifecycle
 
+### ✅ Phase O — Group Workflow Parity: DEPLOYED (2026-04-09)
+- Fixed 3 group gate gaps: caption_entities, hashtag triggers, STOCK prefix
+- `#gorsel 180` now works in group without @mention
+- Photo + `@Geeeeobot` caption now passes gate (caption_entities checked)
+- `STOCK SKU:...` now passes gate without @mention
+- `onayla`/`reddet` correctly require reply-to-bot (contextual — operator replies to preview)
+- Wizard chatId limitation documented (shared session key in group)
+- 12 tests passed (8 gate + 4 real-data)
+- D-142
+
 ### ✅ Vercel Build Optimization: DEPLOYED (2026-04-09)
 - `ignoreCommand` in vercel.json skips builds for docs-only commits
 - Runtime paths: `src/`, `public/`, config files (`payload.config.ts`, `next.config.ts`, `package.json`, etc.)
@@ -111,13 +121,10 @@ Full end-to-end pipeline proven on product #180:
 - Phase K (D-137): @mention and reply-to-bot activation alongside slash commands
 - Phase L (D-138): Mention normalization — `@Bot /cmd` routes correctly, DM unchanged
 
-### Remaining Geo_bot Group Parity Gaps
-These are identified but not yet tested in group context via Geo_bot:
-1. **Photo intake** — `#gorsel` photo-to-product flow (untested in group)
-2. **Wizard state** — `/confirm` multi-step wizard keyboard callbacks (untested in group)
-3. **Stock batch** — multi-line stock update text (untested in group)
-4. **Error feedback** — error messages sent to group may be noisy for other members
-5. **Free-text routing** — `@Geeeeobot bu kaç lira` passes gates but has no handler
+### Remaining Geo_bot Group Limitations (Post Phase O)
+1. **Wizard session key** — `/confirm` wizard uses `chatId` (group ID) as session key. Only one wizard at a time per group. All users' text input is intercepted. Requires `userId`-based session key refactoring to fix. DOCUMENTED, DEFERRED.
+2. **Error noise** — error messages from failed workflows are sent to the group (visible to all members). Low impact since Mentix group is operator-only.
+3. **Free-text routing** — `@Geeeeobot bu kaç lira` passes gates but has no handler (falls through harmlessly). Not a bug — just no free-text NLU.
 
 ### Priority 1: Operator Visual Approval of 53 Preview Products
 VF-7 normalized the backlog. 53 products now have vis=preview (images generated, awaiting operator approval). 5 products already vis=approved and ready for /confirm. 34 products have no image gen yet (vis=pending).

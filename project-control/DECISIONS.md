@@ -3530,3 +3530,53 @@ Every push to main triggers a Vercel build, even for docs-only commits. 8 of las
 
 **Status:**  
 ACTIVE
+
+---
+
+## D-142 — Phase O: Group Workflow Parity — Gate Fixes for Hashtags, Captions, STOCK — IMPLEMENTED
+**Date:** 2026-04-09  
+**Decision:**  
+Fix three gaps in the group activation gate (Phase I/K) that prevented Geo_bot from handling operator workflows with DM-equivalent parity in the Mentix group.
+
+**Problem:**
+Phase I/K gate only passed messages through if they were: (1) slash commands, (2) @mention of bot, or (3) reply-to-bot. This blocked legitimate operator workflows in group context:
+- `#gorsel 180` — hashtag trigger, not a slash command → blocked
+- Photo + `@Geeeeobot` in caption → mention in `caption_entities` not checked (only `entities`) → blocked  
+- `STOCK SKU:...` — batch stock update, not a slash command → blocked
+
+**Fixes applied:**
+1. **caption_entities**: Gate now merges `message.entities` + `message.caption_entities` before checking for @mentions. Photos with `@Geeeeobot` in caption now pass the gate.
+2. **Hashtag triggers**: Added `isHashtagTrigger` check — `#gorsel`, `#geminipro`, `#luma`, `#chatgpt`, `#claid` now pass the gate without needing @mention.
+3. **STOCK prefix**: Added `isStockCommand` check — `STOCK SKU:` messages now pass the gate.
+
+**Intentionally NOT changed:**
+- `onayla`/`reddet`/`yeniden üret` approval commands still require reply-to-bot in group — this is correct because they are contextual (operator replies to a specific preview message)
+- Plain text still blocked — prevents background chatter from activating the bot
+- Plain photos (no caption, no mention) still blocked — prevents random photo spam from triggering intake
+
+**Known limitation (documented, not fixed):**
+- `/confirm` wizard uses `chatId` as session key. In group, `chatId` = group ID (shared by all users). Only one wizard session can be active at a time in the group, and any user's text input will be intercepted by it. Fixing this requires refactoring the session key to include `userId` — deferred to a future phase.
+
+**Validation (8 scenarios post-fix + 4 real-data tests):**
+
+| # | Scenario | Expected | Result |
+|---|----------|----------|--------|
+| RT1a | Plain photo, no caption | SILENT | ✅ Silent |
+| RT1b | Photo + @Geeeeobot caption_entities | PROCESS | ✅ Passes gate |
+| RT1c | Photo + #gorsel caption | PROCESS | ✅ Passes gate |
+| RT2a | #gorsel 180 (no mention) | PROCESS | ✅ Passes gate |
+| RT3 | /confirm 180 (slash) | PROCESS | ✅ Passes gate |
+| RT4 | STOCK SKU:... (no mention) | PROCESS | ✅ Passes gate |
+| RT5a | onayla (no reply-to-bot) | SILENT | ✅ Silent |
+| RT5b | onayla (reply-to-bot) | PROCESS | ✅ Passes gate |
+| RT6 | Plain text | SILENT | ✅ Silent |
+| Real | /preview 180 | PROCESS | ✅ Full response |
+| Real | #gorsel 180 | PROCESS | ✅ Full response |
+| Real | /stok 180 | PROCESS | ✅ Full response |
+| Real | /pipeline 180 | PROCESS | ✅ Full response |
+
+**Files Changed:**
+- `src/app/api/telegram/route.ts` — Phase I/K gate block expanded with caption_entities, isHashtagTrigger, isStockCommand
+
+**Status:**  
+ACTIVE — Group parity achieved

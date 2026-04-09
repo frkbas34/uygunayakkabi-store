@@ -76,6 +76,8 @@ export type WizardStep =
 export interface WizardState {
   productId: number | string
   chatId: number
+  /** Phase P: operator userId for group session isolation */
+  userId?: number
   step: WizardStep
   collected: {
     category?: string
@@ -123,12 +125,17 @@ export const CHANNEL_OPTIONS = [
 const WIZARD_TIMEOUT_MS = 30 * 60 * 1000
 
 // ── In-memory wizard sessions ─────────────────────────────────────────
-// Key: `${chatId}` — one active wizard per chat at a time
+// Phase P: Key is `${chatId}:${userId}` in group context for per-operator isolation,
+// or `${chatId}` in DM context (backward compatible — userId omitted or same as chatId).
 
 const wizardSessions = new Map<string, WizardState>()
 
-export function getWizardSession(chatId: number): WizardState | null {
-  const key = String(chatId)
+function sessionKey(chatId: number, userId?: number): string {
+  return userId ? `${chatId}:${userId}` : String(chatId)
+}
+
+export function getWizardSession(chatId: number, userId?: number): WizardState | null {
+  const key = sessionKey(chatId, userId)
   const session = wizardSessions.get(key)
   if (!session) return null
 
@@ -141,12 +148,12 @@ export function getWizardSession(chatId: number): WizardState | null {
   return session
 }
 
-export function setWizardSession(chatId: number, state: WizardState): void {
-  wizardSessions.set(String(chatId), state)
+export function setWizardSession(chatId: number, state: WizardState, userId?: number): void {
+  wizardSessions.set(sessionKey(chatId, userId), state)
 }
 
-export function clearWizardSession(chatId: number): void {
-  wizardSessions.delete(String(chatId))
+export function clearWizardSession(chatId: number, userId?: number): void {
+  wizardSessions.delete(sessionKey(chatId, userId))
 }
 
 // ── Field checks ──────────────────────────────────────────────────────

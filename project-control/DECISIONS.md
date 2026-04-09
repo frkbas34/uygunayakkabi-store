@@ -3573,6 +3573,32 @@ Phase I/K gate only passed messages through if they were: (1) slash commands, (2
 | Real | /preview 180 | PROCESS | ✅ Full response |
 | Real | #gorsel 180 | PROCESS | ✅ Full response |
 | Real | /stok 180 | PROCESS | ✅ Full response |
+
+## D-143 — Phase P: Group Wizard Session Isolation (chatId:userId keying) — IMPLEMENTED
+**Date:** 2026-04-09  
+**Decision:**  
+Refactor wizard session keying from `chatId`-only to `chatId:userId` so group-based wizard flows are isolated per operator.
+
+**Problem:**
+In group context, `chatId` = group chat ID, shared by all members. The old `Map<string, WizardState>` keyed by `String(chatId)` meant only one wizard session could exist per group at a time. Any user typing text would have their input consumed by whatever wizard was active — even if a different operator started it.
+
+**Solution:**
+- Added `sessionKey(chatId, userId?)` helper that produces `chatId:userId` when userId is provided, or `chatId` alone as fallback.
+- Updated `getWizardSession`, `setWizardSession`, `clearWizardSession` to accept optional `userId` param.
+- Added `userId?: number` field to `WizardState` interface.
+- In `route.ts`, extracted `msgUserId` (from `message.from?.id`) and `cbUserId` (from `callbackQuery.from?.id`) at handler entry points, passed to all 36 wizard session call sites.
+
+**Behavior:**
+- Group: each operator gets their own wizard session → `key = "-5197796539:111"` vs `"-5197796539:222"`
+- DM: userId still passed → `key = "5450039553:5450039553"` — functionally equivalent to old behavior
+- No breaking change: if userId is somehow undefined, falls back to chatId-only key
+
+**Files changed:**
+- `src/lib/confirmationWizard.ts` — sessionKey helper, updated function signatures, WizardState.userId
+- `src/app/api/telegram/route.ts` — cbUserId/msgUserId variables, 36 call site updates
+
+**Commit:** `61a210c`  
+**Status:** IMPLEMENTED — awaiting live validation
 | Real | /pipeline 180 | PROCESS | ✅ Full response |
 
 **Files Changed:**

@@ -89,9 +89,16 @@ Full end-to-end pipeline proven on product #180:
 - Photo + `@Geeeeobot` caption now passes gate (caption_entities checked)
 - `STOCK SKU:...` now passes gate without @mention
 - `onayla`/`reddet` correctly require reply-to-bot (contextual — operator replies to preview)
-- Wizard chatId limitation documented (shared session key in group)
+- Wizard chatId limitation RESOLVED — Phase P session isolation deployed (D-143)
 - 12 tests passed (8 gate + 4 real-data)
 - D-142
+
+### ✅ Phase P — Group Wizard Session Isolation: DEPLOYED (2026-04-09)
+- Refactored wizard session key from `chatId` to `chatId:userId`
+- Each operator gets isolated wizard session in group context
+- No breaking change: DM behavior preserved (userId still passed, key just has redundant suffix)
+- `sessionKey()` helper in confirmationWizard.ts, 36 call sites updated in route.ts
+- D-143
 
 ### ✅ Vercel Build Optimization: DEPLOYED (2026-04-09)
 - `ignoreCommand` in vercel.json skips builds for docs-only commits
@@ -122,7 +129,7 @@ Full end-to-end pipeline proven on product #180:
 - Phase L (D-138): Mention normalization — `@Bot /cmd` routes correctly, DM unchanged
 
 ### Remaining Geo_bot Group Limitations (Post Phase O)
-1. **Wizard session key** — `/confirm` wizard uses `chatId` (group ID) as session key. Only one wizard at a time per group. All users' text input is intercepted. Requires `userId`-based session key refactoring to fix. DOCUMENTED, DEFERRED.
+1. ~~**Wizard session key**~~ — RESOLVED by Phase P (D-143). Session key now `chatId:userId`, each operator gets their own wizard in group context.
 2. **Error noise** — error messages from failed workflows are sent to the group (visible to all members). Low impact since Mentix group is operator-only.
 3. **Free-text routing** — `@Geeeeobot bu kaç lira` passes gates but has no handler (falls through harmlessly). Not a bug — just no free-text NLU.
 

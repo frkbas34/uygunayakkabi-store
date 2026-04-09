@@ -28,12 +28,21 @@ function getBotToken(): string | undefined {
 }
 
 /** Send a Telegram message using an explicit bot token (for cross-bot notifications). */
-async function sendTelegramMessageAs(token: string, chatId: number, text: string): Promise<void> {
+async function sendTelegramMessageAs(
+  token: string,
+  chatId: number,
+  text: string,
+  keyboard?: Array<Array<{ text: string; callback_data: string }>>,
+): Promise<void> {
   const safeText = text.length > 4000 ? text.substring(0, 4000) + '\n\n⚠️ (mesaj kesildi — çok uzun)' : text
+  const body: Record<string, unknown> = { chat_id: chatId, text: safeText, parse_mode: 'HTML' }
+  if (keyboard) {
+    body.reply_markup = { inline_keyboard: keyboard }
+  }
   const res = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ chat_id: chatId, text: safeText, parse_mode: 'HTML' }),
+    body: JSON.stringify(body),
   })
   if (!res.ok) {
     const errBody = await res.text()
@@ -756,7 +765,7 @@ export async function POST(req: NextRequest) {
       // GeoBot owns: story callbacks
       // This teaches operators which bot handles which workflow.
       const OPS_CB_PREFIXES = ['imagegen:', 'imgapprove:', 'imgreject:', 'imgregen:', 'imgpremium:', 'wz_start:', 'wz_cat:', 'wz_ptype:', 'wz_tgt:', 'wz_size:', 'wz_confirm:', 'wz_cancel:']
-      const GEO_CB_PREFIXES = ['storyapprove:', 'storyreject:', 'storyretry:']
+      const GEO_CB_PREFIXES = ['storyapprove:', 'storyreject:', 'storyretry:', 'geo_content:', 'geo_audit:', 'geo_auditrun:', 'geo_activate:', 'geo_retry:']
       const isOpsCb = OPS_CB_PREFIXES.some(p => cbData.startsWith(p))
       const isGeoCb = GEO_CB_PREFIXES.some(p => cbData.startsWith(p))
 
@@ -1014,6 +1023,185 @@ export async function POST(req: NextRequest) {
           await answerCallbackQuery(cbQueryId, '❌ Hata oluştu')
           console.error('[telegram/webhook] storyretry callback failed:', err)
         }
+      }
+
+      // ── Phase U: GeoBot one-tap post-handoff actions ──────────────────────
+
+      // geo_content:{productId} — show content status
+      if (cbData.startsWith('geo_content:')) {
+        const geoProductId = parseInt(cbData.replace('geo_content:', ''))
+        await answerCallbackQuery(cbQueryId, '📋 İçerik durumu...')
+        try {
+          const payloadInst = await getPayload()
+          const product = await payloadInst.findByID({ collection: 'products', id: geoProductId, depth: 1 })
+          if (!product) {
+            await sendTelegramMessage(cbChatId, `❌ Ürün #${geoProductId} bulunamadı.`)
+          } else {
+            const { formatContentStatusMessage } = await import('@/lib/contentPack')
+            const statusMsg = formatContentStatusMessage(product as any)
+            await sendTelegramMessage(cbChatId, statusMsg)
+          }
+        } catch (err) {
+          console.error('[telegram/webhook] geo_content callback failed:', err)
+          await sendTelegramMessage(cbChatId, `❌ Hata: ${err instanceof Error ? err.message : 'Bilinmeyen hata'}`)
+        }
+        return NextResponse.json({ ok: true })
+      }
+
+      // geo_audit:{productId} — show audit status
+      if (cbData.startsWith('geo_audit:') && !cbData.startsWith('geo_auditrun:')) {
+        const geoProductId = parseInt(cbData.replace('geo_audit:', ''))
+        await answerCallbackQuery(cbQueryId, '🔍 Audit durumu...')
+        try {
+          const payloadInst = await getPayload()
+          const product = await payloadInst.findByID({ collection: 'products', id: geoProductId, depth: 1 })
+          if (!product) {
+            await sendTelegramMessage(cbChatId, `❌ Ürün #${geoProductId} bulunamadı.`)
+          } else {
+            const { formatAuditStatusMessage } = await import('@/lib/mentixAudit')
+            const statusMsg = formatAuditStatusMessage(product as any)
+            await sendTelegramMessage(cbChatId, statusMsg)
+          }
+        } catch (err) {
+          console.error('[telegram/webhook] geo_audit callback failed:', err)
+          await sendTelegramMessage(cbChatId, `❌ Hata: ${err instanceof Error ? err.message : 'Bilinmeyen hata'}`)
+        }
+        return NextResponse.json({ ok: true })
+      }
+
+      // geo_auditrun:{productId} — trigger/run audit
+      if (cbData.startsWith('geo_auditrun:')) {
+        const geoProductId = parseInt(cbData.replace('geo_auditrun:', ''))
+        await answerCallbackQuery(cbQueryId, '🔍 Audit başlatılıyor...')
+        try {
+          const payloadInst = await getPayload()
+          const product = await payloadInst.findByID({ collection: 'products', id: geoProductId, depth: 1 })
+          if (!product) {
+            await sendTelegramMessage(cbChatId, `❌ Ürün #${geoProductId} bulunamadı.`)
+            return NextResponse.json({ ok: true })
+          }
+          const { isAuditEligible, triggerAudit, formatAuditStatusMessage } = await import('@/lib/mentixAudit')
+          if (!isAuditEligible(product as any)) {
+            await sendTelegramMessage(cbChatId,
+              `⚠️ Ürün #${geoProductId} audit için uygun değil.\n` +
+              `Durum: contentStatus=${(product as any).workflow?.contentStatus ?? '—'}`)
+            return NextResponse.json({ ok: true })
+          }
+          await sendTelegramMessage(cbChatId, `⏳ Ürün #${geoProductId} audit başlatılıyor...`)
+          const auditResult = await triggerAudit(payloadInst, product, 'telegram_command')
+          const updatedProduct = await payloadInst.findByID({ collection: 'products', id: geoProductId, depth: 1 })
+          const statusMsg = formatAuditStatusMessage((updatedProduct ?? product) as any)
+          const nextButtons: Array<Array<{ text: string; callback_data: string }>> = []
+          const auditStatus = (updatedProduct as any)?.auditResult?.overallResult
+          if (auditStatus === 'approved' || auditStatus === 'approved_with_warning') {
+            nextButtons.push([{ text: '🚀 Yayına Al', callback_data: `geo_activate:${geoProductId}` }])
+          }
+          if (nextButtons.length > 0) {
+            await sendTelegramMessageWithKeyboard(cbChatId, statusMsg, nextButtons)
+          } else {
+            await sendTelegramMessage(cbChatId, statusMsg)
+          }
+        } catch (err) {
+          console.error('[telegram/webhook] geo_auditrun callback failed:', err)
+          await sendTelegramMessage(cbChatId, `❌ Audit hatası: ${err instanceof Error ? err.message : 'Bilinmeyen hata'}`)
+        }
+        return NextResponse.json({ ok: true })
+      }
+
+      // geo_activate:{productId} — activate product for publishing
+      if (cbData.startsWith('geo_activate:')) {
+        const geoProductId = parseInt(cbData.replace('geo_activate:', ''))
+        await answerCallbackQuery(cbQueryId, '🚀 Aktivasyon...')
+        try {
+          const payloadInst = await getPayload()
+          const product = await payloadInst.findByID({ collection: 'products', id: geoProductId, depth: 1 })
+          if (!product) {
+            await sendTelegramMessage(cbChatId, `❌ Ürün #${geoProductId} bulunamadı.`)
+            return NextResponse.json({ ok: true })
+          }
+          if ((product as any).status === 'active') {
+            await sendTelegramMessage(cbChatId, `✅ Ürün #${geoProductId} zaten aktif.`)
+            return NextResponse.json({ ok: true })
+          }
+          const { evaluatePublishReadiness, formatReadinessMessage } = await import('@/lib/publishReadiness')
+          const readiness = evaluatePublishReadiness(product as any)
+          if (readiness.level !== 'ready') {
+            await sendTelegramMessage(cbChatId,
+              `⛔ Ürün #${geoProductId} yayına alınamıyor:\n\n` +
+              formatReadinessMessage(product as any, readiness))
+            return NextResponse.json({ ok: true })
+          }
+          // Activate: set status=active, merchandising fields, workflow
+          const now = new Date().toISOString()
+          const newUntil = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString()
+          await payloadInst.update({
+            collection: 'products',
+            id: geoProductId,
+            data: {
+              status: 'active',
+              merchandising: {
+                ...((product as any).merchandising ?? {}),
+                publishedAt: now,
+                newUntil,
+              },
+              workflow: {
+                ...((product as any).workflow ?? {}),
+                workflowStatus: 'active',
+                publishStatus: 'published',
+                lastHandledByBot: 'geobot',
+              },
+            },
+          })
+          await payloadInst.create({
+            collection: 'bot-events',
+            data: {
+              eventType: 'product.activated',
+              product: geoProductId,
+              sourceBot: 'geobot',
+              status: 'processed',
+              notes: `Product ${geoProductId} activated via GeoBot inline button.`,
+              processedAt: now,
+            },
+          })
+          await sendTelegramMessage(cbChatId,
+            `🚀 <b>Ürün #${geoProductId} yayına alındı!</b>\n\n` +
+            `📅 Yeni bölümünde: ${newUntil.substring(0, 10)} tarihine kadar\n` +
+            `🔗 <a href="https://www.uygunayakkabi.com/admin/collections/products/${geoProductId}">Admin'de gör</a>`)
+        } catch (err) {
+          console.error('[telegram/webhook] geo_activate callback failed:', err)
+          await sendTelegramMessage(cbChatId, `❌ Aktivasyon hatası: ${err instanceof Error ? err.message : 'Bilinmeyen hata'}`)
+        }
+        return NextResponse.json({ ok: true })
+      }
+
+      // geo_retry:{productId} — retry content generation
+      if (cbData.startsWith('geo_retry:')) {
+        const geoProductId = parseInt(cbData.replace('geo_retry:', ''))
+        await answerCallbackQuery(cbQueryId, '🔄 İçerik yeniden üretiliyor...')
+        try {
+          const payloadInst = await getPayload()
+          const product = await payloadInst.findByID({ collection: 'products', id: geoProductId, depth: 1 })
+          if (!product) {
+            await sendTelegramMessage(cbChatId, `❌ Ürün #${geoProductId} bulunamadı.`)
+            return NextResponse.json({ ok: true })
+          }
+          const { canRetriggerContent, triggerContentGeneration } = await import('@/lib/contentPack')
+          if (!canRetriggerContent(product as any)) {
+            await sendTelegramMessage(cbChatId,
+              `⚠️ Ürün #${geoProductId} içerik yeniden üretimi için uygun değil.\n` +
+              `Durum: contentStatus=${(product as any).workflow?.contentStatus ?? '—'}`)
+            return NextResponse.json({ ok: true })
+          }
+          await sendTelegramMessage(cbChatId, `⏳ Ürün #${geoProductId} içerik yeniden üretiliyor...`)
+          const contentResult = await triggerContentGeneration(payloadInst, product as any, 'retry')
+          await sendTelegramMessage(cbChatId,
+            `${contentResult.triggered ? '✅' : '❌'} İçerik: ${contentResult.contentStatus ?? 'unknown'}` +
+            (contentResult.error ? `\n\n⚠️ ${contentResult.error.substring(0, 200)}` : ''))
+        } catch (err) {
+          console.error('[telegram/webhook] geo_retry callback failed:', err)
+          await sendTelegramMessage(cbChatId, `❌ İçerik retry hatası: ${err instanceof Error ? err.message : 'Bilinmeyen hata'}`)
+        }
+        return NextResponse.json({ ok: true })
       }
 
       // ── Phase T2: One-tap wizard start from image approval ────────────────
@@ -1436,11 +1624,12 @@ export async function POST(req: NextRequest) {
                   mentixGroupId,
                   `📦 <b>Ürün #${session.productId} — GeoBot devir aldı</b>\n\n` +
                     `✅ Ops Bot onayı tamamlandı.${variantNote}\n` +
-                    `🤖 İçerik üretimi başlatılıyor...\n\n` +
-                    `Sonraki adımlar:\n` +
-                    `• <code>/content ${session.productId}</code> — içerik durumu\n` +
-                    `• <code>/audit ${session.productId}</code> — Mentix audit\n` +
-                    `• <code>/preview ${session.productId}</code> — önizleme`,
+                    `🤖 İçerik üretimi başlatılıyor...`,
+                  [
+                    [
+                      { text: '📋 İçerik Durumu', callback_data: `geo_content:${session.productId}` },
+                    ],
+                  ],
                 )
               } catch (handoffErr) {
                 console.error('[telegram/webhook] Phase S GeoBot handoff notification failed:', handoffErr)

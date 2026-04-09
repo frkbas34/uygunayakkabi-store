@@ -17,7 +17,11 @@
 // ── Phase S: GeoBot notification helper ──────────────────────────────
 const MENTIX_GROUP_ID = -5197796539
 
-async function notifyGeoBot(chatId: number, text: string): Promise<void> {
+async function notifyGeoBot(
+  chatId: number,
+  text: string,
+  keyboard?: Array<Array<{ text: string; callback_data: string }>>,
+): Promise<void> {
   const token = process.env.TELEGRAM_GEO_BOT_TOKEN
   if (!token) {
     console.warn('[contentPack/notifyGeoBot] TELEGRAM_GEO_BOT_TOKEN not set — skipping notification')
@@ -25,10 +29,14 @@ async function notifyGeoBot(chatId: number, text: string): Promise<void> {
   }
   const safeText = text.length > 4000 ? text.substring(0, 4000) + '\n\n⚠️ (mesaj kesildi)' : text
   try {
+    const body: Record<string, unknown> = { chat_id: chatId, text: safeText, parse_mode: 'HTML' }
+    if (keyboard) {
+      body.reply_markup = { inline_keyboard: keyboard }
+    }
     const res = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ chat_id: chatId, text: safeText, parse_mode: 'HTML' }),
+      body: JSON.stringify(body),
     })
     if (!res.ok) {
       const errBody = await res.text()
@@ -517,11 +525,16 @@ export async function triggerContentGeneration(
         `✅ <b>Ürün #${product.id} — İçerik hazır!</b>\n\n` +
           `🤖 GeoBot içerik üretimi tamamlandı.\n` +
           `📝 commercePack: ${result.commercePack ? '✅' : '❌'}\n` +
-          `📝 discoveryPack: ${result.discoveryPack ? '✅' : '❌'}\n\n` +
-          `Sonraki adımlar:\n` +
-          `• <code>/audit ${product.id}</code> — Mentix audit\n` +
-          `• <code>/preview ${product.id}</code> — önizleme\n` +
-          `• <code>/activate ${product.id}</code> — yayına al`,
+          `📝 discoveryPack: ${result.discoveryPack ? '✅' : '❌'}`,
+        [
+          [
+            { text: '🔍 Audit Başlat', callback_data: `geo_auditrun:${product.id}` },
+            { text: '📋 İçerik Durumu', callback_data: `geo_content:${product.id}` },
+          ],
+          [
+            { text: '🚀 Yayına Al', callback_data: `geo_activate:${product.id}` },
+          ],
+        ],
       ).catch(err => console.error('[contentPack] GeoBot ready notification failed:', err))
 
       // Non-blocking: auto-trigger Mentix audit after content is ready
@@ -558,9 +571,11 @@ export async function triggerContentGeneration(
       notifyGeoBot(
         MENTIX_GROUP_ID,
         `❌ <b>Ürün #${product.id} — İçerik üretimi başarısız</b>\n\n` +
-          `🤖 GeoBot hata: ${(result.error ?? 'Bilinmeyen hata').substring(0, 200)}\n\n` +
-          `Tekrar denemek için:\n` +
-          `• <code>/content ${product.id}</code> — durumu kontrol et`,
+          `🤖 GeoBot hata: ${(result.error ?? 'Bilinmeyen hata').substring(0, 200)}`,
+        [
+          [{ text: '🔄 Tekrar Dene', callback_data: `geo_retry:${product.id}` }],
+          [{ text: '📋 İçerik Durumu', callback_data: `geo_content:${product.id}` }],
+        ],
       ).catch(err => console.error('[contentPack] GeoBot fail notification failed:', err))
     }
 

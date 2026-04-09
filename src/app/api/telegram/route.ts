@@ -1860,19 +1860,9 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ ok: true })
       }
 
-      // ── Phase X: Photo redirect for GeoBot ──────────────────────────────────
-      // Product photo intake belongs to Ops Bot.  When GeoBot receives a photo
-      // (via @mention or "bunu ürüne çevir"), redirect the operator with a clear
-      // explanation instead of silently creating a product or showing a dead-end.
+      // ── Phase Y: GeoBot silently ignores photos — Uygunops handles them ────
       if (botParam === 'geo' && (message.photo || (message.reply_to_message?.photo && /[uü]r[uü]ne\s+[cç]evir/i.test(text)))) {
-        await sendTelegramMessage(
-          chatId,
-          `📸 <b>Ürün fotoğrafı algılandı</b>\n\n` +
-            `Ürün ekleme ve görsel üretimi <b>@Uygunops_bot</b> tarafından yapılır.\n\n` +
-            `📌 Bu fotoğrafı caption'a <b>@Uygunops_bot</b> yazarak tekrar gönderin.\n` +
-            `💡 Opsiyonel: Fiyat ve açıklama da ekleyebilirsiniz.\n\n` +
-            `Örnek: Fotoğraf + caption: <code>@Uygunops_bot 1755 TL</code>`,
-        )
+        console.log(`[telegram/phase-y] GeoBot ignoring photo in group — Uygunops handles intake`)
         return NextResponse.json({ ok: true })
       }
     }
@@ -2145,12 +2135,12 @@ export async function POST(req: NextRequest) {
         //    "bunu ürüne çevir #hizli 1755 TL" → mod = 'hizli', otomatik image-gen kuyruğa alınır
         //    v19 Gemini-only: all engine tags → Gemini Pro
         const combinedRaw = text + (replyCaption ? '\n' + replyCaption : '')
-        const autoGenMode: 'hizli' | 'dengeli' | 'premium' | 'karma' | null =
+        // Phase Y: default to 'hizli' when no hashtag — auto-start Gemini Pro on every photo
+        const autoGenMode: 'hizli' | 'dengeli' | 'premium' | 'karma' =
           /#karma/i.test(combinedRaw)   ? 'karma'   :
           /#premium/i.test(combinedRaw) ? 'premium' :
           /#dengeli/i.test(combinedRaw) ? 'dengeli' :
-          /#hizli/i.test(combinedRaw)   ? 'hizli'   :
-          null
+          'hizli'
         // v19 Gemini-only: engine tags simplified — all map to Gemini Pro
         // #geminipro still recognized for explicit opt-in; #chatgpt/#luma treated as Gemini
         const autoGenEngine: 'geminipro' | null =

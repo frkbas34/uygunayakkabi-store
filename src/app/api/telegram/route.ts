@@ -734,6 +734,24 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ ok: true })
       }
 
+      // ── Phase R: Command ownership split for callbacks ───────────────────
+      // Ops Bot (Uygunops) owns: image generation, image approval, wizard callbacks
+      // GeoBot owns: story callbacks
+      // This teaches operators which bot handles which workflow.
+      const OPS_CB_PREFIXES = ['imagegen:', 'imgapprove:', 'imgreject:', 'imgregen:', 'imgpremium:', 'wz_cat:', 'wz_ptype:', 'wz_tgt:', 'wz_size:', 'wz_confirm:', 'wz_cancel:']
+      const GEO_CB_PREFIXES = ['storyapprove:', 'storyreject:', 'storyretry:']
+      const isOpsCb = OPS_CB_PREFIXES.some(p => cbData.startsWith(p))
+      const isGeoCb = GEO_CB_PREFIXES.some(p => cbData.startsWith(p))
+
+      if (botParam === 'geo' && isOpsCb) {
+        await answerCallbackQuery(cbQueryId, '📌 Bu işlem @Uygunops_bot üzerinden çalışır.')
+        return NextResponse.json({ ok: true })
+      }
+      if (botParam !== 'geo' && isGeoCb) {
+        await answerCallbackQuery(cbQueryId, '📌 Bu işlem GeoBot üzerinden çalışır.')
+        return NextResponse.json({ ok: true })
+      }
+
       if (cbData.startsWith('imagegen:')) {
         const parts = cbData.split(':')
         const cbProductId = parseInt(parts[1])
@@ -1427,6 +1445,54 @@ export async function POST(req: NextRequest) {
       // 2. Strip "@Uygunops_bot" suffix on slash commands: /cmd@Uygunops_bot → /cmd
       const inlineBotSuffix = new RegExp('@' + BOT_USERNAME_LC, 'gi')
       text = text.replace(inlineBotSuffix, '').trim()
+    }
+
+    // ── Phase R: Command ownership split ───────────────────────────────────────
+    // Ops Bot (Uygunops/@Uygunops_bot) owns: intake, image gen, confirmation, stock, diagnostics
+    // GeoBot (@Geeeeobot) owns: content, audit, preview, activate, publish, merch, story
+    // Shared: /pipeline (visible on both bots)
+    // This teaches operators which bot handles which workflow.
+    {
+      const OPS_CMDS = ['/confirm', '/confirm_cancel', '/stok', '/diagnostics']
+      const GEO_CMDS = ['/content', '/audit', '/preview', '/activate', '/shopier', '/merch', '/story', '/restory', '/targets', '/approve_story', '/reject_story']
+      const OPS_HASHTAGS = ['#gorsel', '#geminipro']
+      // Deactivated providers still show deactivation msg — keep them on ops side
+      const OPS_HASHTAGS_DEACTIVATED = ['#luma', '#chatgpt', '#claid']
+
+      const cmdLower = text.toLowerCase()
+      const firstWord = cmdLower.split(/\s/)[0] // e.g. "/confirm" or "#gorsel"
+
+      // Check slash command ownership
+      if (text.startsWith('/')) {
+        const isOpsCmd = OPS_CMDS.some(c => firstWord === c || firstWord.startsWith(c + '@'))
+        const isGeoCmd = GEO_CMDS.some(c => firstWord === c || firstWord.startsWith(c + '@'))
+
+        if (botParam === 'geo' && isOpsCmd) {
+          await sendTelegramMessage(chatId, '📌 Bu komut <b>@Uygunops_bot</b> üzerinden çalışır.\nDM\'den deneyin.')
+          return NextResponse.json({ ok: true })
+        }
+        if (botParam !== 'geo' && isGeoCmd) {
+          await sendTelegramMessage(chatId, '📌 Bu komut <b>GeoBot</b> üzerinden çalışır.\nMentix grubunda @Geeeeobot ile deneyin.')
+          return NextResponse.json({ ok: true })
+        }
+      }
+
+      // Check hashtag trigger ownership
+      if (text.startsWith('#')) {
+        const isOpsHash = [...OPS_HASHTAGS, ...OPS_HASHTAGS_DEACTIVATED].some(h => cmdLower.startsWith(h))
+
+        if (botParam === 'geo' && isOpsHash) {
+          await sendTelegramMessage(chatId, '📌 Görsel üretimi <b>@Uygunops_bot</b> üzerinden çalışır.\nDM\'den deneyin.')
+          return NextResponse.json({ ok: true })
+        }
+        // Note: no hashtag triggers belong to GeoBot currently
+      }
+
+      // Check STOCK batch command ownership (ops only)
+      if (text.startsWith('STOCK ') && botParam === 'geo') {
+        await sendTelegramMessage(chatId, '📌 Stok güncelleme <b>@Uygunops_bot</b> üzerinden çalışır.\nDM\'den deneyin.')
+        return NextResponse.json({ ok: true })
+      }
     }
 
     // ── Phase 5: Confirmation wizard text input interceptor ───────────────────

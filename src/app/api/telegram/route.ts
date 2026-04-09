@@ -1352,7 +1352,13 @@ export async function POST(req: NextRequest) {
     const BOT_USERNAME_LC = botParam === 'geo' ? 'geeeeobot' : 'uygunops_bot'
     if (isGroupChat) {
       const isCommand = text.startsWith('/')
-      const isMention = Array.isArray(message.entities) && message.entities.some(
+      // Phase O: check both message.entities AND message.caption_entities
+      // Telegram puts entities in caption_entities for photos/documents with captions
+      const allEntities = [
+        ...(Array.isArray(message.entities) ? message.entities : []),
+        ...(Array.isArray(message.caption_entities) ? message.caption_entities : []),
+      ]
+      const isMention = allEntities.some(
         (e: { type: string; offset: number; length: number }) => {
           if (e.type === 'mention') {
             const mentioned = text.substring(e.offset, e.offset + e.length).toLowerCase()
@@ -1362,8 +1368,13 @@ export async function POST(req: NextRequest) {
         },
       )
       const isReplyToBot = message.reply_to_message?.from?.id === BOT_ID
+      // Phase O: allow hashtag triggers (#gorsel, #geminipro etc.) and STOCK batch commands
+      // These are intentional operator commands, equivalent to slash commands
+      const isHashtagTrigger = /^#(gorsel|geminipro|luma|chatgpt|claid)\b/i.test(text) ||
+        /#gorsel/i.test(text)
+      const isStockCommand = text.startsWith('STOCK SKU:')
 
-      if (!isCommand && !isMention && !isReplyToBot) {
+      if (!isCommand && !isMention && !isReplyToBot && !isHashtagTrigger && !isStockCommand) {
         // Silently ignore non-activated messages in groups
         return NextResponse.json({ ok: true })
       }

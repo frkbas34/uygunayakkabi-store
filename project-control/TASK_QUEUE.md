@@ -93,6 +93,14 @@ Full end-to-end pipeline proven on product #180:
 - 12 tests passed (8 gate + 4 real-data)
 - D-142
 
+### ✅ Phase R — Command Ownership Split: DEPLOYED (2026-04-09)
+- Ops Bot owns: /confirm, /stok, /diagnostics, #gorsel, #geminipro, image/wizard callbacks, STOCK
+- GeoBot owns: /content, /audit, /preview, /activate, /shopier, /merch, /story, story callbacks
+- /pipeline shared on both bots
+- Wrong-bot commands return clear Turkish redirect messages
+- 18 webhook tests passed (5 redirect ops, 6 redirect geo, 2 shared, 5 correct-bot)
+- D-144
+
 ### ✅ Phase P — Group Wizard Session Isolation: VERIFIED (2026-04-09)
 - Refactored wizard session key from `chatId` to `chatId:userId`
 - Each operator gets isolated wizard session in group context

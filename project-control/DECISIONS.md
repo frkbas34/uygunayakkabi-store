@@ -3621,3 +3621,40 @@ Dual-method validation — local unit tests + production webhook simulation.
 
 **Status:**  
 ACTIVE — Group parity achieved
+
+## D-144 — Phase R: Command Ownership Split (Ops Bot vs GeoBot) — IMPLEMENTED
+**Date:** 2026-04-09  
+**Decision:**  
+Add command-level ownership routing so each Telegram bot only handles its designated workflow domain. Wrong-bot commands get a clear Turkish redirect message instead of executing.
+
+**Ownership Model:**
+
+| Owner | Commands | Callbacks |
+|-------|----------|-----------|
+| Ops Bot (Uygunops) | `/confirm`, `/confirm_cancel`, `/stok`, `/diagnostics`, `#gorsel`, `#geminipro`, `#luma`*, `#chatgpt`*, `#claid`*, `STOCK SKU:` | `imagegen:`, `imgapprove:`, `imgreject:`, `imgregen:`, `imgpremium:`, `wz_*` |
+| GeoBot | `/content`, `/audit`, `/preview`, `/activate`, `/shopier`, `/merch`, `/story`, `/restory`, `/targets`, `/approve_story`, `/reject_story` | `storyapprove:`, `storyreject:`, `storyretry:` |
+| Shared | `/pipeline` | — |
+
+*Deactivated providers still show deactivation message via Ops Bot.
+
+**Redirect messages:**
+- Ops cmd on GeoBot → "📌 Bu komut @Uygunops_bot üzerinden çalışır. DM'den deneyin."
+- Geo cmd on Uygunops → "📌 Bu komut GeoBot üzerinden çalışır. Mentix grubunda @Geeeeobot ile deneyin."
+- Callback mismatch → toast via answerCallbackQuery with same messaging
+
+**Implementation:**
+- Two gate blocks added to `route.ts` (66 lines, purely additive):
+  1. Message handler: after Phase L normalization, before wizard interceptor
+  2. Callback handler: after Phase N gate, before callback routing
+- No schema changes
+- Server-side auto-trigger of content generation after `/confirm` remains intact (fires at Payload level)
+
+**Validation (18 webhook tests):**
+- 5 ops cmds on GeoBot: all redirected ✅
+- 6 geo cmds on Uygunops: all redirected ✅
+- 2 shared `/pipeline` on both: processed normally ✅
+- 2 ops cmds on Uygunops: processed normally ✅
+- 3 geo cmds on GeoBot: processed normally ✅
+
+**Commit:** `37d9b52`  
+**Status:** IMPLEMENTED

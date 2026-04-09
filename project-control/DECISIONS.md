@@ -3658,3 +3658,41 @@ Add command-level ownership routing so each Telegram bot only handles its design
 
 **Commit:** `37d9b52`  
 **Status:** IMPLEMENTED
+
+## D-145 — Phase S: GeoBot Visible Handoff (Operator Notifications) — IMPLEMENTED
+**Date:** 2026-04-09  
+**Decision:**  
+Make the two-bot workflow visible to operators. After Ops Bot confirms a product, GeoBot visibly takes over by sending notifications to the Mentix group. Content generation results (ready or failed) are also reported by GeoBot.
+
+**What Changed:**
+
+1. **`route.ts` — `sendTelegramMessageAs` helper** (new):
+   - Sends Telegram messages using an explicit bot token (not the per-request `_requestBotToken`)
+   - Used for cross-bot notifications where GeoBot sends during an Ops Bot request
+
+2. **`route.ts` — `wz_confirm:` success handler** (modified):
+   - After Ops Bot sends confirmation success, GeoBot sends a handoff notification to Mentix group
+   - Message: "📦 Ürün #X — GeoBot devir aldı" with next-step commands (`/content`, `/audit`, `/preview`)
+   - Uses `TELEGRAM_GEO_BOT_TOKEN` env var directly
+
+3. **`contentPack.ts` — `notifyGeoBot` helper** (new):
+   - Sends Telegram messages as GeoBot using `TELEGRAM_GEO_BOT_TOKEN`
+   - Mentix group ID constant: `-5197796539`
+
+4. **`contentPack.ts` — content completion notifications** (new):
+   - On `content.ready`: GeoBot notifies Mentix with pack status and next steps (`/audit`, `/preview`, `/activate`)
+   - On content failure: GeoBot notifies Mentix with error summary and retry command
+
+**Operator Experience (before → after):**
+- Before: Ops Bot says "Geobot içerik üretimi tetiklendi" — but nothing visible from GeoBot
+- After: GeoBot sends handoff message, then reports content results with actionable next steps
+
+**No schema changes.** No new env vars (uses existing `TELEGRAM_GEO_BOT_TOKEN`).
+
+**Validation (9 tests):**
+- GeoBot token valid, username correct ✅
+- GeoBot can send to Mentix group ✅
+- 6 webhook routing tests (Phase R gates intact) ✅
+
+**Commit:** `41ae58d`  
+**Status:** IMPLEMENTED

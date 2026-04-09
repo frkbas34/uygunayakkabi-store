@@ -93,6 +93,15 @@ Full end-to-end pipeline proven on product #180:
 - 12 tests passed (8 gate + 4 real-data)
 - D-142
 
+### ✅ Phase S — GeoBot Visible Handoff: DEPLOYED (2026-04-09)
+- After Ops Bot confirms a product, GeoBot visibly takes over via Mentix group notification
+- GeoBot reports content generation results (ready/failed) with actionable next steps
+- `sendTelegramMessageAs(token, chatId, text)` helper for cross-bot messages in route.ts
+- `notifyGeoBot(chatId, text)` helper in contentPack.ts with Mentix group ID constant
+- Operators now see the two-bot workflow: Ops Bot confirms → GeoBot announces takeover → GeoBot reports content results
+- 9 validation tests passed (token, send capability, 6 routing tests)
+- D-145
+
 ### ✅ Phase R — Command Ownership Split: DEPLOYED (2026-04-09)
 - Ops Bot owns: /confirm, /stok, /diagnostics, #gorsel, #geminipro, image/wizard callbacks, STOCK
 - GeoBot owns: /content, /audit, /preview, /activate, /shopier, /merch, /story, story callbacks

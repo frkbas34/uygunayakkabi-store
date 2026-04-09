@@ -14,6 +14,31 @@
  * generated unless real output exists.
  */
 
+// ── Phase S: GeoBot notification helper ──────────────────────────────
+const MENTIX_GROUP_ID = -5197796539
+
+async function notifyGeoBot(chatId: number, text: string): Promise<void> {
+  const token = process.env.TELEGRAM_GEO_BOT_TOKEN
+  if (!token) {
+    console.warn('[contentPack/notifyGeoBot] TELEGRAM_GEO_BOT_TOKEN not set — skipping notification')
+    return
+  }
+  const safeText = text.length > 4000 ? text.substring(0, 4000) + '\n\n⚠️ (mesaj kesildi)' : text
+  try {
+    const res = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ chat_id: chatId, text: safeText, parse_mode: 'HTML' }),
+    })
+    if (!res.ok) {
+      const errBody = await res.text()
+      console.error(`[contentPack/notifyGeoBot] FAILED ${res.status}: chatId=${chatId} body=${errBody}`)
+    }
+  } catch (err) {
+    console.error('[contentPack/notifyGeoBot] Network error:', err instanceof Error ? err.message : String(err))
+  }
+}
+
 // ── Types ─────────────────────────────────────────────────────────────
 
 export interface CommercePack {
@@ -486,6 +511,19 @@ export async function triggerContentGeneration(
     if (finalContentStatus === 'ready') {
       await emitContentReady(payload, product.id)
 
+      // ── Phase S: GeoBot content-ready notification ───────────────────
+      notifyGeoBot(
+        MENTIX_GROUP_ID,
+        `✅ <b>Ürün #${product.id} — İçerik hazır!</b>\n\n` +
+          `🤖 GeoBot içerik üretimi tamamlandı.\n` +
+          `📝 commercePack: ${result.commercePack ? '✅' : '❌'}\n` +
+          `📝 discoveryPack: ${result.discoveryPack ? '✅' : '❌'}\n\n` +
+          `Sonraki adımlar:\n` +
+          `• <code>/audit ${product.id}</code> — Mentix audit\n` +
+          `• <code>/preview ${product.id}</code> — önizleme\n` +
+          `• <code>/activate ${product.id}</code> — yayına al`,
+      ).catch(err => console.error('[contentPack] GeoBot ready notification failed:', err))
+
       // Non-blocking: auto-trigger Mentix audit after content is ready
       try {
         const { shouldAutoTriggerAudit, triggerAudit } = await import('@/lib/mentixAudit')
@@ -515,6 +553,15 @@ export async function triggerContentGeneration(
     // Emit content.failed if neither succeeded
     if (!result.success) {
       await markContentFailed(payload, product.id, product, result.error ?? 'Unknown generation error', req)
+
+      // ── Phase S: GeoBot content-failed notification ──────────────────
+      notifyGeoBot(
+        MENTIX_GROUP_ID,
+        `❌ <b>Ürün #${product.id} — İçerik üretimi başarısız</b>\n\n` +
+          `🤖 GeoBot hata: ${(result.error ?? 'Bilinmeyen hata').substring(0, 200)}\n\n` +
+          `Tekrar denemek için:\n` +
+          `• <code>/content ${product.id}</code> — durumu kontrol et`,
+      ).catch(err => console.error('[contentPack] GeoBot fail notification failed:', err))
     }
 
     return {

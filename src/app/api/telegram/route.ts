@@ -27,6 +27,20 @@ function getBotToken(): string | undefined {
   return _requestBotToken || process.env.TELEGRAM_BOT_TOKEN
 }
 
+/** Send a Telegram message using an explicit bot token (for cross-bot notifications). */
+async function sendTelegramMessageAs(token: string, chatId: number, text: string): Promise<void> {
+  const safeText = text.length > 4000 ? text.substring(0, 4000) + '\n\n⚠️ (mesaj kesildi — çok uzun)' : text
+  const res = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ chat_id: chatId, text: safeText, parse_mode: 'HTML' }),
+  })
+  if (!res.ok) {
+    const errBody = await res.text()
+    console.error(`[telegram/sendMessageAs] FAILED ${res.status}: chatId=${chatId} body=${errBody} msgPreview=${text.substring(0, 100)}`)
+  }
+}
+
 async function sendTelegramMessage(chatId: number, text: string): Promise<void> {
   const token = getBotToken()
   if (!token) return
@@ -1297,10 +1311,30 @@ export async function POST(req: NextRequest) {
               `✅ <b>Ürün #${session.productId} onaylandı!</b>${variantNote}\n\n` +
                 `📋 confirmationStatus = confirmed\n` +
                 `🤖 lastHandledByBot = uygunops\n` +
-                `📝 BotEvent: product.confirmed kaydedildi.\n` +
-                `📝 Geobot içerik üretimi tetiklendi (content.requested).\n\n` +
-                `📊 Durum: <code>/content ${session.productId}</code>`,
+                `📝 BotEvent: product.confirmed kaydedildi.\n\n` +
+                `🔄 Ürün GeoBot'a devrediliyor...`,
             )
+
+            // ── Phase S: GeoBot visible handoff notification ─────────────────
+            const geoToken = process.env.TELEGRAM_GEO_BOT_TOKEN
+            const mentixGroupId = -5197796539
+            if (geoToken) {
+              try {
+                await sendTelegramMessageAs(
+                  geoToken,
+                  mentixGroupId,
+                  `📦 <b>Ürün #${session.productId} — GeoBot devir aldı</b>\n\n` +
+                    `✅ Ops Bot onayı tamamlandı.${variantNote}\n` +
+                    `🤖 İçerik üretimi başlatılıyor...\n\n` +
+                    `Sonraki adımlar:\n` +
+                    `• <code>/content ${session.productId}</code> — içerik durumu\n` +
+                    `• <code>/audit ${session.productId}</code> — Mentix audit\n` +
+                    `• <code>/preview ${session.productId}</code> — önizleme`,
+                )
+              } catch (handoffErr) {
+                console.error('[telegram/webhook] Phase S GeoBot handoff notification failed:', handoffErr)
+              }
+            }
           } else {
             await answerCallbackQuery(cbQueryId, '❌ Onay başarısız')
             await sendTelegramMessage(

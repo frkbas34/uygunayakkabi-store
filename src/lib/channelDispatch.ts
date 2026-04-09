@@ -210,6 +210,43 @@ function extractMediaUrls(product: Record<string, unknown>): string[] {
   return origUrls
 }
 
+// ── Media URL Pre-warm ───────────────────────────────────────────────────────
+
+/**
+ * Phase W1: Pre-warm a media URL by fetching it.
+ *
+ * Vercel serves /api/media/file/* via a serverless function.  On cold start
+ * the first request can take 2-5 s, which causes Instagram/Facebook's media
+ * fetcher to time out.  A pre-warm GET populates the Vercel edge cache so the
+ * Graph API's subsequent fetch gets a fast cache HIT.
+ *
+ * Non-fatal — callers should proceed even if pre-warm fails.
+ */
+async function prewarmMediaUrl(imageUrl: string, channel: string): Promise<void> {
+  try {
+    const res = await fetch(imageUrl, {
+      method: 'GET',
+      signal: AbortSignal.timeout(15_000),
+    })
+    // Consume the body fully so the CDN caches the complete response
+    const buf = await res.arrayBuffer()
+    console.log(
+      `[channelDispatch] ${channel} pre-warm — url=${imageUrl} ` +
+        `status=${res.status} bytes=${buf.byteLength}`,
+    )
+    if (res.status !== 200) {
+      console.warn(
+        `[channelDispatch] ${channel} pre-warm non-200 — url=${imageUrl} status=${res.status}`,
+      )
+    }
+  } catch (err) {
+    console.warn(
+      `[channelDispatch] ${channel} pre-warm failed (non-fatal) — url=${imageUrl}: ` +
+        (err instanceof Error ? err.message : String(err)),
+    )
+  }
+}
+
 // ── Instagram Direct Publish ──────────────────────────────────────────────────
 
 /**
@@ -270,6 +307,10 @@ async function publishFacebookDirectly(
     const caption = payload.geobot?.facebookCopy
       ? payload.geobot.facebookCopy.substring(0, 2200)
       : buildInstagramCaption(payload)
+
+    // ── Phase W1: Pre-warm media URL to avoid Vercel cold-start timeout ──────
+    await prewarmMediaUrl(imageUrl, 'facebook')
+    await new Promise((r) => setTimeout(r, 500))
 
     // ── Step 1: Get Page Access Token ─────────────────────────────────────────
     const pageTokenRes = await fetch(
@@ -414,27 +455,60 @@ async function publishInstagramDirectly(
   try {
     const caption = buildInstagramCaption(payload)
 
-    // ── Step 1: Create media container ────────────────────────────────────────
-    const createParams = new URLSearchParams({ image_url: imageUrl, caption, access_token: accessToken })
-    const createRes  = await fetch(
-      `https://graph.facebook.com/v21.0/${userId}/media?${createParams.toString()}`,
-      { method: 'POST', signal: AbortSignal.timeout(20_000) },
-    )
-    const createData = await createRes.json() as Record<string, unknown>
+    // ── Phase W1: Pre-warm media URL to avoid Vercel cold-start timeout ──────
+    await prewarmMediaUrl(imageUrl, 'instagram')
+    // Short pause to let the CDN edge propagate the cached response
+    await new Promise((r) => setTimeout(r, 500))
 
-    if (!createData.id) {
-      console.error(`[channelDispatch] Instagram container creation failed:`, createData)
+    // ── Step 1: Create media container (with one retry) ──────────────────────
+    const maxAttempts = 2
+    let containerId: string | undefined
+    let lastCreateError: string | undefined
+
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      const createParams = new URLSearchParams({ image_url: imageUrl, caption, access_token: accessToken })
+      const createRes = await fetch(
+        `https://graph.facebook.com/v21.0/${userId}/media?${createParams.toString()}`,
+        { method: 'POST', signal: AbortSignal.timeout(20_000) },
+      )
+      const createData = await createRes.json() as Record<string, unknown>
+
+      if (createData.id) {
+        containerId = createData.id as string
+        console.log(
+          `[channelDispatch] Instagram container created — product=${payload.productId} ` +
+            `containerId=${containerId} attempt=${attempt}`,
+        )
+        break
+      }
+
+      // Container creation failed
+      lastCreateError = JSON.stringify(createData)
+      const errCode = (createData.error as Record<string, unknown> | undefined)?.code
+      const errSubcode = (createData.error as Record<string, unknown> | undefined)?.error_subcode
+
+      console.warn(
+        `[channelDispatch] Instagram container attempt ${attempt}/${maxAttempts} failed — ` +
+          `product=${payload.productId} code=${errCode} subcode=${errSubcode}`,
+      )
+
+      // Only retry on media-download errors (9004) — other errors are not transient
+      if (errCode !== 9004 || attempt >= maxAttempts) break
+
+      // Wait before retry to give CDN more time
+      await new Promise((r) => setTimeout(r, 3000))
+    }
+
+    if (!containerId) {
+      console.error(`[channelDispatch] Instagram container creation failed after ${maxAttempts} attempts:`, lastCreateError)
       return {
         channel: 'instagram', eligible: true, dispatched: false,
         webhookConfigured: false,
-        error: `Container creation failed (HTTP ${createRes.status})`,
-        publishResult: { step: 'create-container', mode: 'direct-api-error', success: false, apiError: JSON.stringify(createData), timestamp: new Date().toISOString() },
+        error: `Container creation failed after ${maxAttempts} attempts`,
+        publishResult: { step: 'create-container', mode: 'direct-api-error', success: false, apiError: lastCreateError, attempts: maxAttempts, timestamp: new Date().toISOString() },
         timestamp,
       }
     }
-
-    const containerId = createData.id as string
-    console.log(`[channelDispatch] Instagram container created — product=${payload.productId} containerId=${containerId}`)
 
     // ── Step 2: Wait for media processing ─────────────────────────────────────
     await new Promise((r) => setTimeout(r, 2000))

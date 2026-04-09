@@ -1027,7 +1027,7 @@ export async function POST(req: NextRequest) {
 
       // ── Phase U: GeoBot one-tap post-handoff actions ──────────────────────
 
-      // geo_content:{productId} — show content status
+      // geo_content:{productId} — show content status + preview
       if (cbData.startsWith('geo_content:')) {
         const geoProductId = parseInt(cbData.replace('geo_content:', ''))
         await answerCallbackQuery(cbQueryId, '📋 İçerik durumu...')
@@ -1037,9 +1037,20 @@ export async function POST(req: NextRequest) {
           if (!product) {
             await sendTelegramMessage(cbChatId, `❌ Ürün #${geoProductId} bulunamadı.`)
           } else {
-            const { formatContentStatusMessage } = await import('@/lib/contentPack')
+            const { formatContentStatusMessage, formatContentPreviewMessage } = await import('@/lib/contentPack')
             const statusMsg = formatContentStatusMessage(product as any)
             await sendTelegramMessage(cbChatId, statusMsg)
+
+            // Phase X: Send actual content preview if available
+            const previewMsg = formatContentPreviewMessage(product as any)
+            if (previewMsg) {
+              await sendTelegramMessageWithKeyboard(cbChatId, previewMsg, [
+                [
+                  { text: '🔍 Audit Başlat', callback_data: `geo_auditrun:${geoProductId}` },
+                  { text: '🚀 Yayına Al', callback_data: `geo_activate:${geoProductId}` },
+                ],
+              ])
+            }
           }
         } catch (err) {
           console.error('[telegram/webhook] geo_content callback failed:', err)
@@ -1688,7 +1699,18 @@ export async function POST(req: NextRequest) {
     // This prevents overlap and operator confusion.
     if (botParam === 'geo' && !isGroupChat) {
       // Geo_bot received a DM → redirect operator to Uygunops
-      await sendTelegramMessage(chatId, '📌 Bu bot sadece grup içinde çalışır.\nDM komutları için @Uygunops_bot kullanın.')
+      // Phase X: photo-aware redirect message
+      if (message.photo) {
+        await sendTelegramMessage(
+          chatId,
+          `📸 <b>Ürün fotoğrafı algılandı</b>\n\n` +
+            `Ürün ekleme ve görsel üretimi <b>@Uygunops_bot</b> tarafından yapılır.\n\n` +
+            `📌 Bu fotoğrafı <b>@Uygunops_bot</b>'a DM olarak gönderin.\n` +
+            `💡 Opsiyonel: Fiyat ve açıklama ekleyebilirsiniz.`,
+        )
+      } else {
+        await sendTelegramMessage(chatId, '📌 Bu bot sadece grup içinde çalışır.\nDM komutları için @Uygunops_bot kullanın.')
+      }
       return NextResponse.json({ ok: true })
     }
     if (botParam !== 'geo' && isGroupChat) {
@@ -1825,6 +1847,23 @@ export async function POST(req: NextRequest) {
       // Check STOCK batch command ownership (ops only)
       if (text.startsWith('STOCK ') && botParam === 'geo') {
         await sendTelegramMessage(chatId, '📌 Stok güncelleme <b>@Uygunops_bot</b> üzerinden çalışır.\nDM\'den deneyin.')
+        return NextResponse.json({ ok: true })
+      }
+
+      // ── Phase X: Photo redirect for GeoBot ──────────────────────────────────
+      // Product photo intake belongs to Ops Bot.  When GeoBot receives a photo
+      // (via @mention or "bunu ürüne çevir"), redirect the operator with a clear
+      // explanation instead of silently creating a product or showing a dead-end.
+      if (botParam === 'geo' && (message.photo || (message.reply_to_message?.photo && /[uü]r[uü]ne\s+[cç]evir/i.test(text)))) {
+        await sendTelegramMessage(
+          chatId,
+          `📸 <b>Ürün fotoğrafı algılandı</b>\n\n` +
+            `Ürün ekleme ve görsel üretimi <b>@Uygunops_bot</b> tarafından yapılır.\n\n` +
+            `📌 Bu fotoğrafı <b>@Uygunops_bot</b>'a DM olarak gönderin.\n` +
+            `💡 Opsiyonel: Fiyat ve açıklama ekleyebilirsiniz.\n\n` +
+            `<b>GeoBot</b> ne yapar?\n` +
+            `→ İçerik üretimi, audit, yayın kontrolü`,
+        )
         return NextResponse.json({ ok: true })
       }
     }
@@ -3805,10 +3844,21 @@ export async function POST(req: NextRequest) {
           return NextResponse.json({ ok: true })
         }
 
-        // /content {id} — show content status
-        const { formatContentStatusMessage } = await import('@/lib/contentPack')
+        // /content {id} — show content status + preview (Phase X)
+        const { formatContentStatusMessage, formatContentPreviewMessage } = await import('@/lib/contentPack')
         const statusMsg = formatContentStatusMessage(product as any)
         await sendTelegramMessage(chatId, statusMsg)
+
+        // Phase X: Send content preview if available
+        const previewMsg = formatContentPreviewMessage(product as any)
+        if (previewMsg) {
+          await sendTelegramMessageWithKeyboard(chatId, previewMsg, [
+            [
+              { text: '🔍 Audit Başlat', callback_data: `geo_auditrun:${contentProductId}` },
+              { text: '🚀 Yayına Al', callback_data: `geo_activate:${contentProductId}` },
+            ],
+          ])
+        }
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err)
         await sendTelegramMessage(chatId, `❌ Hata: ${msg}`)

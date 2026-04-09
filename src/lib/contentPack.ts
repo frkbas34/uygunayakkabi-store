@@ -519,17 +519,21 @@ export async function triggerContentGeneration(
     if (finalContentStatus === 'ready') {
       await emitContentReady(payload, product.id)
 
-      // ── Phase S: GeoBot content-ready notification ───────────────────
+      // ── Phase S + X: GeoBot content-ready notification with preview ──
+      const igSnippet = result.commercePack?.instagramCaption
+        ? `\n\n📸 <b>IG Önizleme:</b>\n<pre>${result.commercePack.instagramCaption.substring(0, 200)}${result.commercePack.instagramCaption.length > 200 ? '…' : ''}</pre>`
+        : ''
       notifyGeoBot(
         MENTIX_GROUP_ID,
         `✅ <b>Ürün #${product.id} — İçerik hazır!</b>\n\n` +
           `🤖 GeoBot içerik üretimi tamamlandı.\n` +
           `📝 commercePack: ${result.commercePack ? '✅' : '❌'}\n` +
-          `📝 discoveryPack: ${result.discoveryPack ? '✅' : '❌'}`,
+          `📝 discoveryPack: ${result.discoveryPack ? '✅' : '❌'}` +
+          igSnippet,
         [
           [
+            { text: '👁️ Önizle', callback_data: `geo_content:${product.id}` },
             { text: '🔍 Audit Başlat', callback_data: `geo_auditrun:${product.id}` },
-            { text: '📋 İçerik Durumu', callback_data: `geo_content:${product.id}` },
           ],
           [
             { text: '🚀 Yayına Al', callback_data: `geo_activate:${product.id}` },
@@ -916,6 +920,83 @@ export function formatContentStatusMessage(product: ContentProduct): string {
   } else {
     lines.push(`⏳ <b>İçerik üretimi devam ediyor...</b>`)
     lines.push(`⏳ İçerik üretimi beklemede veya devam ediyor (Gemini AI).`)
+  }
+
+  return lines.join('\n')
+}
+
+/**
+ * Phase X: Format a readable content preview for the operator.
+ *
+ * Shows the actual generated channel copy — truncated for Telegram readability —
+ * so the operator can review what will be published before activating.
+ *
+ * Returns null if no commerce pack content exists yet.
+ */
+export function formatContentPreviewMessage(product: ContentProduct): string | null {
+  const cp = product.content?.commercePack
+  if (!cp) return null
+
+  const hasAny = cp.instagramCaption || cp.websiteDescription || cp.facebookCopy || cp.shopierCopy || cp.xPost
+  if (!hasAny) return null
+
+  const title = product.title ?? `Ürün #${product.id}`
+  const truncate = (s: string | null | undefined, max: number): string => {
+    if (!s) return '—'
+    return s.length > max ? s.substring(0, max) + '…' : s
+  }
+
+  const lines = [
+    `👁️ <b>İçerik Önizleme — ${title}</b> (ID: ${product.id})`,
+    ``,
+  ]
+
+  if (cp.instagramCaption) {
+    lines.push(`📸 <b>Instagram:</b>`)
+    lines.push(`<pre>${truncate(cp.instagramCaption, 300)}</pre>`)
+    lines.push(``)
+  }
+
+  if (cp.facebookCopy) {
+    lines.push(`📘 <b>Facebook:</b>`)
+    lines.push(`<pre>${truncate(cp.facebookCopy, 300)}</pre>`)
+    lines.push(``)
+  }
+
+  if (cp.websiteDescription) {
+    lines.push(`🌐 <b>Website:</b>`)
+    lines.push(`<pre>${truncate(cp.websiteDescription, 250)}</pre>`)
+    lines.push(``)
+  }
+
+  if (cp.shopierCopy) {
+    lines.push(`🛍️ <b>Shopier:</b>`)
+    lines.push(`<pre>${truncate(cp.shopierCopy, 200)}</pre>`)
+    lines.push(``)
+  }
+
+  if (cp.xPost) {
+    lines.push(`🐦 <b>X / Twitter:</b>`)
+    lines.push(`<pre>${truncate(cp.xPost, 280)}</pre>`)
+    lines.push(``)
+  }
+
+  if (cp.highlights && cp.highlights.length > 0) {
+    lines.push(`✨ <b>Öne Çıkanlar:</b>`)
+    for (const h of cp.highlights.slice(0, 5)) {
+      lines.push(`  • ${h}`)
+    }
+    lines.push(``)
+  }
+
+  // Discovery pack summary (title + meta only — article body is too long)
+  const dp = product.content?.discoveryPack
+  if (dp?.articleTitle || dp?.metaTitle) {
+    lines.push(`📰 <b>SEO / Discovery:</b>`)
+    if (dp.articleTitle) lines.push(`  Makale: <i>${truncate(dp.articleTitle, 80)}</i>`)
+    if (dp.metaTitle) lines.push(`  Meta Title: <i>${truncate(dp.metaTitle, 80)}</i>`)
+    if (dp.metaDescription) lines.push(`  Meta Desc: <i>${truncate(dp.metaDescription, 120)}</i>`)
+    lines.push(``)
   }
 
   return lines.join('\n')

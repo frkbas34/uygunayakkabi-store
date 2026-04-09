@@ -93,11 +93,12 @@ Full end-to-end pipeline proven on product #180:
 - 12 tests passed (8 gate + 4 real-data)
 - D-142
 
-### ✅ Phase P — Group Wizard Session Isolation: DEPLOYED (2026-04-09)
+### ✅ Phase P — Group Wizard Session Isolation: VERIFIED (2026-04-09)
 - Refactored wizard session key from `chatId` to `chatId:userId`
 - Each operator gets isolated wizard session in group context
 - No breaking change: DM behavior preserved (userId still passed, key just has redundant suffix)
 - `sessionKey()` helper in confirmationWizard.ts, 36 call sites updated in route.ts
+- Phase Q validation: 28/28 unit tests + 12 production webhook simulations passed
 - D-143
 
 ### ✅ Vercel Build Optimization: DEPLOYED (2026-04-09)

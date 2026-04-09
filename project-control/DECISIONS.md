@@ -3598,11 +3598,26 @@ In group context, `chatId` = group chat ID, shared by all members. The old `Map<
 - `src/app/api/telegram/route.ts` — cbUserId/msgUserId variables, 36 call site updates
 
 **Commit:** `61a210c`  
-**Status:** IMPLEMENTED — awaiting live validation
-| Real | /pipeline 180 | PROCESS | ✅ Full response |
+**Status:** VERIFIED (Phase Q validation 2026-04-09)
 
-**Files Changed:**
-- `src/app/api/telegram/route.ts` — Phase I/K gate block expanded with caption_entities, isHashtagTrigger, isStockCommand
+**Phase Q Validation (2026-04-09):**
+Dual-method validation — local unit tests + production webhook simulation.
+
+*Unit Tests (28/28 passed):*
+- Session key generation: group keys include userId, different users get different keys
+- Interference test: User B has NO session when only User A started wizard
+- Concurrent wizards: User A (product 231) and User B (product 230) coexist independently
+- Cross-contamination: User A advancing does not affect User B's step/state
+- Clear isolation: clearing User A's session leaves User B's intact
+- DM regression: DM wizard creates/works correctly, independent from group
+- Fallback: no-userId key backward compatible, separate from userId-keyed sessions
+
+*Production Webhook Simulation:*
+- 12 webhook calls to live Vercel endpoint (www.uygunayakkabi.com/api/telegram?bot=geo)
+- All returned HTTP 200 with `{"ok":true}`
+- Vercel logs confirmed: External API calls to api.telegram.org/sendMessage returned 200
+- User B (9999999999) temporarily added to allowlist for gate-bypass testing, then restored
+- No crashes, no 500s, no unhandled exceptions across full test sequence
 
 **Status:**  
 ACTIVE — Group parity achieved

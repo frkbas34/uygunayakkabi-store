@@ -3745,3 +3745,41 @@ title → stockCode → category → productType → price → sizes → stock �
 
 **Commit:** `bb8220e`  
 **Status:** IMPLEMENTED
+
+## D-147 — Phase T2: One-Tap Wizard Launch After Image Approval — IMPLEMENTED
+**Date:** 2026-04-09  
+**Decision:**  
+Replace the plain-text `/confirm` nudge after image approval with an inline keyboard button that launches the confirmation wizard in one tap.
+
+**Problem:**
+Operators had to manually type `/confirm {id}` after approving images. Non-technical operators might forget or not know the command.
+
+**Changes:**
+
+1. **Image approval success message**: Changed from `sendTelegramMessage` to `sendTelegramMessageWithKeyboard` with inline button:
+   - Button text: "📋 Bilgileri Gir → Onaya Gönder"
+   - Callback data: `wz_start:{productId}`
+
+2. **New `wz_start:{productId}` callback handler** (~110 lines):
+   - Same logic as `/confirm {id}`: visual gate, already-confirmed check, field check
+   - Starts wizard at the correct first step (title/stockCode/category/etc.)
+   - If all fields present → straight to summary
+   - Full error handling with user-facing Turkish messages
+
+3. **`wz_start:` added to `OPS_CB_PREFIXES`** for Phase R routing compatibility
+
+**Manual `/confirm {id}` remains fully functional** — the button is a convenience layer, not a replacement.
+
+**No schema changes.**
+
+**Validation (9 webhook tests):**
+- wz_start for approved product → wizard starts ✅
+- Title input via button-launched wizard ✅
+- Already-confirmed product handled ✅
+- Nonexistent product handled ✅
+- Phase R redirect for GeoBot ✅
+- Manual /confirm still works ✅
+- Invalid ID handled ✅
+
+**Commit:** `16ce89f`  
+**Status:** IMPLEMENTED

@@ -1714,30 +1714,16 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: true })
     }
     if (botParam !== 'geo' && isGroupChat) {
-      // Phase Y: Uygunops in group — allow photo intake (with @mention or reply-to-bot)
+      // Phase Y: Uygunops in group — allow photo intake (any photo) + reply-to-bot
       // All other group messages still owned by Geo_bot
       const hasPhoto = !!message.photo || !!(message.reply_to_message?.photo && /[uü]r[uü]ne\s+[cç]evir/i.test(text))
-      const allEntitiesEarly = [
-        ...(Array.isArray(message.entities) ? message.entities : []),
-        ...(Array.isArray(message.caption_entities) ? message.caption_entities : []),
-      ]
-      const isMentionedEarly = allEntitiesEarly.some(
-        (e: { type: string; offset: number; length: number }) => {
-          if (e.type === 'mention') {
-            const mentioned = (message.text || message.caption || '').substring(e.offset, e.offset + e.length).toLowerCase()
-            return mentioned === '@uygunops_bot'
-          }
-          return e.type === 'text_mention' && ((e as unknown as Record<string, unknown>)?.user as Record<string, unknown> | undefined)?.id === 8702872700
-        },
-      )
       const isReplyToBotEarly = message.reply_to_message?.from?.id === 8702872700
-      const isPhotoIntake = hasPhoto && (isMentionedEarly || isReplyToBotEarly)
 
-      if (!isPhotoIntake) {
+      if (!hasPhoto && !isReplyToBotEarly) {
         console.log(`[telegram/phase-n] Uygunops ignoring group message in chat ${chatId} — Geo_bot owns group context`)
         return NextResponse.json({ ok: true })
       }
-      console.log(`[telegram/phase-y] Uygunops photo intake in group — chat ${chatId}, mention=${isMentionedEarly}, reply=${isReplyToBotEarly}`)
+      console.log(`[telegram/phase-y] Uygunops group pass-through — chat ${chatId}, photo=${hasPhoto}, replyToBot=${isReplyToBotEarly}`)
     }
 
     // ── Phase I+K: Group chat activation filter ────────────────────────────────
@@ -1773,7 +1759,10 @@ export async function POST(req: NextRequest) {
         /#gorsel/i.test(text)
       const isStockCommand = text.startsWith('STOCK SKU:')
 
-      if (!isCommand && !isMention && !isReplyToBot && !isHashtagTrigger && !isStockCommand) {
+      // Phase Y: photos are intentional intake — always pass through for Uygunops
+      const isPhotoMessage = !!message.photo || !!(message.reply_to_message?.photo)
+
+      if (!isCommand && !isMention && !isReplyToBot && !isHashtagTrigger && !isStockCommand && !isPhotoMessage) {
         // Silently ignore non-activated messages in groups
         return NextResponse.json({ ok: true })
       }

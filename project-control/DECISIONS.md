@@ -3783,3 +3783,39 @@ Operators had to manually type `/confirm {id}` after approving images. Non-techn
 
 **Commit:** `16ce89f`  
 **Status:** IMPLEMENTED
+
+## D-148 — Phase U: GeoBot One-Tap Post-Handoff Flow — IMPLEMENTED
+**Date:** 2026-04-09  
+**Decision:**  
+Make the GeoBot post-handoff workflow button-driven. After content generation, operators navigate through audit → activate via inline buttons instead of memorizing slash commands.
+
+**Changes:**
+
+1. **`sendTelegramMessageAs` / `notifyGeoBot`**: Both now accept optional `keyboard` parameter for inline buttons
+2. **GeoBot handoff message** (route.ts wz_confirm): Now shows "📋 İçerik Durumu" button
+3. **Content-ready notification** (contentPack.ts): Now shows "🔍 Audit Başlat", "📋 İçerik Durumu", "🚀 Yayına Al" buttons
+4. **Content-failed notification** (contentPack.ts): Now shows "🔄 Tekrar Dene", "📋 İçerik Durumu" buttons
+5. **5 new GeoBot callback handlers** (route.ts):
+   - `geo_content:{id}` — content status via `formatContentStatusMessage`
+   - `geo_audit:{id}` — audit status via `formatAuditStatusMessage`
+   - `geo_auditrun:{id}` — trigger audit via `triggerAudit`, shows "🚀 Yayına Al" on approval
+   - `geo_activate:{id}` — product activation with publish readiness check
+   - `geo_retry:{id}` — content re-generation via `triggerContentGeneration`
+6. **`GEO_CB_PREFIXES`** updated: `geo_content:`, `geo_audit:`, `geo_auditrun:`, `geo_activate:`, `geo_retry:`
+
+**Full button-driven publish workflow:**
+GeoBot handoff → "📋 İçerik Durumu" → (content ready) → "🔍 Audit Başlat" → (audit approved) → "🚀 Yayına Al" → product live
+
+**All slash commands remain as manual fallbacks.**
+
+**No schema changes.**
+
+**Validation (9 webhook tests):**
+- geo_content, geo_audit, geo_auditrun, geo_activate, geo_retry — all functional ✅
+- Nonexistent product handling ✅
+- Phase R redirect for Ops Bot ✅
+- Manual /content still works ✅
+- GeoBot keyboard send to Mentix group ✅
+
+**Commit:** `bf7e175`  
+**Status:** IMPLEMENTED

@@ -93,6 +93,15 @@ Full end-to-end pipeline proven on product #180:
 - 12 tests passed (8 gate + 4 real-data)
 - D-142
 
+### ✅ Phase U — GeoBot One-Tap Post-Handoff: DEPLOYED (2026-04-09)
+- GeoBot handoff/content messages now have inline action buttons
+- 5 new callback handlers: geo_content, geo_audit, geo_auditrun, geo_activate, geo_retry
+- Full publish workflow navigable via buttons: content status → audit → activate
+- Content-failed shows retry button
+- All slash commands remain as fallback
+- 9 webhook tests passed
+- D-148
+
 ### ✅ Phase T2 — One-Tap Wizard Launch: DEPLOYED (2026-04-09)
 - Image approval now shows inline button "📋 Bilgileri Gir → Onaya Gönder" instead of text nudge
 - `wz_start:{productId}` callback launches wizard with same logic as `/confirm {id}`

@@ -73,6 +73,8 @@ const TASK_FRAMING_BLOCK =
   `• Do NOT create large white or colored margins that make the scene feel inset.\n` +
   `• The output must be a direct, full-bleed photograph — edge to edge.\n` +
   `• If your output looks like a photo placed onto a canvas, it is WRONG.\n` +
+  `• IGNORE any white padding or border visible in the input reference image — do NOT reproduce it.\n` +
+  `• The REFERENCE image may have technical padding; your OUTPUT must NOT have any padding, margin, or border.\n` +
   `CONSISTENCY RULE:\n` +
   `• All images in this batch must feel like they belong to the same premium catalog system.\n` +
   `• Different slots may have different angles/scenes but the overall visual scale must be consistent.\n` +
@@ -1632,21 +1634,16 @@ export async function generateByGeminiPro(
       `scenes=${scenes.map((s) => s.name).join(',')}`,
     )
 
-    // Same 768×768 → 1024×1024 padding as generateByEditing
-    const innerBuffer = await sharp(referenceImage)
-      .resize(768, 768, { fit: 'contain', background: { r: 255, g: 255, b: 255, alpha: 1 } })
+    // Phase Y: Eliminated the 128px white padding border — operator feedback showed
+    // Gemini was treating the padding as a frame and reproducing it in output.
+    // Shoe now fills the full 1024×1024 canvas edge-to-edge (fit:contain still
+    // preserves aspect ratio; background fills negative space if any).
+    const pngBuffer = await sharp(referenceImage)
+      .resize(1024, 1024, { fit: 'contain', background: { r: 255, g: 255, b: 255, alpha: 1 } })
       .png()
       .toBuffer()
 
-    const pngBuffer = await sharp(innerBuffer)
-      .extend({
-        top: 128, bottom: 128, left: 128, right: 128,
-        background: { r: 255, g: 255, b: 255, alpha: 1 },
-      })
-      .png()
-      .toBuffer()
-
-    console.log(`[generateByGeminiPro v14] PNG 1024×1024 ready — ${pngBuffer.length}b`)
+    console.log(`[generateByGeminiPro v15] PNG 1024×1024 ready (no padding border) — ${pngBuffer.length}b`)
 
     const mainColor   = identityLock.mainColor
     const refAngle    = identityLock.referenceAngle || 'unknown'

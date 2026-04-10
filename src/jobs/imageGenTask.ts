@@ -77,7 +77,9 @@ export const imageGenTask: TaskConfig<{
     // stage: 'standard' → slots 1-3 (default for #gorsel)
     //        'premium'  → slots 4-5 (explicit operator request)
     const stage = (input.stage || 'standard') as 'standard' | 'premium'
-    const sceneIndices = stage === 'premium' ? [3, 4] : [0, 1, 2]
+    // Phase Y: slot order — side_angle (idx 1) is the hero, then front (idx 0), then macro (idx 2)
+    // Operator feedback: 90° side profile is the preferred commercial hero for footwear
+    const sceneIndices = stage === 'premium' ? [3, 4] : [1, 0, 2]
     // provider: 'openai' (default, gpt-image-1 edit) | 'gemini-pro' (Gemini image gen)
     // v19 Gemini-only: default provider is gemini-pro (was 'openai' before v19)
     const provider = (input.provider || 'gemini-pro') as 'openai' | 'gemini-pro'

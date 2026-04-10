@@ -1,10 +1,16 @@
 # TASK QUEUE — Uygunayakkabi
 
-_Last updated: 2026-04-09 (Phase O Group Parity D-142; Vercel Build Optimization D-141; Phase N Bot Role Separation D-140; Multi-Bot Support D-139; Phase L D-138; Phase K D-137; Phase I D-136; Phase G D-135; Phase D D-134; Phase C D-133; Image Pipeline v38 D-124; v37 D-123; v36 D-122; v35 D-121; v34 D-120; Phase 21 Operator Runbook; VF-7 D-117b; VF-6 D-117; Phases 16-19 D-116; Phase 13 D-115/D-114; Phases 1-12 complete)_
+_Last updated: 2026-04-10 (Phase Z visualStatus state-sync + golden-path pre-run diagnostic D-154; D-153 runtime v50 lock-rules reminder; D-152 v50 image pipeline lock RESTORED after silent violation; Phase O Group Parity D-142; Vercel Build Optimization D-141; Phase N Bot Role Separation D-140; Multi-Bot Support D-139; Phase L D-138; Phase K D-137; Phase I D-136; Phase G D-135; Phase D D-134; Phase C D-133; Image Pipeline v38 D-124; v37 D-123; v36 D-122; v35 D-121; v34 D-120; Phase 21 Operator Runbook; VF-7 D-117b; VF-6 D-117; Phases 16-19 D-116; Phase 13 D-115/D-114; Phases 1-12 complete)_
 
 ---
 
 ## ⚠️ Active Blockers
+
+### Blocker Z-1: Phase Z Full Golden-Path Stage 1→14 NOT YET VALIDATED — ACTIVE
+No real product has been pushed through the full 14-stage operator flow since 2026-04-05 (product 180 / D-149).
+Since then: D-129 lock, Phase X preview (D-151), D-152 restoration, D-153 runtime reminder, D-154 state-sync hook.
+All 14 stages code-wired and type-clean, but real-world operator UX across the whole path is unverified.
+**Unblocks by:** Operator pushing ONE fresh shoe photo through the Mentix group and reporting back the first real break (if any). Expected result: product created → 3 images generated with v50-locked baseline + D-153 reminder → operator approves → wizard → confirmation → GeoBot handoff → content generation → content preview → audit → activate → DB state green.
 
 ### Blocker 0: push:true Does NOT Run in Production — ONGOING RISK
 `push: true` is guarded by `NODE_ENV !== 'production'` in `@payloadcms/db-postgres/dist/connect.js`.

@@ -4037,3 +4037,57 @@ The v50 locked baseline is now defined as: "commit `e99e9cb` state + the additiv
 
 **Commit:** TBD (this commit)
 **Status:** IMPLEMENTED
+
+---
+
+## D-154 — Phase Z: visualStatus state-sync + pre-run diagnostic — IMPLEMENTED
+
+**Date:** 2026-04-10
+**Decision:**
+Wire the missing `visualStatus: generating → preview` transition via an `afterChange` hook on the `image-generation-jobs` collection, and backfill recent stuck test products (234-238) so Phase Z golden-path validation can start from a clean state.
+
+**Phase Z golden-path pre-run diagnostic:**
+Before asking the operator to push a real photo through the full 14-stage flow, inspected DB state of all recent products:
+- Only 3 products have EVER reached past stage 5 (image approval) in the entire database: 180, 125, 123 — all from 2026-04-05.
+- Since then (D-129 lock, D-151 Phase X preview, D-152 lock restoration, D-153 runtime reminder), 0 products have made a full end-to-end run.
+- Most recent test products 234-238 (today) are all stuck at `workflow_visual_status='generating'` even though their `image_generation_jobs.status='preview'` with 3 images successfully generated and no error.
+
+**Root cause of the state mismatch:**
+`updateProductVisualStatus()` in `src/app/api/telegram/route.ts` supports the full state machine `pending | generating | preview | approved | rejected`, but is only called with `'generating'`, `'approved'`, and `'rejected'`. No code path writes `'preview'`. The job-level state correctly flips to `'preview'` when generation completes, but the product-level mirror is never advanced, so `workflow.visualStatus` stays at `'generating'` forever.
+
+**Impact assessment:**
+- Not a hard blocker: the wz_start and wz_confirm gates only require `visualStatus === 'approved'`, which is written correctly by `approveImageGenJob` when the operator clicks approve.
+- Real impact: `publishReadiness`, `mentixAudit`, and operator-diagnostic output all saw stale `'generating'` state for products that were actually ready for operator review. Admin-panel truth was misleading.
+
+**Implementation (additive, zero touch to v50 locked files):**
+- `src/collections/ImageGenerationJobs.ts`: new first `afterChange` hook that fires on `status: * → preview` transition:
+  - Fetches the product
+  - Only advances if `workflow.visualStatus in ['generating', 'pending']` (never clobbers `approved`/`rejected`)
+  - Writes `workflow.visualStatus = 'preview'` with `context: { isDispatchUpdate: true }`
+  - Logs `[ImageGenerationJobs D-154] product X visualStatus: generating → preview`
+  - Non-blocking: errors are logged, hook never throws
+- Existing `status → approved` hook is untouched (it's the second hook in the chain now).
+- No changes to `imageProviders.ts`, `imageGenTask.ts`, `imageLockReminder.ts` — v50 lock fully respected.
+
+**Backfill:**
+Direct SQL one-shot on products 234-238 only:
+```sql
+UPDATE products SET workflow_visual_status = 'preview', updated_at = NOW()
+ WHERE id IN (234, 235, 236, 237, 238) AND workflow_visual_status = 'generating';
+```
+Older stuck products (213-230) and product 180 (published but stale) were intentionally left alone — product 180's stale state needs a separate investigation because it has `status='active'` + `publishStatus='published'` + `visualStatus='generating'`, which is an impossible combination without historical drift from earlier code versions.
+
+**Follow-up (Phase Z stage-by-stage run — NOT YET EXECUTED):**
+Operator must now push one fresh shoe photo through the Mentix group and report back at each break point. Code-level scan of stages 6-14 confirmed all handlers are wired:
+- Stage 6 `wz_start:` → confirmation wizard entry (route.ts:1220)
+- Stage 7 wizard steps `wz_cat/wz_ptype/wz_tgt/wz_size` (route.ts callbacks)
+- Stage 8 `wz_confirm:` → `applyConfirmation` (route.ts:1579, confirmationWizard.ts)
+- Stage 9 GeoBot visible handoff via `sendTelegramMessageAs(geoToken, mentixGroupId, ...)` (route.ts:1633)
+- Stage 10 `triggerContentGeneration` auto-called inside `applyConfirmation` (confirmationWizard.ts:708)
+- Stage 11 `geo_content:` → `formatContentPreviewMessage` (route.ts:1030, Phase X/D-151)
+- Stage 12 `geo_auditrun:` → `triggerAudit` (route.ts:1083, mentixAudit.ts)
+- Stage 13 `geo_activate:` → publish + merchandising (route.ts:1122)
+- Stage 14 DB state verification (direct SQL check)
+
+**Commit:** TBD (this commit)
+**Status:** IMPLEMENTED (hook + backfill) / BLOCKED on operator real-photo run for Phase Z stage 1→14 verification

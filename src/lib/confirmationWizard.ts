@@ -129,14 +129,125 @@ export const CHANNEL_OPTIONS = [
 /** Wizard sessions expire after 30 minutes of inactivity */
 const WIZARD_TIMEOUT_MS = 30 * 60 * 1000
 
-// ── In-memory wizard sessions ─────────────────────────────────────────
+// ── Wizard sessions — Map cache + DB-backed persistence (D-158) ──────
 // Phase P: Key is `${chatId}:${userId}` in group context for per-operator isolation,
 // or `${chatId}` in DM context (backward compatible — userId omitted or same as chatId).
+//
+// D-158: the in-memory Map is a per-Lambda-instance fast-path cache, but the
+// canonical store is now the Neon `wizard_sessions` table so sessions survive
+// cold starts, deploys, and instance rotations. Call hydrateWizardSession()
+// at the start of each handler to load from DB into the Map; sync getters
+// then work as before. Writes are fire-and-forget via persistWizardSessionBackground().
 
 const wizardSessions = new Map<string, WizardState>()
 
 function sessionKey(chatId: number, userId?: number): string {
   return userId ? `${chatId}:${userId}` : String(chatId)
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type PayloadLike = { db?: { pool?: { query: (text: string, vals?: any[]) => Promise<{ rows: any[] }> } } }
+
+/**
+ * D-158: Load wizard session from DB into the in-memory cache.
+ * Call this at the top of any Telegram handler that then invokes the sync
+ * getWizardSession() / setWizardSession() helpers. Safe to call repeatedly
+ * and when no session exists — it is a no-op in that case.
+ */
+export async function hydrateWizardSession(
+  payload: PayloadLike,
+  chatId: number,
+  userId?: number,
+): Promise<WizardState | null> {
+  const key = sessionKey(chatId, userId)
+
+  // If we already have a fresh entry in the local Map, use it.
+  const cached = wizardSessions.get(key)
+  if (cached && Date.now() - cached.startedAt <= WIZARD_TIMEOUT_MS) {
+    return cached
+  }
+
+  const pool = payload?.db?.pool
+  if (!pool) {
+    console.warn('[hydrateWizardSession D-158] payload.db.pool not available')
+    return cached ?? null
+  }
+
+  try {
+    const { rows } = await pool.query(
+      `SELECT state, started_at FROM wizard_sessions
+       WHERE session_key = $1
+         AND started_at > NOW() - INTERVAL '30 minutes'
+       LIMIT 1`,
+      [key],
+    )
+    if (rows.length === 0) {
+      // No fresh row. Clear any stale local copy so getters see null.
+      if (cached) wizardSessions.delete(key)
+      return null
+    }
+    const rawState = rows[0].state
+    const state: WizardState = typeof rawState === 'string' ? JSON.parse(rawState) : rawState
+    wizardSessions.set(key, state)
+    console.log(`[hydrateWizardSession D-158] loaded key=${key} step=${state.step} productId=${state.productId}`)
+    return state
+  } catch (err) {
+    console.warn('[hydrateWizardSession D-158] DB load failed:', err instanceof Error ? err.message : err)
+    return cached ?? null
+  }
+}
+
+/**
+ * D-158: Persist (upsert) a wizard session to the DB.
+ * Fire-and-forget — errors are logged but not thrown so the Telegram handler
+ * doesn't stall if Neon has a transient hiccup. The in-memory write has
+ * already happened via setWizardSession before this fires.
+ */
+function persistWizardSessionBackground(
+  payload: PayloadLike | null,
+  key: string,
+  state: WizardState,
+): void {
+  const pool = payload?.db?.pool
+  if (!pool) return
+  pool
+    .query(
+      `INSERT INTO wizard_sessions (session_key, state, started_at, updated_at)
+       VALUES ($1, $2::jsonb, to_timestamp($3::bigint / 1000.0), NOW())
+       ON CONFLICT (session_key) DO UPDATE
+         SET state = EXCLUDED.state, updated_at = NOW()`,
+      [key, JSON.stringify(state), state.startedAt],
+    )
+    .catch((err) => {
+      console.warn('[persistWizardSession D-158] DB upsert failed:', err instanceof Error ? err.message : err)
+    })
+}
+
+/**
+ * D-158: Delete a wizard session from the DB (fire-and-forget).
+ */
+function deleteWizardSessionBackground(payload: PayloadLike | null, key: string): void {
+  const pool = payload?.db?.pool
+  if (!pool) return
+  pool
+    .query(`DELETE FROM wizard_sessions WHERE session_key = $1`, [key])
+    .catch((err) => {
+      console.warn('[deleteWizardSession D-158] DB delete failed:', err instanceof Error ? err.message : err)
+    })
+}
+
+// D-158: module-level payload ref set by route.ts once per request so the
+// sync setWizardSession/clearWizardSession can fire their background DB
+// writes without threading payload through all 50+ call sites.
+let currentPayloadRef: PayloadLike | null = null
+
+/**
+ * D-158: Called once per Telegram request from route.ts so the sync
+ * setWizardSession/clearWizardSession helpers can reach the Payload db
+ * pool for background persistence. Safe to call repeatedly.
+ */
+export function bindWizardPayload(payload: PayloadLike | null): void {
+  currentPayloadRef = payload
 }
 
 export function getWizardSession(chatId: number, userId?: number): WizardState | null {
@@ -147,6 +258,7 @@ export function getWizardSession(chatId: number, userId?: number): WizardState |
   // Auto-expire stale sessions
   if (Date.now() - session.startedAt > WIZARD_TIMEOUT_MS) {
     wizardSessions.delete(key)
+    deleteWizardSessionBackground(currentPayloadRef, key)
     return null
   }
 
@@ -154,11 +266,15 @@ export function getWizardSession(chatId: number, userId?: number): WizardState |
 }
 
 export function setWizardSession(chatId: number, state: WizardState, userId?: number): void {
-  wizardSessions.set(sessionKey(chatId, userId), state)
+  const key = sessionKey(chatId, userId)
+  wizardSessions.set(key, state)
+  persistWizardSessionBackground(currentPayloadRef, key, state)
 }
 
 export function clearWizardSession(chatId: number, userId?: number): void {
-  wizardSessions.delete(sessionKey(chatId, userId))
+  const key = sessionKey(chatId, userId)
+  wizardSessions.delete(key)
+  deleteWizardSessionBackground(currentPayloadRef, key)
 }
 
 // ── Field checks ──────────────────────────────────────────────────────

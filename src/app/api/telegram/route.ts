@@ -821,6 +821,23 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ ok: true })
       }
 
+      // ── D-158: Hydrate DB-backed wizard session for wizard callbacks ─────
+      // The in-memory wizard Map is per-Lambda-instance and does not survive
+      // cold starts or deploys. For any wz_* callback, load the session from
+      // Neon into the Map before the handler runs so operators don't get
+      // "⚠️ Aktif sihirbaz yok" after a deploy or cold start.
+      if (cbData.startsWith('wz_')) {
+        try {
+          const { hydrateWizardSession, bindWizardPayload } =
+            await import('@/lib/confirmationWizard')
+          const cbWizPayload = await getPayload()
+          bindWizardPayload(cbWizPayload)
+          await hydrateWizardSession(cbWizPayload, cbChatId, cbUserId)
+        } catch (err) {
+          console.warn('[telegram/D-158] wizard hydrate failed:', err instanceof Error ? err.message : err)
+        }
+      }
+
       if (cbData.startsWith('imagegen:')) {
         const parts = cbData.split(':')
         const cbProductId = parseInt(parts[1])
@@ -1813,6 +1830,17 @@ export async function POST(req: NextRequest) {
 
     const payload = await getPayload()
 
+    // ── D-158: Bind payload to the wizard module so sync set/clear helpers
+    // can fire background DB upserts. Called once per request; safe to call
+    // repeatedly. Enables DB-backed persistence for the in-memory wizard Map
+    // so sessions survive Lambda cold starts, deploys, and instance rotations.
+    try {
+      const { bindWizardPayload } = await import('@/lib/confirmationWizard')
+      bindWizardPayload(payload)
+    } catch (err) {
+      console.warn('[telegram/D-158] bindWizardPayload failed:', err instanceof Error ? err.message : err)
+    }
+
     // ── Phase I: Group allowlisting ──────────────────────────────────────────
     // When an activated message arrives from a group chat, verify:
     //   1. telegram.groupEnabled is ON in AutomationSettings
@@ -1915,11 +1943,15 @@ export async function POST(req: NextRequest) {
     // intercept the message BEFORE any other command processing.
     if (text && !text.startsWith('/') && !text.startsWith('#') && !text.startsWith('STOCK ')) {
       const { getWizardSession, setWizardSession, clearWizardSession,
+              hydrateWizardSession,
               parsePrice, parseSizes, parseStockNumber, getNextWizardStep,
               getCategoryPrompt, getProductTypePrompt,
               getSizesPrompt, getStockPrompt, getTargetsPrompt, getPricePrompt,
               getBrandPrompt, getTitlePrompt, getStockCodePrompt,
               formatConfirmationSummary } = await import('@/lib/confirmationWizard')
+      // D-158: Load wizard session from Neon before the sync getter runs so
+      // the session survives Lambda cold starts / deploys.
+      await hydrateWizardSession(payload, chatId, msgUserId)
       const wizSession = getWizardSession(chatId, msgUserId)
 
       if (wizSession) {
@@ -3931,7 +3963,9 @@ export async function POST(req: NextRequest) {
 
       // /confirm_cancel — cancel active wizard
       if (command === '/confirm_cancel') {
-        const { clearWizardSession, getWizardSession } = await import('@/lib/confirmationWizard')
+        const { clearWizardSession, getWizardSession, hydrateWizardSession } = await import('@/lib/confirmationWizard')
+        // D-158: load from DB before sync getter so cancellation works across deploys
+        await hydrateWizardSession(payload, chatId, msgUserId)
         const existing = getWizardSession(chatId, msgUserId)
         if (existing) {
           clearWizardSession(chatId, msgUserId)

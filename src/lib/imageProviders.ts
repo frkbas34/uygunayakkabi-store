@@ -158,6 +158,71 @@ function getBackgroundRGB(backgroundStr: string): { r: number; g: number; b: num
   return { r: 237, g: 237, b: 237, alpha: 1 }
 }
 
+/**
+ * D-157: Sample the reference image's corner pixels to derive a padding color
+ * that blends invisibly with the image's existing background.
+ *
+ * Root cause of frame regression:
+ *   extractIdentityLock() fails ~60% of calls and triggers buildFallbackLock(),
+ *   which returns mainColor='as shown in reference'. That string doesn't match
+ *   any palette entry in getBackgroundForColor(), so padding falls through to
+ *   the default near-white (#EDEDED). When that near-white ring is extended
+ *   around a product photo whose own background is a different shade (e.g.
+ *   pure white or a studio gray), the input canvas contains a VISIBLE inner
+ *   rectangle — and Gemini preserves that rectangle as a "framed photo"
+ *   look in its output, violating the v50 locked no-frame rule.
+ *
+ * Fix: sample four 16×16 corner patches of the reference image, average them,
+ * and use that RGB for both `fit: 'contain'` letterboxing and the 128px
+ * `.extend()` ring. This guarantees the padding color matches the image's
+ * existing edge pixels, so there is no visible boundary between the inner
+ * product photo and the outer padding — Gemini sees ONE continuous canvas.
+ *
+ * The scene-specific BACKGROUND instruction is unchanged and still tells the
+ * model what target color to render in the OUTPUT. The padding color is now
+ * purely a visual camouflage for the input.
+ */
+async function sampleEdgeBackgroundRGB(
+  referenceImage: Buffer,
+): Promise<{ r: number; g: number; b: number; alpha: number }> {
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const sharp = require('sharp') as typeof import('sharp')
+    const meta = await sharp(referenceImage).metadata()
+    const w = meta.width ?? 0
+    const h = meta.height ?? 0
+    if (!w || !h || w < 32 || h < 32) {
+      return { r: 237, g: 237, b: 237, alpha: 1 }
+    }
+    const patch = Math.max(8, Math.min(32, Math.floor(Math.min(w, h) / 20)))
+    const rects = [
+      { left: 0,         top: 0,         width: patch, height: patch },
+      { left: w - patch, top: 0,         width: patch, height: patch },
+      { left: 0,         top: h - patch, width: patch, height: patch },
+      { left: w - patch, top: h - patch, width: patch, height: patch },
+    ]
+    let rSum = 0, gSum = 0, bSum = 0
+    for (const rect of rects) {
+      const stat = await sharp(referenceImage)
+        .extract(rect)
+        .removeAlpha()
+        .stats()
+      rSum += stat.channels[0]?.mean ?? 237
+      gSum += stat.channels[1]?.mean ?? 237
+      bSum += stat.channels[2]?.mean ?? 237
+    }
+    return {
+      r: Math.round(rSum / 4),
+      g: Math.round(gSum / 4),
+      b: Math.round(bSum / 4),
+      alpha: 1,
+    }
+  } catch (err) {
+    console.warn('[sampleEdgeBackgroundRGB D-157] failed — fallback to #EDEDED:', err instanceof Error ? err.message : err)
+    return { r: 237, g: 237, b: 237, alpha: 1 }
+  }
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Types
 // ─────────────────────────────────────────────────────────────────────────────
@@ -369,15 +434,34 @@ export async function extractIdentityLock(
     )
 
     if (!res.ok) {
-      console.warn(`[extractIdentityLock] HTTP ${res.status}`)
+      // D-157: log status body so quota/rate-limit/model errors are visible
+      const errBody = await res.text().catch(() => '')
+      console.warn(`[extractIdentityLock] HTTP ${res.status} body=${errBody.slice(0, 300)}`)
       return null
     }
 
     const data = await res.json()
+    const finishReason = data?.candidates?.[0]?.finishReason as string | undefined
     const text: string | undefined = data?.candidates?.[0]?.content?.parts?.[0]?.text
-    if (!text) return null
+    if (!text) {
+      // D-157: surface finishReason (SAFETY, MAX_TOKENS, RECITATION, etc.)
+      console.warn(`[extractIdentityLock] no text in response — finishReason=${finishReason ?? 'unknown'}`)
+      return null
+    }
 
-    const p = JSON.parse(text.trim())
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    let p: any
+    try {
+      p = JSON.parse(text.trim())
+    } catch (parseErr) {
+      // D-157: JSON parse failures are a major fallback source — log the raw text
+      console.warn(
+        `[extractIdentityLock] JSON parse failed — finishReason=${finishReason ?? 'unknown'} ` +
+        `textLen=${text.length} textPreview=${text.slice(0, 200).replace(/\s+/g, ' ')} ` +
+        `err=${parseErr instanceof Error ? parseErr.message : String(parseErr)}`,
+      )
+      return null
+    }
     const productClass = p.productClass || 'shoe'
     const mainColor    = p.mainColor    || 'as shown'
     const material     = p.material     || 'as shown'
@@ -1017,32 +1101,43 @@ export async function generateByEditing(
     const zoneBlock    = identityLock.protectedZoneBlock || ''
     const hasBrandZones = geminiKey && (identityLock.protectedZones?.length ?? 0) > 0
 
-    // Compute premium background FIRST — needed for input image padding
+    // Compute premium background FIRST — used for scene BACKGROUND instruction only
     const premiumBackground = getBackgroundForColor(mainColor)
     const bgRGB = getBackgroundRGB(premiumBackground)
+
+    // D-157: Sample reference edge pixels for padding color so the padding
+    // blends invisibly with the image's existing background. This eliminates
+    // the frame regression that occurs when identity lock falls back and the
+    // palette-derived padding color creates a visible rectangular boundary
+    // in the input canvas that Gemini preserves in its output.
+    const paddingRGB = await sampleEdgeBackgroundRGB(referenceImage)
 
     console.log(
       `[generateByEditing v12] protected zones: ${hasBrandZones ? (identityLock.protectedZones?.map((z) => z.name).join(',')) : 'none'}`,
     )
+    console.log(
+      `[generateByEditing D-157] padding=${JSON.stringify(paddingRGB)} ` +
+      `scene-bg=${JSON.stringify(bgRGB)} (decoupled so padding is invisible)`,
+    )
 
-    // v49: Resize shoe to 768×768 then pad to 1024×1024 using BACKGROUND COLOR.
-    // Previously used white (#FFFFFF) for padding — Gemini replicated the white
-    // border as a frame in its output. Using the actual background color makes
-    // the padding blend seamlessly, eliminating the frame artifact.
+    // D-157: Resize shoe to 768×768 then pad to 1024×1024 using EDGE-SAMPLED color.
+    // Previously padded with the palette-derived scene background color, which
+    // failed when identity lock fell back (near-white #EDEDED on dark shoes →
+    // visible inner rectangle → Gemini reproduced a framed-photo look).
     const innerBuffer = await sharp(referenceImage)
-      .resize(768, 768, { fit: 'contain', background: bgRGB })
+      .resize(768, 768, { fit: 'contain', background: paddingRGB })
       .png()
       .toBuffer()
 
     const pngBuffer = await sharp(innerBuffer)
       .extend({
         top: 128, bottom: 128, left: 128, right: 128,
-        background: bgRGB,
+        background: paddingRGB,
       })
       .png()
       .toBuffer()
 
-    console.log(`[generateByEditing v49] PNG 1024×1024 ready — ${pngBuffer.length}b (shoe at 768×768 center, pad=${JSON.stringify(bgRGB)})`)
+    console.log(`[generateByEditing D-157] PNG 1024×1024 ready — ${pngBuffer.length}b (shoe at 768×768 center, pad=${JSON.stringify(paddingRGB)})`)
     console.log(`[lock-reminder D-153] v50 LOCKED rules prepended to every slot prompt — ${LOCK_REMINDER_BLOCK.length}b reminder block active`)
 
     for (const scene of scenes) {
@@ -1388,25 +1483,37 @@ export async function generateByGeminiPro(
     const zoneBlock   = identityLock.protectedZoneBlock || ''
     const hasBrandZones = (identityLock.protectedZones?.length ?? 0) > 0
 
-    // Compute background FIRST — needed for padding color
+    // Compute scene background (target output color) — used in scene prompts
     const premiumBackground = getBackgroundForColor(mainColor)
     const bgRGB = getBackgroundRGB(premiumBackground)
 
-    // v49: Use background color for padding instead of white — eliminates frame artifact
+    // D-157: Sample reference image edge pixels for the padding color.
+    // This decouples padding from the scene target background so the padding
+    // is ALWAYS invisible against the reference, regardless of identity lock
+    // success. Prevents frame regression on the fallback path where bgRGB
+    // defaulted to near-white #EDEDED and Gemini interpreted the padded ring
+    // as a photo frame it had to preserve.
+    const paddingRGB = await sampleEdgeBackgroundRGB(referenceImage)
+
+    console.log(
+      `[generateByGeminiPro D-157] padding=${JSON.stringify(paddingRGB)} ` +
+      `scene-bg=${JSON.stringify(bgRGB)} (decoupled so padding is invisible)`,
+    )
+
     const innerBuffer = await sharp(referenceImage)
-      .resize(768, 768, { fit: 'contain', background: bgRGB })
+      .resize(768, 768, { fit: 'contain', background: paddingRGB })
       .png()
       .toBuffer()
 
     const pngBuffer = await sharp(innerBuffer)
       .extend({
         top: 128, bottom: 128, left: 128, right: 128,
-        background: bgRGB,
+        background: paddingRGB,
       })
       .png()
       .toBuffer()
 
-    console.log(`[generateByGeminiPro v49] PNG 1024×1024 ready — ${pngBuffer.length}b (pad=${JSON.stringify(bgRGB)})`)
+    console.log(`[generateByGeminiPro D-157] PNG 1024×1024 ready — ${pngBuffer.length}b (pad=${JSON.stringify(paddingRGB)})`)
     console.log(`[lock-reminder D-153] v50 LOCKED rules prepended to every slot prompt — ${LOCK_REMINDER_BLOCK.length}b reminder block active`)
 
     for (const scene of scenes) {

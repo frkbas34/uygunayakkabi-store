@@ -41,8 +41,11 @@ RULE 2 — BACKGROUND COLOR MUST MATCH ACROSS ALL SLOTS
     color that was computed for this product.
   ▸ The close-up / macro slot MUST have the SAME background as the front
     slot and the side slot. No exceptions. No drift toward white.
-  ▸ The padding color that was applied to the input canvas IS the target
-    background. Do not introduce a new background color.
+  ▸ The target background for the OUTPUT is defined in the "BACKGROUND:"
+    line of the slot scene block below. Use that EXACT color.
+  ▸ The reference image's padding/edge color is NOT the target — it is
+    only neutral camouflage so the input has no visible inner rectangle.
+    Do NOT copy the reference padding tone into the output.
 
 RULE 3 — PRODUCT IDENTITY IS LOCKED
   ▸ This is a re-photograph of an EXISTING real product, not a new design.

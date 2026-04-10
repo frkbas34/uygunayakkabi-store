@@ -3999,3 +3999,41 @@ Commit `773c03b` silently reverted the locked baseline:
 - Add a CI check / pre-commit hook that blocks modifications to locked files listed in D-129 without an explicit override marker in the commit message.
 - Add a CODEOWNERS entry requiring operator approval for any diff in `src/lib/imageProviders.ts` or `src/jobs/imageGenTask.ts`.
 - Add a daily drift check that diffs HEAD of locked files against the sealed commit hash and posts a Telegram alert on mismatch.
+
+---
+
+## D-153 — Runtime Lock-Rules Reminder Prepended To Every Generation — IMPLEMENTED
+
+**Date:** 2026-04-10
+**Decision:**
+Prepend an explicit `LOCK_REMINDER_BLOCK` to every image generation prompt (both GPT-Image edit path and Gemini Pro path), on every slot of every generation, so the v50 locked rules are reinforced at runtime on every single call.
+
+**Motivation (operator request):**
+After the D-152 restoration brought back the v50 baseline, the operator asked for a runtime reminder system: "remind the bot every time before he starts to generate that there are locked rules regarding how he should generate the images the way we want him to generate." The intent is to anchor the model on the operator-approved rules at the top of the prompt, not just via the in-body `TASK_FRAMING_BLOCK` / `ANTI_FRAME_FINAL_BLOCK` blocks.
+
+**Implementation:**
+- New file: `src/lib/imageLockReminder.ts` — exports `LOCK_REMINDER_BLOCK`, a short, sharply-worded block containing:
+  - Rule 1 — NO FRAMES, NO BORDERS, NO WHITE HALOS (no polaroid, no mat, no inset panel, full-bleed background)
+  - Rule 2 — BACKGROUND COLOR MUST MATCH ACROSS ALL SLOTS (close-up must match front/side)
+  - Rule 3 — PRODUCT IDENTITY IS LOCKED (re-photograph, not redesign)
+  - Rule 4 — COMPOSITION FOLLOWS THE SLOT PROMPT EXACTLY
+  - Rule 5 — OUTPUT IS A FULL-BLEED EDIT OF THE REFERENCE IMAGE
+  - Framed with ASCII box headers and a "ZERO TOLERANCE" closing reminder
+- `src/lib/imageProviders.ts`:
+  - Added `import { LOCK_REMINDER_BLOCK } from './imageLockReminder'`
+  - `generateByEditing` (GPT-Image): `fullPrompt = LOCK_REMINDER_BLOCK + TASK_FRAMING_BLOCK + ... + ANTI_FRAME_FINAL_BLOCK`
+  - `generateByGeminiPro`: same prepend
+  - Both call sites now console.log `[lock-reminder D-153] v50 LOCKED rules prepended to every slot prompt — Nb reminder block active` at the start of each generation so the operator can verify the reminder is firing in Vercel logs.
+- No other locked logic modified. The pre-existing `TASK_FRAMING_BLOCK`, `CANONICAL_PROHIBITIONS_BLOCK`, and `ANTI_FRAME_FINAL_BLOCK` are untouched — `LOCK_REMINDER_BLOCK` is purely additive.
+
+**Rebaseline of lock:**
+The v50 locked baseline is now defined as: "commit `e99e9cb` state + the additive `LOCK_REMINDER_BLOCK` integration introduced in D-153." The rest of the locked file contents remain bit-exact to `e99e9cb`. The new sealed commit for lock verification purposes is the D-153 commit; all future drift checks should diff against it.
+
+**What the operator will see:**
+- Every photo sent to Mentix group triggers Gemini Pro generation.
+- Before the first slot starts, Vercel logs show: `[lock-reminder D-153] v50 LOCKED rules prepended to every slot prompt — XXXXb reminder block active`
+- Gemini receives the LOCK_REMINDER_BLOCK at the top of every single prompt for every single slot.
+- If Gemini still drifts, the drift is a model failure and not a prompt-construction gap — which gives a clean diagnostic boundary.
+
+**Commit:** TBD (this commit)
+**Status:** IMPLEMENTED

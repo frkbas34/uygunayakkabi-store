@@ -16,6 +16,7 @@
  */
 
 import { PRODUCT_PRESERVATION_PROHIBITIONS } from './productPreservation'
+import { LOCK_REMINDER_BLOCK } from './imageLockReminder'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Shared canonical prohibitions — injected into EVERY generation prompt
@@ -1042,6 +1043,7 @@ export async function generateByEditing(
       .toBuffer()
 
     console.log(`[generateByEditing v49] PNG 1024×1024 ready — ${pngBuffer.length}b (shoe at 768×768 center, pad=${JSON.stringify(bgRGB)})`)
+    console.log(`[lock-reminder D-153] v50 LOCKED rules prepended to every slot prompt — ${LOCK_REMINDER_BLOCK.length}b reminder block active`)
 
     for (const scene of scenes) {
       // Replace placeholders in scene instructions
@@ -1051,12 +1053,13 @@ export async function generateByEditing(
         .replace(/\{BACKGROUND\}/g, premiumBackground)
 
       // Prompt structure (order matters for model attention):
+      //   0. LOCK_REMINDER_BLOCK — v50 locked rules reminder (D-153)
       //   1. TASK_FRAMING_BLOCK — "you are re-photographing an existing product"
       //   2. identityLock.promptBlock — product identity + color lock + per-field prohibitions
       //   3. zoneBlock — protected brand zones
       //   4. sceneText — camera angle, framing, background, lighting
       //   5. CANONICAL_PROHIBITIONS_BLOCK — 11 canonical prohibitions from productPreservation.ts
-      const fullPrompt = TASK_FRAMING_BLOCK + identityLock.promptBlock + zoneBlock + sceneText + CANONICAL_PROHIBITIONS_BLOCK + ANTI_FRAME_FINAL_BLOCK
+      const fullPrompt = LOCK_REMINDER_BLOCK + TASK_FRAMING_BLOCK + identityLock.promptBlock + zoneBlock + sceneText + CANONICAL_PROHIBITIONS_BLOCK + ANTI_FRAME_FINAL_BLOCK
 
       const slotLog: SlotLog = {
         slot: scene.name,
@@ -1404,6 +1407,7 @@ export async function generateByGeminiPro(
       .toBuffer()
 
     console.log(`[generateByGeminiPro v49] PNG 1024×1024 ready — ${pngBuffer.length}b (pad=${JSON.stringify(bgRGB)})`)
+    console.log(`[lock-reminder D-153] v50 LOCKED rules prepended to every slot prompt — ${LOCK_REMINDER_BLOCK.length}b reminder block active`)
 
     for (const scene of scenes) {
       const sceneText = scene.sceneInstructions
@@ -1412,7 +1416,7 @@ export async function generateByGeminiPro(
         .replace(/\{BACKGROUND\}/g, premiumBackground)
 
       // Same 5-block prompt structure as generateByEditing
-      const fullPrompt = TASK_FRAMING_BLOCK + identityLock.promptBlock + zoneBlock + sceneText + CANONICAL_PROHIBITIONS_BLOCK + ANTI_FRAME_FINAL_BLOCK
+      const fullPrompt = LOCK_REMINDER_BLOCK + TASK_FRAMING_BLOCK + identityLock.promptBlock + zoneBlock + sceneText + CANONICAL_PROHIBITIONS_BLOCK + ANTI_FRAME_FINAL_BLOCK
 
       const slotLog: SlotLog = {
         slot: scene.name,

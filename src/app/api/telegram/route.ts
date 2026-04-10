@@ -749,32 +749,40 @@ export async function POST(req: NextRequest) {
       // Phase P: operator userId for wizard session isolation in groups
       const cbUserId: number | undefined = callbackQuery.from?.id
 
-      // ── Phase N: Bot role separation for callbacks ───────────────────────
-      if (botParam === 'geo' && !cbIsGroup) {
-        await answerCallbackQuery(cbQueryId, '📌 DM komutları için @Uygunops_bot kullanın.')
-        return NextResponse.json({ ok: true })
-      }
-      if (botParam !== 'geo' && cbIsGroup) {
-        // Uygunops callback in group → silently acknowledge
-        await answerCallbackQuery(cbQueryId)
-        return NextResponse.json({ ok: true })
-      }
-
       // ── Phase R: Command ownership split for callbacks ───────────────────
       // Ops Bot (Uygunops) owns: image generation, image approval, wizard callbacks
-      // GeoBot owns: story callbacks
-      // This teaches operators which bot handles which workflow.
+      // GeoBot owns: story callbacks + geo_* buttons
+      // NOTE (D-155): Phase R prefix classification MUST run BEFORE the Phase N
+      // bot-role gate, because image approval previews are sent by Uygunops
+      // into the ops GROUP chat — the Phase N "Uygunops-in-group → silent drop"
+      // rule was swallowing every imgapprove/imgregen/imgreject/imgpremium/wz_*
+      // button click and breaking the entire golden-path approval flow.
       const OPS_CB_PREFIXES = ['imagegen:', 'imgapprove:', 'imgreject:', 'imgregen:', 'imgpremium:', 'wz_start:', 'wz_cat:', 'wz_ptype:', 'wz_tgt:', 'wz_size:', 'wz_confirm:', 'wz_cancel:']
       const GEO_CB_PREFIXES = ['storyapprove:', 'storyreject:', 'storyretry:', 'geo_content:', 'geo_audit:', 'geo_auditrun:', 'geo_activate:', 'geo_retry:']
       const isOpsCb = OPS_CB_PREFIXES.some(p => cbData.startsWith(p))
       const isGeoCb = GEO_CB_PREFIXES.some(p => cbData.startsWith(p))
 
+      // Wrong-bot redirects (prefix-based, authoritative)
       if (botParam === 'geo' && isOpsCb) {
         await answerCallbackQuery(cbQueryId, '📌 Bu işlem @Uygunops_bot üzerinden çalışır.')
         return NextResponse.json({ ok: true })
       }
       if (botParam !== 'geo' && isGeoCb) {
         await answerCallbackQuery(cbQueryId, '📌 Bu işlem GeoBot üzerinden çalışır.')
+        return NextResponse.json({ ok: true })
+      }
+
+      // ── Phase N: Bot role fallback for UN-classified callbacks only ──────
+      // Classified ops callbacks are allowed in both DM and group (image
+      // previews live in the ops group). Only unknown prefixes fall through
+      // to the bot-role default routing.
+      if (botParam === 'geo' && !cbIsGroup && !isGeoCb && !isOpsCb) {
+        await answerCallbackQuery(cbQueryId, '📌 DM komutları için @Uygunops_bot kullanın.')
+        return NextResponse.json({ ok: true })
+      }
+      if (botParam !== 'geo' && cbIsGroup && !isOpsCb && !isGeoCb) {
+        // Unknown Uygunops callback in group → silently acknowledge (noise filter)
+        await answerCallbackQuery(cbQueryId)
         return NextResponse.json({ ok: true })
       }
 

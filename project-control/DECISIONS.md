@@ -3949,3 +3949,53 @@ Fix two GeoBot operator UX gaps: (1) content not visible before publish, (2) pho
 
 **Commit:** `c50517f`  
 **Status:** IMPLEMENTED
+
+---
+
+## D-152 — v50 Lock Violation + Restoration — VERIFIED
+
+**Date:** 2026-04-10
+**Decision:**
+Restore `src/lib/imageProviders.ts` and `src/jobs/imageGenTask.ts` to exact v50 state at commit `e99e9cb` after discovering an unauthorized rewrite had silently regressed the pipeline.
+
+**Incident timeline:**
+- 2026-04-07 — D-129 locked v50 at commit `e99e9cb` (operator-approved visual baseline).
+- 2026-04-08 — Commit `773c03b` ("feat: storefront redesign — light beige theme, all home page sections") silently rewrote 3413 lines of `imageProviders.ts` and 2354 lines of `imageGenTask.ts`. The commit message gave no indication of image pipeline changes.
+- 2026-04-10 — Operator reported three visual regressions after Phase Y auto-generation went live:
+  1. Visible frames/white borders on all 3 slots
+  2. Missing pixel-font stock number overlay
+  3. Slot 3 (close-up) showing different background than slots 1/2
+
+**Root cause:**
+Commit `773c03b` silently reverted the locked baseline:
+1. **`ANTI_FRAME_FINAL_BLOCK` DELETED** entirely → frames returned on all slots
+2. **Input padding reverted from `bgRGB` (v49 ROOT CAUSE FIX) → white** `{ r:255, g:255, b:255, alpha:1 }` → slot 3 background inconsistency
+3. **Anti-frame language weakened** ("ZERO TOLERANCE" → "CRITICAL")
+4. **`ANTI_FRAME_FINAL_BLOCK` removed from prompt assembly** in `generateByGeminiPro`
+5. **Version labels reverted** v20/v49 → v14/v28
+6. **Multi-angle / background-lock blocks weakened**
+
+**Evidence (diff of `773c03b~1..773c03b` on locked files):**
+```
+-const ANTI_FRAME_FINAL_BLOCK = ...
+-      .resize(768, 768, { fit: 'contain', background: bgRGB })
++      .resize(768, 768, { fit: 'contain', background: { r: 255, g: 255, b: 255, alpha: 1 } })
+-      const fullPrompt = TASK_FRAMING_BLOCK + identityLock.promptBlock + zoneBlock + sceneText + CANONICAL_PROHIBITIONS_BLOCK + ANTI_FRAME_FINAL_BLOCK
+-    console.log(`[generateByGeminiPro v49] PNG 1024×1024 ready — ${pngBuffer.length}b (pad=${JSON.stringify(bgRGB)})`)
++    console.log(`[generateByGeminiPro v14] PNG 1024×1024 ready — ${pngBuffer.length}b`)
+```
+
+**Restoration:**
+- `git show e99e9cb:src/lib/imageProviders.ts > src/lib/imageProviders.ts`
+- `git show e99e9cb:src/jobs/imageGenTask.ts > src/jobs/imageGenTask.ts`
+- Verified `git diff e99e9cb HEAD -- <locked files>` is empty (bit-exact match).
+- `npx tsc --noEmit` produces no new errors in restored files.
+- Non-image changes from `773c03b` (storefront UI, routing, docs) are preserved — only image pipeline files were restored.
+
+**Commit:** `de9413d`
+**Status:** VERIFIED
+
+**Follow-up guardrails (PROPOSED — not yet implemented):**
+- Add a CI check / pre-commit hook that blocks modifications to locked files listed in D-129 without an explicit override marker in the commit message.
+- Add a CODEOWNERS entry requiring operator approval for any diff in `src/lib/imageProviders.ts` or `src/jobs/imageGenTask.ts`.
+- Add a daily drift check that diffs HEAD of locked files against the sealed commit hash and posts a Telegram alert on mismatch.

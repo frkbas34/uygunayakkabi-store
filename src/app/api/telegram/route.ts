@@ -435,10 +435,16 @@ async function approveImageGenJob(
   slotsStr: string,
   chatId: number,
 ): Promise<void> {
+  // D-156: depth:1 forces Payload to populate the generatedImages hasMany
+  // relationship as full media docs. Earlier depth:0 path was returning
+  // an empty array for this field on recent jobs (216+), causing "⚠️
+  // Onaylanacak geçerli görsel bulunamadı." even though the underlying
+  // image_generation_jobs_rels table had the correct rows. depth:1 is
+  // guaranteed to traverse the rels join and populate the field.
   const jobDoc = await payload.findByID({
     collection: 'image-generation-jobs',
     id: jobId,
-    depth: 0,
+    depth: 1,
   }) as Record<string, unknown>
 
   const productRef = jobDoc.product as { id: number } | number | null
@@ -446,7 +452,36 @@ async function approveImageGenJob(
   const productId = typeof productRef === 'object' ? productRef.id : productRef
 
   const generatedImages = (jobDoc.generatedImages as Array<{ id: number } | number> | undefined) ?? []
-  const allMediaIds = generatedImages.map((img) => (typeof img === 'object' ? img.id : img))
+  let allMediaIds = generatedImages
+    .map((img) => (typeof img === 'object' ? img.id : img))
+    .filter((id): id is number => typeof id === 'number')
+
+  // D-156: fallback — if Payload still returned an empty array (schema
+  // serialization drift, access-control quirk, etc.), read the rels table
+  // directly via the Drizzle node-postgres pool. This guarantees approve
+  // never fails on a valid job whose rels rows exist in the DB.
+  if (allMediaIds.length === 0) {
+    try {
+      const pool = (payload.db as unknown as { pool: { query: (text: string, vals: unknown[]) => Promise<{ rows: Array<{ media_id: number }> }> } }).pool
+      const { rows } = await pool.query(
+        'SELECT media_id FROM image_generation_jobs_rels WHERE parent_id = $1 AND path = $2 ORDER BY "order" ASC',
+        [Number(jobId), 'generatedImages'],
+      )
+      const fallbackIds = rows.map((r) => r.media_id).filter((id): id is number => typeof id === 'number')
+      if (fallbackIds.length > 0) {
+        console.warn(
+          `[telegram/approveImageGenJob D-156] Payload returned empty generatedImages for job ${jobId}, ` +
+            `recovered ${fallbackIds.length} ids from rels table directly: [${fallbackIds.join(',')}]`,
+        )
+        allMediaIds = fallbackIds
+      }
+    } catch (err) {
+      console.error(
+        `[telegram/approveImageGenJob D-156] rels table fallback query failed for job ${jobId}:`,
+        err,
+      )
+    }
+  }
 
   // Determine which IDs to approve
   let approvedMediaIds: number[]

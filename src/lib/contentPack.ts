@@ -240,21 +240,18 @@ export function checkContentReadiness(product: ContentProduct): ContentReadiness
 /**
  * Check if a product is eligible for content generation.
  *
- * D-159: Gate relaxed — content generation is now allowed as soon as visuals
- * are operator-approved, BEFORE the wizard confirmation step. This lets
- * GeoBot pre-fill commercePack + discoveryPack so the operator isn't asked
- * to type the description manually during the confirmation wizard.
- *
- * The original `confirmationStatus === 'confirmed'` requirement was removed.
- * Rationale: by the time visuals are approved, Vision analysis has already
- * populated title + category + brand + productType on the product, which is
- * enough input for GeoBot to draft usable content. If content generation
- * fails or produces weak output, the operator can still retry from the
- * wizard path or via `/geobot retry`.
+ * D-162: Restored pre-D-159 gate. Content generation requires BOTH
+ * visuals approved AND the intake wizard confirmed. Generating before
+ * confirmation (D-159/D-160 behavior) produced low-quality copy because
+ * the product still held a placeholder title ("Taslak Ürün…") and was
+ * missing price/size/stock context that GeoBot relies on.
  */
 export function isContentEligible(product: ContentProduct): boolean {
   // VF-4: Must have operator-approved visuals
   if (product.workflow?.visualStatus !== 'approved') return false
+
+  // D-162: Must have operator-confirmed intake (wizard completed)
+  if (product.workflow?.confirmationStatus !== 'confirmed') return false
 
   // Must not be already fully ready
   if (product.workflow?.contentStatus === 'ready') return false
@@ -265,56 +262,16 @@ export function isContentEligible(product: ContentProduct): boolean {
 /**
  * Check if a product should auto-trigger content generation.
  *
- * D-160: Reverted D-159's 'pending'-is-in-flight assumption. The Products
- * schema defaults workflow.contentStatus='pending' on every new product
- * (src/collections/Products.ts), so treating 'pending' as "already in-flight"
- * made shouldAutoTriggerContent always return false for fresh products —
- * which in turn made the D-159 image-approval auto-trigger a no-op. VERIFIED
- * in Neon on products 241-244: contentStatus='pending', bot-events empty,
- * commercePack empty.
- *
- * Trigger fires when:
- *   - contentStatus is absent (null) OR 'pending' (schema default) → no run yet
- *   - contentStatus === 'failed' → previous attempt failed, safe to retry
- *
- * Double-run protection against wizard post-confirm racing the image-approval
- * trigger is handled in the CALLER instead (see approveImageGenJob and
- * applyConfirmation), using `content.lastContentGenerationAt` as a freshness
- * check — if it's within the last 5 minutes, assume a trigger is in flight
- * and skip.
+ * D-162: Restored pre-D-159 logic. Fires when contentStatus is absent
+ * or equal to the schema default 'pending'. The only legitimate caller
+ * is confirmationWizard.applyConfirmation() — by that point the intake
+ * package is complete, so "pending" unambiguously means "waiting for
+ * GeoBot to draft copy for the first time."
  */
 export function shouldAutoTriggerContent(product: ContentProduct): boolean {
   if (!isContentEligible(product)) return false
-
   const contentStatus = product.workflow?.contentStatus
-  // Absent → never touched (schema-less)
-  // 'pending' → schema default, no trigger has run yet
-  // 'failed' → previous attempt errored out, safe to retry
-  // '*_generated' → canRetriggerContent handles these explicitly
-  // 'ready' → blocked by isContentEligible above
-  if (!contentStatus) return true
-  if (contentStatus === 'pending') return true
-  if (contentStatus === 'failed') return true
-  return false
-}
-
-/**
- * D-160: in-flight freshness guard.
- *
- * Returns true if a content generation trigger fired recently (within the
- * given window, default 5 minutes). Callers use this to avoid double-firing
- * when the image-approval auto-trigger and the wizard post-confirm trigger
- * might otherwise race each other on the same product.
- */
-export function isContentGenerationInFlight(
-  product: ContentProduct,
-  windowMs = 5 * 60 * 1000,
-): boolean {
-  const last = (product as any).content?.lastContentGenerationAt
-  if (!last) return false
-  const ts = typeof last === 'string' ? Date.parse(last) : Number(last)
-  if (!Number.isFinite(ts)) return false
-  return Date.now() - ts < windowMs
+  return !contentStatus || contentStatus === 'pending'
 }
 
 /**
@@ -347,7 +304,7 @@ export function canRetriggerContent(product: ContentProduct): boolean {
 export async function triggerContentGeneration(
   payload: any, // PayloadInstance
   product: ContentProduct,
-  triggerSource: 'auto_confirmation' | 'auto_visual_approved' | 'telegram_command' | 'admin' | 'retry',
+  triggerSource: 'auto_confirmation' | 'telegram_command' | 'admin' | 'retry',
   req?: any,
 ): Promise<ContentTriggerResult> {
   const updateReq = req

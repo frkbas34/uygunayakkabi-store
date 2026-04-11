@@ -182,9 +182,42 @@ function getBackgroundRGB(backgroundStr: string): { r: number; g: number; b: num
  * model what target color to render in the OUTPUT. The padding color is now
  * purely a visual camouflage for the input.
  */
+/**
+ * D-161: edge-sampled padding color with non-uniformity guard.
+ *
+ * Replaces the D-157 implementation, which had TWO bugs:
+ *
+ *  1. Sharp API misuse: `sharp(buf).extract(rect).stats()` does NOT apply
+ *     the extract before computing stats — `.stats()` is a terminal libvips
+ *     operation that bypasses prior pipeline steps. So D-157's "four corner
+ *     samples" were actually four copies of the full-image mean. This was
+ *     verified locally against the SN0151 reference: raw-buffer extraction
+ *     of the four 32×32 corners returned (122,123,127), (26,22,21),
+ *     (116,111,101), (109,105,98) — wildly different — while
+ *     `.extract().stats()` returned (119,103,99) for all four (which is
+ *     just the whole-image mean).
+ *
+ *  2. Assumption failure: even when correctly sampled, real-world product
+ *     photos frequently have non-uniform backgrounds (one near-black corner
+ *     + three taupe corners was the SN0151 case). Averaging gives a dark
+ *     taupe that Gemini preserves as a visible outer frame around its
+ *     rendered scene.
+ *
+ * D-161 rewrite:
+ *  - Use `.extract(rect).removeAlpha().raw().toBuffer()` so the extraction
+ *    actually happens, then compute the mean from raw pixel bytes.
+ *  - Compute Chebyshev spread across the four corner samples. If any
+ *    channel spread >40, the reference is non-uniform → fall back to pure
+ *    white padding (Gemini treats white as a blank canvas to extend the
+ *    scene background over, not as a "frame" to preserve).
+ *  - If the reference IS uniform (clean studio shots, Gemini reruns), use
+ *    the honest corner average — keeps D-157's benefit for the
+ *    D-129 near-white-on-colored-shoe case.
+ */
 async function sampleEdgeBackgroundRGB(
   referenceImage: Buffer,
 ): Promise<{ r: number; g: number; b: number; alpha: number }> {
+  const NEUTRAL_WHITE = { r: 255, g: 255, b: 255, alpha: 1 }
   try {
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     const sharp = require('sharp') as typeof import('sharp')
@@ -192,7 +225,7 @@ async function sampleEdgeBackgroundRGB(
     const w = meta.width ?? 0
     const h = meta.height ?? 0
     if (!w || !h || w < 32 || h < 32) {
-      return { r: 237, g: 237, b: 237, alpha: 1 }
+      return NEUTRAL_WHITE
     }
     const patch = Math.max(8, Math.min(32, Math.floor(Math.min(w, h) / 20)))
     const rects = [
@@ -201,25 +234,70 @@ async function sampleEdgeBackgroundRGB(
       { left: 0,         top: h - patch, width: patch, height: patch },
       { left: w - patch, top: h - patch, width: patch, height: patch },
     ]
-    let rSum = 0, gSum = 0, bSum = 0
+
+    const samples: Array<{ r: number; g: number; b: number }> = []
     for (const rect of rects) {
-      const stat = await sharp(referenceImage)
+      // D-161: raw buffer path — .stats() does NOT respect .extract()
+      const { data, info } = await sharp(referenceImage)
         .extract(rect)
         .removeAlpha()
-        .stats()
-      rSum += stat.channels[0]?.mean ?? 237
-      gSum += stat.channels[1]?.mean ?? 237
-      bSum += stat.channels[2]?.mean ?? 237
+        .raw()
+        .toBuffer({ resolveWithObject: true })
+      const n = info.width * info.height
+      if (n === 0) {
+        samples.push({ r: 255, g: 255, b: 255 })
+        continue
+      }
+      let rSum = 0, gSum = 0, bSum = 0
+      for (let i = 0; i < data.length; i += 3) {
+        rSum += data[i]
+        gSum += data[i + 1]
+        bSum += data[i + 2]
+      }
+      samples.push({ r: rSum / n, g: gSum / n, b: bSum / n })
     }
-    return {
-      r: Math.round(rSum / 4),
-      g: Math.round(gSum / 4),
-      b: Math.round(bSum / 4),
-      alpha: 1,
+
+    // Non-uniformity guard
+    const rs = samples.map((s) => s.r)
+    const gs = samples.map((s) => s.g)
+    const bs = samples.map((s) => s.b)
+    const spread = Math.max(
+      Math.max(...rs) - Math.min(...rs),
+      Math.max(...gs) - Math.min(...gs),
+      Math.max(...bs) - Math.min(...bs),
+    )
+    const UNIFORMITY_THRESHOLD = 40
+    const compactSamples = samples.map((s) => ({
+      r: Math.round(s.r),
+      g: Math.round(s.g),
+      b: Math.round(s.b),
+    }))
+    if (spread > UNIFORMITY_THRESHOLD) {
+      console.log(
+        `[sampleEdgeBackgroundRGB D-161] non-uniform reference ` +
+          `(spread=${spread.toFixed(0)} > ${UNIFORMITY_THRESHOLD}) — ` +
+          `falling back to pure white padding. samples=` +
+          JSON.stringify(compactSamples),
+      )
+      return NEUTRAL_WHITE
     }
+
+    const r = samples.reduce((s, p) => s + p.r, 0) / 4
+    const g = samples.reduce((s, p) => s + p.g, 0) / 4
+    const b = samples.reduce((s, p) => s + p.b, 0) / 4
+    console.log(
+      `[sampleEdgeBackgroundRGB D-161] uniform reference ` +
+        `(spread=${spread.toFixed(0)}) — sampled avg rgb(` +
+        `${Math.round(r)},${Math.round(g)},${Math.round(b)}) ` +
+        `samples=${JSON.stringify(compactSamples)}`,
+    )
+    return { r: Math.round(r), g: Math.round(g), b: Math.round(b), alpha: 1 }
   } catch (err) {
-    console.warn('[sampleEdgeBackgroundRGB D-157] failed — fallback to #EDEDED:', err instanceof Error ? err.message : err)
-    return { r: 237, g: 237, b: 237, alpha: 1 }
+    console.warn(
+      '[sampleEdgeBackgroundRGB D-161] failed — fallback to pure white:',
+      err instanceof Error ? err.message : err,
+    )
+    return NEUTRAL_WHITE
   }
 }
 

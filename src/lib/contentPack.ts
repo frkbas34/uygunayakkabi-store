@@ -239,14 +239,22 @@ export function checkContentReadiness(product: ContentProduct): ContentReadiness
 
 /**
  * Check if a product is eligible for content generation.
- * VF-4: Must have approved visuals, be confirmed, and not already fully generated.
+ *
+ * D-159: Gate relaxed — content generation is now allowed as soon as visuals
+ * are operator-approved, BEFORE the wizard confirmation step. This lets
+ * GeoBot pre-fill commercePack + discoveryPack so the operator isn't asked
+ * to type the description manually during the confirmation wizard.
+ *
+ * The original `confirmationStatus === 'confirmed'` requirement was removed.
+ * Rationale: by the time visuals are approved, Vision analysis has already
+ * populated title + category + brand + productType on the product, which is
+ * enough input for GeoBot to draft usable content. If content generation
+ * fails or produces weak output, the operator can still retry from the
+ * wizard path or via `/geobot retry`.
  */
 export function isContentEligible(product: ContentProduct): boolean {
   // VF-4: Must have operator-approved visuals
   if (product.workflow?.visualStatus !== 'approved') return false
-
-  // Must be confirmed
-  if (product.workflow?.confirmationStatus !== 'confirmed') return false
 
   // Must not be already fully ready
   if (product.workflow?.contentStatus === 'ready') return false
@@ -255,15 +263,25 @@ export function isContentEligible(product: ContentProduct): boolean {
 }
 
 /**
- * Check if a product should auto-trigger content generation after confirmation.
- * Returns true if confirmed AND content is still pending.
+ * Check if a product should auto-trigger content generation.
+ *
+ * D-159: Semantics tightened. After image approval now auto-fires a content
+ * trigger, `contentStatus === 'pending'` no longer means "never triggered" —
+ * it means "trigger in-flight right now". Returning true on 'pending' would
+ * cause the wizard post-confirm path to double-fire while the image-approval
+ * trigger is still generating. So we only auto-trigger when contentStatus is
+ * fully absent (never touched by any trigger) OR the previous attempt failed
+ * cleanly. Stuck-in-'pending' products can be recovered via /geobot retry.
  */
 export function shouldAutoTriggerContent(product: ContentProduct): boolean {
   if (!isContentEligible(product)) return false
 
-  // Only auto-trigger if content is still pending (not partially generated or failed)
   const contentStatus = product.workflow?.contentStatus
-  return !contentStatus || contentStatus === 'pending'
+  // Absent → no trigger has run yet
+  // 'failed' → previous attempt errored out, safe to retry
+  // 'pending' → a trigger is in-flight or stuck; do NOT re-fire automatically
+  // '*_generated' → canRetriggerContent handles these explicitly
+  return !contentStatus || contentStatus === 'failed'
 }
 
 /**
@@ -296,7 +314,7 @@ export function canRetriggerContent(product: ContentProduct): boolean {
 export async function triggerContentGeneration(
   payload: any, // PayloadInstance
   product: ContentProduct,
-  triggerSource: 'auto_confirmation' | 'telegram_command' | 'admin' | 'retry',
+  triggerSource: 'auto_confirmation' | 'auto_visual_approved' | 'telegram_command' | 'admin' | 'retry',
   req?: any,
 ): Promise<ContentTriggerResult> {
   const updateReq = req

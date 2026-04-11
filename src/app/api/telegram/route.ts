@@ -533,6 +533,64 @@ async function approveImageGenJob(
   // VF-2: Set product visualStatus = approved when operator approves visuals
   await updateProductVisualStatus(payload, productId, 'approved')
 
+  // ── D-159: Auto-trigger GeoBot content generation on visual approval ─
+  // Operator-requested: "when we're done with generating the images, I want
+  // the GeoBot to generate the descriptions." Previously content generation
+  // only ran after the wizard confirmation step, which forced the operator
+  // to type title + description manually. Now it runs the moment visuals
+  // are approved — GeoBot drafts commercePack + discoveryPack using the
+  // product's existing Vision-analyzed title/category/brand/productType.
+  //
+  // Fire-and-forget: never blocks the approve-image acknowledgement. If
+  // generation fails, the wizard post-confirm path will still attempt a
+  // retry via shouldAutoTriggerContent. If both fail, operator can run
+  // /geobot retry manually.
+  try {
+    const { shouldAutoTriggerContent, triggerContentGeneration } = await import('@/lib/contentPack')
+    // Re-fetch product with its updated workflow state (visualStatus=approved)
+    // so the eligibility gate sees the current truth. depth:1 so we pass
+    // enough context (brand, variants) into the Geobot prompt builder.
+    const freshProduct = await payload.findByID({
+      collection: 'products',
+      id: productId,
+      depth: 1,
+    })
+    if (shouldAutoTriggerContent(freshProduct as any)) {
+      // Non-blocking: do not await the full generation. Log errors but
+      // never surface them to the operator — the approval flow must
+      // feel instant even if Gemini is slow.
+      triggerContentGeneration(
+        payload,
+        freshProduct as any,
+        'auto_visual_approved',
+      )
+        .then((res) => {
+          console.log(
+            `[approveImageGenJob D-159] GeoBot auto-trigger — product=${productId} ` +
+              `triggered=${res.triggered} status=${res.contentStatus}`,
+          )
+        })
+        .catch((err: unknown) => {
+          console.error(
+            `[approveImageGenJob D-159] GeoBot auto-trigger failed (non-blocking) ` +
+              `product=${productId}:`,
+            err instanceof Error ? err.message : String(err),
+          )
+        })
+    } else {
+      console.log(
+        `[approveImageGenJob D-159] GeoBot auto-trigger skipped — ` +
+          `product=${productId} already has content or is ineligible`,
+      )
+    }
+  } catch (importErr) {
+    console.error(
+      `[approveImageGenJob D-159] contentPack import failed (non-blocking) — ` +
+        `product=${productId}:`,
+      importErr instanceof Error ? importErr.message : String(importErr),
+    )
+  }
+
   const isPartial = slotsStr !== 'all' && approvedMediaIds.length < allMediaIds.length
   const slotNote = isPartial ? ` (${approvedMediaIds.length}/${allMediaIds.length} slot)` : ''
 
@@ -540,6 +598,7 @@ async function approveImageGenJob(
     chatId,
     `✅ <b>${approvedMediaIds.length} görsel onaylandı${slotNote}</b>\n\n` +
     `Görseller AI Üretim Galerisi'ne eklendi (ürün sayfası görselleri değişmedi).\n` +
+    `🤖 GeoBot ürün açıklamalarını arka planda yazıyor…\n` +
     `🔗 <a href="https://www.uygunayakkabi.com/admin/collections/products/${productId}">Ürünü admin'de gör</a>`,
     [
       [{ text: '📋 Bilgileri Gir → Onaya Gönder', callback_data: `wz_start:${productId}` }],

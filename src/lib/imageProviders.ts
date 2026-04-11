@@ -214,6 +214,15 @@ function getBackgroundRGB(backgroundStr: string): { r: number; g: number; b: num
  *    the honest corner average — keeps D-157's benefit for the
  *    D-129 near-white-on-colored-shoe case.
  */
+// D-164: RETIRED. Padding is now bgRGB (v50 baseline). This function is
+// preserved for reference only — the D-161 Chebyshev/raw-buffer sampling
+// logic is documented in DECISIONS.md D-161 and may be useful if we ever
+// need edge-sampling for a different purpose (e.g. identity lock fallback
+// tone detection). If you re-enable this function as the padding source,
+// re-read DECISIONS.md D-164 FIRST — reintroducing it without a padding
+// = bgRGB fallback will re-break SN0153-style frames.
+//
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 async function sampleEdgeBackgroundRGB(
   referenceImage: Buffer,
 ): Promise<{ r: number; g: number; b: number; alpha: number }> {
@@ -1183,25 +1192,34 @@ export async function generateByEditing(
     const premiumBackground = getBackgroundForColor(mainColor)
     const bgRGB = getBackgroundRGB(premiumBackground)
 
-    // D-157: Sample reference edge pixels for padding color so the padding
-    // blends invisibly with the image's existing background. This eliminates
-    // the frame regression that occurs when identity lock falls back and the
-    // palette-derived padding color creates a visible rectangular boundary
-    // in the input canvas that Gemini preserves in its output.
-    const paddingRGB = await sampleEdgeBackgroundRGB(referenceImage)
+    // D-164: Rollback padding to v50 baseline — paddingRGB = bgRGB.
+    //
+    // D-157 changed padding from bgRGB (v50 baseline) to an edge-sampled
+    // reference color. D-161 then patched D-157 to fall back to pure white
+    // whenever the reference corners were non-uniform (spread > 40). Both
+    // decisions violated LOCK_REMINDER_BLOCK Rule 2, which says:
+    //   "The reference image's padding/edge color is NOT the target — it
+    //    is only neutral camouflage so the input has no visible inner
+    //    rectangle. Do NOT copy the reference padding tone into the output."
+    // On SN0153 (black shoe, target warm beige #F5F0E8) the D-161 white
+    // fallback produced a visible white outer ring around a beige scene,
+    // i.e. the exact frame regression the rule forbids. Restoring bgRGB
+    // makes the padding the same color the scene block asks Gemini to
+    // render in the output, so there is no contrast for Gemini to preserve
+    // as a frame. v50 original behavior; see DECISIONS.md D-164.
+    const paddingRGB = bgRGB
 
     console.log(
       `[generateByEditing v12] protected zones: ${hasBrandZones ? (identityLock.protectedZones?.map((z) => z.name).join(',')) : 'none'}`,
     )
     console.log(
-      `[generateByEditing D-157] padding=${JSON.stringify(paddingRGB)} ` +
-      `scene-bg=${JSON.stringify(bgRGB)} (decoupled so padding is invisible)`,
+      `[generateByEditing D-164] padding=${JSON.stringify(paddingRGB)} ` +
+      `scene-bg=${JSON.stringify(bgRGB)} (v50 baseline: padding == scene-bg)`,
     )
 
-    // D-157: Resize shoe to 768×768 then pad to 1024×1024 using EDGE-SAMPLED color.
-    // Previously padded with the palette-derived scene background color, which
-    // failed when identity lock fell back (near-white #EDEDED on dark shoes →
-    // visible inner rectangle → Gemini reproduced a framed-photo look).
+    // D-164: Resize shoe to 768×768 then pad to 1024×1024 using bgRGB
+    // (matches the scene target background — no visible contrast for
+    // Gemini to preserve as a frame).
     const innerBuffer = await sharp(referenceImage)
       .resize(768, 768, { fit: 'contain', background: paddingRGB })
       .png()
@@ -1215,7 +1233,7 @@ export async function generateByEditing(
       .png()
       .toBuffer()
 
-    console.log(`[generateByEditing D-157] PNG 1024×1024 ready — ${pngBuffer.length}b (shoe at 768×768 center, pad=${JSON.stringify(paddingRGB)})`)
+    console.log(`[generateByEditing D-164] PNG 1024×1024 ready — ${pngBuffer.length}b (shoe at 768×768 center, pad=${JSON.stringify(paddingRGB)})`)
     console.log(`[lock-reminder D-153] v50 LOCKED rules prepended to every slot prompt — ${LOCK_REMINDER_BLOCK.length}b reminder block active`)
 
     for (const scene of scenes) {
@@ -1565,17 +1583,18 @@ export async function generateByGeminiPro(
     const premiumBackground = getBackgroundForColor(mainColor)
     const bgRGB = getBackgroundRGB(premiumBackground)
 
-    // D-157: Sample reference image edge pixels for the padding color.
-    // This decouples padding from the scene target background so the padding
-    // is ALWAYS invisible against the reference, regardless of identity lock
-    // success. Prevents frame regression on the fallback path where bgRGB
-    // defaulted to near-white #EDEDED and Gemini interpreted the padded ring
-    // as a photo frame it had to preserve.
-    const paddingRGB = await sampleEdgeBackgroundRGB(referenceImage)
+    // D-164: Rollback padding to v50 baseline — paddingRGB = bgRGB.
+    // See DECISIONS.md D-164 and the matching comment in generateByEditing
+    // for full rationale. Short version: D-157/D-161 violated
+    // LOCK_REMINDER_BLOCK Rule 2 by putting a different-colored ring around
+    // the input canvas, and Gemini preserved that ring as a visible frame
+    // around its output. bgRGB = the target scene color, so the padding has
+    // zero contrast against whatever Gemini draws inside — no frame.
+    const paddingRGB = bgRGB
 
     console.log(
-      `[generateByGeminiPro D-157] padding=${JSON.stringify(paddingRGB)} ` +
-      `scene-bg=${JSON.stringify(bgRGB)} (decoupled so padding is invisible)`,
+      `[generateByGeminiPro D-164] padding=${JSON.stringify(paddingRGB)} ` +
+      `scene-bg=${JSON.stringify(bgRGB)} (v50 baseline: padding == scene-bg)`,
     )
 
     const innerBuffer = await sharp(referenceImage)
@@ -1591,7 +1610,7 @@ export async function generateByGeminiPro(
       .png()
       .toBuffer()
 
-    console.log(`[generateByGeminiPro D-157] PNG 1024×1024 ready — ${pngBuffer.length}b (pad=${JSON.stringify(paddingRGB)})`)
+    console.log(`[generateByGeminiPro D-164] PNG 1024×1024 ready — ${pngBuffer.length}b (pad=${JSON.stringify(paddingRGB)})`)
     console.log(`[lock-reminder D-153] v50 LOCKED rules prepended to every slot prompt — ${LOCK_REMINDER_BLOCK.length}b reminder block active`)
 
     for (const scene of scenes) {

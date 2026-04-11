@@ -433,6 +433,12 @@ export const Products: CollectionConfig = {
       },
     },
     {
+      // D-165: defaultValue 'Günlük' removed so fresh Telegram/admin products
+      // are born with null category. The intake wizard (confirmationWizard.ts)
+      // treated the Payload default as an operator-confirmed business choice
+      // and silently skipped the category step. All reader sites are null-safe
+      // (contentPack ?? null, shopierSync fallback, page.tsx || 'Günlük' render
+      // fallback, geobotRuntime conditional, imagePromptBuilder string | null).
       name: 'category',
       type: 'select',
       label: 'Kategori',
@@ -445,7 +451,6 @@ export const Products: CollectionConfig = {
         { label: 'Krampon', value: 'Krampon' },
         { label: 'Cüzdan', value: 'Cüzdan' },
       ],
-      defaultValue: 'Günlük',
       admin: {
         position: 'sidebar',
       },

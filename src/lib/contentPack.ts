@@ -265,23 +265,56 @@ export function isContentEligible(product: ContentProduct): boolean {
 /**
  * Check if a product should auto-trigger content generation.
  *
- * D-159: Semantics tightened. After image approval now auto-fires a content
- * trigger, `contentStatus === 'pending'` no longer means "never triggered" —
- * it means "trigger in-flight right now". Returning true on 'pending' would
- * cause the wizard post-confirm path to double-fire while the image-approval
- * trigger is still generating. So we only auto-trigger when contentStatus is
- * fully absent (never touched by any trigger) OR the previous attempt failed
- * cleanly. Stuck-in-'pending' products can be recovered via /geobot retry.
+ * D-160: Reverted D-159's 'pending'-is-in-flight assumption. The Products
+ * schema defaults workflow.contentStatus='pending' on every new product
+ * (src/collections/Products.ts), so treating 'pending' as "already in-flight"
+ * made shouldAutoTriggerContent always return false for fresh products —
+ * which in turn made the D-159 image-approval auto-trigger a no-op. VERIFIED
+ * in Neon on products 241-244: contentStatus='pending', bot-events empty,
+ * commercePack empty.
+ *
+ * Trigger fires when:
+ *   - contentStatus is absent (null) OR 'pending' (schema default) → no run yet
+ *   - contentStatus === 'failed' → previous attempt failed, safe to retry
+ *
+ * Double-run protection against wizard post-confirm racing the image-approval
+ * trigger is handled in the CALLER instead (see approveImageGenJob and
+ * applyConfirmation), using `content.lastContentGenerationAt` as a freshness
+ * check — if it's within the last 5 minutes, assume a trigger is in flight
+ * and skip.
  */
 export function shouldAutoTriggerContent(product: ContentProduct): boolean {
   if (!isContentEligible(product)) return false
 
   const contentStatus = product.workflow?.contentStatus
-  // Absent → no trigger has run yet
+  // Absent → never touched (schema-less)
+  // 'pending' → schema default, no trigger has run yet
   // 'failed' → previous attempt errored out, safe to retry
-  // 'pending' → a trigger is in-flight or stuck; do NOT re-fire automatically
   // '*_generated' → canRetriggerContent handles these explicitly
-  return !contentStatus || contentStatus === 'failed'
+  // 'ready' → blocked by isContentEligible above
+  if (!contentStatus) return true
+  if (contentStatus === 'pending') return true
+  if (contentStatus === 'failed') return true
+  return false
+}
+
+/**
+ * D-160: in-flight freshness guard.
+ *
+ * Returns true if a content generation trigger fired recently (within the
+ * given window, default 5 minutes). Callers use this to avoid double-firing
+ * when the image-approval auto-trigger and the wizard post-confirm trigger
+ * might otherwise race each other on the same product.
+ */
+export function isContentGenerationInFlight(
+  product: ContentProduct,
+  windowMs = 5 * 60 * 1000,
+): boolean {
+  const last = (product as any).content?.lastContentGenerationAt
+  if (!last) return false
+  const ts = typeof last === 'string' ? Date.parse(last) : Number(last)
+  if (!Number.isFinite(ts)) return false
+  return Date.now() - ts < windowMs
 }
 
 /**

@@ -533,64 +533,8 @@ async function approveImageGenJob(
   // VF-2: Set product visualStatus = approved when operator approves visuals
   await updateProductVisualStatus(payload, productId, 'approved')
 
-  // ── D-159: Auto-trigger GeoBot content generation on visual approval ─
-  // Operator-requested: "when we're done with generating the images, I want
-  // the GeoBot to generate the descriptions." Previously content generation
-  // only ran after the wizard confirmation step, which forced the operator
-  // to type title + description manually. Now it runs the moment visuals
-  // are approved — GeoBot drafts commercePack + discoveryPack using the
-  // product's existing Vision-analyzed title/category/brand/productType.
-  //
-  // Fire-and-forget: never blocks the approve-image acknowledgement. If
-  // generation fails, the wizard post-confirm path will still attempt a
-  // retry via shouldAutoTriggerContent. If both fail, operator can run
-  // /geobot retry manually.
-  try {
-    const { shouldAutoTriggerContent, triggerContentGeneration } = await import('@/lib/contentPack')
-    // Re-fetch product with its updated workflow state (visualStatus=approved)
-    // so the eligibility gate sees the current truth. depth:1 so we pass
-    // enough context (brand, variants) into the Geobot prompt builder.
-    const freshProduct = await payload.findByID({
-      collection: 'products',
-      id: productId,
-      depth: 1,
-    })
-    if (shouldAutoTriggerContent(freshProduct as any)) {
-      // Non-blocking: do not await the full generation. Log errors but
-      // never surface them to the operator — the approval flow must
-      // feel instant even if Gemini is slow.
-      triggerContentGeneration(
-        payload,
-        freshProduct as any,
-        'auto_visual_approved',
-      )
-        .then((res) => {
-          console.log(
-            `[approveImageGenJob D-159] GeoBot auto-trigger — product=${productId} ` +
-              `triggered=${res.triggered} status=${res.contentStatus}`,
-          )
-        })
-        .catch((err: unknown) => {
-          console.error(
-            `[approveImageGenJob D-159] GeoBot auto-trigger failed (non-blocking) ` +
-              `product=${productId}:`,
-            err instanceof Error ? err.message : String(err),
-          )
-        })
-    } else {
-      console.log(
-        `[approveImageGenJob D-159] GeoBot auto-trigger skipped — ` +
-          `product=${productId} already has content or is ineligible`,
-      )
-    }
-  } catch (importErr) {
-    console.error(
-      `[approveImageGenJob D-159] contentPack import failed (non-blocking) — ` +
-        `product=${productId}:`,
-      importErr instanceof Error ? importErr.message : String(importErr),
-    )
-  }
-
+  // Send ack message FIRST so the operator sees instant feedback even if
+  // the GeoBot content generation below takes 10-30s.
   const isPartial = slotsStr !== 'all' && approvedMediaIds.length < allMediaIds.length
   const slotNote = isPartial ? ` (${approvedMediaIds.length}/${allMediaIds.length} slot)` : ''
 
@@ -604,6 +548,79 @@ async function approveImageGenJob(
       [{ text: '📋 Bilgileri Gir → Onaya Gönder', callback_data: `wz_start:${productId}` }],
     ],
   )
+
+  // ── D-159 + D-160: Auto-trigger GeoBot content generation on visual approval ─
+  // Operator-requested: "when we're done with generating the images, I want
+  // the GeoBot to generate the descriptions." Previously content generation
+  // only ran after the wizard confirmation step, which forced the operator
+  // to type title + description manually. Now it runs the moment visuals
+  // are approved — GeoBot drafts commercePack + discoveryPack using the
+  // product's existing Vision-analyzed title/category/brand/productType.
+  //
+  // D-160: awaited (not fire-and-forget). The ack message above already
+  // gave the operator instant feedback, so blocking here is invisible to
+  // UX. Awaiting is required because Vercel Lambda may terminate unawaited
+  // promises after the handler returns. The Telegram webhook route has
+  // `maxDuration = 300` so a 10-30s Gemini run fits well inside the budget.
+  //
+  // D-160: no shouldAutoTriggerContent gate — Products.contentStatus schema
+  // defaults to 'pending' on every fresh product, which made D-159's earlier
+  // gate always skip. We now rely on isContentGenerationInFlight (5-min
+  // freshness) + isContentEligible only.
+  try {
+    const {
+      isContentEligible,
+      isContentGenerationInFlight,
+      triggerContentGeneration,
+    } = await import('@/lib/contentPack')
+    // Re-fetch product with its updated workflow state (visualStatus=approved)
+    // so the eligibility gate sees the current truth. depth:1 so we pass
+    // enough context (brand, variants) into the Geobot prompt builder.
+    const freshProduct = await payload.findByID({
+      collection: 'products',
+      id: productId,
+      depth: 1,
+    })
+
+    if (!isContentEligible(freshProduct as any)) {
+      console.log(
+        `[approveImageGenJob D-160] GeoBot auto-trigger skipped — ` +
+          `product=${productId} not eligible (visualStatus or contentStatus=ready)`,
+      )
+    } else if (isContentGenerationInFlight(freshProduct as any)) {
+      console.log(
+        `[approveImageGenJob D-160] GeoBot auto-trigger skipped — ` +
+          `product=${productId} already has a content trigger in flight (within 5 min)`,
+      )
+    } else {
+      console.log(
+        `[approveImageGenJob D-160] GeoBot auto-trigger START — product=${productId}`,
+      )
+      try {
+        const res = await triggerContentGeneration(
+          payload,
+          freshProduct as any,
+          'auto_visual_approved',
+        )
+        console.log(
+          `[approveImageGenJob D-160] GeoBot auto-trigger DONE — product=${productId} ` +
+            `triggered=${res.triggered} status=${res.contentStatus}`,
+        )
+      } catch (genErr) {
+        console.error(
+          `[approveImageGenJob D-160] GeoBot auto-trigger THREW — ` +
+            `product=${productId}:`,
+          genErr instanceof Error ? `${genErr.message}\n${genErr.stack}` : String(genErr),
+        )
+      }
+    }
+  } catch (importErr) {
+    console.error(
+      `[approveImageGenJob D-160] contentPack import failed — ` +
+        `product=${productId}:`,
+      importErr instanceof Error ? importErr.message : String(importErr),
+    )
+  }
 }
 
 /**

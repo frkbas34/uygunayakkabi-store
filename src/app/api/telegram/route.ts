@@ -1335,7 +1335,7 @@ export async function POST(req: NextRequest) {
                 { text: '❌ İptal', callback_data: `wz_cancel:${wzProductId}` },
               ],
             ])
-            setWizardSession(cbChatId, {
+            await setWizardSession(cbChatId, {
               productId: wzProductId, chatId: cbChatId, userId: cbUserId,
               step: 'summary', collected: {} as any, startedAt: Date.now(),
             }, cbUserId)
@@ -1351,12 +1351,12 @@ export async function POST(req: NextRequest) {
             `<b>Eksik:</b>\n${missingList || '  (yok)'}\n\n` +
             `Sihirbaz başlıyor...`)
 
-          clearWizardSession(cbChatId, cbUserId)
+          await clearWizardSession(cbChatId, cbUserId)
           const wizState: any = {
             productId: wzProductId, chatId: cbChatId, userId: cbUserId,
             step: nextStep, collected, startedAt: Date.now(),
           }
-          setWizardSession(cbChatId, wizState, cbUserId)
+          await setWizardSession(cbChatId, wizState, cbUserId)
 
           // Dispatch first prompt
           if (nextStep === 'title') {
@@ -1376,7 +1376,7 @@ export async function POST(req: NextRequest) {
             const sizeMsg = await sendTelegramMessageWithKeyboard(cbChatId,
               formatSizeSelectionText(new Set()), buildSizeKeyboard(new Set()))
             if (sizeMsg) wizState.sizeMessageId = sizeMsg
-            setWizardSession(cbChatId, wizState, cbUserId)
+            await setWizardSession(cbChatId, wizState, cbUserId)
           } else if (nextStep === 'brand') {
             await sendTelegramMessage(cbChatId, getBrandPrompt())
           } else if (nextStep === 'targets') {
@@ -1411,7 +1411,7 @@ export async function POST(req: NextRequest) {
           const product = await payloadInst.findByID({ collection: 'products', id: session.productId })
           const nextStep = getNextWizardStep(product as any, session.collected)
           session.step = nextStep
-          setWizardSession(cbChatId, session, cbUserId)
+          await setWizardSession(cbChatId, session, cbUserId)
 
           if (nextStep === 'productType') {
             const ptypePrompt = getProductTypePrompt()
@@ -1426,7 +1426,7 @@ export async function POST(req: NextRequest) {
               buildSizeKeyboard(new Set()),
             )
             if (msgId) session.sizeMessageId = msgId
-            setWizardSession(cbChatId, session, cbUserId)
+            await setWizardSession(cbChatId, session, cbUserId)
           } else if (nextStep === 'brand') {
             await sendTelegramMessage(cbChatId, getBrandPrompt())
           } else if (nextStep === 'targets') {
@@ -1441,7 +1441,7 @@ export async function POST(req: NextRequest) {
               ],
             ])
             session.step = 'summary'
-            setWizardSession(cbChatId, session, cbUserId)
+            await setWizardSession(cbChatId, session, cbUserId)
           }
         } catch (err) {
           await answerCallbackQuery(cbQueryId, '❌ Hata')
@@ -1470,7 +1470,7 @@ export async function POST(req: NextRequest) {
           const product = await payloadInst.findByID({ collection: 'products', id: session.productId })
           const nextStep = getNextWizardStep(product as any, session.collected)
           session.step = nextStep
-          setWizardSession(cbChatId, session, cbUserId)
+          await setWizardSession(cbChatId, session, cbUserId)
 
           if (nextStep === 'price') {
             await sendTelegramMessage(cbChatId, getPricePrompt())
@@ -1482,7 +1482,7 @@ export async function POST(req: NextRequest) {
               buildSizeKeyboard(new Set()),
             )
             if (msgId) session.sizeMessageId = msgId
-            setWizardSession(cbChatId, session, cbUserId)
+            await setWizardSession(cbChatId, session, cbUserId)
           } else if (nextStep === 'brand') {
             await sendTelegramMessage(cbChatId, getBrandPrompt())
           } else if (nextStep === 'targets') {
@@ -1497,7 +1497,7 @@ export async function POST(req: NextRequest) {
               ],
             ])
             session.step = 'summary'
-            setWizardSession(cbChatId, session, cbUserId)
+            await setWizardSession(cbChatId, session, cbUserId)
           }
         } catch (err) {
           await answerCallbackQuery(cbQueryId, '❌ Hata')
@@ -1537,11 +1537,11 @@ export async function POST(req: NextRequest) {
               ],
             ])
             session.step = 'summary'
-            setWizardSession(cbChatId, session, cbUserId)
+            await setWizardSession(cbChatId, session, cbUserId)
           } else if (tgtValue === 'all') {
             session.collected.channelTargets = CHANNEL_OPTIONS.map((o) => o.value)
             await answerCallbackQuery(cbQueryId, `✅ Tümü seçildi`)
-            setWizardSession(cbChatId, session, cbUserId)
+            await setWizardSession(cbChatId, session, cbUserId)
           } else {
             // Toggle individual target
             if (!session.collected.channelTargets) session.collected.channelTargets = []
@@ -1553,7 +1553,7 @@ export async function POST(req: NextRequest) {
               session.collected.channelTargets.push(tgtValue)
               await answerCallbackQuery(cbQueryId, `➕ ${tgtValue} eklendi`)
             }
-            setWizardSession(cbChatId, session, cbUserId)
+            await setWizardSession(cbChatId, session, cbUserId)
           }
         } catch (err) {
           await answerCallbackQuery(cbQueryId, '❌ Hata')
@@ -1608,7 +1608,7 @@ export async function POST(req: NextRequest) {
 
             // Move to stock step
             session.step = 'stock'
-            setWizardSession(cbChatId, session, cbUserId)
+            await setWizardSession(cbChatId, session, cbUserId)
             await sendTelegramMessage(cbChatId, getStockPrompt(sortedSizes))
             return NextResponse.json({ ok: true })
           } else {
@@ -1624,7 +1624,7 @@ export async function POST(req: NextRequest) {
 
           // Update session and refresh keyboard
           session.pendingSizes = Array.from(selected)
-          setWizardSession(cbChatId, session, cbUserId)
+          await setWizardSession(cbChatId, session, cbUserId)
 
           const cbMsgId = body?.callback_query?.message?.message_id
           if (cbMsgId) {
@@ -1666,7 +1666,7 @@ export async function POST(req: NextRequest) {
                 `Görsel durumu: <code>${confirmVisualStatus}</code>\n` +
                 `Önce görselleri onaylayın, sonra tekrar /confirm çalıştırın.`,
             )
-            clearWizardSession(cbChatId, cbUserId)
+            await clearWizardSession(cbChatId, cbUserId)
             return NextResponse.json({ ok: true })
           }
 
@@ -1720,7 +1720,7 @@ export async function POST(req: NextRequest) {
               `❌ Onay hatası: ${result.error}`,
             )
           }
-          clearWizardSession(cbChatId, cbUserId)
+          await clearWizardSession(cbChatId, cbUserId)
         } catch (err) {
           await answerCallbackQuery(cbQueryId, '❌ Hata')
           console.error('[telegram/webhook] wz_confirm callback failed:', err)
@@ -1732,7 +1732,7 @@ export async function POST(req: NextRequest) {
       if (cbData.startsWith('wz_cancel:')) {
         try {
           const { clearWizardSession } = await import('@/lib/confirmationWizard')
-          clearWizardSession(cbChatId, cbUserId)
+          await clearWizardSession(cbChatId, cbUserId)
           await answerCallbackQuery(cbQueryId, '❌ İptal edildi')
           await sendTelegramMessage(cbChatId, '❌ Onay sihirbazı iptal edildi.')
         } catch (err) {
@@ -1976,7 +1976,7 @@ export async function POST(req: NextRequest) {
             const product = await payload.findByID({ collection: 'products', id: wizSession.productId })
             const nextStep = getNextWizardStep(product as any, wizSession.collected)
             wizSession.step = nextStep
-            setWizardSession(chatId, wizSession, msgUserId)
+            await setWizardSession(chatId, wizSession, msgUserId)
 
             if (nextStep === 'stockCode') {
               await sendTelegramMessage(chatId, getStockCodePrompt((product as any).sku ?? '—'))
@@ -1997,7 +1997,7 @@ export async function POST(req: NextRequest) {
                 ],
               ])
               wizSession.step = 'summary'
-              setWizardSession(chatId, wizSession, msgUserId)
+              await setWizardSession(chatId, wizSession, msgUserId)
             }
             return NextResponse.json({ ok: true })
           }
@@ -2021,7 +2021,7 @@ export async function POST(req: NextRequest) {
             const product = await payload.findByID({ collection: 'products', id: wizSession.productId })
             const nextStep = getNextWizardStep(product as any, wizSession.collected)
             wizSession.step = nextStep
-            setWizardSession(chatId, wizSession, msgUserId)
+            await setWizardSession(chatId, wizSession, msgUserId)
 
             if (nextStep === 'category') {
               const catPrompt = getCategoryPrompt()
@@ -2040,7 +2040,7 @@ export async function POST(req: NextRequest) {
                 buildSizeKeyboard(new Set()),
               )
               if (sizeMsg) wizSession.sizeMessageId = sizeMsg
-              setWizardSession(chatId, wizSession, msgUserId)
+              await setWizardSession(chatId, wizSession, msgUserId)
             } else if (nextStep === 'brand') {
               const { getBrandPrompt } = await import('@/lib/confirmationWizard')
               await sendTelegramMessage(chatId, getBrandPrompt())
@@ -2056,7 +2056,7 @@ export async function POST(req: NextRequest) {
                 ],
               ])
               wizSession.step = 'summary'
-              setWizardSession(chatId, wizSession, msgUserId)
+              await setWizardSession(chatId, wizSession, msgUserId)
             }
             return NextResponse.json({ ok: true })
           }
@@ -2073,7 +2073,7 @@ export async function POST(req: NextRequest) {
             const product = await payload.findByID({ collection: 'products', id: wizSession.productId })
             const nextStep = getNextWizardStep(product as any, wizSession.collected)
             wizSession.step = nextStep
-            setWizardSession(chatId, wizSession, msgUserId)
+            await setWizardSession(chatId, wizSession, msgUserId)
 
             if (nextStep === 'sizes') {
               wizSession.pendingSizes = []
@@ -2083,7 +2083,7 @@ export async function POST(req: NextRequest) {
                 buildSizeKeyboard(new Set()),
               )
               if (sizeMsg) wizSession.sizeMessageId = sizeMsg
-              setWizardSession(chatId, wizSession, msgUserId)
+              await setWizardSession(chatId, wizSession, msgUserId)
             } else if (nextStep === 'brand') {
               const { getBrandPrompt } = await import('@/lib/confirmationWizard')
               await sendTelegramMessage(chatId, getBrandPrompt())
@@ -2099,7 +2099,7 @@ export async function POST(req: NextRequest) {
                 ],
               ])
               wizSession.step = 'summary'
-              setWizardSession(chatId, wizSession, msgUserId)
+              await setWizardSession(chatId, wizSession, msgUserId)
             }
             return NextResponse.json({ ok: true })
           }
@@ -2124,7 +2124,7 @@ export async function POST(req: NextRequest) {
             const product = await payload.findByID({ collection: 'products', id: wizSession.productId })
             const nextStep = getNextWizardStep(product as any, wizSession.collected)
             wizSession.step = nextStep
-            setWizardSession(chatId, wizSession, msgUserId)
+            await setWizardSession(chatId, wizSession, msgUserId)
 
             if (nextStep === 'brand') {
               const { getBrandPrompt } = await import('@/lib/confirmationWizard')
@@ -2141,7 +2141,7 @@ export async function POST(req: NextRequest) {
                 ],
               ])
               wizSession.step = 'summary'
-              setWizardSession(chatId, wizSession, msgUserId)
+              await setWizardSession(chatId, wizSession, msgUserId)
             }
             return NextResponse.json({ ok: true })
           }
@@ -2158,7 +2158,7 @@ export async function POST(req: NextRequest) {
             const product = await payload.findByID({ collection: 'products', id: wizSession.productId })
             const nextStep = getNextWizardStep(product as any, wizSession.collected)
             wizSession.step = nextStep
-            setWizardSession(chatId, wizSession, msgUserId)
+            await setWizardSession(chatId, wizSession, msgUserId)
 
             if (nextStep === 'targets') {
               const tgtPrompt = getTargetsPrompt()
@@ -2172,7 +2172,7 @@ export async function POST(req: NextRequest) {
                 ],
               ])
               wizSession.step = 'summary'
-              setWizardSession(chatId, wizSession, msgUserId)
+              await setWizardSession(chatId, wizSession, msgUserId)
             }
             return NextResponse.json({ ok: true })
           }
@@ -2181,8 +2181,34 @@ export async function POST(req: NextRequest) {
           // (e.g., summary step waiting for button, or targets step waiting for button)
         } catch (wizErr) {
           console.error('[telegram/webhook] wizard text interceptor failed:', wizErr)
-          clearWizardSession(chatId, msgUserId)
+          await clearWizardSession(chatId, msgUserId)
           await sendTelegramMessage(chatId, '❌ Sihirbaz hatası. /confirm komutuyla tekrar başlayabilirsiniz.')
+          return NextResponse.json({ ok: true })
+        }
+      } else {
+        // D-166: wizSession is null but we're clearly in a wizard-style text
+        // reply (plain text, not a slash/hashtag/STOCK command). Historically
+        // the bot would silently drop this message, leaving the operator
+        // staring at a bot prompt with no response. Give targeted feedback
+        // when the text looks like a typical wizard input so the operator
+        // knows the session was lost and can restart.
+        //
+        // Heuristics:
+        //   - Pure number or decimal: looks like a price ("899", "1299.90")
+        //   - Digit list 2-char entries: looks like sizes ("38,39,40,41")
+        //   - Size range: looks like sizes ("38-44")
+        //   - Pure non-negative integer: looks like stock ("10")
+        const trimmed = text.trim()
+        const looksLikeWizardInput =
+          /^\d+([.,]\d+)?$/.test(trimmed) ||
+          /^\d{2}([,\s]+\d{2})+$/.test(trimmed) ||
+          /^\d{2}\s*[-–]\s*\d{2}$/.test(trimmed)
+        if (looksLikeWizardInput) {
+          await sendTelegramMessage(
+            chatId,
+            'ℹ️ Aktif sihirbaz oturumu bulunamadı (oturum süresi dolmuş olabilir).\n' +
+              'Yeniden başlatmak için: <code>/confirm &lt;ürün_id&gt;</code>',
+          )
           return NextResponse.json({ ok: true })
         }
       }
@@ -3975,7 +4001,7 @@ export async function POST(req: NextRequest) {
         await hydrateWizardSession(payload, chatId, msgUserId)
         const existing = getWizardSession(chatId, msgUserId)
         if (existing) {
-          clearWizardSession(chatId, msgUserId)
+          await clearWizardSession(chatId, msgUserId)
           await sendTelegramMessage(chatId, '❌ Onay sihirbazı iptal edildi.')
         } else {
           await sendTelegramMessage(chatId, 'ℹ️ Aktif sihirbaz oturumu yok.')
@@ -4079,7 +4105,7 @@ export async function POST(req: NextRequest) {
                 { text: '❌ İptal', callback_data: `wz_cancel:${productId}` },
               ],
             ])
-            setWizardSession(chatId, {
+            await setWizardSession(chatId, {
               productId,
               chatId,
               userId: msgUserId,
@@ -4122,7 +4148,7 @@ export async function POST(req: NextRequest) {
           const collected: Record<string, unknown> = {}
           const nextStep = getNextWizardStep(product as any, collected as any)
 
-          clearWizardSession(chatId, msgUserId) // Clear any stale session
+          await clearWizardSession(chatId, msgUserId) // Clear any stale session
           const wizState = {
             productId,
             chatId,
@@ -4131,7 +4157,7 @@ export async function POST(req: NextRequest) {
             collected: collected as any,
             startedAt: Date.now(),
           } as any
-          setWizardSession(chatId, wizState, msgUserId)
+          await setWizardSession(chatId, wizState, msgUserId)
 
           // Send first prompt
           if (nextStep === 'title') {
@@ -4154,7 +4180,7 @@ export async function POST(req: NextRequest) {
               buildSizeKeyboard(new Set()),
             )
             if (sizeMsg) wizState.sizeMessageId = sizeMsg
-            setWizardSession(chatId, wizState, msgUserId)
+            await setWizardSession(chatId, wizState, msgUserId)
           } else if (nextStep === 'brand') {
             await sendTelegramMessage(chatId, getBrandPrompt())
           } else if (nextStep === 'targets') {

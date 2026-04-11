@@ -198,42 +198,52 @@ export async function hydrateWizardSession(
 }
 
 /**
- * D-158: Persist (upsert) a wizard session to the DB.
- * Fire-and-forget — errors are logged but not thrown so the Telegram handler
- * doesn't stall if Neon has a transient hiccup. The in-memory write has
- * already happened via setWizardSession before this fires.
+ * D-158 / D-166: Persist (upsert) a wizard session to the DB.
+ *
+ * D-166: This used to be fire-and-forget ("Background"), which caused a race
+ * on Vercel serverless where the Lambda would freeze before the in-flight
+ * DB query drained. When the operator's follow-up text message landed on
+ * a different Lambda instance, the hydrate query found no row, and the
+ * wizard interceptor silently dropped the reply. See D-166 in DECISIONS.md.
+ *
+ * Now returns Promise<void>; callers in route.ts `await` this via
+ * setWizardSession so the DB write is durable before the handler returns.
+ * Errors are still caught and warned — we don't want to 500 on a transient
+ * Neon hiccup, but we do want to guarantee the write was at least attempted
+ * within the request's async lifetime.
  */
-function persistWizardSessionBackground(
+async function persistWizardSession(
   payload: PayloadLike | null,
   key: string,
   state: WizardState,
-): void {
+): Promise<void> {
   const pool = payload?.db?.pool
   if (!pool) return
-  pool
-    .query(
+  try {
+    await pool.query(
       `INSERT INTO wizard_sessions (session_key, state, started_at, updated_at)
        VALUES ($1, $2::jsonb, to_timestamp($3::bigint / 1000.0), NOW())
        ON CONFLICT (session_key) DO UPDATE
          SET state = EXCLUDED.state, updated_at = NOW()`,
       [key, JSON.stringify(state), state.startedAt],
     )
-    .catch((err) => {
-      console.warn('[persistWizardSession D-158] DB upsert failed:', err instanceof Error ? err.message : err)
-    })
+  } catch (err) {
+    console.warn('[persistWizardSession D-166] DB upsert failed:', err instanceof Error ? err.message : err)
+  }
 }
 
 /**
- * D-158: Delete a wizard session from the DB (fire-and-forget).
+ * D-158 / D-166: Delete a wizard session from the DB.
+ * Now awaitable via clearWizardSession for the same reason as persist above.
  */
-function deleteWizardSessionBackground(payload: PayloadLike | null, key: string): void {
+async function deleteWizardSession(payload: PayloadLike | null, key: string): Promise<void> {
   const pool = payload?.db?.pool
   if (!pool) return
-  pool
-    .query(`DELETE FROM wizard_sessions WHERE session_key = $1`, [key])
-    .catch((err) => {
-      console.warn('[deleteWizardSession D-158] DB delete failed:', err instanceof Error ? err.message : err)
-    })
+  try {
+    await pool.query(`DELETE FROM wizard_sessions WHERE session_key = $1`, [key])
+  } catch (err) {
+    console.warn('[deleteWizardSession D-166] DB delete failed:', err instanceof Error ? err.message : err)
+  }
 }
 
 // D-158: module-level payload ref set by route.ts once per request so the
@@ -258,23 +268,42 @@ export function getWizardSession(chatId: number, userId?: number): WizardState |
   // Auto-expire stale sessions
   if (Date.now() - session.startedAt > WIZARD_TIMEOUT_MS) {
     wizardSessions.delete(key)
-    deleteWizardSessionBackground(currentPayloadRef, key)
+    // D-166: fire-and-forget OK here — getWizardSession is sync by design and
+    // a missed delete on a stale row will self-clean on next hydrate (which
+    // filters started_at > NOW() - 30 minutes).
+    void deleteWizardSession(currentPayloadRef, key)
     return null
   }
 
   return session
 }
 
-export function setWizardSession(chatId: number, state: WizardState, userId?: number): void {
+/**
+ * D-166: Awaitable. Callers in route.ts must `await` this so the DB upsert
+ * is guaranteed to complete before the Lambda returns — otherwise the next
+ * request on a cold instance hydrates an empty session and silently drops
+ * wizard text input.
+ */
+export async function setWizardSession(
+  chatId: number,
+  state: WizardState,
+  userId?: number,
+): Promise<void> {
   const key = sessionKey(chatId, userId)
   wizardSessions.set(key, state)
-  persistWizardSessionBackground(currentPayloadRef, key, state)
+  await persistWizardSession(currentPayloadRef, key, state)
 }
 
-export function clearWizardSession(chatId: number, userId?: number): void {
+/**
+ * D-166: Awaitable for the same reason as setWizardSession above.
+ */
+export async function clearWizardSession(
+  chatId: number,
+  userId?: number,
+): Promise<void> {
   const key = sessionKey(chatId, userId)
   wizardSessions.delete(key)
-  deleteWizardSessionBackground(currentPayloadRef, key)
+  await deleteWizardSession(currentPayloadRef, key)
 }
 
 // ── Field checks ──────────────────────────────────────────────────────

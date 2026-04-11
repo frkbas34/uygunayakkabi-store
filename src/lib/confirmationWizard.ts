@@ -390,41 +390,52 @@ export function checkConfirmationFields(product: ConfirmableProduct): Confirmati
 /**
  * Given the current product state + what's been collected in the wizard,
  * determine which step to ask next.
+ *
+ * D-163: Reordered so the commerce-critical fields GeoBot needs
+ * (category → productType → price → sizes → stock) are asked FIRST,
+ * BEFORE title/stockCode/brand/targets. GeoBot only fires after the
+ * whole wizard is confirmed (see applyConfirmation step 5), so the
+ * order here controls the *operator experience*, not the data that
+ * reaches GeoBot — but the new order matches the operator's intake
+ * workflow: decide what the product IS before typing its label.
  */
 export function getNextWizardStep(
   product: ConfirmableProduct,
   collected: WizardState['collected'],
 ): WizardStep {
-  // Title (text) — Phase T1: ask if still placeholder "Taslak Ürün ..."
-  const isPlaceholderTitle = !product.title || /^Taslak Ürün\s/i.test(product.title)
-  if (isPlaceholderTitle && !collected.title) return 'title'
-
-  // Stock code (text) — Phase T1: ask if SKU is auto-generated TG-xxx
-  const isAutoSku = !product.sku || /^TG-/i.test(product.sku ?? '')
-  if (isAutoSku && !collected.stockCode) return 'stockCode'
-
-  // Category (button)
+  // 1. Category (button) — drives how the whole product is classified
   if (!product.category && !collected.category) return 'category'
 
-  // Product Type (button) — VF-5
+  // 2. Product Type / style (button) — VF-5, e.g. classic / sneaker / bot
   if (!product.productType && !collected.productType) return 'productType'
 
-  // Price (text — only if missing from intake)
+  // 3. Price (text — only if missing from intake)
   const hasPrice = (typeof product.price === 'number' && product.price > 0) || collected.price
   if (!hasPrice) return 'price'
 
-  // Sizes (button multi-select)
+  // 4. Sizes (button multi-select)
   const hasVariants =
     (product.variants ?? []).filter((v) => v.size && (v.stock ?? 0) > 0).length > 0
   if (!hasVariants && !collected.sizes) return 'sizes'
 
-  // Stock per size (text — only if sizes were just collected)
+  // 5. Stock per size (text — only if sizes were just collected)
   if (!hasVariants && collected.sizes && !collected.stockPerSize) return 'stock'
 
-  // Brand (text) — VF-5
+  // 6. Stock code (text) — Phase T1: ask if SKU is auto-generated TG-xxx.
+  //    D-163: moved AFTER commerce fields so the operator types the label
+  //    last, once they already know what the product is.
+  const isAutoSku = !product.sku || /^TG-/i.test(product.sku ?? '')
+  if (isAutoSku && !collected.stockCode) return 'stockCode'
+
+  // 7. Title (text) — Phase T1: ask if still placeholder "Taslak Ürün ..."
+  //    D-163: moved AFTER commerce fields for the same reason as stockCode.
+  const isPlaceholderTitle = !product.title || /^Taslak Ürün\s/i.test(product.title)
+  if (isPlaceholderTitle && !collected.title) return 'title'
+
+  // 8. Brand (text) — VF-5
   if (!product.brand && !collected.brand) return 'brand'
 
-  // Channel targets (button multi-select)
+  // 9. Channel targets (button multi-select)
   const hasTargets = (product.channelTargets ?? []).length > 0 || collected.channelTargets
   if (!hasTargets) return 'targets'
 

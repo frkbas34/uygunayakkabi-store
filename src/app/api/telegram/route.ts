@@ -877,11 +877,13 @@ export async function POST(req: NextRequest) {
       // "⚠️ Aktif sihirbaz yok" after a deploy or cold start.
       if (cbData.startsWith('wz_')) {
         try {
-          const { hydrateWizardSession, bindWizardPayload } =
+          const { hydrateWizardSession, bindWizardPayload, getWizardSession: peekSession } =
             await import('@/lib/confirmationWizard')
           const cbWizPayload = await getPayload()
           bindWizardPayload(cbWizPayload)
-          await hydrateWizardSession(cbWizPayload, cbChatId, cbUserId)
+          const hydrated = await hydrateWizardSession(cbWizPayload, cbChatId, cbUserId)
+          const peekAfter = peekSession(cbChatId, cbUserId)
+          console.log(`[wz_hydrate] chat=${cbChatId} user=${cbUserId} cb=${cbData} hydrated=${hydrated ? `step=${hydrated.step}` : 'null'} peek=${peekAfter ? `step=${peekAfter.step}` : 'null'}`)
         } catch (err) {
           console.warn('[telegram/D-158] wizard hydrate failed:', err instanceof Error ? err.message : err)
         }
@@ -1629,8 +1631,10 @@ export async function POST(req: NextRequest) {
           const { getWizardSession, setWizardSession } =
             await import('@/lib/confirmationWizard')
           const session = getWizardSession(cbChatId, cbUserId)
+          console.log(`[wz_size] chat=${cbChatId} user=${cbUserId} session=${session ? `step=${session.step} product=${session.productId}` : 'null'} data=${cbData}`)
           if (!session || session.step !== 'sizes') {
-            await answerCallbackQuery(cbQueryId, '⚠️ Aktif beden seçimi yok')
+            const reason = !session ? 'oturum yok' : `adım=${session.step} (sizes bekleniyor)`
+            await answerCallbackQuery(cbQueryId, `⚠️ Beden seçimi aktif değil: ${reason}`)
             return NextResponse.json({ ok: true })
           }
 

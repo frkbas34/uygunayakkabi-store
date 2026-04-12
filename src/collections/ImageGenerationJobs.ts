@@ -157,9 +157,12 @@ export const ImageGenerationJobs: CollectionConfig = {
             (productDoc as any).generativeGallery as Array<{ image: number }> | undefined
           ) ?? []
 
+          // D-172f: Deduplicate to prevent duplicate images on re-approval
+          const existingIds = new Set(existingGallery.map((e) => (typeof e.image === 'object' ? (e.image as any).id : e.image)))
+          const deduped = newMediaIds.filter((id) => !existingIds.has(id))
           const updatedGallery = [
             ...existingGallery,
-            ...newMediaIds.map((id) => ({ image: id })),
+            ...deduped.map((id) => ({ image: id })),
           ]
 
           await payload.update({

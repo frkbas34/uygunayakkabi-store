@@ -552,10 +552,13 @@ async function approveImageGenJob(
     depth: 0,
   })
   const existingGallery = ((productDoc as any).generativeGallery as Array<{ image: number }> | undefined) ?? []
-  const updatedGallery = [
-    ...existingGallery,
-    ...approvedMediaIds.map((id) => ({ image: id })),
-  ]
+  // D-172f: Deduplicate — prevent the same media ID from appearing twice
+  // if operator re-approves or re-generates for the same product.
+  const existingIds = new Set(existingGallery.map((e) => (typeof e.image === 'object' ? (e.image as any).id : e.image)))
+  const newEntries = approvedMediaIds
+    .filter((id) => !existingIds.has(id))
+    .map((id) => ({ image: id }))
+  const updatedGallery = [...existingGallery, ...newEntries]
   await payload.update({
     collection: 'products',
     id: productId,

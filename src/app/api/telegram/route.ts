@@ -532,7 +532,14 @@ async function approveImageGenJob(
   }
 
   if (approvedMediaIds.length === 0) {
-    await sendTelegramMessage(chatId, '⚠️ Onaylanacak geçerli görsel bulunamadı.')
+    console.error(
+      `[telegram/approveImageGenJob] No approved media IDs — job=${jobId} slots="${slotsStr}" ` +
+        `allMediaIds=[${allMediaIds.join(',')}] generatedImages=${JSON.stringify(generatedImages?.length ?? 'undef')}`,
+    )
+    await sendTelegramMessage(
+      chatId,
+      `⚠️ Onaylanacak geçerli görsel bulunamadı.\n<code>Job: ${jobId} | Media: ${allMediaIds.length} | Slots: ${slotsStr || 'all'}</code>`,
+    )
     return
   }
 

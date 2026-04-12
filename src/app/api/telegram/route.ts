@@ -1780,17 +1780,40 @@ export async function POST(req: NextRequest) {
       }
       return NextResponse.json({ ok: true })
     }
+    // D-168: Early wizard hydration for group text messages.
+    // When there's an active wizard session (operator mid-step through /confirm),
+    // the group filter must let text through so the operator can type answers
+    // (price, stock, brand, title, stockCode) without having to tap Reply on the
+    // bot's message each time. getPayload() is a cached singleton (free after
+    // first call); hydrateWizardSession is one lightweight SELECT.
+    let hasActiveWizardSession = false
+    if (isGroupChat && text && !text.startsWith('/') && !text.startsWith('#') && !message.photo) {
+      try {
+        const earlyPayload = await getPayload()
+        const { bindWizardPayload, hydrateWizardSession, getWizardSession } = await import('@/lib/confirmationWizard')
+        bindWizardPayload(earlyPayload)
+        await hydrateWizardSession(earlyPayload, chatId, msgUserId)
+        const wizSess = getWizardSession(chatId, msgUserId)
+        hasActiveWizardSession = !!wizSess
+        if (hasActiveWizardSession) {
+          console.log(`[telegram/D-168] active wizard session for chat=${chatId} user=${msgUserId} step=${wizSess!.step} — will bypass group filter`)
+        }
+      } catch (err) {
+        console.warn('[telegram/D-168] early wizard check failed:', err instanceof Error ? err.message : err)
+      }
+    }
+
     if (botParam !== 'geo' && isGroupChat) {
       // Phase Y: Uygunops in group — allow photo intake (any photo) + reply-to-bot
-      // All other group messages still owned by Geo_bot
+      // D-168: also allow text when there's an active wizard session
       const hasPhoto = !!message.photo || !!(message.reply_to_message?.photo && /[uü]r[uü]ne\s+[cç]evir/i.test(text))
       const isReplyToBotEarly = message.reply_to_message?.from?.id === 8702872700
 
-      if (!hasPhoto && !isReplyToBotEarly) {
+      if (!hasPhoto && !isReplyToBotEarly && !hasActiveWizardSession) {
         console.log(`[telegram/phase-n] Uygunops ignoring group message in chat ${chatId} — Geo_bot owns group context`)
         return NextResponse.json({ ok: true })
       }
-      console.log(`[telegram/phase-y] Uygunops group pass-through — chat ${chatId}, photo=${hasPhoto}, replyToBot=${isReplyToBotEarly}`)
+      console.log(`[telegram/phase-y] Uygunops group pass-through — chat ${chatId}, photo=${hasPhoto}, replyToBot=${isReplyToBotEarly}, activeWizard=${hasActiveWizardSession}`)
     }
 
     // ── Phase I+K: Group chat activation filter ────────────────────────────────
@@ -1829,8 +1852,9 @@ export async function POST(req: NextRequest) {
       // Phase Y: photos are intentional intake — always pass through for Uygunops
       const isPhotoMessage = !!message.photo || !!(message.reply_to_message?.photo)
 
-      if (!isCommand && !isMention && !isReplyToBot && !isHashtagTrigger && !isStockCommand && !isPhotoMessage) {
+      if (!isCommand && !isMention && !isReplyToBot && !isHashtagTrigger && !isStockCommand && !isPhotoMessage && !hasActiveWizardSession) {
         // Silently ignore non-activated messages in groups
+        // D-168: active wizard sessions bypass this filter
         return NextResponse.json({ ok: true })
       }
     }

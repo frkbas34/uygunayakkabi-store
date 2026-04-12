@@ -117,40 +117,8 @@ async function editMessageText(
   })
 }
 
-/** Build inline keyboard for size multi-select */
+/** Default shoe sizes for auto-selection (D-170: no interactive keyboard) */
 const DEFAULT_SIZES = ['39', '40', '41', '42', '43', '44', '45']
-
-function buildSizeKeyboard(
-  selectedSizes: Set<string>,
-): Array<Array<{ text: string; callback_data: string }>> {
-  const rows: Array<Array<{ text: string; callback_data: string }>> = []
-  // Row 1: 39, 40, 41  |  Row 2: 42, 43, 44  |  Row 3: 45
-  const layout = [[0, 3], [3, 6], [6, 7]]
-  for (const [start, end] of layout) {
-    const row = DEFAULT_SIZES.slice(start, end).map((size) => ({
-      text: selectedSizes.has(size) ? `✅ ${size}` : size,
-      callback_data: `wz_size:${size}`,
-    }))
-    rows.push(row)
-  }
-  // Action rows
-  rows.push([
-    { text: '🔄 Tümünü Seç', callback_data: 'wz_size:all' },
-    { text: '🗑 Temizle', callback_data: 'wz_size:clear' },
-  ])
-  rows.push([
-    { text: '✅ Devam', callback_data: 'wz_size:done' },
-  ])
-  return rows
-}
-
-function formatSizeSelectionText(selectedSizes: Set<string>): string {
-  if (selectedSizes.size === 0) {
-    return '👟 <b>Beden seçin:</b>\n\nAşağıdaki butonlara tıklayarak bedenleri seçin/kaldırın.'
-  }
-  const sorted = Array.from(selectedSizes).sort((a, b) => Number(a) - Number(b))
-  return `👟 <b>Beden seçin:</b>\n\n✅ Seçili: <b>${sorted.join(', ')}</b> (${sorted.length} beden)`
-}
 
 /** Dismiss the loading spinner on a Telegram button after user clicks it */
 async function answerCallbackQuery(callbackQueryId: string, text?: string): Promise<void> {
@@ -799,7 +767,7 @@ export async function POST(req: NextRequest) {
       // into the ops GROUP chat — the Phase N "Uygunops-in-group → silent drop"
       // rule was swallowing every imgapprove/imgregen/imgreject/imgpremium/wz_*
       // button click and breaking the entire golden-path approval flow.
-      const OPS_CB_PREFIXES = ['imagegen:', 'imgapprove:', 'imgreject:', 'imgregen:', 'imgpremium:', 'wz_start:', 'wz_cat:', 'wz_ptype:', 'wz_tgt:', 'wz_size:', 'wz_confirm:', 'wz_cancel:']
+      const OPS_CB_PREFIXES = ['imagegen:', 'imgapprove:', 'imgreject:', 'imgregen:', 'imgpremium:', 'wz_start:', 'wz_cat:', 'wz_ptype:', 'wz_tgt:', 'wz_confirm:', 'wz_cancel:']
       const GEO_CB_PREFIXES = ['storyapprove:', 'storyreject:', 'storyretry:', 'geo_content:', 'geo_audit:', 'geo_auditrun:', 'geo_activate:', 'geo_retry:']
       const isOpsCb = OPS_CB_PREFIXES.some(p => cbData.startsWith(p))
       const isGeoCb = GEO_CB_PREFIXES.some(p => cbData.startsWith(p))
@@ -1319,7 +1287,7 @@ export async function POST(req: NextRequest) {
           const {
             checkConfirmationFields, getNextWizardStep, setWizardSession, clearWizardSession,
             getTitlePrompt, getStockCodePrompt, getCategoryPrompt, getProductTypePrompt,
-            getPricePrompt, getTargetsPrompt, getBrandPrompt, formatConfirmationSummary,
+            getPricePrompt, getTargetsPrompt, getBrandPrompt, getStockPrompt, formatConfirmationSummary,
           } = await import('@/lib/confirmationWizard')
 
           const check = checkConfirmationFields(product as any)
@@ -1372,11 +1340,15 @@ export async function POST(req: NextRequest) {
           } else if (nextStep === 'price') {
             await sendTelegramMessage(cbChatId, getPricePrompt())
           } else if (nextStep === 'sizes') {
-            wizState.pendingSizes = []
-            const sizeMsg = await sendTelegramMessageWithKeyboard(cbChatId,
-              formatSizeSelectionText(new Set()), buildSizeKeyboard(new Set()))
-            if (sizeMsg) wizState.sizeMessageId = sizeMsg
+            // D-170: Auto-select all default sizes and skip to stock
+            const autoSizes = DEFAULT_SIZES.slice()
+            wizState.collected.sizes = autoSizes.join(',')
+            wizState.pendingSizes = undefined
+            wizState.sizeMessageId = undefined
+            await sendTelegramMessage(cbChatId, `✅ Bedenler: ${autoSizes.join(', ')}`)
+            wizState.step = 'stock' as any
             await setWizardSession(cbChatId, wizState, cbUserId)
+            await sendTelegramMessage(cbChatId, getStockPrompt(autoSizes))
           } else if (nextStep === 'brand') {
             await sendTelegramMessage(cbChatId, getBrandPrompt())
           } else if (nextStep === 'targets') {
@@ -1420,14 +1392,15 @@ export async function POST(req: NextRequest) {
           } else if (nextStep === 'price') {
             await sendTelegramMessage(cbChatId, getPricePrompt())
           } else if (nextStep === 'sizes') {
-            session.pendingSizes = []
-            const msgId = await sendTelegramMessageWithKeyboard(
-              cbChatId,
-              formatSizeSelectionText(new Set()),
-              buildSizeKeyboard(new Set()),
-            )
-            if (msgId) session.sizeMessageId = msgId
+            // D-170: Auto-select all default sizes and skip to stock
+            const autoSizes = DEFAULT_SIZES.slice()
+            session.collected.sizes = autoSizes.join(',')
+            session.pendingSizes = undefined
+            session.sizeMessageId = undefined
+            await sendTelegramMessage(cbChatId, `✅ Bedenler: ${autoSizes.join(', ')}`)
+            session.step = 'stock' as any
             await setWizardSession(cbChatId, session, cbUserId)
+            await sendTelegramMessage(cbChatId, getStockPrompt(autoSizes))
           } else if (nextStep === 'stock') {
             await sendTelegramMessage(cbChatId, getStockPrompt((session.collected.sizes ?? '').split(',').filter(Boolean)))
           } else if (nextStep === 'stockCode') {
@@ -1483,14 +1456,15 @@ export async function POST(req: NextRequest) {
           if (nextStep === 'price') {
             await sendTelegramMessage(cbChatId, getPricePrompt())
           } else if (nextStep === 'sizes') {
-            session.pendingSizes = []
-            const msgId = await sendTelegramMessageWithKeyboard(
-              cbChatId,
-              formatSizeSelectionText(new Set()),
-              buildSizeKeyboard(new Set()),
-            )
-            if (msgId) session.sizeMessageId = msgId
+            // D-170: Auto-select all default sizes and skip to stock
+            const autoSizes = DEFAULT_SIZES.slice()
+            session.collected.sizes = autoSizes.join(',')
+            session.pendingSizes = undefined
+            session.sizeMessageId = undefined
+            await sendTelegramMessage(cbChatId, `✅ Bedenler: ${autoSizes.join(', ')}`)
+            session.step = 'stock' as any
             await setWizardSession(cbChatId, session, cbUserId)
+            await sendTelegramMessage(cbChatId, getStockPrompt(autoSizes))
           } else if (nextStep === 'stock') {
             await sendTelegramMessage(cbChatId, getStockPrompt((session.collected.sizes ?? '').split(',').filter(Boolean)))
           } else if (nextStep === 'stockCode') {
@@ -1576,85 +1550,7 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ ok: true })
       }
 
-      // wz_size:{value} — size multi-select toggle
-      if (cbData.startsWith('wz_size:')) {
-        try {
-          const { getWizardSession, setWizardSession, getNextWizardStep,
-                  getTargetsPrompt, formatConfirmationSummary, getStockPrompt } = await import('@/lib/confirmationWizard')
-          const session = getWizardSession(cbChatId, cbUserId)
-          if (!session || session.step !== 'sizes') {
-            await answerCallbackQuery(cbQueryId, '⚠️ Aktif beden seçimi yok')
-            return NextResponse.json({ ok: true })
-          }
-
-          const action = cbData.replace('wz_size:', '')
-          const selected = new Set(session.pendingSizes ?? [])
-
-          if (action === 'all') {
-            // Select all defaults
-            DEFAULT_SIZES.forEach((s) => selected.add(s))
-            await answerCallbackQuery(cbQueryId, '✅ Tümü seçildi')
-          } else if (action === 'clear') {
-            selected.clear()
-            await answerCallbackQuery(cbQueryId, '🗑 Temizlendi')
-          } else if (action === 'done') {
-            // Finalize size selection
-            if (selected.size === 0) {
-              await answerCallbackQuery(cbQueryId, '⚠️ En az 1 beden seçin')
-              return NextResponse.json({ ok: true })
-            }
-            const sortedSizes = Array.from(selected).sort((a, b) => Number(a) - Number(b))
-            session.collected.sizes = sortedSizes.join(',')
-            session.pendingSizes = undefined
-            session.sizeMessageId = undefined
-
-            // Update the keyboard message to show final selection
-            const cbMsgId = body?.callback_query?.message?.message_id
-            if (cbMsgId) {
-              await editMessageText(
-                cbChatId,
-                cbMsgId,
-                `✅ <b>Seçilen bedenler:</b> ${sortedSizes.join(', ')}`,
-              )
-            }
-
-            await answerCallbackQuery(cbQueryId, `✅ ${sortedSizes.length} beden seçildi`)
-
-            // Move to stock step
-            session.step = 'stock'
-            await setWizardSession(cbChatId, session, cbUserId)
-            await sendTelegramMessage(cbChatId, getStockPrompt(sortedSizes))
-            return NextResponse.json({ ok: true })
-          } else {
-            // Toggle individual size
-            if (selected.has(action)) {
-              selected.delete(action)
-              await answerCallbackQuery(cbQueryId, `➖ ${action} kaldırıldı`)
-            } else {
-              selected.add(action)
-              await answerCallbackQuery(cbQueryId, `➕ ${action} eklendi`)
-            }
-          }
-
-          // Update session and refresh keyboard
-          session.pendingSizes = Array.from(selected)
-          await setWizardSession(cbChatId, session, cbUserId)
-
-          const cbMsgId = body?.callback_query?.message?.message_id
-          if (cbMsgId) {
-            await editMessageText(
-              cbChatId,
-              cbMsgId,
-              formatSizeSelectionText(selected),
-              buildSizeKeyboard(selected),
-            )
-          }
-        } catch (err) {
-          await answerCallbackQuery(cbQueryId, '❌ Hata')
-          console.error('[telegram/webhook] wz_size callback failed:', err)
-        }
-        return NextResponse.json({ ok: true })
-      }
+      // D-170: wz_size callback handler removed — sizes are now auto-selected
 
       // wz_confirm:{productId} — final confirmation
       if (cbData.startsWith('wz_confirm:')) {
@@ -2026,14 +1922,16 @@ export async function POST(req: NextRequest) {
         } else if (nextStep === 'price') {
           await sendTelegramMessage(chatId, getPricePrompt())
         } else if (nextStep === 'sizes') {
-          session.pendingSizes = (session as any).pendingSizes ?? []
-          const sizeMsg = await sendTelegramMessageWithKeyboard(
-            chatId,
-            formatSizeSelectionText(new Set()),
-            buildSizeKeyboard(new Set()),
-          )
-          if (sizeMsg) (session as any).sizeMessageId = sizeMsg
+          // D-170: Auto-select all default sizes and skip to stock directly
+          const autoSizes = DEFAULT_SIZES.slice() // ['39','40','41','42','43','44','45']
+          session.collected.sizes = autoSizes.join(',')
+          session.pendingSizes = undefined
+          session.sizeMessageId = undefined
+          await sendTelegramMessage(chatId, `✅ Bedenler: ${autoSizes.join(', ')}`)
+          // Advance to stock step immediately
+          session.step = 'stock' as any
           await setWizardSession(chatId, session, msgUserId)
+          await sendTelegramMessage(chatId, getStockPrompt(autoSizes))
         } else if (nextStep === 'stock') {
           await sendTelegramMessage(chatId, getStockPrompt((session.collected.sizes ?? '').split(',').filter(Boolean)))
         } else if (nextStep === 'stockCode') {
@@ -2110,12 +2008,6 @@ export async function POST(req: NextRequest) {
             const product = await payload.findByID({ collection: 'products', id: wizSession.productId })
             const nextStep = getNextWizardStep(product as any, wizSession.collected)
             await dispatchNextStep(nextStep, wizSession, product as any)
-            return NextResponse.json({ ok: true })
-          }
-
-          if (wizSession.step === 'sizes') {
-            // Sizes step now uses inline keyboard buttons — redirect user
-            await sendTelegramMessage(chatId, '👆 Yukarıdaki butonları kullanarak bedenleri seçin, sonra <b>Devam</b> basın.')
             return NextResponse.json({ ok: true })
           }
 
@@ -4040,7 +3932,7 @@ export async function POST(req: NextRequest) {
             getCategoryPrompt,
             getProductTypePrompt,
             getPricePrompt,
-            getSizesPrompt,
+            getStockPrompt,
             getTargetsPrompt,
             getBrandPrompt,
             formatConfirmationSummary,
@@ -4147,14 +4039,15 @@ export async function POST(req: NextRequest) {
           } else if (nextStep === 'price') {
             await sendTelegramMessage(chatId, getPricePrompt())
           } else if (nextStep === 'sizes') {
-            wizState.pendingSizes = []
-            const sizeMsg = await sendTelegramMessageWithKeyboard(
-              chatId,
-              formatSizeSelectionText(new Set()),
-              buildSizeKeyboard(new Set()),
-            )
-            if (sizeMsg) wizState.sizeMessageId = sizeMsg
+            // D-170: Auto-select all default sizes and skip to stock
+            const autoSizes = DEFAULT_SIZES.slice()
+            wizState.collected.sizes = autoSizes.join(',')
+            wizState.pendingSizes = undefined
+            wizState.sizeMessageId = undefined
+            await sendTelegramMessage(chatId, `✅ Bedenler: ${autoSizes.join(', ')}`)
+            wizState.step = 'stock' as any
             await setWizardSession(chatId, wizState, msgUserId)
+            await sendTelegramMessage(chatId, getStockPrompt(autoSizes))
           } else if (nextStep === 'brand') {
             await sendTelegramMessage(chatId, getBrandPrompt())
           } else if (nextStep === 'targets') {

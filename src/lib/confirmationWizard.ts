@@ -692,6 +692,24 @@ export async function applyConfirmation(
   req?: any,
 ): Promise<ConfirmationApplyResult> {
   try {
+    // D-172e: Ensure new category ENUM values exist in Postgres before updating.
+    // Payload's push:true doesn't reliably ALTER TYPE for new enum values.
+    // This is idempotent — IF NOT EXISTS prevents errors on subsequent calls.
+    const pool = payload?.db?.pool
+    if (pool && collected.category) {
+      const enumValues = ['Erkek Ayakkabı', 'Cüzdan']
+      for (const val of enumValues) {
+        try {
+          await pool.query(`ALTER TYPE enum_products_category ADD VALUE IF NOT EXISTS '${val}'`)
+        } catch (enumErr: any) {
+          // 42710 = duplicate_object (value already exists) — safe to ignore
+          if (enumErr?.code !== '42710') {
+            console.warn(`[confirmationWizard] ENUM alter failed for '${val}':`, enumErr?.message)
+          }
+        }
+      }
+    }
+
     // 1. Build product update
     const productUpdate: Record<string, unknown> = {
       workflow: {

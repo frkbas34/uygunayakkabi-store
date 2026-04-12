@@ -4091,3 +4091,59 @@ Operator must now push one fresh shoe photo through the Mentix group and report 
 
 **Commit:** TBD (this commit)
 **Status:** IMPLEMENTED (hook + backfill) / BLOCKED on operator real-photo run for Phase Z stage 1→14 verification
+
+---
+
+## D-165 — Remove Payload defaultValue from category field
+**Decision:**
+Remove `defaultValue: 'Günlük'` from Products.ts category select field so Telegram-intake wizard properly asks for category on fresh products.
+
+**Root cause:** Payload CMS applies defaultValue at create time even when the field is not in the incoming data. Fresh products born via Telegram intake got `category: 'Günlük'` silently, and the wizard's `getNextWizardStep()` saw it as already filled — skipping the category step entirely.
+
+**Status:** IMPLEMENTED
+**Commit:** `948c839`
+
+---
+
+## D-166 — Await wizard session persistence (fire-and-forget race)
+**Decision:**
+Make `setWizardSession` / `clearWizardSession` async (awaitable) instead of fire-and-forget background persistence. Added `await` to all 36 callsites.
+
+**Root cause:** On Vercel serverless, a Lambda freeze could kill the background `persistWizardSessionBackground` Promise before it completed the Neon write, causing wizard state to be lost between steps.
+
+**Status:** IMPLEMENTED
+**Commit:** `81a533b`
+
+---
+
+## D-167 — Mirror-extend padding permanently replaces solid-color padding
+**Decision:**
+Replace ALL solid-color padding (`background: { r, g, b, alpha }`) with Sharp `extendWith: 'mirror'` in both `generateByEditing` and `generateByGeminiPro`.
+
+**Root cause:** Solid-color padding creates a visible rectangular frame whenever the reference image's background color differs from the padding color. This was the root cause of a 5-incident regression chain (D-129 → D-157 → D-161 → D-164 → D-167).
+
+**Status:** IMPLEMENTED — LOCKED (sealed commit `cef930a`)
+
+---
+
+## D-168 — Early wizard hydration before group chat filters
+**Decision:**
+Add early wizard session hydration BEFORE group chat activation filters in route.ts, and bypass the "no plain text" / "no non-reply" group filters when an active wizard session exists.
+
+**Root cause:** Group chat activation filters silently dropped plain text messages (like price "899") before the wizard interceptor had a chance to process them. The wizard was active in DB but the message never reached it.
+
+**Status:** IMPLEMENTED
+**Commit:** `5f5f778`
+
+---
+
+## D-169 — Fix Geo_bot wizard race + complete all wizard step dispatch branches
+**Decision:**
+1. Add `botParam !== 'geo'` guard to early wizard hydration, preventing Geo_bot from processing wizard inputs.
+2. Create shared `dispatchNextStep()` function with ALL step branches (category, productType, price, sizes, stock, stockCode, title, brand, targets, summary).
+3. Refactor text handlers (stock, brand, title, stockCode, price) and callback handlers (wz_cat, wz_ptype) to use complete dispatch instead of incomplete if-else chains.
+
+**Root cause:** Two bugs: (a) D-168's early hydration didn't filter by bot, so Geo_bot also bypassed group filters and duplicated wizard responses. (b) Stock handler only had branches for brand/targets/summary — when `getNextWizardStep` returned 'stockCode' (for TG-xxx SKU products), no prompt was sent and the wizard stalled with no "Devam" button.
+
+**Status:** IMPLEMENTED
+**Commit:** `7119e08`

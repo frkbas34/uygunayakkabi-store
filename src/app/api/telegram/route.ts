@@ -2239,15 +2239,9 @@ export async function POST(req: NextRequest) {
             return NextResponse.json({ ok: true })
           }
 
-          if (wizSession.step === 'stock') {
-            // D-171: Stock is now collected via buttons (wz_stock callback)
-            await sendTelegramMessage(chatId, '👆 Yukarıdaki butonları kullanarak stok adedi seçin.')
-            return NextResponse.json({ ok: true })
-          }
-
-          if (wizSession.step === 'sizes') {
-            // D-171: Sizes are collected via buttons (wz_size callback)
-            await sendTelegramMessage(chatId, '👆 Yukarıdaki butonları kullanarak bedenleri seçin, sonra <b>Devam</b> basın.')
+          if (wizSession.step === 'stock' || wizSession.step === 'sizes') {
+            // D-171d: Button-based steps — silently ignore stray text input.
+            // No confusing redirect messages. Operator uses the inline buttons.
             return NextResponse.json({ ok: true })
           }
 

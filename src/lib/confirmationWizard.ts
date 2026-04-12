@@ -734,11 +734,11 @@ export async function applyConfirmation(
       productUpdate.price = collected.price
     }
 
-    // Brand (text name) — VF-5: stored directly as brand field
-    // Brand is a relationship field (ID), so we look up or create the brand.
-    // For now, store as-is — the brand field accepts text in intake, so this is consistent.
+    // Brand (text field) — D-172: Products.brand is type:'text', not relationship.
+    // Store the brand name directly; also upsert into brands collection for reference.
     if (collected.brand) {
-      // Try to find existing brand by name
+      productUpdate.brand = collected.brand
+      // Non-blocking: ensure brand exists in brands collection for future lookups
       try {
         const { docs: brandDocs } = await payload.find({
           collection: 'brands',
@@ -746,20 +746,15 @@ export async function applyConfirmation(
           limit: 1,
           depth: 0,
         })
-        if (brandDocs.length > 0) {
-          productUpdate.brand = brandDocs[0].id
-        } else {
-          // Create new brand
-          const newBrand = await payload.create({
+        if (brandDocs.length === 0) {
+          await payload.create({
             collection: 'brands',
             data: { name: collected.brand },
           })
-          productUpdate.brand = newBrand.id
         }
       } catch (brandErr) {
-        // Non-blocking — brand is optional, just log
         console.error(
-          `[confirmationWizard] Brand lookup/create failed (non-blocking) — brand="${collected.brand}":`,
+          `[confirmationWizard] Brand upsert failed (non-blocking) — brand="${collected.brand}":`,
           brandErr instanceof Error ? brandErr.message : String(brandErr),
         )
       }
@@ -881,8 +876,14 @@ export async function applyConfirmation(
 
     return { success: true, variantsCreated }
   } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err)
-    console.error(`[confirmationWizard] applyConfirmation failed for product ${productId}:`, msg)
+    const fullMsg = err instanceof Error ? err.message : String(err)
+    console.error(`[confirmationWizard] applyConfirmation failed for product ${productId}:`, fullMsg)
+    // D-172: Truncate error for Telegram (4096 char limit) — keep the tail
+    // which contains the actual PG error reason after the long SQL query.
+    const MAX = 600
+    const msg = fullMsg.length > MAX
+      ? '…' + fullMsg.slice(-MAX)
+      : fullMsg
     return { success: false, error: msg }
   }
 }

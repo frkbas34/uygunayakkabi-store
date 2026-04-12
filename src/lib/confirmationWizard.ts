@@ -429,14 +429,16 @@ export function getNextWizardStep(
   product: ConfirmableProduct,
   collected: WizardState['collected'],
 ): WizardStep {
-  // 1. Category (button) — "Erkek Ayakkabı" or "Cüzdan"
-  if (!product.category && !collected.category) return 'category'
+  // 1. Category (button) — ALWAYS ask, even if product has an old value.
+  //    D-171b: Old products may have stale categories (e.g. 'Günlük') that don't
+  //    match the new business options. Operator must explicitly choose every time.
+  if (!collected.category) return 'category'
 
   // 2. Product Type / style (button) — ONLY for "Erkek Ayakkabı" category
   //    D-171: Cüzdan skips this step entirely
-  const effectiveCategory = collected.category ?? product.category
-  if (effectiveCategory === 'Erkek Ayakkabı') {
-    if (!product.productType && !collected.productType) return 'productType'
+  //    D-171b: Always ask (ignore old productType values like Erkek/Kadın/Çocuk/Unisex)
+  if (collected.category === 'Erkek Ayakkabı') {
+    if (!collected.productType) return 'productType'
   }
 
   // 3. Price (text — only if missing from intake)

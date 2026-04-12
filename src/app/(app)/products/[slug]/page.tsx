@@ -213,11 +213,12 @@ export default async function ProductPage({ params }: Props) {
       })
       .filter(Boolean) as string[]
 
-  // AI-generated images (generativeGallery) come first — side_angle is [0] (primary hero).
-  // Original product images follow as fallback / supplementary.
+  // D-171: ONLY show AI-generated images. Original reference photo is never displayed.
+  // Slot order from generativeGallery is already correct: slot 1 (side shot) = index 0.
+  // Original images are used ONLY as fallback when no AI images exist yet.
   const aiImages = extractUrls(product.generativeGallery ?? [])
   const originalImages = extractUrls(product.images ?? [])
-  const images = aiImages.length > 0 ? [...aiImages, ...originalImages] : originalImages
+  const images = aiImages.length > 0 ? aiImages : originalImages
 
   // ── Content resolution (Geobot → fallback) ────────────────────────────────
   const websiteDescription =

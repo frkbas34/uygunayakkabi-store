@@ -2116,7 +2116,8 @@ export async function POST(req: NextRequest) {
     // ── Phase 5: Confirmation wizard text input interceptor ───────────────────
     // If there's an active wizard session expecting text input (price, sizes, stock),
     // intercept the message BEFORE any other command processing.
-    if (text && !text.startsWith('/') && !text.startsWith('#') && !text.startsWith('STOCK ')) {
+    // D-171: ONLY Uygunops processes wizard text — Geo_bot must never touch it.
+    if (botParam !== 'geo' && text && !text.startsWith('/') && !text.startsWith('#') && !text.startsWith('STOCK ')) {
       const { getWizardSession, setWizardSession, clearWizardSession,
               hydrateWizardSession,
               parsePrice, parseSizes, parseStockNumber, getNextWizardStep,

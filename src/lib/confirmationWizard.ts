@@ -70,7 +70,7 @@ export type WizardStep =
   | 'productType'
   | 'price'
   | 'sizes'
-  | 'stock'
+  | 'stock'        // D-171: now per-size stock via buttons (sizeStockMap)
   | 'brand'
   | 'targets'
   | 'summary'
@@ -88,8 +88,9 @@ export interface WizardState {
     category?: string
     productType?: string
     price?: number
-    sizes?: string // e.g. "38,39,40,41,42"
-    stockPerSize?: number
+    sizes?: string // e.g. "39,40,41,42,43"
+    stockPerSize?: number // legacy: uniform stock per size
+    sizeStockMap?: Record<string, number> // D-171: per-size stock { "39": 3, "40": 5 }
     brand?: string
     channelTargets?: string[]
   }
@@ -102,21 +103,17 @@ export interface WizardState {
 
 // ── Constants ─────────────────────────────────────────────────────────
 
+// D-171: Business-aligned category options (operator workflow)
 export const CATEGORY_OPTIONS = [
-  { label: 'Günlük', value: 'Günlük' },
-  { label: 'Spor', value: 'Spor' },
-  { label: 'Klasik', value: 'Klasik' },
-  { label: 'Bot', value: 'Bot' },
-  { label: 'Sandalet', value: 'Sandalet' },
-  { label: 'Krampon', value: 'Krampon' },
-  { label: 'Cüzdan', value: 'Cüzdan' },
+  { label: '👟 Erkek Ayakkabı', value: 'Erkek Ayakkabı' },
+  { label: '👛 Cüzdan', value: 'Cüzdan' },
 ]
 
+// D-171: Style/type options — shown ONLY when category = "Erkek Ayakkabı"
 export const PRODUCT_TYPE_OPTIONS = [
-  { label: '👟 Erkek', value: 'Erkek' },
-  { label: '👠 Kadın', value: 'Kadın' },
-  { label: '🧒 Çocuk', value: 'Çocuk' },
-  { label: '👫 Unisex', value: 'Unisex' },
+  { label: '🚶 Daily', value: 'Daily' },
+  { label: '👟 Sneaker', value: 'Sneaker' },
+  { label: '👞 Classic', value: 'Classic' },
 ]
 
 export const CHANNEL_OPTIONS = [
@@ -432,34 +429,37 @@ export function getNextWizardStep(
   product: ConfirmableProduct,
   collected: WizardState['collected'],
 ): WizardStep {
-  // 1. Category (button) — drives how the whole product is classified
+  // 1. Category (button) — "Erkek Ayakkabı" or "Cüzdan"
   if (!product.category && !collected.category) return 'category'
 
-  // 2. Product Type / style (button) — VF-5, e.g. classic / sneaker / bot
-  if (!product.productType && !collected.productType) return 'productType'
+  // 2. Product Type / style (button) — ONLY for "Erkek Ayakkabı" category
+  //    D-171: Cüzdan skips this step entirely
+  const effectiveCategory = collected.category ?? product.category
+  if (effectiveCategory === 'Erkek Ayakkabı') {
+    if (!product.productType && !collected.productType) return 'productType'
+  }
 
   // 3. Price (text — only if missing from intake)
   const hasPrice = (typeof product.price === 'number' && product.price > 0) || collected.price
   if (!hasPrice) return 'price'
 
-  // 4. Sizes (button multi-select)
+  // 4. Sizes (button multi-select 39–47)
   const hasVariants =
     (product.variants ?? []).filter((v) => v.size && (v.stock ?? 0) > 0).length > 0
   if (!hasVariants && !collected.sizes) return 'sizes'
 
-  // 5. Stock per size (text — only if sizes were just collected)
-  if (!hasVariants && collected.sizes && !collected.stockPerSize) return 'stock'
+  // 5. Stock per size (button-based per-size quantity)
+  //    D-171: uses sizeStockMap for per-size quantities, falls back to legacy stockPerSize
+  const hasStock = collected.sizeStockMap || collected.stockPerSize
+  if (!hasVariants && collected.sizes && !hasStock) return 'stock'
 
-  // 6. Stock code — D-170: REMOVED from wizard. SN#### is auto-generated
-  //    during image generation (imageGenTask.ts). TG-xxx SKU stays as-is.
-  //    Operator does NOT need to enter a manual stock code.
+  // 6. Stock code — auto from SN#### (never asked)
 
-  // 7. Title (text) — Phase T1: ask if still placeholder "Taslak Ürün ..."
-  //    D-163: moved AFTER commerce fields for the same reason as stockCode.
+  // 7. Title (text) — only if still placeholder
   const isPlaceholderTitle = !product.title || /^Taslak Ürün\s/i.test(product.title)
   if (isPlaceholderTitle && !collected.title) return 'title'
 
-  // 8. Brand (text) — VF-5
+  // 8. Brand (text)
   if (!product.brand && !collected.brand) return 'brand'
 
   // 9. Channel targets (button multi-select)
@@ -523,37 +523,31 @@ export function formatConfirmationSummary(
   collected: WizardState['collected'],
 ): string {
   const title = collected.title ?? product.title ?? `Ürün #${product.id}`
-  const stockCode = (collected.stockCode && collected.stockCode !== '_skip_')
-    ? collected.stockCode
-    : (product.sku ?? '—')
+  // D-171: Show SN#### (auto-generated) alongside SKU
+  const stockCode = (product as any).stockNumber ?? product.sku ?? '—'
   const category = collected.category ?? product.category ?? '—'
   const price = collected.price ?? product.price
   const priceStr = price ? `₺${price}` : '—'
 
-  // Sizes: from collected or existing variants
+  // Sizes: from collected or existing variants — D-171: per-size stock map
   let sizesStr = '—'
+  let totalStock = 0
   if (collected.sizes) {
-    const stock = collected.stockPerSize ?? 1
-    sizesStr = collected.sizes
-      .split(',')
-      .map((s) => `${s}(${stock})`)
-      .join(', ')
+    const sizes = collected.sizes.split(',')
+    if (collected.sizeStockMap) {
+      sizesStr = sizes.map((s) => `${s}(${collected.sizeStockMap![s] ?? 1})`).join(', ')
+      totalStock = sizes.reduce((sum, s) => sum + (collected.sizeStockMap![s] ?? 1), 0)
+    } else {
+      const stock = collected.stockPerSize ?? 1
+      sizesStr = sizes.map((s) => `${s}(${stock})`).join(', ')
+      totalStock = sizes.length * stock
+    }
   } else {
     const variants = (product.variants ?? []).filter(
       (v) => v.size && (v.stock ?? 0) > 0,
     )
     if (variants.length > 0) {
       sizesStr = variants.map((v) => `${v.size}(${v.stock})`).join(', ')
-    }
-  }
-
-  // Stock total
-  let totalStock = 0
-  if (collected.sizes && collected.stockPerSize) {
-    totalStock = collected.sizes.split(',').length * collected.stockPerSize
-  } else {
-    const variants = (product.variants ?? []).filter((v) => (v.stock ?? 0) > 0)
-    if (variants.length > 0) {
       totalStock = variants.reduce((s, v) => s + (v.stock ?? 0), 0)
     } else {
       totalStock = product.stockQuantity ?? 0
@@ -625,16 +619,14 @@ export function getCategoryPrompt(): { text: string; keyboard: Array<Array<{ tex
   return {
     text: '📁 <b>Kategori seçin:</b>',
     keyboard: [
-      CATEGORY_OPTIONS.slice(0, 3).map((o) => ({ text: o.label, callback_data: `wz_cat:${o.value}` })),
-      CATEGORY_OPTIONS.slice(3, 6).map((o) => ({ text: o.label, callback_data: `wz_cat:${o.value}` })),
-      CATEGORY_OPTIONS.slice(6).map((o) => ({ text: o.label, callback_data: `wz_cat:${o.value}` })),
-    ].filter((row) => row.length > 0),
+      CATEGORY_OPTIONS.map((o) => ({ text: o.label, callback_data: `wz_cat:${o.value}` })),
+    ],
   }
 }
 
 export function getProductTypePrompt(): { text: string; keyboard: Array<Array<{ text: string; callback_data: string }>> } {
   return {
-    text: '👤 <b>Ürün tipi seçin:</b>',
+    text: '👟 <b>Ayakkabı stili seçin:</b>',
     keyboard: [
       PRODUCT_TYPE_OPTIONS.map((o) => ({ text: o.label, callback_data: `wz_ptype:${o.value}` })),
     ],
@@ -787,24 +779,27 @@ export async function applyConfirmation(
 
     // 3. Create variants if sizes were collected
     let variantsCreated = 0
+    let totalStock = 0
     if (collected.sizes) {
       const sizes = collected.sizes.split(',')
-      const stockPerSize = collected.stockPerSize ?? 1
 
       for (const size of sizes) {
+        const trimmedSize = size.trim()
+        // D-171: prefer per-size stock map, fall back to uniform stockPerSize
+        const stock = collected.sizeStockMap?.[trimmedSize] ?? collected.stockPerSize ?? 1
         await payload.create({
           collection: 'variants',
           data: {
             product: productId,
-            size: size.trim(),
-            stock: stockPerSize,
+            size: trimmedSize,
+            stock,
           },
         })
+        totalStock += stock
         variantsCreated++
       }
 
       // Also update stockQuantity to total
-      const totalStock = sizes.length * stockPerSize
       await payload.update({
         collection: 'products',
         id: productId,

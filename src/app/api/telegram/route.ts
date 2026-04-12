@@ -1866,7 +1866,12 @@ export async function POST(req: NextRequest) {
               `❌ Onay hatası: ${result.error}`,
             )
           }
-          await clearWizardSession(cbChatId, cbUserId)
+          // D-172: Only clear session on success. On validation failure the
+          // operator may fix the issue and retry — clearing would force them
+          // to restart the entire wizard.
+          if (result.success) {
+            await clearWizardSession(cbChatId, cbUserId)
+          }
         } catch (err) {
           await answerCallbackQuery(cbQueryId, '❌ Hata')
           console.error('[telegram/webhook] wz_confirm callback failed:', err)

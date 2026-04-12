@@ -443,13 +443,16 @@ export const Products: CollectionConfig = {
       type: 'select',
       label: 'Kategori',
       options: [
+        // D-172: Primary wizard categories (operator intake)
+        { label: 'Erkek Ayakkabı', value: 'Erkek Ayakkabı' },
+        { label: 'Cüzdan', value: 'Cüzdan' },
+        // Legacy values kept for backward compatibility with existing products
         { label: 'Günlük', value: 'Günlük' },
         { label: 'Spor', value: 'Spor' },
         { label: 'Klasik', value: 'Klasik' },
         { label: 'Bot', value: 'Bot' },
         { label: 'Sandalet', value: 'Sandalet' },
         { label: 'Krampon', value: 'Krampon' },
-        { label: 'Cüzdan', value: 'Cüzdan' },
       ],
       admin: {
         position: 'sidebar',

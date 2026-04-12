@@ -32,6 +32,68 @@ export const ImageGenerationJobs: CollectionConfig = {
   hooks: {
     afterChange: [
       /**
+       * Phase Z state-sync fix (D-154): When the job's status transitions to
+       * 'preview' (generation complete, awaiting operator approval), flip the
+       * product's workflow.visualStatus from 'generating' → 'preview' so the
+       * product-level truth matches the job-level truth.
+       *
+       * Before this hook, the product stayed at 'generating' until the
+       * operator explicitly approved, which meant:
+       *   - publishReadiness and mentixAudit saw stale 'generating' state
+       *   - operator diagnostics showed misleading status
+       *   - D-149-style audit paths could mis-classify ready-for-review products
+       *
+       * This is additive and does not touch any v50-locked file.
+       */
+      async ({ doc, previousDoc, req, operation }) => {
+        if (
+          operation !== 'update' ||
+          doc.status !== 'preview' ||
+          previousDoc?.status === 'preview'
+        ) {
+          return
+        }
+        const payload = req.payload
+        const productRef = doc.product as { id: number } | number | null
+        if (!productRef) return
+        const productId = typeof productRef === 'object' ? productRef.id : productRef
+        try {
+          const productDoc = await payload.findByID({
+            collection: 'products',
+            id: productId,
+            depth: 0,
+          }) as Record<string, unknown>
+          const wf = (productDoc.workflow ?? {}) as Record<string, unknown>
+          const currentVisual = wf.visualStatus as string | undefined
+          // Only advance if the product is still in 'generating' — don't
+          // clobber 'approved' / 'rejected' from race conditions.
+          if (currentVisual !== 'generating' && currentVisual !== 'pending') {
+            return
+          }
+          await payload.update({
+            collection: 'products',
+            id: productId,
+            data: {
+              workflow: {
+                ...wf,
+                visualStatus: 'preview',
+              },
+            },
+            context: { isDispatchUpdate: true },
+          })
+          console.log(
+            `[ImageGenerationJobs D-154] product ${productId} visualStatus: ` +
+              `${currentVisual ?? '—'} → preview (job ${doc.id} entered preview)`,
+          )
+        } catch (err) {
+          console.error(
+            `[ImageGenerationJobs D-154] visualStatus=preview update failed (non-blocking) — ` +
+              `product=${productId}:`,
+            err,
+          )
+        }
+      },
+      /**
        * DUAL-TRACK (v13): When status → 'approved', append generatedImages to
        * product.generativeGallery — NOT to product.images.
        *
@@ -95,9 +157,12 @@ export const ImageGenerationJobs: CollectionConfig = {
             (productDoc as any).generativeGallery as Array<{ image: number }> | undefined
           ) ?? []
 
+          // D-172f: Deduplicate to prevent duplicate images on re-approval
+          const existingIds = new Set(existingGallery.map((e) => (typeof e.image === 'object' ? (e.image as any).id : e.image)))
+          const deduped = newMediaIds.filter((id) => !existingIds.has(id))
           const updatedGallery = [
             ...existingGallery,
-            ...newMediaIds.map((id) => ({ image: id })),
+            ...deduped.map((id) => ({ image: id })),
           ]
 
           await payload.update({

@@ -24,6 +24,7 @@
 export interface ConfirmableProduct {
   id: number | string
   title?: string | null
+  sku?: string | null
   category?: string | null
   price?: number | null
   originalPrice?: number | null
@@ -63,11 +64,13 @@ export interface ConfirmationResult {
 }
 
 export type WizardStep =
+  | 'title'
+  | 'stockCode'
   | 'category'
   | 'productType'
   | 'price'
   | 'sizes'
-  | 'stock'
+  | 'stock'        // D-171: now per-size stock via buttons (sizeStockMap)
   | 'brand'
   | 'targets'
   | 'summary'
@@ -76,13 +79,18 @@ export type WizardStep =
 export interface WizardState {
   productId: number | string
   chatId: number
+  /** Phase P: operator userId for group session isolation */
+  userId?: number
   step: WizardStep
   collected: {
+    title?: string
+    stockCode?: string
     category?: string
     productType?: string
     price?: number
-    sizes?: string // e.g. "38,39,40,41,42"
-    stockPerSize?: number
+    sizes?: string // e.g. "39,40,41,42,43"
+    stockPerSize?: number // legacy: uniform stock per size
+    sizeStockMap?: Record<string, number> // D-171: per-size stock { "39": 3, "40": 5 }
     brand?: string
     channelTargets?: string[]
   }
@@ -95,21 +103,17 @@ export interface WizardState {
 
 // ── Constants ─────────────────────────────────────────────────────────
 
+// D-171: Business-aligned category options (operator workflow)
 export const CATEGORY_OPTIONS = [
-  { label: 'Günlük', value: 'Günlük' },
-  { label: 'Spor', value: 'Spor' },
-  { label: 'Klasik', value: 'Klasik' },
-  { label: 'Bot', value: 'Bot' },
-  { label: 'Sandalet', value: 'Sandalet' },
-  { label: 'Krampon', value: 'Krampon' },
-  { label: 'Cüzdan', value: 'Cüzdan' },
+  { label: '👟 Erkek Ayakkabı', value: 'Erkek Ayakkabı' },
+  { label: '👛 Cüzdan', value: 'Cüzdan' },
 ]
 
+// D-171: Style/type options — shown ONLY when category = "Erkek Ayakkabı"
 export const PRODUCT_TYPE_OPTIONS = [
-  { label: '👟 Erkek', value: 'Erkek' },
-  { label: '👠 Kadın', value: 'Kadın' },
-  { label: '🧒 Çocuk', value: 'Çocuk' },
-  { label: '👫 Unisex', value: 'Unisex' },
+  { label: '🚶 Daily', value: 'Daily' },
+  { label: '👟 Sneaker', value: 'Sneaker' },
+  { label: '👞 Classic', value: 'Classic' },
 ]
 
 export const CHANNEL_OPTIONS = [
@@ -122,31 +126,202 @@ export const CHANNEL_OPTIONS = [
 /** Wizard sessions expire after 30 minutes of inactivity */
 const WIZARD_TIMEOUT_MS = 30 * 60 * 1000
 
-// ── In-memory wizard sessions ─────────────────────────────────────────
-// Key: `${chatId}` — one active wizard per chat at a time
+// ── Wizard sessions — Map cache + DB-backed persistence (D-158) ──────
+// Phase P: Key is `${chatId}:${userId}` in group context for per-operator isolation,
+// or `${chatId}` in DM context (backward compatible — userId omitted or same as chatId).
+//
+// D-158: the in-memory Map is a per-Lambda-instance fast-path cache, but the
+// canonical store is now the Neon `wizard_sessions` table so sessions survive
+// cold starts, deploys, and instance rotations. Call hydrateWizardSession()
+// at the start of each handler to load from DB into the Map; sync getters
+// then work as before. Writes are fire-and-forget via persistWizardSessionBackground().
 
 const wizardSessions = new Map<string, WizardState>()
 
-export function getWizardSession(chatId: number): WizardState | null {
-  const key = String(chatId)
+/** D-173: Per-instance flag so we only run CREATE TABLE IF NOT EXISTS once. */
+let tableEnsured = false
+
+function sessionKey(chatId: number, userId?: number): string {
+  return userId ? `${chatId}:${userId}` : String(chatId)
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type PayloadLike = { db?: { pool?: { query: (text: string, vals?: any[]) => Promise<{ rows: any[] }> } } }
+
+/**
+ * D-158: Load wizard session from DB into the in-memory cache.
+ * Call this at the top of any Telegram handler that then invokes the sync
+ * getWizardSession() / setWizardSession() helpers. Safe to call repeatedly
+ * and when no session exists — it is a no-op in that case.
+ */
+export async function hydrateWizardSession(
+  payload: PayloadLike,
+  chatId: number,
+  userId?: number,
+): Promise<WizardState | null> {
+  const key = sessionKey(chatId, userId)
+
+  // If we already have a fresh entry in the local Map, use it.
+  const cached = wizardSessions.get(key)
+  if (cached && Date.now() - cached.startedAt <= WIZARD_TIMEOUT_MS) {
+    return cached
+  }
+
+  const pool = payload?.db?.pool
+  if (!pool) {
+    console.warn('[hydrateWizardSession D-158] payload.db.pool not available')
+    return cached ?? null
+  }
+
+  // D-173: Auto-create wizard_sessions table if it doesn't exist.
+  // Idempotent — CREATE TABLE IF NOT EXISTS is a no-op once the table exists.
+  if (!tableEnsured) {
+    try {
+      await pool.query(`
+        CREATE TABLE IF NOT EXISTS wizard_sessions (
+          session_key TEXT PRIMARY KEY,
+          state JSONB NOT NULL,
+          started_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+          updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        )
+      `)
+      tableEnsured = true
+    } catch (tblErr) {
+      console.warn('[hydrateWizardSession D-173] table auto-create failed:', tblErr instanceof Error ? tblErr.message : tblErr)
+    }
+  }
+
+  try {
+    const { rows } = await pool.query(
+      `SELECT state, started_at FROM wizard_sessions
+       WHERE session_key = $1
+         AND started_at > NOW() - INTERVAL '30 minutes'
+       LIMIT 1`,
+      [key],
+    )
+    if (rows.length === 0) {
+      // No fresh row. Clear any stale local copy so getters see null.
+      if (cached) wizardSessions.delete(key)
+      return null
+    }
+    const rawState = rows[0].state
+    const state: WizardState = typeof rawState === 'string' ? JSON.parse(rawState) : rawState
+    wizardSessions.set(key, state)
+    console.log(`[hydrateWizardSession D-158] loaded key=${key} step=${state.step} productId=${state.productId}`)
+    return state
+  } catch (err) {
+    console.warn('[hydrateWizardSession D-158] DB load failed:', err instanceof Error ? err.message : err)
+    return cached ?? null
+  }
+}
+
+/**
+ * D-158 / D-166: Persist (upsert) a wizard session to the DB.
+ *
+ * D-166: This used to be fire-and-forget ("Background"), which caused a race
+ * on Vercel serverless where the Lambda would freeze before the in-flight
+ * DB query drained. When the operator's follow-up text message landed on
+ * a different Lambda instance, the hydrate query found no row, and the
+ * wizard interceptor silently dropped the reply. See D-166 in DECISIONS.md.
+ *
+ * Now returns Promise<void>; callers in route.ts `await` this via
+ * setWizardSession so the DB write is durable before the handler returns.
+ * Errors are still caught and warned — we don't want to 500 on a transient
+ * Neon hiccup, but we do want to guarantee the write was at least attempted
+ * within the request's async lifetime.
+ */
+async function persistWizardSession(
+  payload: PayloadLike | null,
+  key: string,
+  state: WizardState,
+): Promise<void> {
+  const pool = payload?.db?.pool
+  if (!pool) return
+  try {
+    await pool.query(
+      `INSERT INTO wizard_sessions (session_key, state, started_at, updated_at)
+       VALUES ($1, $2::jsonb, to_timestamp($3::bigint / 1000.0), NOW())
+       ON CONFLICT (session_key) DO UPDATE
+         SET state = EXCLUDED.state, updated_at = NOW()`,
+      [key, JSON.stringify(state), state.startedAt],
+    )
+  } catch (err) {
+    console.warn('[persistWizardSession D-166] DB upsert failed:', err instanceof Error ? err.message : err)
+  }
+}
+
+/**
+ * D-158 / D-166: Delete a wizard session from the DB.
+ * Now awaitable via clearWizardSession for the same reason as persist above.
+ */
+async function deleteWizardSession(payload: PayloadLike | null, key: string): Promise<void> {
+  const pool = payload?.db?.pool
+  if (!pool) return
+  try {
+    await pool.query(`DELETE FROM wizard_sessions WHERE session_key = $1`, [key])
+  } catch (err) {
+    console.warn('[deleteWizardSession D-166] DB delete failed:', err instanceof Error ? err.message : err)
+  }
+}
+
+// D-158: module-level payload ref set by route.ts once per request so the
+// sync setWizardSession/clearWizardSession can fire their background DB
+// writes without threading payload through all 50+ call sites.
+let currentPayloadRef: PayloadLike | null = null
+
+/**
+ * D-158: Called once per Telegram request from route.ts so the sync
+ * setWizardSession/clearWizardSession helpers can reach the Payload db
+ * pool for background persistence. Safe to call repeatedly.
+ */
+export function bindWizardPayload(payload: PayloadLike | null): void {
+  currentPayloadRef = payload
+}
+
+export function getWizardSession(chatId: number, userId?: number): WizardState | null {
+  const key = sessionKey(chatId, userId)
   const session = wizardSessions.get(key)
   if (!session) return null
 
   // Auto-expire stale sessions
   if (Date.now() - session.startedAt > WIZARD_TIMEOUT_MS) {
     wizardSessions.delete(key)
+    // D-166: fire-and-forget OK here — getWizardSession is sync by design and
+    // a missed delete on a stale row will self-clean on next hydrate (which
+    // filters started_at > NOW() - 30 minutes).
+    void deleteWizardSession(currentPayloadRef, key)
     return null
   }
 
   return session
 }
 
-export function setWizardSession(chatId: number, state: WizardState): void {
-  wizardSessions.set(String(chatId), state)
+/**
+ * D-166: Awaitable. Callers in route.ts must `await` this so the DB upsert
+ * is guaranteed to complete before the Lambda returns — otherwise the next
+ * request on a cold instance hydrates an empty session and silently drops
+ * wizard text input.
+ */
+export async function setWizardSession(
+  chatId: number,
+  state: WizardState,
+  userId?: number,
+): Promise<void> {
+  const key = sessionKey(chatId, userId)
+  wizardSessions.set(key, state)
+  await persistWizardSession(currentPayloadRef, key, state)
 }
 
-export function clearWizardSession(chatId: number): void {
-  wizardSessions.delete(String(chatId))
+/**
+ * D-166: Awaitable for the same reason as setWizardSession above.
+ */
+export async function clearWizardSession(
+  chatId: number,
+  userId?: number,
+): Promise<void> {
+  const key = sessionKey(chatId, userId)
+  wizardSessions.delete(key)
+  await deleteWizardSession(currentPayloadRef, key)
 }
 
 // ── Field checks ──────────────────────────────────────────────────────
@@ -262,33 +437,55 @@ export function checkConfirmationFields(product: ConfirmableProduct): Confirmati
 /**
  * Given the current product state + what's been collected in the wizard,
  * determine which step to ask next.
+ *
+ * D-163: Reordered so the commerce-critical fields GeoBot needs
+ * (category → productType → price → sizes → stock) are asked FIRST,
+ * BEFORE title/stockCode/brand/targets. GeoBot only fires after the
+ * whole wizard is confirmed (see applyConfirmation step 5), so the
+ * order here controls the *operator experience*, not the data that
+ * reaches GeoBot — but the new order matches the operator's intake
+ * workflow: decide what the product IS before typing its label.
  */
 export function getNextWizardStep(
   product: ConfirmableProduct,
   collected: WizardState['collected'],
 ): WizardStep {
-  // Category (button)
-  if (!product.category && !collected.category) return 'category'
+  // 1. Category (button) — ALWAYS ask, even if product has an old value.
+  //    D-171b: Old products may have stale categories (e.g. 'Günlük') that don't
+  //    match the new business options. Operator must explicitly choose every time.
+  if (!collected.category) return 'category'
 
-  // Product Type (button) — VF-5
-  if (!product.productType && !collected.productType) return 'productType'
+  // 2. Product Type / style (button) — ONLY for "Erkek Ayakkabı" category
+  //    D-171: Cüzdan skips this step entirely
+  //    D-171b: Always ask (ignore old productType values like Erkek/Kadın/Çocuk/Unisex)
+  if (collected.category === 'Erkek Ayakkabı') {
+    if (!collected.productType) return 'productType'
+  }
 
-  // Price (text — only if missing from intake)
+  // 3. Price (text — only if missing from intake)
   const hasPrice = (typeof product.price === 'number' && product.price > 0) || collected.price
   if (!hasPrice) return 'price'
 
-  // Sizes (button multi-select)
+  // 4. Sizes (button multi-select 39–47)
   const hasVariants =
     (product.variants ?? []).filter((v) => v.size && (v.stock ?? 0) > 0).length > 0
   if (!hasVariants && !collected.sizes) return 'sizes'
 
-  // Stock per size (text — only if sizes were just collected)
-  if (!hasVariants && collected.sizes && !collected.stockPerSize) return 'stock'
+  // 5. Stock per size (button-based per-size quantity)
+  //    D-171: uses sizeStockMap for per-size quantities, falls back to legacy stockPerSize
+  const hasStock = collected.sizeStockMap || collected.stockPerSize
+  if (!hasVariants && collected.sizes && !hasStock) return 'stock'
 
-  // Brand (text) — VF-5
+  // 6. Stock code — auto from SN#### (never asked)
+
+  // 7. Title (text) — only if still placeholder
+  const isPlaceholderTitle = !product.title || /^Taslak Ürün\s/i.test(product.title)
+  if (isPlaceholderTitle && !collected.title) return 'title'
+
+  // 8. Brand (text)
   if (!product.brand && !collected.brand) return 'brand'
 
-  // Channel targets (button multi-select)
+  // 9. Channel targets (button multi-select)
   const hasTargets = (product.channelTargets ?? []).length > 0 || collected.channelTargets
   if (!hasTargets) return 'targets'
 
@@ -348,35 +545,32 @@ export function formatConfirmationSummary(
   product: ConfirmableProduct,
   collected: WizardState['collected'],
 ): string {
-  const title = product.title ?? `Ürün #${product.id}`
+  const title = collected.title ?? product.title ?? `Ürün #${product.id}`
+  // D-171: Show SN#### (auto-generated) alongside SKU
+  const stockCode = (product as any).stockNumber ?? product.sku ?? '—'
   const category = collected.category ?? product.category ?? '—'
   const price = collected.price ?? product.price
   const priceStr = price ? `₺${price}` : '—'
 
-  // Sizes: from collected or existing variants
+  // Sizes: from collected or existing variants — D-171: per-size stock map
   let sizesStr = '—'
+  let totalStock = 0
   if (collected.sizes) {
-    const stock = collected.stockPerSize ?? 1
-    sizesStr = collected.sizes
-      .split(',')
-      .map((s) => `${s}(${stock})`)
-      .join(', ')
+    const sizes = collected.sizes.split(',')
+    if (collected.sizeStockMap) {
+      sizesStr = sizes.map((s) => `${s}(${collected.sizeStockMap![s] ?? 1})`).join(', ')
+      totalStock = sizes.reduce((sum, s) => sum + (collected.sizeStockMap![s] ?? 1), 0)
+    } else {
+      const stock = collected.stockPerSize ?? 1
+      sizesStr = sizes.map((s) => `${s}(${stock})`).join(', ')
+      totalStock = sizes.length * stock
+    }
   } else {
     const variants = (product.variants ?? []).filter(
       (v) => v.size && (v.stock ?? 0) > 0,
     )
     if (variants.length > 0) {
       sizesStr = variants.map((v) => `${v.size}(${v.stock})`).join(', ')
-    }
-  }
-
-  // Stock total
-  let totalStock = 0
-  if (collected.sizes && collected.stockPerSize) {
-    totalStock = collected.sizes.split(',').length * collected.stockPerSize
-  } else {
-    const variants = (product.variants ?? []).filter((v) => (v.stock ?? 0) > 0)
-    if (variants.length > 0) {
       totalStock = variants.reduce((s, v) => s + (v.stock ?? 0), 0)
     } else {
       totalStock = product.stockQuantity ?? 0
@@ -406,6 +600,7 @@ export function formatConfirmationSummary(
     `📋 <b>ÜRÜN ONAY ÖZETİ</b>`,
     ``,
     `<b>Ürün:</b> ${title} (ID: ${product.id})`,
+    `<b>Stok Kodu:</b> ${stockCode}`,
     `<b>Kategori:</b> ${category}`,
     `<b>Ürün Tipi:</b> ${productTypeStr}`,
     `<b>Marka:</b> ${brandStr}`,
@@ -424,20 +619,37 @@ export function formatConfirmationSummary(
 
 // ── Step prompt builders ──────────────────────────────────────────────
 
+export function getTitlePrompt(currentTitle: string): string {
+  return (
+    `📝 <b>Ürün adını girin:</b>\n\n` +
+    `Mevcut: <i>${currentTitle}</i>\n\n` +
+    `Gerçek ürün adını yazın.\n` +
+    `Örnek: <code>Nike Air Max 90 Siyah Erkek Ayakkabı</code>`
+  )
+}
+
+export function getStockCodePrompt(currentSku: string): string {
+  return (
+    `🏷️ <b>Stok kodunu girin:</b>\n\n` +
+    `Mevcut (otomatik): <code>${currentSku}</code>\n\n` +
+    `Kendi stok/raf kodunuzu yazın.\n` +
+    `Örnek: <code>NK-AM90-SYH</code>\n\n` +
+    `Atlamak için <code>-</code> yazın.`
+  )
+}
+
 export function getCategoryPrompt(): { text: string; keyboard: Array<Array<{ text: string; callback_data: string }>> } {
   return {
     text: '📁 <b>Kategori seçin:</b>',
     keyboard: [
-      CATEGORY_OPTIONS.slice(0, 3).map((o) => ({ text: o.label, callback_data: `wz_cat:${o.value}` })),
-      CATEGORY_OPTIONS.slice(3, 6).map((o) => ({ text: o.label, callback_data: `wz_cat:${o.value}` })),
-      CATEGORY_OPTIONS.slice(6).map((o) => ({ text: o.label, callback_data: `wz_cat:${o.value}` })),
-    ].filter((row) => row.length > 0),
+      CATEGORY_OPTIONS.map((o) => ({ text: o.label, callback_data: `wz_cat:${o.value}` })),
+    ],
   }
 }
 
 export function getProductTypePrompt(): { text: string; keyboard: Array<Array<{ text: string; callback_data: string }>> } {
   return {
-    text: '👤 <b>Ürün tipi seçin:</b>',
+    text: '👟 <b>Ayakkabı stili seçin:</b>',
     keyboard: [
       PRODUCT_TYPE_OPTIONS.map((o) => ({ text: o.label, callback_data: `wz_ptype:${o.value}` })),
     ],
@@ -501,6 +713,24 @@ export async function applyConfirmation(
   req?: any,
 ): Promise<ConfirmationApplyResult> {
   try {
+    // D-172e: Ensure new category ENUM values exist in Postgres before updating.
+    // Payload's push:true doesn't reliably ALTER TYPE for new enum values.
+    // This is idempotent — IF NOT EXISTS prevents errors on subsequent calls.
+    const pool = payload?.db?.pool
+    if (pool && collected.category) {
+      const enumValues = ['Erkek Ayakkabı', 'Cüzdan']
+      for (const val of enumValues) {
+        try {
+          await pool.query(`ALTER TYPE enum_products_category ADD VALUE IF NOT EXISTS '${val}'`)
+        } catch (enumErr: any) {
+          // 42710 = duplicate_object (value already exists) — safe to ignore
+          if (enumErr?.code !== '42710') {
+            console.warn(`[confirmationWizard] ENUM alter failed for '${val}':`, enumErr?.message)
+          }
+        }
+      }
+    }
+
     // 1. Build product update
     const productUpdate: Record<string, unknown> = {
       workflow: {
@@ -518,6 +748,16 @@ export async function applyConfirmation(
       ;(productUpdate.workflow as Record<string, unknown>).workflowStatus = 'confirmed'
     }
 
+    // Title — Phase T1
+    if (collected.title) {
+      productUpdate.title = collected.title
+    }
+
+    // Stock code → SKU field — Phase T1 (skip sentinel '_skip_' = keep existing auto-SKU)
+    if (collected.stockCode && collected.stockCode !== '_skip_') {
+      productUpdate.sku = collected.stockCode
+    }
+
     // Category
     if (collected.category) {
       productUpdate.category = collected.category
@@ -533,11 +773,11 @@ export async function applyConfirmation(
       productUpdate.price = collected.price
     }
 
-    // Brand (text name) — VF-5: stored directly as brand field
-    // Brand is a relationship field (ID), so we look up or create the brand.
-    // For now, store as-is — the brand field accepts text in intake, so this is consistent.
+    // Brand (text field) — D-172: Products.brand is type:'text', not relationship.
+    // Store the brand name directly; also upsert into brands collection for reference.
     if (collected.brand) {
-      // Try to find existing brand by name
+      productUpdate.brand = collected.brand
+      // Non-blocking: ensure brand exists in brands collection for future lookups
       try {
         const { docs: brandDocs } = await payload.find({
           collection: 'brands',
@@ -545,20 +785,15 @@ export async function applyConfirmation(
           limit: 1,
           depth: 0,
         })
-        if (brandDocs.length > 0) {
-          productUpdate.brand = brandDocs[0].id
-        } else {
-          // Create new brand
-          const newBrand = await payload.create({
+        if (brandDocs.length === 0) {
+          await payload.create({
             collection: 'brands',
             data: { name: collected.brand },
           })
-          productUpdate.brand = newBrand.id
         }
       } catch (brandErr) {
-        // Non-blocking — brand is optional, just log
         console.error(
-          `[confirmationWizard] Brand lookup/create failed (non-blocking) — brand="${collected.brand}":`,
+          `[confirmationWizard] Brand upsert failed (non-blocking) — brand="${collected.brand}":`,
           brandErr instanceof Error ? brandErr.message : String(brandErr),
         )
       }
@@ -571,33 +806,58 @@ export async function applyConfirmation(
 
     // 2. Update product (with context flag to prevent hook re-trigger)
     const updateReq = req ? { ...req, context: { ...(req.context ?? {}), isDispatchUpdate: true } } : undefined
-    await payload.update({
-      collection: 'products',
-      id: productId,
-      data: productUpdate,
-      ...(updateReq ? { req: updateReq } : {}),
-    })
+    // D-172c: Log the exact payload being sent so we can diagnose failures.
+    console.log(
+      `[confirmationWizard] applyConfirmation update payload — product=${productId}:`,
+      JSON.stringify(productUpdate, null, 2),
+    )
+    try {
+      await payload.update({
+        collection: 'products',
+        id: productId,
+        data: productUpdate,
+        ...(updateReq ? { req: updateReq } : {}),
+      })
+    } catch (updateErr: any) {
+      // Extract PG error details for clear diagnostics
+      const pgCode = updateErr?.code ?? updateErr?.cause?.code ?? ''
+      const pgDetail = updateErr?.detail ?? updateErr?.cause?.detail ?? ''
+      const pgConstraint = updateErr?.constraint ?? updateErr?.cause?.constraint ?? ''
+      const pgHint = updateErr?.hint ?? updateErr?.cause?.hint ?? ''
+      console.error(
+        `[confirmationWizard] Product update SQL error — product=${productId}`,
+        `pgCode=${pgCode} constraint=${pgConstraint} detail=${pgDetail} hint=${pgHint}`,
+      )
+      throw new Error(
+        `Ürün güncelleme hatası: ${pgCode ? `[${pgCode}]` : ''} ` +
+        `${pgConstraint ? `constraint=${pgConstraint}` : ''} ` +
+        `${pgDetail || pgHint || updateErr?.message?.slice(-200) || 'bilinmeyen hata'}`,
+      )
+    }
 
     // 3. Create variants if sizes were collected
     let variantsCreated = 0
+    let totalStock = 0
     if (collected.sizes) {
       const sizes = collected.sizes.split(',')
-      const stockPerSize = collected.stockPerSize ?? 1
 
       for (const size of sizes) {
+        const trimmedSize = size.trim()
+        // D-171: prefer per-size stock map, fall back to uniform stockPerSize
+        const stock = collected.sizeStockMap?.[trimmedSize] ?? collected.stockPerSize ?? 1
         await payload.create({
           collection: 'variants',
           data: {
             product: productId,
-            size: size.trim(),
-            stock: stockPerSize,
+            size: trimmedSize,
+            stock,
           },
         })
+        totalStock += stock
         variantsCreated++
       }
 
       // Also update stockQuantity to total
-      const totalStock = sizes.length * stockPerSize
       await payload.update({
         collection: 'products',
         id: productId,
@@ -676,9 +936,29 @@ export async function applyConfirmation(
     }
 
     return { success: true, variantsCreated }
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err)
-    console.error(`[confirmationWizard] applyConfirmation failed for product ${productId}:`, msg)
+  } catch (err: any) {
+    const fullMsg = err instanceof Error ? err.message : String(err)
+    console.error(`[confirmationWizard] applyConfirmation failed for product ${productId}:`, fullMsg)
+    // D-172c: Extract the actual PG error from the Drizzle error object.
+    // node-postgres errors have .code, .detail, .constraint, .column.
+    // Drizzle wraps them — check err, err.cause, and the message itself.
+    const pgCode = err?.code ?? err?.cause?.code ?? ''
+    const pgDetail = err?.detail ?? err?.cause?.detail ?? ''
+    const pgConstraint = err?.constraint ?? err?.cause?.constraint ?? ''
+    const pgColumn = err?.column ?? err?.cause?.column ?? ''
+    // Also try to extract error after the SQL query (after last ') - ')
+    const dashIdx = fullMsg.lastIndexOf(') - ')
+    const afterSql = dashIdx > 0 ? fullMsg.slice(dashIdx + 4) : ''
+    // Build a compact diagnostic message
+    const parts: string[] = []
+    if (pgCode) parts.push(`code=${pgCode}`)
+    if (pgConstraint) parts.push(`constraint=${pgConstraint}`)
+    if (pgColumn) parts.push(`column=${pgColumn}`)
+    if (pgDetail) parts.push(`detail=${pgDetail}`)
+    if (afterSql) parts.push(afterSql.slice(0, 300))
+    const msg = parts.length > 0
+      ? parts.join(' | ')
+      : (fullMsg.length > 300 ? '…' + fullMsg.slice(-300) : fullMsg)
     return { success: false, error: msg }
   }
 }

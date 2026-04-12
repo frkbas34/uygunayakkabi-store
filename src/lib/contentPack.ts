@@ -858,3 +858,77 @@ export function formatContentStatusMessage(product: ContentProduct): string {
 
   return lines.join('\n')
 }
+
+/**
+ * D-172g: Format a content preview message for Telegram — shows all generated
+ * commerce pack fields (Instagram, Facebook, Website, Shopier, X, highlights)
+ * in a compact, operator-readable preview format.
+ */
+export function formatContentPreviewMessage(product: ContentProduct): string | null {
+  const cp = product.content?.commercePack
+  if (!cp) return null
+
+  const hasAny = cp.instagramCaption || cp.websiteDescription || cp.facebookCopy || cp.shopierCopy || cp.xPost
+  if (!hasAny) return null
+
+  const title = product.title ?? `Ürün #${product.id}`
+  const truncate = (s: string | null | undefined, max: number): string => {
+    if (!s) return '—'
+    return s.length > max ? s.substring(0, max) + '…' : s
+  }
+
+  const lines = [
+    `👁️ <b>İçerik Önizleme — ${title}</b> (ID: ${product.id})`,
+    ``,
+  ]
+
+  if (cp.instagramCaption) {
+    lines.push(`📸 <b>Instagram:</b>`)
+    lines.push(`<pre>${truncate(cp.instagramCaption, 300)}</pre>`)
+    lines.push(``)
+  }
+
+  if (cp.facebookCopy) {
+    lines.push(`📘 <b>Facebook:</b>`)
+    lines.push(`<pre>${truncate(cp.facebookCopy, 300)}</pre>`)
+    lines.push(``)
+  }
+
+  if (cp.websiteDescription) {
+    lines.push(`🌐 <b>Website:</b>`)
+    lines.push(`<pre>${truncate(cp.websiteDescription, 250)}</pre>`)
+    lines.push(``)
+  }
+
+  if (cp.shopierCopy) {
+    lines.push(`🛍️ <b>Shopier:</b>`)
+    lines.push(`<pre>${truncate(cp.shopierCopy, 200)}</pre>`)
+    lines.push(``)
+  }
+
+  if (cp.xPost) {
+    lines.push(`🐦 <b>X / Twitter:</b>`)
+    lines.push(`<pre>${truncate(cp.xPost, 280)}</pre>`)
+    lines.push(``)
+  }
+
+  if (cp.highlights && cp.highlights.length > 0) {
+    lines.push(`✨ <b>Öne Çıkanlar:</b>`)
+    for (const h of cp.highlights.slice(0, 5)) {
+      lines.push(`  • ${h}`)
+    }
+    lines.push(``)
+  }
+
+  // Discovery pack summary (title + meta only — article body is too long)
+  const dp = product.content?.discoveryPack
+  if (dp?.articleTitle || dp?.metaTitle) {
+    lines.push(`📰 <b>SEO / Discovery:</b>`)
+    if (dp.articleTitle) lines.push(`  Makale: <i>${truncate(dp.articleTitle, 80)}</i>`)
+    if (dp.metaTitle) lines.push(`  Meta Title: <i>${truncate(dp.metaTitle, 80)}</i>`)
+    if (dp.metaDescription) lines.push(`  Meta Desc: <i>${truncate(dp.metaDescription, 120)}</i>`)
+    lines.push(``)
+  }
+
+  return lines.join('\n')
+}

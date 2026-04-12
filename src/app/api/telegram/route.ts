@@ -18,8 +18,40 @@ export const maxDuration = 300
 // Helpers
 // ─────────────────────────────────────────────────────────────────────────────
 
+// ── Multi-bot token resolution ───────────────────────────────────────────────
+// Supports both @Uygunops_bot (TELEGRAM_BOT_TOKEN) and @Geeeeobot (TELEGRAM_GEO_BOT_TOKEN).
+// Per-request token is set at the top of POST() based on the incoming bot ID,
+// then read by all helper functions via getBotToken().
+let _requestBotToken: string | undefined
+function getBotToken(): string | undefined {
+  return _requestBotToken || process.env.TELEGRAM_BOT_TOKEN
+}
+
+/** Send a Telegram message using an explicit bot token (for cross-bot notifications). */
+async function sendTelegramMessageAs(
+  token: string,
+  chatId: number,
+  text: string,
+  keyboard?: Array<Array<{ text: string; callback_data: string }>>,
+): Promise<void> {
+  const safeText = text.length > 4000 ? text.substring(0, 4000) + '\n\n⚠️ (mesaj kesildi — çok uzun)' : text
+  const body: Record<string, unknown> = { chat_id: chatId, text: safeText, parse_mode: 'HTML' }
+  if (keyboard) {
+    body.reply_markup = { inline_keyboard: keyboard }
+  }
+  const res = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+  if (!res.ok) {
+    const errBody = await res.text()
+    console.error(`[telegram/sendMessageAs] FAILED ${res.status}: chatId=${chatId} body=${errBody} msgPreview=${text.substring(0, 100)}`)
+  }
+}
+
 async function sendTelegramMessage(chatId: number, text: string): Promise<void> {
-  const token = process.env.TELEGRAM_BOT_TOKEN
+  const token = getBotToken()
   if (!token) return
   // Telegram API limit: 4096 chars for sendMessage
   const safeText = text.length > 4000 ? text.substring(0, 4000) + '\n\n⚠️ (mesaj kesildi — çok uzun)' : text
@@ -40,7 +72,7 @@ async function sendTelegramMessageWithKeyboard(
   text: string,
   keyboard: Array<Array<{ text: string; callback_data: string }>>,
 ): Promise<number | null> {
-  const token = process.env.TELEGRAM_BOT_TOKEN
+  const token = getBotToken()
   if (!token) return null
   const safeText = text.length > 4000 ? text.substring(0, 4000) + '\n\n⚠️ (mesaj kesildi)' : text
   const res = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
@@ -69,7 +101,7 @@ async function editMessageText(
   text: string,
   keyboard?: Array<Array<{ text: string; callback_data: string }>>,
 ): Promise<void> {
-  const token = process.env.TELEGRAM_BOT_TOKEN
+  const token = getBotToken()
   if (!token) return
   const safeText = text.length > 4000 ? text.substring(0, 4000) + '\n\n⚠️ (mesaj kesildi)' : text
   await fetch(`https://api.telegram.org/bot${token}/editMessageText`, {
@@ -85,21 +117,25 @@ async function editMessageText(
   })
 }
 
-/** Build inline keyboard for size multi-select */
-const DEFAULT_SIZES = ['39', '40', '41', '42', '43', '44', '45']
+/** D-171: Available shoe sizes for interactive keyboard selection */
+const AVAILABLE_SIZES = ['39', '40', '41', '42', '43', '44', '45', '46', '47']
 
+/** Stock quantity options for per-size stock selection */
+const STOCK_QTY_OPTIONS = [1, 2, 3, 4, 5, 10]
+
+/** Build inline keyboard for size multi-select (39–47) */
 function buildSizeKeyboard(
   selectedSizes: Set<string>,
 ): Array<Array<{ text: string; callback_data: string }>> {
   const rows: Array<Array<{ text: string; callback_data: string }>> = []
-  // Row 1: 39, 40, 41  |  Row 2: 42, 43, 44  |  Row 3: 45
-  const layout = [[0, 3], [3, 6], [6, 7]]
+  // Row 1: 39, 40, 41, 42  |  Row 2: 43, 44, 45, 46  |  Row 3: 47
+  const layout = [[0, 4], [4, 8], [8, 9]]
   for (const [start, end] of layout) {
-    const row = DEFAULT_SIZES.slice(start, end).map((size) => ({
+    const row = AVAILABLE_SIZES.slice(start, end).map((size) => ({
       text: selectedSizes.has(size) ? `✅ ${size}` : size,
       callback_data: `wz_size:${size}`,
     }))
-    rows.push(row)
+    if (row.length > 0) rows.push(row)
   }
   // Action rows
   rows.push([
@@ -120,9 +156,40 @@ function formatSizeSelectionText(selectedSizes: Set<string>): string {
   return `👟 <b>Beden seçin:</b>\n\n✅ Seçili: <b>${sorted.join(', ')}</b> (${sorted.length} beden)`
 }
 
+/** Build inline keyboard for per-size stock quantity selection */
+function buildStockQtyKeyboard(
+  size: string,
+): Array<Array<{ text: string; callback_data: string }>> {
+  return [
+    STOCK_QTY_OPTIONS.map((qty) => ({
+      text: `${qty}`,
+      callback_data: `wz_stock:${size}:${qty}`,
+    })),
+  ]
+}
+
+function formatStockQtyText(
+  sizeStockMap: Record<string, number>,
+  allSizes: string[],
+  currentSize: string,
+): string {
+  const lines = ['📦 <b>Her beden için stok adedi seçin:</b>\n']
+  for (const s of allSizes) {
+    const qty = sizeStockMap[s]
+    if (qty !== undefined) {
+      lines.push(`  ✅ ${s} → ${qty} adet`)
+    } else if (s === currentSize) {
+      lines.push(`  👉 <b>${s} → ?</b>`)
+    } else {
+      lines.push(`  ⏳ ${s}`)
+    }
+  }
+  return lines.join('\n')
+}
+
 /** Dismiss the loading spinner on a Telegram button after user clicks it */
 async function answerCallbackQuery(callbackQueryId: string, text?: string): Promise<void> {
-  const token = process.env.TELEGRAM_BOT_TOKEN
+  const token = getBotToken()
   if (!token) return
   await fetch(`https://api.telegram.org/bot${token}/answerCallbackQuery`, {
     method: 'POST',
@@ -196,7 +263,7 @@ async function downloadTelegramFile(fileId: string): Promise<{
   ext: string
   contentType: string
 } | null> {
-  const token = process.env.TELEGRAM_BOT_TOKEN
+  const token = getBotToken()
   if (!token) return null
 
   const infoRes = await fetch(
@@ -403,10 +470,16 @@ async function approveImageGenJob(
   slotsStr: string,
   chatId: number,
 ): Promise<void> {
+  // D-156: depth:1 forces Payload to populate the generatedImages hasMany
+  // relationship as full media docs. Earlier depth:0 path was returning
+  // an empty array for this field on recent jobs (216+), causing "⚠️
+  // Onaylanacak geçerli görsel bulunamadı." even though the underlying
+  // image_generation_jobs_rels table had the correct rows. depth:1 is
+  // guaranteed to traverse the rels join and populate the field.
   const jobDoc = await payload.findByID({
     collection: 'image-generation-jobs',
     id: jobId,
-    depth: 0,
+    depth: 1,
   }) as Record<string, unknown>
 
   const productRef = jobDoc.product as { id: number } | number | null
@@ -414,7 +487,36 @@ async function approveImageGenJob(
   const productId = typeof productRef === 'object' ? productRef.id : productRef
 
   const generatedImages = (jobDoc.generatedImages as Array<{ id: number } | number> | undefined) ?? []
-  const allMediaIds = generatedImages.map((img) => (typeof img === 'object' ? img.id : img))
+  let allMediaIds = generatedImages
+    .map((img) => (typeof img === 'object' ? img.id : img))
+    .filter((id): id is number => typeof id === 'number')
+
+  // D-156: fallback — if Payload still returned an empty array (schema
+  // serialization drift, access-control quirk, etc.), read the rels table
+  // directly via the Drizzle node-postgres pool. This guarantees approve
+  // never fails on a valid job whose rels rows exist in the DB.
+  if (allMediaIds.length === 0) {
+    try {
+      const pool = (payload.db as unknown as { pool: { query: (text: string, vals: unknown[]) => Promise<{ rows: Array<{ media_id: number }> }> } }).pool
+      const { rows } = await pool.query(
+        'SELECT media_id FROM image_generation_jobs_rels WHERE parent_id = $1 AND path = $2 ORDER BY "order" ASC',
+        [Number(jobId), 'generatedImages'],
+      )
+      const fallbackIds = rows.map((r) => r.media_id).filter((id): id is number => typeof id === 'number')
+      if (fallbackIds.length > 0) {
+        console.warn(
+          `[telegram/approveImageGenJob D-156] Payload returned empty generatedImages for job ${jobId}, ` +
+            `recovered ${fallbackIds.length} ids from rels table directly: [${fallbackIds.join(',')}]`,
+        )
+        allMediaIds = fallbackIds
+      }
+    } catch (err) {
+      console.error(
+        `[telegram/approveImageGenJob D-156] rels table fallback query failed for job ${jobId}:`,
+        err,
+      )
+    }
+  }
 
   // Determine which IDs to approve
   let approvedMediaIds: number[]
@@ -430,7 +532,14 @@ async function approveImageGenJob(
   }
 
   if (approvedMediaIds.length === 0) {
-    await sendTelegramMessage(chatId, '⚠️ Onaylanacak geçerli görsel bulunamadı.')
+    console.error(
+      `[telegram/approveImageGenJob] No approved media IDs — job=${jobId} slots="${slotsStr}" ` +
+        `allMediaIds=[${allMediaIds.join(',')}] generatedImages=${JSON.stringify(generatedImages?.length ?? 'undef')}`,
+    )
+    await sendTelegramMessage(
+      chatId,
+      `⚠️ Onaylanacak geçerli görsel bulunamadı.\n<code>Job: ${jobId} | Media: ${allMediaIds.length} | Slots: ${slotsStr || 'all'}</code>`,
+    )
     return
   }
 
@@ -443,10 +552,13 @@ async function approveImageGenJob(
     depth: 0,
   })
   const existingGallery = ((productDoc as any).generativeGallery as Array<{ image: number }> | undefined) ?? []
-  const updatedGallery = [
-    ...existingGallery,
-    ...approvedMediaIds.map((id) => ({ image: id })),
-  ]
+  // D-172f: Deduplicate — prevent the same media ID from appearing twice
+  // if operator re-approves or re-generates for the same product.
+  const existingIds = new Set(existingGallery.map((e) => (typeof e.image === 'object' ? (e.image as any).id : e.image)))
+  const newEntries = approvedMediaIds
+    .filter((id) => !existingIds.has(id))
+    .map((id) => ({ image: id }))
+  const updatedGallery = [...existingGallery, ...newEntries]
   await payload.update({
     collection: 'products',
     id: productId,
@@ -466,14 +578,24 @@ async function approveImageGenJob(
   // VF-2: Set product visualStatus = approved when operator approves visuals
   await updateProductVisualStatus(payload, productId, 'approved')
 
+  // D-162: GeoBot content generation is NOT triggered here. It must wait
+  // until the operator completes the intake wizard (title, stock code,
+  // category, product type, price, sizes, stock) and confirms. The trigger
+  // lives in confirmationWizard.applyConfirmation(). Triggering on image
+  // approval was a D-159/D-160 regression — GeoBot fired against the
+  // placeholder "Taslak Ürün…" title and produced low-quality generic copy.
   const isPartial = slotsStr !== 'all' && approvedMediaIds.length < allMediaIds.length
   const slotNote = isPartial ? ` (${approvedMediaIds.length}/${allMediaIds.length} slot)` : ''
 
-  await sendTelegramMessage(
+  await sendTelegramMessageWithKeyboard(
     chatId,
     `✅ <b>${approvedMediaIds.length} görsel onaylandı${slotNote}</b>\n\n` +
     `Görseller AI Üretim Galerisi'ne eklendi (ürün sayfası görselleri değişmedi).\n` +
+    `📋 Ürün bilgilerini girip onayladıktan sonra GeoBot açıklamaları yazacak.\n` +
     `🔗 <a href="https://www.uygunayakkabi.com/admin/collections/products/${productId}">Ürünü admin'de gör</a>`,
+    [
+      [{ text: '📋 Bilgileri Gir → Onaya Gönder', callback_data: `wz_start:${productId}` }],
+    ],
   )
 }
 
@@ -675,10 +797,24 @@ async function startPremiumImageGenJob(
 
 export async function POST(req: NextRequest) {
   try {
+    // ── Multi-bot token resolution ─────────────────────────────────────────
+    // Geo_bot webhook is set with ?bot=geo query parameter.
+    // Uygunops uses the default path (no query param).
+    const botParam = new URL(req.url).searchParams.get('bot')
+    if (botParam === 'geo' && process.env.TELEGRAM_GEO_BOT_TOKEN) {
+      _requestBotToken = process.env.TELEGRAM_GEO_BOT_TOKEN
+    } else {
+      _requestBotToken = process.env.TELEGRAM_BOT_TOKEN
+    }
+
     // Webhook secret doğrulama
     // TELEGRAM_WEBHOOK_SECRET boşsa atla (ilk kurulum / test için)
+    // Geo_bot uses its own secret (TELEGRAM_GEO_WEBHOOK_SECRET) if configured
     const secret = req.headers.get('X-Telegram-Bot-Api-Secret-Token')
-    if (process.env.TELEGRAM_WEBHOOK_SECRET && secret !== process.env.TELEGRAM_WEBHOOK_SECRET) {
+    const expectedSecret = botParam === 'geo'
+      ? (process.env.TELEGRAM_GEO_WEBHOOK_SECRET || process.env.TELEGRAM_WEBHOOK_SECRET)
+      : process.env.TELEGRAM_WEBHOOK_SECRET
+    if (expectedSecret && secret !== expectedSecret) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
@@ -695,6 +831,66 @@ export async function POST(req: NextRequest) {
       const cbChatId: number = callbackQuery.message?.chat?.id
       const cbQueryId: string = callbackQuery.id
       const cbData: string = callbackQuery.data || ''
+      const cbChatType: string = callbackQuery.message?.chat?.type || 'private'
+      const cbIsGroup = cbChatType === 'group' || cbChatType === 'supergroup'
+      // Phase P: operator userId for wizard session isolation in groups
+      const cbUserId: number | undefined = callbackQuery.from?.id
+
+      // ── Phase R: Command ownership split for callbacks ───────────────────
+      // Ops Bot (Uygunops) owns: image generation, image approval, wizard callbacks
+      // GeoBot owns: story callbacks + geo_* buttons
+      // NOTE (D-155): Phase R prefix classification MUST run BEFORE the Phase N
+      // bot-role gate, because image approval previews are sent by Uygunops
+      // into the ops GROUP chat — the Phase N "Uygunops-in-group → silent drop"
+      // rule was swallowing every imgapprove/imgregen/imgreject/imgpremium/wz_*
+      // button click and breaking the entire golden-path approval flow.
+      const OPS_CB_PREFIXES = ['imagegen:', 'imgapprove:', 'imgreject:', 'imgregen:', 'imgpremium:', 'wz_start:', 'wz_cat:', 'wz_ptype:', 'wz_tgt:', 'wz_size:', 'wz_stock:', 'wz_confirm:', 'wz_cancel:']
+      const GEO_CB_PREFIXES = ['storyapprove:', 'storyreject:', 'storyretry:', 'geo_content:', 'geo_audit:', 'geo_auditrun:', 'geo_activate:', 'geo_retry:']
+      const isOpsCb = OPS_CB_PREFIXES.some(p => cbData.startsWith(p))
+      const isGeoCb = GEO_CB_PREFIXES.some(p => cbData.startsWith(p))
+
+      // Wrong-bot redirects (prefix-based, authoritative)
+      if (botParam === 'geo' && isOpsCb) {
+        await answerCallbackQuery(cbQueryId, '📌 Bu işlem @Uygunops_bot üzerinden çalışır.')
+        return NextResponse.json({ ok: true })
+      }
+      if (botParam !== 'geo' && isGeoCb) {
+        await answerCallbackQuery(cbQueryId, '📌 Bu işlem GeoBot üzerinden çalışır.')
+        return NextResponse.json({ ok: true })
+      }
+
+      // ── Phase N: Bot role fallback for UN-classified callbacks only ──────
+      // Classified ops callbacks are allowed in both DM and group (image
+      // previews live in the ops group). Only unknown prefixes fall through
+      // to the bot-role default routing.
+      if (botParam === 'geo' && !cbIsGroup && !isGeoCb && !isOpsCb) {
+        await answerCallbackQuery(cbQueryId, '📌 DM komutları için @Uygunops_bot kullanın.')
+        return NextResponse.json({ ok: true })
+      }
+      if (botParam !== 'geo' && cbIsGroup && !isOpsCb && !isGeoCb) {
+        // Unknown Uygunops callback in group → silently acknowledge (noise filter)
+        await answerCallbackQuery(cbQueryId)
+        return NextResponse.json({ ok: true })
+      }
+
+      // ── D-158: Hydrate DB-backed wizard session for wizard callbacks ─────
+      // The in-memory wizard Map is per-Lambda-instance and does not survive
+      // cold starts or deploys. For any wz_* callback, load the session from
+      // Neon into the Map before the handler runs so operators don't get
+      // "⚠️ Aktif sihirbaz yok" after a deploy or cold start.
+      if (cbData.startsWith('wz_')) {
+        try {
+          const { hydrateWizardSession, bindWizardPayload, getWizardSession: peekSession } =
+            await import('@/lib/confirmationWizard')
+          const cbWizPayload = await getPayload()
+          bindWizardPayload(cbWizPayload)
+          const hydrated = await hydrateWizardSession(cbWizPayload, cbChatId, cbUserId)
+          const peekAfter = peekSession(cbChatId, cbUserId)
+          console.log(`[wz_hydrate] chat=${cbChatId} user=${cbUserId} cb=${cbData} hydrated=${hydrated ? `step=${hydrated.step}` : 'null'} peek=${peekAfter ? `step=${peekAfter.step}` : 'null'}`)
+        } catch (err) {
+          console.warn('[telegram/D-158] wizard hydrate failed:', err instanceof Error ? err.message : err)
+        }
+      }
 
       if (cbData.startsWith('imagegen:')) {
         const parts = cbData.split(':')
@@ -943,14 +1139,312 @@ export async function POST(req: NextRequest) {
         }
       }
 
+      // ── Phase U: GeoBot one-tap post-handoff actions ──────────────────────
+
+      // geo_content:{productId} — show content status + preview
+      if (cbData.startsWith('geo_content:')) {
+        const geoProductId = parseInt(cbData.replace('geo_content:', ''))
+        await answerCallbackQuery(cbQueryId, '📋 İçerik durumu...')
+        try {
+          const payloadInst = await getPayload()
+          const product = await payloadInst.findByID({ collection: 'products', id: geoProductId, depth: 1 })
+          if (!product) {
+            await sendTelegramMessage(cbChatId, `❌ Ürün #${geoProductId} bulunamadı.`)
+          } else {
+            const { formatContentStatusMessage, formatContentPreviewMessage } = await import('@/lib/contentPack')
+            const statusMsg = formatContentStatusMessage(product as any)
+            await sendTelegramMessage(cbChatId, statusMsg)
+
+            // Phase X: Send actual content preview if available
+            const previewMsg = formatContentPreviewMessage(product as any)
+            if (previewMsg) {
+              await sendTelegramMessageWithKeyboard(cbChatId, previewMsg, [
+                [
+                  { text: '🔍 Audit Başlat', callback_data: `geo_auditrun:${geoProductId}` },
+                  { text: '🚀 Yayına Al', callback_data: `geo_activate:${geoProductId}` },
+                ],
+              ])
+            }
+          }
+        } catch (err) {
+          console.error('[telegram/webhook] geo_content callback failed:', err)
+          await sendTelegramMessage(cbChatId, `❌ Hata: ${err instanceof Error ? err.message : 'Bilinmeyen hata'}`)
+        }
+        return NextResponse.json({ ok: true })
+      }
+
+      // geo_audit:{productId} — show audit status
+      if (cbData.startsWith('geo_audit:') && !cbData.startsWith('geo_auditrun:')) {
+        const geoProductId = parseInt(cbData.replace('geo_audit:', ''))
+        await answerCallbackQuery(cbQueryId, '🔍 Audit durumu...')
+        try {
+          const payloadInst = await getPayload()
+          const product = await payloadInst.findByID({ collection: 'products', id: geoProductId, depth: 1 })
+          if (!product) {
+            await sendTelegramMessage(cbChatId, `❌ Ürün #${geoProductId} bulunamadı.`)
+          } else {
+            const { formatAuditStatusMessage } = await import('@/lib/mentixAudit')
+            const statusMsg = formatAuditStatusMessage(product as any)
+            await sendTelegramMessage(cbChatId, statusMsg)
+          }
+        } catch (err) {
+          console.error('[telegram/webhook] geo_audit callback failed:', err)
+          await sendTelegramMessage(cbChatId, `❌ Hata: ${err instanceof Error ? err.message : 'Bilinmeyen hata'}`)
+        }
+        return NextResponse.json({ ok: true })
+      }
+
+      // geo_auditrun:{productId} — trigger/run audit
+      if (cbData.startsWith('geo_auditrun:')) {
+        const geoProductId = parseInt(cbData.replace('geo_auditrun:', ''))
+        await answerCallbackQuery(cbQueryId, '🔍 Audit başlatılıyor...')
+        try {
+          const payloadInst = await getPayload()
+          const product = await payloadInst.findByID({ collection: 'products', id: geoProductId, depth: 1 })
+          if (!product) {
+            await sendTelegramMessage(cbChatId, `❌ Ürün #${geoProductId} bulunamadı.`)
+            return NextResponse.json({ ok: true })
+          }
+          const { isAuditEligible, triggerAudit, formatAuditStatusMessage } = await import('@/lib/mentixAudit')
+          if (!isAuditEligible(product as any)) {
+            await sendTelegramMessage(cbChatId,
+              `⚠️ Ürün #${geoProductId} audit için uygun değil.\n` +
+              `Durum: contentStatus=${(product as any).workflow?.contentStatus ?? '—'}`)
+            return NextResponse.json({ ok: true })
+          }
+          await sendTelegramMessage(cbChatId, `⏳ Ürün #${geoProductId} audit başlatılıyor...`)
+          const auditResult = await triggerAudit(payloadInst, product, 'telegram_command')
+          const updatedProduct = await payloadInst.findByID({ collection: 'products', id: geoProductId, depth: 1 })
+          const statusMsg = formatAuditStatusMessage((updatedProduct ?? product) as any)
+          const nextButtons: Array<Array<{ text: string; callback_data: string }>> = []
+          const auditStatus = (updatedProduct as any)?.auditResult?.overallResult
+          if (auditStatus === 'approved' || auditStatus === 'approved_with_warning') {
+            nextButtons.push([{ text: '🚀 Yayına Al', callback_data: `geo_activate:${geoProductId}` }])
+          }
+          if (nextButtons.length > 0) {
+            await sendTelegramMessageWithKeyboard(cbChatId, statusMsg, nextButtons)
+          } else {
+            await sendTelegramMessage(cbChatId, statusMsg)
+          }
+        } catch (err) {
+          console.error('[telegram/webhook] geo_auditrun callback failed:', err)
+          await sendTelegramMessage(cbChatId, `❌ Audit hatası: ${err instanceof Error ? err.message : 'Bilinmeyen hata'}`)
+        }
+        return NextResponse.json({ ok: true })
+      }
+
+      // geo_activate:{productId} — activate product for publishing
+      if (cbData.startsWith('geo_activate:')) {
+        const geoProductId = parseInt(cbData.replace('geo_activate:', ''))
+        await answerCallbackQuery(cbQueryId, '🚀 Aktivasyon...')
+        try {
+          const payloadInst = await getPayload()
+          const product = await payloadInst.findByID({ collection: 'products', id: geoProductId, depth: 1 })
+          if (!product) {
+            await sendTelegramMessage(cbChatId, `❌ Ürün #${geoProductId} bulunamadı.`)
+            return NextResponse.json({ ok: true })
+          }
+          if ((product as any).status === 'active') {
+            await sendTelegramMessage(cbChatId, `✅ Ürün #${geoProductId} zaten aktif.`)
+            return NextResponse.json({ ok: true })
+          }
+          const { evaluatePublishReadiness, formatReadinessMessage } = await import('@/lib/publishReadiness')
+          const readiness = evaluatePublishReadiness(product as any)
+          if (readiness.level !== 'ready') {
+            await sendTelegramMessage(cbChatId,
+              `⛔ Ürün #${geoProductId} yayına alınamıyor:\n\n` +
+              formatReadinessMessage(product as any, readiness))
+            return NextResponse.json({ ok: true })
+          }
+          // Activate: set status=active, merchandising fields, workflow
+          const now = new Date().toISOString()
+          const newUntil = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString()
+          await payloadInst.update({
+            collection: 'products',
+            id: geoProductId,
+            data: {
+              status: 'active',
+              merchandising: {
+                ...((product as any).merchandising ?? {}),
+                publishedAt: now,
+                newUntil,
+              },
+              workflow: {
+                ...((product as any).workflow ?? {}),
+                workflowStatus: 'active',
+                publishStatus: 'published',
+                lastHandledByBot: 'geobot',
+              },
+            },
+          })
+          await payloadInst.create({
+            collection: 'bot-events',
+            data: {
+              eventType: 'product.activated',
+              product: geoProductId,
+              sourceBot: 'geobot',
+              status: 'processed',
+              notes: `Product ${geoProductId} activated via GeoBot inline button.`,
+              processedAt: now,
+            },
+          })
+          await sendTelegramMessage(cbChatId,
+            `🚀 <b>Ürün #${geoProductId} yayına alındı!</b>\n\n` +
+            `📅 Yeni bölümünde: ${newUntil.substring(0, 10)} tarihine kadar\n` +
+            `🔗 <a href="https://www.uygunayakkabi.com/admin/collections/products/${geoProductId}">Admin'de gör</a>`)
+        } catch (err) {
+          console.error('[telegram/webhook] geo_activate callback failed:', err)
+          await sendTelegramMessage(cbChatId, `❌ Aktivasyon hatası: ${err instanceof Error ? err.message : 'Bilinmeyen hata'}`)
+        }
+        return NextResponse.json({ ok: true })
+      }
+
+      // geo_retry:{productId} — retry content generation
+      if (cbData.startsWith('geo_retry:')) {
+        const geoProductId = parseInt(cbData.replace('geo_retry:', ''))
+        await answerCallbackQuery(cbQueryId, '🔄 İçerik yeniden üretiliyor...')
+        try {
+          const payloadInst = await getPayload()
+          const product = await payloadInst.findByID({ collection: 'products', id: geoProductId, depth: 1 })
+          if (!product) {
+            await sendTelegramMessage(cbChatId, `❌ Ürün #${geoProductId} bulunamadı.`)
+            return NextResponse.json({ ok: true })
+          }
+          const { canRetriggerContent, triggerContentGeneration } = await import('@/lib/contentPack')
+          if (!canRetriggerContent(product as any)) {
+            await sendTelegramMessage(cbChatId,
+              `⚠️ Ürün #${geoProductId} içerik yeniden üretimi için uygun değil.\n` +
+              `Durum: contentStatus=${(product as any).workflow?.contentStatus ?? '—'}`)
+            return NextResponse.json({ ok: true })
+          }
+          await sendTelegramMessage(cbChatId, `⏳ Ürün #${geoProductId} içerik yeniden üretiliyor...`)
+          const contentResult = await triggerContentGeneration(payloadInst, product as any, 'retry')
+          await sendTelegramMessage(cbChatId,
+            `${contentResult.triggered ? '✅' : '❌'} İçerik: ${contentResult.contentStatus ?? 'unknown'}` +
+            (contentResult.error ? `\n\n⚠️ ${contentResult.error.substring(0, 200)}` : ''))
+        } catch (err) {
+          console.error('[telegram/webhook] geo_retry callback failed:', err)
+          await sendTelegramMessage(cbChatId, `❌ İçerik retry hatası: ${err instanceof Error ? err.message : 'Bilinmeyen hata'}`)
+        }
+        return NextResponse.json({ ok: true })
+      }
+
+      // ── Phase T2: One-tap wizard start from image approval ────────────────
+      // wz_start:{productId} — launches the confirmation wizard from an inline button
+      if (cbData.startsWith('wz_start:')) {
+        const wzProductId = parseInt(cbData.replace('wz_start:', ''))
+        if (isNaN(wzProductId)) {
+          await answerCallbackQuery(cbQueryId, '⚠️ Geçersiz ürün ID')
+          return NextResponse.json({ ok: true })
+        }
+        await answerCallbackQuery(cbQueryId, '📋 Sihirbaz başlatılıyor...')
+
+        try {
+          const payloadInst = await getPayload()
+          const product = await payloadInst.findByID({ collection: 'products', id: wzProductId, depth: 1 })
+          if (!product) {
+            await sendTelegramMessage(cbChatId, `❌ Ürün #${wzProductId} bulunamadı.`)
+            return NextResponse.json({ ok: true })
+          }
+
+          // Visual gate — same as /confirm
+          const visualStatus = (product as any).workflow?.visualStatus ?? 'pending'
+          if (visualStatus !== 'approved') {
+            await sendTelegramMessage(cbChatId, `⛔ Görseller henüz onaylanmamış (${visualStatus}). Önce görselleri onaylayın.`)
+            return NextResponse.json({ ok: true })
+          }
+
+          // Already confirmed
+          const alreadyConfirmed = (product as any).workflow?.confirmationStatus === 'confirmed'
+          if (alreadyConfirmed) {
+            await sendTelegramMessage(cbChatId,
+              `✅ <b>Ürün #${wzProductId} zaten onaylı.</b>\n` +
+              `Tekrar düzenlemek için: <code>/confirm ${wzProductId} force</code>`)
+            return NextResponse.json({ ok: true })
+          }
+
+          const {
+            checkConfirmationFields, getNextWizardStep, setWizardSession, clearWizardSession,
+            getTitlePrompt, getCategoryPrompt, getProductTypePrompt,
+            getPricePrompt, getTargetsPrompt, getBrandPrompt, getStockPrompt, formatConfirmationSummary,
+          } = await import('@/lib/confirmationWizard')
+
+          const check = checkConfirmationFields(product as any)
+          const collected: Record<string, unknown> = {}
+          const nextStep = getNextWizardStep(product as any, collected as any)
+
+          // If everything is already filled, go straight to summary
+          if (check.ready && nextStep === 'summary') {
+            const summary = formatConfirmationSummary(product as any, {} as any)
+            await sendTelegramMessageWithKeyboard(cbChatId, summary, [
+              [
+                { text: '✅ Onayla', callback_data: `wz_confirm:${wzProductId}` },
+                { text: '❌ İptal', callback_data: `wz_cancel:${wzProductId}` },
+              ],
+            ])
+            await setWizardSession(cbChatId, {
+              productId: wzProductId, chatId: cbChatId, userId: cbUserId,
+              step: 'summary', collected: {} as any, startedAt: Date.now(),
+            }, cbUserId)
+            return NextResponse.json({ ok: true })
+          }
+
+          // Start wizard — show status then first prompt
+          const missingList = check.missing.map(m => `  ❌ ${m.label}`).join('\n')
+          const presentList = check.present.map(m => `  ✅ ${m.label}: ${m.value}`).join('\n')
+          await sendTelegramMessage(cbChatId,
+            `📋 <b>Ürün #${wzProductId} — ${(product as any).title ?? 'İsimsiz'}</b>\n\n` +
+            `<b>Mevcut:</b>\n${presentList || '  (yok)'}\n\n` +
+            `<b>Eksik:</b>\n${missingList || '  (yok)'}\n\n` +
+            `Sihirbaz başlıyor...`)
+
+          await clearWizardSession(cbChatId, cbUserId)
+          const wizState: any = {
+            productId: wzProductId, chatId: cbChatId, userId: cbUserId,
+            step: nextStep, collected, startedAt: Date.now(),
+          }
+          await setWizardSession(cbChatId, wizState, cbUserId)
+
+          // Dispatch first prompt
+          if (nextStep === 'title') {
+            await sendTelegramMessage(cbChatId, getTitlePrompt((product as any).title ?? `Ürün #${wzProductId}`))
+          } else if (nextStep === 'category') {
+            const catPrompt = getCategoryPrompt()
+            await sendTelegramMessageWithKeyboard(cbChatId, catPrompt.text, catPrompt.keyboard)
+          } else if (nextStep === 'productType') {
+            const ptypePrompt = getProductTypePrompt()
+            await sendTelegramMessageWithKeyboard(cbChatId, ptypePrompt.text, ptypePrompt.keyboard)
+          } else if (nextStep === 'price') {
+            await sendTelegramMessage(cbChatId, getPricePrompt())
+          } else if (nextStep === 'sizes') {
+            // D-171: Interactive size keyboard
+            wizState.pendingSizes = []
+            const sizeMsg = await sendTelegramMessageWithKeyboard(
+              cbChatId, formatSizeSelectionText(new Set()), buildSizeKeyboard(new Set()))
+            if (sizeMsg) wizState.sizeMessageId = sizeMsg
+            await setWizardSession(cbChatId, wizState, cbUserId)
+          } else if (nextStep === 'brand') {
+            await sendTelegramMessage(cbChatId, getBrandPrompt())
+          } else if (nextStep === 'targets') {
+            const tgtPrompt = getTargetsPrompt()
+            await sendTelegramMessageWithKeyboard(cbChatId, tgtPrompt.text, tgtPrompt.keyboard)
+          }
+        } catch (err) {
+          console.error('[telegram/webhook] wz_start callback failed:', err)
+          await sendTelegramMessage(cbChatId, `❌ Sihirbaz başlatılamadı: ${err instanceof Error ? err.message : 'Bilinmeyen hata'}`)
+        }
+        return NextResponse.json({ ok: true })
+      }
+
       // ── Phase 5: Confirmation wizard callback handlers ───────────────────
       // wz_cat:{value} — category selection
       if (cbData.startsWith('wz_cat:')) {
         try {
           const { getWizardSession, setWizardSession, getNextWizardStep, getPricePrompt, getSizesPrompt,
-                  getTargetsPrompt, getProductTypePrompt, getBrandPrompt, formatConfirmationSummary: fmtSummary } =
+                  getTargetsPrompt, getProductTypePrompt, getBrandPrompt, getStockPrompt,
+                  getTitlePrompt, formatConfirmationSummary: fmtSummary } =
             await import('@/lib/confirmationWizard')
-          const session = getWizardSession(cbChatId)
+          const session = getWizardSession(cbChatId, cbUserId)
           if (!session || session.step !== 'category') {
             await answerCallbackQuery(cbQueryId, '⚠️ Aktif sihirbaz yok')
             return NextResponse.json({ ok: true })
@@ -963,8 +1457,8 @@ export async function POST(req: NextRequest) {
           const payloadInst = await getPayload()
           const product = await payloadInst.findByID({ collection: 'products', id: session.productId })
           const nextStep = getNextWizardStep(product as any, session.collected)
-          session.step = nextStep
-          setWizardSession(cbChatId, session)
+          session.step = nextStep as any
+          await setWizardSession(cbChatId, session, cbUserId)
 
           if (nextStep === 'productType') {
             const ptypePrompt = getProductTypePrompt()
@@ -972,14 +1466,23 @@ export async function POST(req: NextRequest) {
           } else if (nextStep === 'price') {
             await sendTelegramMessage(cbChatId, getPricePrompt())
           } else if (nextStep === 'sizes') {
+            // D-171: Interactive size keyboard
             session.pendingSizes = []
-            const msgId = await sendTelegramMessageWithKeyboard(
-              cbChatId,
-              formatSizeSelectionText(new Set()),
-              buildSizeKeyboard(new Set()),
-            )
-            if (msgId) session.sizeMessageId = msgId
-            setWizardSession(cbChatId, session)
+            const sizeMsg = await sendTelegramMessageWithKeyboard(
+              cbChatId, formatSizeSelectionText(new Set()), buildSizeKeyboard(new Set()))
+            if (sizeMsg) session.sizeMessageId = sizeMsg
+            await setWizardSession(cbChatId, session, cbUserId)
+          } else if (nextStep === 'stock') {
+            // D-171: Per-size stock via buttons — start with first size
+            const sizes = (session.collected.sizes ?? '').split(',').filter(Boolean)
+            session.collected.sizeStockMap = {}
+            await setWizardSession(cbChatId, session, cbUserId)
+            if (sizes.length > 0) {
+              await sendTelegramMessageWithKeyboard(cbChatId,
+                formatStockQtyText({}, sizes, sizes[0]), buildStockQtyKeyboard(sizes[0]))
+            }
+          } else if (nextStep === 'title') {
+            await sendTelegramMessage(cbChatId, getTitlePrompt((product as any).title ?? `Ürün #${session.productId}`))
           } else if (nextStep === 'brand') {
             await sendTelegramMessage(cbChatId, getBrandPrompt())
           } else if (nextStep === 'targets') {
@@ -994,7 +1497,7 @@ export async function POST(req: NextRequest) {
               ],
             ])
             session.step = 'summary'
-            setWizardSession(cbChatId, session)
+            await setWizardSession(cbChatId, session, cbUserId)
           }
         } catch (err) {
           await answerCallbackQuery(cbQueryId, '❌ Hata')
@@ -1007,9 +1510,10 @@ export async function POST(req: NextRequest) {
       if (cbData.startsWith('wz_ptype:')) {
         try {
           const { getWizardSession, setWizardSession, getNextWizardStep, getPricePrompt,
-                  getSizesPrompt, getTargetsPrompt, getBrandPrompt, formatConfirmationSummary } =
+                  getSizesPrompt, getTargetsPrompt, getBrandPrompt, getStockPrompt,
+                  getTitlePrompt, formatConfirmationSummary } =
             await import('@/lib/confirmationWizard')
-          const session = getWizardSession(cbChatId)
+          const session = getWizardSession(cbChatId, cbUserId)
           if (!session || session.step !== 'productType') {
             await answerCallbackQuery(cbQueryId, '⚠️ Aktif sihirbaz yok')
             return NextResponse.json({ ok: true })
@@ -1022,20 +1526,29 @@ export async function POST(req: NextRequest) {
           const payloadInst = await getPayload()
           const product = await payloadInst.findByID({ collection: 'products', id: session.productId })
           const nextStep = getNextWizardStep(product as any, session.collected)
-          session.step = nextStep
-          setWizardSession(cbChatId, session)
+          session.step = nextStep as any
+          await setWizardSession(cbChatId, session, cbUserId)
 
           if (nextStep === 'price') {
             await sendTelegramMessage(cbChatId, getPricePrompt())
           } else if (nextStep === 'sizes') {
+            // D-171: Interactive size keyboard
             session.pendingSizes = []
-            const msgId = await sendTelegramMessageWithKeyboard(
-              cbChatId,
-              formatSizeSelectionText(new Set()),
-              buildSizeKeyboard(new Set()),
-            )
-            if (msgId) session.sizeMessageId = msgId
-            setWizardSession(cbChatId, session)
+            const sizeMsg = await sendTelegramMessageWithKeyboard(
+              cbChatId, formatSizeSelectionText(new Set()), buildSizeKeyboard(new Set()))
+            if (sizeMsg) session.sizeMessageId = sizeMsg
+            await setWizardSession(cbChatId, session, cbUserId)
+          } else if (nextStep === 'stock') {
+            // D-171: Per-size stock via buttons — start with first size
+            const sizes = (session.collected.sizes ?? '').split(',').filter(Boolean)
+            session.collected.sizeStockMap = {}
+            await setWizardSession(cbChatId, session, cbUserId)
+            if (sizes.length > 0) {
+              await sendTelegramMessageWithKeyboard(cbChatId,
+                formatStockQtyText({}, sizes, sizes[0]), buildStockQtyKeyboard(sizes[0]))
+            }
+          } else if (nextStep === 'title') {
+            await sendTelegramMessage(cbChatId, getTitlePrompt((product as any).title ?? `Ürün #${session.productId}`))
           } else if (nextStep === 'brand') {
             await sendTelegramMessage(cbChatId, getBrandPrompt())
           } else if (nextStep === 'targets') {
@@ -1050,7 +1563,7 @@ export async function POST(req: NextRequest) {
               ],
             ])
             session.step = 'summary'
-            setWizardSession(cbChatId, session)
+            await setWizardSession(cbChatId, session, cbUserId)
           }
         } catch (err) {
           await answerCallbackQuery(cbQueryId, '❌ Hata')
@@ -1064,7 +1577,7 @@ export async function POST(req: NextRequest) {
         try {
           const { getWizardSession, setWizardSession, formatConfirmationSummary, CHANNEL_OPTIONS } =
             await import('@/lib/confirmationWizard')
-          const session = getWizardSession(cbChatId)
+          const session = getWizardSession(cbChatId, cbUserId)
           if (!session || session.step !== 'targets') {
             await answerCallbackQuery(cbQueryId, '⚠️ Aktif sihirbaz yok')
             return NextResponse.json({ ok: true })
@@ -1090,11 +1603,11 @@ export async function POST(req: NextRequest) {
               ],
             ])
             session.step = 'summary'
-            setWizardSession(cbChatId, session)
+            await setWizardSession(cbChatId, session, cbUserId)
           } else if (tgtValue === 'all') {
             session.collected.channelTargets = CHANNEL_OPTIONS.map((o) => o.value)
             await answerCallbackQuery(cbQueryId, `✅ Tümü seçildi`)
-            setWizardSession(cbChatId, session)
+            await setWizardSession(cbChatId, session, cbUserId)
           } else {
             // Toggle individual target
             if (!session.collected.channelTargets) session.collected.channelTargets = []
@@ -1106,7 +1619,7 @@ export async function POST(req: NextRequest) {
               session.collected.channelTargets.push(tgtValue)
               await answerCallbackQuery(cbQueryId, `➕ ${tgtValue} eklendi`)
             }
-            setWizardSession(cbChatId, session)
+            await setWizardSession(cbChatId, session, cbUserId)
           }
         } catch (err) {
           await answerCallbackQuery(cbQueryId, '❌ Hata')
@@ -1115,14 +1628,16 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ ok: true })
       }
 
-      // wz_size:{value} — size multi-select toggle
+      // D-171: wz_size:{value} — interactive size multi-select (39–47)
       if (cbData.startsWith('wz_size:')) {
         try {
-          const { getWizardSession, setWizardSession, getNextWizardStep,
-                  getTargetsPrompt, formatConfirmationSummary, getStockPrompt } = await import('@/lib/confirmationWizard')
-          const session = getWizardSession(cbChatId)
+          const { getWizardSession, setWizardSession } =
+            await import('@/lib/confirmationWizard')
+          const session = getWizardSession(cbChatId, cbUserId)
+          console.log(`[wz_size] chat=${cbChatId} user=${cbUserId} session=${session ? `step=${session.step} product=${session.productId}` : 'null'} data=${cbData}`)
           if (!session || session.step !== 'sizes') {
-            await answerCallbackQuery(cbQueryId, '⚠️ Aktif beden seçimi yok')
+            const reason = !session ? 'oturum yok' : `adım=${session.step} (sizes bekleniyor)`
+            await answerCallbackQuery(cbQueryId, `⚠️ Beden seçimi aktif değil: ${reason}`)
             return NextResponse.json({ ok: true })
           }
 
@@ -1130,14 +1645,12 @@ export async function POST(req: NextRequest) {
           const selected = new Set(session.pendingSizes ?? [])
 
           if (action === 'all') {
-            // Select all defaults
-            DEFAULT_SIZES.forEach((s) => selected.add(s))
+            AVAILABLE_SIZES.forEach((s) => selected.add(s))
             await answerCallbackQuery(cbQueryId, '✅ Tümü seçildi')
           } else if (action === 'clear') {
             selected.clear()
             await answerCallbackQuery(cbQueryId, '🗑 Temizlendi')
           } else if (action === 'done') {
-            // Finalize size selection
             if (selected.size === 0) {
               await answerCallbackQuery(cbQueryId, '⚠️ En az 1 beden seçin')
               return NextResponse.json({ ok: true })
@@ -1150,19 +1663,22 @@ export async function POST(req: NextRequest) {
             // Update the keyboard message to show final selection
             const cbMsgId = body?.callback_query?.message?.message_id
             if (cbMsgId) {
-              await editMessageText(
-                cbChatId,
-                cbMsgId,
-                `✅ <b>Seçilen bedenler:</b> ${sortedSizes.join(', ')}`,
-              )
+              await editMessageText(cbChatId, cbMsgId, `✅ <b>Seçilen bedenler:</b> ${sortedSizes.join(', ')}`)
             }
-
             await answerCallbackQuery(cbQueryId, `✅ ${sortedSizes.length} beden seçildi`)
 
-            // Move to stock step
+            // D-171: Move to per-size stock step (buttons)
+            session.collected.sizeStockMap = {}
             session.step = 'stock'
-            setWizardSession(cbChatId, session)
-            await sendTelegramMessage(cbChatId, getStockPrompt(sortedSizes))
+            await setWizardSession(cbChatId, session, cbUserId)
+
+            // Show first size stock prompt
+            const firstSize = sortedSizes[0]
+            await sendTelegramMessageWithKeyboard(
+              cbChatId,
+              formatStockQtyText(session.collected.sizeStockMap, sortedSizes, firstSize),
+              buildStockQtyKeyboard(firstSize),
+            )
             return NextResponse.json({ ok: true })
           } else {
             // Toggle individual size
@@ -1177,20 +1693,104 @@ export async function POST(req: NextRequest) {
 
           // Update session and refresh keyboard
           session.pendingSizes = Array.from(selected)
-          setWizardSession(cbChatId, session)
+          await setWizardSession(cbChatId, session, cbUserId)
 
           const cbMsgId = body?.callback_query?.message?.message_id
           if (cbMsgId) {
-            await editMessageText(
-              cbChatId,
-              cbMsgId,
-              formatSizeSelectionText(selected),
-              buildSizeKeyboard(selected),
-            )
+            await editMessageText(cbChatId, cbMsgId, formatSizeSelectionText(selected), buildSizeKeyboard(selected))
           }
         } catch (err) {
           await answerCallbackQuery(cbQueryId, '❌ Hata')
           console.error('[telegram/webhook] wz_size callback failed:', err)
+        }
+        return NextResponse.json({ ok: true })
+      }
+
+      // D-171: wz_stock:{size}:{qty} — per-size stock quantity selection
+      if (cbData.startsWith('wz_stock:')) {
+        try {
+          const { getWizardSession, setWizardSession, getNextWizardStep,
+                  formatConfirmationSummary } = await import('@/lib/confirmationWizard')
+          const session = getWizardSession(cbChatId, cbUserId)
+          if (!session || session.step !== 'stock') {
+            await answerCallbackQuery(cbQueryId, '⚠️ Aktif stok seçimi yok')
+            return NextResponse.json({ ok: true })
+          }
+
+          // Parse wz_stock:{size}:{qty}
+          const parts = cbData.replace('wz_stock:', '').split(':')
+          const size = parts[0]
+          const qty = parseInt(parts[1], 10)
+          if (!size || isNaN(qty) || qty <= 0) {
+            await answerCallbackQuery(cbQueryId, '⚠️ Geçersiz değer')
+            return NextResponse.json({ ok: true })
+          }
+
+          // Record the stock for this size
+          if (!session.collected.sizeStockMap) session.collected.sizeStockMap = {}
+          session.collected.sizeStockMap[size] = qty
+          await answerCallbackQuery(cbQueryId, `✅ ${size} → ${qty} adet`)
+
+          // Check if there are more sizes to set
+          const allSizes = (session.collected.sizes ?? '').split(',').filter(Boolean)
+          const nextUnsetSize = allSizes.find((s) => session.collected.sizeStockMap![s] === undefined)
+
+          // Update the message to show progress
+          const cbMsgId = body?.callback_query?.message?.message_id
+
+          if (nextUnsetSize) {
+            // More sizes to set — show next size's quantity buttons
+            if (cbMsgId) {
+              await editMessageText(
+                cbChatId,
+                cbMsgId,
+                formatStockQtyText(session.collected.sizeStockMap, allSizes, nextUnsetSize),
+                buildStockQtyKeyboard(nextUnsetSize),
+              )
+            }
+            await setWizardSession(cbChatId, session, cbUserId)
+          } else {
+            // All sizes have stock — show summary and advance
+            const totalStock = allSizes.reduce((sum, s) => sum + (session.collected.sizeStockMap![s] ?? 1), 0)
+            const stockSummary = allSizes.map((s) => `${s}(${session.collected.sizeStockMap![s]})`).join(', ')
+
+            if (cbMsgId) {
+              await editMessageText(cbChatId, cbMsgId, `✅ <b>Stok:</b> ${stockSummary}\n<b>Toplam:</b> ${totalStock} adet`)
+            }
+
+            // Advance to next wizard step
+            const payloadInst = await getPayload()
+            const product = await payloadInst.findByID({ collection: 'products', id: session.productId })
+            const nextStep = getNextWizardStep(product as any, session.collected)
+            session.step = nextStep as any
+            await setWizardSession(cbChatId, session, cbUserId)
+
+            // Dispatch the next prompt (inline since we're in callback context with cbChatId)
+            if (nextStep === 'title') {
+              const { getTitlePrompt } = await import('@/lib/confirmationWizard')
+              await sendTelegramMessage(cbChatId, getTitlePrompt((product as any).title ?? `Ürün #${session.productId}`))
+            } else if (nextStep === 'brand') {
+              const { getBrandPrompt } = await import('@/lib/confirmationWizard')
+              await sendTelegramMessage(cbChatId, getBrandPrompt())
+            } else if (nextStep === 'targets') {
+              const { getTargetsPrompt } = await import('@/lib/confirmationWizard')
+              const tgtPrompt = getTargetsPrompt()
+              await sendTelegramMessageWithKeyboard(cbChatId, tgtPrompt.text, tgtPrompt.keyboard)
+            } else if (nextStep === 'summary') {
+              const summary = formatConfirmationSummary(product as any, session.collected)
+              await sendTelegramMessageWithKeyboard(cbChatId, summary, [
+                [
+                  { text: '✅ Onayla', callback_data: `wz_confirm:${session.productId}` },
+                  { text: '❌ İptal', callback_data: `wz_cancel:${session.productId}` },
+                ],
+              ])
+              session.step = 'summary'
+              await setWizardSession(cbChatId, session, cbUserId)
+            }
+          }
+        } catch (err) {
+          await answerCallbackQuery(cbQueryId, '❌ Hata')
+          console.error('[telegram/webhook] wz_stock callback failed:', err)
         }
         return NextResponse.json({ ok: true })
       }
@@ -1200,7 +1800,7 @@ export async function POST(req: NextRequest) {
         try {
           const { getWizardSession, clearWizardSession, applyConfirmation } =
             await import('@/lib/confirmationWizard')
-          const session = getWizardSession(cbChatId)
+          const session = getWizardSession(cbChatId, cbUserId)
           if (!session || session.step !== 'summary') {
             await answerCallbackQuery(cbQueryId, '⚠️ Aktif onay oturumu yok')
             return NextResponse.json({ ok: true })
@@ -1219,7 +1819,7 @@ export async function POST(req: NextRequest) {
                 `Görsel durumu: <code>${confirmVisualStatus}</code>\n` +
                 `Önce görselleri onaylayın, sonra tekrar /confirm çalıştırın.`,
             )
-            clearWizardSession(cbChatId)
+            await clearWizardSession(cbChatId, cbUserId)
             return NextResponse.json({ ok: true })
           }
 
@@ -1241,10 +1841,31 @@ export async function POST(req: NextRequest) {
               `✅ <b>Ürün #${session.productId} onaylandı!</b>${variantNote}\n\n` +
                 `📋 confirmationStatus = confirmed\n` +
                 `🤖 lastHandledByBot = uygunops\n` +
-                `📝 BotEvent: product.confirmed kaydedildi.\n` +
-                `📝 Geobot içerik üretimi tetiklendi (content.requested).\n\n` +
-                `📊 Durum: <code>/content ${session.productId}</code>`,
+                `📝 BotEvent: product.confirmed kaydedildi.\n\n` +
+                `🔄 Ürün GeoBot'a devrediliyor...`,
             )
+
+            // ── Phase S: GeoBot visible handoff notification ─────────────────
+            const geoToken = process.env.TELEGRAM_GEO_BOT_TOKEN
+            const mentixGroupId = -5197796539
+            if (geoToken) {
+              try {
+                await sendTelegramMessageAs(
+                  geoToken,
+                  mentixGroupId,
+                  `📦 <b>Ürün #${session.productId} — GeoBot devir aldı</b>\n\n` +
+                    `✅ Ops Bot onayı tamamlandı.${variantNote}\n` +
+                    `🤖 İçerik üretimi başlatılıyor...`,
+                  [
+                    [
+                      { text: '📋 İçerik Durumu', callback_data: `geo_content:${session.productId}` },
+                    ],
+                  ],
+                )
+              } catch (handoffErr) {
+                console.error('[telegram/webhook] Phase S GeoBot handoff notification failed:', handoffErr)
+              }
+            }
           } else {
             await answerCallbackQuery(cbQueryId, '❌ Onay başarısız')
             await sendTelegramMessage(
@@ -1252,7 +1873,12 @@ export async function POST(req: NextRequest) {
               `❌ Onay hatası: ${result.error}`,
             )
           }
-          clearWizardSession(cbChatId)
+          // D-172: Only clear session on success. On validation failure the
+          // operator may fix the issue and retry — clearing would force them
+          // to restart the entire wizard.
+          if (result.success) {
+            await clearWizardSession(cbChatId, cbUserId)
+          }
         } catch (err) {
           await answerCallbackQuery(cbQueryId, '❌ Hata')
           console.error('[telegram/webhook] wz_confirm callback failed:', err)
@@ -1264,7 +1890,7 @@ export async function POST(req: NextRequest) {
       if (cbData.startsWith('wz_cancel:')) {
         try {
           const { clearWizardSession } = await import('@/lib/confirmationWizard')
-          clearWizardSession(cbChatId)
+          await clearWizardSession(cbChatId, cbUserId)
           await answerCallbackQuery(cbQueryId, '❌ İptal edildi')
           await sendTelegramMessage(cbChatId, '❌ Onay sihirbazı iptal edildi.')
         } catch (err) {
@@ -1284,24 +1910,332 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: true })
     }
 
-    const text: string = message.text || message.caption || ''
+    let text: string = message.text || message.caption || ''
     const chatId: number = message.chat?.id
     const messageId: number = message.message_id
+    const chatType: string = message.chat?.type || 'private' // 'private' | 'group' | 'supergroup'
+    const isGroupChat = chatType === 'group' || chatType === 'supergroup'
+    // Phase P: operator userId for wizard session isolation in groups
+    const msgUserId: number | undefined = message.from?.id
+
+    // ── Phase N: Bot role separation ───────────────────────────────────────────
+    // Geo_bot (@Geeeeobot) = group operator bot → active only in Mentix group
+    // Uygunops (@Uygunops_bot) = DM operator bot → active only in private chats
+    // This prevents overlap and operator confusion.
+    if (botParam === 'geo' && !isGroupChat) {
+      // Geo_bot received a DM → redirect operator to Uygunops
+      // Phase X: photo-aware redirect message
+      if (message.photo) {
+        await sendTelegramMessage(
+          chatId,
+          `📸 <b>Ürün fotoğrafı algılandı</b>\n\n` +
+            `Ürün ekleme ve görsel üretimi <b>@Uygunops_bot</b> tarafından yapılır.\n\n` +
+            `📌 Bu fotoğrafı grupta caption'a <b>@Uygunops_bot</b> yazarak gönderin.\n` +
+            `💡 Opsiyonel: Fiyat ve açıklama da ekleyebilirsiniz.`,
+        )
+      } else {
+        await sendTelegramMessage(chatId, '📌 Bu bot sadece grup içinde çalışır.\nDM komutları için @Uygunops_bot kullanın.')
+      }
+      return NextResponse.json({ ok: true })
+    }
+    // D-168: Early wizard hydration for group text messages.
+    // When there's an active wizard session (operator mid-step through /confirm),
+    // the group filter must let text through so the operator can type answers
+    // (price, stock, brand, title, stockCode) without having to tap Reply on the
+    // bot's message each time. getPayload() is a cached singleton (free after
+    // first call); hydrateWizardSession is one lightweight SELECT.
+    let hasActiveWizardSession = false
+    // D-169: Only Uygunops (botParam !== 'geo') should check for wizard sessions.
+    // Geo_bot must NEVER touch the wizard — it's the content/publishing bot.
+    // D-168 accidentally let Geo_bot through by not checking botParam, causing
+    // both bots to race on the same wizard_sessions row and send duplicate/
+    // conflicting replies. See D-169 in DECISIONS.md.
+    if (botParam !== 'geo' && isGroupChat && text && !text.startsWith('/') && !text.startsWith('#') && !message.photo) {
+      try {
+        const earlyPayload = await getPayload()
+        const { bindWizardPayload, hydrateWizardSession, getWizardSession } = await import('@/lib/confirmationWizard')
+        bindWizardPayload(earlyPayload)
+        await hydrateWizardSession(earlyPayload, chatId, msgUserId)
+        const wizSess = getWizardSession(chatId, msgUserId)
+        hasActiveWizardSession = !!wizSess
+        if (hasActiveWizardSession) {
+          console.log(`[telegram/D-168] active wizard session for chat=${chatId} user=${msgUserId} step=${wizSess!.step} — will bypass group filter`)
+        }
+      } catch (err) {
+        console.warn('[telegram/D-168] early wizard check failed:', err instanceof Error ? err.message : err)
+      }
+    }
+
+    if (botParam !== 'geo' && isGroupChat) {
+      // Phase Y: Uygunops in group — allow photo intake (any photo) + reply-to-bot
+      // D-168: also allow text when there's an active wizard session
+      const hasPhoto = !!message.photo || !!(message.reply_to_message?.photo && /[uü]r[uü]ne\s+[cç]evir/i.test(text))
+      const isReplyToBotEarly = message.reply_to_message?.from?.id === 8702872700
+
+      if (!hasPhoto && !isReplyToBotEarly && !hasActiveWizardSession) {
+        console.log(`[telegram/phase-n] Uygunops ignoring group message in chat ${chatId} — Geo_bot owns group context`)
+        return NextResponse.json({ ok: true })
+      }
+      console.log(`[telegram/phase-y] Uygunops group pass-through — chat ${chatId}, photo=${hasPhoto}, replyToBot=${isReplyToBotEarly}, activeWizard=${hasActiveWizardSession}`)
+    }
+
+    // ── Phase I+K: Group chat activation filter ────────────────────────────────
+    // In group/supergroup chats the bot only responds to INTENTIONAL activation:
+    //   1. Slash commands  (/preview, /pipeline, …)
+    //   2. @mention of the bot  (@Uygunops_bot)
+    //   3. Reply to a message authored by the bot
+    // Everything else (photos, plain text, background chatter) is silently ignored.
+    // DM (private) behaviour remains unchanged.
+    const BOT_ID = botParam === 'geo' ? 8728094008 : 8702872700
+    const BOT_USERNAME_LC = botParam === 'geo' ? 'geeeeobot' : 'uygunops_bot'
+    if (isGroupChat) {
+      const isCommand = text.startsWith('/')
+      // Phase O: check both message.entities AND message.caption_entities
+      // Telegram puts entities in caption_entities for photos/documents with captions
+      const allEntities = [
+        ...(Array.isArray(message.entities) ? message.entities : []),
+        ...(Array.isArray(message.caption_entities) ? message.caption_entities : []),
+      ]
+      const isMention = allEntities.some(
+        (e: { type: string; offset: number; length: number }) => {
+          if (e.type === 'mention') {
+            const mentioned = text.substring(e.offset, e.offset + e.length).toLowerCase()
+            return mentioned === '@' + BOT_USERNAME_LC
+          }
+          return e.type === 'text_mention' && ((e as unknown as Record<string, unknown>)?.user as Record<string, unknown> | undefined)?.id === BOT_ID
+        },
+      )
+      const isReplyToBot = message.reply_to_message?.from?.id === BOT_ID
+      // Phase O: allow hashtag triggers (#gorsel, #geminipro etc.) and STOCK batch commands
+      // These are intentional operator commands, equivalent to slash commands
+      const isHashtagTrigger = /^#(gorsel|geminipro|luma|chatgpt|claid)\b/i.test(text) ||
+        /#gorsel/i.test(text)
+      const isStockCommand = text.startsWith('STOCK SKU:')
+
+      // Phase Y: photos are intentional intake — always pass through for Uygunops
+      const isPhotoMessage = !!message.photo || !!(message.reply_to_message?.photo)
+
+      if (!isCommand && !isMention && !isReplyToBot && !isHashtagTrigger && !isStockCommand && !isPhotoMessage && !hasActiveWizardSession) {
+        // Silently ignore non-activated messages in groups
+        // D-168: active wizard sessions bypass this filter
+        return NextResponse.json({ ok: true })
+      }
+    }
 
     const payload = await getPayload()
+
+    // ── D-158: Bind payload to the wizard module so sync set/clear helpers
+    // can fire background DB upserts. Called once per request; safe to call
+    // repeatedly. Enables DB-backed persistence for the in-memory wizard Map
+    // so sessions survive Lambda cold starts, deploys, and instance rotations.
+    try {
+      const { bindWizardPayload } = await import('@/lib/confirmationWizard')
+      bindWizardPayload(payload)
+    } catch (err) {
+      console.warn('[telegram/D-158] bindWizardPayload failed:', err instanceof Error ? err.message : err)
+    }
+
+    // ── Phase I: Group allowlisting ──────────────────────────────────────────
+    // When an activated message arrives from a group chat, verify:
+    //   1. telegram.groupEnabled is ON in AutomationSettings
+    //   2. The sender's Telegram user ID is in telegram.allowedUserIds
+    // If either check fails, silently ignore the message.
+    if (isGroupChat) {
+      try {
+        const autoSettings = await payload.findGlobal({ slug: 'automation-settings' })
+        const telegramSettings = (autoSettings as Record<string, unknown>)?.telegram as Record<string, unknown> | undefined
+        const groupEnabled = telegramSettings?.groupEnabled === true
+        if (!groupEnabled) {
+          console.log(`[telegram/group] Group mode disabled — ignoring command from chat ${chatId}`)
+          return NextResponse.json({ ok: true })
+        }
+
+        const allowedRaw = (telegramSettings?.allowedUserIds as string) || ''
+        const allowedIds = allowedRaw.split(/[\n,]+/).map(s => s.trim()).filter(Boolean)
+        const senderId = String(message.from?.id || '')
+        if (allowedIds.length > 0 && !allowedIds.includes(senderId)) {
+          console.log(`[telegram/group] User ${senderId} not in allowlist — ignoring command from chat ${chatId}`)
+          return NextResponse.json({ ok: true })
+        }
+      } catch (err) {
+        console.error('[telegram/group] Failed to check group settings:', err)
+        // Fail-closed: if we can't verify settings, don't process group messages
+        return NextResponse.json({ ok: true })
+      }
+    }
+
+    // ── Phase L: Group mention normalization ────────────────────────────────────
+    // Strip leading @bot mention and inline @bot suffix from slash commands so that
+    // "@Uygunops_bot /preview 180" and "/preview@Uygunops_bot 180" route correctly.
+    // Only applied in group chats where the message already passed both gates.
+    // DM text is never modified.
+    if (isGroupChat) {
+      // 1. Strip leading "@Uygunops_bot " prefix (with optional whitespace)
+      const leadingMention = new RegExp('^@' + BOT_USERNAME_LC + '\\s*', 'i')
+      text = text.replace(leadingMention, '').trim()
+      // 2. Strip "@Uygunops_bot" suffix on slash commands: /cmd@Uygunops_bot → /cmd
+      const inlineBotSuffix = new RegExp('@' + BOT_USERNAME_LC, 'gi')
+      text = text.replace(inlineBotSuffix, '').trim()
+    }
+
+    // ── Phase R: Command ownership split ───────────────────────────────────────
+    // Ops Bot (Uygunops/@Uygunops_bot) owns: intake, image gen, confirmation, stock, diagnostics
+    // GeoBot (@Geeeeobot) owns: content, audit, preview, activate, publish, merch, story
+    // Shared: /pipeline (visible on both bots)
+    // This teaches operators which bot handles which workflow.
+    {
+      const OPS_CMDS = ['/confirm', '/confirm_cancel', '/stok', '/diagnostics']
+      const GEO_CMDS = ['/content', '/audit', '/preview', '/activate', '/shopier', '/merch', '/story', '/restory', '/targets', '/approve_story', '/reject_story']
+      const OPS_HASHTAGS = ['#gorsel', '#geminipro']
+      // Deactivated providers still show deactivation msg — keep them on ops side
+      const OPS_HASHTAGS_DEACTIVATED = ['#luma', '#chatgpt', '#claid']
+
+      const cmdLower = text.toLowerCase()
+      const firstWord = cmdLower.split(/\s/)[0] // e.g. "/confirm" or "#gorsel"
+
+      // Check slash command ownership
+      if (text.startsWith('/')) {
+        const isOpsCmd = OPS_CMDS.some(c => firstWord === c || firstWord.startsWith(c + '@'))
+        const isGeoCmd = GEO_CMDS.some(c => firstWord === c || firstWord.startsWith(c + '@'))
+
+        if (botParam === 'geo' && isOpsCmd) {
+          await sendTelegramMessage(chatId, '📌 Bu komut <b>@Uygunops_bot</b> üzerinden çalışır.\nDM\'den deneyin.')
+          return NextResponse.json({ ok: true })
+        }
+        if (botParam !== 'geo' && isGeoCmd) {
+          await sendTelegramMessage(chatId, '📌 Bu komut <b>GeoBot</b> üzerinden çalışır.\nMentix grubunda @Geeeeobot ile deneyin.')
+          return NextResponse.json({ ok: true })
+        }
+      }
+
+      // Check hashtag trigger ownership
+      if (text.startsWith('#')) {
+        const isOpsHash = [...OPS_HASHTAGS, ...OPS_HASHTAGS_DEACTIVATED].some(h => cmdLower.startsWith(h))
+
+        if (botParam === 'geo' && isOpsHash) {
+          await sendTelegramMessage(chatId, '📌 Görsel üretimi <b>@Uygunops_bot</b> üzerinden çalışır.\nDM\'den deneyin.')
+          return NextResponse.json({ ok: true })
+        }
+        // Note: no hashtag triggers belong to GeoBot currently
+      }
+
+      // Check STOCK batch command ownership (ops only)
+      if (text.startsWith('STOCK ') && botParam === 'geo') {
+        await sendTelegramMessage(chatId, '📌 Stok güncelleme <b>@Uygunops_bot</b> üzerinden çalışır.\nDM\'den deneyin.')
+        return NextResponse.json({ ok: true })
+      }
+
+      // ── Phase Y: GeoBot silently ignores photos — Uygunops handles them ────
+      if (botParam === 'geo' && (message.photo || (message.reply_to_message?.photo && /[uü]r[uü]ne\s+[cç]evir/i.test(text)))) {
+        console.log(`[telegram/phase-y] GeoBot ignoring photo in group — Uygunops handles intake`)
+        return NextResponse.json({ ok: true })
+      }
+    }
 
     // ── Phase 5: Confirmation wizard text input interceptor ───────────────────
     // If there's an active wizard session expecting text input (price, sizes, stock),
     // intercept the message BEFORE any other command processing.
-    if (text && !text.startsWith('/') && !text.startsWith('#') && !text.startsWith('STOCK ')) {
+    // D-171: ONLY Uygunops processes wizard text — Geo_bot must never touch it.
+    if (botParam !== 'geo' && text && !text.startsWith('/') && !text.startsWith('#') && !text.startsWith('STOCK ')) {
       const { getWizardSession, setWizardSession, clearWizardSession,
+              hydrateWizardSession,
               parsePrice, parseSizes, parseStockNumber, getNextWizardStep,
+              getCategoryPrompt, getProductTypePrompt,
               getSizesPrompt, getStockPrompt, getTargetsPrompt, getPricePrompt,
+              getBrandPrompt, getTitlePrompt,
               formatConfirmationSummary } = await import('@/lib/confirmationWizard')
-      const wizSession = getWizardSession(chatId)
+      // D-158: Load wizard session from Neon before the sync getter runs so
+      // the session survives Lambda cold starts / deploys.
+      await hydrateWizardSession(payload, chatId, msgUserId)
+      const wizSession = getWizardSession(chatId, msgUserId)
+
+      // D-171: Shared next-step dispatcher with interactive sizes + per-size stock.
+      async function dispatchNextStep(
+        nextStep: string,
+        session: typeof wizSession,
+        product: Record<string, unknown>,
+      ): Promise<void> {
+        if (!session) return
+        session.step = nextStep as any
+        await setWizardSession(chatId, session, msgUserId)
+
+        if (nextStep === 'category') {
+          const catPrompt = getCategoryPrompt()
+          await sendTelegramMessageWithKeyboard(chatId, catPrompt.text, catPrompt.keyboard)
+        } else if (nextStep === 'productType') {
+          const ptypePrompt = getProductTypePrompt()
+          await sendTelegramMessageWithKeyboard(chatId, ptypePrompt.text, ptypePrompt.keyboard)
+        } else if (nextStep === 'price') {
+          await sendTelegramMessage(chatId, getPricePrompt())
+        } else if (nextStep === 'sizes') {
+          // D-171: Interactive size keyboard (39–47)
+          session.pendingSizes = (session as any).pendingSizes ?? []
+          const sizeMsg = await sendTelegramMessageWithKeyboard(
+            chatId,
+            formatSizeSelectionText(new Set()),
+            buildSizeKeyboard(new Set()),
+          )
+          if (sizeMsg) (session as any).sizeMessageId = sizeMsg
+          await setWizardSession(chatId, session, msgUserId)
+        } else if (nextStep === 'stock') {
+          // D-171: Per-size stock quantity via buttons
+          const sizes = (session.collected.sizes ?? '').split(',').filter(Boolean)
+          if (sizes.length === 0) {
+            // Fallback — shouldn't happen
+            await sendTelegramMessage(chatId, '⚠️ Beden bilgisi bulunamadı.')
+            return
+          }
+          session.collected.sizeStockMap = session.collected.sizeStockMap ?? {}
+          const firstUnset = sizes.find((s) => session.collected.sizeStockMap![s] === undefined)
+          if (firstUnset) {
+            const stockMsg = await sendTelegramMessageWithKeyboard(
+              chatId,
+              formatStockQtyText(session.collected.sizeStockMap, sizes, firstUnset),
+              buildStockQtyKeyboard(firstUnset),
+            )
+            if (stockMsg) (session as any).stockMessageId = stockMsg
+            await setWizardSession(chatId, session, msgUserId)
+          }
+        } else if (nextStep === 'title') {
+          await sendTelegramMessage(chatId, getTitlePrompt((product as any).title ?? `Ürün #${session.productId}`))
+        } else if (nextStep === 'brand') {
+          await sendTelegramMessage(chatId, getBrandPrompt())
+        } else if (nextStep === 'targets') {
+          const tgtPrompt = getTargetsPrompt()
+          await sendTelegramMessageWithKeyboard(chatId, tgtPrompt.text, tgtPrompt.keyboard)
+        } else if (nextStep === 'summary') {
+          const summary = formatConfirmationSummary(product as any, session.collected)
+          await sendTelegramMessageWithKeyboard(chatId, summary, [
+            [
+              { text: '✅ Onayla', callback_data: `wz_confirm:${session.productId}` },
+              { text: '❌ İptal', callback_data: `wz_cancel:${session.productId}` },
+            ],
+          ])
+          session.step = 'summary'
+          await setWizardSession(chatId, session, msgUserId)
+        }
+      }
 
       if (wizSession) {
         try {
+          // ── Phase T1: Title step ───────────────────────────────────────
+          if (wizSession.step === 'title') {
+            const titleText = text.trim()
+            if (!titleText || titleText.length < 5) {
+              await sendTelegramMessage(chatId, '⚠️ Ürün adı en az 5 karakter olmalı.')
+              return NextResponse.json({ ok: true })
+            }
+            wizSession.collected.title = titleText
+            await sendTelegramMessage(chatId, `✅ Ürün adı: <b>${titleText}</b>`)
+
+            const product = await payload.findByID({ collection: 'products', id: wizSession.productId })
+            const nextStep = getNextWizardStep(product as any, wizSession.collected)
+            await dispatchNextStep(nextStep, wizSession, product as any)
+            return NextResponse.json({ ok: true })
+          }
+
+          // D-170: stockCode step REMOVED — SN#### auto-generated by image pipeline
+
           if (wizSession.step === 'price') {
             const price = parsePrice(text)
             if (!price) {
@@ -1313,77 +2247,13 @@ export async function POST(req: NextRequest) {
 
             const product = await payload.findByID({ collection: 'products', id: wizSession.productId })
             const nextStep = getNextWizardStep(product as any, wizSession.collected)
-            wizSession.step = nextStep
-            setWizardSession(chatId, wizSession)
-
-            if (nextStep === 'sizes') {
-              wizSession.pendingSizes = []
-              const sizeMsg = await sendTelegramMessageWithKeyboard(
-                chatId,
-                formatSizeSelectionText(new Set()),
-                buildSizeKeyboard(new Set()),
-              )
-              if (sizeMsg) wizSession.sizeMessageId = sizeMsg
-              setWizardSession(chatId, wizSession)
-            } else if (nextStep === 'brand') {
-              const { getBrandPrompt } = await import('@/lib/confirmationWizard')
-              await sendTelegramMessage(chatId, getBrandPrompt())
-            } else if (nextStep === 'targets') {
-              const tgtPrompt = getTargetsPrompt()
-              await sendTelegramMessageWithKeyboard(chatId, tgtPrompt.text, tgtPrompt.keyboard)
-            } else if (nextStep === 'summary') {
-              const summary = formatConfirmationSummary(product as any, wizSession.collected)
-              await sendTelegramMessageWithKeyboard(chatId, summary, [
-                [
-                  { text: '✅ Onayla', callback_data: `wz_confirm:${wizSession.productId}` },
-                  { text: '❌ İptal', callback_data: `wz_cancel:${wizSession.productId}` },
-                ],
-              ])
-              wizSession.step = 'summary'
-              setWizardSession(chatId, wizSession)
-            }
+            await dispatchNextStep(nextStep, wizSession, product as any)
             return NextResponse.json({ ok: true })
           }
 
-          if (wizSession.step === 'sizes') {
-            // Sizes step now uses inline keyboard buttons — redirect user
-            await sendTelegramMessage(chatId, '👆 Yukarıdaki butonları kullanarak bedenleri seçin, sonra <b>Devam</b> basın.')
-            return NextResponse.json({ ok: true })
-          }
-
-          if (wizSession.step === 'stock') {
-            const stock = parseStockNumber(text)
-            if (stock === null) {
-              await sendTelegramMessage(chatId, '⚠️ Geçersiz stok sayısı. Pozitif tam sayı girin.')
-              return NextResponse.json({ ok: true })
-            }
-            wizSession.collected.stockPerSize = stock
-            const sizes = wizSession.collected.sizes?.split(',') ?? []
-            const total = sizes.length * stock
-            await sendTelegramMessage(chatId, `✅ Her bedenden ${stock} adet → Toplam: ${total}`)
-
-            const product = await payload.findByID({ collection: 'products', id: wizSession.productId })
-            const nextStep = getNextWizardStep(product as any, wizSession.collected)
-            wizSession.step = nextStep
-            setWizardSession(chatId, wizSession)
-
-            if (nextStep === 'brand') {
-              const { getBrandPrompt } = await import('@/lib/confirmationWizard')
-              await sendTelegramMessage(chatId, getBrandPrompt())
-            } else if (nextStep === 'targets') {
-              const tgtPrompt = getTargetsPrompt()
-              await sendTelegramMessageWithKeyboard(chatId, tgtPrompt.text, tgtPrompt.keyboard)
-            } else if (nextStep === 'summary') {
-              const summary = formatConfirmationSummary(product as any, wizSession.collected)
-              await sendTelegramMessageWithKeyboard(chatId, summary, [
-                [
-                  { text: '✅ Onayla', callback_data: `wz_confirm:${wizSession.productId}` },
-                  { text: '❌ İptal', callback_data: `wz_cancel:${wizSession.productId}` },
-                ],
-              ])
-              wizSession.step = 'summary'
-              setWizardSession(chatId, wizSession)
-            }
+          if (wizSession.step === 'stock' || wizSession.step === 'sizes') {
+            // D-171d: Button-based steps — silently ignore stray text input.
+            // No confusing redirect messages. Operator uses the inline buttons.
             return NextResponse.json({ ok: true })
           }
 
@@ -1398,23 +2268,7 @@ export async function POST(req: NextRequest) {
 
             const product = await payload.findByID({ collection: 'products', id: wizSession.productId })
             const nextStep = getNextWizardStep(product as any, wizSession.collected)
-            wizSession.step = nextStep
-            setWizardSession(chatId, wizSession)
-
-            if (nextStep === 'targets') {
-              const tgtPrompt = getTargetsPrompt()
-              await sendTelegramMessageWithKeyboard(chatId, tgtPrompt.text, tgtPrompt.keyboard)
-            } else if (nextStep === 'summary') {
-              const summary = formatConfirmationSummary(product as any, wizSession.collected)
-              await sendTelegramMessageWithKeyboard(chatId, summary, [
-                [
-                  { text: '✅ Onayla', callback_data: `wz_confirm:${wizSession.productId}` },
-                  { text: '❌ İptal', callback_data: `wz_cancel:${wizSession.productId}` },
-                ],
-              ])
-              wizSession.step = 'summary'
-              setWizardSession(chatId, wizSession)
-            }
+            await dispatchNextStep(nextStep, wizSession, product as any)
             return NextResponse.json({ ok: true })
           }
 
@@ -1422,8 +2276,34 @@ export async function POST(req: NextRequest) {
           // (e.g., summary step waiting for button, or targets step waiting for button)
         } catch (wizErr) {
           console.error('[telegram/webhook] wizard text interceptor failed:', wizErr)
-          clearWizardSession(chatId)
+          await clearWizardSession(chatId, msgUserId)
           await sendTelegramMessage(chatId, '❌ Sihirbaz hatası. /confirm komutuyla tekrar başlayabilirsiniz.')
+          return NextResponse.json({ ok: true })
+        }
+      } else {
+        // D-166: wizSession is null but we're clearly in a wizard-style text
+        // reply (plain text, not a slash/hashtag/STOCK command). Historically
+        // the bot would silently drop this message, leaving the operator
+        // staring at a bot prompt with no response. Give targeted feedback
+        // when the text looks like a typical wizard input so the operator
+        // knows the session was lost and can restart.
+        //
+        // Heuristics:
+        //   - Pure number or decimal: looks like a price ("899", "1299.90")
+        //   - Digit list 2-char entries: looks like sizes ("38,39,40,41")
+        //   - Size range: looks like sizes ("38-44")
+        //   - Pure non-negative integer: looks like stock ("10")
+        const trimmed = text.trim()
+        const looksLikeWizardInput =
+          /^\d+([.,]\d+)?$/.test(trimmed) ||
+          /^\d{2}([,\s]+\d{2})+$/.test(trimmed) ||
+          /^\d{2}\s*[-–]\s*\d{2}$/.test(trimmed)
+        if (looksLikeWizardInput) {
+          await sendTelegramMessage(
+            chatId,
+            'ℹ️ Aktif sihirbaz oturumu bulunamadı (oturum süresi dolmuş olabilir).\n' +
+              'Yeniden başlatmak için: <code>/confirm &lt;ürün_id&gt;</code>',
+          )
           return NextResponse.json({ ok: true })
         }
       }
@@ -1458,12 +2338,12 @@ export async function POST(req: NextRequest) {
         //    "bunu ürüne çevir #hizli 1755 TL" → mod = 'hizli', otomatik image-gen kuyruğa alınır
         //    v19 Gemini-only: all engine tags → Gemini Pro
         const combinedRaw = text + (replyCaption ? '\n' + replyCaption : '')
-        const autoGenMode: 'hizli' | 'dengeli' | 'premium' | 'karma' | null =
+        // Phase Y: default to 'hizli' when no hashtag — auto-start Gemini Pro on every photo
+        const autoGenMode: 'hizli' | 'dengeli' | 'premium' | 'karma' =
           /#karma/i.test(combinedRaw)   ? 'karma'   :
           /#premium/i.test(combinedRaw) ? 'premium' :
           /#dengeli/i.test(combinedRaw) ? 'dengeli' :
-          /#hizli/i.test(combinedRaw)   ? 'hizli'   :
-          null
+          'hizli'
         // v19 Gemini-only: engine tags simplified — all map to Gemini Pro
         // #geminipro still recognized for explicit opt-in; #chatgpt/#luma treated as Gemini
         const autoGenEngine: 'geminipro' | null =
@@ -1479,7 +2359,7 @@ export async function POST(req: NextRequest) {
         //    #hizli / #dengeli / #premium / #karma / #gorsel / #luma / #chatgpt / #geminipro
         //    #claid — gibi görsel tag'leri çıkarılır — "bunu ürüne çevir #claid 1755 TL"
         //    kullanımlarda parseTelegramCaption'ı bozmasın
-        const BOT_MENTIONS = /(@Uygunops_bot|@uygunops_bot|@mentix_aibot|@Mentix)/gi
+        const BOT_MENTIONS = /(@Uygunops_bot|@uygunops_bot|@Geeeeobot|@geeeeobot|@mentix_aibot|@Mentix)/gi
         const GORSEL_TAGS  = /#(gorsel|hizli|dengeli|premium|karma|geminipro|chatgpt|luma|claid)\b/gi
         const combinedText = combinedRaw
         const cleanCaption = combinedText
@@ -2720,6 +3600,56 @@ export async function POST(req: NextRequest) {
 
     // ── Phase 12: Pipeline Status Command ─────────────────────────────────
     // /pipeline {productId} — full lifecycle pipeline visibility
+    // ── Phase G: /preview <id> — dry-run dispatch preview ─────────────────
+    if (text.startsWith('/preview')) {
+      const pvParts = text.trim().split(/\s+/)
+      const pvArg = pvParts[1]
+      if (!pvArg) {
+        await sendTelegramMessage(chatId,
+          '👁️ <b>Önizleme (Dry-Run)</b>\n\n' +
+          '/preview &lt;id&gt; — Ürünün kanal iletim önizlemesini göster\n\n' +
+          'Geobot içeriğinin hangi kanallarda kullanılacağını, gerçek gönderi yapmadan görürsünüz.\n' +
+          'Sadece aktif ürünlerde çalışır.')
+        return NextResponse.json({ ok: true })
+      }
+      try {
+        const { docs: pvDocs } = await payload.find({
+          collection: 'products',
+          where: { id: { equals: pvArg } },
+          depth: 0,
+          limit: 1,
+        })
+        if (pvDocs.length === 0) {
+          await sendTelegramMessage(chatId, `❌ Ürün bulunamadı: ${pvArg}`)
+          return NextResponse.json({ ok: true })
+        }
+        const pvDoc = pvDocs[0] as Record<string, unknown>
+        if (pvDoc.status !== 'active') {
+          await sendTelegramMessage(chatId, `❌ Ürün aktif değil (status: ${pvDoc.status}). Önizleme sadece aktif ürünlerde çalışır.`)
+          return NextResponse.json({ ok: true })
+        }
+        const pvMeta = (pvDoc.sourceMeta as Record<string, unknown>) ?? {}
+        // Trigger dry-run by setting both flags — afterChange hook will detect isDryRun
+        await sendTelegramMessage(chatId, `⏳ Önizleme başlatılıyor — Ürün #${pvArg}...`)
+        await payload.update({
+          collection: 'products',
+          id: pvArg as string,
+          data: {
+            sourceMeta: {
+              ...pvMeta,
+              forceRedispatch: true,
+              previewDispatch: true,
+            },
+          },
+        })
+        // Results will be sent by the afterChange hook's Telegram notification
+      } catch (pvErr) {
+        const pvMsg = pvErr instanceof Error ? pvErr.message : String(pvErr)
+        await sendTelegramMessage(chatId, `❌ Önizleme hatası: ${pvMsg}`)
+      }
+      return NextResponse.json({ ok: true })
+    }
+
     if (text.startsWith('/pipeline')) {
       const parts = text.trim().split(/\s+/)
       const arg = parts[1]
@@ -3116,10 +4046,21 @@ export async function POST(req: NextRequest) {
           return NextResponse.json({ ok: true })
         }
 
-        // /content {id} — show content status
-        const { formatContentStatusMessage } = await import('@/lib/contentPack')
+        // /content {id} — show content status + preview (Phase X)
+        const { formatContentStatusMessage, formatContentPreviewMessage } = await import('@/lib/contentPack')
         const statusMsg = formatContentStatusMessage(product as any)
         await sendTelegramMessage(chatId, statusMsg)
+
+        // Phase X: Send content preview if available
+        const previewMsg = formatContentPreviewMessage(product as any)
+        if (previewMsg) {
+          await sendTelegramMessageWithKeyboard(chatId, previewMsg, [
+            [
+              { text: '🔍 Audit Başlat', callback_data: `geo_auditrun:${productId}` },
+              { text: '🚀 Yayına Al', callback_data: `geo_activate:${productId}` },
+            ],
+          ])
+        }
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err)
         await sendTelegramMessage(chatId, `❌ Hata: ${msg}`)
@@ -3150,10 +4091,12 @@ export async function POST(req: NextRequest) {
 
       // /confirm_cancel — cancel active wizard
       if (command === '/confirm_cancel') {
-        const { clearWizardSession, getWizardSession } = await import('@/lib/confirmationWizard')
-        const existing = getWizardSession(chatId)
+        const { clearWizardSession, getWizardSession, hydrateWizardSession } = await import('@/lib/confirmationWizard')
+        // D-158: load from DB before sync getter so cancellation works across deploys
+        await hydrateWizardSession(payload, chatId, msgUserId)
+        const existing = getWizardSession(chatId, msgUserId)
         if (existing) {
-          clearWizardSession(chatId)
+          await clearWizardSession(chatId, msgUserId)
           await sendTelegramMessage(chatId, '❌ Onay sihirbazı iptal edildi.')
         } else {
           await sendTelegramMessage(chatId, 'ℹ️ Aktif sihirbaz oturumu yok.')
@@ -3213,10 +4156,11 @@ export async function POST(req: NextRequest) {
             getNextWizardStep,
             setWizardSession,
             clearWizardSession,
+            getTitlePrompt,
             getCategoryPrompt,
             getProductTypePrompt,
             getPricePrompt,
-            getSizesPrompt,
+            getStockPrompt,
             getTargetsPrompt,
             getBrandPrompt,
             formatConfirmationSummary,
@@ -3245,8 +4189,9 @@ export async function POST(req: NextRequest) {
             }
           }
 
-          // If all required fields are present → show summary directly
-          if (check.ready) {
+          // If all required fields are present, check if title/stockCode still need collecting
+          const preCheck = getNextWizardStep(product as any, {} as any)
+          if (check.ready && preCheck === 'summary') {
             const summary = formatConfirmationSummary(product as any, {})
             await sendTelegramMessageWithKeyboard(chatId, summary, [
               [
@@ -3254,13 +4199,14 @@ export async function POST(req: NextRequest) {
                 { text: '❌ İptal', callback_data: `wz_cancel:${productId}` },
               ],
             ])
-            setWizardSession(chatId, {
+            await setWizardSession(chatId, {
               productId,
               chatId,
+              userId: msgUserId,
               step: 'summary',
               collected: {},
               startedAt: Date.now(),
-            })
+            }, msgUserId)
             return NextResponse.json({ ok: true })
           }
 
@@ -3296,18 +4242,21 @@ export async function POST(req: NextRequest) {
           const collected: Record<string, unknown> = {}
           const nextStep = getNextWizardStep(product as any, collected as any)
 
-          clearWizardSession(chatId) // Clear any stale session
+          await clearWizardSession(chatId, msgUserId) // Clear any stale session
           const wizState = {
             productId,
             chatId,
+            userId: msgUserId,
             step: nextStep,
             collected: collected as any,
             startedAt: Date.now(),
           } as any
-          setWizardSession(chatId, wizState)
+          await setWizardSession(chatId, wizState, msgUserId)
 
           // Send first prompt
-          if (nextStep === 'category') {
+          if (nextStep === 'title') {
+            await sendTelegramMessage(chatId, getTitlePrompt((product as any).title ?? `Ürün #${productId}`))
+          } else if (nextStep === 'category') {
             const catPrompt = getCategoryPrompt()
             await sendTelegramMessageWithKeyboard(chatId, catPrompt.text, catPrompt.keyboard)
           } else if (nextStep === 'productType') {
@@ -3316,14 +4265,12 @@ export async function POST(req: NextRequest) {
           } else if (nextStep === 'price') {
             await sendTelegramMessage(chatId, getPricePrompt())
           } else if (nextStep === 'sizes') {
+            // D-171: Interactive size keyboard
             wizState.pendingSizes = []
             const sizeMsg = await sendTelegramMessageWithKeyboard(
-              chatId,
-              formatSizeSelectionText(new Set()),
-              buildSizeKeyboard(new Set()),
-            )
+              chatId, formatSizeSelectionText(new Set()), buildSizeKeyboard(new Set()))
             if (sizeMsg) wizState.sizeMessageId = sizeMsg
-            setWizardSession(chatId, wizState)
+            await setWizardSession(chatId, wizState, msgUserId)
           } else if (nextStep === 'brand') {
             await sendTelegramMessage(chatId, getBrandPrompt())
           } else if (nextStep === 'targets') {

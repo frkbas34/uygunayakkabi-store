@@ -450,11 +450,9 @@ export function getNextWizardStep(
   // 5. Stock per size (text — only if sizes were just collected)
   if (!hasVariants && collected.sizes && !collected.stockPerSize) return 'stock'
 
-  // 6. Stock code (text) — Phase T1: ask if SKU is auto-generated TG-xxx.
-  //    D-163: moved AFTER commerce fields so the operator types the label
-  //    last, once they already know what the product is.
-  const isAutoSku = !product.sku || /^TG-/i.test(product.sku ?? '')
-  if (isAutoSku && !collected.stockCode) return 'stockCode'
+  // 6. Stock code — D-170: REMOVED from wizard. SN#### is auto-generated
+  //    during image generation (imageGenTask.ts). TG-xxx SKU stays as-is.
+  //    Operator does NOT need to enter a manual stock code.
 
   // 7. Title (text) — Phase T1: ask if still placeholder "Taslak Ürün ..."
   //    D-163: moved AFTER commerce fields for the same reason as stockCode.

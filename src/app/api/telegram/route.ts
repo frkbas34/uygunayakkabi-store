@@ -1286,7 +1286,7 @@ export async function POST(req: NextRequest) {
 
           const {
             checkConfirmationFields, getNextWizardStep, setWizardSession, clearWizardSession,
-            getTitlePrompt, getStockCodePrompt, getCategoryPrompt, getProductTypePrompt,
+            getTitlePrompt, getCategoryPrompt, getProductTypePrompt,
             getPricePrompt, getTargetsPrompt, getBrandPrompt, getStockPrompt, formatConfirmationSummary,
           } = await import('@/lib/confirmationWizard')
 
@@ -1329,8 +1329,6 @@ export async function POST(req: NextRequest) {
           // Dispatch first prompt
           if (nextStep === 'title') {
             await sendTelegramMessage(cbChatId, getTitlePrompt((product as any).title ?? `Ürün #${wzProductId}`))
-          } else if (nextStep === 'stockCode') {
-            await sendTelegramMessage(cbChatId, getStockCodePrompt((product as any).sku ?? '—'))
           } else if (nextStep === 'category') {
             const catPrompt = getCategoryPrompt()
             await sendTelegramMessageWithKeyboard(cbChatId, catPrompt.text, catPrompt.keyboard)
@@ -1367,7 +1365,7 @@ export async function POST(req: NextRequest) {
       if (cbData.startsWith('wz_cat:')) {
         try {
           const { getWizardSession, setWizardSession, getNextWizardStep, getPricePrompt, getSizesPrompt,
-                  getTargetsPrompt, getProductTypePrompt, getBrandPrompt, getStockPrompt, getStockCodePrompt,
+                  getTargetsPrompt, getProductTypePrompt, getBrandPrompt, getStockPrompt,
                   getTitlePrompt, formatConfirmationSummary: fmtSummary } =
             await import('@/lib/confirmationWizard')
           const session = getWizardSession(cbChatId, cbUserId)
@@ -1403,8 +1401,6 @@ export async function POST(req: NextRequest) {
             await sendTelegramMessage(cbChatId, getStockPrompt(autoSizes))
           } else if (nextStep === 'stock') {
             await sendTelegramMessage(cbChatId, getStockPrompt((session.collected.sizes ?? '').split(',').filter(Boolean)))
-          } else if (nextStep === 'stockCode') {
-            await sendTelegramMessage(cbChatId, getStockCodePrompt((product as any).sku ?? '—'))
           } else if (nextStep === 'title') {
             await sendTelegramMessage(cbChatId, getTitlePrompt((product as any).title ?? `Ürün #${session.productId}`))
           } else if (nextStep === 'brand') {
@@ -1434,7 +1430,7 @@ export async function POST(req: NextRequest) {
       if (cbData.startsWith('wz_ptype:')) {
         try {
           const { getWizardSession, setWizardSession, getNextWizardStep, getPricePrompt,
-                  getSizesPrompt, getTargetsPrompt, getBrandPrompt, getStockPrompt, getStockCodePrompt,
+                  getSizesPrompt, getTargetsPrompt, getBrandPrompt, getStockPrompt,
                   getTitlePrompt, formatConfirmationSummary } =
             await import('@/lib/confirmationWizard')
           const session = getWizardSession(cbChatId, cbUserId)
@@ -1467,8 +1463,6 @@ export async function POST(req: NextRequest) {
             await sendTelegramMessage(cbChatId, getStockPrompt(autoSizes))
           } else if (nextStep === 'stock') {
             await sendTelegramMessage(cbChatId, getStockPrompt((session.collected.sizes ?? '').split(',').filter(Boolean)))
-          } else if (nextStep === 'stockCode') {
-            await sendTelegramMessage(cbChatId, getStockCodePrompt((product as any).sku ?? '—'))
           } else if (nextStep === 'title') {
             await sendTelegramMessage(cbChatId, getTitlePrompt((product as any).title ?? `Ürün #${session.productId}`))
           } else if (nextStep === 'brand') {
@@ -1893,7 +1887,7 @@ export async function POST(req: NextRequest) {
               parsePrice, parseSizes, parseStockNumber, getNextWizardStep,
               getCategoryPrompt, getProductTypePrompt,
               getSizesPrompt, getStockPrompt, getTargetsPrompt, getPricePrompt,
-              getBrandPrompt, getTitlePrompt, getStockCodePrompt,
+              getBrandPrompt, getTitlePrompt,
               formatConfirmationSummary } = await import('@/lib/confirmationWizard')
       // D-158: Load wizard session from Neon before the sync getter runs so
       // the session survives Lambda cold starts / deploys.
@@ -1934,8 +1928,6 @@ export async function POST(req: NextRequest) {
           await sendTelegramMessage(chatId, getStockPrompt(autoSizes))
         } else if (nextStep === 'stock') {
           await sendTelegramMessage(chatId, getStockPrompt((session.collected.sizes ?? '').split(',').filter(Boolean)))
-        } else if (nextStep === 'stockCode') {
-          await sendTelegramMessage(chatId, getStockCodePrompt((product as any).sku ?? '—'))
         } else if (nextStep === 'title') {
           await sendTelegramMessage(chatId, getTitlePrompt((product as any).title ?? `Ürün #${session.productId}`))
         } else if (nextStep === 'brand') {
@@ -1974,27 +1966,7 @@ export async function POST(req: NextRequest) {
             return NextResponse.json({ ok: true })
           }
 
-          // ── Phase T1: Stock code step ──────────────────────────────────
-          if (wizSession.step === 'stockCode') {
-            const codeText = text.trim()
-            // "-" means skip (keep auto-generated SKU)
-            if (codeText !== '-') {
-              if (codeText.length < 2) {
-                await sendTelegramMessage(chatId, '⚠️ Stok kodu en az 2 karakter olmalı. Atlamak için <code>-</code> yazın.')
-                return NextResponse.json({ ok: true })
-              }
-              wizSession.collected.stockCode = codeText
-              await sendTelegramMessage(chatId, `✅ Stok kodu: <code>${codeText}</code>`)
-            } else {
-              wizSession.collected.stockCode = '_skip_'
-              await sendTelegramMessage(chatId, '➡️ Stok kodu atlandı — otomatik kod korunuyor.')
-            }
-
-            const product = await payload.findByID({ collection: 'products', id: wizSession.productId })
-            const nextStep = getNextWizardStep(product as any, wizSession.collected)
-            await dispatchNextStep(nextStep, wizSession, product as any)
-            return NextResponse.json({ ok: true })
-          }
+          // D-170: stockCode step REMOVED — SN#### auto-generated by image pipeline
 
           if (wizSession.step === 'price') {
             const price = parsePrice(text)
@@ -3928,7 +3900,6 @@ export async function POST(req: NextRequest) {
             setWizardSession,
             clearWizardSession,
             getTitlePrompt,
-            getStockCodePrompt,
             getCategoryPrompt,
             getProductTypePrompt,
             getPricePrompt,
@@ -4028,8 +3999,6 @@ export async function POST(req: NextRequest) {
           // Send first prompt
           if (nextStep === 'title') {
             await sendTelegramMessage(chatId, getTitlePrompt((product as any).title ?? `Ürün #${productId}`))
-          } else if (nextStep === 'stockCode') {
-            await sendTelegramMessage(chatId, getStockCodePrompt((product as any).sku ?? '—'))
           } else if (nextStep === 'category') {
             const catPrompt = getCategoryPrompt()
             await sendTelegramMessageWithKeyboard(chatId, catPrompt.text, catPrompt.keyboard)

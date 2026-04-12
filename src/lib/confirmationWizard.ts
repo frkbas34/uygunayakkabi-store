@@ -767,12 +767,34 @@ export async function applyConfirmation(
 
     // 2. Update product (with context flag to prevent hook re-trigger)
     const updateReq = req ? { ...req, context: { ...(req.context ?? {}), isDispatchUpdate: true } } : undefined
-    await payload.update({
-      collection: 'products',
-      id: productId,
-      data: productUpdate,
-      ...(updateReq ? { req: updateReq } : {}),
-    })
+    // D-172c: Log the exact payload being sent so we can diagnose failures.
+    console.log(
+      `[confirmationWizard] applyConfirmation update payload — product=${productId}:`,
+      JSON.stringify(productUpdate, null, 2),
+    )
+    try {
+      await payload.update({
+        collection: 'products',
+        id: productId,
+        data: productUpdate,
+        ...(updateReq ? { req: updateReq } : {}),
+      })
+    } catch (updateErr: any) {
+      // Extract PG error details for clear diagnostics
+      const pgCode = updateErr?.code ?? updateErr?.cause?.code ?? ''
+      const pgDetail = updateErr?.detail ?? updateErr?.cause?.detail ?? ''
+      const pgConstraint = updateErr?.constraint ?? updateErr?.cause?.constraint ?? ''
+      const pgHint = updateErr?.hint ?? updateErr?.cause?.hint ?? ''
+      console.error(
+        `[confirmationWizard] Product update SQL error — product=${productId}`,
+        `pgCode=${pgCode} constraint=${pgConstraint} detail=${pgDetail} hint=${pgHint}`,
+      )
+      throw new Error(
+        `Ürün güncelleme hatası: ${pgCode ? `[${pgCode}]` : ''} ` +
+        `${pgConstraint ? `constraint=${pgConstraint}` : ''} ` +
+        `${pgDetail || pgHint || updateErr?.message?.slice(-200) || 'bilinmeyen hata'}`,
+      )
+    }
 
     // 3. Create variants if sizes were collected
     let variantsCreated = 0
@@ -875,15 +897,29 @@ export async function applyConfirmation(
     }
 
     return { success: true, variantsCreated }
-  } catch (err) {
+  } catch (err: any) {
     const fullMsg = err instanceof Error ? err.message : String(err)
     console.error(`[confirmationWizard] applyConfirmation failed for product ${productId}:`, fullMsg)
-    // D-172: Truncate error for Telegram (4096 char limit) — keep the tail
-    // which contains the actual PG error reason after the long SQL query.
-    const MAX = 600
-    const msg = fullMsg.length > MAX
-      ? '…' + fullMsg.slice(-MAX)
-      : fullMsg
+    // D-172c: Extract the actual PG error from the Drizzle error object.
+    // node-postgres errors have .code, .detail, .constraint, .column.
+    // Drizzle wraps them — check err, err.cause, and the message itself.
+    const pgCode = err?.code ?? err?.cause?.code ?? ''
+    const pgDetail = err?.detail ?? err?.cause?.detail ?? ''
+    const pgConstraint = err?.constraint ?? err?.cause?.constraint ?? ''
+    const pgColumn = err?.column ?? err?.cause?.column ?? ''
+    // Also try to extract error after the SQL query (after last ') - ')
+    const dashIdx = fullMsg.lastIndexOf(') - ')
+    const afterSql = dashIdx > 0 ? fullMsg.slice(dashIdx + 4) : ''
+    // Build a compact diagnostic message
+    const parts: string[] = []
+    if (pgCode) parts.push(`code=${pgCode}`)
+    if (pgConstraint) parts.push(`constraint=${pgConstraint}`)
+    if (pgColumn) parts.push(`column=${pgColumn}`)
+    if (pgDetail) parts.push(`detail=${pgDetail}`)
+    if (afterSql) parts.push(afterSql.slice(0, 300))
+    const msg = parts.length > 0
+      ? parts.join(' | ')
+      : (fullMsg.length > 300 ? '…' + fullMsg.slice(-300) : fullMsg)
     return { success: false, error: msg }
   }
 }

@@ -850,17 +850,21 @@ export async function POST(req: NextRequest) {
       // into the ops GROUP chat — the Phase N "Uygunops-in-group → silent drop"
       // rule was swallowing every imgapprove/imgregen/imgreject/imgpremium/wz_*
       // button click and breaking the entire golden-path approval flow.
-      const OPS_CB_PREFIXES = ['imagegen:', 'imgapprove:', 'imgreject:', 'imgregen:', 'imgpremium:', 'wz_start:', 'wz_cat:', 'wz_ptype:', 'wz_tgt:', 'wz_size:', 'wz_stock:', 'wz_confirm:', 'wz_cancel:', 'wz_edit:', 'ara_stok:', 'ara_pipe:', 'ara_activate:', 'ara_shopier:', 'sn_']
+      const OPS_CB_PREFIXES = ['imagegen:', 'imgapprove:', 'imgreject:', 'imgregen:', 'imgpremium:', 'wz_start:', 'wz_cat:', 'wz_ptype:', 'wz_tgt:', 'wz_size:', 'wz_stock:', 'wz_confirm:', 'wz_cancel:', 'wz_edit:']
       const GEO_CB_PREFIXES = ['storyapprove:', 'storyreject:', 'storyretry:', 'geo_content:', 'geo_audit:', 'geo_auditrun:', 'geo_activate:', 'geo_retry:']
+      // D-191c: /ara and /sn are shared commands — their callbacks must work on BOTH bots
+      const SHARED_CB_PREFIXES = ['ara_stok:', 'ara_pipe:', 'ara_activate:', 'ara_shopier:', 'sn_']
       const isOpsCb = OPS_CB_PREFIXES.some(p => cbData.startsWith(p))
       const isGeoCb = GEO_CB_PREFIXES.some(p => cbData.startsWith(p))
+      const isSharedCb = SHARED_CB_PREFIXES.some(p => cbData.startsWith(p))
 
       // Wrong-bot redirects (prefix-based, authoritative)
-      if (botParam === 'geo' && isOpsCb) {
+      // Shared callbacks skip this gate — they work on both bots
+      if (botParam === 'geo' && isOpsCb && !isSharedCb) {
         await answerCallbackQuery(cbQueryId, '📌 Bu işlem @Uygunops_bot üzerinden çalışır.')
         return NextResponse.json({ ok: true })
       }
-      if (botParam !== 'geo' && isGeoCb) {
+      if (botParam !== 'geo' && isGeoCb && !isSharedCb) {
         await answerCallbackQuery(cbQueryId, '📌 Bu işlem GeoBot üzerinden çalışır.')
         return NextResponse.json({ ok: true })
       }
@@ -869,11 +873,11 @@ export async function POST(req: NextRequest) {
       // Classified ops callbacks are allowed in both DM and group (image
       // previews live in the ops group). Only unknown prefixes fall through
       // to the bot-role default routing.
-      if (botParam === 'geo' && !cbIsGroup && !isGeoCb && !isOpsCb) {
+      if (botParam === 'geo' && !cbIsGroup && !isGeoCb && !isOpsCb && !isSharedCb) {
         await answerCallbackQuery(cbQueryId, '📌 DM komutları için @Uygunops_bot kullanın.')
         return NextResponse.json({ ok: true })
       }
-      if (botParam !== 'geo' && cbIsGroup && !isOpsCb && !isGeoCb) {
+      if (botParam !== 'geo' && cbIsGroup && !isOpsCb && !isGeoCb && !isSharedCb) {
         // Unknown Uygunops callback in group → silently acknowledge (noise filter)
         await answerCallbackQuery(cbQueryId)
         return NextResponse.json({ ok: true })
@@ -1993,6 +1997,32 @@ export async function POST(req: NextRequest) {
 
           const { reactToStockChange, getStockSnapshot, formatStockStatusMessage } = await import('@/lib/stockReaction')
           const sn = product.stockNumber || `ID:${pId}`
+
+          if (action === 'card') {
+            // D-191c: Show product card from /sn help buttons
+            await answerCallbackQuery(cbQueryId, '📦')
+            const statusEmoji = product.status === 'active' ? '🟢' : product.status === 'soldout' ? '🔴' : '⚪'
+            const msg =
+              `📦 <b>${product.title || 'İsimsiz'}</b>\n\n` +
+              `🏷️ <code>${sn}</code> | ID: ${pId}\n` +
+              `💰 Fiyat: ${product.price ? `₺${product.price}` : '—'}\n` +
+              `📊 Stok: ${product.stockQuantity ?? 0} adet\n` +
+              `${statusEmoji} Durum: ${product.status || 'draft'}\n` +
+              `🏪 Marka: ${product.brand || '—'} | Kategori: ${product.category || '—'}`
+            await sendTelegramMessageWithKeyboard(cbChatId, msg, [
+              [
+                { text: '🔴 Tükendi', callback_data: `sn_tukendi:${pId}` },
+                { text: '⚠️ 1 Kaldı', callback_data: `sn_1kaldi:${pId}` },
+                { text: '⚠️ 2 Kaldı', callback_data: `sn_2kaldi:${pId}` },
+              ],
+              [
+                { text: '⏸️ Durdur', callback_data: `sn_durdur:${pId}` },
+                { text: '▶️ Aç', callback_data: `sn_ac:${pId}` },
+                { text: '📦 Stok', callback_data: `sn_stok:${pId}` },
+              ],
+            ])
+            return NextResponse.json({ ok: true })
+          }
 
           if (action === 'stok') {
             // Display stock snapshot
@@ -4134,19 +4164,41 @@ export async function POST(req: NextRequest) {
       }
 
       if (!snQuery) {
-        await sendTelegramMessage(
-          chatId,
-          '📦 <b>Stok Kodu Kontrolü</b>\n\n' +
-            '<b>Görüntüle:</b>\n' +
-            '/sn SN0186 — Ürün kartı + hızlı butonlar\n\n' +
-            '<b>Hızlı İşlemler:</b>\n' +
-            '/sn SN0186 tükendi — Tükendi işaretle\n' +
-            '/sn SN0186 1kaldı — 1 adet kaldı\n' +
-            '/sn SN0186 2kaldı — 2 adet kaldı\n' +
-            '/sn SN0186 durdur — Satışı durdur\n' +
-            '/sn SN0186 aç — Satışı aç\n' +
-            '/sn SN0186 stok 5 — Stok adedini güncelle',
-        )
+        // D-191c: Show recent products as clickable buttons instead of plain text help
+        try {
+          const recentProducts = await payload.find({
+            collection: 'products',
+            where: { stockNumber: { exists: true } },
+            sort: '-createdAt',
+            limit: 6,
+            depth: 0,
+          })
+          const buttons: Array<Array<{ text: string; callback_data: string }>> = []
+          const row: Array<{ text: string; callback_data: string }> = []
+          for (const p of recentProducts.docs) {
+            const sn = p.stockNumber as string
+            const title = (p.title as string || '').substring(0, 18)
+            const status = p.status === 'soldout' ? '🔴' : p.status === 'active' ? '🟢' : '⚪'
+            row.push({ text: `${status} ${sn} ${title}`, callback_data: `sn_card:${p.id}` })
+            if (row.length === 2) {
+              buttons.push([...row])
+              row.length = 0
+            }
+          }
+          if (row.length > 0) buttons.push([...row])
+
+          await sendTelegramMessageWithKeyboard(
+            chatId,
+            '📦 <b>Stok Kodu Kontrolü</b>\n\n' +
+              'Ürün seçin veya <code>/sn SN0186</code> yazın:',
+            buttons,
+          )
+        } catch {
+          await sendTelegramMessage(
+            chatId,
+            '📦 <b>Stok Kodu Kontrolü</b>\n\nKullanım: <code>/sn SN0186</code> veya <code>/sn0186</code>',
+          )
+        }
         return NextResponse.json({ ok: true })
       }
 

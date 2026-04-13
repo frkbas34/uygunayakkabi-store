@@ -196,8 +196,9 @@ export default async function Page() {
         .filter((s: number) => !isNaN(s))
         .sort((a: number, b: number) => a - b);
 
-      const totalStock = variants
-        .reduce((acc: number, v: any) => acc + (Number(v?.stock) || 0), 0);
+      // D-194b: Use variant stock sum if variants exist, otherwise fall back to product-level stockQuantity
+      const variantStock = variants.reduce((acc: number, v: any) => acc + (Number(v?.stock) || 0), 0);
+      const totalStock = variants.length > 0 ? variantStock : (Number(p.stockQuantity) || 0);
 
       const badge =
         p.featured ? 'Öne Çıkan'
@@ -217,6 +218,7 @@ export default async function Page() {
         dbImage: aiUrls[0] || null,
         sizes: sizes,
         stock: totalStock,
+        status: p.status || 'draft',
         category: CATEGORY_LABELS[p.category] || p.category || 'Günlük',
         badge,
         slug: p.slug || String(p.id),

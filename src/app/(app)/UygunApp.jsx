@@ -877,7 +877,8 @@ function Detail({ product: p, onBack, settings, onNav, onAddToCart }) {
   const ct = settings?.contact || DEFAULT_SETTINGS.contact;
   const [sz, sSz] = useState(null);
   const [im, sIm] = useState(0);
-  const isSoldOut = p.stock === 0;
+  // D-194b: soldout only when explicitly marked or stock is confirmed zero
+  const isSoldOut = p.badge === "Tükendi" || p.status === "soldout" || (p.stock != null && p.stock === 0);
   const sl = isSoldOut
     ? { t: "Stokta Yok", c: T.red, bg: T.redSoft }
     : p.stock && p.stock <= 3

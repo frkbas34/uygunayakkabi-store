@@ -850,7 +850,7 @@ export async function POST(req: NextRequest) {
       // into the ops GROUP chat — the Phase N "Uygunops-in-group → silent drop"
       // rule was swallowing every imgapprove/imgregen/imgreject/imgpremium/wz_*
       // button click and breaking the entire golden-path approval flow.
-      const OPS_CB_PREFIXES = ['imagegen:', 'imgapprove:', 'imgreject:', 'imgregen:', 'imgpremium:', 'wz_start:', 'wz_cat:', 'wz_ptype:', 'wz_tgt:', 'wz_size:', 'wz_stock:', 'wz_confirm:', 'wz_cancel:', 'wz_edit:']
+      const OPS_CB_PREFIXES = ['imagegen:', 'imgapprove:', 'imgreject:', 'imgregen:', 'imgpremium:', 'wz_start:', 'wz_cat:', 'wz_ptype:', 'wz_tgt:', 'wz_size:', 'wz_stock:', 'wz_confirm:', 'wz_cancel:', 'wz_edit:', 'ara_stok:', 'ara_pipe:', 'ara_activate:', 'ara_shopier:']
       const GEO_CB_PREFIXES = ['storyapprove:', 'storyreject:', 'storyretry:', 'geo_content:', 'geo_audit:', 'geo_auditrun:', 'geo_activate:', 'geo_retry:']
       const isOpsCb = OPS_CB_PREFIXES.some(p => cbData.startsWith(p))
       const isGeoCb = GEO_CB_PREFIXES.some(p => cbData.startsWith(p))
@@ -1936,6 +1936,44 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ ok: true })
       }
 
+      // D-184: /ara quick-action buttons
+      if (cbData.startsWith('ara_stok:')) {
+        const pId = cbData.replace('ara_stok:', '')
+        await answerCallbackQuery(cbQueryId, '📦 Stok yükleniyor...')
+        try {
+          const cbPayload = await getPayload()
+          const product = await cbPayload.findByID({ collection: 'products', id: parseInt(pId), depth: 0 })
+          const { getStockSnapshot, formatStockStatusMessage } = await import('@/lib/stockReaction')
+          const snapshot = await getStockSnapshot(cbPayload, parseInt(pId), (product as any).stockQuantity ?? 0)
+          await sendTelegramMessage(cbChatId, formatStockStatusMessage(product as any, snapshot))
+        } catch (err) {
+          await sendTelegramMessage(cbChatId, `❌ Stok hatası: ${err instanceof Error ? err.message : err}`)
+        }
+        return NextResponse.json({ ok: true })
+      }
+
+      if (cbData.startsWith('ara_pipe:')) {
+        // Redirect to /pipeline command
+        const pId = cbData.replace('ara_pipe:', '')
+        await answerCallbackQuery(cbQueryId, '🔄 Pipeline yükleniyor...')
+        await sendTelegramMessage(cbChatId, `💡 Pipeline için: /pipeline ${pId}`)
+        return NextResponse.json({ ok: true })
+      }
+
+      if (cbData.startsWith('ara_activate:')) {
+        const pId = cbData.replace('ara_activate:', '')
+        await answerCallbackQuery(cbQueryId, '💡 Aktivasyon...')
+        await sendTelegramMessage(cbChatId, `💡 Aktivasyon için: /activate ${pId}`)
+        return NextResponse.json({ ok: true })
+      }
+
+      if (cbData.startsWith('ara_shopier:')) {
+        const pId = cbData.replace('ara_shopier:', '')
+        await answerCallbackQuery(cbQueryId, '🛒 Shopier...')
+        await sendTelegramMessage(cbChatId, `💡 Shopier yayını için: /shopier publish ${pId}`)
+        return NextResponse.json({ ok: true })
+      }
+
       return NextResponse.json({ ok: true })
     }
 
@@ -2129,7 +2167,7 @@ export async function POST(req: NextRequest) {
     // Shared: /pipeline (visible on both bots)
     // This teaches operators which bot handles which workflow.
     {
-      const OPS_CMDS = ['/confirm', '/confirm_cancel', '/stok', '/diagnostics']
+      const OPS_CMDS = ['/confirm', '/confirm_cancel', '/stok', '/ara', '/diagnostics']
       const GEO_CMDS = ['/content', '/audit', '/preview', '/activate', '/shopier', '/merch', '/story', '/restory', '/targets', '/approve_story', '/reject_story']
       const OPS_HASHTAGS = ['#gorsel', '#geminipro']
       // Deactivated providers still show deactivation msg — keep them on ops side
@@ -3831,6 +3869,118 @@ export async function POST(req: NextRequest) {
 
     // ── Phase 9: Stock Status Command ──────────────────────────────────────
     // /stok {productId} — show stock status and state
+    // ── D-184: /ara — search product by stock number (SN####) or title keyword ──
+    if (text.startsWith('/ara')) {
+      const parts = text.trim().split(/\s+/)
+      const query = parts.slice(1).join(' ').trim()
+
+      if (!query) {
+        await sendTelegramMessage(
+          chatId,
+          '🔍 <b>Ürün Ara</b>\n\n' +
+            '/ara SN0179 — Stok numarasıyla ara\n' +
+            '/ara Nike — Ürün adıyla ara\n' +
+            '/ara 272 — ID ile ara',
+        )
+        return NextResponse.json({ ok: true })
+      }
+
+      try {
+        let products: any[] = []
+
+        // 1. Try exact ID match
+        const maybeId = parseInt(query)
+        if (!isNaN(maybeId) && String(maybeId) === query) {
+          try {
+            const p = await payload.findByID({ collection: 'products', id: maybeId, depth: 0 })
+            if (p) products = [p]
+          } catch { /* not found */ }
+        }
+
+        // 2. Try stock number match (SN####)
+        if (products.length === 0 && /^SN\d+$/i.test(query)) {
+          const snResult = await payload.find({
+            collection: 'products',
+            where: { stockNumber: { equals: query.toUpperCase() } },
+            limit: 1,
+            depth: 0,
+          })
+          products = snResult.docs
+        }
+
+        // 3. Try title/brand keyword search
+        if (products.length === 0) {
+          const searchResult = await payload.find({
+            collection: 'products',
+            where: {
+              or: [
+                { title: { contains: query } },
+                { brand: { contains: query } },
+              ],
+            },
+            limit: 5,
+            depth: 0,
+            sort: '-createdAt',
+          })
+          products = searchResult.docs
+        }
+
+        if (products.length === 0) {
+          await sendTelegramMessage(chatId, `🔍 "<b>${query}</b>" için sonuç bulunamadı.`)
+          return NextResponse.json({ ok: true })
+        }
+
+        // Single result → detailed card with action buttons
+        if (products.length === 1) {
+          const p = products[0]
+          const sn = p.stockNumber || '—'
+          const status = p.status || 'draft'
+          const price = p.price ? `₺${p.price}` : '—'
+          const brand = p.brand || '—'
+          const cat = p.category || '—'
+          const stock = p.stockQuantity ?? '—'
+          const statusEmoji = status === 'active' ? '🟢' : status === 'soldout' ? '🔴' : '⚪'
+
+          const msg =
+            `🔍 <b>Ürün Bulundu</b>\n\n` +
+            `<b>${p.title || 'İsimsiz'}</b>\n` +
+            `📦 Stok No: <code>${sn}</code> | ID: ${p.id}\n` +
+            `🏷️ Marka: ${brand} | Kategori: ${cat}\n` +
+            `💰 Fiyat: ${price}\n` +
+            `📊 Stok: ${stock} adet\n` +
+            `${statusEmoji} Durum: ${status}`
+
+          await sendTelegramMessageWithKeyboard(chatId, msg, [
+            [
+              { text: '📦 Stok', callback_data: `ara_stok:${p.id}` },
+              { text: '🔄 Pipeline', callback_data: `ara_pipe:${p.id}` },
+            ],
+            [
+              { text: '✅ Aktive Et', callback_data: `ara_activate:${p.id}` },
+              { text: '🛒 Shopier', callback_data: `ara_shopier:${p.id}` },
+            ],
+          ])
+        } else {
+          // Multiple results → list with IDs
+          const lines = products.map((p: any) => {
+            const sn = p.stockNumber || '—'
+            const statusEmoji = p.status === 'active' ? '🟢' : p.status === 'soldout' ? '🔴' : '⚪'
+            return `${statusEmoji} <b>${p.title || 'İsimsiz'}</b>\n   ID: ${p.id} | ${sn} | ${p.price ? `₺${p.price}` : '—'}`
+          })
+          await sendTelegramMessage(
+            chatId,
+            `🔍 <b>"${query}" — ${products.length} sonuç:</b>\n\n` +
+              lines.join('\n\n') +
+              '\n\n💡 Detay için: /ara <ID>',
+          )
+        }
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err)
+        await sendTelegramMessage(chatId, `❌ Arama hatası: ${msg}`)
+      }
+      return NextResponse.json({ ok: true })
+    }
+
     if (text.startsWith('/stok')) {
       const parts = text.trim().split(/\s+/)
       const arg = parts[1]

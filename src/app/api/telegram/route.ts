@@ -850,7 +850,7 @@ export async function POST(req: NextRequest) {
       // into the ops GROUP chat — the Phase N "Uygunops-in-group → silent drop"
       // rule was swallowing every imgapprove/imgregen/imgreject/imgpremium/wz_*
       // button click and breaking the entire golden-path approval flow.
-      const OPS_CB_PREFIXES = ['imagegen:', 'imgapprove:', 'imgreject:', 'imgregen:', 'imgpremium:', 'wz_start:', 'wz_cat:', 'wz_ptype:', 'wz_tgt:', 'wz_size:', 'wz_stock:', 'wz_confirm:', 'wz_cancel:']
+      const OPS_CB_PREFIXES = ['imagegen:', 'imgapprove:', 'imgreject:', 'imgregen:', 'imgpremium:', 'wz_start:', 'wz_cat:', 'wz_ptype:', 'wz_tgt:', 'wz_size:', 'wz_stock:', 'wz_confirm:', 'wz_cancel:', 'wz_edit:']
       const GEO_CB_PREFIXES = ['storyapprove:', 'storyreject:', 'storyretry:', 'geo_content:', 'geo_audit:', 'geo_auditrun:', 'geo_activate:', 'geo_retry:']
       const isOpsCb = OPS_CB_PREFIXES.some(p => cbData.startsWith(p))
       const isGeoCb = GEO_CB_PREFIXES.some(p => cbData.startsWith(p))
@@ -1385,6 +1385,7 @@ export async function POST(req: NextRequest) {
             await sendTelegramMessageWithKeyboard(cbChatId, summary, [
               [
                 { text: '✅ Onayla', callback_data: `wz_confirm:${wzProductId}` },
+                { text: '✏️ Düzenle', callback_data: `wz_edit:${wzProductId}` },
                 { text: '❌ İptal', callback_data: `wz_cancel:${wzProductId}` },
               ],
             ])
@@ -1499,6 +1500,7 @@ export async function POST(req: NextRequest) {
             await sendTelegramMessageWithKeyboard(cbChatId, summary, [
               [
                 { text: '✅ Onayla', callback_data: `wz_confirm:${session.productId}` },
+                { text: '✏️ Düzenle', callback_data: `wz_edit:${session.productId}` },
                 { text: '❌ İptal', callback_data: `wz_cancel:${session.productId}` },
               ],
             ])
@@ -1565,6 +1567,7 @@ export async function POST(req: NextRequest) {
             await sendTelegramMessageWithKeyboard(cbChatId, summary, [
               [
                 { text: '✅ Onayla', callback_data: `wz_confirm:${session.productId}` },
+                { text: '✏️ Düzenle', callback_data: `wz_edit:${session.productId}` },
                 { text: '❌ İptal', callback_data: `wz_cancel:${session.productId}` },
               ],
             ])
@@ -1605,6 +1608,7 @@ export async function POST(req: NextRequest) {
             await sendTelegramMessageWithKeyboard(cbChatId, summary, [
               [
                 { text: '✅ Onayla', callback_data: `wz_confirm:${session.productId}` },
+                { text: '✏️ Düzenle', callback_data: `wz_edit:${session.productId}` },
                 { text: '❌ İptal', callback_data: `wz_cancel:${session.productId}` },
               ],
             ])
@@ -1787,6 +1791,7 @@ export async function POST(req: NextRequest) {
               await sendTelegramMessageWithKeyboard(cbChatId, summary, [
                 [
                   { text: '✅ Onayla', callback_data: `wz_confirm:${session.productId}` },
+                  { text: '✏️ Düzenle', callback_data: `wz_edit:${session.productId}` },
                   { text: '❌ İptal', callback_data: `wz_cancel:${session.productId}` },
                 ],
               ])
@@ -1888,6 +1893,31 @@ export async function POST(req: NextRequest) {
         } catch (err) {
           await answerCallbackQuery(cbQueryId, '❌ Hata')
           console.error('[telegram/webhook] wz_confirm callback failed:', err)
+        }
+        return NextResponse.json({ ok: true })
+      }
+
+      // D-179: wz_edit:{productId} — restart wizard from category step (keep session)
+      if (cbData.startsWith('wz_edit:')) {
+        try {
+          const editProductId = cbData.replace('wz_edit:', '')
+          const { hydrateWizardSession, setWizardSession, getCategoryPrompt } = await import('@/lib/confirmationWizard')
+          const session = await hydrateWizardSession({ productId: editProductId } as any, cbChatId, cbUserId)
+          if (session) {
+            // Reset all collected data so every step is re-asked
+            session.collected = {}
+            session.step = 'category'
+            await setWizardSession(cbChatId, session, cbUserId)
+            await answerCallbackQuery(cbQueryId, '✏️ Düzenleme başladı')
+            const catPrompt = getCategoryPrompt()
+            await sendTelegramMessageWithKeyboard(cbChatId, `✏️ <b>Düzenleme modu — tekrar doldurun:</b>\n\n${catPrompt.text}`, catPrompt.keyboard)
+          } else {
+            await answerCallbackQuery(cbQueryId, '⚠️ Oturum bulunamadı')
+            await sendTelegramMessage(cbChatId, '⚠️ Wizard oturumu bulunamadı. /confirm ile yeniden başlayın.')
+          }
+        } catch (err) {
+          await answerCallbackQuery(cbQueryId, '❌ Hata')
+          console.error('[telegram/webhook] wz_edit callback failed:', err)
         }
         return NextResponse.json({ ok: true })
       }
@@ -2214,6 +2244,7 @@ export async function POST(req: NextRequest) {
           await sendTelegramMessageWithKeyboard(chatId, summary, [
             [
               { text: '✅ Onayla', callback_data: `wz_confirm:${session.productId}` },
+              { text: '✏️ Düzenle', callback_data: `wz_edit:${session.productId}` },
               { text: '❌ İptal', callback_data: `wz_cancel:${session.productId}` },
             ],
           ])
@@ -4212,6 +4243,7 @@ export async function POST(req: NextRequest) {
             await sendTelegramMessageWithKeyboard(chatId, summary, [
               [
                 { text: '✅ Onayla', callback_data: `wz_confirm:${productId}` },
+                { text: '✏️ Düzenle', callback_data: `wz_edit:${productId}` },
                 { text: '❌ İptal', callback_data: `wz_cancel:${productId}` },
               ],
             ])

@@ -659,7 +659,11 @@ export function evaluateChannelEligibility(
   eligible: SupportedChannel[]
   skipped: Record<SupportedChannel, string>
 } {
-  const channelTargets = (product.channelTargets as string[] | undefined) ?? []
+  // D-187: When channelTargets is empty/undefined, treat as "all channels" —
+  // let the global capability gate (Gate 3) decide which are actually enabled.
+  // Old default was [] which silently blocked ALL dispatch.
+  const rawTargets = (product.channelTargets as string[] | undefined)
+  const channelTargets = (rawTargets && rawTargets.length > 0) ? rawTargets : [...SUPPORTED_CHANNELS]
   const channels = product.channels as Record<string, boolean | undefined> | undefined
 
   const skipped = {} as Record<SupportedChannel, string>
@@ -673,6 +677,7 @@ export function evaluateChannelEligibility(
     }
 
     // Gate 2 — product channel flag: channels.publishX must not be explicitly false
+    // D-187: Skip this gate if channels object is undefined (no explicit flags set)
     const channelFlagKey =
       `publish${ch.charAt(0).toUpperCase()}${ch.slice(1)}` as keyof typeof channels
     if (channels && channels[channelFlagKey] === false) {

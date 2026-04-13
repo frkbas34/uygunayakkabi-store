@@ -1595,9 +1595,10 @@ export async function POST(req: NextRequest) {
           const tgtValue = cbData.replace('wz_tgt:', '')
 
           if (tgtValue === 'done') {
-            // Finalize targets
+            // D-187: Default to all channel options when none selected
+            // (global capability gate will filter at dispatch time)
             if (!session.collected.channelTargets || session.collected.channelTargets.length === 0) {
-              session.collected.channelTargets = ['website'] // Default fallback
+              session.collected.channelTargets = CHANNEL_OPTIONS.map((o) => o.value)
             }
             await answerCallbackQuery(cbQueryId, `✅ Hedefler: ${session.collected.channelTargets.join(', ')}`)
 
@@ -2602,7 +2603,10 @@ export async function POST(req: NextRequest) {
           automationSettings,
         )
 
-        const channelDecision = resolveChannelTargets(['website'], automationSettings)
+        // D-187: Pass null to let resolveChannelTargets use all globally-enabled channels
+        // instead of hardcoding ['website']. This way Instagram/Facebook are included
+        // when their global toggles are on.
+        const channelDecision = resolveChannelTargets(null, automationSettings)
 
         // 9. Ürün oluştur
         const product = await payload.create({
@@ -2619,11 +2623,12 @@ export async function POST(req: NextRequest) {
             ...(brand ? { brand } : {}),
             ...(productType ? { productType } : {}),
             channelTargets: channelDecision.effectiveTargets as any,
+            // D-187: Derive channel flags from effectiveTargets instead of hardcoding false
             channels: {
               publishWebsite: channelDecision.effectiveTargets.includes('website'),
-              publishInstagram: false,
-              publishShopier: false,
-              publishDolap: false,
+              publishInstagram: channelDecision.effectiveTargets.includes('instagram'),
+              publishShopier: channelDecision.effectiveTargets.includes('shopier'),
+              publishDolap: channelDecision.effectiveTargets.includes('dolap'),
             },
             automationMeta: {
               telegramChatId: tgChatId,

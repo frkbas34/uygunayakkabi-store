@@ -77,7 +77,7 @@ async function getProduct(slug: string): Promise<ProductDoc | undefined> {
   const { docs } = await payload.find({
     collection: 'products',
     where: { slug: { equals: slug } },
-    depth: 2,
+    depth: 3,
     limit: 1,
   })
   return docs[0] as ProductDoc | undefined
@@ -202,15 +202,18 @@ export default async function ProductPage({ params }: Props) {
   const variants = variantResult.docs as VariantDoc[]
   const availableSizes = variants.filter((v) => v.stock > 0)
 
-  // D-175b: Use Payload 'large' size (1200px) for product detail page.
-  // Falls back to original URL if sized version not available.
+  // D-187: depth:3 + defensive check for unresolved relationships (raw ID instead of object).
+  // Prefer sizes.large (1200px) for detail page quality; prepend serverUrl for relative paths.
+  const serverUrl = process.env.NEXT_PUBLIC_SERVER_URL || ''
   const extractUrls = (entries: ImageEntry[]): string[] =>
     entries
       .map((img) => {
         const mediaDoc = img.image as MediaDoc
+        // If relationship not resolved (still a raw ID), skip gracefully
+        if (!mediaDoc || typeof mediaDoc === 'number' || typeof mediaDoc === 'string') return null
         const largeUrl = (mediaDoc as any)?.sizes?.large?.url
-        if (largeUrl) return largeUrl
-        if (mediaDoc?.url) return mediaDoc.url
+        if (largeUrl) return largeUrl.startsWith('http') ? largeUrl : `${serverUrl}${largeUrl}`
+        if (mediaDoc?.url) return mediaDoc.url.startsWith('http') ? mediaDoc.url : `${serverUrl}${mediaDoc.url}`
         if ((mediaDoc as any)?.filename) return `/media/${(mediaDoc as any).filename}`
         return null
       })

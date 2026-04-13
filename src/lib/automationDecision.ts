@@ -239,7 +239,6 @@ export function resolveChannelTargets(
   productTargets: string[] | null | undefined,
   settings: AutomationSettingsSnapshot | null | undefined,
 ): ChannelDecisionResult {
-  const targets = productTargets ?? ['website']
   const cp = settings?.channelPublishing ?? {}
 
   const CAPABILITY: Record<string, boolean> = {
@@ -251,6 +250,11 @@ export function resolveChannelTargets(
     facebook:  !!(cp.publishFacebook  ?? SAFE_DEFAULTS.publishFacebook),
     threads:   !!(cp.publishThreads   ?? SAFE_DEFAULTS.publishThreads),
   }
+
+  // D-187: When no explicit product intent, consider ALL known channels.
+  // The global capability gate below filters to only enabled ones.
+  // Old default was ['website'] which silently blocked Instagram/Facebook dispatch.
+  const targets = productTargets ?? Object.keys(CAPABILITY)
 
   const effectiveTargets: string[] = []
   const blockedByGlobal: string[] = []

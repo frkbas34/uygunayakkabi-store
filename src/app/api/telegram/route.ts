@@ -2263,14 +2263,24 @@ export async function POST(req: NextRequest) {
             return NextResponse.json({ ok: true })
           }
 
+          // D-178: Combined brand + model step
           if (wizSession.step === 'brand') {
             const brandText = text.trim()
             if (!brandText || brandText.length < 2) {
-              await sendTelegramMessage(chatId, '⚠️ Geçersiz marka adı. En az 2 karakter girin.')
+              await sendTelegramMessage(chatId, '⚠️ En az 2 karakter girin. Örnek: <code>Nike Air Max 90</code>')
               return NextResponse.json({ ok: true })
             }
-            wizSession.collected.brand = brandText
-            await sendTelegramMessage(chatId, `✅ Marka: ${brandText}`)
+            // First word = brand, full text = title (if multi-word)
+            const parts = brandText.split(/\s+/)
+            const brand = parts[0]
+            wizSession.collected.brand = brand
+            // If operator wrote more than just the brand, use full text as product title
+            if (parts.length > 1) {
+              wizSession.collected.title = brandText
+              await sendTelegramMessage(chatId, `✅ Marka: <b>${brand}</b>\n✅ Ürün adı: <b>${brandText}</b>`)
+            } else {
+              await sendTelegramMessage(chatId, `✅ Marka: <b>${brand}</b>`)
+            }
 
             const product = await payload.findByID({ collection: 'products', id: wizSession.productId })
             const nextStep = getNextWizardStep(product as any, wizSession.collected)

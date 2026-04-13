@@ -488,11 +488,9 @@ export function getNextWizardStep(
 
   // 6. Stock code — auto from SN#### (never asked)
 
-  // 7. Title (text) — only if still placeholder
-  const isPlaceholderTitle = !product.title || /^Taslak Ürün\s/i.test(product.title)
-  if (isPlaceholderTitle && !collected.title) return 'title'
-
-  // 8. Brand (text)
+  // 7. Brand & Model (combined text step — D-178)
+  //    Single prompt: operator writes "Nike Air Max 90" → brand=Nike, title=Nike Air Max 90
+  //    Or just "Nike" → brand=Nike, title stays placeholder (auto-generated later by GeoBot)
   if (!product.brand && !collected.brand) return 'brand'
 
   // 9. Channel targets (button multi-select)
@@ -692,8 +690,15 @@ export function getStockPrompt(sizes: string[]): string {
   )
 }
 
+// D-178: Combined brand + model prompt (replaces separate title & brand steps)
 export function getBrandPrompt(): string {
-  return '🏷️ <b>Marka adı girin:</b>\n\nÖrnek: <code>Nike</code>, <code>Adidas</code>, <code>Skechers</code>'
+  return (
+    '🏷️ <b>Marka ve model adını girin:</b>\n\n' +
+    'Marka + varsa model/renk/detay yazın.\n\n' +
+    'Örnek: <code>Nike Air Max 90 Siyah</code>\n' +
+    'Örnek: <code>Adidas Superstar Beyaz</code>\n' +
+    'Örnek: <code>Skechers</code> (sadece marka)'
+  )
 }
 
 export function getTargetsPrompt(): { text: string; keyboard: Array<Array<{ text: string; callback_data: string }>> } {

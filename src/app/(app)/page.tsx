@@ -171,22 +171,11 @@ export default async function Page() {
 
     dbProducts = productsForHomepage.map((p: any) => {
       const shoeImg = getShoeImage(p.category || 'gunluk');
-      // AI-generated images (generativeGallery) — side_angle is [0] (primary hero)
+      // D-174b: ONLY AI-generated images. Original photos are NEVER public.
       const aiUrls = getAllMediaUrls(p.generativeGallery || []);
-      // Original product images
-      const mediaUrls = getAllMediaUrls(p.images || []);
-      // Fallback: images linked via Media's "İlgili Ürün" field
-      const reverseUrls = (reverseMediaMap.get(p.id) || [])
-        .map((m: any) => m.url || (m.filename ? `/media/${m.filename}` : null))
-        .filter(Boolean) as string[];
-      // Priority: AI gallery (side_angle first) > product images > reverse-linked
-      const allUrls = aiUrls.length > 0
-        ? [...aiUrls, ...mediaUrls]
-        : mediaUrls.length > 0
-          ? mediaUrls
-          : reverseUrls;
-      const imgSrc = allUrls[0] || shoeImg;
-      const img2 = allUrls[1] || shoeImg;
+      // Fallback: category placeholder (never original intake photos)
+      const imgSrc = aiUrls[0] || shoeImg;
+      const img2 = aiUrls[1] || shoeImg;
 
       // Varyantlardan beden ve stok — use variantMap (product_id FK) instead of
       // p.variants (hasMany via products_rels, which may be empty)
@@ -215,10 +204,11 @@ export default async function Page() {
         name: p.title,
         price: Number(p.price) || 0,
         originalPrice: p.originalPrice ? Number(p.originalPrice) : null,
-        description: p.description || `${p.title} — uygun fiyatlı ayakkabı`,
-        // Only use real uploaded images; SVG placeholder only if zero real images exist
-        images: allUrls.length > 0 ? allUrls : [shoeImg],
-        dbImage: allUrls[0] || null,
+        description: p.content?.commercePack?.websiteDescription || p.title,
+        // D-174b: Only AI-generated images, never original intake photos
+        images: aiUrls.length > 0 ? aiUrls : [shoeImg],
+        aiImages: aiUrls,
+        dbImage: aiUrls[0] || null,
         sizes: sizes,
         stock: totalStock,
         category: CATEGORY_LABELS[p.category] || p.category || 'Günlük',

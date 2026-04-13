@@ -320,7 +320,8 @@ export default async function BlogDetailPage({ params }: Props) {
             <h2 className="text-xl font-bold text-gray-900 mb-6">İlgili Ürünler</h2>
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
               {relatedProducts.map((product) => {
-                const gallery = product.generativeGallery ?? product.images ?? []
+                // D-174b: Only AI images, never original intake photos
+                const gallery = product.generativeGallery ?? []
                 const prodImage = gallery.length > 0
                   ? getImageUrl((gallery[0] as any)?.image as MediaDoc | null)
                   : null

@@ -250,8 +250,10 @@ function Navbar({ onNav, pg, settings }) {
 function Card({ p, onView }) {
   const [h, sH] = useState(false);
   const [slideIdx, setSI] = useState(0);
+  // D-174b: Only AI images (generativeGallery), never original intake photos
   const imgSrc = p.dbImage || p.image;
-  const images = Array.isArray(p.images) && p.images.length > 0 ? p.images : [imgSrc];
+  const aiImgs = Array.isArray(p.aiImages) && p.aiImages.length > 0 ? p.aiImages : null;
+  const images = aiImgs || [imgSrc];
   const displayImg = images[slideIdx];
 
   return (
@@ -619,11 +621,14 @@ export default function App({ dbProducts = [], siteSettings = null, banners = []
 
   const allProducts = (() => {
     const dbMapped = (dbProducts || []).map(p => {
-      const firstImg = Array.isArray(p.images) && p.images[0] ? p.images[0] : null;
+      // D-174b: Only use AI-generated images, never original intake photos
+      const aiImgs = Array.isArray(p.aiImages) && p.aiImages.length > 0 ? p.aiImages : [];
+      const firstImg = aiImgs[0] || null;
       return {
         ...p,
         image: firstImg || shoe("#ebe5da","#d4c4b0","#c8102e","#fff","#fff",0),
         dbImage: firstImg,
+        aiImages: aiImgs,
       };
     });
     if (ENABLE_STATIC_FALLBACK) {
@@ -785,7 +790,8 @@ function Detail({ product: p, onBack, settings, onNav }) {
     : p.stock && p.stock <= 3
     ? { t: `Son ${p.stock} adet!`, c: "#d97706", bg: "rgba(217,119,6,0.1)" }
     : { t: "Stokta", c: "#22c55e", bg: "rgba(34,197,94,0.1)" };
-  const allImages = p.images?.length ? p.images : [p.dbImage || p.image];
+  // D-174b: Only AI images, never original intake photos
+  const allImages = (p.aiImages?.length ? p.aiImages : p.images?.length ? p.images : null) || [p.dbImage || p.image];
 
   return (
     <div style={{ paddingTop: 80, background: T.bg, minHeight: "100vh", position: "relative", zIndex: 1 }}>

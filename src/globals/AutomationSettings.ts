@@ -259,6 +259,15 @@ export const AutomationSettings: GlobalConfig = {
             description: 'Son başarılı OAuth akışının zamanı.',
           },
         },
+        // D-188: Store Facebook Page ID from OAuth discovery
+        {
+          name: 'facebookPageId',
+          type: 'text',
+          label: 'Facebook Page ID',
+          admin: {
+            description: 'OAuth akışı sırasında bulunan Facebook Sayfa ID. Facebook yayını için gerekli.',
+          },
+        },
       ],
     },
     // ── Story Pipeline Ayarları ─────────────────────────────────

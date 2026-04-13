@@ -432,15 +432,79 @@ async function publishFacebookDirectly(
  * This is the preferred path when instagramTokens are available in the payload.
  * The n8n webhook is used as a fallback only when tokens are absent.
  */
+/**
+ * Create a single Instagram media container with retry logic.
+ * Used both for single-image posts and as carousel item containers.
+ */
+async function createInstagramContainer(
+  userId: string,
+  accessToken: string,
+  imageUrl: string,
+  opts: { caption?: string; isCarouselItem?: boolean },
+  productId: string | number,
+): Promise<{ containerId?: string; error?: string }> {
+  const maxAttempts = 2
+  let lastError: string | undefined
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    const params: Record<string, string> = {
+      image_url: imageUrl,
+      access_token: accessToken,
+    }
+    if (opts.caption) params.caption = opts.caption
+    if (opts.isCarouselItem) params.is_carousel_item = 'true'
+
+    const res = await fetch(
+      `https://graph.facebook.com/v21.0/${userId}/media?${new URLSearchParams(params).toString()}`,
+      { method: 'POST', signal: AbortSignal.timeout(20_000) },
+    )
+    const data = await res.json() as Record<string, unknown>
+
+    if (data.id) {
+      console.log(
+        `[channelDispatch] Instagram container created — product=${productId} ` +
+          `containerId=${data.id} carousel=${!!opts.isCarouselItem} attempt=${attempt}`,
+      )
+      return { containerId: data.id as string }
+    }
+
+    lastError = JSON.stringify(data)
+    const errCode = (data.error as Record<string, unknown> | undefined)?.code
+    console.warn(
+      `[channelDispatch] Instagram container attempt ${attempt}/${maxAttempts} failed — ` +
+        `product=${productId} code=${errCode}`,
+    )
+
+    // Only retry on media-download errors (9004)
+    if (errCode !== 9004 || attempt >= maxAttempts) break
+    await new Promise((r) => setTimeout(r, 3000))
+  }
+
+  return { error: lastError }
+}
+
+/**
+ * D-188: Publish to Instagram — supports single image AND carousel (2–10 images).
+ *
+ * Carousel flow (Meta Graph API):
+ *   1. For each image → POST /{userId}/media with is_carousel_item=true (no caption)
+ *   2. POST /{userId}/media with media_type=CAROUSEL, children=[id1,id2,...], caption
+ *   3. POST /{userId}/media_publish with creation_id={carousel_container_id}
+ *
+ * Single image flow (1 image):
+ *   1. POST /{userId}/media with image_url + caption
+ *   2. POST /{userId}/media_publish with creation_id={container_id}
+ */
 async function publishInstagramDirectly(
   payload: ChannelDispatchPayload,
   userId: string,
   accessToken: string,
 ): Promise<ChannelDispatchResult> {
   const timestamp = new Date().toISOString()
-  const imageUrl = payload.mediaUrls[0]
 
-  if (!imageUrl || !imageUrl.startsWith('https://')) {
+  // Filter to only valid https:// URLs (Instagram requires publicly accessible HTTPS)
+  const validUrls = payload.mediaUrls.filter((u) => u.startsWith('https://'))
+  if (validUrls.length === 0) {
     return {
       channel: 'instagram', eligible: true, dispatched: false,
       webhookConfigured: false,
@@ -449,70 +513,125 @@ async function publishInstagramDirectly(
     }
   }
 
+  // Instagram carousel supports 2–10 items. Cap at 10.
+  const imageUrls = validUrls.slice(0, 10)
+  const isCarousel = imageUrls.length >= 2
+
   try {
     const caption = buildInstagramCaption(payload)
 
-    // ── Phase W1: Pre-warm media URL to avoid Vercel cold-start timeout ──────
-    await prewarmMediaUrl(imageUrl, 'instagram')
-    // Short pause to let the CDN edge propagate the cached response
+    // ── Pre-warm all media URLs to avoid Vercel cold-start timeout ────────────
+    await Promise.all(imageUrls.map((url) => prewarmMediaUrl(url, 'instagram')))
     await new Promise((r) => setTimeout(r, 500))
 
-    // ── Step 1: Create media container (with one retry) ──────────────────────
-    const maxAttempts = 2
-    let containerId: string | undefined
-    let lastCreateError: string | undefined
+    let publishContainerId: string
 
-    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-      const createParams = new URLSearchParams({ image_url: imageUrl, caption, access_token: accessToken })
-      const createRes = await fetch(
-        `https://graph.facebook.com/v21.0/${userId}/media?${createParams.toString()}`,
-        { method: 'POST', signal: AbortSignal.timeout(20_000) },
+    if (isCarousel) {
+      // ── CAROUSEL FLOW ─────────────────────────────────────────────────────
+      console.log(
+        `[channelDispatch] Instagram carousel — product=${payload.productId} images=${imageUrls.length}`,
       )
-      const createData = await createRes.json() as Record<string, unknown>
 
-      if (createData.id) {
-        containerId = createData.id as string
-        console.log(
-          `[channelDispatch] Instagram container created — product=${payload.productId} ` +
-            `containerId=${containerId} attempt=${attempt}`,
+      // Step 1: Create individual carousel item containers (no caption on items)
+      const childIds: string[] = []
+      for (const url of imageUrls) {
+        const { containerId, error } = await createInstagramContainer(
+          userId, accessToken, url, { isCarouselItem: true }, payload.productId,
         )
-        break
+        if (!containerId) {
+          console.error(`[channelDispatch] Instagram carousel item failed — url=${url} error=${error}`)
+          // Skip failed items but continue with others
+          continue
+        }
+        childIds.push(containerId)
+        // Small delay between container creations to avoid rate limiting
+        await new Promise((r) => setTimeout(r, 300))
       }
 
-      // Container creation failed
-      lastCreateError = JSON.stringify(createData)
-      const errCode = (createData.error as Record<string, unknown> | undefined)?.code
-      const errSubcode = (createData.error as Record<string, unknown> | undefined)?.error_subcode
+      if (childIds.length < 2) {
+        // Not enough items for carousel — fall back to single image if we have 1
+        if (childIds.length === 0) {
+          return {
+            channel: 'instagram', eligible: true, dispatched: false,
+            webhookConfigured: false,
+            error: `Carousel failed — 0 of ${imageUrls.length} containers created`,
+            timestamp,
+          }
+        }
+        // Only 1 succeeded — re-create as single image (carousel items can't be published solo)
+        console.log(`[channelDispatch] Instagram carousel degraded to single image — product=${payload.productId}`)
+        const single = await createInstagramContainer(
+          userId, accessToken, imageUrls[0], { caption }, payload.productId,
+        )
+        if (!single.containerId) {
+          return {
+            channel: 'instagram', eligible: true, dispatched: false,
+            webhookConfigured: false,
+            error: `Single image fallback also failed: ${single.error}`,
+            timestamp,
+          }
+        }
+        publishContainerId = single.containerId
+      } else {
+        // Step 2: Create carousel container
+        const carouselParams = new URLSearchParams({
+          media_type: 'CAROUSEL',
+          children: childIds.join(','),
+          caption,
+          access_token: accessToken,
+        })
+        const carouselRes = await fetch(
+          `https://graph.facebook.com/v21.0/${userId}/media?${carouselParams.toString()}`,
+          { method: 'POST', signal: AbortSignal.timeout(20_000) },
+        )
+        const carouselData = await carouselRes.json() as Record<string, unknown>
 
-      console.warn(
-        `[channelDispatch] Instagram container attempt ${attempt}/${maxAttempts} failed — ` +
-          `product=${payload.productId} code=${errCode} subcode=${errSubcode}`,
+        if (!carouselData.id) {
+          console.error(`[channelDispatch] Instagram carousel container failed:`, carouselData)
+          return {
+            channel: 'instagram', eligible: true, dispatched: false,
+            webhookConfigured: false,
+            error: `Carousel container creation failed`,
+            publishResult: {
+              step: 'create-carousel', mode: 'direct-api-error', success: false,
+              childIds, apiError: JSON.stringify(carouselData),
+              timestamp: new Date().toISOString(),
+            },
+            timestamp,
+          }
+        }
+        publishContainerId = carouselData.id as string
+        console.log(
+          `[channelDispatch] Instagram carousel container created — product=${payload.productId} ` +
+            `carouselId=${publishContainerId} children=${childIds.length}`,
+        )
+      }
+    } else {
+      // ── SINGLE IMAGE FLOW ─────────────────────────────────────────────────
+      const { containerId, error } = await createInstagramContainer(
+        userId, accessToken, imageUrls[0], { caption }, payload.productId,
       )
-
-      // Only retry on media-download errors (9004) — other errors are not transient
-      if (errCode !== 9004 || attempt >= maxAttempts) break
-
-      // Wait before retry to give CDN more time
-      await new Promise((r) => setTimeout(r, 3000))
-    }
-
-    if (!containerId) {
-      console.error(`[channelDispatch] Instagram container creation failed after ${maxAttempts} attempts:`, lastCreateError)
-      return {
-        channel: 'instagram', eligible: true, dispatched: false,
-        webhookConfigured: false,
-        error: `Container creation failed after ${maxAttempts} attempts`,
-        publishResult: { step: 'create-container', mode: 'direct-api-error', success: false, apiError: lastCreateError, attempts: maxAttempts, timestamp: new Date().toISOString() },
-        timestamp,
+      if (!containerId) {
+        return {
+          channel: 'instagram', eligible: true, dispatched: false,
+          webhookConfigured: false,
+          error: `Container creation failed: ${error}`,
+          publishResult: {
+            step: 'create-container', mode: 'direct-api-error', success: false,
+            apiError: error, timestamp: new Date().toISOString(),
+          },
+          timestamp,
+        }
       }
+      publishContainerId = containerId
     }
 
-    // ── Step 2: Wait for media processing ─────────────────────────────────────
-    await new Promise((r) => setTimeout(r, 2000))
+    // ── Wait for media processing ─────────────────────────────────────────────
+    await new Promise((r) => setTimeout(r, isCarousel ? 5000 : 2000))
 
-    // ── Step 3: Publish ────────────────────────────────────────────────────────
-    const publishParams = new URLSearchParams({ creation_id: containerId, access_token: accessToken })
-    const publishRes  = await fetch(
+    // ── Publish ────────────────────────────────────────────────────────────────
+    const publishParams = new URLSearchParams({ creation_id: publishContainerId, access_token: accessToken })
+    const publishRes = await fetch(
       `https://graph.facebook.com/v21.0/${userId}/media_publish?${publishParams.toString()}`,
       { method: 'POST', signal: AbortSignal.timeout(20_000) },
     )
@@ -525,20 +644,29 @@ async function publishInstagramDirectly(
         channel: 'instagram', eligible: true, dispatched: false,
         webhookConfigured: false,
         error: `Publish failed (HTTP ${publishRes.status})`,
-        publishResult: { step: 'publish', mode: 'direct-api-error', success: false, containerId, apiError: JSON.stringify(publishData), timestamp: new Date().toISOString() },
+        publishResult: {
+          step: 'publish', mode: 'direct-api-error', success: false,
+          containerId: publishContainerId, apiError: JSON.stringify(publishData),
+          timestamp: new Date().toISOString(),
+        },
         timestamp,
       }
     }
 
-    console.log(`[channelDispatch] Instagram direct publish success — product=${payload.productId} postId=${postId}`)
+    console.log(
+      `[channelDispatch] Instagram direct publish success — product=${payload.productId} ` +
+        `postId=${postId} mode=${isCarousel ? 'carousel' : 'single'} images=${imageUrls.length}`,
+    )
     return {
       channel: 'instagram', eligible: true, dispatched: true,
       webhookConfigured: false,
       responseStatus: 200,
       publishResult: {
-        received: true, channel: 'instagram', mode: 'direct',
-        success: true, instagramPostId: postId, containerId,
-        mediaUrl: imageUrl, caption: caption.substring(0, 80) + '…',
+        received: true, channel: 'instagram',
+        mode: isCarousel ? 'carousel' : 'direct',
+        success: true, instagramPostId: postId, containerId: publishContainerId,
+        mediaUrl: imageUrls[0], mediaCount: imageUrls.length,
+        caption: caption.substring(0, 80) + '…',
         timestamp: new Date().toISOString(),
       },
       timestamp,

@@ -286,6 +286,20 @@ function Card({ p, onView }) {
             {p.badge}
           </span>
         )}
+        {/* D-192: Low stock banner — "Son X Adet!" when 1-3 items left */}
+        {p.stock > 0 && p.stock <= 3 && (
+          <span style={{
+            position: "absolute", top: 14, right: 14, zIndex: 2,
+            fontFamily: T.sans, fontSize: 9, fontWeight: 700,
+            letterSpacing: "0.08em",
+            padding: "5px 12px", borderRadius: T.r.full,
+            color: "#d97706", background: "rgba(255,255,255,0.92)",
+            border: "1px solid rgba(217,119,6,0.25)",
+            boxShadow: "0 1px 4px rgba(0,0,0,0.08)",
+          }}>
+            Son {p.stock} Adet!
+          </span>
+        )}
         {/* Arrows and dots on hover */}
         {h && images.length > 1 && (
           <>

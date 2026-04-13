@@ -2012,8 +2012,8 @@ export async function POST(req: NextRequest) {
             await sendTelegramMessageWithKeyboard(cbChatId, msg, [
               [
                 { text: '🔴 Tükendi', callback_data: `sn_tukendi:${pId}` },
-                { text: '⚠️ 1 Kaldı', callback_data: `sn_1kaldi:${pId}` },
-                { text: '⚠️ 2 Kaldı', callback_data: `sn_2kaldi:${pId}` },
+                { text: '⚠️ Son 1 Adet', callback_data: `sn_1kaldi:${pId}` },
+                { text: '⚠️ Son 2 Adet', callback_data: `sn_2kaldi:${pId}` },
               ],
               [
                 { text: '⏸️ Durdur', callback_data: `sn_durdur:${pId}` },
@@ -2046,11 +2046,11 @@ export async function POST(req: NextRequest) {
               break
             case '1kaldi':
               newStock = 1
-              actionLabel = '⚠️ 1 Kaldı'
+              actionLabel = '⚠️ Son 1 Adet'
               break
             case '2kaldi':
               newStock = 2
-              actionLabel = '⚠️ 2 Kaldı'
+              actionLabel = '⚠️ Son 2 Adet'
               break
             case 'durdur':
               newStatus = 'draft'
@@ -2097,8 +2097,8 @@ export async function POST(req: NextRequest) {
             [
               [
                 { text: '🔴 Tükendi', callback_data: `sn_tukendi:${pId}` },
-                { text: '⚠️ 1 Kaldı', callback_data: `sn_1kaldi:${pId}` },
-                { text: '⚠️ 2 Kaldı', callback_data: `sn_2kaldi:${pId}` },
+                { text: '⚠️ Son 1 Adet', callback_data: `sn_1kaldi:${pId}` },
+                { text: '⚠️ Son 2 Adet', callback_data: `sn_2kaldi:${pId}` },
               ],
               [
                 { text: '⏸️ Durdur', callback_data: `sn_durdur:${pId}` },
@@ -4240,8 +4240,8 @@ export async function POST(req: NextRequest) {
           await sendTelegramMessageWithKeyboard(chatId, msg, [
             [
               { text: '🔴 Tükendi', callback_data: `sn_tukendi:${pId}` },
-              { text: '⚠️ 1 Kaldı', callback_data: `sn_1kaldi:${pId}` },
-              { text: '⚠️ 2 Kaldı', callback_data: `sn_2kaldi:${pId}` },
+              { text: '⚠️ Son 1 Adet', callback_data: `sn_1kaldi:${pId}` },
+              { text: '⚠️ Son 2 Adet', callback_data: `sn_2kaldi:${pId}` },
             ],
             [
               { text: '⏸️ Durdur', callback_data: `sn_durdur:${pId}` },
@@ -4268,12 +4268,12 @@ export async function POST(req: NextRequest) {
           case '1kaldı':
           case '1kaldi':
             updateData.stockQuantity = 1
-            actionLabel = '⚠️ 1 Kaldı'
+            actionLabel = '⚠️ Son 1 Adet'
             break
           case '2kaldı':
           case '2kaldi':
             updateData.stockQuantity = 2
-            actionLabel = '⚠️ 2 Kaldı'
+            actionLabel = '⚠️ Son 2 Adet'
             break
           case 'durdur':
           case 'stop':
@@ -4335,8 +4335,8 @@ export async function POST(req: NextRequest) {
           [
             [
               { text: '🔴 Tükendi', callback_data: `sn_tukendi:${pId}` },
-              { text: '⚠️ 1 Kaldı', callback_data: `sn_1kaldi:${pId}` },
-              { text: '⚠️ 2 Kaldı', callback_data: `sn_2kaldi:${pId}` },
+              { text: '⚠️ Son 1 Adet', callback_data: `sn_1kaldi:${pId}` },
+              { text: '⚠️ Son 2 Adet', callback_data: `sn_2kaldi:${pId}` },
             ],
             [
               { text: '⏸️ Durdur', callback_data: `sn_durdur:${pId}` },

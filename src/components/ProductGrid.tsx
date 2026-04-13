@@ -7,6 +7,7 @@ type Product = {
   price: number
   brand?: string | null
   status?: string | null
+  stockQuantity?: number | null
   images?: Array<{
     image: { url?: string | null } | string | number | null
   }> | null

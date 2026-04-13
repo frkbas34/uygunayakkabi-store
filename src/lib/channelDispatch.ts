@@ -79,6 +79,8 @@ export type ChannelDispatchPayload = {
   mediaUrls: string[]
   /** All channel targets on this product (not just the current one) */
   channelTargets: string[]
+  /** Stock quantity — used for low-stock badge in captions */
+  stockQuantity?: number
   /** Human-readable reason this dispatch was triggered */
   triggerReason: string
   /** ISO timestamp when dispatch was initiated */
@@ -251,9 +253,13 @@ async function prewarmMediaUrl(imageUrl: string, channel: string): Promise<void>
  * Mirrors the logic in the n8n "Build Caption" node so output is consistent.
  */
 function buildInstagramCaption(payload: ChannelDispatchPayload): string {
+  // D-192: Low-stock urgency suffix — appended to both geobot and fallback captions
+  const lowStockSuffix = (payload.stockQuantity != null && payload.stockQuantity > 0 && payload.stockQuantity <= 3)
+    ? `\n\n🔥 Son ${payload.stockQuantity} adet!`
+    : ''
   // Phase D: prefer Geobot-generated Instagram caption when available
   if (payload.geobot?.instagramCaption) {
-    return payload.geobot.instagramCaption.substring(0, 2200)
+    return (payload.geobot.instagramCaption + lowStockSuffix).substring(0, 2200)
   }
   // Fallback: build caption from basic product fields
   let c = payload.title
@@ -264,6 +270,7 @@ function buildInstagramCaption(payload: ChannelDispatchPayload): string {
   if (payload.color)         c += '\n🎨 ' + payload.color
   if (payload.description && payload.description.length > 0)
     c += '\n\n' + payload.description.substring(0, 200)
+  c += lowStockSuffix
   c += '\n\n#uygunayakkabi #ayakkabi'
   if (payload.brand)    c += ' #' + payload.brand.toLowerCase().replace(/\s+/g, '').replace(/[^a-z0-9]/g, '')
   if (payload.category) c += ' #' + payload.category.toLowerCase().replace(/\s+/g, '').replace(/[^a-z0-9]/g, '')
@@ -301,8 +308,11 @@ async function publishFacebookDirectly(
 
   try {
     // Phase D: prefer Geobot-generated Facebook copy, fallback to Instagram caption builder
+    // D-192: Append low-stock urgency to Facebook copy too
+    const lowStockTag = (payload.stockQuantity != null && payload.stockQuantity > 0 && payload.stockQuantity <= 3)
+      ? `\n\n🔥 Son ${payload.stockQuantity} adet!` : ''
     const caption = payload.geobot?.facebookCopy
-      ? payload.geobot.facebookCopy.substring(0, 2200)
+      ? (payload.geobot.facebookCopy + lowStockTag).substring(0, 2200)
       : buildInstagramCaption(payload)
 
     // ── Phase W1: Pre-warm ALL media URLs in parallel ────────────────────────
@@ -984,6 +994,7 @@ export function buildDispatchPayload(
     productType:   product.productType   as string | undefined,
     color:         product.color         as string | undefined,
     description:   product.description   as string | undefined,
+    stockQuantity: typeof product.stockQuantity === 'number' ? product.stockQuantity : undefined,
     mediaUrls:    extractMediaUrls(product),
     channelTargets: (product.channelTargets as string[] | undefined) ?? ['website'],
     triggerReason,

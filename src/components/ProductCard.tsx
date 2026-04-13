@@ -9,6 +9,7 @@ type ProductCardProps = {
     price: number
     brand?: string | null
     status?: string | null
+    stockQuantity?: number | null
     images?: Array<{
       image: { url?: string | null } | string | number | null
     }> | null
@@ -45,6 +46,12 @@ export function ProductCard({ product }: ProductCardProps) {
                 Tükendi
               </span>
             </div>
+          )}
+          {/* D-192: Low stock badge */}
+          {product.stockQuantity != null && product.stockQuantity > 0 && product.stockQuantity <= 3 && product.status !== 'soldout' && (
+            <span className="absolute top-3 right-3 z-10 text-[10px] font-bold tracking-wide px-3 py-1 rounded-full bg-white/90 text-amber-600 border border-amber-300 shadow-sm">
+              Son {product.stockQuantity} Adet!
+            </span>
           )}
         </div>
 

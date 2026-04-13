@@ -2167,8 +2167,10 @@ export async function POST(req: NextRequest) {
     // Shared: /pipeline (visible on both bots)
     // This teaches operators which bot handles which workflow.
     {
-      const OPS_CMDS = ['/confirm', '/confirm_cancel', '/stok', '/ara', '/diagnostics']
+      const OPS_CMDS = ['/confirm', '/confirm_cancel', '/stok', '/diagnostics']
+      // D-186: /ara works on BOTH bots (shared command) so operator can search from group
       const GEO_CMDS = ['/content', '/audit', '/preview', '/activate', '/shopier', '/merch', '/story', '/restory', '/targets', '/approve_story', '/reject_story']
+      const SHARED_CMDS = ['/ara', '/pipeline']
       const OPS_HASHTAGS = ['#gorsel', '#geminipro']
       // Deactivated providers still show deactivation msg — keep them on ops side
       const OPS_HASHTAGS_DEACTIVATED = ['#luma', '#chatgpt', '#claid']
@@ -2180,8 +2182,11 @@ export async function POST(req: NextRequest) {
       if (text.startsWith('/')) {
         const isOpsCmd = OPS_CMDS.some(c => firstWord === c || firstWord.startsWith(c + '@'))
         const isGeoCmd = GEO_CMDS.some(c => firstWord === c || firstWord.startsWith(c + '@'))
+        const isSharedCmd = SHARED_CMDS.some(c => firstWord === c || firstWord.startsWith(c + '@'))
 
-        if (botParam === 'geo' && isOpsCmd) {
+        // D-186: Shared commands run on both bots — skip ownership redirect
+        if (isSharedCmd) { /* fall through to command handlers */ }
+        else if (botParam === 'geo' && isOpsCmd) {
           await sendTelegramMessage(chatId, '📌 Bu komut <b>@Uygunops_bot</b> üzerinden çalışır.\nDM\'den deneyin.')
           return NextResponse.json({ ok: true })
         }

@@ -683,12 +683,6 @@ export const Products: CollectionConfig = {
           defaultValue: false,
         },
         {
-          name: 'publishLinkedin',
-          type: 'checkbox',
-          label: '💼 LinkedIn',
-          defaultValue: false,
-        },
-        {
           name: 'publishThreads',
           type: 'checkbox',
           label: '🧵 Threads',
@@ -709,7 +703,6 @@ export const Products: CollectionConfig = {
         { label: 'Dolap', value: 'dolap' },
         { label: 'X (Twitter)', value: 'x' },
         { label: 'Facebook', value: 'facebook' },
-        { label: 'LinkedIn', value: 'linkedin' },
         { label: 'Threads', value: 'threads' },
       ],
       defaultValue: ['website'],

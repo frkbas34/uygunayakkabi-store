@@ -39,7 +39,6 @@ export type AutomationSettingsSnapshot = {
     publishDolap?: boolean | null
     publishX?: boolean | null
     publishFacebook?: boolean | null
-    publishLinkedin?: boolean | null
     publishThreads?: boolean | null
   }
   contentGeneration?: {
@@ -118,7 +117,6 @@ const SAFE_DEFAULTS = {
   publishDolap: false,
   publishX: false,
   publishFacebook: false,
-  publishLinkedin: false,
   publishThreads: false,
   autoGenerateBlog: false,
   autoPublishBlog: false,
@@ -251,7 +249,6 @@ export function resolveChannelTargets(
     dolap:     !!(cp.publishDolap     ?? SAFE_DEFAULTS.publishDolap),
     x:         !!(cp.publishX         ?? SAFE_DEFAULTS.publishX),
     facebook:  !!(cp.publishFacebook  ?? SAFE_DEFAULTS.publishFacebook),
-    linkedin:  !!(cp.publishLinkedin  ?? SAFE_DEFAULTS.publishLinkedin),
     threads:   !!(cp.publishThreads   ?? SAFE_DEFAULTS.publishThreads),
   }
 

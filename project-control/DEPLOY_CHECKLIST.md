@@ -104,7 +104,6 @@ _Last updated: 2026-04-04 (D-115 — hardcoded secret fixed, env truth pass)_
 
 - [ ] Dolap channel — n8n webhook stub only, no real API
 - [ ] X/Twitter channel — OAuth scaffold, no posting implementation
-- [ ] LinkedIn channel — OAuth scaffold, no posting implementation
 - [ ] Threads channel — n8n webhook stub only
 - [ ] Merchandising sync cron — bestSellerScore fields exist, no cron job
 - [ ] Auto-publish flow — publish_ready state exists, no auto-activation

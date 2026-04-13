@@ -61,7 +61,7 @@ Per-channel eligibility: global capability ∩ product channelTargets ∩ channe
   ├── Facebook: publishFacebookDirectly() — Page Access Token → photo post
   ├── Shopier: Payload jobs queue → shopierSyncTask → Shopier REST API
   ├── Dolap: scaffold only (n8n stub)
-  ├── X/LinkedIn/Threads: scaffold only (n8n stubs)
+  ├── X/Threads: scaffold only (n8n stubs)
   └── Results written to sourceMeta.dispatchNotes
 ```
 

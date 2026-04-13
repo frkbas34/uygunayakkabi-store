@@ -4,7 +4,7 @@ _Last consolidated: 2026-03-23 (Steps 1–20 complete)_
 
 ## Project Overview
 
-**Uygunayakkabi** is a Telegram-first, AI-assisted, multi-channel commerce engine built on Next.js + Payload CMS. Products are ingested via Telegram, processed through an AI agent layer (OpenClaw/Mentix), orchestrated by n8n, and published to multiple channels (website, Instagram, Facebook, Shopier, with Dolap/X/LinkedIn/Threads scaffolded).
+**Uygunayakkabi** is a Telegram-first, AI-assisted, multi-channel commerce engine built on Next.js + Payload CMS. Products are ingested via Telegram, processed through an AI agent layer (OpenClaw/Mentix), orchestrated by n8n, and published to multiple channels (website, Instagram, Facebook, Shopier, with Dolap/X/Threads scaffolded).
 
 - **Domain**: uygunayakkabi.com
 - **Owner**: Furkan (frk.bas34@gmail.com)
@@ -58,7 +58,7 @@ SiteSettings, AutomationSettings
 1. **Mentix real ops testing** — product-flow-debugger, sql-toolkit, browser-automation need live testing
 2. **Blog frontend routes** — /blog and /blog/[slug] pages not yet implemented
 3. **Instagram carousel posts** — multi-image products should use carousel format
-4. **Remaining channel integrations** — X, LinkedIn, Threads (scaffolded, not live)
+4. **Remaining channel integrations** — X, Threads (scaffolded, not live)
 5. **Visual Expansion Engine** — Phase 3 scaffold
 
 ## Known Risks

@@ -354,11 +354,6 @@ Root causes found and fixed:
 - Real integration needs: X API v2 POST /2/tweets + OAuth 2.0 PKCE
 - Token refresh: access ~2hr, refresh ~6mo
 
-**LinkedIn Integration:**
-- Scaffold complete (same as X)
-- Real integration needs: LinkedIn Marketing API POST /rest/posts
-- Decide: personal vs organization page posting
-
 **Threads Integration:**
 - Scaffold complete (same as X)
 - Real integration needs: Threads API /{user_id}/threads
@@ -492,7 +487,6 @@ Infrastructure, collections, schema, storefront — all validated in production.
 
 - X (Twitter): scaffold + OAuth callback + n8n stub
 - Facebook Page: scaffold + n8n stub (real integration live via Step 19)
-- LinkedIn: scaffold + OAuth callback + n8n stub
 - Threads: scaffold + n8n stub
 </details>
 

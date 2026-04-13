@@ -1331,20 +1331,20 @@ Meta requires a Redirect URL to be registered before the Business Login flow can
 ## D-083 — Multi-Platform Social Posting: Extend channelDispatch, NOT New Architecture
 
 **Decision:**
-Add X, Facebook, LinkedIn, and Threads as new `SupportedChannel` entries in the existing `channelDispatch.ts` → n8n webhook pattern. Do NOT build a separate social media service layer, scheduler, or direct API integration in the Next.js app.
+Add X, Facebook, and Threads as new `SupportedChannel` entries in the existing `channelDispatch.ts` → n8n webhook pattern. Do NOT build a separate social media service layer, scheduler, or direct API integration in the Next.js app. (D-183: LinkedIn removed from project)
 
 **Reason:**
 The repo already has a mature channel dispatch system: `SupportedChannel` type → 3-gate eligibility → `buildDispatchPayload()` → n8n webhook → `publishResult` write-back. Instagram is already a real integration using this exact pattern. Extending it for 4 new platforms requires only additive changes: type union, env var mappings, admin toggles, product flags, n8n stubs. Zero new dependencies, zero architectural changes.
 
 **What was added:**
-- `SupportedChannel` union: `+ 'x' | 'facebook' | 'linkedin' | 'threads'`
+- `SupportedChannel` union: `+ 'x' | 'facebook' | 'threads'`
 - `buildChannelWebhookUrl()`: 4 new `N8N_CHANNEL_*_WEBHOOK` env var mappings
-- `AutomationSettings.ts`: 4 new `publishX/Facebook/Linkedin/Threads` toggles
+- `AutomationSettings.ts`: 3 new `publishX/Facebook/Threads` toggles
 - `Products.ts`: 4 new channel flags + 4 new `channelTargets` options
 - `automationDecision.ts`: extended `SAFE_DEFAULTS`, `CAPABILITY` map, `AutomationSettingsSnapshot` type
 - `ReviewPanel.tsx`: 4 new `CHANNEL_LABEL` entries
-- OAuth callbacks: `/api/auth/x/callback`, `/api/auth/linkedin/callback` (Facebook/Threads reuse Meta app + Instagram callback)
-- n8n workflow stubs: `channel-x.json`, `channel-facebook.json`, `channel-linkedin.json`, `channel-threads.json`
+- OAuth callbacks: `/api/auth/x/callback` (Facebook/Threads reuse Meta app + Instagram callback)
+- n8n workflow stubs: `channel-x.json`, `channel-facebook.json`, `channel-threads.json`
 - `.env.example`: all new env vars + callback URLs documented
 
 **What remains scaffold-only:**
@@ -1352,7 +1352,6 @@ All 4 new channels are stub-only. Real n8n workflows with actual API calls are a
 
 **Auth architecture:**
 - X: OAuth 2.0 PKCE → own callback `/api/auth/x/callback`
-- LinkedIn: OAuth 2.0 → own callback `/api/auth/linkedin/callback`
 - Facebook: same Meta App as Instagram → reuses Instagram OAuth flow
 - Threads: same Meta App as Instagram → reuses Instagram OAuth flow + separate Threads scopes
 
@@ -2406,7 +2405,7 @@ Created: `project-control/PRODUCTION_TRUTH_MATRIX.md`
 - Every subsystem classified: PROD-VALIDATED / IMPLEMENTED / PARTIAL / BLOCKED / SCAFFOLDED
 - 22 subsystems prod-validated, 28 implemented but not prod-validated
 - 2 subsystems blocked (Telegram stories, WhatsApp stories — API limitations)
-- 4 subsystems scaffolded (Dolap, X, LinkedIn, Threads)
+- 3 subsystems scaffolded (Dolap, X, Threads)
 - 1 not implemented (website checkout)
 
 **E) /diagnostics Telegram Command**
@@ -2459,7 +2458,7 @@ Updated: `.env.example`
 - Added 7 missing vars: `TELEGRAM_CHAT_ID`, `ANTHROPIC_API_KEY`, `GEMINI_VISION_MODEL`, `INSTAGRAM_PAGE_ID`, `INSTAGRAM_USER_ID`, `OPENAI_IMAGE_MODEL`, `GENERATE_API_KEY_SECRET`
 - Marked 3 stale vars as removed (N8N_INTAKE_WEBHOOK, N8N_API_KEY, N8N_BASE_URL — no code references)
 - Reorganized into classified sections: Critical / Core Operator / AI / Commerce / Social / Optional
-- Added "NOTE: not yet implemented" markers on X and LinkedIn OAuth sections
+- Added "NOTE: not yet implemented" markers on X OAuth section
 - Commented out optional override vars to reduce noise
 
 **C) Production Doc Improvements**
@@ -2548,7 +2547,7 @@ Classified all 7 external channels + website based on production evidence: Autom
 - Instagram: DEPLOYED, NOT VALIDATED — Direct Graph API path. Token valid until 2026-05-21 (connected 2026-03-22). userId present. N8N webhook also configured. Was live-tested 2026-03-22 but never dispatched through Phase 1-19 pipeline.
 - Facebook: DEPLOYED, NOT VALIDATED — Same Meta token. facebookPageId injected from INSTAGRAM_PAGE_ID env var (not in DB column, D-077 risk). Was live-tested 2026-03-22.
 - Shopier: BLOCKED — Global flag disabled, SHOPIER_PAT status unknown.
-- Dolap/X/LinkedIn/Threads: BLOCKED — Global flags disabled, no N8N webhooks set, n8n-only dispatch paths.
+- Dolap/X/Threads: BLOCKED — Global flags disabled, no N8N webhooks set, n8n-only dispatch paths.
 - Product 125 only has channelTargets=[website] — no external dispatch was ever attempted during activation.
 
 **Risks identified:**
@@ -2675,7 +2674,7 @@ Created 3 missing PostgreSQL enum types and altered join table columns from varc
 
 **Tables Fixed:**
 - `products_story_settings_story_targets` → `enum_products_story_settings_story_targets` ('telegram','instagram','whatsapp')
-- `products_channel_targets` → `enum_products_channel_targets` ('website','instagram','shopier','dolap','x','facebook','linkedin','threads')
+- `products_channel_targets` → `enum_products_channel_targets` ('website','instagram','shopier','dolap','x','facebook','threads')
 - `story_jobs_targets` → `enum_story_jobs_targets` ('telegram','instagram','whatsapp')
 
 **Root Cause:**
@@ -3265,7 +3264,7 @@ Wire Geobot-generated channel-specific content into the existing dispatch pipeli
 3. `buildInstagramCaption()` prefers `geobot.instagramCaption` when present, falls back to template builder
 4. `publishFacebookDirectly()` prefers `geobot.facebookCopy` when present, falls back to caption builder
 5. `buildShopierProductBody()` prefers `geobot.shopierCopy` → `product.description` → title fallback
-6. All n8n webhook payloads now include `geobot` field for `xPost`, `linkedinCopy`, etc.
+6. All n8n webhook payloads now include `geobot` field for `xPost`, `facebookCopy`, `instagramCaption`, etc.
 
 **Graceful degradation:**
 All paths fall back to existing logic if Geobot content is absent. Zero risk to products without content generation.

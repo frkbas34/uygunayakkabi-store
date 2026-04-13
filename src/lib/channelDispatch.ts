@@ -34,7 +34,6 @@ export type SupportedChannel =
   | 'dolap'
   | 'x'
   | 'facebook'
-  | 'linkedin'
   | 'threads'
 
 /** All non-website channels that require external dispatch */
@@ -44,7 +43,6 @@ export const SUPPORTED_CHANNELS: SupportedChannel[] = [
   'dolap',
   'x',
   'facebook',
-  'linkedin',
   'threads',
 ]
 
@@ -152,7 +150,6 @@ export function buildChannelWebhookUrl(channel: SupportedChannel): string | unde
     dolap:     process.env.N8N_CHANNEL_DOLAP_WEBHOOK,
     x:         process.env.N8N_CHANNEL_X_WEBHOOK,
     facebook:  process.env.N8N_CHANNEL_FACEBOOK_WEBHOOK,
-    linkedin:  process.env.N8N_CHANNEL_LINKEDIN_WEBHOOK,
     threads:   process.env.N8N_CHANNEL_THREADS_WEBHOOK,
   }
   const url = envMap[channel]
@@ -902,12 +899,7 @@ function resolvePreviewCaption(
     return { caption: payload.title, source: 'title-fallback' }
   }
 
-  if (channel === 'linkedin') {
-    if (payload.geobot?.websiteDescription) {
-      return { caption: payload.geobot.websiteDescription, source: 'geobot', geobotField: 'websiteDescription' }
-    }
-    return { caption: payload.description ?? payload.title, source: 'description-fallback' }
-  }
+
 
   // Dolap / generic
   if (payload.geobot?.shopierCopy) {

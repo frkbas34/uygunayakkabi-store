@@ -538,7 +538,7 @@ export function parseStockNumber(text: string): number | null {
 }
 
 export function parseChannelTargets(text: string): string[] | null {
-  const validChannels = ['website', 'instagram', 'shopier', 'facebook', 'dolap', 'x', 'linkedin', 'threads']
+  const validChannels = ['website', 'instagram', 'shopier', 'facebook', 'dolap', 'x', 'threads']
   const parts = text
     .toLowerCase()
     .split(/[,\s]+/)

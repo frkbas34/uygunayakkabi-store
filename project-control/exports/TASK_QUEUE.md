@@ -57,7 +57,6 @@ All Phase 1 items validated in production 2026-03-13. Full list in source TASK_Q
 ### Social Media Channel Scaffolds (code complete, not yet live):
 - [x] X (Twitter) — scaffold + OAuth callback + n8n stub
 - [x] Facebook Page — scaffold + n8n stub (real publish via Step 19)
-- [x] LinkedIn — scaffold + OAuth callback + n8n stub
 - [x] Threads — scaffold + n8n stub
 
 ---
@@ -88,10 +87,6 @@ All Phase 1 items validated in production 2026-03-13. Full list in source TASK_Q
 ### X (Twitter) — Real Integration
 - [ ] X API v2 POST /2/tweets + OAuth 2.0 PKCE token exchange
 - [ ] Token refresh automation (tokens expire ~2hr, refresh valid 6mo)
-
-### LinkedIn — Real Integration
-- [ ] LinkedIn Marketing API POST /rest/posts
-- [ ] Decide: personal vs organization/company page posting
 
 ### Threads — Real Integration
 - [ ] Threads API /{user_id}/threads + publish

@@ -46,7 +46,7 @@ When starting a new session:
 |-------|--------|------|
 | Phase 1 — Core Admin + Storefront | ✅ COMPLETE | 2026-03-13 |
 | Phase 2A — Controlled Product Intake (Steps 1–15) | ✅ COMPLETE | 2026-03-16 |
-| Phase 2B — Multi-Channel Distribution | 🟡 IN PROGRESS (IG+FB+Shopier live, X/LinkedIn/Threads/Dolap scaffold) | 2026-03-23 |
+| Phase 2B — Multi-Channel Distribution | 🟡 IN PROGRESS (IG+FB+Shopier live, X/Threads/Dolap scaffold) | 2026-03-23 |
 | Phase 2C — Content Growth Layer | 📋 PLANNED | — |
 | Phase 3 — Visual & Experience | 📋 PLANNED | — |
 

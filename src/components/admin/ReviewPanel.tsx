@@ -34,7 +34,6 @@ const CHANNEL_LABEL: Record<string, string> = {
   dolap:     '👗 Dolap',
   x:         '𝕏 X (Twitter)',
   facebook:  '📘 Facebook',
-  linkedin:  '💼 LinkedIn',
   threads:   '🧵 Threads',
 }
 

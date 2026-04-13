@@ -150,17 +150,6 @@ export const AutomationSettings: GlobalConfig = {
           },
         },
         {
-          name: 'publishLinkedin',
-          type: 'checkbox',
-          label: '💼 LinkedIn Yayını Aktif',
-          defaultValue: false,
-          admin: {
-            description:
-              'LinkedIn yayını aktif. Organization veya kişisel post. ' +
-              'Scaffold — gerçek entegrasyon henüz yapılmadı.',
-          },
-        },
-        {
           name: 'publishThreads',
           type: 'checkbox',
           label: '🧵 Threads Yayını Aktif',

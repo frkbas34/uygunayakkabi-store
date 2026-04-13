@@ -154,7 +154,6 @@ _Last updated: 2026-04-04 (D-115 — hardcoded secret fixed, env truth pass comp
 | Shopier sync | **PROD-VALIDATED** | Non-blocking jobs queue |
 | Dolap | **SCAFFOLDED** | n8n webhook stub only, no real API |
 | X (Twitter) | **SCAFFOLDED** | OAuth scaffold, no posting |
-| LinkedIn | **SCAFFOLDED** | OAuth scaffold, no posting |
 | Threads | **SCAFFOLDED** | n8n webhook stub only |
 | Channel dispatch orchestration | **PROD-VALIDATED** | afterChange hook on Products |
 
@@ -214,7 +213,7 @@ _Last updated: 2026-04-04 (D-115 — hardcoded secret fixed, env truth pass comp
 | IMPLEMENTED (not prod-validated) | 28 subsystems |
 | PARTIAL | 1 subsystem (merchandising sync cron) |
 | BLOCKED | 2 subsystems (Telegram stories, WhatsApp stories) |
-| SCAFFOLDED | 4 subsystems (Dolap, X, LinkedIn, Threads) |
+| SCAFFOLDED | 3 subsystems (Dolap, X, Threads) |
 | NOT IMPLEMENTED | 1 subsystem (website checkout) |
 
 **Overall:** Core platform and original channels are production-proven. Phases 1-12 autonomous pipeline features are code-complete but not yet deployed/validated in production. Two story targets are officially blocked by platform API limitations.

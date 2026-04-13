@@ -850,7 +850,7 @@ export async function POST(req: NextRequest) {
       // into the ops GROUP chat — the Phase N "Uygunops-in-group → silent drop"
       // rule was swallowing every imgapprove/imgregen/imgreject/imgpremium/wz_*
       // button click and breaking the entire golden-path approval flow.
-      const OPS_CB_PREFIXES = ['imagegen:', 'imgapprove:', 'imgreject:', 'imgregen:', 'imgpremium:', 'wz_start:', 'wz_cat:', 'wz_ptype:', 'wz_tgt:', 'wz_size:', 'wz_stock:', 'wz_confirm:', 'wz_cancel:', 'wz_edit:', 'ara_stok:', 'ara_pipe:', 'ara_activate:', 'ara_shopier:']
+      const OPS_CB_PREFIXES = ['imagegen:', 'imgapprove:', 'imgreject:', 'imgregen:', 'imgpremium:', 'wz_start:', 'wz_cat:', 'wz_ptype:', 'wz_tgt:', 'wz_size:', 'wz_stock:', 'wz_confirm:', 'wz_cancel:', 'wz_edit:', 'ara_stok:', 'ara_pipe:', 'ara_activate:', 'ara_shopier:', 'sn_']
       const GEO_CB_PREFIXES = ['storyapprove:', 'storyreject:', 'storyretry:', 'geo_content:', 'geo_audit:', 'geo_auditrun:', 'geo_activate:', 'geo_retry:']
       const isOpsCb = OPS_CB_PREFIXES.some(p => cbData.startsWith(p))
       const isGeoCb = GEO_CB_PREFIXES.some(p => cbData.startsWith(p))
@@ -2293,7 +2293,9 @@ export async function POST(req: NextRequest) {
       if (text.startsWith('/')) {
         const isOpsCmd = OPS_CMDS.some(c => firstWord === c || firstWord.startsWith(c + '@'))
         const isGeoCmd = GEO_CMDS.some(c => firstWord === c || firstWord.startsWith(c + '@'))
+        // D-191b: /sn0189 (no space) must also match — check both exact and /sn+digit pattern
         const isSharedCmd = SHARED_CMDS.some(c => firstWord === c || firstWord.startsWith(c + '@'))
+          || /^\/sn[\d]/i.test(firstWord) // "/sn0189" or "/snSN0189" without space
 
         // D-186: Shared commands run on both bots — skip ownership redirect
         if (isSharedCmd) { /* fall through to command handlers */ }
@@ -4113,9 +4115,23 @@ export async function POST(req: NextRequest) {
     // Actions: tükendi, 1kaldı, 2kaldı, durdur, aç, stok <N>
     if (text.startsWith('/sn')) {
       const parts = text.trim().split(/\s+/)
-      const snQuery = parts[1]?.toUpperCase()
-      const subAction = parts[2]?.toLowerCase()
-      const subArg = parts[3]
+      // D-191b: Support /sn0189 (no space) in addition to /sn 0189
+      // When user types "/sn0189", parts = ["/sn0189"] and parts[1] is undefined.
+      // Extract the number from the command word itself if no space was used.
+      let snQuery = parts[1]?.toUpperCase()
+      let subAction = parts[2]?.toLowerCase()
+      let subArg = parts[3]
+      if (!snQuery) {
+        // Strip @botname suffix first: "/sn@Uygunops_bot" → "/sn"
+        const cmdBase = parts[0].replace(/@\w+$/, '')
+        if (cmdBase.length > 3) {
+          // "/sn0189" → "0189", "/snSN0189" → "SN0189"
+          snQuery = cmdBase.substring(3).toUpperCase()
+          // Shift: what was parts[1] becomes subAction, parts[2] becomes subArg
+          subAction = parts[1]?.toLowerCase()
+          subArg = parts[2]
+        }
+      }
 
       if (!snQuery) {
         await sendTelegramMessage(

@@ -202,11 +202,14 @@ export default async function ProductPage({ params }: Props) {
   const variants = variantResult.docs as VariantDoc[]
   const availableSizes = variants.filter((v) => v.stock > 0)
 
-  // Helper: extract URLs from an image entry array
+  // D-175b: Use Payload 'large' size (1200px) for product detail page.
+  // Falls back to original URL if sized version not available.
   const extractUrls = (entries: ImageEntry[]): string[] =>
     entries
       .map((img) => {
         const mediaDoc = img.image as MediaDoc
+        const largeUrl = (mediaDoc as any)?.sizes?.large?.url
+        if (largeUrl) return largeUrl
         if (mediaDoc?.url) return mediaDoc.url
         if ((mediaDoc as any)?.filename) return `/media/${(mediaDoc as any).filename}`
         return null

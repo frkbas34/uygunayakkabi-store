@@ -30,12 +30,19 @@ function getShoeImage(category: string) {
 }
 
 // Extract ALL media URLs from a product's images array
-function getAllMediaUrls(images: any[]): string[] {
+// D-175b: Use 'card' size (600px) for homepage cards, fallback to original URL.
+// Payload generates imageSizes: thumbnail(300), card(600), large(1200).
+// Using 'card' gives sharp preview without loading full-res originals.
+function getAllMediaUrls(images: any[], preferSize: 'thumbnail' | 'card' | 'large' = 'card'): string[] {
   if (!images || images.length === 0) return [];
   return images
     .map((entry: any) => {
       const img = entry?.image;
       if (!img || typeof img !== 'object') return null;
+      // Prefer the requested Payload image size for better quality
+      const sizedUrl = img.sizes?.[preferSize]?.url;
+      if (sizedUrl) return sizedUrl;
+      // Fallback to original
       if (img.url) return img.url;
       if (img.filename) return `/media/${img.filename}`;
       return null;

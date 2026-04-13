@@ -60,7 +60,6 @@ async function storeTokensInPayload(
   accessToken: string,
   userId: string,
   expiresIn: number | null,
-  facebookPageId?: string | null,
 ): Promise<void> {
   const payload = await getPayload({ config })
 
@@ -76,16 +75,15 @@ async function storeTokensInPayload(
         userId,
         connectedAt: new Date().toISOString(),
         ...(expiresAt ? { expiresAt } : {}),
-        // D-188: Store Facebook Page ID from OAuth discovery so Facebook dispatch
-        // works without INSTAGRAM_PAGE_ID env var
-        ...(facebookPageId ? { facebookPageId } : {}),
+        // D-188b: facebookPageId NOT stored here — Neon push:true doesn't create
+        // the column. Use INSTAGRAM_PAGE_ID env var instead (injected in Products.ts).
       },
     } as Record<string, unknown>,
   })
 
   console.log(
     `[instagram/callback] Tokens stored in Payload AutomationSettings — ` +
-      `userId=${userId} facebookPageId=${facebookPageId ?? 'not discovered'} expiresAt=${expiresAt ?? 'unknown'}`,
+      `userId=${userId} expiresAt=${expiresAt ?? 'unknown'}`,
   )
 }
 
@@ -363,10 +361,8 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
   console.log(`[instagram/callback] Step 4 ✅ Instagram Business Account resolved — userId=${instagramUserId} page="${pageName}"`)
 
   // ── Step 5: store in Payload AutomationSettings global ──────────────────
-  // D-188: Also store the Facebook Page ID for Facebook dispatch
-  const facebookPageId = linkedPage.id ?? null
   try {
-    await storeTokensInPayload(longLivedToken, instagramUserId, expiresIn, facebookPageId)
+    await storeTokensInPayload(longLivedToken, instagramUserId, expiresIn)
   } catch (err) {
     console.error(`[instagram/callback] Step 5 Payload storage failed — ${String(err)}`)
     return errorRedirect(adminUrl, 'step5_payload_storage_failed', true)

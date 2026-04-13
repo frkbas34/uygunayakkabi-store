@@ -259,15 +259,11 @@ export const AutomationSettings: GlobalConfig = {
             description: 'Son başarılı OAuth akışının zamanı.',
           },
         },
-        // D-188: Store Facebook Page ID from OAuth discovery
-        {
-          name: 'facebookPageId',
-          type: 'text',
-          label: 'Facebook Page ID',
-          admin: {
-            description: 'OAuth akışı sırasında bulunan Facebook Sayfa ID. Facebook yayını için gerekli.',
-          },
-        },
+        // D-188b: facebookPageId removed from schema — Neon push:true
+        // doesn't auto-create the column, causing errorMissingColumn on every
+        // findGlobal() call (breaks ALL group message handling).
+        // Facebook Page ID is injected from INSTAGRAM_PAGE_ID env var at the
+        // Products.ts afterChange call site instead.
       ],
     },
     // ── Story Pipeline Ayarları ─────────────────────────────────

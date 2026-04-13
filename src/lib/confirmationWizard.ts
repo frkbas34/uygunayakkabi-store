@@ -138,6 +138,9 @@ const WIZARD_TIMEOUT_MS = 30 * 60 * 1000
 
 const wizardSessions = new Map<string, WizardState>()
 
+/** D-173: Per-instance flag so we only run CREATE TABLE IF NOT EXISTS once. */
+let tableEnsured = false
+
 function sessionKey(chatId: number, userId?: number): string {
   return userId ? `${chatId}:${userId}` : String(chatId)
 }
@@ -168,6 +171,24 @@ export async function hydrateWizardSession(
   if (!pool) {
     console.warn('[hydrateWizardSession D-158] payload.db.pool not available')
     return cached ?? null
+  }
+
+  // D-173: Auto-create wizard_sessions table if it doesn't exist yet.
+  // Idempotent — CREATE TABLE IF NOT EXISTS is a no-op once the table exists.
+  if (!tableEnsured) {
+    try {
+      await pool.query(`
+        CREATE TABLE IF NOT EXISTS wizard_sessions (
+          session_key TEXT PRIMARY KEY,
+          state JSONB NOT NULL,
+          started_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+          updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        )
+      `)
+      tableEnsured = true
+    } catch (tblErr) {
+      console.warn('[hydrateWizardSession D-173] table auto-create failed:', tblErr instanceof Error ? tblErr.message : tblErr)
+    }
   }
 
   try {

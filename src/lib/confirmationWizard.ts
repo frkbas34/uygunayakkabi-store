@@ -651,11 +651,15 @@ export function getStockCodePrompt(currentSku: string): string {
 }
 
 export function getCategoryPrompt(): { text: string; keyboard: Array<Array<{ text: string; callback_data: string }>> } {
+  // D-176: layout buttons in rows of 2 so they don't overflow on mobile
+  const buttons = CATEGORY_OPTIONS.map((o) => ({ text: o.label, callback_data: `wz_cat:${o.value}` }))
+  const rows: Array<Array<{ text: string; callback_data: string }>> = []
+  for (let i = 0; i < buttons.length; i += 2) {
+    rows.push(buttons.slice(i, i + 2))
+  }
   return {
     text: '📁 <b>Kategori seçin:</b>',
-    keyboard: [
-      CATEGORY_OPTIONS.map((o) => ({ text: o.label, callback_data: `wz_cat:${o.value}` })),
-    ],
+    keyboard: rows,
   }
 }
 

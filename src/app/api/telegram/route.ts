@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse, after } from 'next/server'
+import { AsyncLocalStorage } from 'node:async_hooks'
 import { getPayload } from '@/lib/payload'
 import { parseTelegramCaption, parseStockUpdate } from '@/lib/telegram'
 import {
@@ -19,12 +20,15 @@ export const maxDuration = 300
 // ─────────────────────────────────────────────────────────────────────────────
 
 // ── Multi-bot token resolution ───────────────────────────────────────────────
-// Supports both @Uygunops_bot (TELEGRAM_BOT_TOKEN) and @Geeeeobot (TELEGRAM_GEO_BOT_TOKEN).
-// Per-request token is set at the top of POST() based on the incoming bot ID,
-// then read by all helper functions via getBotToken().
-let _requestBotToken: string | undefined
+// D-174: Per-request token isolation via AsyncLocalStorage.
+// Previously used a module-level `let _requestBotToken` which caused a race:
+// when both Uygunops and Geo_bot webhooks hit the same Lambda instance,
+// Node.js async interleaving at `await` points let Geo_bot overwrite the token
+// while Uygunops was mid-handler, causing wizard messages to be sent as Geo_bot.
+// AsyncLocalStorage scopes the token per async execution context — no cross-talk.
+const botTokenStore = new AsyncLocalStorage<string>()
 function getBotToken(): string | undefined {
-  return _requestBotToken || process.env.TELEGRAM_BOT_TOKEN
+  return botTokenStore.getStore() || process.env.TELEGRAM_BOT_TOKEN
 }
 
 /** Send a Telegram message using an explicit bot token (for cross-bot notifications). */
@@ -796,16 +800,18 @@ async function startPremiumImageGenJob(
 // ─────────────────────────────────────────────────────────────────────────────
 
 export async function POST(req: NextRequest) {
+  // ── Multi-bot token resolution ─────────────────────────────────────────
+  // Geo_bot webhook is set with ?bot=geo query parameter.
+  // Uygunops uses the default path (no query param).
+  const botParam = new URL(req.url).searchParams.get('bot')
+  const resolvedToken = (botParam === 'geo' && process.env.TELEGRAM_GEO_BOT_TOKEN)
+    ? process.env.TELEGRAM_GEO_BOT_TOKEN
+    : process.env.TELEGRAM_BOT_TOKEN!
+
+  // D-174: Run entire handler inside AsyncLocalStorage so getBotToken()
+  // always returns THIS request's token, even during async interleaving.
+  return botTokenStore.run(resolvedToken, async () => {
   try {
-    // ── Multi-bot token resolution ─────────────────────────────────────────
-    // Geo_bot webhook is set with ?bot=geo query parameter.
-    // Uygunops uses the default path (no query param).
-    const botParam = new URL(req.url).searchParams.get('bot')
-    if (botParam === 'geo' && process.env.TELEGRAM_GEO_BOT_TOKEN) {
-      _requestBotToken = process.env.TELEGRAM_GEO_BOT_TOKEN
-    } else {
-      _requestBotToken = process.env.TELEGRAM_BOT_TOKEN
-    }
 
     // Webhook secret doğrulama
     // TELEGRAM_WEBHOOK_SECRET boşsa atla (ilk kurulum / test için)
@@ -4731,4 +4737,5 @@ export async function POST(req: NextRequest) {
     console.error('Telegram webhook error:', error)
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
   }
+  }) // end botTokenStore.run()
 }

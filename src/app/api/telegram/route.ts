@@ -1975,6 +1975,116 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ ok: true })
       }
 
+      // ── D-191: /sn stock-code quick-action callbacks ─────────────────────
+      if (cbData.startsWith('sn_')) {
+        const [action, pIdStr] = cbData.replace('sn_', '').split(':')
+        const pId = parseInt(pIdStr)
+        if (isNaN(pId)) {
+          await answerCallbackQuery(cbQueryId, '❌ Geçersiz ürün')
+          return NextResponse.json({ ok: true })
+        }
+        try {
+          const cbPayload = await getPayload()
+          const product = await cbPayload.findByID({ collection: 'products', id: pId, depth: 0 }) as any
+          if (!product) {
+            await answerCallbackQuery(cbQueryId, '❌ Ürün bulunamadı')
+            return NextResponse.json({ ok: true })
+          }
+
+          const { reactToStockChange, getStockSnapshot, formatStockStatusMessage } = await import('@/lib/stockReaction')
+          const sn = product.stockNumber || `ID:${pId}`
+
+          if (action === 'stok') {
+            // Display stock snapshot
+            await answerCallbackQuery(cbQueryId, '📦 Stok...')
+            const snapshot = await getStockSnapshot(cbPayload, pId, product.stockQuantity ?? 0)
+            await sendTelegramMessage(cbChatId, formatStockStatusMessage(product, snapshot))
+            return NextResponse.json({ ok: true })
+          }
+
+          // Stock modification actions
+          let newStock: number | null = null
+          let newStatus: string | null = null
+          let actionLabel = ''
+          const updateData: Record<string, any> = {}
+
+          switch (action) {
+            case 'tukendi':
+              newStock = 0
+              newStatus = 'soldout'
+              actionLabel = '🔴 Tükendi'
+              break
+            case '1kaldi':
+              newStock = 1
+              actionLabel = '⚠️ 1 Kaldı'
+              break
+            case '2kaldi':
+              newStock = 2
+              actionLabel = '⚠️ 2 Kaldı'
+              break
+            case 'durdur':
+              newStatus = 'draft'
+              actionLabel = '⏸️ Satış Durduruldu'
+              updateData['workflow.sellable'] = false
+              break
+            case 'ac':
+              newStatus = 'active'
+              actionLabel = '▶️ Satış Açıldı'
+              updateData['workflow.sellable'] = true
+              break
+            default:
+              await answerCallbackQuery(cbQueryId, '❌ Bilinmeyen işlem')
+              return NextResponse.json({ ok: true })
+          }
+
+          await answerCallbackQuery(cbQueryId, actionLabel)
+
+          // Apply changes
+          if (newStock !== null) updateData.stockQuantity = newStock
+          if (newStatus !== null) updateData.status = newStatus
+
+          await cbPayload.update({
+            collection: 'products',
+            id: pId,
+            data: updateData,
+            context: { isDispatchUpdate: true },
+          })
+
+          // Trigger stock reaction to cascade state updates
+          const result = await reactToStockChange(cbPayload, pId, 'telegram')
+
+          const finalProduct = await cbPayload.findByID({ collection: 'products', id: pId, depth: 0 }) as any
+          const statusEmoji = finalProduct.status === 'active' ? '🟢' : finalProduct.status === 'soldout' ? '🔴' : '⚪'
+
+          await sendTelegramMessageWithKeyboard(
+            cbChatId,
+            `${actionLabel}\n\n` +
+              `<b>${finalProduct.title}</b>\n` +
+              `📦 <code>${sn}</code> | ID: ${pId}\n` +
+              `📊 Stok: ${finalProduct.stockQuantity ?? 0} adet\n` +
+              `${statusEmoji} Durum: ${finalProduct.status}\n` +
+              (result.transition ? `🔄 ${result.transition.previousState} → ${result.transition.newState}` : ''),
+            [
+              [
+                { text: '🔴 Tükendi', callback_data: `sn_tukendi:${pId}` },
+                { text: '⚠️ 1 Kaldı', callback_data: `sn_1kaldi:${pId}` },
+                { text: '⚠️ 2 Kaldı', callback_data: `sn_2kaldi:${pId}` },
+              ],
+              [
+                { text: '⏸️ Durdur', callback_data: `sn_durdur:${pId}` },
+                { text: '▶️ Aç', callback_data: `sn_ac:${pId}` },
+                { text: '📦 Stok', callback_data: `sn_stok:${pId}` },
+              ],
+            ],
+          )
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err)
+          console.error(`[telegram/sn] callback error action=${action} product=${pIdStr}:`, msg)
+          await sendTelegramMessage(cbChatId, `❌ Stok işlem hatası: ${msg}`)
+        }
+        return NextResponse.json({ ok: true })
+      }
+
       return NextResponse.json({ ok: true })
     }
 
@@ -2171,7 +2281,7 @@ export async function POST(req: NextRequest) {
       const OPS_CMDS = ['/confirm', '/confirm_cancel', '/stok', '/diagnostics']
       // D-186: /ara works on BOTH bots (shared command) so operator can search from group
       const GEO_CMDS = ['/content', '/audit', '/preview', '/activate', '/shopier', '/merch', '/story', '/restory', '/targets', '/approve_story', '/reject_story']
-      const SHARED_CMDS = ['/ara', '/pipeline']
+      const SHARED_CMDS = ['/ara', '/pipeline', '/sn']
       const OPS_HASHTAGS = ['#gorsel', '#geminipro']
       // Deactivated providers still show deactivation msg — keep them on ops side
       const OPS_HASHTAGS_DEACTIVATED = ['#luma', '#chatgpt', '#claid']
@@ -3994,6 +4104,183 @@ export async function POST(req: NextRequest) {
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err)
         await sendTelegramMessage(chatId, `❌ Arama hatası: ${msg}`)
+      }
+      return NextResponse.json({ ok: true })
+    }
+
+    // ── D-191: /sn — stock-code operator control ────────────────────────────
+    // Quick stock management via stock number: /sn SN0186 [action]
+    // Actions: tükendi, 1kaldı, 2kaldı, durdur, aç, stok <N>
+    if (text.startsWith('/sn')) {
+      const parts = text.trim().split(/\s+/)
+      const snQuery = parts[1]?.toUpperCase()
+      const subAction = parts[2]?.toLowerCase()
+      const subArg = parts[3]
+
+      if (!snQuery) {
+        await sendTelegramMessage(
+          chatId,
+          '📦 <b>Stok Kodu Kontrolü</b>\n\n' +
+            '<b>Görüntüle:</b>\n' +
+            '/sn SN0186 — Ürün kartı + hızlı butonlar\n\n' +
+            '<b>Hızlı İşlemler:</b>\n' +
+            '/sn SN0186 tükendi — Tükendi işaretle\n' +
+            '/sn SN0186 1kaldı — 1 adet kaldı\n' +
+            '/sn SN0186 2kaldı — 2 adet kaldı\n' +
+            '/sn SN0186 durdur — Satışı durdur\n' +
+            '/sn SN0186 aç — Satışı aç\n' +
+            '/sn SN0186 stok 5 — Stok adedini güncelle',
+        )
+        return NextResponse.json({ ok: true })
+      }
+
+      // Validate SN format — also allow bare numbers like "0186"
+      const normalizedSN = /^SN\d+$/i.test(snQuery) ? snQuery : /^\d+$/.test(snQuery) ? `SN${snQuery.padStart(4, '0')}` : null
+      if (!normalizedSN) {
+        await sendTelegramMessage(chatId, `❌ Geçersiz stok kodu: <code>${snQuery}</code>\nFormat: SN0001 veya sadece numara (ör: 186)`)
+        return NextResponse.json({ ok: true })
+      }
+
+      try {
+        const snResult = await payload.find({
+          collection: 'products',
+          where: { stockNumber: { equals: normalizedSN } },
+          limit: 1,
+          depth: 0,
+        })
+
+        if (snResult.docs.length === 0) {
+          await sendTelegramMessage(chatId, `🔍 <code>${normalizedSN}</code> bulunamadı.`)
+          return NextResponse.json({ ok: true })
+        }
+
+        const p = snResult.docs[0] as any
+        const pId = p.id as number
+        const sn = p.stockNumber || normalizedSN
+
+        // No sub-action → show product card with quick-action buttons
+        if (!subAction) {
+          const statusEmoji = p.status === 'active' ? '🟢' : p.status === 'soldout' ? '🔴' : '⚪'
+          const msg =
+            `📦 <b>${p.title || 'İsimsiz'}</b>\n\n` +
+            `🏷️ <code>${sn}</code> | ID: ${pId}\n` +
+            `💰 Fiyat: ${p.price ? `₺${p.price}` : '—'}\n` +
+            `📊 Stok: ${p.stockQuantity ?? 0} adet\n` +
+            `${statusEmoji} Durum: ${p.status || 'draft'}\n` +
+            `🏪 Marka: ${p.brand || '—'} | Kategori: ${p.category || '—'}`
+
+          await sendTelegramMessageWithKeyboard(chatId, msg, [
+            [
+              { text: '🔴 Tükendi', callback_data: `sn_tukendi:${pId}` },
+              { text: '⚠️ 1 Kaldı', callback_data: `sn_1kaldi:${pId}` },
+              { text: '⚠️ 2 Kaldı', callback_data: `sn_2kaldi:${pId}` },
+            ],
+            [
+              { text: '⏸️ Durdur', callback_data: `sn_durdur:${pId}` },
+              { text: '▶️ Aç', callback_data: `sn_ac:${pId}` },
+              { text: '📦 Stok', callback_data: `sn_stok:${pId}` },
+            ],
+          ])
+          return NextResponse.json({ ok: true })
+        }
+
+        // Sub-action → execute stock change
+        const { reactToStockChange } = await import('@/lib/stockReaction')
+        const updateData: Record<string, any> = {}
+        let actionLabel = ''
+
+        switch (subAction) {
+          case 'tükendi':
+          case 'tukendi':
+          case 'bitti':
+            updateData.stockQuantity = 0
+            updateData.status = 'soldout'
+            actionLabel = '🔴 Tükendi'
+            break
+          case '1kaldı':
+          case '1kaldi':
+            updateData.stockQuantity = 1
+            actionLabel = '⚠️ 1 Kaldı'
+            break
+          case '2kaldı':
+          case '2kaldi':
+            updateData.stockQuantity = 2
+            actionLabel = '⚠️ 2 Kaldı'
+            break
+          case 'durdur':
+          case 'stop':
+            updateData.status = 'draft'
+            updateData['workflow.sellable'] = false
+            actionLabel = '⏸️ Satış Durduruldu'
+            break
+          case 'aç':
+          case 'ac':
+          case 'open':
+            updateData.status = 'active'
+            updateData['workflow.sellable'] = true
+            actionLabel = '▶️ Satış Açıldı'
+            break
+          case 'stok':
+          case 'stock': {
+            const qty = parseInt(subArg || '')
+            if (isNaN(qty) || qty < 0) {
+              await sendTelegramMessage(chatId, `❌ Geçersiz stok adedi. Kullanım: /sn ${sn} stok 5`)
+              return NextResponse.json({ ok: true })
+            }
+            updateData.stockQuantity = qty
+            if (qty === 0) updateData.status = 'soldout'
+            actionLabel = `📊 Stok → ${qty}`
+            break
+          }
+          default:
+            await sendTelegramMessage(
+              chatId,
+              `❌ Bilinmeyen işlem: <b>${subAction}</b>\n\n` +
+                `Kullanılabilir: tükendi, 1kaldı, 2kaldı, durdur, aç, stok <N>`,
+            )
+            return NextResponse.json({ ok: true })
+        }
+
+        // Apply update
+        await payload.update({
+          collection: 'products',
+          id: pId,
+          data: updateData,
+          context: { isDispatchUpdate: true },
+        })
+
+        // Cascade stock state
+        const result = await reactToStockChange(payload, pId, 'telegram')
+
+        // Show result
+        const updated = await payload.findByID({ collection: 'products', id: pId, depth: 0 }) as any
+        const statusEmoji = updated.status === 'active' ? '🟢' : updated.status === 'soldout' ? '🔴' : '⚪'
+
+        await sendTelegramMessageWithKeyboard(
+          chatId,
+          `${actionLabel}\n\n` +
+            `<b>${updated.title}</b>\n` +
+            `📦 <code>${sn}</code> | ID: ${pId}\n` +
+            `📊 Stok: ${updated.stockQuantity ?? 0} adet\n` +
+            `${statusEmoji} Durum: ${updated.status}\n` +
+            (result.transition ? `🔄 ${result.transition.previousState} → ${result.transition.newState}` : ''),
+          [
+            [
+              { text: '🔴 Tükendi', callback_data: `sn_tukendi:${pId}` },
+              { text: '⚠️ 1 Kaldı', callback_data: `sn_1kaldi:${pId}` },
+              { text: '⚠️ 2 Kaldı', callback_data: `sn_2kaldi:${pId}` },
+            ],
+            [
+              { text: '⏸️ Durdur', callback_data: `sn_durdur:${pId}` },
+              { text: '▶️ Aç', callback_data: `sn_ac:${pId}` },
+              { text: '📦 Stok', callback_data: `sn_stok:${pId}` },
+            ],
+          ],
+        )
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err)
+        console.error(`[telegram/sn] error sn=${normalizedSN} action=${subAction}:`, msg)
+        await sendTelegramMessage(chatId, `❌ Hata: ${msg}`)
       }
       return NextResponse.json({ ok: true })
     }

@@ -818,9 +818,21 @@ export async function applyConfirmation(
       }
     }
 
-    // Channel targets
+    // Channel targets — D-189: also sync the channels.publishX flags so that
+    // evaluateChannelEligibility Gate 2 doesn't block channels that are in
+    // channelTargets but have publishX=false from the initial product creation.
     if (collected.channelTargets) {
       productUpdate.channelTargets = collected.channelTargets
+      const ct = collected.channelTargets as string[]
+      productUpdate.channels = {
+        publishWebsite:   ct.includes('website'),
+        publishInstagram: ct.includes('instagram'),
+        publishShopier:   ct.includes('shopier'),
+        publishDolap:     ct.includes('dolap'),
+        publishX:         ct.includes('x'),
+        publishFacebook:  ct.includes('facebook'),
+        publishThreads:   ct.includes('threads'),
+      }
     }
 
     // 2. Update product (with context flag to prevent hook re-trigger)

@@ -164,7 +164,9 @@ export function buildPromptSet(product: ProductContext, hasReferenceImage = fals
       label: 'Ürün — Yan Açı (Stüdyo)',
       prompt:
         `Professional product studio photograph of ${fullDesc}, ` +
-        `45-degree side angle view, white or light grey seamless background, ` +
+        `90-degree pure lateral side profile view, ` +
+        `shoe oriented with toe pointing LEFT and heel pointing RIGHT, perfectly centered in frame, ` +
+        `white or light grey seamless background, ` +
         `soft-box studio lighting, fine detail visible, ` +
         `commercial product photography, no shadows on background, high resolution, no text`,
     },

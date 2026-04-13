@@ -2624,11 +2624,18 @@ export async function POST(req: NextRequest) {
             ...(productType ? { productType } : {}),
             channelTargets: channelDecision.effectiveTargets as any,
             // D-187: Derive channel flags from effectiveTargets instead of hardcoding false
+            // D-189: Set ALL channel flags from effectiveTargets — previously
+            // publishFacebook/publishX/publishThreads were missing, defaulting to
+            // false in the DB, which caused Gate 2 to block dispatch even when
+            // channelTargets included those channels.
             channels: {
               publishWebsite: channelDecision.effectiveTargets.includes('website'),
               publishInstagram: channelDecision.effectiveTargets.includes('instagram'),
               publishShopier: channelDecision.effectiveTargets.includes('shopier'),
               publishDolap: channelDecision.effectiveTargets.includes('dolap'),
+              publishX: channelDecision.effectiveTargets.includes('x'),
+              publishFacebook: channelDecision.effectiveTargets.includes('facebook'),
+              publishThreads: channelDecision.effectiveTargets.includes('threads'),
             },
             automationMeta: {
               telegramChatId: tgChatId,

@@ -853,10 +853,10 @@ async function checkShotCompliance(
       correction: 'Camera must be DIRECTLY IN FRONT of the toe cap, perpendicular. Both sides equally visible. No diagonal. Pure front-on.',
     },
     side_angle: {
-      required: 'pure 90° lateral side profile — complete sole edge visible, toe front face NOT visible',
-      passRule: 'the sole edge profile is fully visible from toe tip to heel, the toe front face is NOT visible',
-      failSignals: 'toe front face visible, slight diagonal (3/4 from front), heel hidden, angled top-down',
-      correction: 'Camera must be at exactly 90° to the side. The toe FRONT FACE must NOT be visible. The sole profile must be fully exposed from toe to heel.',
+      required: 'pure 90° lateral side profile — complete sole edge visible, toe front face NOT visible, toe pointing LEFT and heel pointing RIGHT, shoe perfectly centered',
+      passRule: 'the sole edge profile is fully visible from toe tip to heel, the toe front face is NOT visible, the front/toe of the shoe is on the LEFT side and the heel/back is on the RIGHT side, and the shoe is centered in the frame',
+      failSignals: 'toe front face visible, slight diagonal (3/4 from front), heel hidden, angled top-down, shoe facing right instead of left, shoe not centered',
+      correction: 'Camera must be at exactly 90° to the side. The toe FRONT FACE must NOT be visible. The sole profile must be fully exposed from toe to heel. ORIENTATION: toe/front of shoe must point LEFT, heel/back must point RIGHT. Shoe must be perfectly centered horizontally and vertically.',
     },
     detail_closeup: {
       required: 'detail close-up of the front half of the shoe (toe cap + vamp area) — NOT the full shoe, NOT extreme macro',
@@ -1015,8 +1015,12 @@ const EDITING_SCENES = [
       `── SHOT: PURE LATERAL SIDE PROFILE ──\n` +
       `Re-photograph this EXACT {COLOR} shoe from the side — same physical object.\n` +
       `CAMERA: Exactly 90° to the side (medial or lateral), at sole level. Looking directly at the side face.\n` +
-      `POSITION: Shoe horizontal — toe pointing LEFT, heel on RIGHT.\n` +
-      `COMPOSITION: Full shoe from toe tip to heel counter. Entire sole edge visible. Shoe fills 75% of image width. Centered. Clean spacing.\n` +
+      `ORIENTATION (MANDATORY — REJECTION RULE): The FRONT of the shoe (toe box) MUST point to the LEFT edge of the image. ` +
+      `The BACK of the shoe (heel) MUST point to the RIGHT edge. ` +
+      `Think of it as: toe = LEFT, heel = RIGHT. This is a hard requirement — if the shoe faces right or is angled, the image is REJECTED.\n` +
+      `CENTERING (MANDATORY): The shoe MUST be perfectly centered both horizontally and vertically in the frame. ` +
+      `Equal empty space on all four sides. The shoe's midpoint (between toe tip and heel end) must align with the image center.\n` +
+      `COMPOSITION: Full shoe from toe tip to heel counter. Entire sole edge visible. Shoe fills 75% of image width.\n` +
       `MUST SEE: Complete sole profile (toe to heel), arch curve, heel counter height, collar line. The sole silhouette is the dominant visual.\n` +
       `MUST NOT SEE: Toe cap front face (if you can see the front of the toe, the angle is WRONG).\n` +
       `BACKGROUND: {BACKGROUND}\n` +

@@ -112,11 +112,11 @@ const SAFE_DEFAULTS = {
   requireAdminReview: true,
   minConfidenceToActivate: 60,
   publishWebsite: true,    // website is always on by default
-  publishInstagram: false,
+  publishInstagram: true,  // D-185: Instagram direct API live
   publishShopier: false,
   publishDolap: false,
   publishX: false,
-  publishFacebook: false,
+  publishFacebook: true,   // D-185: Facebook direct API live
   publishThreads: false,
   autoGenerateBlog: false,
   autoPublishBlog: false,

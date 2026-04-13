@@ -97,11 +97,11 @@ export const AutomationSettings: GlobalConfig = {
           name: 'publishInstagram',
           type: 'checkbox',
           label: '📸 Instagram Yayını Aktif',
-          defaultValue: false,
+          defaultValue: true,
           admin: {
             description:
-              'Instagram kanalı aktif. Gerçek yayın henüz bağlı değil — ' +
-              'ileride Graph API entegrasyonu ile devreye alınacak (Step 13+).',
+              'Instagram kanalı aktif. Meta Graph API v21 direct posting. ' +
+              'OAuth token AutomationSettings.instagramTokens\'da saklanır.',
           },
         },
         {
@@ -142,11 +142,11 @@ export const AutomationSettings: GlobalConfig = {
           name: 'publishFacebook',
           type: 'checkbox',
           label: '📘 Facebook Sayfa Yayını Aktif',
-          defaultValue: false,
+          defaultValue: true,
           admin: {
             description:
-              'Facebook Sayfa yayını aktif. Meta Graph API ile Page Post. ' +
-              'Scaffold — gerçek entegrasyon henüz yapılmadı.',
+              'Facebook Sayfa yayını aktif. Meta Graph API v21 Page Post. ' +
+              'Aynı Instagram OAuth token\'ı kullanır, facebookPageId env\'den inject edilir.',
           },
         },
         {

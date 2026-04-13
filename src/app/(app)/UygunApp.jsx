@@ -70,13 +70,12 @@ const STATIC_PRODUCTS = [
 // ============================================
 // CATEGORY DATA
 // ============================================
+// D-177: Removed Erkek Ayakkabı & Krampon
 const CAT_DATA = [
-  { name: "Erkek Ayakkabı", desc: "Erkek Modelleri", icon: "👞" },
   { name: "Spor", desc: "Koşu & Fitness", icon: "⚡" },
   { name: "Günlük", desc: "Her Güne Uygun", icon: "👟" },
   { name: "Klasik", desc: "Ofis & Şıklık", icon: "✦" },
   { name: "Bot", desc: "Kış & Dağ", icon: "🏔" },
-  { name: "Krampon", desc: "Saha & Çim", icon: "⚽" },
   { name: "Terlik", desc: "Rahat & Hafif", icon: "🩴" },
   { name: "Cüzdan", desc: "Deri & Kartlık", icon: "◆" },
 ];

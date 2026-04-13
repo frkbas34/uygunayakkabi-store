@@ -52,14 +52,13 @@ function getAllMediaUrls(images: any[], preferSize: 'thumbnail' | 'card' | 'larg
 
 // Map from stored category value → display label
 // Supports both legacy lowercase and new mixed-case values
+// D-177: Removed Erkek Ayakkabı & Krampon from active categories
 const CATEGORY_LABELS: Record<string, string> = {
   gunluk: 'Günlük', klasik: 'Klasik', spor: 'Spor',
-  bot: 'Bot', krampon: 'Krampon', cuzdan: 'Cüzdan',
-  terlik: 'Terlik',
+  bot: 'Bot', cuzdan: 'Cüzdan', terlik: 'Terlik',
   // Pass-through for values already in display form
   'Günlük': 'Günlük', 'Klasik': 'Klasik', 'Spor': 'Spor',
-  'Bot': 'Bot', 'Krampon': 'Krampon', 'Cüzdan': 'Cüzdan',
-  'Erkek Ayakkabı': 'Erkek Ayakkabı', 'Terlik': 'Terlik',
+  'Bot': 'Bot', 'Cüzdan': 'Cüzdan', 'Terlik': 'Terlik',
 };
 
 export default async function Page() {

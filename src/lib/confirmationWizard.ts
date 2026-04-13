@@ -103,14 +103,12 @@ export interface WizardState {
 
 // ── Constants ─────────────────────────────────────────────────────────
 
-// D-175: Full category options matching storefront filters (no Sandalet)
+// D-177: Active category options (removed Erkek Ayakkabı, Krampon)
 export const CATEGORY_OPTIONS = [
-  { label: '👟 Erkek Ayakkabı', value: 'Erkek Ayakkabı' },
   { label: '⚡ Spor', value: 'Spor' },
   { label: '👟 Günlük', value: 'Günlük' },
   { label: '✦ Klasik', value: 'Klasik' },
   { label: '🏔 Bot', value: 'Bot' },
-  { label: '⚽ Krampon', value: 'Krampon' },
   { label: '🩴 Terlik', value: 'Terlik' },
   { label: '👛 Cüzdan', value: 'Cüzdan' },
 ]

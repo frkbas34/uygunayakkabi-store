@@ -200,8 +200,9 @@ function Navbar({ onNav, pg, settings, cartCount, onCartToggle }) {
             )}
           </button>
           <button onClick={() => setMo(!mo)} style={{ background: "none", border: "none", cursor: "pointer", color: T.text, padding: 4 }}>
-          {mo ? I.close : I.menu}
-        </button>
+            {mo ? I.close : I.menu}
+          </button>
+        </div>
       </div>
       {mo && (
         <div style={{ padding: "16px 32px 32px", background: T.bg, borderTop: "1px solid rgba(28,26,22,0.06)" }}>

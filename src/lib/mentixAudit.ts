@@ -248,10 +248,7 @@ export function auditDiscovery(product: AuditableProduct): DimensionAuditResult 
     warnings.push(`Anahtar kelime sayısı az (${dp.keywordEntities?.length ?? 0}, min 3 önerilir)`)
   }
 
-  // Blog linkage
-  if (!product.content?.linkedBlogPost) {
-    warnings.push('Blog yazısı bağlanmamış (linkedBlogPost yok)')
-  }
+  // D-182: linkedBlogPost warning removed — not used in current workflow
 
   // Confidence check
   if (typeof dp.confidence === 'number' && dp.confidence < MIN_CONFIDENCE) {

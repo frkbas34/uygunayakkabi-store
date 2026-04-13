@@ -1986,6 +1986,12 @@ export async function POST(req: NextRequest) {
     // D-168 accidentally let Geo_bot through by not checking botParam, causing
     // both bots to race on the same wizard_sessions row and send duplicate/
     // conflicting replies. See D-169 in DECISIONS.md.
+    // D-180: Early wizard hydration for group text — lets plain text bypass group
+    // filter when operator is mid-wizard. If hydration fails (cold start, DB timeout),
+    // we STILL let the text through (hasActiveWizardSession = true as fallback).
+    // The text interceptor at Phase 5 will do its own hydration and safely ignore
+    // the message if there's truly no session. This prevents the "send 3-4 times"
+    // bug caused by first request hitting cold Neon pool.
     if (botParam !== 'geo' && isGroupChat && text && !text.startsWith('/') && !text.startsWith('#') && !message.photo) {
       try {
         const earlyPayload = await getPayload()
@@ -1998,7 +2004,10 @@ export async function POST(req: NextRequest) {
           console.log(`[telegram/D-168] active wizard session for chat=${chatId} user=${msgUserId} step=${wizSess!.step} — will bypass group filter`)
         }
       } catch (err) {
-        console.warn('[telegram/D-168] early wizard check failed:', err instanceof Error ? err.message : err)
+        // D-180: On failure, assume wizard MIGHT be active — let text through.
+        // Phase 5 interceptor will safely handle the case where no session exists.
+        hasActiveWizardSession = true
+        console.warn('[telegram/D-180] early wizard check failed, letting text through as fallback:', err instanceof Error ? err.message : err)
       }
     }
 

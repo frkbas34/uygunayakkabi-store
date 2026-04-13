@@ -117,14 +117,14 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
 // ─────────────────────────────────────────────────────────────────────────────
 
 function buildProductJsonLd(product: ProductDoc, url: string) {
+  // D-174b: Only GeoBot description, fallback to title (never intake placeholder)
   const desc =
     product.content?.commercePack?.websiteDescription ||
-    product.description ||
     product.title
 
-  // Extract first image URL for schema
+  // Extract first image URL for schema — AI images only, never originals
   const imageUrl = (() => {
-    const gallery = product.generativeGallery ?? product.images ?? []
+    const gallery = product.generativeGallery ?? []
     if (gallery.length === 0) return undefined
     const first = gallery[0]
     const mediaDoc = first.image as MediaDoc
@@ -213,16 +213,18 @@ export default async function ProductPage({ params }: Props) {
       })
       .filter(Boolean) as string[]
 
-  // D-171: ONLY show AI-generated images. Original reference photo is never displayed.
-  // Slot order from generativeGallery is already correct: slot 1 (side shot) = index 0.
-  // Original images are used ONLY as fallback when no AI images exist yet.
-  const aiImages = extractUrls(product.generativeGallery ?? [])
-  const originalImages = extractUrls(product.images ?? [])
-  const images = aiImages.length > 0 ? aiImages : originalImages
+  // D-174b: NEVER show original reference photos on the public storefront.
+  // Original photos (product.images) are internal-only intake references.
+  // Only AI-generated images from generativeGallery are displayed.
+  // If no AI images exist yet, the gallery will be empty (no fallback to originals).
+  const images = extractUrls(product.generativeGallery ?? [])
 
-  // ── Content resolution (Geobot → fallback) ────────────────────────────────
+  // ── Content resolution (Geobot websiteDescription ONLY) ───────────────────
+  // D-174b: Do NOT fall back to product.description — that's the auto-generated
+  // intake placeholder (e.g. "Nike Beyaz Ayakkabı — uygun fiyatlı ayakkabı").
+  // Only show GeoBot-generated websiteDescription. If not generated yet, show nothing.
   const websiteDescription =
-    product.content?.commercePack?.websiteDescription || product.description || null
+    product.content?.commercePack?.websiteDescription || null
   const highlights = product.content?.commercePack?.highlights ?? []
   const faq = product.content?.discoveryPack?.faq ?? []
   const validHighlights = Array.isArray(highlights)

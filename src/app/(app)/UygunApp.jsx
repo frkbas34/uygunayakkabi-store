@@ -28,44 +28,8 @@ function shoe(bg, sole, body, acc, lace, rot = 0) {
   return `data:image/svg+xml,${encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 800"><rect width="800" height="800" fill="${bg}"/><g transform="translate(400,400) rotate(${rot}) scale(1.15)"><path d="M-220,80Q-220,110-180,120L200,120Q240,120,250,95L260,60Q260,45,240,40L-180,40Q-220,45-220,80Z" fill="${sole}"/><path d="M-200,48Q-210,68-190,78L230,78Q250,73,255,53L250,33Q245,23,230,23L-175,23Q-200,28-200,48Z" fill="white" opacity="0.88"/><path d="M-180,28Q-200,8-195,-42Q-185,-102-140,-132Q-80,-172,20,-177Q120,-180,180,-152Q230,-127,245,-72Q255,-27,245,13L240,23L-175,23Z" fill="${body}"/><path d="M-150,-45Q-70,-92,50,-87Q145,-82,210,-38" fill="none" stroke="${acc}" stroke-width="14" stroke-linecap="round" opacity="0.75"/><line x1="-78" y1="-132" x2="-18" y2="-147" stroke="${lace}" stroke-width="4.5" stroke-linecap="round"/><line x1="-58" y1="-112" x2="2" y2="-132" stroke="${lace}" stroke-width="4.5" stroke-linecap="round"/><line x1="-38" y1="-92" x2="22" y2="-117" stroke="${lace}" stroke-width="4.5" stroke-linecap="round"/></g></svg>`)}`;
 }
 
-function wallet(bg, leather, accent, stitch) {
-  return `data:image/svg+xml,${encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 800"><rect width="800" height="800" fill="${bg}"/><g transform="translate(400,400)"><rect x="-200" y="-140" width="400" height="280" rx="24" fill="${leather}"/><rect x="-200" y="-140" width="400" height="280" rx="24" fill="none" stroke="${stitch}" stroke-width="3" stroke-dasharray="8,6" opacity="0.4"/><rect x="100" y="-80" width="90" height="60" rx="12" fill="${accent}"/><circle cx="145" cy="-50" r="10" fill="${bg}" opacity="0.3"/></g></svg>`)}`;
-}
-
-const heroImg = shoe("#ebe5da", "#d4c4b0", "#c8102e", "#fff", "#fff", -8);
-const WALLET_PHOTOS = [
-  "https://images.unsplash.com/photo-1627123424574-724758594e93?w=600&h=600&fit=crop&q=80",
-  "https://images.unsplash.com/photo-1624996379697-f01d168b1a52?w=600&h=600&fit=crop&q=80",
-  "https://images.unsplash.com/photo-1559526324-593bc073d938?w=600&h=600&fit=crop&q=80",
-];
-const PHOTO = [
-  "https://images.unsplash.com/photo-1542291026-7eec264c27ff?w=600&h=600&fit=crop&q=80",
-  "https://images.unsplash.com/photo-1606107557195-0e29a4b5b4aa?w=600&h=600&fit=crop&q=80",
-  "https://images.unsplash.com/photo-1600185365926-3a2ce3cdb9eb?w=600&h=600&fit=crop&q=80",
-  "https://images.unsplash.com/photo-1549298916-b41d501d3772?w=600&h=600&fit=crop&q=80",
-  "https://images.unsplash.com/photo-1560769629-975ec94e6a86?w=600&h=600&fit=crop&q=80",
-];
-const ph = (i) => PHOTO[i % PHOTO.length];
-
-// ============================================
-// STATIC PRODUCT DATA
-// ============================================
-const STATIC_PRODUCTS = [
-  { id: 1, slug: "nike-air-max-270", name: "Nike Air Max 270", price: 2499, originalPrice: 3299, description: "Gün boyu konfor sunan Air Max 270, büyük Air ünitesiyle her adımda maksimum yastıklama sağlar.", image: ph(0), images: [ph(0),ph(1)], sizes:[38,39,40,41,42,43,44], stock:3, category:"Spor", badge:"İndirim" },
-  { id: 2, slug: "adidas-ultraboost-23", name: "Adidas Ultraboost 23", price: 2899, originalPrice: null, description: "Efsanevi Boost teknolojisiyle enerji iade eden taban yapısı.", image: ph(1), images: [ph(1),ph(2)], sizes:[39,40,41,42,43], stock:8, category:"Spor", badge:"Yeni" },
-  { id: 3, slug: "new-balance-574", name: "New Balance 574", price: 1899, originalPrice: 2499, description: "Zamansız tasarım ve ENCAP yastıklama sistemiyle hem şık hem rahat bir klasik.", image: ph(2), images: [ph(2),ph(3)], sizes:[38,39,40,41,42], stock:2, category:"Günlük", badge:"İndirim" },
-  { id: 4, slug: "puma-rs-x", name: "Puma RS-X", price: 1699, originalPrice: null, description: "Retro koşu estetiği ile modern teknolojiyi buluşturan cesur sneaker.", image: ph(3), images: [ph(3),ph(4)], sizes:[40,41,42,43,44,45], stock:5, category:"Spor", badge:null },
-  { id: 5, slug: "converse-chuck-70", name: "Converse Chuck 70", price: 1299, originalPrice: 1599, description: "Premium materyaller ile ikonik Chuck Taylor'ın üst seviye versiyonu.", image: ph(4), images: [ph(4),ph(0)], sizes:[36,37,38,39,40,41,42], stock:12, category:"Günlük", badge:"İndirim" },
-  { id: 6, slug: "nike-dunk-low", name: "Nike Dunk Low Retro", price: 2199, originalPrice: null, description: "Basketbol kökenli bu ikon, sokak modasının vazgeçilmezi.", image: ph(0), images: [ph(0),ph(2)], sizes:[39,40,41,42,43], stock:0, category:"Günlük", badge:"Tükendi" },
-  { id: 7, slug: "nike-air-force-1", name: "Nike Air Force 1 '07", price: 2299, originalPrice: 2799, description: "Efsanevi Air Force 1, zamansız bir ikon.", image: ph(1), images: [ph(1),ph(3)], sizes:[38,39,40,41,42,43,44,45], stock:15, category:"Günlük", badge:"İndirim" },
-  { id: 8, slug: "adidas-samba-og", name: "Adidas Samba OG", price: 1999, originalPrice: null, description: "Futsal efsanesi Samba, retro tarzıyla sokağın vazgeçilmezi.", image: ph(2), images: [ph(2),ph(4)], sizes:[38,39,40,41,42,43], stock:7, category:"Günlük", badge:"Yeni" },
-  { id: 9, slug: "nike-vapormax-plus", name: "Nike Air VaporMax Plus", price: 3499, originalPrice: 3999, description: "VaporMax hava yastığı ile yere basmadan yürüme hissi.", image: ph(3), images: [ph(3),ph(0)], sizes:[40,41,42,43,44], stock:4, category:"Spor", badge:"İndirim" },
-  { id: 10, slug: "reebok-classic-leather", name: "Reebok Classic Leather", price: 1399, originalPrice: null, description: "80'lerden bugüne ulaşan sade tasarım ve yumuşak deri.", image: ph(4), images: [ph(4),ph(1)], sizes:[38,39,40,41,42,43], stock:10, category:"Günlük", badge:null },
-  { id: 11, slug: "adidas-stan-smith", name: "Adidas Stan Smith", price: 1799, originalPrice: 2199, description: "Dünyanın en çok satan sneaker'ı.", image: ph(0), images: [ph(0),ph(3)], sizes:[36,37,38,39,40,41,42,43], stock:9, category:"Günlük", badge:"İndirim" },
-  { id: 12, slug: "nike-pegasus-41", name: "Nike Pegasus 41", price: 2699, originalPrice: null, description: "Her gün koşmak isteyenler için React köpük yastıklama.", image: ph(1), images: [ph(1),ph(4)], sizes:[39,40,41,42,43,44,45], stock:6, category:"Spor", badge:"Yeni" },
-  { id: 37, slug: "klasik-deri-cuzdan", name: "Klasik Deri Cüzdan", price: 599, originalPrice: 799, description: "Hakiki dana derisinden, 8 kart bölmeli, RFID korumalı.", image: WALLET_PHOTOS[0], images: [WALLET_PHOTOS[0],WALLET_PHOTOS[1]], sizes:[], stock:18, category:"Cüzdan", badge:"İndirim" },
-  { id: 38, slug: "slim-kartvizitlik", name: "Slim Kartlık Cüzdan", price: 399, originalPrice: null, description: "Ultra ince, 6 kart bölmeli minimalist cüzdan.", image: WALLET_PHOTOS[1], images: [WALLET_PHOTOS[1],WALLET_PHOTOS[2]], sizes:[], stock:25, category:"Cüzdan", badge:"Yeni" },
-];
+// D-193: wallet(), heroImg, WALLET_PHOTOS, PHOTO, ph(), STATIC_PRODUCTS removed
+// — all demo/placeholder products purged, only real DB products shown
 
 // ============================================
 // CATEGORY DATA
@@ -622,8 +586,6 @@ function DiscountedSection({ allProducts, onView }) {
 // ============================================
 // TOP-LEVEL APP COMPONENT
 // ============================================
-const ENABLE_STATIC_FALLBACK = true; // TODO: revert to false when DB serial issue is fixed
-
 export default function App({ dbProducts = [], siteSettings = null, banners = [], sections = null }) {
   const S = siteSettings || DEFAULT_SETTINGS;
   const [pg, sPg] = useState("home");
@@ -645,14 +607,6 @@ export default function App({ dbProducts = [], siteSettings = null, banners = []
         aiImages: aiImgs,
       };
     });
-    if (ENABLE_STATIC_FALLBACK) {
-      const staticMapped = STATIC_PRODUCTS.map(p => ({ ...p, dbImage: null }));
-      if (dbMapped.length === 0) return staticMapped;
-      // Merge: DB products first, then static to fill out catalog
-      const dbIds = new Set(dbMapped.map(p => p.slug || p.id));
-      const extra = staticMapped.filter(p => !dbIds.has(p.slug) && !dbIds.has(p.id));
-      return [...dbMapped, ...extra];
-    }
     return dbMapped;
   })();
 

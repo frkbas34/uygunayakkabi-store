@@ -141,6 +141,24 @@ const wizardSessions = new Map<string, WizardState>()
 /** D-173: Per-instance flag so we only run CREATE TABLE IF NOT EXISTS once. */
 let tableEnsured = false
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function ensureWizardTable(pool: { query: (text: string, vals?: any[]) => Promise<{ rows: any[] }> }): Promise<void> {
+  if (tableEnsured) return
+  try {
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS wizard_sessions (
+        session_key TEXT PRIMARY KEY,
+        state JSONB NOT NULL,
+        started_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `)
+    tableEnsured = true
+  } catch (tblErr) {
+    console.warn('[ensureWizardTable D-173] auto-create failed:', tblErr instanceof Error ? tblErr.message : tblErr)
+  }
+}
+
 function sessionKey(chatId: number, userId?: number): string {
   return userId ? `${chatId}:${userId}` : String(chatId)
 }
@@ -173,23 +191,8 @@ export async function hydrateWizardSession(
     return cached ?? null
   }
 
-  // D-173: Auto-create wizard_sessions table if it doesn't exist yet.
-  // Idempotent — CREATE TABLE IF NOT EXISTS is a no-op once the table exists.
-  if (!tableEnsured) {
-    try {
-      await pool.query(`
-        CREATE TABLE IF NOT EXISTS wizard_sessions (
-          session_key TEXT PRIMARY KEY,
-          state JSONB NOT NULL,
-          started_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-          updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-        )
-      `)
-      tableEnsured = true
-    } catch (tblErr) {
-      console.warn('[hydrateWizardSession D-173] table auto-create failed:', tblErr instanceof Error ? tblErr.message : tblErr)
-    }
-  }
+  // D-173: ensure table exists before querying
+  await ensureWizardTable(pool)
 
   try {
     const { rows } = await pool.query(
@@ -237,6 +240,8 @@ async function persistWizardSession(
 ): Promise<void> {
   const pool = payload?.db?.pool
   if (!pool) return
+  // D-173: ensure table exists before writing
+  await ensureWizardTable(pool)
   try {
     await pool.query(
       `INSERT INTO wizard_sessions (session_key, state, started_at, updated_at)
@@ -257,6 +262,7 @@ async function persistWizardSession(
 async function deleteWizardSession(payload: PayloadLike | null, key: string): Promise<void> {
   const pool = payload?.db?.pool
   if (!pool) return
+  await ensureWizardTable(pool)
   try {
     await pool.query(`DELETE FROM wizard_sessions WHERE session_key = $1`, [key])
   } catch (err) {

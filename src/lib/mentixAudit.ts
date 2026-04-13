@@ -346,7 +346,7 @@ export function runFullAudit(product: AuditableProduct): FullAuditResult {
 export async function triggerAudit(
   payload: any, // PayloadInstance
   product: AuditableProduct,
-  triggerSource: 'auto_content_ready' | 'telegram_command' | 'admin' | 'retry',
+  triggerSource: 'auto_content_ready' | 'telegram_command' | 'admin' | 'retry' | 'auto_retry',
   req?: any,
 ): Promise<AuditTriggerResult> {
   const updateReq = req
@@ -500,7 +500,74 @@ export async function triggerAudit(
       },
     })
 
-    // 8. Emit publish readiness BotEvent (Phase 12 — D-113)
+    // 8. D-181: Auto-fix — if content dimensions failed, tell GeoBot to retry
+    //    Only triggers once per audit cycle (triggerSource !== 'auto_retry')
+    //    to prevent infinite loops. After retry, re-audits automatically via
+    //    contentPack's auto-audit-after-content-ready flow.
+    const contentDimFailed =
+      auditResult.commerce.result === 'fail' || auditResult.discovery.result === 'fail'
+    if (contentDimFailed && triggerSource !== 'auto_retry') {
+      try {
+        const failedDims: string[] = []
+        if (auditResult.commerce.result === 'fail') failedDims.push('Commerce')
+        if (auditResult.discovery.result === 'fail') failedDims.push('Discovery')
+
+        console.log(
+          `[mentixAudit/D-181] Auto-fix: ${failedDims.join(' + ')} failed for product ${product.id}. ` +
+          `Triggering GeoBot content retry...`,
+        )
+
+        // Emit auto-fix BotEvent for traceability
+        await payload.create({
+          collection: 'bot-events',
+          data: {
+            eventType: 'audit.auto_fix_requested',
+            product: product.id,
+            sourceBot: 'mentix',
+            status: 'processed',
+            payload: {
+              failedDimensions: failedDims,
+              retryReason: `Mentix audit failed on ${failedDims.join(', ')}. Auto-triggering content regeneration.`,
+            },
+            notes: `Mentix → GeoBot: auto-retry content for product ${product.id} (failed: ${failedDims.join(', ')})`,
+            processedAt: new Date().toISOString(),
+          },
+        })
+
+        // Update contentStatus to allow retry
+        await payload.update({
+          collection: 'products',
+          id: product.id,
+          data: {
+            workflow: {
+              ...(product.workflow ?? {}),
+              contentStatus: 'failed',
+              lastHandledByBot: 'mentix',
+            },
+          },
+          req: updateReq,
+        })
+
+        // Trigger GeoBot content regeneration (non-blocking)
+        const { triggerContentGeneration } = await import('@/lib/contentPack')
+        const freshProduct = await payload.findByID({ collection: 'products', id: product.id, depth: 1 })
+        if (freshProduct) {
+          triggerContentGeneration(payload, freshProduct, 'mentix_auto_fix', req).catch((retryErr: unknown) => {
+            console.error(
+              `[mentixAudit/D-181] Auto-fix content retry failed for product ${product.id}:`,
+              retryErr instanceof Error ? retryErr.message : String(retryErr),
+            )
+          })
+        }
+      } catch (autoFixErr) {
+        console.error(
+          `[mentixAudit/D-181] Auto-fix dispatch failed for product ${product.id}:`,
+          autoFixErr instanceof Error ? autoFixErr.message : String(autoFixErr),
+        )
+      }
+    }
+
+    // 9. Emit publish readiness BotEvent (Phase 12 — D-113)
     if (isFullyReady) {
       try {
         await payload.create({

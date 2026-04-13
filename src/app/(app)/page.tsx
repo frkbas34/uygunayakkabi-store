@@ -47,12 +47,12 @@ function getAllMediaUrls(images: any[]): string[] {
 // Supports both legacy lowercase and new mixed-case values
 const CATEGORY_LABELS: Record<string, string> = {
   gunluk: 'Günlük', klasik: 'Klasik', spor: 'Spor',
-  bot: 'Bot', sandalet: 'Sandalet', krampon: 'Krampon',
-  cuzdan: 'Cüzdan',
+  bot: 'Bot', krampon: 'Krampon', cuzdan: 'Cüzdan',
+  terlik: 'Terlik',
   // Pass-through for values already in display form
   'Günlük': 'Günlük', 'Klasik': 'Klasik', 'Spor': 'Spor',
-  'Bot': 'Bot', 'Sandalet': 'Sandalet', 'Krampon': 'Krampon',
-  'Cüzdan': 'Cüzdan',
+  'Bot': 'Bot', 'Krampon': 'Krampon', 'Cüzdan': 'Cüzdan',
+  'Erkek Ayakkabı': 'Erkek Ayakkabı', 'Terlik': 'Terlik',
 };
 
 export default async function Page() {

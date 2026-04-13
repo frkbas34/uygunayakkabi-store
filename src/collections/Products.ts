@@ -443,16 +443,17 @@ export const Products: CollectionConfig = {
       type: 'select',
       label: 'Kategori',
       options: [
-        // D-172: Primary wizard categories (operator intake)
+        // D-175: All active categories — synced with wizard + storefront filters
         { label: 'Erkek Ayakkabı', value: 'Erkek Ayakkabı' },
-        { label: 'Cüzdan', value: 'Cüzdan' },
-        // Legacy values kept for backward compatibility with existing products
-        { label: 'Günlük', value: 'Günlük' },
         { label: 'Spor', value: 'Spor' },
+        { label: 'Günlük', value: 'Günlük' },
         { label: 'Klasik', value: 'Klasik' },
         { label: 'Bot', value: 'Bot' },
-        { label: 'Sandalet', value: 'Sandalet' },
         { label: 'Krampon', value: 'Krampon' },
+        { label: 'Terlik', value: 'Terlik' },
+        { label: 'Cüzdan', value: 'Cüzdan' },
+        // Legacy: kept for backward compat, hidden from wizard
+        { label: 'Sandalet', value: 'Sandalet' },
       ],
       admin: {
         position: 'sidebar',

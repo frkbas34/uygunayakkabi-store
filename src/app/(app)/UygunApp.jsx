@@ -71,12 +71,13 @@ const STATIC_PRODUCTS = [
 // CATEGORY DATA
 // ============================================
 const CAT_DATA = [
+  { name: "Erkek Ayakkabı", desc: "Erkek Modelleri", icon: "👞" },
   { name: "Spor", desc: "Koşu & Fitness", icon: "⚡" },
   { name: "Günlük", desc: "Her Güne Uygun", icon: "👟" },
   { name: "Klasik", desc: "Ofis & Şıklık", icon: "✦" },
   { name: "Bot", desc: "Kış & Dağ", icon: "🏔" },
+  { name: "Krampon", desc: "Saha & Çim", icon: "⚽" },
   { name: "Terlik", desc: "Rahat & Hafif", icon: "🩴" },
-  { name: "Sandalet", desc: "Yaz Hafifliği", icon: "☀" },
   { name: "Cüzdan", desc: "Deri & Kartlık", icon: "◆" },
 ];
 

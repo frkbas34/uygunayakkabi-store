@@ -103,9 +103,15 @@ export interface WizardState {
 
 // ── Constants ─────────────────────────────────────────────────────────
 
-// D-171: Business-aligned category options (operator workflow)
+// D-175: Full category options matching storefront filters (no Sandalet)
 export const CATEGORY_OPTIONS = [
   { label: '👟 Erkek Ayakkabı', value: 'Erkek Ayakkabı' },
+  { label: '⚡ Spor', value: 'Spor' },
+  { label: '👟 Günlük', value: 'Günlük' },
+  { label: '✦ Klasik', value: 'Klasik' },
+  { label: '🏔 Bot', value: 'Bot' },
+  { label: '⚽ Krampon', value: 'Krampon' },
+  { label: '🩴 Terlik', value: 'Terlik' },
   { label: '👛 Cüzdan', value: 'Cüzdan' },
 ]
 
@@ -724,7 +730,7 @@ export async function applyConfirmation(
     // This is idempotent — IF NOT EXISTS prevents errors on subsequent calls.
     const pool = payload?.db?.pool
     if (pool && collected.category) {
-      const enumValues = ['Erkek Ayakkabı', 'Cüzdan']
+      const enumValues = ['Erkek Ayakkabı', 'Spor', 'Günlük', 'Klasik', 'Bot', 'Krampon', 'Terlik', 'Cüzdan']
       for (const val of enumValues) {
         try {
           await pool.query(`ALTER TYPE enum_products_category ADD VALUE IF NOT EXISTS '${val}'`)

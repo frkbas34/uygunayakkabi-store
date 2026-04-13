@@ -134,7 +134,7 @@ function TopBar({ settings }) {
 // ============================================
 // NAVBAR
 // ============================================
-function Navbar({ onNav, pg, settings }) {
+function Navbar({ onNav, pg, settings, cartCount, onCartToggle }) {
   const waNum = settings?.contact?.whatsappFull || DEFAULT_SETTINGS.contact.whatsappFull;
   const [mo, setMo] = useState(false);
   const [sc, setSc] = useState(false);
@@ -170,6 +170,19 @@ function Navbar({ onNav, pg, settings }) {
               {l.l}
             </span>
           ))}
+          {/* D-194: Cart icon */}
+          <button onClick={onCartToggle} style={{
+            position: "relative", background: "none", border: "none", cursor: "pointer", color: T.text, padding: 4,
+          }}>
+            {I.cart}
+            {cartCount > 0 && (
+              <span style={{
+                position: "absolute", top: -6, right: -8, width: 18, height: 18, borderRadius: "50%",
+                background: T.red, color: "#fff", fontSize: 10, fontWeight: 700,
+                display: "flex", alignItems: "center", justifyContent: "center",
+              }}>{cartCount}</span>
+            )}
+          </button>
           <a href={waLink(waNum)} target="_blank" rel="noreferrer" style={{
             display: "inline-flex", alignItems: "center", gap: 8,
             fontFamily: T.sans, fontSize: 11, fontWeight: 600, letterSpacing: "0.1em", textTransform: "uppercase",
@@ -179,7 +192,14 @@ function Navbar({ onNav, pg, settings }) {
             {I.wa} WHATSAPP
           </a>
         </div>
-        <button className="nav-mobile" onClick={() => setMo(!mo)} style={{ display: "none", background: "none", border: "none", cursor: "pointer", color: T.text, padding: 4 }}>
+        <div className="nav-mobile" style={{ display: "none", alignItems: "center", gap: 12 }}>
+          <button onClick={onCartToggle} style={{ position: "relative", background: "none", border: "none", cursor: "pointer", color: T.text, padding: 4 }}>
+            {I.cart}
+            {cartCount > 0 && (
+              <span style={{ position: "absolute", top: -6, right: -8, width: 18, height: 18, borderRadius: "50%", background: T.red, color: "#fff", fontSize: 10, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center" }}>{cartCount}</span>
+            )}
+          </button>
+          <button onClick={() => setMo(!mo)} style={{ background: "none", border: "none", cursor: "pointer", color: T.text, padding: 4 }}>
           {mo ? I.close : I.menu}
         </button>
       </div>
@@ -610,27 +630,132 @@ export default function App({ dbProducts = [], siteSettings = null, banners = []
     return dbMapped;
   })();
 
+  // D-194: URL sync — pushState so browser URL reflects current page
   const nav = (p, cat) => {
     if (cat) sInitCat(cat);
     else if (p === "catalog") sInitCat("Tümü");
     sPg(p);
     if (p !== "detail") sSel(null);
+    // Update browser URL
+    const url = p === "home" ? "/" : p === "catalog" ? "/ayakkabilar" : null;
+    if (url) window.history.pushState({ pg: p }, "", url);
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
 
-  const view = p => { sSel(p); sPg("detail"); window.scrollTo({ top: 0, behavior: "smooth" }); };
+  const view = p => {
+    sSel(p);
+    sPg("detail");
+    const slug = p.slug || p.id;
+    window.history.pushState({ pg: "detail", slug }, "", `/urun/${slug}`);
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  };
 
-  const addToCart = (product) => {
-    setCart([...cart, product]);
+  // D-194: Handle browser back/forward buttons
+  useEffect(() => {
+    const onPop = (e) => {
+      const state = e.state;
+      if (!state) { sPg("home"); sSel(null); return; }
+      if (state.pg === "detail" && state.slug) {
+        const found = allProducts.find(p => (p.slug || p.id) === state.slug);
+        if (found) { sSel(found); sPg("detail"); return; }
+      }
+      sPg(state.pg || "home");
+      if (state.pg !== "detail") sSel(null);
+    };
+    window.addEventListener("popstate", onPop);
+    // On mount, check if URL already indicates a sub-page
+    const path = window.location.pathname;
+    if (path === "/ayakkabilar") { sPg("catalog"); }
+    else if (path.startsWith("/urun/")) {
+      const slug = path.replace("/urun/", "");
+      const found = allProducts.find(p => (p.slug || String(p.id)) === slug);
+      if (found) { sSel(found); sPg("detail"); }
+      else { sPg("catalog"); }
+    }
+    return () => window.removeEventListener("popstate", onPop);
+  }, [allProducts]);
+
+  // D-194: Cart — add product with selected size
+  const addToCart = (product, selectedSize) => {
+    const existing = cart.find(c => c.id === product.id && c.size === selectedSize);
+    if (existing) {
+      setCart(cart.map(c => c.id === product.id && c.size === selectedSize ? { ...c, qty: c.qty + 1 } : c));
+    } else {
+      setCart([...cart, { ...product, size: selectedSize, qty: 1 }]);
+    }
     setToastMsg("Ürün sepete eklendi!");
     setTimeout(() => setToastMsg(""), 2000);
   };
+
+  const removeFromCart = (idx) => {
+    setCart(cart.filter((_, i) => i !== idx));
+  };
+
+  const cartTotal = cart.reduce((sum, c) => sum + c.price * (c.qty || 1), 0);
+  const cartCount = cart.reduce((sum, c) => sum + (c.qty || 1), 0);
 
   return (
     <div style={{ minHeight: "100vh", background: T.bg }}>
       <GlobalStyles />
       <TopBar settings={S} />
-      <Navbar onNav={nav} pg={pg} settings={S} />
+      <Navbar onNav={nav} pg={pg} settings={S} cartCount={cartCount} onCartToggle={() => setCartOpen(!cartOpen)} />
+
+      {/* D-194: Cart Drawer */}
+      {cartOpen && (
+        <>
+          <div onClick={() => setCartOpen(false)} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.35)", zIndex: 200 }} />
+          <div style={{
+            position: "fixed", top: 0, right: 0, bottom: 0, width: "min(420px, 90vw)", zIndex: 201,
+            background: T.bg, boxShadow: "-8px 0 40px rgba(0,0,0,0.12)", display: "flex", flexDirection: "column",
+          }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "20px 24px", borderBottom: "1px solid rgba(28,26,22,0.08)" }}>
+              <h3 style={{ fontFamily: T.serif, fontSize: 20, fontWeight: 700, color: T.text, margin: 0 }}>Sepet ({cartCount})</h3>
+              <button onClick={() => setCartOpen(false)} style={{ background: "none", border: "none", cursor: "pointer", color: T.text, fontSize: 18 }}>✕</button>
+            </div>
+            <div style={{ flex: 1, overflowY: "auto", padding: "16px 24px" }}>
+              {cart.length === 0 ? (
+                <div style={{ textAlign: "center", padding: "60px 0", color: T.textLight }}>
+                  <p style={{ fontSize: 48, marginBottom: 16 }}>🛒</p>
+                  <p style={{ fontFamily: T.sans, fontSize: 14 }}>Sepetiniz boş</p>
+                </div>
+              ) : (
+                cart.map((c, idx) => (
+                  <div key={idx} style={{ display: "flex", gap: 14, padding: "14px 0", borderBottom: "1px solid rgba(28,26,22,0.06)" }}>
+                    <div style={{ width: 64, height: 64, borderRadius: 12, overflow: "hidden", background: "#ebe5da", flexShrink: 0 }}>
+                      <img src={c.dbImage || c.image} alt={c.name || c.title} style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+                    </div>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <p style={{ fontFamily: T.sans, fontSize: 13, fontWeight: 600, color: T.text, margin: "0 0 4px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                        {c.name || c.title}
+                      </p>
+                      {c.size && <p style={{ fontFamily: T.sans, fontSize: 11, color: T.textLight, margin: "0 0 4px" }}>Beden: {c.size} · Adet: {c.qty || 1}</p>}
+                      <p style={{ fontFamily: T.sans, fontSize: 14, fontWeight: 700, color: T.text, margin: 0 }}>₺{(c.price * (c.qty || 1)).toLocaleString('tr-TR')}</p>
+                    </div>
+                    <button onClick={() => removeFromCart(idx)} style={{ background: "none", border: "none", cursor: "pointer", color: T.textLight, fontSize: 16, alignSelf: "center" }}>✕</button>
+                  </div>
+                ))
+              )}
+            </div>
+            {cart.length > 0 && (
+              <div style={{ padding: "20px 24px", borderTop: "1px solid rgba(28,26,22,0.08)" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 16 }}>
+                  <span style={{ fontFamily: T.sans, fontSize: 14, fontWeight: 600, color: T.text }}>Toplam</span>
+                  <span style={{ fontFamily: T.sans, fontSize: 18, fontWeight: 800, color: T.text }}>₺{cartTotal.toLocaleString('tr-TR')}</span>
+                </div>
+                <a href={`https://wa.me/${S.contact?.whatsappFull || '905331524843'}?text=${encodeURIComponent(
+                  `Merhaba! Sipariş vermek istiyorum:\n\n${cart.map(c => `• ${c.name || c.title}${c.size ? ` (${c.size})` : ''} x${c.qty || 1} — ₺${(c.price * (c.qty || 1)).toLocaleString('tr-TR')}`).join('\n')}\n\nToplam: ₺${cartTotal.toLocaleString('tr-TR')}`
+                )}`} target="_blank" rel="noreferrer" style={{
+                  display: "flex", alignItems: "center", justifyContent: "center", gap: 10, width: "100%",
+                  padding: "16px", background: T.green, color: "#fff", border: "none", borderRadius: T.r.full,
+                  fontFamily: T.sans, fontSize: 13, fontWeight: 700, textDecoration: "none", cursor: "pointer",
+                }}>
+                  {I.wa} WHATSAPP İLE SİPARİŞ VER
+                </a>
+              </div>
+            )}
+          </div>
+        </>
+      )}
 
       {pg === "home" && (
         <div>
@@ -668,7 +793,7 @@ export default function App({ dbProducts = [], siteSettings = null, banners = []
       )}
 
       {pg === "detail" && sel && (
-        <Detail product={sel} onBack={() => nav("catalog")} settings={S} onNav={nav} />
+        <Detail product={sel} onBack={() => nav("catalog")} settings={S} onNav={nav} onAddToCart={addToCart} />
       )}
 
       {toastMsg && (
@@ -748,7 +873,7 @@ function Catalog({ onView, allProducts, initCat, onNav, settings }) {
 // ============================================
 // DETAIL PAGE
 // ============================================
-function Detail({ product: p, onBack, settings, onNav }) {
+function Detail({ product: p, onBack, settings, onNav, onAddToCart }) {
   const ct = settings?.contact || DEFAULT_SETTINGS.contact;
   const [sz, sSz] = useState(null);
   const [im, sIm] = useState(0);
@@ -829,7 +954,7 @@ function Detail({ product: p, onBack, settings, onNav }) {
 
             {/* Actions */}
             <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-              <button style={{
+              <button onClick={() => { if (!isSoldOut && onAddToCart) onAddToCart(p, sz); }} style={{
                 width: "100%", padding: "17px",
                 background: !isSoldOut ? T.text : "rgba(28,26,22,0.3)",
                 color: "#fff", border: "none", borderRadius: T.r.full, fontFamily: T.sans, fontSize: 12, fontWeight: 700,

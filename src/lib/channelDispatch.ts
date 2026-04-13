@@ -288,9 +288,9 @@ async function publishFacebookDirectly(
   userAccessToken: string,
 ): Promise<ChannelDispatchResult> {
   const timestamp = new Date().toISOString()
-  const imageUrl  = payload.mediaUrls[0]
+  const validUrls = payload.mediaUrls.filter((u) => u && u.startsWith('https://'))
 
-  if (!imageUrl || !imageUrl.startsWith('https://')) {
+  if (validUrls.length === 0) {
     return {
       channel: 'facebook', eligible: true, dispatched: false,
       webhookConfigured: false,
@@ -305,8 +305,8 @@ async function publishFacebookDirectly(
       ? payload.geobot.facebookCopy.substring(0, 2200)
       : buildInstagramCaption(payload)
 
-    // ── Phase W1: Pre-warm media URL to avoid Vercel cold-start timeout ──────
-    await prewarmMediaUrl(imageUrl, 'facebook')
+    // ── Phase W1: Pre-warm ALL media URLs in parallel ────────────────────────
+    await Promise.all(validUrls.map((url) => prewarmMediaUrl(url, 'facebook')))
     await new Promise((r) => setTimeout(r, 500))
 
     // ── Step 1: Get Page Access Token ─────────────────────────────────────────
@@ -326,9 +326,6 @@ async function publishFacebookDirectly(
 
     if (!pageTokenRes.ok || !pageTokenData.access_token || typeof pageTokenData.access_token !== 'string') {
       if (isNPEPage) {
-        // New Pages Experience (NPE) — these pages don't expose access_token via
-        // GET /{page-id}?fields=access_token.  For NPE pages the user access token
-        // with pages_manage_posts scope is the correct credential to use directly.
         console.log(
           `[channelDispatch] Facebook: step 1 → NPE page detected (err 100/33). ` +
           `Falling back to user token with pages_manage_posts for page=${pageId}`,
@@ -336,7 +333,6 @@ async function publishFacebookDirectly(
         pageAccessToken = userAccessToken
         tokenMode = 'user-token-npe'
       } else {
-        // Some other step 1 failure — surface it for diagnosis
         const step1Error = pageTokenData.error ?? pageTokenData
         console.error(
           `[channelDispatch] Facebook: step 1 FAILED (non-NPE) for page=${pageId}:`,
@@ -364,46 +360,176 @@ async function publishFacebookDirectly(
       console.log(`[channelDispatch] Facebook: step 1 ✅ page access token obtained — page="${pageTokenData.name ?? pageId}" id=${pageTokenData.id ?? pageId}`)
     }
 
-    // ── Step 2: Post photo to page feed ───────────────────────────────────────
-    const postParams = new URLSearchParams({
-      url:          imageUrl,
-      message:      caption,
-      access_token: pageAccessToken,
-      published:    'true',
-    })
-    const postRes  = await fetch(
-      `https://graph.facebook.com/v21.0/${pageId}/photos?${postParams.toString()}`,
-      { method: 'POST', signal: AbortSignal.timeout(20_000) },
-    )
-    const postData = await postRes.json() as Record<string, unknown>
+    // ── Step 2: Post photo(s) to page feed ───────────────────────────────────
+    // D-190: Multi-photo support.
+    // Single image: POST /{pageId}/photos with published=true (same as before)
+    // Multiple images: upload each with published=false → create feed post with attached_media
+    if (validUrls.length === 1) {
+      // ── Single image path (unchanged) ────────────────────────────────────
+      const postParams = new URLSearchParams({
+        url:          validUrls[0],
+        message:      caption,
+        access_token: pageAccessToken,
+        published:    'true',
+      })
+      const postRes  = await fetch(
+        `https://graph.facebook.com/v21.0/${pageId}/photos?${postParams.toString()}`,
+        { method: 'POST', signal: AbortSignal.timeout(20_000) },
+      )
+      const postData = await postRes.json() as Record<string, unknown>
 
-    const postId = (postData.id ?? postData.post_id) as string | undefined
-    if (!postId) {
-      console.error(`[channelDispatch] Facebook post failed (tokenMode=${tokenMode}):`, postData)
+      const postId = (postData.id ?? postData.post_id) as string | undefined
+      if (!postId) {
+        console.error(`[channelDispatch] Facebook post failed (tokenMode=${tokenMode}):`, postData)
+        return {
+          channel: 'facebook', eligible: true, dispatched: false,
+          webhookConfigured: false,
+          error: `Facebook post failed (HTTP ${postRes.status})`,
+          publishResult: {
+            mode: 'api-error', success: false,
+            tokenMode,
+            apiError: JSON.stringify(postData.error ?? postData),
+            apiErrorCode: postData.error ? (postData.error as Record<string, unknown>).code : undefined,
+            timestamp: new Date().toISOString(),
+          },
+          timestamp,
+        }
+      }
+
+      console.log(`[channelDispatch] Facebook direct publish success — product=${payload.productId} postId=${postId} tokenMode=${tokenMode} mode=single`)
       return {
-        channel: 'facebook', eligible: true, dispatched: false,
+        channel: 'facebook', eligible: true, dispatched: true,
         webhookConfigured: false,
-        error: `Facebook post failed (HTTP ${postRes.status})`,
+        responseStatus: 200,
         publishResult: {
-          mode: 'api-error', success: false,
-          tokenMode,
-          apiError: JSON.stringify(postData.error ?? postData),
-          apiErrorCode: postData.error ? (postData.error as Record<string, unknown>).code : undefined,
+          received: true, channel: 'facebook', mode: 'direct',
+          success: true, facebookPostId: postId, pageId, tokenMode,
+          mediaUrl: validUrls[0], mediaCount: 1,
+          caption: caption.substring(0, 80) + '…',
           timestamp: new Date().toISOString(),
         },
         timestamp,
       }
     }
 
-    console.log(`[channelDispatch] Facebook direct publish success — product=${payload.productId} postId=${postId} tokenMode=${tokenMode}`)
+    // ── Multi-photo path (D-190) ───────────────────────────────────────────
+    // Step 2a: Upload each photo as unpublished
+    const photoIds: string[] = []
+    for (const url of validUrls.slice(0, 10)) {
+      const uploadParams = new URLSearchParams({
+        url,
+        published:    'false',
+        access_token: pageAccessToken,
+      })
+      try {
+        const uploadRes = await fetch(
+          `https://graph.facebook.com/v21.0/${pageId}/photos?${uploadParams.toString()}`,
+          { method: 'POST', signal: AbortSignal.timeout(20_000) },
+        )
+        const uploadData = await uploadRes.json() as Record<string, unknown>
+        const photoId = uploadData.id as string | undefined
+        if (photoId) {
+          photoIds.push(photoId)
+          console.log(`[channelDispatch] Facebook multi-photo: uploaded ${photoIds.length}/${validUrls.length} — photoId=${photoId}`)
+        } else {
+          console.warn(`[channelDispatch] Facebook multi-photo: upload failed for url=${url.slice(-40)}`, uploadData)
+        }
+      } catch (uploadErr) {
+        console.warn(`[channelDispatch] Facebook multi-photo: upload threw for url=${url.slice(-40)}`, uploadErr instanceof Error ? uploadErr.message : uploadErr)
+      }
+    }
+
+    if (photoIds.length === 0) {
+      return {
+        channel: 'facebook', eligible: true, dispatched: false,
+        webhookConfigured: false,
+        error: 'Facebook multi-photo: all uploads failed',
+        timestamp,
+      }
+    }
+
+    // Graceful degradation: if only 1 photo succeeded, publish it directly
+    if (photoIds.length === 1) {
+      console.log(`[channelDispatch] Facebook multi-photo: only 1 of ${validUrls.length} succeeded — falling back to single-photo publish`)
+      const postParams = new URLSearchParams({
+        url:          validUrls[0],
+        message:      caption,
+        access_token: pageAccessToken,
+        published:    'true',
+      })
+      const postRes = await fetch(
+        `https://graph.facebook.com/v21.0/${pageId}/photos?${postParams.toString()}`,
+        { method: 'POST', signal: AbortSignal.timeout(20_000) },
+      )
+      const postData = await postRes.json() as Record<string, unknown>
+      const postId = (postData.id ?? postData.post_id) as string | undefined
+      return {
+        channel: 'facebook', eligible: true, dispatched: !!postId,
+        webhookConfigured: false,
+        responseStatus: postId ? 200 : postRes.status,
+        error: postId ? undefined : `Facebook single-photo fallback failed`,
+        publishResult: {
+          received: true, channel: 'facebook', mode: 'direct-fallback',
+          success: !!postId, facebookPostId: postId, pageId, tokenMode,
+          mediaUrl: validUrls[0], mediaCount: 1,
+          caption: caption.substring(0, 80) + '…',
+          timestamp: new Date().toISOString(),
+        },
+        timestamp,
+      }
+    }
+
+    // Step 2b: Create feed post with attached_media referencing all uploaded photos
+    const feedParams = new URLSearchParams({
+      message:      caption,
+      access_token: pageAccessToken,
+    })
+    photoIds.forEach((id, i) => {
+      feedParams.append(`attached_media[${i}]`, JSON.stringify({ media_fbid: id }))
+    })
+
+    // Brief wait for Facebook to process the uploaded photos
+    await new Promise((r) => setTimeout(r, 2000))
+
+    const feedRes = await fetch(
+      `https://graph.facebook.com/v21.0/${pageId}/feed`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: feedParams.toString(),
+        signal: AbortSignal.timeout(20_000),
+      },
+    )
+    const feedData = await feedRes.json() as Record<string, unknown>
+
+    const feedPostId = feedData.id as string | undefined
+    if (!feedPostId) {
+      console.error(`[channelDispatch] Facebook multi-photo feed post failed:`, feedData)
+      return {
+        channel: 'facebook', eligible: true, dispatched: false,
+        webhookConfigured: false,
+        error: `Facebook multi-photo feed post failed (HTTP ${feedRes.status})`,
+        publishResult: {
+          mode: 'api-error', success: false,
+          tokenMode,
+          uploadedPhotos: photoIds.length,
+          apiError: JSON.stringify(feedData.error ?? feedData).slice(0, 500),
+          timestamp: new Date().toISOString(),
+        },
+        timestamp,
+      }
+    }
+
+    console.log(`[channelDispatch] Facebook multi-photo success — product=${payload.productId} postId=${feedPostId} photos=${photoIds.length} tokenMode=${tokenMode}`)
     return {
       channel: 'facebook', eligible: true, dispatched: true,
       webhookConfigured: false,
       responseStatus: 200,
       publishResult: {
-        received: true, channel: 'facebook', mode: 'direct',
-        success: true, facebookPostId: postId, pageId, tokenMode,
-        mediaUrl: imageUrl, caption: caption.substring(0, 80) + '…',
+        received: true, channel: 'facebook', mode: 'multi-photo',
+        success: true, facebookPostId: feedPostId, pageId, tokenMode,
+        mediaUrl: validUrls[0], mediaCount: photoIds.length,
+        caption: caption.substring(0, 80) + '…',
         timestamp: new Date().toISOString(),
       },
       timestamp,

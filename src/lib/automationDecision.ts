@@ -56,6 +56,13 @@ export type AutomationSettingsSnapshot = {
     /** Facebook Page numeric ID — set manually in AutomationSettings admin */
     facebookPageId?: string | null
   }
+  /** X (Twitter) OAuth 2.0 tokens — written by /api/auth/x/callback */
+  xTokens?: {
+    accessToken?: string | null
+    refreshToken?: string | null
+    expiresAt?: string | null
+    connectedAt?: string | null
+  }
 }
 
 /** Input to the status decision function */

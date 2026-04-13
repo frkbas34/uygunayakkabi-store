@@ -1,49 +1,24 @@
 /**
- * X (Twitter) OAuth 2.0 Callback
+ * X (Twitter) OAuth 2.0 Callback — D-195
  *
- * X redirects the user's browser here after they complete the OAuth 2.0 PKCE flow.
+ * Completes the OAuth 2.0 PKCE flow:
+ *  1. Validates CSRF state against cookie
+ *  2. Exchanges authorization code for access_token + refresh_token
+ *  3. Stores tokens in AutomationSettings.xTokens via Payload
+ *  4. Redirects admin to dashboard with success/error indicator
  *
- * Register this URL in:
- *   X Developer Portal → Your App → User authentication settings → Callback URI
+ * X token lifecycle:
+ *  - access_token expires in ~2 hours (7200s)
+ *  - refresh_token valid for ~6 months
+ *  - Auto-refresh handled by refreshXToken() in channelDispatch.ts
  *
- * Local dev:    http://localhost:3000/api/auth/x/callback
- * Production:   https://uygunayakkabi.com/api/auth/x/callback
- *
- * ── What X sends ─────────────────────────────────────────────────────────────
- *
- * Success (user approved):
- *   GET /api/auth/x/callback?code={auth_code}&state={state}
- *
- * Failure (user denied):
- *   GET /api/auth/x/callback?error={error_type}&state={state}
- *
- * ── TODO (Token Exchange) ────────────────────────────────────────────────────
- *
- * 1. Validate `state` against stored CSRF value
- *
- * 2. Exchange `code` for access token:
- *    POST https://api.x.com/2/oauth2/token
- *      Content-Type: application/x-www-form-urlencoded
- *      code={code}
- *      &grant_type=authorization_code
- *      &client_id={X_CLIENT_ID}
- *      &redirect_uri=https://uygunayakkabi.com/api/auth/x/callback
- *      &code_verifier={stored_pkce_verifier}
- *    → Returns: { access_token, refresh_token, expires_in, token_type, scope }
- *
- * 3. Store access_token + refresh_token in n8n Variables or secure store
- *
- * 4. X refresh tokens:
- *    POST https://api.x.com/2/oauth2/token
- *      grant_type=refresh_token&refresh_token={refresh_token}&client_id={X_CLIENT_ID}
- *    Tokens expire in ~2 hours; refresh token valid for 6 months.
- *
- * Required env vars (for token exchange — not needed for this minimal handler):
- *   X_CLIENT_ID       — from X Developer Portal → Project → App → Keys
- *   X_CLIENT_SECRET   — from X Developer Portal → Project → App → Keys
+ * Required env vars:
+ *   X_CLIENT_ID     — OAuth 2.0 Client ID
+ *   X_CLIENT_SECRET — OAuth 2.0 Client Secret (confidential client)
  */
 
 import { NextRequest, NextResponse } from 'next/server'
+import { getPayload } from '@/lib/payload'
 
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url)
@@ -60,7 +35,6 @@ export async function GET(req: NextRequest) {
     console.error(
       `[x/callback] OAuth error from X — error=${error} state=${state ?? '(none)'}`,
     )
-
     const redirectUrl = new URL(adminUrl)
     redirectUrl.searchParams.set('x_auth', 'error')
     redirectUrl.searchParams.set('x_error', error)
@@ -68,32 +42,122 @@ export async function GET(req: NextRequest) {
   }
 
   // ── Success path ────────────────────────────────────────────────────────────
-  if (code) {
-    console.log(
-      `[x/callback] Authorization code received from X — ` +
-        `state=${state ?? '(none)'} code_length=${code.length} ` +
-        '→ Token exchange not yet implemented',
+  if (!code) {
+    console.warn(
+      `[x/callback] Called without code or error — params: ${JSON.stringify(Object.fromEntries(searchParams))}`,
     )
+    return NextResponse.json(
+      { error: 'invalid_callback', message: 'No code or error received.' },
+      { status: 400 },
+    )
+  }
 
-    // TODO: Validate `state` against stored CSRF token
-    // TODO: Exchange `code` for access token using X_CLIENT_ID + X_CLIENT_SECRET + PKCE verifier
-    // TODO: Store tokens in n8n Variables (X_ACCESS_TOKEN, X_REFRESH_TOKEN)
-
+  // ── CSRF validation ─────────────────────────────────────────────────────────
+  const storedState = req.cookies.get('x_oauth_state')?.value
+  if (!storedState || storedState !== state) {
+    console.error(
+      `[x/callback] CSRF state mismatch — expected=${storedState ?? '(none)'} got=${state ?? '(none)'}`,
+    )
     const redirectUrl = new URL(adminUrl)
-    redirectUrl.searchParams.set('x_auth', 'code_received')
+    redirectUrl.searchParams.set('x_auth', 'error')
+    redirectUrl.searchParams.set('x_error', 'state_mismatch')
     return NextResponse.redirect(redirectUrl.toString())
   }
 
-  // ── Unknown ─────────────────────────────────────────────────────────────────
-  console.warn(
-    `[x/callback] Called without code or error — params: ${JSON.stringify(Object.fromEntries(searchParams))}`,
-  )
+  // ── Retrieve PKCE code_verifier ─────────────────────────────────────────────
+  const codeVerifier = req.cookies.get('x_oauth_verifier')?.value
+  if (!codeVerifier) {
+    console.error('[x/callback] PKCE code_verifier cookie missing')
+    const redirectUrl = new URL(adminUrl)
+    redirectUrl.searchParams.set('x_auth', 'error')
+    redirectUrl.searchParams.set('x_error', 'missing_verifier')
+    return NextResponse.redirect(redirectUrl.toString())
+  }
 
-  return NextResponse.json(
-    {
-      error:   'invalid_callback',
-      message: 'No code or error received. This endpoint is for X OAuth 2.0 redirects only.',
-    },
-    { status: 400 },
-  )
+  // ── Token exchange ──────────────────────────────────────────────────────────
+  const clientId     = process.env.X_CLIENT_ID
+  const clientSecret = process.env.X_CLIENT_SECRET
+  if (!clientId || !clientSecret) {
+    console.error('[x/callback] X_CLIENT_ID or X_CLIENT_SECRET env var missing')
+    const redirectUrl = new URL(adminUrl)
+    redirectUrl.searchParams.set('x_auth', 'error')
+    redirectUrl.searchParams.set('x_error', 'missing_env_vars')
+    return NextResponse.redirect(redirectUrl.toString())
+  }
+
+  const redirectUri = `${baseUrl}/api/auth/x/callback`
+
+  try {
+    // X API v2 token endpoint — uses Basic Auth for confidential clients
+    const basicAuth = Buffer.from(`${clientId}:${clientSecret}`).toString('base64')
+
+    const tokenResponse = await fetch('https://api.x.com/2/oauth2/token', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+        Authorization: `Basic ${basicAuth}`,
+      },
+      body: new URLSearchParams({
+        code,
+        grant_type: 'authorization_code',
+        client_id: clientId,
+        redirect_uri: redirectUri,
+        code_verifier: codeVerifier,
+      }).toString(),
+    })
+
+    const tokenData = await tokenResponse.json()
+
+    if (!tokenResponse.ok || !tokenData.access_token) {
+      console.error(
+        `[x/callback] Token exchange failed — status=${tokenResponse.status}`,
+        JSON.stringify(tokenData).substring(0, 500),
+      )
+      const redirectUrl = new URL(adminUrl)
+      redirectUrl.searchParams.set('x_auth', 'error')
+      redirectUrl.searchParams.set('x_error', tokenData.error ?? 'token_exchange_failed')
+      return NextResponse.redirect(redirectUrl.toString())
+    }
+
+    // ── Store tokens in AutomationSettings ──────────────────────────────────
+    const expiresIn = tokenData.expires_in ?? 7200 // default 2 hours
+    const expiresAt = new Date(Date.now() + expiresIn * 1000).toISOString()
+    const connectedAt = new Date().toISOString()
+
+    const payload = await getPayload()
+    await payload.updateGlobal({
+      slug: 'automation-settings',
+      data: {
+        xTokens: {
+          accessToken:  tokenData.access_token,
+          refreshToken: tokenData.refresh_token ?? null,
+          expiresAt,
+          connectedAt,
+        },
+      } as any,
+    })
+
+    console.log(
+      `[x/callback] ✅ X OAuth 2.0 tokens stored — ` +
+        `expires_in=${expiresIn}s scope=${tokenData.scope ?? '(none)'} ` +
+        `has_refresh=${!!tokenData.refresh_token}`,
+    )
+
+    // Clear PKCE cookies
+    const clearCookie = 'HttpOnly; Secure; SameSite=Lax; Path=/api/auth/x; Max-Age=0'
+    const redirectUrl = new URL(adminUrl)
+    redirectUrl.searchParams.set('x_auth', 'success')
+    const response = NextResponse.redirect(redirectUrl.toString())
+    response.headers.append('Set-Cookie', `x_oauth_state=; ${clearCookie}`)
+    response.headers.append('Set-Cookie', `x_oauth_verifier=; ${clearCookie}`)
+    return response
+
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err)
+    console.error(`[x/callback] Token exchange exception: ${message}`)
+    const redirectUrl = new URL(adminUrl)
+    redirectUrl.searchParams.set('x_auth', 'error')
+    redirectUrl.searchParams.set('x_error', 'exception')
+    return NextResponse.redirect(redirectUrl.toString())
+  }
 }

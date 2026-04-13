@@ -1131,6 +1131,208 @@ export async function dispatchToChannel(
   }
 }
 
+// ── D-195: X (Twitter) Auto-Refresh + Direct Publish ────────────────────────
+// X access tokens expire in ~2 hours. refreshXToken() transparently refreshes
+// using the stored refresh_token and updates AutomationSettings.xTokens.
+// publishXDirectly() posts a tweet via X API v2 POST /2/tweets.
+
+import { getPayload } from './payload'
+
+/**
+ * Refresh X access token using the refresh_token.
+ * Returns the new access_token, or null on failure.
+ * Updates AutomationSettings.xTokens in the database.
+ */
+async function refreshXToken(refreshToken: string): Promise<string | null> {
+  const clientId     = process.env.X_CLIENT_ID
+  const clientSecret = process.env.X_CLIENT_SECRET
+  if (!clientId || !clientSecret) {
+    console.error('[x/refresh] X_CLIENT_ID or X_CLIENT_SECRET missing')
+    return null
+  }
+
+  try {
+    const basicAuth = Buffer.from(`${clientId}:${clientSecret}`).toString('base64')
+    const response = await fetch('https://api.x.com/2/oauth2/token', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+        Authorization: `Basic ${basicAuth}`,
+      },
+      body: new URLSearchParams({
+        grant_type: 'refresh_token',
+        refresh_token: refreshToken,
+        client_id: clientId,
+      }).toString(),
+    })
+
+    const data = await response.json()
+    if (!response.ok || !data.access_token) {
+      console.error(
+        `[x/refresh] Token refresh failed — status=${response.status}`,
+        JSON.stringify(data).substring(0, 300),
+      )
+      return null
+    }
+
+    // Store refreshed tokens
+    const expiresIn = data.expires_in ?? 7200
+    const expiresAt = new Date(Date.now() + expiresIn * 1000).toISOString()
+
+    const payload = await getPayload()
+    await payload.updateGlobal({
+      slug: 'automation-settings',
+      data: {
+        xTokens: {
+          accessToken:  data.access_token,
+          refreshToken: data.refresh_token ?? refreshToken, // X may rotate refresh token
+          expiresAt,
+          connectedAt: new Date().toISOString(),
+        },
+      } as any,
+    })
+
+    console.log(`[x/refresh] ✅ Token refreshed — expires_in=${expiresIn}s`)
+    return data.access_token
+  } catch (err) {
+    console.error('[x/refresh] Exception:', err instanceof Error ? err.message : String(err))
+    return null
+  }
+}
+
+/**
+ * Get a valid X access token — refreshes automatically if expired.
+ */
+async function getValidXToken(
+  xTokens: { accessToken?: string | null; refreshToken?: string | null; expiresAt?: string | null },
+): Promise<string | null> {
+  if (!xTokens.accessToken) return null
+
+  // Check if token is still valid (with 5-minute buffer)
+  if (xTokens.expiresAt) {
+    const expiresAt = new Date(xTokens.expiresAt).getTime()
+    const bufferMs = 5 * 60 * 1000 // 5 minutes
+    if (Date.now() > expiresAt - bufferMs) {
+      console.log('[x/token] Access token expired or expiring soon — refreshing...')
+      if (xTokens.refreshToken) {
+        return await refreshXToken(xTokens.refreshToken)
+      }
+      console.error('[x/token] No refresh token available — re-authorize via /api/auth/x/initiate')
+      return null
+    }
+  }
+
+  return xTokens.accessToken
+}
+
+/**
+ * D-195: Publish a tweet via X API v2 POST /2/tweets.
+ * Supports text-only tweets (X free tier).
+ * Media upload requires X API v1.1 media/upload + paid tier — deferred.
+ */
+async function publishXDirectly(
+  payload: ChannelDispatchPayload,
+  xTokens: { accessToken?: string | null; refreshToken?: string | null; expiresAt?: string | null },
+): Promise<ChannelDispatchResult> {
+  const timestamp = new Date().toISOString()
+
+  // Get valid token (auto-refresh if needed)
+  const accessToken = await getValidXToken(xTokens)
+  if (!accessToken) {
+    return {
+      channel: 'x',
+      eligible: true,
+      dispatched: false,
+      webhookConfigured: false,
+      error: 'X access token missing or refresh failed — re-authorize via /api/auth/x/initiate',
+      timestamp,
+    }
+  }
+
+  // Build tweet text — use geobot xPost or fallback
+  let tweetText: string
+  if (payload.geobot?.xPost) {
+    tweetText = payload.geobot.xPost
+  } else {
+    // Fallback: title + price + link
+    const price = payload.price ? ` ${payload.price}₺` : ''
+    const link = payload.slug
+      ? `\nhttps://uygunayakkabi.com/urun/${payload.slug}`
+      : ''
+    tweetText = `${payload.title}${price}${link}`
+  }
+
+  // Add low-stock suffix
+  if (payload.stockQuantity != null && payload.stockQuantity > 0 && payload.stockQuantity <= 3) {
+    tweetText += `\n\n🔥 Son ${payload.stockQuantity} adet!`
+  }
+
+  // X tweet limit = 280 chars
+  if (tweetText.length > 280) {
+    tweetText = tweetText.substring(0, 277) + '...'
+  }
+
+  try {
+    const response = await fetch('https://api.x.com/2/tweets', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${accessToken}`,
+      },
+      body: JSON.stringify({ text: tweetText }),
+    })
+
+    const data = await response.json()
+
+    if (!response.ok) {
+      // Check if it's an auth error — token might have been invalidated
+      const errorMsg = data.detail ?? data.title ?? JSON.stringify(data).substring(0, 200)
+      console.error(
+        `[channelDispatch] X publish failed — status=${response.status} error=${errorMsg}`,
+      )
+      return {
+        channel: 'x',
+        eligible: true,
+        dispatched: false,
+        webhookConfigured: false,
+        error: `X API error ${response.status}: ${errorMsg}`,
+        timestamp,
+      }
+    }
+
+    const tweetId = data.data?.id
+    console.log(
+      `[channelDispatch] ✅ X tweet published — tweetId=${tweetId} chars=${tweetText.length}`,
+    )
+
+    return {
+      channel: 'x',
+      eligible: true,
+      dispatched: true,
+      webhookConfigured: false, // not using webhook
+      responseStatus: response.status,
+      publishResult: {
+        tweetId,
+        mode: 'direct',
+        caption: tweetText,
+        source: payload.geobot?.xPost ? 'geobot' : 'template-fallback',
+      },
+      timestamp,
+    }
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err)
+    console.error(`[channelDispatch] X publish exception: ${message}`)
+    return {
+      channel: 'x',
+      eligible: true,
+      dispatched: false,
+      webhookConfigured: false,
+      error: message,
+      timestamp,
+    }
+  }
+}
+
 // ── Phase G: Preview caption resolver ────────────────────────────────────────
 // Uses the SAME content-selection logic as real publish paths.
 // Returns the exact caption that would be sent, plus source attribution.
@@ -1212,6 +1414,16 @@ export async function dispatchProductToChannels(
       }
     : undefined
 
+  // Extract X (Twitter) tokens from settings snapshot.
+  // D-195: Access token auto-refreshes via refreshXToken() when expired.
+  const xTokens = settings?.xTokens
+    ? {
+        accessToken:  settings.xTokens.accessToken  ?? null,
+        refreshToken: settings.xTokens.refreshToken ?? null,
+        expiresAt:    settings.xTokens.expiresAt    ?? null,
+      }
+    : undefined
+
   const results: ChannelDispatchResult[] = []
 
   // Record skipped channels
@@ -1283,6 +1495,12 @@ export async function dispatchProductToChannels(
         instagramTokens.facebookPageId,
         instagramTokens.accessToken,
       )
+    } else if (
+      channel === 'x' &&
+      xTokens?.accessToken
+    ) {
+      // D-195: X (Twitter) direct publish via API v2 — auto-refreshes token
+      result = await publishXDirectly(dispatchPayload, xTokens)
     } else if (
       channel === 'shopier' &&
       process.env.SHOPIER_PAT

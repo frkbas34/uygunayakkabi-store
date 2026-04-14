@@ -473,6 +473,7 @@ async function approveImageGenJob(
   jobId: string,
   slotsStr: string,
   chatId: number,
+  userId?: number,
 ): Promise<void> {
   // D-156: depth:1 forces Payload to populate the generatedImages hasMany
   // relationship as full media docs. Earlier depth:0 path was returning
@@ -582,25 +583,86 @@ async function approveImageGenJob(
   // VF-2: Set product visualStatus = approved when operator approves visuals
   await updateProductVisualStatus(payload, productId, 'approved')
 
-  // D-162: GeoBot content generation is NOT triggered here. It must wait
-  // until the operator completes the intake wizard (title, stock code,
-  // category, product type, price, sizes, stock) and confirms. The trigger
-  // lives in confirmationWizard.applyConfirmation(). Triggering on image
-  // approval was a D-159/D-160 regression — GeoBot fired against the
-  // placeholder "Taslak Ürün…" title and produced low-quality generic copy.
-  const isPartial = slotsStr !== 'all' && approvedMediaIds.length < allMediaIds.length
-  const slotNote = isPartial ? ` (${approvedMediaIds.length}/${allMediaIds.length} slot)` : ''
+  // D-203: Auto-start confirmation wizard immediately after image approval.
+  // Previously showed a verbose message + button requiring an extra click.
+  // Now we skip straight to the first wizard prompt.
+  // GeoBot content generation still waits for wizard completion (D-162 rule).
+  if (userId) {
+    try {
+      const {
+        checkConfirmationFields, getNextWizardStep, setWizardSession, clearWizardSession,
+        getTitlePrompt, getCategoryPrompt, getProductTypePrompt,
+        getPricePrompt, getTargetsPrompt, getBrandPrompt, formatConfirmationSummary,
+      } = await import('@/lib/confirmationWizard')
 
-  await sendTelegramMessageWithKeyboard(
-    chatId,
-    `✅ <b>${approvedMediaIds.length} görsel onaylandı${slotNote}</b>\n\n` +
-    `Görseller AI Üretim Galerisi'ne eklendi (ürün sayfası görselleri değişmedi).\n` +
-    `📋 Ürün bilgilerini girip onayladıktan sonra GeoBot açıklamaları yazacak.\n` +
-    `🔗 <a href="https://www.uygunayakkabi.com/admin/collections/products/${productId}">Ürünü admin'de gör</a>`,
-    [
-      [{ text: '📋 Bilgileri Gir → Onaya Gönder', callback_data: `wz_start:${productId}` }],
-    ],
-  )
+      const freshProduct = await payload.findByID({ collection: 'products', id: productId, depth: 1 })
+      const check = checkConfirmationFields(freshProduct as any)
+      const collected: Record<string, unknown> = {}
+      const nextStep = getNextWizardStep(freshProduct as any, collected as any)
+
+      if (check.ready && nextStep === 'summary') {
+        const summary = formatConfirmationSummary(freshProduct as any, {} as any)
+        await sendTelegramMessageWithKeyboard(chatId, summary, [
+          [
+            { text: '✅ Onayla', callback_data: `wz_confirm:${productId}` },
+            { text: '✏️ Düzenle', callback_data: `wz_edit:${productId}` },
+            { text: '❌ İptal', callback_data: `wz_cancel:${productId}` },
+          ],
+        ])
+        await setWizardSession(chatId, {
+          productId, chatId, userId,
+          step: 'summary', collected: {} as any, startedAt: Date.now(),
+        }, userId)
+      } else {
+        await clearWizardSession(chatId, userId)
+        const wizState: any = {
+          productId, chatId, userId,
+          step: nextStep, collected, startedAt: Date.now(),
+        }
+        await setWizardSession(chatId, wizState, userId)
+
+        // Dispatch first wizard prompt directly
+        if (nextStep === 'title') {
+          await sendTelegramMessage(chatId, getTitlePrompt((freshProduct as any).title ?? `Ürün #${productId}`))
+        } else if (nextStep === 'category') {
+          const catPrompt = getCategoryPrompt()
+          await sendTelegramMessageWithKeyboard(chatId, catPrompt.text, catPrompt.keyboard)
+        } else if (nextStep === 'productType') {
+          const ptypePrompt = getProductTypePrompt()
+          await sendTelegramMessageWithKeyboard(chatId, ptypePrompt.text, ptypePrompt.keyboard)
+        } else if (nextStep === 'price') {
+          await sendTelegramMessage(chatId, getPricePrompt())
+        } else if (nextStep === 'sizes') {
+          wizState.pendingSizes = []
+          const sizeMsg = await sendTelegramMessageWithKeyboard(
+            chatId, formatSizeSelectionText(new Set()), buildSizeKeyboard(new Set()))
+          if (sizeMsg) wizState.sizeMessageId = sizeMsg
+          await setWizardSession(chatId, wizState, userId)
+        } else if (nextStep === 'brand') {
+          await sendTelegramMessage(chatId, getBrandPrompt())
+        } else if (nextStep === 'targets') {
+          const tgtPrompt = getTargetsPrompt()
+          await sendTelegramMessageWithKeyboard(chatId, tgtPrompt.text, tgtPrompt.keyboard)
+        } else {
+          // Unknown step — fall back to button
+          await sendTelegramMessageWithKeyboard(chatId,
+            `✅ <b>${approvedMediaIds.length} görsel onaylandı</b>`,
+            [[{ text: '📋 Bilgileri Gir', callback_data: `wz_start:${productId}` }]])
+        }
+      }
+    } catch (wizErr) {
+      console.error('[approveImageGenJob] auto-wizard start failed:', wizErr)
+      // Fallback: show simple button if wizard auto-start fails
+      await sendTelegramMessageWithKeyboard(chatId,
+        `✅ <b>${approvedMediaIds.length} görsel onaylandı</b>`,
+        [[{ text: '📋 Bilgileri Gir → Onaya Gönder', callback_data: `wz_start:${productId}` }]])
+    }
+  } else {
+    // No userId available — show button as fallback
+    await sendTelegramMessageWithKeyboard(chatId,
+      `✅ <b>${approvedMediaIds.length} görsel onaylandı</b>`,
+      [[{ text: '📋 Bilgileri Gir → Onaya Gönder', callback_data: `wz_start:${productId}` }]])
+  }
 }
 
 /**
@@ -978,7 +1040,7 @@ export async function POST(req: NextRequest) {
         after(async () => {
           try {
             const approvePayload = await getPayload()
-            await approveImageGenJob(approvePayload, cbJobId, slotsStr, cbChatId)
+            await approveImageGenJob(approvePayload, cbJobId, slotsStr, cbChatId, cbUserId)
           } catch (err) {
             console.error('[telegram/webhook] imgapprove callback failed:', err)
             await sendTelegramMessage(cbChatId, `❌ Onaylama hatası: ${err instanceof Error ? err.message : 'Bilinmeyen hata'}`)
@@ -3214,7 +3276,7 @@ export async function POST(req: NextRequest) {
         const slotsStr = slotsMatch ? slotsMatch[0].trim() : 'all'
 
         try {
-          await approveImageGenJob(payload, previewJobId, slotsStr, chatId)
+          await approveImageGenJob(payload, previewJobId, slotsStr, chatId, message.from?.id)
         } catch (err) {
           console.error('[telegram/webhook] approve text command failed:', err)
           await sendTelegramMessage(chatId, `❌ Onaylama hatası: ${err instanceof Error ? err.message : 'Bilinmeyen hata'}`)

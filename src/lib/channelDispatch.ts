@@ -25,6 +25,7 @@
  */
 
 import type { AutomationSettingsSnapshot } from './automationDecision'
+import crypto from 'crypto'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -1139,8 +1140,6 @@ export async function dispatchToChannel(
 // Credentials are stored as env vars: X_API_KEY, X_API_SECRET,
 // X_ACCESS_TOKEN, X_ACCESS_TOKEN_SECRET.
 // publishXDirectly() posts a tweet via X API v2 POST /2/tweets.
-
-import crypto from 'crypto'
 
 /**
  * Generate OAuth 1.0a Authorization header for X API requests.

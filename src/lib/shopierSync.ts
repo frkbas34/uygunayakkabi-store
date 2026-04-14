@@ -160,17 +160,27 @@ export async function ensureSelection(
 /**
  * Extract media URLs from a Payload product and map to Shopier media input.
  * Shopier accepts external image URLs in the media array (max 5).
+ *
+ * D-200: Uses ONLY AI-generated images from generativeGallery.
+ * Original Telegram photos (product.images) are NOT sent to Shopier.
+ * If no AI images exist, returns empty array — sync will be skipped.
  */
 function buildShopierMedia(product: Record<string, unknown>): ShopierMediaInput[] {
-  const images = product.images as
+  // D-200: Use ONLY AI-generated images from generativeGallery
+  const aiImages = product.generativeGallery as
     | Array<{ image?: { url?: string; filename?: string } }>
     | undefined
 
-  if (!Array.isArray(images) || images.length === 0) return []
+  if (!Array.isArray(aiImages) || aiImages.length === 0) {
+    console.warn(
+      `[shopierSync] product ${product.id} has no AI images in generativeGallery — skipping media`,
+    )
+    return []
+  }
 
   const serverUrl = (process.env.NEXT_PUBLIC_SERVER_URL ?? '').replace(/\/$/, '')
 
-  return images
+  return aiImages
     .slice(0, 5) // Shopier max 5 media files
     .map((img, i) => {
       const media = img?.image
@@ -288,7 +298,7 @@ async function buildShopierProductBody(
 
   const media = buildShopierMedia(product)
   if (media.length === 0) {
-    console.error(`[shopierSync] product ${product.id} has no valid media URLs`)
+    console.error(`[shopierSync] product ${product.id} has no AI images in generativeGallery — cannot sync to Shopier`)
     return null
   }
 

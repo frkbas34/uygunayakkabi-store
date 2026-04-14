@@ -266,55 +266,11 @@ export const AutomationSettings: GlobalConfig = {
         // Products.ts afterChange call site instead.
       ],
     },
-    // ── X (Twitter) Token Storage ────────────────────────────────
-    // Written automatically by /api/auth/x/callback after OAuth 2.0 PKCE.
-    // Tokens expire in ~2 hours; auto-refresh uses the refresh_token.
-    // Do NOT edit manually — re-run OAuth to refresh.
-    {
-      name: 'xTokens',
-      type: 'group',
-      label: '🔑 X (Twitter) Bağlantı Bilgileri',
-      admin: {
-        description:
-          'OAuth 2.0 PKCE akışı tamamlandığında otomatik doldurulur. ' +
-          'Access token ~2 saat geçerlidir, refresh token ile otomatik yenilenir. ' +
-          'Yenilemek için /api/auth/x/initiate adresini ziyaret et.',
-      },
-      fields: [
-        {
-          name: 'accessToken',
-          type: 'textarea',
-          label: 'Access Token',
-          admin: {
-            description: 'X OAuth 2.0 access token (~2 saat geçerli). Callback tarafından yazılır.',
-          },
-        },
-        {
-          name: 'refreshToken',
-          type: 'textarea',
-          label: 'Refresh Token',
-          admin: {
-            description: 'X OAuth 2.0 refresh token (~6 ay geçerli). Access token yenilemede kullanılır.',
-          },
-        },
-        {
-          name: 'expiresAt',
-          type: 'date',
-          label: 'Token Bitiş Tarihi',
-          admin: {
-            description: 'Access token süresi. Dolduğunda refresh token ile otomatik yenilenir.',
-          },
-        },
-        {
-          name: 'connectedAt',
-          type: 'date',
-          label: 'Bağlandığı Tarih',
-          admin: {
-            description: 'Son başarılı OAuth akışının zamanı.',
-          },
-        },
-      ],
-    },
+    // ── X (Twitter) Token Storage — REMOVED (D-195c) ──────────────
+    // D-195c: Switched to OAuth 1.0a — tokens stored as env vars
+    // (X_API_KEY, X_API_SECRET, X_ACCESS_TOKEN, X_ACCESS_TOKEN_SECRET).
+    // xTokens group removed from schema to prevent Neon missing-column
+    // errors (same issue as facebookPageId in D-188b).
     // ── Story Pipeline Ayarları ─────────────────────────────────
     // Phase 3: Configurable story targets for multi-platform story publishing.
     // Each target represents a platform endpoint (Telegram, Instagram, WhatsApp).

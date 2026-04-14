@@ -1267,17 +1267,18 @@ async function publishXDirectly(
     const data = await response.json()
 
     if (!response.ok) {
-      // Check if it's an auth error — token might have been invalidated
-      const errorMsg = data.detail ?? data.title ?? JSON.stringify(data).substring(0, 200)
+      // D-195c: Log full error body for debugging (truncated to 500 chars)
+      const fullBody = JSON.stringify(data).substring(0, 500)
+      const errorMsg = data.detail ?? data.title ?? fullBody
       console.error(
-        `[channelDispatch] X publish failed — status=${response.status} error=${errorMsg}`,
+        `[channelDispatch] X publish failed — status=${response.status} error=${errorMsg} fullBody=${fullBody}`,
       )
       return {
         channel: 'x',
         eligible: true,
         dispatched: false,
         webhookConfigured: false,
-        error: `X API error ${response.status}: ${errorMsg}`,
+        error: `X API error ${response.status}: ${fullBody}`,
         timestamp,
       }
     }

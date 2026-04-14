@@ -811,10 +811,22 @@ const ALL_CATEGORIES = ["Tümü", "Spor", "Günlük", "Klasik", "Bot", "Sandalet
 
 function Catalog({ onView, allProducts, initCat, onNav, settings }) {
   const [fl, sFl] = useState(initCat);
+  const [szFilter, setSzFilter] = useState(null);
   const [vis, sVis] = useState(12);
-  const flt = fl === "Tümü" ? allProducts : allProducts.filter(p => p.category === fl);
+
+  // Extract all unique sizes sorted numerically
+  const allSizes = [...new Set(allProducts.flatMap(p => p.sizes || []))].sort((a, b) => Number(a) - Number(b));
+
+  // Combined filter: category + size
+  const flt = allProducts.filter(p => {
+    const catMatch = fl === "Tümü" || p.category === fl;
+    const sizeMatch = !szFilter || (p.sizes && p.sizes.includes(szFilter));
+    return catMatch && sizeMatch;
+  });
   const shown = flt.slice(0, vis);
   const hasMore = vis < flt.length;
+
+  const hasActiveFilter = fl !== "Tümü" || szFilter;
 
   return (
     <div style={{ paddingTop: 80, background: T.bg, minHeight: "100vh", position: "relative", zIndex: 1 }}>
@@ -825,8 +837,8 @@ function Catalog({ onView, allProducts, initCat, onNav, settings }) {
           <p style={{ fontFamily: T.sans, fontSize: 16, color: T.textLight, maxWidth: 480, margin: "0 auto" }}>Tüm kategorilerde en iyi seçkiler</p>
         </div>
 
-        {/* Filter */}
-        <div style={{ display: "flex", gap: 10, justifyContent: "center", flexWrap: "wrap", marginBottom: 40 }}>
+        {/* Category Filter */}
+        <div style={{ display: "flex", gap: 10, justifyContent: "center", flexWrap: "wrap", marginBottom: 16 }}>
           {ALL_CATEGORIES.map(c => (
             <button key={c} onClick={() => { sFl(c); sVis(12); }} style={{
               fontFamily: T.sans, fontSize: 11, fontWeight: 600, letterSpacing: "0.08em",
@@ -840,12 +852,63 @@ function Catalog({ onView, allProducts, initCat, onNav, settings }) {
           ))}
         </div>
 
+        {/* Size Filter */}
+        {allSizes.length > 0 && (
+          <div style={{ display: "flex", gap: 8, justifyContent: "center", flexWrap: "wrap", marginBottom: 16, alignItems: "center" }}>
+            <span style={{ fontFamily: T.sans, fontSize: 11, fontWeight: 600, letterSpacing: "0.08em", textTransform: "uppercase", color: T.textLight, marginRight: 4 }}>Beden:</span>
+            {allSizes.map(s => (
+              <button key={s} onClick={() => { setSzFilter(szFilter === s ? null : s); sVis(12); }} style={{
+                fontFamily: T.sans, fontSize: 12, fontWeight: 600,
+                width: 42, height: 42, borderRadius: "50%", cursor: "pointer",
+                display: "flex", alignItems: "center", justifyContent: "center",
+                border: szFilter === s ? "2px solid #1c1a16" : "1px solid rgba(28,26,22,0.12)",
+                background: szFilter === s ? T.text : "rgba(238,232,222,0.6)",
+                color: szFilter === s ? "#fff" : T.textLight, transition: "all 0.3s",
+              }}>
+                {s}
+              </button>
+            ))}
+          </div>
+        )}
+
+        {/* Clear filters */}
+        {hasActiveFilter && (
+          <div style={{ display: "flex", justifyContent: "center", marginBottom: 32 }}>
+            <button onClick={() => { sFl("Tümü"); setSzFilter(null); sVis(12); }} style={{
+              fontFamily: T.sans, fontSize: 11, fontWeight: 600, letterSpacing: "0.06em",
+              padding: "8px 20px", borderRadius: T.r.full, cursor: "pointer",
+              border: "1px solid rgba(200,16,46,0.3)", background: "rgba(200,16,46,0.06)",
+              color: T.red, transition: "all 0.3s",
+            }}>
+              ✕ Filtreleri Temizle
+            </button>
+          </div>
+        )}
+
+        {/* Results count */}
+        {hasActiveFilter && flt.length > 0 && (
+          <div style={{ textAlign: "center", marginBottom: 24 }}>
+            <p style={{ fontFamily: T.sans, fontSize: 13, color: T.textLight }}>
+              {flt.length} ürün bulundu
+            </p>
+          </div>
+        )}
+
         {/* Grid */}
         {flt.length === 0 ? (
           <div style={{ textAlign: "center", padding: "80px 24px" }}>
             <p style={{ fontFamily: T.sans, fontSize: 18, fontWeight: 600, color: T.text, marginBottom: 8 }}>
-              {fl === "Tümü" ? "Henüz ürün eklenmedi" : `${fl} kategorisinde ürün yok`}
+              {!hasActiveFilter ? "Henüz ürün eklenmedi" : "Bu filtrelere uygun ürün bulunamadı"}
             </p>
+            {hasActiveFilter && (
+              <button onClick={() => { sFl("Tümü"); setSzFilter(null); sVis(12); }} style={{
+                fontFamily: T.sans, fontSize: 13, fontWeight: 600, marginTop: 16,
+                padding: "12px 32px", borderRadius: T.r.full, cursor: "pointer",
+                border: "none", background: T.text, color: "#fff", transition: "all 0.3s",
+              }}>
+                Tüm Ürünleri Göster
+              </button>
+            )}
           </div>
         ) : (
           <div className="prod-grid" style={{ display: "grid", gridTemplateColumns: "repeat(6, 1fr)", gap: 16 }}>

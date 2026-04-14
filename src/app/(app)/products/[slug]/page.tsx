@@ -3,6 +3,9 @@ import { notFound } from 'next/navigation'
 import { ProductImages } from '@/components/ProductImages'
 import { ContactForm } from '@/components/ContactForm'
 import { ProductFAQ } from '@/components/ProductFAQ'
+import { StorefrontNavbar } from '@/components/StorefrontNavbar'
+import { StorefrontFooter } from '@/components/StorefrontFooter'
+import Link from 'next/link'
 import type { Metadata } from 'next'
 
 export const revalidate = 60
@@ -69,7 +72,7 @@ type ProductDoc = {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// SEO Metadata — uses discoveryPack meta when available, falls back to basics
+// SEO Metadata
 // ─────────────────────────────────────────────────────────────────────────────
 
 async function getProduct(slug: string): Promise<ProductDoc | undefined> {
@@ -100,12 +103,10 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
 
   const keywords = product.content?.discoveryPack?.keywordEntities
 
-  // D-195b: Extract first AI-generated image for og:image + twitter:card
   const baseUrl = (process.env.NEXT_PUBLIC_SERVER_URL ?? 'https://uygunayakkabi.com').replace(/\/$/, '')
   const ogImage = (() => {
     const gallery = product.generativeGallery ?? []
     if (gallery.length === 0) {
-      // Fallback to original images
       const originals = product.images ?? []
       if (originals.length === 0) return undefined
       const first = originals[0]
@@ -148,12 +149,10 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
 // ─────────────────────────────────────────────────────────────────────────────
 
 function buildProductJsonLd(product: ProductDoc, url: string) {
-  // D-174b: Only GeoBot description, fallback to title (never intake placeholder)
   const desc =
     product.content?.commercePack?.websiteDescription ||
     product.title
 
-  // Extract first image URL for schema — AI images only, never originals
   const imageUrl = (() => {
     const gallery = product.generativeGallery ?? []
     if (gallery.length === 0) return undefined
@@ -204,7 +203,7 @@ function buildFaqJsonLd(faq: FAQItem[]) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Product Page
+// Product Page — Merged: SPA beige theme + SSR enhancements
 // ─────────────────────────────────────────────────────────────────────────────
 
 export default async function ProductPage({ params }: Props) {
@@ -215,13 +214,10 @@ export default async function ProductPage({ params }: Props) {
     notFound()
   }
 
-  // Draft products must not be accessible on the public storefront.
-  // Soldout products remain visible (customers may still want to see them / inquire).
   if (product.status === 'draft') {
     notFound()
   }
 
-  // Fetch variants via product_id FK
   const payload = await getPayload()
   const variantResult = await payload.find({
     collection: 'variants',
@@ -232,15 +228,14 @@ export default async function ProductPage({ params }: Props) {
   })
   const variants = variantResult.docs as VariantDoc[]
   const availableSizes = variants.filter((v) => v.stock > 0)
+  const totalStock = availableSizes.reduce((sum, v) => sum + v.stock, 0)
+  const isSoldOut = product.status === 'soldout' || totalStock === 0
 
-  // D-187: depth:3 + defensive check for unresolved relationships (raw ID instead of object).
-  // Prefer sizes.large (1200px) for detail page quality; prepend serverUrl for relative paths.
   const serverUrl = process.env.NEXT_PUBLIC_SERVER_URL || ''
   const extractUrls = (entries: ImageEntry[]): string[] =>
     entries
       .map((img) => {
         const mediaDoc = img.image as MediaDoc
-        // If relationship not resolved (still a raw ID), skip gracefully
         if (!mediaDoc || typeof mediaDoc === 'number' || typeof mediaDoc === 'string') return null
         const largeUrl = (mediaDoc as any)?.sizes?.large?.url
         if (largeUrl) return largeUrl.startsWith('http') ? largeUrl : `${serverUrl}${largeUrl}`
@@ -250,16 +245,8 @@ export default async function ProductPage({ params }: Props) {
       })
       .filter(Boolean) as string[]
 
-  // D-174b: NEVER show original reference photos on the public storefront.
-  // Original photos (product.images) are internal-only intake references.
-  // Only AI-generated images from generativeGallery are displayed.
-  // If no AI images exist yet, the gallery will be empty (no fallback to originals).
   const images = extractUrls(product.generativeGallery ?? [])
 
-  // ── Content resolution (Geobot websiteDescription ONLY) ───────────────────
-  // D-174b: Do NOT fall back to product.description — that's the auto-generated
-  // intake placeholder (e.g. "Nike Beyaz Ayakkabı — uygun fiyatlı ayakkabı").
-  // Only show GeoBot-generated websiteDescription. If not generated yet, show nothing.
   const websiteDescription =
     product.content?.commercePack?.websiteDescription || null
   const highlights = product.content?.commercePack?.highlights ?? []
@@ -271,20 +258,25 @@ export default async function ProductPage({ params }: Props) {
     ? faq.filter((f): f is FAQItem => !!f && typeof f.q === 'string' && typeof f.a === 'string')
     : []
 
-  // ── Structured data ────────────────────────────────────────────────────────
   const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || 'https://www.uygunayakkabi.com'
   const productUrl = `${siteUrl}/products/${product.slug}`
   const productJsonLd = buildProductJsonLd(product, productUrl)
   const faqJsonLd = validFaq.length > 0 ? buildFaqJsonLd(validFaq) : null
+  const waNumber = process.env.NEXT_PUBLIC_WHATSAPP_NUMBER || '905331524843'
+
+  // Stock badge
+  const stockBadge = isSoldOut
+    ? { text: 'Stokta Yok', color: '#c8102e', bg: 'rgba(200,16,46,0.06)' }
+    : totalStock <= 6
+      ? { text: `Son ${totalStock} adet!`, color: '#d97706', bg: 'rgba(217,119,6,0.1)' }
+      : { text: 'Stokta', color: '#22c55e', bg: 'rgba(34,197,94,0.1)' }
 
   return (
     <>
-      {/* JSON-LD: Product */}
       <script
         type="application/ld+json"
         dangerouslySetInnerHTML={{ __html: JSON.stringify(productJsonLd) }}
       />
-      {/* JSON-LD: FAQPage (if FAQ exists) */}
       {faqJsonLd && (
         <script
           type="application/ld+json"
@@ -292,209 +284,459 @@ export default async function ProductPage({ params }: Props) {
         />
       )}
 
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-10 lg:gap-14">
-          {/* Images — wrapper stretches to row height, inner sticky child sticks */}
-          <div>
-            <div className="lg:sticky lg:top-8">
-              <ProductImages images={images} title={product.title} />
-            </div>
-          </div>
+      {/* Load Inter + Playfair fonts */}
+      <link
+        href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=Playfair+Display:wght@400;500;600;700;800;900&display=swap"
+        rel="stylesheet"
+      />
 
-          {/* Details */}
-          <div>
-            {product.brand && (
-              <p className="text-xs font-bold text-brand-600 uppercase tracking-widest mb-3">
-                {product.brand}
-              </p>
-            )}
-            <h1 className="text-2xl sm:text-3xl font-bold text-gray-900 mb-3 leading-tight">{product.title}</h1>
+      <div style={{ background: '#f4efe6', minHeight: '100vh' }}>
+        <StorefrontNavbar />
 
-            {/* Price row */}
-            <div className="flex items-baseline gap-3 mb-2">
-              <span className="text-3xl font-extrabold text-gray-900">
-                {product.price.toLocaleString('tr-TR')} ₺
+        <main style={{ paddingTop: 80 }}>
+          <section style={{ maxWidth: 1440, margin: '0 auto', padding: '40px 40px 60px' }}>
+            {/* Breadcrumb */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 32 }}>
+              <Link
+                href="/"
+                style={{
+                  fontFamily: "'Inter', sans-serif",
+                  fontSize: 11,
+                  color: 'rgba(28,26,22,0.3)',
+                  textDecoration: 'none',
+                  letterSpacing: '0.06em',
+                }}
+              >
+                ← AYAKKABILAR
+              </Link>
+              <span style={{ color: 'rgba(28,26,22,0.15)' }}>/</span>
+              <span
+                style={{
+                  fontFamily: "'Inter', sans-serif",
+                  fontSize: 11,
+                  color: '#1c1a16',
+                  fontWeight: 500,
+                }}
+              >
+                {product.title}
               </span>
-              {product.originalPrice && product.originalPrice > product.price && (
-                <>
-                  <span className="text-lg text-gray-400 line-through">
-                    {product.originalPrice.toLocaleString('tr-TR')} ₺
-                  </span>
-                  <span className="text-sm font-bold text-white bg-red-500 px-2 py-0.5 rounded-md">
-                    %{Math.round(100 - (product.price / product.originalPrice) * 100)} indirim
-                  </span>
-                </>
-              )}
             </div>
 
-            {/* Status + stock count */}
-            <div className="flex items-center gap-3 mb-5">
-              {product.status === 'soldout' && (
-                <span className="inline-flex items-center gap-1.5 bg-red-50 text-red-600 text-xs font-semibold px-3 py-1.5 rounded-full border border-red-100">
-                  <span className="w-1.5 h-1.5 bg-red-500 rounded-full" />
-                  Tükendi
-                </span>
-              )}
-              {product.status === 'active' && availableSizes.length > 0 && (() => {
-                const totalStock = availableSizes.reduce((sum, v) => sum + v.stock, 0)
-                const isLow = totalStock <= 6
-                return (
-                  <span className={`inline-flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-full border ${
-                    isLow
-                      ? 'bg-amber-50 text-amber-700 border-amber-200'
-                      : 'bg-emerald-50 text-emerald-700 border-emerald-200'
-                  }`}>
-                    <span className={`w-1.5 h-1.5 rounded-full ${isLow ? 'bg-amber-500' : 'bg-emerald-500'}`} />
-                    {isLow ? `Son ${totalStock} adet!` : 'Stokta'}
-                  </span>
-                )
-              })()}
-              {availableSizes.length > 0 && (
-                <span className="text-xs text-gray-400">
-                  {availableSizes.length} beden mevcut
-                </span>
-              )}
-            </div>
-
-            {/* Divider */}
-            <div className="border-t border-gray-100 mb-5" />
-
-            {/* Description */}
-            {websiteDescription && (
-              <p className="text-gray-600 mb-6 leading-relaxed text-[15px]">{websiteDescription}</p>
-            )}
-
-            {/* Highlights — card style */}
-            {validHighlights.length > 0 && (
-              <div className="mb-6 bg-gray-50 rounded-xl p-5">
-                <h3 className="text-sm font-bold text-gray-800 mb-3 flex items-center gap-2">
-                  <svg className="w-4 h-4 text-brand-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-                  </svg>
-                  Ürün Özellikleri
-                </h3>
-                <ul className="space-y-2.5">
-                  {validHighlights.map((h, i) => (
-                    <li key={i} className="flex items-start gap-2.5 text-sm text-gray-600">
-                      <span className="text-emerald-500 mt-0.5 flex-shrink-0 font-bold">&#10003;</span>
-                      <span>{h}</span>
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            )}
-
-            {/* Sizes — enhanced pills with stock urgency */}
-            {variants.length > 0 && (
-              <div className="mb-7">
-                <h3 className="text-sm font-bold text-gray-800 mb-3 flex items-center gap-2">
-                  <svg className="w-4 h-4 text-brand-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M4 6h16M4 12h16m-7 6h7" />
-                  </svg>
-                  Mevcut Bedenler
-                </h3>
-                <div className="flex flex-wrap gap-2">
-                  {variants.map((variant) => {
-                    const isOut = variant.stock <= 0
-                    const isLow = variant.stock > 0 && variant.stock <= 2
-                    return (
-                      <span
-                        key={variant.id}
-                        className={`relative px-4 py-2.5 border rounded-xl text-sm font-semibold transition-all ${
-                          isOut
-                            ? 'border-gray-200 text-gray-300 bg-gray-50 cursor-not-allowed line-through'
-                            : isLow
-                              ? 'border-amber-300 text-amber-800 bg-amber-50 hover:border-amber-400'
-                              : 'border-gray-200 text-gray-800 bg-white hover:border-brand-500 hover:shadow-sm'
-                        }`}
-                      >
-                        {variant.size}
-                        {variant.stock > 0 && (
-                          <span className={`ml-1.5 text-xs font-normal ${isLow ? 'text-amber-600' : 'text-gray-400'}`}>
-                            ({variant.stock})
-                          </span>
-                        )}
-                        {isLow && (
-                          <span className="absolute -top-1.5 -right-1.5 w-3 h-3 bg-amber-400 rounded-full border-2 border-white" />
-                        )}
-                      </span>
-                    )
-                  })}
+            {/* Main Grid */}
+            <div className="detail-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 60, alignItems: 'start' }}>
+              {/* Gallery — sticky */}
+              <div>
+                <div style={{ position: 'sticky', top: 88 }}>
+                  <ProductImages images={images} title={product.title} />
                 </div>
-                {variants.some((v) => v.stock > 0 && v.stock <= 2) && (
-                  <p className="text-xs text-amber-600 mt-2 flex items-center gap-1">
-                    <span className="w-1.5 h-1.5 bg-amber-400 rounded-full inline-block" />
-                    Sarı bedenler tükenmek üzere
+              </div>
+
+              {/* Info */}
+              <div style={{ paddingTop: 20 }}>
+                {/* Category tag */}
+                {product.category && (
+                  <p style={{
+                    fontFamily: "'Inter', sans-serif",
+                    fontSize: 10,
+                    fontWeight: 600,
+                    textTransform: 'uppercase',
+                    letterSpacing: '0.14em',
+                    color: '#c8102e',
+                    marginBottom: 10,
+                  }}>
+                    {product.category}
                   </p>
                 )}
+
+                {/* Title */}
+                <h1 style={{
+                  fontFamily: "'Playfair Display', serif",
+                  fontSize: 'clamp(28px, 3vw, 38px)',
+                  fontWeight: 700,
+                  color: '#1c1a16',
+                  marginBottom: 16,
+                  letterSpacing: '-0.02em',
+                }}>
+                  {product.title}
+                </h1>
+
+                {/* Price row */}
+                <div style={{ display: 'flex', alignItems: 'baseline', gap: 12, marginBottom: 8 }}>
+                  <span style={{ fontFamily: "'Inter', sans-serif", fontSize: 30, fontWeight: 800, color: '#1c1a16' }}>
+                    ₺{product.price.toLocaleString('tr-TR')}
+                  </span>
+                  {product.originalPrice && product.originalPrice > product.price && (
+                    <>
+                      <span style={{ fontFamily: "'Inter', sans-serif", fontSize: 16, color: 'rgba(28,26,22,0.3)', textDecoration: 'line-through' }}>
+                        ₺{product.originalPrice.toLocaleString('tr-TR')}
+                      </span>
+                      <span style={{
+                        fontFamily: "'Inter', sans-serif",
+                        fontSize: 11,
+                        fontWeight: 700,
+                        color: '#c8102e',
+                        background: 'rgba(200,16,46,0.06)',
+                        padding: '4px 14px',
+                        borderRadius: 999,
+                      }}>
+                        %{Math.round(100 - (product.price / product.originalPrice) * 100)}
+                      </span>
+                    </>
+                  )}
+                </div>
+
+                {/* Description */}
+                {websiteDescription && (
+                  <p style={{
+                    fontFamily: "'Inter', sans-serif",
+                    fontSize: 15,
+                    color: 'rgba(28,26,22,0.5)',
+                    lineHeight: 1.7,
+                    marginBottom: 24,
+                    maxWidth: 480,
+                  }}>
+                    {websiteDescription}
+                  </p>
+                )}
+
+                {/* Stock badge */}
+                <div style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 8,
+                  padding: '8px 16px',
+                  borderRadius: 999,
+                  background: stockBadge.bg,
+                  marginBottom: 28,
+                }}>
+                  <div style={{ width: 8, height: 8, borderRadius: '50%', background: stockBadge.color }} />
+                  <span style={{ fontFamily: "'Inter', sans-serif", fontSize: 12, fontWeight: 600, color: stockBadge.color }}>
+                    {stockBadge.text}
+                  </span>
+                </div>
+
+                {/* NEW: Ürün Özellikleri — highlights card */}
+                {validHighlights.length > 0 && (
+                  <div style={{
+                    marginBottom: 28,
+                    background: 'rgba(238,232,222,0.65)',
+                    borderRadius: 16,
+                    padding: '20px 24px',
+                    border: '1px solid rgba(28,26,22,0.06)',
+                  }}>
+                    <h3 style={{
+                      fontFamily: "'Inter', sans-serif",
+                      fontSize: 12,
+                      fontWeight: 700,
+                      color: '#1c1a16',
+                      marginBottom: 14,
+                      letterSpacing: '0.04em',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 8,
+                    }}>
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#c8102e" strokeWidth="2">
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                      </svg>
+                      Ürün Özellikleri
+                    </h3>
+                    <ul style={{ listStyle: 'none', padding: 0, margin: 0, display: 'flex', flexDirection: 'column', gap: 10 }}>
+                      {validHighlights.map((h, i) => (
+                        <li key={i} style={{
+                          display: 'flex',
+                          alignItems: 'flex-start',
+                          gap: 10,
+                          fontFamily: "'Inter', sans-serif",
+                          fontSize: 13,
+                          color: 'rgba(28,26,22,0.5)',
+                          lineHeight: 1.5,
+                        }}>
+                          <span style={{ color: '#22c55e', fontWeight: 700, flexShrink: 0, marginTop: 1 }}>✓</span>
+                          <span>{h}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+
+                {/* Sizes — merged: old style + NEW amber low-stock indicators */}
+                {variants.length > 0 && (
+                  <div style={{ marginBottom: 32 }}>
+                    <p style={{
+                      fontFamily: "'Inter', sans-serif",
+                      fontSize: 11,
+                      fontWeight: 600,
+                      textTransform: 'uppercase',
+                      letterSpacing: '0.1em',
+                      color: 'rgba(28,26,22,0.3)',
+                      marginBottom: 12,
+                    }}>
+                      BEDEN
+                    </p>
+                    <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                      {variants.map((variant) => {
+                        const isOut = variant.stock <= 0
+                        const isLow = variant.stock > 0 && variant.stock <= 2
+                        return (
+                          <div
+                            key={variant.id}
+                            style={{
+                              position: 'relative',
+                              minWidth: 50,
+                              height: 50,
+                              borderRadius: 12,
+                              border: isOut
+                                ? '1px solid rgba(28,26,22,0.06)'
+                                : isLow
+                                  ? '2px solid #d97706'
+                                  : '1px solid rgba(28,26,22,0.1)',
+                              background: isOut
+                                ? 'rgba(28,26,22,0.03)'
+                                : isLow
+                                  ? 'rgba(217,119,6,0.08)'
+                                  : 'transparent',
+                              display: 'flex',
+                              flexDirection: 'column',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              fontFamily: "'Inter', sans-serif",
+                              fontSize: 14,
+                              fontWeight: 600,
+                              color: isOut ? 'rgba(28,26,22,0.2)' : isLow ? '#92400e' : 'rgba(28,26,22,0.5)',
+                              cursor: isOut ? 'not-allowed' : 'pointer',
+                              textDecoration: isOut ? 'line-through' : 'none',
+                              transition: 'all 0.2s',
+                              padding: '4px 12px',
+                            }}
+                          >
+                            <span>{variant.size}</span>
+                            {variant.stock > 0 && (
+                              <span style={{
+                                fontSize: 9,
+                                fontWeight: 500,
+                                color: isLow ? '#b45309' : 'rgba(28,26,22,0.25)',
+                                marginTop: -2,
+                              }}>
+                                ({variant.stock})
+                              </span>
+                            )}
+                            {isLow && (
+                              <div style={{
+                                position: 'absolute',
+                                top: -4,
+                                right: -4,
+                                width: 8,
+                                height: 8,
+                                borderRadius: '50%',
+                                background: '#d97706',
+                                border: '2px solid #f4efe6',
+                              }} />
+                            )}
+                          </div>
+                        )
+                      })}
+                    </div>
+                    {variants.some((v) => v.stock > 0 && v.stock <= 2) && (
+                      <p style={{
+                        fontFamily: "'Inter', sans-serif",
+                        fontSize: 10,
+                        color: '#d97706',
+                        marginTop: 8,
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 6,
+                      }}>
+                        <span style={{ width: 5, height: 5, borderRadius: '50%', background: '#d97706', display: 'inline-block' }} />
+                        Sarı bedenler tükenmek üzere
+                      </p>
+                    )}
+                  </div>
+                )}
+
+                {/* Action Buttons */}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                  {/* SEPETE EKLE */}
+                  <button
+                    disabled={isSoldOut}
+                    style={{
+                      width: '100%',
+                      padding: 17,
+                      background: !isSoldOut ? '#1c1a16' : 'rgba(28,26,22,0.3)',
+                      color: '#fff',
+                      border: 'none',
+                      borderRadius: 999,
+                      fontFamily: "'Inter', sans-serif",
+                      fontSize: 12,
+                      fontWeight: 700,
+                      cursor: !isSoldOut ? 'pointer' : 'not-allowed',
+                      letterSpacing: '0.1em',
+                      textTransform: 'uppercase',
+                      transition: 'all 0.3s',
+                    }}
+                  >
+                    {!isSoldOut ? 'SEPETE EKLE' : 'STOKTA YOK'}
+                  </button>
+
+                  {/* WhatsApp */}
+                  <a
+                    href={`https://wa.me/${waNumber}?text=Merhaba!%20${encodeURIComponent(product.title)}%20hakkında%20bilgi%20almak%20istiyorum.`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    style={{
+                      width: '100%',
+                      padding: 17,
+                      boxSizing: 'border-box',
+                      background: '#25D366',
+                      color: '#fff',
+                      border: 'none',
+                      borderRadius: 999,
+                      fontFamily: "'Inter', sans-serif",
+                      fontSize: 12,
+                      fontWeight: 700,
+                      textDecoration: 'none',
+                      textAlign: 'center',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      gap: 10,
+                      transition: 'all 0.3s',
+                      cursor: 'pointer',
+                      letterSpacing: '0.1em',
+                      textTransform: 'uppercase',
+                    }}
+                  >
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
+                      <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z" />
+                    </svg>
+                    WHATSAPP İLE SİPARİŞ VER
+                  </a>
+                </div>
+
+                {/* Trust Badges */}
+                <div style={{
+                  display: 'flex',
+                  gap: 24,
+                  marginTop: 20,
+                  paddingTop: 20,
+                  borderTop: '1px solid rgba(28,26,22,0.06)',
+                }}>
+                  <div style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 6,
+                    fontFamily: "'Inter', sans-serif",
+                    fontSize: 11,
+                    color: 'rgba(28,26,22,0.3)',
+                  }}>
+                    <span style={{ fontSize: 16 }}>✓</span> 100% Orijinal
+                  </div>
+                  <div style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 6,
+                    fontFamily: "'Inter', sans-serif",
+                    fontSize: 11,
+                    color: 'rgba(28,26,22,0.3)',
+                  }}>
+                    <span style={{ fontSize: 16 }}>✓</span> Ücretsiz Kargo
+                  </div>
+                </div>
+
+                {/* NEW: Contact Form */}
+                <div style={{
+                  marginTop: 32,
+                  padding: 24,
+                  background: 'rgba(238,232,222,0.65)',
+                  borderRadius: 16,
+                  border: '1px solid rgba(28,26,22,0.06)',
+                }}>
+                  <h3 style={{
+                    fontFamily: "'Inter', sans-serif",
+                    fontSize: 16,
+                    fontWeight: 700,
+                    color: '#1c1a16',
+                    marginBottom: 4,
+                  }}>
+                    Bilgi Al / Sipariş Ver
+                  </h3>
+                  <p style={{
+                    fontFamily: "'Inter', sans-serif",
+                    fontSize: 12,
+                    color: 'rgba(28,26,22,0.3)',
+                    marginBottom: 20,
+                  }}>
+                    Adınızı ve telefon numaranızı bırakın, sizi arayalım.
+                  </p>
+                  <ContactForm productId={String(product.id)} />
+                </div>
+              </div>
+            </div>
+
+            {/* Product Info Grid */}
+            <div style={{
+              marginTop: 60,
+              display: 'grid',
+              gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))',
+              gap: 12,
+            }}>
+              {product.sku && (
+                <div style={{
+                  background: 'rgba(238,232,222,0.65)',
+                  padding: 16,
+                  borderRadius: 16,
+                  border: '1px solid rgba(28,26,22,0.06)',
+                }}>
+                  <p style={{ fontFamily: "'Inter', sans-serif", fontSize: 9, color: 'rgba(28,26,22,0.25)', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 4 }}>SKU</p>
+                  <p style={{ fontFamily: "'Inter', sans-serif", fontSize: 13, color: '#1c1a16', fontWeight: 500 }}>{product.sku}</p>
+                </div>
+              )}
+              {product.category && (
+                <div style={{ background: 'rgba(238,232,222,0.65)', padding: 16, borderRadius: 16, border: '1px solid rgba(28,26,22,0.06)' }}>
+                  <p style={{ fontFamily: "'Inter', sans-serif", fontSize: 9, color: 'rgba(28,26,22,0.25)', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 4 }}>Kategori</p>
+                  <p style={{ fontFamily: "'Inter', sans-serif", fontSize: 13, color: '#1c1a16', fontWeight: 500 }}>{product.category}</p>
+                </div>
+              )}
+              {product.brand && (
+                <div style={{ background: 'rgba(238,232,222,0.65)', padding: 16, borderRadius: 16, border: '1px solid rgba(28,26,22,0.06)' }}>
+                  <p style={{ fontFamily: "'Inter', sans-serif", fontSize: 9, color: 'rgba(28,26,22,0.25)', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 4 }}>Marka</p>
+                  <p style={{ fontFamily: "'Inter', sans-serif", fontSize: 13, color: '#1c1a16', fontWeight: 500 }}>{product.brand}</p>
+                </div>
+              )}
+              {product.color && (
+                <div style={{ background: 'rgba(238,232,222,0.65)', padding: 16, borderRadius: 16, border: '1px solid rgba(28,26,22,0.06)' }}>
+                  <p style={{ fontFamily: "'Inter', sans-serif", fontSize: 9, color: 'rgba(28,26,22,0.25)', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 4 }}>Renk</p>
+                  <p style={{ fontFamily: "'Inter', sans-serif", fontSize: 13, color: '#1c1a16', fontWeight: 500 }}>{product.color}</p>
+                </div>
+              )}
+              {product.material && (
+                <div style={{ background: 'rgba(238,232,222,0.65)', padding: 16, borderRadius: 16, border: '1px solid rgba(28,26,22,0.06)' }}>
+                  <p style={{ fontFamily: "'Inter', sans-serif", fontSize: 9, color: 'rgba(28,26,22,0.25)', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 4 }}>Materyal</p>
+                  <p style={{ fontFamily: "'Inter', sans-serif", fontSize: 13, color: '#1c1a16', fontWeight: 500 }}>{product.material}</p>
+                </div>
+              )}
+            </div>
+
+            {/* FAQ Section */}
+            {validFaq.length > 0 && (
+              <div style={{ marginTop: 48 }}>
+                <ProductFAQ faq={validFaq} />
               </div>
             )}
+          </section>
+        </main>
 
-            {/* WhatsApp CTA — prominent with icon */}
-            {product.status === 'active' && availableSizes.length > 0 && (
-              <a
-                href={`https://wa.me/${process.env.NEXT_PUBLIC_WHATSAPP_NUMBER || '905001234567'}?text=Merhaba, ${encodeURIComponent(product.title)} ürünü hakkında bilgi almak istiyorum. (SKU: ${product.sku})`}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="flex items-center justify-center gap-3 w-full bg-[#25D366] text-white text-center font-bold py-4 px-6 rounded-2xl hover:bg-[#1fb855] transition-all hover:shadow-lg hover:shadow-green-200 mb-6"
-              >
-                <svg className="w-6 h-6 fill-current" viewBox="0 0 24 24">
-                  <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/>
-                </svg>
-                WhatsApp ile Sipariş Ver
-              </a>
-            )}
-
-            {/* Contact Form — refined card */}
-            <div className="p-6 bg-white rounded-2xl border border-gray-200 shadow-sm">
-              <h3 className="text-lg font-bold text-gray-800 mb-1">
-                Bilgi Al / Sipariş Ver
-              </h3>
-              <p className="text-sm text-gray-400 mb-5">
-                Adınızı ve telefon numaranızı bırakın, sizi arayalım.
-              </p>
-              <ContactForm productId={String(product.id)} />
-            </div>
-          </div>
-        </div>
-
-        {/* Product Info Grid */}
-        <div className="mt-14 grid grid-cols-2 md:grid-cols-4 gap-3">
-          {product.sku && (
-            <div className="bg-gray-50 p-4 rounded-xl border border-gray-100">
-              <p className="text-[10px] text-gray-400 uppercase tracking-wider mb-1">SKU</p>
-              <p className="font-mono text-sm text-gray-700">{product.sku}</p>
-            </div>
-          )}
-          {product.category && (
-            <div className="bg-gray-50 p-4 rounded-xl border border-gray-100">
-              <p className="text-[10px] text-gray-400 uppercase tracking-wider mb-1">Kategori</p>
-              <p className="text-sm text-gray-700">{product.category}</p>
-            </div>
-          )}
-          {product.brand && (
-            <div className="bg-gray-50 p-4 rounded-xl border border-gray-100">
-              <p className="text-[10px] text-gray-400 uppercase tracking-wider mb-1">Marka</p>
-              <p className="text-sm text-gray-700">{product.brand}</p>
-            </div>
-          )}
-          {product.color && (
-            <div className="bg-gray-50 p-4 rounded-xl border border-gray-100">
-              <p className="text-[10px] text-gray-400 uppercase tracking-wider mb-1">Renk</p>
-              <p className="text-sm text-gray-700">{product.color}</p>
-            </div>
-          )}
-          {product.material && (
-            <div className="bg-gray-50 p-4 rounded-xl border border-gray-100">
-              <p className="text-[10px] text-gray-400 uppercase tracking-wider mb-1">Materyal</p>
-              <p className="text-sm text-gray-700">{product.material}</p>
-            </div>
-          )}
-        </div>
-
-        {/* FAQ Section — from discoveryPack.faq */}
-        <ProductFAQ faq={validFaq} />
+        <StorefrontFooter />
       </div>
+
+      {/* Responsive CSS */}
+      <style>{`
+        @media(max-width:768px) {
+          .detail-grid {
+            grid-template-columns: 1fr !important;
+            gap: 32px !important;
+          }
+        }
+      `}</style>
     </>
   )
 }

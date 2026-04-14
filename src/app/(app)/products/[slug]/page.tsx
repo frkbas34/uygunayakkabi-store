@@ -295,7 +295,7 @@ export default async function ProductPage({ params }: Props) {
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-10 lg:gap-14">
           {/* Images — sticky on desktop so gallery stays visible while scrolling details */}
-          <div className="lg:sticky lg:top-8 self-start">
+          <div className="lg:sticky lg:top-8">
             <ProductImages images={images} title={product.title} />
           </div>
 

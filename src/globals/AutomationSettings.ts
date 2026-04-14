@@ -111,8 +111,8 @@ export const AutomationSettings: GlobalConfig = {
           defaultValue: false,
           admin: {
             description:
-              'Shopier kanalı aktif. Gerçek yayın henüz bağlı değil — ' +
-              'ileride Shopier API entegrasyonu ile devreye alınacak (Step 13+).',
+              'Shopier kanalına otomatik ürün yayını. Açıldığında uygun ürünler ' +
+              'Jobs Queue üzerinden Shopier API ile senkronize edilir.',
           },
         },
         {

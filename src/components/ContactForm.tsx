@@ -85,7 +85,7 @@ export function ContactForm({ productId }: Props) {
       <button
         type="submit"
         disabled={status === 'loading'}
-        className="w-full bg-brand-600 text-white font-semibold py-3 px-6 rounded-xl hover:bg-brand-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+        className="w-full bg-gray-900 text-white font-bold py-3.5 px-6 rounded-xl hover:bg-gray-800 transition-all hover:shadow-md disabled:opacity-50 disabled:cursor-not-allowed"
       >
         {status === 'loading' ? 'Gönderiliyor...' : 'Gönder — Beni Arayın'}
       </button>

@@ -1199,9 +1199,70 @@ function generateOAuth1Header(
 }
 
 /**
+ * D-205: Upload an image to X via v1.1 media/upload (simple upload, <5MB).
+ * Returns media_id_string on success, null on failure (tweet goes text-only).
+ */
+async function uploadImageToX(
+  imageUrl: string,
+  apiKey: string,
+  apiSecret: string,
+  accessToken: string,
+  accessTokenSecret: string,
+): Promise<string | null> {
+  try {
+    // Fetch image from Vercel Blob / media URL
+    const imgResponse = await fetch(imageUrl)
+    if (!imgResponse.ok) {
+      console.error(`[channelDispatch] X media fetch failed — url=${imageUrl} status=${imgResponse.status}`)
+      return null
+    }
+    const imgBuffer = Buffer.from(await imgResponse.arrayBuffer())
+
+    // X v1.1 simple upload limit is 5MB for images
+    if (imgBuffer.length > 5 * 1024 * 1024) {
+      console.warn(`[channelDispatch] X media too large (${imgBuffer.length} bytes), skipping upload`)
+      return null
+    }
+
+    const uploadUrl = 'https://upload.twitter.com/1.1/media/upload.json'
+    const authHeader = generateOAuth1Header(
+      'POST', uploadUrl, apiKey, apiSecret, accessToken, accessTokenSecret,
+    )
+
+    // Use base64 media_data approach (simpler than multipart for server-side)
+    const formBody = new URLSearchParams()
+    formBody.append('media_data', imgBuffer.toString('base64'))
+
+    const uploadResponse = await fetch(uploadUrl, {
+      method: 'POST',
+      headers: {
+        Authorization: authHeader,
+        'Content-Type': 'application/x-www-form-urlencoded',
+      },
+      body: formBody.toString(),
+    })
+
+    const uploadData = await uploadResponse.json()
+    if (!uploadResponse.ok) {
+      console.error(
+        `[channelDispatch] X media upload failed — status=${uploadResponse.status} body=${JSON.stringify(uploadData).substring(0, 500)}`,
+      )
+      return null
+    }
+
+    const mediaId = uploadData.media_id_string
+    console.log(`[channelDispatch] X media uploaded — media_id=${mediaId} size=${imgBuffer.length}`)
+    return mediaId
+  } catch (err) {
+    console.error(`[channelDispatch] X media upload exception: ${err instanceof Error ? err.message : String(err)}`)
+    return null
+  }
+}
+
+/**
  * D-195c: Publish a tweet via X API v2 POST /2/tweets using OAuth 1.0a.
- * D-195b: Always includes product link → X renders og:image as large card.
- * No media upload needed — Twitter Card does the visual work for free.
+ * D-205: Now uploads product image via v1.1 media/upload for reliable display.
+ * Falls back to text-only tweet if media upload fails.
  */
 async function publishXDirectly(
   payload: ChannelDispatchPayload,
@@ -1232,9 +1293,9 @@ async function publishXDirectly(
 
   let tweetText: string
   if (payload.geobot?.xPost) {
-    // D-195c: Replace [Link] placeholder with actual product URL, then
+    // D-205: Replace [Link] or [Link Buraya] placeholder with actual product URL, then
     // if no link present at all, append it.
-    let xPost = payload.geobot.xPost.replace(/\[Link\]/gi, productLink)
+    let xPost = payload.geobot.xPost.replace(/\[Link(?:\s*Buraya)?\]/gi, productLink)
     tweetText = xPost.includes('uygunayakkabi.com')
       ? xPost
       : `${xPost}${productLink ? `\n${productLink}` : ''}`
@@ -1255,10 +1316,25 @@ async function publishXDirectly(
   }
 
   try {
+    // D-205: Upload first product image for inline display
+    let mediaId: string | null = null
+    const firstImage = payload.mediaUrls.find((u) => u && u.startsWith('https://'))
+    if (firstImage) {
+      mediaId = await uploadImageToX(
+        firstImage, apiKey, apiSecret, accessToken, accessTokenSecret,
+      )
+    }
+
     const tweetUrl = 'https://api.x.com/2/tweets'
     const authHeader = generateOAuth1Header(
       'POST', tweetUrl, apiKey, apiSecret, accessToken, accessTokenSecret,
     )
+
+    // Build tweet body — attach media if upload succeeded
+    const tweetBody: Record<string, unknown> = { text: tweetText }
+    if (mediaId) {
+      tweetBody.media = { media_ids: [mediaId] }
+    }
 
     const response = await fetch(tweetUrl, {
       method: 'POST',
@@ -1266,7 +1342,7 @@ async function publishXDirectly(
         'Content-Type': 'application/json',
         Authorization: authHeader,
       },
-      body: JSON.stringify({ text: tweetText }),
+      body: JSON.stringify(tweetBody),
     })
 
     const data = await response.json()
@@ -1290,7 +1366,7 @@ async function publishXDirectly(
 
     const tweetId = data.data?.id
     console.log(
-      `[channelDispatch] ✅ X tweet published — tweetId=${tweetId} chars=${tweetText.length}`,
+      `[channelDispatch] ✅ X tweet published — tweetId=${tweetId} chars=${tweetText.length} media=${mediaId ? 'yes' : 'no'}`,
     )
 
     return {
@@ -1304,6 +1380,7 @@ async function publishXDirectly(
         mode: 'direct',
         caption: tweetText,
         source: payload.geobot?.xPost ? 'geobot' : 'template-fallback',
+        mediaUploaded: !!mediaId,
       },
       timestamp,
     }

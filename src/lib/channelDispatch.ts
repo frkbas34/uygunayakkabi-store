@@ -987,6 +987,7 @@ export function buildDispatchPayload(
   const payload: ChannelDispatchPayload = {
     channel,
     productId: product.id as string | number,
+    slug:          product.slug          as string | undefined,
     sku:           product.sku           as string | undefined,
     title:         product.title         as string,
     price:         product.price         as number,

@@ -523,26 +523,25 @@ export async function triggerContentGeneration(
       }
     }
 
-    // Emit content.ready if both packs succeeded
+    // D-204: Show notification + Yayına Al button when commerce pack succeeds,
+    // even if discovery pack failed. Discovery pack (blog) is non-blocking.
+    const hasUsableContent = finalContentStatus === 'ready' || finalContentStatus === 'commerce_generated'
+
     if (finalContentStatus === 'ready') {
       await emitContentReady(payload, product.id)
+    }
 
-      // ── Phase S + X: GeoBot content-ready notification with preview ──
-      const igSnippet = result.commercePack?.instagramCaption
+    if (hasUsableContent && result.commercePack) {
+      // ── Phase S + X: GeoBot content notification with preview ──
+      const igSnippet = result.commercePack.instagramCaption
         ? `\n\n📸 <b>IG Önizleme:</b>\n<pre>${result.commercePack.instagramCaption.substring(0, 200)}${result.commercePack.instagramCaption.length > 200 ? '…' : ''}</pre>`
         : ''
+      const statusLabel = finalContentStatus === 'ready' ? 'İçerik hazır!' : 'İçerik hazır (blog beklemede)'
       notifyGeoBot(
         MENTIX_GROUP_ID,
-        `✅ <b>Ürün #${product.id} — İçerik hazır!</b>\n\n` +
-          `🤖 GeoBot içerik üretimi tamamlandı.\n` +
-          `📝 commercePack: ${result.commercePack ? '✅' : '❌'}\n` +
-          `📝 discoveryPack: ${result.discoveryPack ? '✅' : '❌'}` +
+        `✅ <b>Ürün #${product.id} — ${statusLabel}</b>` +
           igSnippet,
         [
-          [
-            { text: '👁️ Önizle', callback_data: `geo_content:${product.id}` },
-            { text: '🔍 Audit Başlat', callback_data: `geo_auditrun:${product.id}` },
-          ],
           [
             { text: '🚀 Yayına Al', callback_data: `geo_activate:${product.id}` },
           ],

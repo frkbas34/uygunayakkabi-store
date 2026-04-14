@@ -499,7 +499,7 @@ function AboutSection({ settings }) {
             {[
               { icon: "🎯", title: "Uygun Fiyat", desc: "Piyasanın altında, kaliteden ödün vermeden" },
               { icon: "🚀", title: "Hızlı Kargo", desc: "1-3 iş günü içinde kapınızda" },
-              { icon: "✅", title: "%100 Orijinal", desc: "Tüm ürünler orijinal ve garantili" },
+              { icon: "✅", title: "Güvenli Alışveriş", desc: "Güvenilir ödeme ve teslimat" },
               { icon: "💬", title: "Kolay İletişim", desc: "WhatsApp'tan anında cevap" },
             ].map((v, i) => (
               <div key={i} style={{
@@ -978,10 +978,10 @@ function Detail({ product: p, onBack, settings, onNav, onAddToCart }) {
             {/* Trust Badges */}
             <div style={{ display: "flex", gap: 24, marginTop: 20, paddingTop: 20, borderTop: "1px solid rgba(28,26,22,0.06)" }}>
               <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 11, color: T.textLighter }}>
-                <span style={{ fontSize: 16 }}>✓</span> 100% Orijinal
+                <span style={{ fontSize: 16 }}>✓</span> Ücretsiz Kargo
               </div>
               <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 11, color: T.textLighter }}>
-                <span style={{ fontSize: 16 }}>✓</span> Ücretsiz Kargo
+                <span style={{ fontSize: 16 }}>✓</span> Hızlı Teslimat
               </div>
             </div>
           </div>

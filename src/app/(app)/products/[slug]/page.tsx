@@ -48,6 +48,7 @@ type ProductDoc = {
   color?: string | null
   material?: string | null
   status?: string | null
+  stockNumber?: string | null
   images?: ImageEntry[] | null
   generativeGallery?: ImageEntry[] | null
   variants?: VariantDoc[] | null
@@ -628,7 +629,7 @@ export default async function ProductPage({ params }: Props) {
                     fontSize: 11,
                     color: 'rgba(28,26,22,0.3)',
                   }}>
-                    <span style={{ fontSize: 16 }}>✓</span> 100% Orijinal
+                    <span style={{ fontSize: 16 }}>✓</span> Ücretsiz Kargo
                   </div>
                   <div style={{
                     display: 'flex',
@@ -638,7 +639,7 @@ export default async function ProductPage({ params }: Props) {
                     fontSize: 11,
                     color: 'rgba(28,26,22,0.3)',
                   }}>
-                    <span style={{ fontSize: 16 }}>✓</span> Ücretsiz Kargo
+                    <span style={{ fontSize: 16 }}>✓</span> Hızlı Teslimat
                   </div>
                 </div>
 
@@ -672,49 +673,21 @@ export default async function ProductPage({ params }: Props) {
               </div>
             </div>
 
-            {/* Product Info Grid */}
-            <div style={{
-              marginTop: 60,
-              display: 'grid',
-              gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))',
-              gap: 12,
-            }}>
-              {product.sku && (
-                <div style={{
-                  background: 'rgba(238,232,222,0.65)',
-                  padding: 16,
-                  borderRadius: 16,
-                  border: '1px solid rgba(28,26,22,0.06)',
-                }}>
-                  <p style={{ fontFamily: "'Inter', sans-serif", fontSize: 9, color: 'rgba(28,26,22,0.25)', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 4 }}>SKU</p>
-                  <p style={{ fontFamily: "'Inter', sans-serif", fontSize: 13, color: '#1c1a16', fontWeight: 500 }}>{product.sku}</p>
-                </div>
-              )}
-              {product.category && (
-                <div style={{ background: 'rgba(238,232,222,0.65)', padding: 16, borderRadius: 16, border: '1px solid rgba(28,26,22,0.06)' }}>
-                  <p style={{ fontFamily: "'Inter', sans-serif", fontSize: 9, color: 'rgba(28,26,22,0.25)', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 4 }}>Kategori</p>
-                  <p style={{ fontFamily: "'Inter', sans-serif", fontSize: 13, color: '#1c1a16', fontWeight: 500 }}>{product.category}</p>
-                </div>
-              )}
-              {product.brand && (
-                <div style={{ background: 'rgba(238,232,222,0.65)', padding: 16, borderRadius: 16, border: '1px solid rgba(28,26,22,0.06)' }}>
-                  <p style={{ fontFamily: "'Inter', sans-serif", fontSize: 9, color: 'rgba(28,26,22,0.25)', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 4 }}>Marka</p>
-                  <p style={{ fontFamily: "'Inter', sans-serif", fontSize: 13, color: '#1c1a16', fontWeight: 500 }}>{product.brand}</p>
-                </div>
-              )}
-              {product.color && (
-                <div style={{ background: 'rgba(238,232,222,0.65)', padding: 16, borderRadius: 16, border: '1px solid rgba(28,26,22,0.06)' }}>
-                  <p style={{ fontFamily: "'Inter', sans-serif", fontSize: 9, color: 'rgba(28,26,22,0.25)', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 4 }}>Renk</p>
-                  <p style={{ fontFamily: "'Inter', sans-serif", fontSize: 13, color: '#1c1a16', fontWeight: 500 }}>{product.color}</p>
-                </div>
-              )}
-              {product.material && (
-                <div style={{ background: 'rgba(238,232,222,0.65)', padding: 16, borderRadius: 16, border: '1px solid rgba(28,26,22,0.06)' }}>
-                  <p style={{ fontFamily: "'Inter', sans-serif", fontSize: 9, color: 'rgba(28,26,22,0.25)', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 4 }}>Materyal</p>
-                  <p style={{ fontFamily: "'Inter', sans-serif", fontSize: 13, color: '#1c1a16', fontWeight: 500 }}>{product.material}</p>
-                </div>
-              )}
-            </div>
+            {/* Product code (SN number from generated images) */}
+            {product.stockNumber && (
+              <div style={{
+                marginTop: 48,
+                display: 'flex',
+                alignItems: 'center',
+                gap: 8,
+                fontFamily: "'Inter', sans-serif",
+                fontSize: 11,
+                color: 'rgba(28,26,22,0.3)',
+                letterSpacing: '0.06em',
+              }}>
+                Ürün Kodu: <span style={{ fontWeight: 600, color: 'rgba(28,26,22,0.5)' }}>{product.stockNumber}</span>
+              </div>
+            )}
 
             {/* FAQ Section */}
             {validFaq.length > 0 && (

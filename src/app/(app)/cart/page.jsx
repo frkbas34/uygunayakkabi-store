@@ -277,7 +277,7 @@ export default function CartPage() {
               {/* Trust badges */}
               <div className="mt-5 pt-5 border-t border-gray-100 flex flex-col gap-2.5">
                 {[
-                  { Icon: ShieldCheck, label: "%100 Orijinal Ürün Garantisi" },
+                  { Icon: ShieldCheck, label: "Güvenli Alışveriş Garantisi" },
                   { Icon: Truck, label: "Ücretsiz Hızlı Kargo" },
                   { Icon: RotateCcw, label: "30 Gün İade Hakkı" },
                 ].map(({ Icon, label }) => (

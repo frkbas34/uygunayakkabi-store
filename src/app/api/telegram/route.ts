@@ -2836,17 +2836,11 @@ export async function POST(req: NextRequest) {
           hizli: '⚡', dengeli: '⚖️', premium: '💎', karma: '🌈',
         }
 
+        // D-203: compact product summary — just name, confirm, admin link
         const productSummary =
-          `✅ <b>Ürün oluşturuldu${visionLabel}${confidenceBar}</b>\n\n` +
-          `📦 <b>${title}</b>\n` +
-          `SKU: <code>${sku}</code>\n` +
-          `Fiyat: ${price > 0 ? `${price} ₺` : '—'}\n` +
-          `Kategori: ${category || '—'}\n` +
-          `Marka: ${brand || '—'}\n` +
-          `Stok: ${stockQty} adet\n` +
-          `Durum: ${statusEmoji} ${statusLabel}` +
+          `✅ <b>${title}</b>${visionLabel}\n` +
           missingBlock +
-          `\n\n🔗 <a href="https://www.uygunayakkabi.com/admin/collections/products/${productId}">Admin'de aç</a>`
+          `\n🔗 <a href="https://www.uygunayakkabi.com/admin/collections/products/${productId}">Admin'de aç</a>`
 
         if (isClaidCaption) {
           // #claid in caption → skip Gemini queue, show Claid mode keyboard immediately
@@ -5242,9 +5236,10 @@ export async function POST(req: NextRequest) {
         })
       }
 
+      // D-203: compact notification
       await sendTelegramMessage(
         chatId,
-        `✅ Ürün oluşturuldu!\n\n📦 ${productData.title}\nSKU: ${productData.sku}\nFiyat: ${productData.price} ₺`,
+        `✅ <b>${productData.title}</b> · ${productData.price} ₺`,
       )
       return NextResponse.json({ ok: true })
     }

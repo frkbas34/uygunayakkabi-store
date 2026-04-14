@@ -1224,7 +1224,7 @@ async function publishXDirectly(
   // D-195b: Build tweet text — ALWAYS include product link for Twitter Card preview.
   // X auto-renders og:image as a large image card when a URL with proper meta tags is in the tweet.
   const productLink = payload.slug
-    ? `https://uygunayakkabi.com/urun/${payload.slug}`
+    ? `https://uygunayakkabi.com/products/${payload.slug}`
     : ''
 
   let tweetText: string

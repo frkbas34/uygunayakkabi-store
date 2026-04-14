@@ -933,6 +933,67 @@ async function checkShotCompliance(
   }
 }
 
+/**
+ * D-201: Check shoe orientation in side_angle images.
+ * Asks Gemini Vision a simple binary question: "Is the toe pointing LEFT or RIGHT?"
+ * Returns 'left' | 'right' | 'unknown'.
+ *
+ * If the toe points RIGHT (wrong per operator rule), the caller should flop() the image.
+ */
+async function checkShoeOrientation(
+  imageBuffer: Buffer,
+  geminiKey: string,
+): Promise<'left' | 'right' | 'unknown'> {
+  try {
+    const b64 = imageBuffer.toString('base64')
+    const res = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${geminiKey}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [
+            {
+              parts: [
+                {
+                  text:
+                    'Look at this shoe photograph. The shoe is shown from the side.\n\n' +
+                    'Which direction is the TOE (front) of the shoe pointing?\n\n' +
+                    'Answer with EXACTLY one word: LEFT or RIGHT\n\n' +
+                    'LEFT means the toe points toward the left edge of the image.\n' +
+                    'RIGHT means the toe points toward the right edge of the image.',
+                },
+                { inlineData: { mimeType: 'image/jpeg', data: b64 } },
+              ],
+            },
+          ],
+          generationConfig: { temperature: 0, maxOutputTokens: 10 },
+        }),
+        signal: AbortSignal.timeout(15_000),
+      },
+    )
+
+    if (!res.ok) {
+      console.warn(`[checkShoeOrientation] HTTP ${res.status}`)
+      return 'unknown'
+    }
+
+    const data = (await res.json()) as Record<string, unknown>
+    const text = (
+      ((data.candidates as Array<Record<string, unknown>>)?.[0]?.content as Record<string, unknown>)
+        ?.parts as Array<{ text?: string }>
+    )?.[0]?.text?.trim().toUpperCase() ?? ''
+
+    if (text.includes('LEFT')) return 'left'
+    if (text.includes('RIGHT')) return 'right'
+    console.warn(`[checkShoeOrientation] ambiguous response: "${text}"`)
+    return 'unknown'
+  } catch (err) {
+    console.warn('[checkShoeOrientation] error:', err instanceof Error ? err.message : err)
+    return 'unknown'
+  }
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // OpenAI gpt-image-1 Image Edit (the ONLY image generator)
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1772,6 +1833,23 @@ export async function generateByGeminiPro(
       }
 
       if (finalBuf) {
+        // D-201: Orientation auto-fix for side_angle — toe must point LEFT
+        if (scene.name === 'side_angle' && geminiKey) {
+          try {
+            const orientation = await checkShoeOrientation(finalBuf, geminiKey)
+            if (orientation === 'right') {
+              console.log(`[generateByGeminiPro D-201] side_angle toe points RIGHT — flipping horizontally`)
+              finalBuf = await sharp(finalBuf).flop().jpeg({ quality: 92 }).toBuffer()
+              ;(slotLog as Record<string, unknown>).orientationFixed = true
+            } else {
+              console.log(`[generateByGeminiPro D-201] side_angle orientation OK: ${orientation}`)
+              ;(slotLog as Record<string, unknown>).orientationFixed = false
+            }
+          } catch (flipErr) {
+            console.warn('[generateByGeminiPro D-201] orientation check failed:', flipErr)
+          }
+        }
+
         result.buffers.push(finalBuf)
         result.successCount++
         slotLog.success = true

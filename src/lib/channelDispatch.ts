@@ -207,8 +207,10 @@ function extractMediaUrls(product: Record<string, unknown>): string[] {
   const aiUrls = Array.isArray(aiImages) ? resolveUrls(aiImages) : []
   const origUrls = Array.isArray(originalImages) ? resolveUrls(originalImages) : []
 
-  // AI gallery first (side_angle hero), then originals as supplementary
-  if (aiUrls.length > 0) return [...aiUrls, ...origUrls]
+  // D-196: When AI images exist, use ONLY AI images — never mix with originals.
+  // Original supplier photos should not appear in social media posts alongside
+  // the AI-generated product shots.
+  if (aiUrls.length > 0) return aiUrls
   return origUrls
 }
 

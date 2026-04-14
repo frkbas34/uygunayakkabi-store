@@ -55,6 +55,8 @@ export type ChannelDispatchPayload = {
   channel: SupportedChannel
   /** Payload CMS product ID */
   productId: string | number
+  /** Product slug for URL generation */
+  slug?: string
   /** SKU / stock code */
   sku?: string
   /** Product title — required for all listings */
@@ -1131,120 +1133,91 @@ export async function dispatchToChannel(
   }
 }
 
-// ── D-195: X (Twitter) Auto-Refresh + Direct Publish ────────────────────────
-// X access tokens expire in ~2 hours. refreshXToken() transparently refreshes
-// using the stored refresh_token and updates AutomationSettings.xTokens.
+// ── D-195: X (Twitter) Direct Publish via OAuth 1.0a ────────────────────────
+// D-195c: Switched from OAuth 2.0 PKCE to OAuth 1.0a for reliability.
+// OAuth 1.0a tokens do NOT expire — no refresh logic needed.
+// Credentials are stored as env vars: X_API_KEY, X_API_SECRET,
+// X_ACCESS_TOKEN, X_ACCESS_TOKEN_SECRET.
 // publishXDirectly() posts a tweet via X API v2 POST /2/tweets.
 
-import { getPayload } from './payload'
+import crypto from 'crypto'
 
 /**
- * Refresh X access token using the refresh_token.
- * Returns the new access_token, or null on failure.
- * Updates AutomationSettings.xTokens in the database.
+ * Generate OAuth 1.0a Authorization header for X API requests.
+ * Implements HMAC-SHA1 signature per RFC 5849.
  */
-async function refreshXToken(refreshToken: string): Promise<string | null> {
-  const clientId     = process.env.X_CLIENT_ID
-  const clientSecret = process.env.X_CLIENT_SECRET
-  if (!clientId || !clientSecret) {
-    console.error('[x/refresh] X_CLIENT_ID or X_CLIENT_SECRET missing')
-    return null
+function generateOAuth1Header(
+  method: string,
+  url: string,
+  apiKey: string,
+  apiSecret: string,
+  accessToken: string,
+  accessTokenSecret: string,
+): string {
+  const oauthParams: Record<string, string> = {
+    oauth_consumer_key: apiKey,
+    oauth_nonce: crypto.randomBytes(16).toString('hex'),
+    oauth_signature_method: 'HMAC-SHA1',
+    oauth_timestamp: Math.floor(Date.now() / 1000).toString(),
+    oauth_token: accessToken,
+    oauth_version: '1.0',
   }
 
-  try {
-    const basicAuth = Buffer.from(`${clientId}:${clientSecret}`).toString('base64')
-    const response = await fetch('https://api.x.com/2/oauth2/token', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/x-www-form-urlencoded',
-        Authorization: `Basic ${basicAuth}`,
-      },
-      body: new URLSearchParams({
-        grant_type: 'refresh_token',
-        refresh_token: refreshToken,
-        client_id: clientId,
-      }).toString(),
-    })
+  // Build parameter string (sorted by key)
+  const paramString = Object.keys(oauthParams)
+    .sort()
+    .map((k) => `${encodeURIComponent(k)}=${encodeURIComponent(oauthParams[k])}`)
+    .join('&')
 
-    const data = await response.json()
-    if (!response.ok || !data.access_token) {
-      console.error(
-        `[x/refresh] Token refresh failed — status=${response.status}`,
-        JSON.stringify(data).substring(0, 300),
-      )
-      return null
-    }
+  // Build signature base string
+  const baseString = [
+    method.toUpperCase(),
+    encodeURIComponent(url),
+    encodeURIComponent(paramString),
+  ].join('&')
 
-    // Store refreshed tokens
-    const expiresIn = data.expires_in ?? 7200
-    const expiresAt = new Date(Date.now() + expiresIn * 1000).toISOString()
+  // Build signing key
+  const signingKey = `${encodeURIComponent(apiSecret)}&${encodeURIComponent(accessTokenSecret)}`
 
-    const payload = await getPayload()
-    await payload.updateGlobal({
-      slug: 'automation-settings',
-      data: {
-        xTokens: {
-          accessToken:  data.access_token,
-          refreshToken: data.refresh_token ?? refreshToken, // X may rotate refresh token
-          expiresAt,
-          connectedAt: new Date().toISOString(),
-        },
-      } as any,
-    })
+  // Generate HMAC-SHA1 signature
+  const signature = crypto
+    .createHmac('sha1', signingKey)
+    .update(baseString)
+    .digest('base64')
 
-    console.log(`[x/refresh] ✅ Token refreshed — expires_in=${expiresIn}s`)
-    return data.access_token
-  } catch (err) {
-    console.error('[x/refresh] Exception:', err instanceof Error ? err.message : String(err))
-    return null
-  }
+  oauthParams['oauth_signature'] = signature
+
+  // Build Authorization header
+  const headerParts = Object.keys(oauthParams)
+    .sort()
+    .map((k) => `${encodeURIComponent(k)}="${encodeURIComponent(oauthParams[k])}"`)
+    .join(', ')
+
+  return `OAuth ${headerParts}`
 }
 
 /**
- * Get a valid X access token — refreshes automatically if expired.
- */
-async function getValidXToken(
-  xTokens: { accessToken?: string | null; refreshToken?: string | null; expiresAt?: string | null },
-): Promise<string | null> {
-  if (!xTokens.accessToken) return null
-
-  // Check if token is still valid (with 5-minute buffer)
-  if (xTokens.expiresAt) {
-    const expiresAt = new Date(xTokens.expiresAt).getTime()
-    const bufferMs = 5 * 60 * 1000 // 5 minutes
-    if (Date.now() > expiresAt - bufferMs) {
-      console.log('[x/token] Access token expired or expiring soon — refreshing...')
-      if (xTokens.refreshToken) {
-        return await refreshXToken(xTokens.refreshToken)
-      }
-      console.error('[x/token] No refresh token available — re-authorize via /api/auth/x/initiate')
-      return null
-    }
-  }
-
-  return xTokens.accessToken
-}
-
-/**
- * D-195: Publish a tweet via X API v2 POST /2/tweets.
+ * D-195c: Publish a tweet via X API v2 POST /2/tweets using OAuth 1.0a.
  * D-195b: Always includes product link → X renders og:image as large card.
  * No media upload needed — Twitter Card does the visual work for free.
  */
 async function publishXDirectly(
   payload: ChannelDispatchPayload,
-  xTokens: { accessToken?: string | null; refreshToken?: string | null; expiresAt?: string | null },
 ): Promise<ChannelDispatchResult> {
   const timestamp = new Date().toISOString()
 
-  // Get valid token (auto-refresh if needed)
-  const accessToken = await getValidXToken(xTokens)
-  if (!accessToken) {
+  const apiKey            = process.env.X_API_KEY
+  const apiSecret         = process.env.X_API_SECRET
+  const accessToken       = process.env.X_ACCESS_TOKEN
+  const accessTokenSecret = process.env.X_ACCESS_TOKEN_SECRET
+
+  if (!apiKey || !apiSecret || !accessToken || !accessTokenSecret) {
     return {
       channel: 'x',
       eligible: true,
       dispatched: false,
       webhookConfigured: false,
-      error: 'X access token missing or refresh failed — re-authorize via /api/auth/x/initiate',
+      error: 'X OAuth 1.0a credentials missing — set X_API_KEY, X_API_SECRET, X_ACCESS_TOKEN, X_ACCESS_TOKEN_SECRET env vars',
       timestamp,
     }
   }
@@ -1278,11 +1251,16 @@ async function publishXDirectly(
   }
 
   try {
-    const response = await fetch('https://api.x.com/2/tweets', {
+    const tweetUrl = 'https://api.x.com/2/tweets'
+    const authHeader = generateOAuth1Header(
+      'POST', tweetUrl, apiKey, apiSecret, accessToken, accessTokenSecret,
+    )
+
+    const response = await fetch(tweetUrl, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        Authorization: `Bearer ${accessToken}`,
+        Authorization: authHeader,
       },
       body: JSON.stringify({ text: tweetText }),
     })
@@ -1419,15 +1397,8 @@ export async function dispatchProductToChannels(
       }
     : undefined
 
-  // Extract X (Twitter) tokens from settings snapshot.
-  // D-195: Access token auto-refreshes via refreshXToken() when expired.
-  const xTokens = settings?.xTokens
-    ? {
-        accessToken:  settings.xTokens.accessToken  ?? null,
-        refreshToken: settings.xTokens.refreshToken ?? null,
-        expiresAt:    settings.xTokens.expiresAt    ?? null,
-      }
-    : undefined
+  // D-195c: X (Twitter) now uses OAuth 1.0a via env vars — no DB tokens needed.
+  // xTokens extraction kept for backward compatibility but unused for publishing.
 
   const results: ChannelDispatchResult[] = []
 
@@ -1502,10 +1473,10 @@ export async function dispatchProductToChannels(
       )
     } else if (
       channel === 'x' &&
-      xTokens?.accessToken
+      process.env.X_ACCESS_TOKEN
     ) {
-      // D-195: X (Twitter) direct publish via API v2 — auto-refreshes token
-      result = await publishXDirectly(dispatchPayload, xTokens)
+      // D-195c: X (Twitter) direct publish via API v2 — OAuth 1.0a (no refresh needed)
+      result = await publishXDirectly(dispatchPayload)
     } else if (
       channel === 'shopier' &&
       process.env.SHOPIER_PAT

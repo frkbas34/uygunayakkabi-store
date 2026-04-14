@@ -2898,11 +2898,11 @@ export async function POST(req: NextRequest) {
           hizli: '⚡', dengeli: '⚖️', premium: '💎', karma: '🌈',
         }
 
-        // D-203: compact product summary — just name, confirm, admin link
+        // D-206: minimal product summary — title + admin link only
+        // /confirm and missing-field hints removed: wizard auto-starts after image approval
         const productSummary =
-          `✅ <b>${title}</b>${visionLabel}\n` +
-          missingBlock +
-          `\n🔗 <a href="https://www.uygunayakkabi.com/admin/collections/products/${productId}">Admin'de aç</a>`
+          `✅ <b>${title}</b>` +
+          `\n🔗 <a href="https://www.uygunayakkabi.com/admin/collections/products/${productId}">Admin</a>`
 
         if (isClaidCaption) {
           // #claid in caption → skip Gemini queue, show Claid mode keyboard immediately

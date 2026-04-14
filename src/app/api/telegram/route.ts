@@ -779,13 +779,8 @@ async function startPremiumImageGenJob(
   // This is truthful — new images are being generated and need review.
   await updateProductVisualStatus(payload, productId, 'generating')
 
-  await sendTelegramMessage(
-    chatId,
-    `🌟 <b>Premium görsel üretimi başlatıldı</b> (${premiumProviderLabel})\n\n` +
-    `📸 Slot 4 (Editoryal Üstten) ve Slot 5 (Lifestyle Giyilmiş) üretiliyor...\n` +
-    `Hazır olduğunda Telegram'a önizleme gönderilecek.\n\n` +
-    `💡 <i>Slot 1-3 görselleri için önceki onay butonlarını hâlâ kullanabilirsiniz.</i>`,
-  )
+  // D-203: removed "Premium görsel üretimi başlatıldı" notification — operator gets
+  // notified when images are READY, no need to announce generation start
 
   // Run the new job
   try {
@@ -956,14 +951,7 @@ export async function POST(req: NextRequest) {
             // VF-2: Set product visualStatus = generating when inline button triggers gen
             await updateProductVisualStatus(cbPayload, cbProductId, 'generating')
 
-            await sendTelegramMessage(
-              cbChatId,
-              `✨ <b>Gemini Pro görsel üretimi başlatıldı!</b>\n\n` +
-              `📦 Ürün: <b>${cbProduct.title}</b>\n` +
-              `🤖 Provider: ✨ Gemini Pro\n` +
-              `🖼️ 3 sahne üretilecek\n\n` +
-              `<i>Tamamlanınca bildirim gelecek.</i>`,
-            )
+            // D-203: removed "Gemini Pro görsel üretimi başlatıldı" — operator gets notified when ready
 
             await cbPayload.jobs.run({ limit: 1, overrideAccess: true })
           } catch (err) {
@@ -1400,14 +1388,8 @@ export async function POST(req: NextRequest) {
             return NextResponse.json({ ok: true })
           }
 
-          // Start wizard — show status then first prompt
-          const missingList = check.missing.map(m => `  ❌ ${m.label}`).join('\n')
-          const presentList = check.present.map(m => `  ✅ ${m.label}: ${m.value}`).join('\n')
-          await sendTelegramMessage(cbChatId,
-            `📋 <b>Ürün #${wzProductId} — ${(product as any).title ?? 'İsimsiz'}</b>\n\n` +
-            `<b>Mevcut:</b>\n${presentList || '  (yok)'}\n\n` +
-            `<b>Eksik:</b>\n${missingList || '  (yok)'}\n\n` +
-            `Sihirbaz başlıyor...`)
+          // D-203: removed separate "Sihirbaz başlıyor..." status message —
+          // wizard immediately shows first prompt, no need for a preamble
 
           await clearWizardSession(cbChatId, cbUserId)
           const wizState: any = {
@@ -1850,38 +1832,16 @@ export async function POST(req: NextRequest) {
           if (result.success) {
             await answerCallbackQuery(cbQueryId, '✅ Ürün onaylandı!')
             const variantNote = result.variantsCreated
-              ? `\n📐 ${result.variantsCreated} beden varyantı oluşturuldu.`
+              ? ` · ${result.variantsCreated} beden`
               : ''
+            // D-203: slimmed confirmation — removed technical fields + GeoBot handoff noise
             await sendTelegramMessage(
               cbChatId,
-              `✅ <b>Ürün #${session.productId} onaylandı!</b>${variantNote}\n\n` +
-                `📋 confirmationStatus = confirmed\n` +
-                `🤖 lastHandledByBot = uygunops\n` +
-                `📝 BotEvent: product.confirmed kaydedildi.\n\n` +
-                `🔄 Ürün GeoBot'a devrediliyor...`,
+              `✅ <b>Ürün #${session.productId} onaylandı</b>${variantNote}`,
             )
 
-            // ── Phase S: GeoBot visible handoff notification ─────────────────
-            const geoToken = process.env.TELEGRAM_GEO_BOT_TOKEN
-            const mentixGroupId = -5197796539
-            if (geoToken) {
-              try {
-                await sendTelegramMessageAs(
-                  geoToken,
-                  mentixGroupId,
-                  `📦 <b>Ürün #${session.productId} — GeoBot devir aldı</b>\n\n` +
-                    `✅ Ops Bot onayı tamamlandı.${variantNote}\n` +
-                    `🤖 İçerik üretimi başlatılıyor...`,
-                  [
-                    [
-                      { text: '📋 İçerik Durumu', callback_data: `geo_content:${session.productId}` },
-                    ],
-                  ],
-                )
-              } catch (handoffErr) {
-                console.error('[telegram/webhook] Phase S GeoBot handoff notification failed:', handoffErr)
-              }
-            }
+            // Phase S: GeoBot handoff — silent (no Telegram message)
+            // GeoBot content production still triggers, just no "devir aldı" notification
           } else {
             await answerCallbackQuery(cbQueryId, '❌ Onay başarısız')
             await sendTelegramMessage(
@@ -2907,11 +2867,9 @@ export async function POST(req: NextRequest) {
         } else if (autoGenJobId && (autoGenMode || autoGenEngine)) {
           // Engine/mode was pre-selected in caption — show plain confirmation
           // v18 Gemini-only: single label regardless of tag
-          const autoConfirmLabel = '✨ <b>Gemini Pro görsel üretimi başlatıldı</b> — 3 sahne — tamamlanınca bildirim gelecek'
-          await sendTelegramMessage(
-            chatId,
-            productSummary + `\n\n${autoConfirmLabel}`,
-          )
+          // D-203: removed auto-confirm "generation started" message — operator gets notified when ready
+          // Still show productSummary (product created info) since it contains actionable data
+          await sendTelegramMessage(chatId, productSummary)
         } else {
           // Default post-product keyboard: Gemini Pro + skip (v19 Gemini-only)
           await sendTelegramMessageWithKeyboard(
@@ -3056,14 +3014,7 @@ export async function POST(req: NextRequest) {
       // VF-2: Set product visualStatus = generating when image gen starts
       await updateProductVisualStatus(payload, gorselProductId, 'generating')
 
-      await sendTelegramMessage(
-        chatId,
-        `✨ <b>Gemini Pro görsel üretimi başlatıldı!</b>\n\n` +
-        `📦 Ürün: <b>${gorselProduct.title}</b>\n` +
-        `🤖 Provider: ✨ Gemini Pro\n` +
-        `🖼️ 3 sahne üretilecek\n\n` +
-        `<i>Tamamlanınca bildirim gelecek.</i>`,
-      )
+      // D-203: removed "görsel üretimi başlatıldı" — operator gets notified when ready
 
       // Job runner — response gönderildikten sonra çalıştır (after ile timeout yok)
       after(async () => {
@@ -3177,14 +3128,7 @@ export async function POST(req: NextRequest) {
         overrideAccess: true,
       })
 
-      await sendTelegramMessage(
-        chatId,
-        `✨ <b>Gemini Pro görsel üretimi başlatıldı!</b>\n\n` +
-        `📦 Ürün: <b>${gpProduct.title}</b>\n` +
-        `🤖 Provider: ✨ Gemini Pro\n` +
-        `🖼️ 3 sahne üretilecek\n\n` +
-        `<i>Tamamlanınca Telegram'a önizleme gönderilecek.</i>`,
-      )
+      // D-203: removed "görsel üretimi başlatıldı" — operator gets notified when ready
 
       after(async () => {
         try {

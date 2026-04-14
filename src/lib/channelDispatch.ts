@@ -1227,8 +1227,8 @@ async function getValidXToken(
 
 /**
  * D-195: Publish a tweet via X API v2 POST /2/tweets.
- * Supports text-only tweets (X free tier).
- * Media upload requires X API v1.1 media/upload + paid tier — deferred.
+ * D-195b: Always includes product link → X renders og:image as large card.
+ * No media upload needed — Twitter Card does the visual work for free.
  */
 async function publishXDirectly(
   payload: ChannelDispatchPayload,
@@ -1249,17 +1249,22 @@ async function publishXDirectly(
     }
   }
 
-  // Build tweet text — use geobot xPost or fallback
+  // D-195b: Build tweet text — ALWAYS include product link for Twitter Card preview.
+  // X auto-renders og:image as a large image card when a URL with proper meta tags is in the tweet.
+  const productLink = payload.slug
+    ? `https://uygunayakkabi.com/urun/${payload.slug}`
+    : ''
+
   let tweetText: string
   if (payload.geobot?.xPost) {
-    tweetText = payload.geobot.xPost
+    // If geobot text already contains the link, use as-is; otherwise append it
+    tweetText = payload.geobot.xPost.includes('uygunayakkabi.com')
+      ? payload.geobot.xPost
+      : `${payload.geobot.xPost}${productLink ? `\n${productLink}` : ''}`
   } else {
     // Fallback: title + price + link
     const price = payload.price ? ` ${payload.price}₺` : ''
-    const link = payload.slug
-      ? `\nhttps://uygunayakkabi.com/urun/${payload.slug}`
-      : ''
-    tweetText = `${payload.title}${price}${link}`
+    tweetText = `${payload.title}${price}${productLink ? `\n${productLink}` : ''}`
   }
 
   // Add low-stock suffix

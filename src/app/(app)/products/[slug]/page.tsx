@@ -100,6 +100,29 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
 
   const keywords = product.content?.discoveryPack?.keywordEntities
 
+  // D-195b: Extract first AI-generated image for og:image + twitter:card
+  const baseUrl = (process.env.NEXT_PUBLIC_SERVER_URL ?? 'https://uygunayakkabi.com').replace(/\/$/, '')
+  const ogImage = (() => {
+    const gallery = product.generativeGallery ?? []
+    if (gallery.length === 0) {
+      // Fallback to original images
+      const originals = product.images ?? []
+      if (originals.length === 0) return undefined
+      const first = originals[0]
+      const mediaDoc = (typeof first === 'object' && first !== null && 'image' in first)
+        ? first.image as MediaDoc
+        : null
+      const url = mediaDoc?.url
+      if (!url) return undefined
+      return url.startsWith('http') ? url : `${baseUrl}${url}`
+    }
+    const first = gallery[0]
+    const mediaDoc = first.image as MediaDoc
+    const url = mediaDoc?.url
+    if (!url) return undefined
+    return url.startsWith('http') ? url : `${baseUrl}${url}`
+  })()
+
   return {
     title: metaTitle,
     description: metaDescription,
@@ -108,6 +131,14 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
       title: metaTitle,
       description: metaDescription,
       type: 'website',
+      url: `${baseUrl}/urun/${product.slug}`,
+      ...(ogImage ? { images: [{ url: ogImage, width: 1200, height: 1200, alt: product.title }] } : {}),
+    },
+    twitter: {
+      card: ogImage ? 'summary_large_image' : 'summary',
+      title: metaTitle,
+      description: metaDescription,
+      ...(ogImage ? { images: [ogImage] } : {}),
     },
   }
 }

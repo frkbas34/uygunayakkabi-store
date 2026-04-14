@@ -20,7 +20,7 @@ export function ProductImages({ images, title }: Props) {
 
   return (
     <div>
-      <div className="relative aspect-square bg-gray-100 rounded-2xl overflow-hidden mb-4">
+      <div className="relative aspect-square lg:aspect-[4/3] bg-gray-100 rounded-2xl overflow-hidden mb-4">
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img
           src={images[activeIndex]}

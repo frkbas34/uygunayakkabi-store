@@ -1229,10 +1229,12 @@ async function publishXDirectly(
 
   let tweetText: string
   if (payload.geobot?.xPost) {
-    // If geobot text already contains the link, use as-is; otherwise append it
-    tweetText = payload.geobot.xPost.includes('uygunayakkabi.com')
-      ? payload.geobot.xPost
-      : `${payload.geobot.xPost}${productLink ? `\n${productLink}` : ''}`
+    // D-195c: Replace [Link] placeholder with actual product URL, then
+    // if no link present at all, append it.
+    let xPost = payload.geobot.xPost.replace(/\[Link\]/gi, productLink)
+    tweetText = xPost.includes('uygunayakkabi.com')
+      ? xPost
+      : `${xPost}${productLink ? `\n${productLink}` : ''}`
   } else {
     // Fallback: title + price + link
     const price = payload.price ? ` ${payload.price}₺` : ''

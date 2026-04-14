@@ -163,11 +163,49 @@ export const Products: CollectionConfig = {
             depth: 1,
           })
 
+          // D-202: On forceRedispatch, determine which channels to target.
+          // If sourceMeta.forceRedispatchChannels is set (e.g. ['shopier']),
+          // only those channels are dispatched. Otherwise, parse previous
+          // dispatchNotes and skip channels that already published successfully
+          // to prevent duplicate posts (e.g. 5x Instagram posts).
+          let dispatchOptions: { dryRun?: boolean; onlyChannels?: import('@/lib/channelDispatch').SupportedChannel[] } | undefined
+          if (isDryRun) {
+            dispatchOptions = { dryRun: true }
+          } else if (isForceRedispatch) {
+            const forceChannels = sourceMeta.forceRedispatchChannels as string[] | undefined
+            if (Array.isArray(forceChannels) && forceChannels.length > 0) {
+              // Operator explicitly specified which channels to re-dispatch
+              dispatchOptions = { onlyChannels: forceChannels as import('@/lib/channelDispatch').SupportedChannel[] }
+              console.log(`[Products D-202] forceRedispatch with explicit channels: [${forceChannels.join(',')}]`)
+            } else {
+              // No explicit channels — only re-dispatch to channels that haven't
+              // been successfully dispatched yet, plus always allow Shopier (sync/update)
+              const prevNotes = sourceMeta.dispatchNotes as string | undefined
+              let alreadyDispatched: string[] = []
+              try {
+                const parsed = prevNotes ? JSON.parse(prevNotes) : []
+                alreadyDispatched = Array.isArray(parsed)
+                  ? parsed.filter((n: Record<string, unknown>) => n.dispatched === true).map((n: Record<string, unknown>) => n.channel as string)
+                  : []
+              } catch { /* ignore parse errors */ }
+              // Channels that need re-dispatch: not yet dispatched + always shopier
+              const { SUPPORTED_CHANNELS } = await import('@/lib/channelDispatch')
+              const onlyChannels = SUPPORTED_CHANNELS.filter(
+                (ch) => !alreadyDispatched.includes(ch) || ch === 'shopier',
+              )
+              dispatchOptions = { onlyChannels }
+              console.log(
+                `[Products D-202] forceRedispatch — alreadyDispatched=[${alreadyDispatched.join(',')}] ` +
+                `onlyChannels=[${onlyChannels.join(',')}]`,
+              )
+            }
+          }
+
           const { results, dispatchedChannels } = await dispatchProductToChannels(
             populatedProduct as Record<string, unknown>,
             settings,
             triggerReason,
-            isDryRun ? { dryRun: true } : undefined,
+            dispatchOptions,
           )
 
           // ── Step 20: Determine if Shopier sync should be queued ─────────────

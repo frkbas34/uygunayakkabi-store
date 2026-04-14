@@ -1382,13 +1382,14 @@ export async function dispatchProductToChannels(
   product: Record<string, unknown>,
   settings: AutomationSettingsSnapshot | null,
   triggerReason: string,
-  options?: { dryRun?: boolean },
+  options?: { dryRun?: boolean; onlyChannels?: SupportedChannel[] },
 ): Promise<{
   results: ChannelDispatchResult[]
   dispatchedChannels: SupportedChannel[]
   skippedChannels: Record<SupportedChannel, string>
 }> {
   const dryRun = options?.dryRun === true
+  const onlyChannels = options?.onlyChannels
   const { eligible, skipped } = evaluateChannelEligibility(product, settings)
 
   // Extract Instagram/Facebook tokens from settings snapshot.
@@ -1419,9 +1420,28 @@ export async function dispatchProductToChannels(
     })
   }
 
+  // D-202: Filter eligible channels when onlyChannels is specified.
+  // This prevents forceRedispatch from re-publishing to channels that
+  // already received the product (e.g. Instagram, Facebook, X).
+  const effectiveEligible = onlyChannels
+    ? eligible.filter((ch) => {
+        if (onlyChannels.includes(ch)) return true
+        // Channel is eligible but not in onlyChannels — record as skipped
+        results.push({
+          channel:           ch,
+          eligible:          true,
+          dispatched:        false,
+          skippedReason:     `not in onlyChannels (restricted to: [${onlyChannels.join(', ')}])`,
+          webhookConfigured: !!buildChannelWebhookUrl(ch),
+          timestamp:         new Date().toISOString(),
+        })
+        return false
+      })
+    : eligible
+
   // Dispatch eligible channels
   const dispatchedChannels: SupportedChannel[] = []
-  for (const channel of eligible) {
+  for (const channel of effectiveEligible) {
     const dispatchPayload = buildDispatchPayload(product, channel, triggerReason, instagramTokens)
 
     // ── Phase G: Dry-run mode — resolve captions, skip all external API calls ──

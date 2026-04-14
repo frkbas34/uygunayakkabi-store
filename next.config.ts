@@ -9,7 +9,16 @@ const nextConfig: NextConfig = {
   async rewrites() {
     return [
       { source: "/ayakkabilar", destination: "/" },
-      { source: "/urun/:slug", destination: "/" },
+    ];
+  },
+  // D-198: Redirect /urun/:slug → /products/:slug (canonical enhanced page)
+  async redirects() {
+    return [
+      {
+        source: "/urun/:slug",
+        destination: "/products/:slug",
+        permanent: true,
+      },
     ];
   },
   images: {

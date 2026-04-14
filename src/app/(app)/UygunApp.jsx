@@ -644,11 +644,9 @@ export default function App({ dbProducts = [], siteSettings = null, banners = []
   };
 
   const view = p => {
-    sSel(p);
-    sPg("detail");
+    // D-198: Navigate to enhanced SSR product page instead of SPA detail
     const slug = p.slug || p.id;
-    window.history.pushState({ pg: "detail", slug }, "", `/urun/${slug}`);
-    window.scrollTo({ top: 0, behavior: "smooth" });
+    window.location.href = `/products/${slug}`;
   };
 
   // D-194: Handle browser back/forward buttons

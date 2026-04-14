@@ -131,7 +131,7 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
       title: metaTitle,
       description: metaDescription,
       type: 'website',
-      url: `${baseUrl}/urun/${product.slug}`,
+      url: `${baseUrl}/products/${product.slug}`,
       ...(ogImage ? { images: [{ url: ogImage, width: 1200, height: 1200, alt: product.title }] } : {}),
     },
     twitter: {

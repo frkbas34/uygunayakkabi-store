@@ -129,6 +129,28 @@ export async function ensureCategory(
 }
 
 /**
+ * D-208: Ensure a variation exists in Shopier (e.g. "Numara"/"Renk").
+ * Auto-creates if missing so variants never get silently dropped.
+ */
+export async function ensureVariation(
+  title: string,
+): Promise<string | null> {
+  const mappings = await getShopierMappings()
+  const existing = mappings.variations.get(title)
+  if (existing) return existing
+
+  const res = await api.createVariation(title)
+  if (!res.ok) {
+    console.error(`[shopierSync] ensureVariation failed for "${title}":`, res)
+    return null
+  }
+
+  mappings.variations.set(res.data.title, res.data.id)
+  console.log(`[shopierSync] created variation "${title}" → ${res.data.id}`)
+  return res.data.id
+}
+
+/**
  * Ensure a selection exists for a given variation.
  * Returns the Shopier selection ID.
  */
@@ -213,11 +235,11 @@ function buildShopierMedia(product: Record<string, unknown>): ShopierMediaInput[
 async function buildShopierVariants(
   product: Record<string, unknown>,
 ): Promise<ShopierVariantInput[]> {
-  const mappings = await getShopierMappings()
-  const numaraVarId = mappings.variations.get('Numara')
+  // D-208: Auto-create "Numara" variation if missing instead of silently dropping variants
+  const numaraVarId = await ensureVariation('Numara')
 
   if (!numaraVarId) {
-    console.warn('[shopierSync] "Numara" variation not found in Shopier — skipping variants')
+    console.warn('[shopierSync] could not ensure "Numara" variation in Shopier — skipping variants')
     return []
   }
 

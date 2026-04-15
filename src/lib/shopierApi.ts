@@ -311,6 +311,12 @@ export async function listVariations(): Promise<ShopierResult<ShopierVariation[]
   return shopierFetch<ShopierVariation[]>('GET', '/variations')
 }
 
+export async function createVariation(
+  title: string,
+): Promise<ShopierResult<ShopierVariation>> {
+  return shopierFetch<ShopierVariation>('POST', '/variations', { title })
+}
+
 // ── Selection endpoints ─────────────────────────────────────────────────────
 
 export async function listSelections(

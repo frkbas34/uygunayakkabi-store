@@ -49,6 +49,7 @@ type ProductDoc = {
   material?: string | null
   status?: string | null
   stockNumber?: string | null
+  shopierProductUrl?: string | null
   images?: ImageEntry[] | null
   generativeGallery?: ImageEntry[] | null
   variants?: VariantDoc[] | null
@@ -577,6 +578,42 @@ export default async function ProductPage({ params }: Props) {
                   >
                     {!isSoldOut ? 'SEPETE EKLE' : 'STOKTA YOK'}
                   </button>
+
+                  {/* D-207: Shopier ile Öde — direct to product's Shopier page */}
+                  {product.shopierProductUrl && !isSoldOut && (
+                    <a
+                      href={product.shopierProductUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      style={{
+                        width: '100%',
+                        padding: 17,
+                        boxSizing: 'border-box',
+                        background: '#8a4fff',
+                        color: '#fff',
+                        border: 'none',
+                        borderRadius: 999,
+                        fontFamily: "'Inter', sans-serif",
+                        fontSize: 12,
+                        fontWeight: 700,
+                        textDecoration: 'none',
+                        textAlign: 'center',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        gap: 10,
+                        transition: 'all 0.3s',
+                        cursor: 'pointer',
+                        letterSpacing: '0.1em',
+                        textTransform: 'uppercase',
+                      }}
+                    >
+                      <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
+                        <path d="M12 2L2 7v10c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V7l-10-5zm-1 14l-4-4 1.41-1.41L11 13.17l5.59-5.58L18 9l-7 7z"/>
+                      </svg>
+                      SHOPIER İLE ÖDE
+                    </a>
+                  )}
 
                   {/* WhatsApp */}
                   <a

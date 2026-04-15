@@ -49,7 +49,10 @@ type ProductDoc = {
   material?: string | null
   status?: string | null
   stockNumber?: string | null
-  shopierProductUrl?: string | null
+  sourceMeta?: {
+    shopierProductUrl?: string | null
+    shopierSyncStatus?: string | null
+  } | null
   images?: ImageEntry[] | null
   generativeGallery?: ImageEntry[] | null
   variants?: VariantDoc[] | null
@@ -580,9 +583,9 @@ export default async function ProductPage({ params }: Props) {
                   </button>
 
                   {/* D-207: Shopier ile Öde — direct to product's Shopier page */}
-                  {product.shopierProductUrl && !isSoldOut && (
+                  {product.sourceMeta?.shopierProductUrl && !isSoldOut && (
                     <a
-                      href={product.shopierProductUrl}
+                      href={product.sourceMeta.shopierProductUrl}
                       target="_blank"
                       rel="noopener noreferrer"
                       style={{

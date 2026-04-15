@@ -1309,11 +1309,32 @@ export async function POST(req: NextRequest) {
             return NextResponse.json({ ok: true })
           }
           const { evaluatePublishReadiness, formatReadinessMessage } = await import('@/lib/publishReadiness')
-          const readiness = evaluatePublishReadiness(product as any)
+          let readiness = evaluatePublishReadiness(product as any)
+          let effectiveProduct = product
+
+          // D-209: if the ONLY missing piece is audit, auto-run it as part of "Yayına Al"
+          if (readiness.level !== 'ready') {
+            const { isAuditEligible, triggerAudit } = await import('@/lib/mentixAudit')
+            const auditStatus = (product as any)?.auditResult?.overallResult
+            const needsAudit = auditStatus !== 'approved' && auditStatus !== 'approved_with_warning'
+            if (needsAudit && isAuditEligible(product as any)) {
+              await sendTelegramMessage(cbChatId, `🔍 Ürün #${geoProductId} için audit başlatılıyor...`)
+              try {
+                await triggerAudit(payloadInst, product, 'geo_activate_auto')
+              } catch (err) {
+                console.error('[telegram/webhook] geo_activate auto-audit failed:', err)
+              }
+              effectiveProduct = (await payloadInst.findByID({
+                collection: 'products', id: geoProductId, depth: 1,
+              })) ?? product
+              readiness = evaluatePublishReadiness(effectiveProduct as any)
+            }
+          }
+
           if (readiness.level !== 'ready') {
             await sendTelegramMessage(cbChatId,
               `⛔ Ürün #${geoProductId} yayına alınamıyor:\n\n` +
-              formatReadinessMessage(product as any, readiness))
+              formatReadinessMessage(effectiveProduct as any, readiness))
             return NextResponse.json({ ok: true })
           }
           // Activate: set status=active, merchandising fields, workflow

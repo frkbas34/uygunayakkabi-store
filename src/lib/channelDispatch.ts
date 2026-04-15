@@ -1199,8 +1199,12 @@ function generateOAuth1Header(
 }
 
 /**
- * D-205: Upload an image to X via v1.1 media/upload (simple upload, <5MB).
- * Returns media_id_string on success, null on failure (tweet goes text-only).
+ * D-205: Upload an image to X for inline tweet display.
+ * D-210: Migrated from v1.1 upload.twitter.com/1.1/media/upload.json (sunset 2025-06-09)
+ *        to v2 api.x.com/2/media/upload using multipart/form-data + OAuth 1.0a.
+ *        Body params are NOT included in the OAuth signature for multipart requests,
+ *        so the existing generateOAuth1Header signs only oauth_* params (correct).
+ * Returns media_id string on success, null on failure (tweet goes text-only).
  */
 async function uploadImageToX(
   imageUrl: string,
@@ -1217,40 +1221,69 @@ async function uploadImageToX(
       return null
     }
     const imgBuffer = Buffer.from(await imgResponse.arrayBuffer())
+    const contentType = imgResponse.headers.get('content-type') ?? 'image/jpeg'
 
-    // X v1.1 simple upload limit is 5MB for images
+    // X simple (non-chunked) upload limit is 5MB for images
     if (imgBuffer.length > 5 * 1024 * 1024) {
       console.warn(`[channelDispatch] X media too large (${imgBuffer.length} bytes), skipping upload`)
       return null
     }
 
-    const uploadUrl = 'https://upload.twitter.com/1.1/media/upload.json'
+    // D-210: v2 media upload endpoint (v1.1 was sunset 2025-06-09)
+    const uploadUrl = 'https://api.x.com/2/media/upload'
     const authHeader = generateOAuth1Header(
       'POST', uploadUrl, apiKey, apiSecret, accessToken, accessTokenSecret,
     )
 
-    // Use base64 media_data approach (simpler than multipart for server-side)
-    const formBody = new URLSearchParams()
-    formBody.append('media_data', imgBuffer.toString('base64'))
+    // Build multipart/form-data body with raw image bytes under field name "media".
+    // Per OAuth 1.0a spec, multipart body params are NOT included in the signature base string,
+    // so the oauth_* header produced above is valid as-is.
+    const boundary = `----uygunayakkabiX${crypto.randomBytes(8).toString('hex')}`
+    const filename = 'image.jpg'
+    const preamble =
+      `--${boundary}\r\n` +
+      `Content-Disposition: form-data; name="media"; filename="${filename}"\r\n` +
+      `Content-Type: ${contentType}\r\n\r\n`
+    const epilogue = `\r\n--${boundary}--\r\n`
+    const multipartBody = Buffer.concat([
+      Buffer.from(preamble, 'utf8'),
+      imgBuffer,
+      Buffer.from(epilogue, 'utf8'),
+    ])
 
     const uploadResponse = await fetch(uploadUrl, {
       method: 'POST',
       headers: {
         Authorization: authHeader,
-        'Content-Type': 'application/x-www-form-urlencoded',
+        'Content-Type': `multipart/form-data; boundary=${boundary}`,
+        'Content-Length': multipartBody.length.toString(),
       },
-      body: formBody.toString(),
+      body: multipartBody,
     })
 
-    const uploadData = await uploadResponse.json()
+    const uploadText = await uploadResponse.text()
+    let uploadData: any = {}
+    try { uploadData = JSON.parse(uploadText) } catch { /* keep raw text */ }
+
     if (!uploadResponse.ok) {
       console.error(
-        `[channelDispatch] X media upload failed — status=${uploadResponse.status} body=${JSON.stringify(uploadData).substring(0, 500)}`,
+        `[channelDispatch] X media upload failed — status=${uploadResponse.status} body=${uploadText.substring(0, 500)}`,
       )
       return null
     }
 
-    const mediaId = uploadData.media_id_string
+    // v2 response shape: { data: { id: "...", media_key: "..." } }
+    // Some intermediate variants also return top-level id / media_id_string — handle all.
+    const mediaId: string | undefined =
+      uploadData?.data?.id ??
+      uploadData?.id ??
+      uploadData?.media_id_string
+    if (!mediaId) {
+      console.error(
+        `[channelDispatch] X media upload returned no id — body=${uploadText.substring(0, 500)}`,
+      )
+      return null
+    }
     console.log(`[channelDispatch] X media uploaded — media_id=${mediaId} size=${imgBuffer.length}`)
     return mediaId
   } catch (err) {

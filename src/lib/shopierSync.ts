@@ -239,7 +239,12 @@ async function buildShopierVariants(
   const numaraVarId = await ensureVariation('Numara')
 
   if (!numaraVarId) {
-    console.warn('[shopierSync] could not ensure "Numara" variation in Shopier — skipping variants')
+    // D-208b: loud error — most likely cause is Shopier PAT lacks variation-create scope.
+    // Fix: manually create "Numara" variation in Shopier admin panel.
+    console.error(
+      '[shopierSync] ❌ "Numara" variation missing on Shopier AND auto-create failed. ' +
+      'Manually create "Numara" variation in Shopier admin panel, then re-sync.',
+    )
     return []
   }
 
@@ -397,6 +402,14 @@ export async function publishProductToShopier(
     } else {
       // CREATE new Shopier product
       console.log(`[shopierSync] creating new Shopier product for Payload product ${productId}`)
+      result = await api.createProduct(body)
+    }
+
+    // D-208b: if UPDATE fails with 403/404 (Shopier product deleted manually), retry as CREATE
+    if (!result.ok && existingShopierProductId && (result.status === 403 || result.status === 404)) {
+      console.warn(
+        `[shopierSync] UPDATE failed with ${result.status} for Shopier product ${existingShopierProductId} — likely deleted. Retrying as CREATE.`,
+      )
       result = await api.createProduct(body)
     }
 

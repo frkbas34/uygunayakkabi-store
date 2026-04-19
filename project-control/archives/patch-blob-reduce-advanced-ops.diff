@@ -1,0 +1,92 @@
+diff --git a/src/app/api/telegram/route.ts b/src/app/api/telegram/route.ts
+index 6de295f..10441ac 100644
+--- a/src/app/api/telegram/route.ts
++++ b/src/app/api/telegram/route.ts
+@@ -272,18 +272,42 @@ async function approveImageGenJob(
+ 
+ /**
+  * Reject a preview job — mark as rejected, images NOT attached to product.
+- * The temp Media documents remain in the media collection (can be cleaned
+- * up manually or via a future cron).
++ * Deletes the temporary Media documents (and their Vercel Blob files) immediately
++ * to prevent orphan accumulation and avoid future bulk-cleanup Advanced Op spikes.
+  */
+ async function rejectImageGenJob(
+   payload: Awaited<ReturnType<typeof import('@/lib/payload').getPayload>>,
+   jobId: string,
+   chatId: number,
+ ): Promise<void> {
++  // Fetch job to get the generated media IDs before clearing them
++  let generatedMediaIds: number[] = []
++  try {
++    const jobDoc = await payload.findByID({
++      collection: 'image-generation-jobs',
++      id: jobId,
++      depth: 0,
++    }) as Record<string, unknown>
++    const imgs = (jobDoc.generatedImages as Array<{ id: number } | number> | undefined) ?? []
++    generatedMediaIds = imgs.map((img) => (typeof img === 'object' ? img.id : img))
++  } catch (err) {
++    console.error('[rejectImageGenJob] failed to fetch job for cleanup:', err)
++  }
++
++  // Delete orphaned Media documents (triggers Vercel Blob del() for each)
++  for (const mediaId of generatedMediaIds) {
++    try {
++      await payload.delete({ collection: 'media', id: mediaId })
++      console.log(`[rejectImageGenJob] deleted media ${mediaId}`)
++    } catch (err) {
++      console.error(`[rejectImageGenJob] failed to delete media ${mediaId}:`, err)
++    }
++  }
++
+   await payload.update({
+     collection: 'image-generation-jobs',
+     id: jobId,
+-    data: { status: 'rejected' },
++    data: { status: 'rejected', generatedImages: [] },
+   })
+   await sendTelegramMessage(
+     chatId,
+@@ -333,6 +357,19 @@ async function regenImageGenJob(
+     currentProvider === 'openai'     ? '⚙️ ChatGPT'   :
+     '🔮 Luma AI'
+ 
++  // Delete orphaned Media documents from the previous generation attempt
++  // before clearing generatedImages — prevents Vercel Blob orphan accumulation
++  const prevImgs = (jobDoc.generatedImages as Array<{ id: number } | number> | undefined) ?? []
++  const prevMediaIds = prevImgs.map((img) => (typeof img === 'object' ? img.id : img))
++  for (const mediaId of prevMediaIds) {
++    try {
++      await payload.delete({ collection: 'media', id: mediaId })
++      console.log(`[regenImageGenJob] deleted orphaned media ${mediaId}`)
++    } catch (err) {
++      console.error(`[regenImageGenJob] failed to delete media ${mediaId}:`, err)
++    }
++  }
++
+   await payload.update({
+     collection: 'image-generation-jobs',
+     id: jobId,
+diff --git a/src/collections/Media.ts b/src/collections/Media.ts
+index 89bc872..175eca6 100644
+--- a/src/collections/Media.ts
++++ b/src/collections/Media.ts
+@@ -27,12 +27,11 @@ export const MediaCollection: CollectionConfig = {
+         height: 600,
+         position: 'centre',
+       },
+-      {
+-        name: 'large',
+-        width: 1200,
+-        height: 1200,
+-        position: 'centre',
+-      },
++      // NOTE: 'large' (1200x1200) removed to reduce Vercel Blob Advanced Operations.
++      // Each upload previously created 4 blob files (original + 3 sizes).
++      // Now creates 3 (original + thumbnail + card).
++      // Existing large-size blobs in storage are unaffected and still served.
++      // Storefront uses media.url (CDN) directly — no component references sizes.large.
+     ],
+     adminThumbnail: 'thumbnail',
+     focalPoint: true,

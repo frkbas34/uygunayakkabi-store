@@ -1,8 +1,63 @@
 # PROJECT STATE — Uygunayakkabi
 
-_Last updated: 2026-04-08 (Phase G Dry-Run Preview — D-135; Phase D Channel Dispatch Geobot Wiring — D-134; Phase C Blog Discoverability — D-133; Image Pipeline v38 Slot 3 Rebuild + Global BG Lock — D-124; Image Pipeline v37 Centering QC Gate + Sharp Bugfix — D-123; Image Pipeline v36 Centering + Brightness — D-122; Image Pipeline v35 Brightness — D-121; v34 BG Lock — D-120; VF-7 Legacy Backlog Normalization — D-117b; VF-6 Visual-First Pipeline E2E Validation — D-117; VF-2–VF-5 Visual-First Pipeline — D-117; Phase 19 External Channel Dispatch Validation — D-116; Phase 18 Stock Lifecycle — D-116; Phase 17 Product Activation — D-116; Phase 16 Telegram Bot E2E — D-116; Phase 13 Prep — D-115; Phase 13 Production Hardening + Migration Pack — D-114; Phase 12 D-113; Phase 11 D-112; Phase 10 D-111; Phase 9 D-110; Phase 8 D-109; Phase 7 D-108; Phase 6 D-107; Phase 5 D-106; Phase 4 D-105; Phase 3 D-104; Phase 2 D-103; Phase 1 D-102)_
+_Last updated: 2026-04-19 (Memory cleanup — D-168 added to protected rules, consistency pass)_
+
+## Protected Workflow Rules (2026-04-19)
+
+1. **GeoBot content generation is only triggered by
+   `confirmationWizard.applyConfirmation()`** after the operator
+   confirms the intake wizard. No other automatic trigger is
+   permitted. D-159/D-160 (image-approval auto-trigger) was REVERTED
+   by D-162 after producing low-quality copy against the placeholder
+   "Taslak Ürün …" title. Any future change that reintroduces an
+   `auto_visual_approved` style trigger must cite a new decision and
+   explain how it will avoid firing against incomplete intake data.
+2. **Wizard commerce fields come before label fields.** The
+   `getNextWizardStep` order is: category → productType → price →
+   sizes → stock → stockCode → title → brand → targets → summary.
+   Do not reorder label fields back to the top. D-163 established
+   this as a protected workflow rule; a reorder requires an explicit
+   operator decision. D-165 made step 1 (category) actually fire on
+   fresh Telegram products by removing the Payload `defaultValue:
+   'Günlük'` that was silently satisfying the step check.
+2a. **No Payload `defaultValue` on business-choice fields.** A field
+   that was never explicitly set by an operator must read as null,
+   not as a Payload-injected default. Do not reintroduce
+   `defaultValue: 'Günlük'` on `category` (or any analogous
+   default on brand, productType, etc. that the wizard treats as
+   "missing"). The wizard's `!field` check is the contract; defaults
+   violate it. D-165 established this.
+3. **Image pipeline v50 is LOCKED.** `src/lib/imageProviders.ts`,
+   `src/jobs/imageGenTask.ts`, and `src/lib/imageLockReminder.ts`
+   are sealed at commit `c2b402a` (D-164 padding rollback to v50
+   baseline, 2026-04-11). Previous seals: `20ad563` (D-153 runtime
+   reminder block), `9fba8a5` (D-161 edge-sampling — SUPERSEDED by
+   D-164), `de9413d` (D-152 restoration), `e99e9cb` (D-129 v50
+   baseline). Any further change requires a new sealed commit and
+   a DECISIONS.md update.
+4. **Image pipeline padding uses mirror-extend, NOT solid color.**
+   Both `generateByEditing` and `generateByGeminiPro` use Sharp's
+   `extendWith: 'mirror'` to extend the reference image's edge pixels
+   outward instead of any solid-color fill. This permanently
+   eliminates the visible rectangular boundary that caused frames in
+   D-129/D-157/D-161/D-164 — no solid color can avoid a frame when
+   the reference background differs from the padding color.
+   D-167 (commit `cef930a`) established this. Do not reintroduce
+   solid-color padding for any reason. If the reference image's
+   background is different from the scene target, mirror-extend
+   seamlessly continues whatever background the photo already has.
+5. **Active wizard sessions bypass group filters.** When
+   `getWizardSession(chatId)` returns a valid session, the group
+   allowlist check is bypassed. This prevents operator text input
+   (price numbers, size lists, stock values) from being silently
+   dropped by the group filter during an active wizard flow.
+   D-168 (commit `81a533b`) established this. Do not reintroduce
+   group-filter enforcement for chats with active wizard sessions.
 
 ## Current Status
+
+**Phase 14 COMPLETE** (2026-04-04) — Production deploy + Neon migration. Commit 1017297 (Phases 1-13, 32 files) pushed. 3 build errors fixed (null bytes, sectionIds scope, storyTargets type). 110/110 SQL migration statements applied to production Neon. GENERATE_API_KEY_SECRET set in Vercel. Deployment EXFoRu3Tn — Ready.
+**Phase 15 COMPLETE** (2026-04-04) — Live smoke test + production truth validation. Homepage, admin, all API endpoints verified via HTTP. Neon schema confirmed: 35 tables, 120 products columns, 39 enum types. Merchandising engine validated (sections correctly empty with all 95 draft products). 27 subsystems PROD-VALIDATED, 30 DEPLOYED awaiting first operator interaction.
 
 **Phase 1 COMPLETE** (2026-03-13) — Storefront, admin panel, and core integrations live.
 **Phase 2 Steps 1–19 COMPLETE** (2026-03-22) — Instagram and Facebook direct publishing via Graph API fully operational. Mentix intelligence layer deployed with 13 skills on VPS.
@@ -23,23 +78,6 @@ _Last updated: 2026-04-08 (Phase G Dry-Run Preview — D-135; Phase D Channel Di
 **Phase 10 Homepage + Order + Stock Recovery DEPLOYED** (2026-04-04) — Homepage now uses merchandising engine server-side: `isHomepageEligible()` filters soldout/non-sellable products before reaching client. `resolveHomepageSections()` called for section computation. Variants.ts afterChange hook triggers `reactToStockChange()` on admin stock edits. Orders.ts afterChange hook auto-decrements stock on non-Shopier order creation (website, phone, manual). Shopier refund handler now restores stock on order cancellation (product + variant level). Low-stock/soldout/restock Telegram alerts sent automatically via `sendStockAlertToTelegram()`. D-111.
 **Phase 13 Prep — Production Hardening Execution** (2026-04-04) — Hardcoded secret cleanup: `generate-api-key/route.ts` migrated from hardcoded `'uygun-setup-2026-mentix'` to `GENERATE_API_KEY_SECRET` env var with guard. `.env.example` rewritten: 7 missing vars added, 3 stale vars removed, classified sections. MIGRATION_NOTES.md improved with exact DDL capture procedure (5-step). DEPLOY_CHECKLIST.md and PRODUCTION_TRUTH_MATRIX.md updated with D-115 status. No production mutations — prep only. D-115.
 **Phase 13 Production Hardening + Migration Pack DEPLOYED** (2026-04-04) — Production readiness documentation layer. MIGRATION_NOTES.md: complete schema inventory (14 collections, 3 globals, 80+ Products columns) with SQL DDL and migration order. DEPLOY_CHECKLIST.md: 43+ env vars classified, deploy sequence, security checklist. SMOKE_TESTS.md: 15 test scenarios + full e2e 12-step plan. PRODUCTION_TRUTH_MATRIX.md: honest status of every subsystem (22 prod-validated, 28 implemented not validated, 2 blocked, 4 scaffolded). `/diagnostics` Telegram command: DB connectivity, env check, event/order/product counts, runtime info. D-114.
-**Phase 18 Post-Publish Stock Lifecycle Validation PROD-VALIDATED** (2026-04-05) — Full stock lifecycle validated on product 125: in_stock → low_stock (threshold ≤3) → sold_out → restocked → in_stock. Soldout transition sets status=soldout, sellable=false, workflowStatus=soldout, emits product.soldout BotEvent. Homepage correctly excludes soldout products. Product page stays live with "Tükendi" badge. Restock recovery bugfix: stockReaction.ts workflow spread (`...product.workflow`) included Payload internal fields causing silent update failure — fixed with explicit field enumeration. After fix: restock correctly sets status=active, sellable=true, stockState=in_stock (settled from restocked), emits product.restocked. Homepage re-includes product. Full BotEvent trail: stock.changed (18), product.soldout (1), product.restocked (1). D-116.
-**Phase 19 External Channel Dispatch Validation COMPLETED** (2026-04-05) — Full audit of all 7 external channels + website. Website: PROD-VALIDATED (implicit via status=active, homepage visibility confirmed Phase 17-18). Instagram: DEPLOYED NOT VALIDATED — direct Graph API path ready (accessToken valid until 2026-05-21, userId present, N8N webhook also set), but product 125 has channels_publish_instagram=false so never dispatched. Facebook: DEPLOYED NOT VALIDATED — same Meta token, facebookPageId injected from INSTAGRAM_PAGE_ID env var (1040379692491003), but product 125 has channels_publish_facebook=false. Shopier: BLOCKED — global flag disabled + SHOPIER_PAT status unknown. Dolap/X/LinkedIn/Threads: BLOCKED — global flags disabled, no N8N webhooks configured, n8n-only dispatch path. Global AutomationSettings: only website/instagram/facebook enabled. Instagram tokens connected 2026-03-22, expire 2026-05-21. No automated token refresh mechanism. Historical note: Instagram and Facebook were verified working on 2026-03-22 with live posts, but no dispatch has occurred through the current Phase 1-19 pipeline flow. To validate: add instagram/facebook to a product's channelTargets and trigger dispatch. D-116.
-**Phase 16 Telegram Bot End-to-End Validation PROD-VALIDATED** (2026-04-05) — Full end-to-end Telegram bot validation. Webhook secret token fixed (missing from registration). 8 missing DB columns added (push:true silent failure on sourceMeta story fields). Telegram 4096 char limit handled with message truncation. Size selector UX: inline keyboard multi-select with 39-45 range, toggle/all/clear/done. /confirm wizard fully validated on products 123, 124, 125. Bugs fixed: (1) sellable=false after confirmation — Variants afterChange hook only fires on update, not create; added explicit reactToStockChange() call in applyConfirmation(). (2) Discovery pack NULL — maxOutputTokens 4096 too low for Turkish SEO article; raised to 8192; added canRetriggerContent() + /content retry command; contentStatus determination now accounts for existing packs on retry. Product 125 fully pipeline-complete: confirmed, content ready (100% confidence both packs), audit approved_with_warning, sellable=true, 6/6 readiness. D-116.
-**Phase 17 Product Activation Validation PROD-VALIDATED** (2026-04-05) — Safe product activation via Telegram. /activate command added: validates all 6 publish readiness dimensions, sets status=active, merchandising.publishedAt/newUntil (7-day Yeni window), workflow.workflowStatus=active, publishStatus=published. Triggers afterChange hook for channel dispatch. Product 125 activated: status=active, visible on homepage in Yeni section, product page accessible, all pipeline stages green. First full end-to-end product lifecycle completed: Telegram intake → confirmation → content generation → audit → activation → homepage visibility. D-116.
-**VF-7 Legacy Backlog Normalization COMPLETED** (2026-04-05) — Normalized 61 pre-VF-2 products whose visualStatus was inconsistent with their actual image-gen evidence. Three rules applied: (1) 5 products with approved jobs + gallery → vis=approved, wf=visual_ready. (2) 54 products with preview jobs → vis=preview, wf=visual_pending. (3) 2 products (#123, #125) already confirmed pre-VF-2 with original images → retroactive vis=approved. Post-normalization: 0 remaining inconsistencies. Distribution: 8 approved (5 ready for /confirm), 53 preview (need operator visual approval), 34 pending (no image gen yet). D-117b.
-**Image Pipeline v34 — Background Lock + Slot Reorder DEPLOYED** (2026-04-07) — Product-level background lock and image standardization. (1) EDITING_SCENES reordered: side_angle now index 0 (primary hero), commerce_front index 1. Standard generation produces: side_angle→commerce_front→detail_closeup. (2) Website + homepage now show generativeGallery images before product.images — AI side-angle becomes hero everywhere. (3) Channel dispatch (Instagram/Facebook/Shopier) prefers generativeGallery[0] as cover. (4) enforceSlotBackground v34: dual-mode detection — corner-only sampling for macro/closeup (fixes edge contamination), edge strips for full-shoe. Contamination guard: if detected bg >120 distance from target, uses direct target-based correction. (5) Batch background consistency check: after all slots generated, measures each buffer's corners vs target and re-enforces if drift >30. (6) Strengthened prompts: "same studio backdrop, camera just moved" framing, explicit common-mistakes list for slot 3. (7) DB hotfix: 3 missing PostgreSQL enum types created for hasMany select join tables (products_story_settings_story_targets, products_channel_targets, story_jobs_targets) — push:true drift incident #4. Commits: f28da2a (slot reorder + generativeGallery on website), 85012a5 (v34 bg lock).
-**Phase G — Dry-Run Preview Mode DEPLOYED** (2026-04-08) — Safe preview/dry-run mode for direct-publish channels. `previewDispatch` checkbox in sourceMeta, used alongside `forceRedispatch`. Runs full dispatch pipeline including Geobot caption selection but skips all external APIs. Results in `dispatchNotes` with `mode: "preview"`, caption text, source attribution (geobot vs fallback). Telegram operator notification with formatted preview. D-135.
-**Phase D — Channel Dispatch Geobot Wiring DEPLOYED** (2026-04-08) — Wired Geobot commerce pack content into all channel dispatch paths. `ChannelDispatchPayload` extended with `geobot` field containing 6 commerce pack fields. `buildDispatchPayload()` extracts `product.content.commercePack` into payload. Direct publish paths patched: Instagram prefers `geobot.instagramCaption`, Facebook prefers `geobot.facebookCopy`, Shopier prefers `geobot.shopierCopy`. All n8n webhook payloads now include `geobot` for downstream `xPost`/`linkedinCopy` usage. Graceful fallback to existing logic when Geobot content absent. D-134.
-**Phase C — Blog Discoverability DEPLOYED + VERIFIED** (2026-04-08) — Blog link added to storefront navigation (desktop + mobile) and footer. Uses `<a href="/blog">` since blog is server-rendered, not part of SPA. Verified live in production. D-133.
-**Image Pipeline v38 — Slot 3 Rebuild + Global Background Lock DEPLOYED** (2026-04-07) — Replaced unstable `detail_closeup` macro slot with production-stable `back_hero` (3/4 rear hero: camera 30-45° behind shoe, heel counter dominant, full shoe visible). Removed all macro-specific code paths: corner-only bg sampling, tighter enforcement thresholds, centering skip. New slot 3 gets full post-processing pipeline including centering QC (12% threshold). Formalized global background-lock in TASK_FRAMING_BLOCK: slot 1 is background-family source, slots 2-5 must match exactly. Removed macro/editorial/lifestyle background exceptions. Unified bg enforcement thresholds (90/50 for all slots). No-frame rule verified hardened at prompt + QC + post-processing levels. Zero type errors. D-124.
-**Image Pipeline v37 — Centering QC Hard Gate + Sharp Chaining Bugfix DEPLOYED** (2026-04-07) — Fixed critical Sharp library chaining bug where `.extract().extend().resize()` computed resize from post-extract dims instead of post-extend dims, silently undoing v36 centering corrections. Fix: split into two separate Sharp instances. Added `measureCentering()` QC function and centering retry loop (up to 3 cycles) for hero slots (side_angle, commerce_front). Threshold: 12% offset on either axis. V37 verification (Product #194, Job #171): both hero slots pass centering QC on first cycle with 0% offset. No batch BG re-enforcement triggered. Post-download pixel analysis confirmed 0% offset when SKU overlay region excluded. Commit: cd02c19. D-123.
-**Image Pipeline v36 — Deterministic Centering + Tighter Brightness DEPLOYED** (2026-04-07) — Added unconditional `centerProduct()` post-processing to correct Gemini's systematic lower-right shoe placement. Detects product bounding box via non-bg pixel envelope, measures offset from image center, shifts composition by cropping excess bg + extending opposite side. Skips detail_closeup (macro). Tightened brightness band: TARGET_HIGH 170→145, TARGET_LOW 100→85, TARGET_MID 135→115. Added CENTERING—CRITICAL prompt block. Pipeline order: bg enforcement → frame crop → brightness norm → centering. V36 verification (product #194): brightness PASS (product lum 92-109), centering PARTIAL (function operational but Gemini generation variance limits effectiveness — residual 7-18% offset), no new regressions. Commit: 8c3904d. D-122.
-**Image Pipeline v35 — Deterministic Brightness Normalization DEPLOYED** (2026-04-07) — Production brightness consistency fix. (1) Audit confirmed: NO DM/group code divergence — both paths use identical `#gorsel → image-gen → generateByGeminiPro()` pipeline. (2) Root cause of washed-out outputs: v33/v34 brightness enforcement was conditional (only after retry failure), measured whole-image mean (light backgrounds inflated it), and used `sharp.modulate()` which affected background too. (3) New `normalizeBrightness()` function: measures PRODUCT pixel luminance only (excludes bg via color distance), applies selective gamma correction only to product pixels (bg preserved), target band 100-170 product mean lum, soft blend at product/bg boundary. (4) Normalization is now UNCONDITIONAL on every slot (like bg enforcement), running after bg enforcement + frame detection. (5) Tightened QC thresholds: mean > 200 (was 210), highlight > 30% (was 35%). (6) Prompt exposure instructions maintained from v34. Commit: 88c4d5f.
-**Phase 20A Instagram/Facebook Dispatch — PROD-VALIDATED** (2026-04-05) — Full automated Instagram + Facebook dispatch validated on product #180. Three root causes found and fixed: (1) Facebook Page "UygunAyakkabı" (ID: 1040379692491003) was DEACTIVATED — re-activated via Meta Business Suite. (2) afterChange hook passed `doc` at depth=0 — images were bare IDs, extractMediaUrls() returned []. FIX: findByID({ depth: 1 }) before dispatch (commit ca4ccad). (3) Missing `automation_settings_story_targets` table in Neon — fetchAutomationSettings() failed silently, returned null, so instagramTokens was undefined and direct API path skipped. FIX: Table created manually via DDL. AUTOMATED DISPATCH RESULT: Instagram postId=18085404884600056 (mode=direct), Facebook postId=122103938528884171 (mode=direct, tokenMode=page-token). dispatchedChannels=["instagram","facebook"]. D-118.
-**Phase 21 Operator Runbook — COMPLETED** (2026-04-06) — Comprehensive operator-facing daily SOP created at `project-control/OPERATOR_RUNBOOK.md`. Covers: daily operator flow (morning routine + core pipeline work), command-by-command reference (14 slash commands, 1 hash command, stock batch format, merchandising commands, story commands, system commands), full pipeline stage map with state matrix, automated behavior inventory (8 auto-fire triggers), exception handling for 7 failure scenarios (image gen, content gen, audit, activation, IG/FB dispatch, Shopier, stock), 7 critical warnings (never-skip items including visual approval gate, activation irreversibility, dispatch field protection, Instagram token expiry 2026-05-21, Facebook Page activation requirement, manual DDL requirement), bot responsibilities, daily checklist, and key operational thresholds. Based on verified code inspection of all Telegram handlers and afterChange hooks.
-**VF-2 through VF-5: Visual-First Pipeline DEPLOYED + PROD-VALIDATED** (2026-04-05) — Full visual-first enforcement layer. VF-2: visualStatus written truthfully during image-gen lifecycle (pending→generating→preview→approved/rejected) across 9 transition points in route.ts and imageGenTask.ts. VF-3: /confirm gated on visualStatus===approved with per-state operator messages. VF-4: content generation gated on visualStatus===approved for all 3 paths (auto-trigger, manual, retry). VF-5: confirmation wizard UX polish — productType inline buttons (Erkek/Kadın/Çocuk/Unisex), brand manual text input with find-or-create in brands collection. Wizard step order: category→productType→price→sizes→stock→brand→targets→summary. Bug found during VF-6 validation: brands collection uses `name` field not `title` — fixed in 619c20d. D-117.
-**VF-6 Visual-First Pipeline E2E Validation PROD-VALIDATED** (2026-04-05) — Full end-to-end visual-first pipeline validated on product #180 (Job #147). Every pipeline stage tested via live Telegram webhook calls to production. Results: (A) Intake PASS — product created from photo, correct draft/pending state. (B) Image Gen PASS — visualStatus transitions: pending→approved, workflowStatus: draft→visual_ready, 6 generative gallery images attached. (C) Visual Gate PASS — /confirm 180 blocked when visualStatus=pending ("Henüz görsel üretimi yapılmamış"), /content 180 trigger also blocked. (D) Confirmation Wizard PASS — productType button (Erkek), price text (999), sizes multi-select (40-43), stock (3/size), brand text (TestMarka), targets (website+instagram), summary+confirm all worked. 4 variants created, stockQuantity=12, sellable=true. (E) Content Gen PASS — auto-triggered after confirmation, commerce+discovery packs generated at 100% confidence, contentStatus=ready, workflowStatus=content_ready. (F) Audit PASS — approved_with_warning, all 3 dimensions pass (visual/commerce/discovery), approvedForPublish=true, workflowStatus=publish_ready. Minor warnings: no linked blog, meta description too long. (G) Activation PASS — status=active, workflowStatus=active, merchandising dates set, 7-day Yeni window. (H) Homepage PASS — product visible with "Yeni" badge, correct price/image. 11 bot events created across full lifecycle. One bug found+fixed: brand field name mismatch (name vs title). One pre-existing note: homepage size array shows default range instead of DB variants — storefront rendering issue, not VF regression. This validates the visual-first pipeline as the production operating model. D-117.
 **Phase 12 Final Publish Autonomy + Orchestration Polish DEPLOYED** (2026-04-04) — Central publish readiness evaluation layer (`src/lib/publishReadiness.ts`) with 6-dimension check (confirmation, visuals, content, audit, sellable, publish targets). Readiness wired into mentixAudit: workflowStatus='publish_ready' only when ALL dimensions pass (not just audit approval). `/pipeline {id}` Telegram command shows full 10-stage lifecycle with readiness breakdown and state coherence check. `detectStateIncoherence()` catches contradictory states (e.g., soldout+sellable, publish_ready without confirmation). BotEvent `product.publish_ready` emitted on full readiness. D-113.
 **Phase 11 Homepage Merchandising UI + Telegram Merch Commands DEPLOYED** (2026-04-04) — UygunApp client now renders 5 real merchandising sections (Yeni, Popüler, Çok Satanlar, Fırsatlar, İndirimli) from server-resolved data via `resolveHomepageSections()`. page.tsx builds section ID arrays and passes as `sections` prop. Client-side fallbacks when server data empty. Comprehensive `/merch` Telegram commands: preview (section summaries), status (per-product merchandising state), popular add/remove, deal add/remove, bestseller pin/unpin/exclude/include. All merchandising field updates use existing D-102 schema. D-112.
 **Phase 9 Order/Stock/Soldout Autonomy DEPLOYED** (2026-04-04) — Central stock-change reaction logic. `src/lib/stockReaction.ts` computes effective stock from variants, determines state transitions (in_stock/low_stock/sold_out/restocked), updates workflow fields + product.status, emits BotEvents (stock.changed, product.soldout, product.restocked). Wired into Shopier webhook (after stock decrement) and Telegram STOCK command (after variant updates). Merchandising exclusion works via existing `isHomepageEligible()` gates — no changes needed to merchandising.ts. Soldout = visible but not sellable. Restock = automatic re-eligibility. `/stok {id}` Telegram command for stock status. D-110.
@@ -75,25 +113,11 @@ _Last updated: 2026-04-08 (Phase G Dry-Run Preview — D-135; Phase D Channel Di
   - Creates container + publishes media via Graph API
   - Returns `instagramPostId`, caption with dynamic hashtags
   - Verified live on @uygunayakkabi342026 (2026-03-22)
-  - Phase 19: Token valid until 2026-05-21. No auto-refresh. Ready but not dispatched via pipeline yet.
 
 - **Facebook Page Direct Publish** — `src/lib/channelDispatch.ts::publishFacebookDirectly()`
   - Uses Page Access Token (not user token)
   - Posts to UygunAyakkabı page (`1040379692491003`)
   - Verified with facebookPostId `122093848160884171` (2026-03-22)
-  - Phase 19: facebookPageId injected from INSTAGRAM_PAGE_ID env var (not in DB). Ready but not dispatched via pipeline yet.
-
-### External Channel Summary (Phase 19 — 2026-04-05)
-| Channel | Status | Path | Global Flag | Credentials |
-|---------|--------|------|-------------|-------------|
-| Website | PROD-VALIDATED | implicit | true | — |
-| Instagram | DEPLOYED, NOT VALIDATED | Direct Graph API | true | Token valid (2026-05-21) |
-| Facebook | DEPLOYED, NOT VALIDATED | Direct Graph API | true | Shared IG token |
-| Shopier | BLOCKED | Jobs Queue | false | Unknown |
-| Dolap | BLOCKED | n8n only | false | No webhook |
-| X | BLOCKED | n8n only | false | No webhook |
-| LinkedIn | BLOCKED | n8n only | false | No webhook |
-| Threads | BLOCKED | n8n only | false | No webhook |
 
 ### Mentix Intelligence Layer
 - **13 skills deployed** on VPS (Hetzner 2-CPU)
@@ -497,184 +521,9 @@ KEY IMPROVEMENTS in v8 vs v7:
 
 ---
 
-## Image Pipeline v39 — Visual Standard Reset (DEPLOYED — 2026-04-07)
-
-**Operator Requirement:** Remove bright/washed look from all slots. Backgrounds must be visibly colored (not near-white). Slot 3 must NOT be back_hero — must be a close shot hero.
-
-| Change | Before (v38) | After (v39) |
-|--------|-------------|-------------|
-| Background hex luminance | ~93-98% (near-white) | ~75-80% (visibly colored) |
-| Brightness normalization band | 85-145 (mid 115) | 70-120 (mid 95) |
-| QC brightness mean threshold | >200 | >185 |
-| QC highlight threshold | >30% | >25% |
-| Slot 3 | back_hero (3/4 rear) | close_shot_hero (3/4 front close) |
-| TASK_FRAMING_BLOCK tone | Neutral | "Rich, warm, slightly dark. NOT bright or airy." |
-
-**Slot Map (v39):**
-| Slot | Name | Stage |
-|------|------|-------|
-| 1 | side_angle | standard |
-| 2 | commerce_front | standard |
-| 3 | close_shot_hero | standard |
-| 4 | tabletop_editorial | premium |
-| 5 | worn_lifestyle | premium |
-
-**Status:** DEPLOYED — tsc clean, zero type errors
-
----
-
 ## Recommended Next Steps
 
 **Step 25 — AI Product Photography Pipeline (IN PROGRESS — awaiting v8 test results)**
 - v8 deployed: input validation gate, structured 9-field identity lock, strict 5-slot prompts, no silent Gemini fallback, per-slot slotLogs
 - **NEXT ACTION**: Test with `#gorsel #dengeli` on a real shoe product — score each of 5 outputs
 - **If Case A** (different compositions + sho
----
-
-## Image Pipeline v50 — PRODUCTION BASELINE LOCKED (2026-04-07)
-
-**Status:** LOCKED — Operator Approved — D-129
-
-**DO NOT MODIFY without explicit operator approval.**
-
-### Locked Visual Baseline
-- Raw Gemini 2.5 Flash output — NO post-processing (no brightness, sharpness, softness adjustments)
-- Input image padding uses background color (NOT white) — eliminates frame artifact
-- v32 bitmap pixel font SN overlay (SVG rects, zero font dependencies, Vercel-safe)
-
-### Locked Slot Map
-| Slot | Index | Name | Stage | Description |
-|------|-------|------|-------|-------------|
-| 1 | 0 | side_angle | standard (PRIMARY) | 90° lateral profile, hero image |
-| 2 | 1 | commerce_front | standard | Front studio hero |
-| 3 | 2 | detail_closeup | standard | 3/4 angle close-up (18-25cm), toe/vamp |
-| 4 | 3 | tabletop_editorial | premium | Overhead 55-65°, seamless studio floor |
-| 5 | 4 | worn_lifestyle | premium | Ground-level lifestyle, worn on foot |
-
-### Locked Background Color Map
-| Shoe Color | Backdrop | Hex |
-|-----------|----------|-----|
-| Black/Siyah | Warm beige | #F5F0E8 |
-| White/Beyaz | Light grey | #E8E8E8 |
-| Brown/Kahve | Warm cream | #F5F1E6 |
-| Tan/Taba | Off-white | #FAF8F5 |
-| Grey/Gri | Clean white | #FFFFFF |
-| Navy/Lacivert | Light grey | #EDEDED |
-| Red/Kırmızı/Bordo | Neutral off-white | #F7F5F3 |
-| Green/Yeşil/Olive | Warm cream | #F5F0E8 |
-| Blue/Mavi | Warm off-white | #F5F2ED |
-| Pink/Pembe | Light grey | #ECECEC |
-| Beige/Krem | Warm grey | #E0DDD8 |
-| Default | Neutral light grey | #EDEDED |
-
-### Anti-Frame System (Triple Layer)
-1. TASK_FRAMING_BLOCK — global "ANTI-FRAME RULE (ZERO TOLERANCE)" section
-2. Per-slot CRITICAL ANTI-FRAME block in every sceneInstructions
-3. ANTI_FRAME_FINAL_BLOCK — end-of-prompt verification checklist
-
-### Key Files (DO NOT MODIFY)
-- `src/lib/imageProviders.ts` — EDITING_SCENES, TASK_FRAMING_BLOCK, ANTI_FRAME_FINAL_BLOCK, getBackgroundForColor(), getBackgroundRGB(), generation functions
-- `src/jobs/imageGenTask.ts` — Job orchestration, PIXEL_FONT, renderBitmapText(), overlayStockNumber()
-
-### Commit Reference
-Locked at commit e99e9cb (v50) on main branch.
-
-
----
-
-## Content Architecture — Audit Complete (2026-04-07)
-
-**Status:** ARCHITECTURE DEFINED — Awaiting operator approval for implementation phases
-
-### What EXISTS (VERIFIED IMPLEMENTED)
-- **geobotRuntime.ts**: Real Gemini 2.5 Flash content generation (commerce + discovery packs)
-- **contentPack.ts**: Full lifecycle — trigger, write to product, blog creation, audit handoff
-- **Product schema**: commercePack (5 channel copies) + discoveryPack (SEO article, FAQ, meta, keywords)
-- **BlogPosts collection**: Auto-created from discoveryPack as draft
-- **Telegram `/content` command**: show, trigger, retry
-- **Auto-trigger**: Fires after product confirmation
-- **BotEvent tracking**: content.requested → commerce_generated → discovery_generated → ready
-- **Mentix audit**: Auto-triggered when content reaches 'ready'
-
-### What Is NOT WIRED (gap)
-- Storefront uses `product.description`, NOT `commercePack.websiteDescription`
-- Channel dispatch uses `product.description`, NOT AI-generated captions
-- No blog frontend pages (`/blog`, `/blog/[slug]`)
-- No SEO meta tags from discoveryPack in page `<head>`
-- No FAQ rendering on product pages
-- No JSON-LD structured data
-- No sitemap for blog posts
-
-### Content Outputs Per Approved Product
-| # | Output | Source | Consumer | Status |
-|---|--------|--------|----------|--------|
-| 1 | Website description | commercePack.websiteDescription | Product page | NOT WIRED |
-| 2 | Product highlights | commercePack.highlights | Product page | NOT WIRED |
-| 3 | Instagram caption | commercePack.instagramCaption | channelDispatch | NOT WIRED |
-| 4 | Facebook copy | commercePack.facebookCopy | channelDispatch | NOT WIRED |
-| 5 | X/Twitter post | commercePack.xPost | channelDispatch | NOT WIRED |
-| 6 | Shopier description | commercePack.shopierCopy | channelDispatch | NOT WIRED |
-| 7 | SEO meta title | discoveryPack.metaTitle | Product page head | NOT WIRED |
-| 8 | SEO meta description | discoveryPack.metaDescription | Product page head | NOT WIRED |
-| 9 | SEO article / blog post | discoveryPack.articleBody → BlogPost | Blog pages | NO FRONTEND |
-| 10 | FAQ | discoveryPack.faq | Product page | NOT WIRED |
-| 11 | Keywords | discoveryPack.keywordEntities | Structured data | NOT WIRED |
-| 12 | JSON-LD Product schema | All content fields | Product page | NOT IMPLEMENTED |
-| 13 | JSON-LD FAQ schema | discoveryPack.faq | Product page | NOT IMPLEMENTED |
-
-### Geobot Ownership
-Geobot owns ALL AI content generation:
-- Commerce pack (5 channel-specific copies + highlights)
-- Discovery pack (SEO article, meta, FAQ, keywords, internal links)
-- BlogPost auto-creation (draft status, operator reviews)
-- Content status tracking and BotEvent emission
-- Content retry on partial/failed states
-
-Geobot does NOT own:
-- Content rendering on storefront (frontend responsibility)
-- Content dispatch to channels (channelDispatch responsibility)
-- Content approval/editing (operator responsibility via admin panel)
-- Blog publishing (operator sets status from draft → published)
-
-
----
-
-## Phase A — Storefront Content Wiring (2026-04-07)
-
-**Status:** IMPLEMENTED — D-131
-
-Product page now renders Geobot content with safe fallbacks:
-
-| Content | Source | Fallback | Rendering |
-|---------|--------|----------|-----------|
-| Description | commercePack.websiteDescription | product.description | Paragraph text |
-| Highlights | commercePack.highlights | hidden | Checkmark list |
-| FAQ | discoveryPack.faq | hidden | Accordion (ProductFAQ component) |
-| Meta title | discoveryPack.metaTitle | "{title} — UygunAyakkabı" | `<head>` via generateMetadata |
-| Meta description | discoveryPack.metaDescription | websiteDescription[:160] | `<head>` via generateMetadata |
-| Keywords | discoveryPack.keywordEntities | omitted | `<meta keywords>` |
-| JSON-LD Product | All product fields | basic fields | `<script type="application/ld+json">` |
-| JSON-LD FAQPage | discoveryPack.faq | omitted | `<script type="application/ld+json">` |
-
-**Files:**
-- `src/app/(app)/products/[slug]/page.tsx` — Rewritten
-- `src/components/ProductFAQ.tsx` — New component
-
-
----
-
-## Phase B — Blog Frontend (2026-04-07)
-
-**Status:** IMPLEMENTED — D-132
-
-| Route | What | SEO |
-|-------|------|-----|
-| `/blog` | Published posts listing, date-sorted | Static meta |
-| `/blog/[slug]` | Full article, featured image, related products | Dynamic meta from seo fields, JSON-LD Article |
-
-**Rendering:** Lexical richText → text extraction → paragraph/heading/list rendering with basic Markdown detection.
-
-**Operator workflow:** Geobot creates posts as `draft` → operator sets `published` in admin → appears on `/blog`.
-
-**Files:** `src/app/(app)/blog/page.tsx`, `src/app/(app)/blog/[slug]/page.tsx`
-

@@ -1,6 +1,48 @@
 # TASK QUEUE — Uygunayakkabi
 
-_Last updated: 2026-04-08 (Phase G Dry-Run Preview D-135; Phase D Channel Dispatch Geobot Wiring D-134; Phase C Blog Discoverability D-133; Image Pipeline v38 Slot 3 Rebuild + Global BG Lock D-124; Image Pipeline v37 Centering QC Gate + Sharp Bugfix D-123; Image Pipeline v36 Centering + Brightness D-122; v35 Brightness Normalization D-121; v34 BG Lock + Slot Reorder D-120; DB Hotfix enum types; Phase 21 Operator Runbook; VF-7 D-117b; VF-6 D-117; Phase 19 D-116; Phase 18 D-116; Phase 17 D-116; Phase 16 D-116; Phase 13 D-115/D-114; Phases 1-12 complete)_
+_Last updated: 2026-04-19 (Memory cleanup — de-scoped/blocked channels marked, cleanup focus added)_
+
+---
+
+## ✅ Recently Closed (2026-04-11)
+
+- **D-166 — Wizard session silent-drop fixed.** Operator saw "Fiyat
+  girin" prompt, replied "899", got no reply. Root cause: `setWizardSession`
+  and `clearWizardSession` used fire-and-forget DB writes that Vercel
+  could kill when the Lambda froze on `NextResponse.json` return. Next
+  request hit a cold instance, hydrate found no row, text interceptor
+  skipped the wizard block, request fell through silently. Fix: made
+  persist/delete awaitable, added `await` to all 36 set/clearWizardSession
+  callsites in route.ts, added a defensive fallback that sends
+  "Aktif sihirbaz oturumu bulunamadı" when wizSession is null and text
+  looks like a wizard input (price number, size list, size range).
+  Commit `81a533b`. Verification: live /confirm → price → "899" test
+  after deploy.
+- **D-165 — Category defaultValue removed.** Fresh Telegram products
+  were being born with `category: 'Günlük'` (Payload defaultValue) and
+  the wizard silently skipped the category step. Removed the defaultValue
+  from `src/collections/Products.ts`; wizard now asks category as
+  intended. Commit `948c839`. **Protected rule 2a** recorded in
+  PROJECT_STATE.md — no Payload defaultValue on business-choice fields
+  that the wizard treats as "missing".
+- **D-164 — Padding rolled back to v50 baseline.** D-157/D-161's
+  edge-sampled padding was producing visible frames (taupe on SN0151,
+  white on SN0153). Restored `paddingRGB = bgRGB` in both
+  `generateByEditing` and `generateByGeminiPro`. Commit `c2b402a`.
+  **Protected rule 4** recorded in PROJECT_STATE.md — padding must
+  equal scene target color. Cross-slot background drift flagged as
+  a separate PROPOSED item (possible D-166 after live SN0153 re-test).
+- **D-162 — GeoBot premature trigger reverted.** Image-approval
+  auto-trigger (D-159/D-160) was producing low-quality copy against
+  placeholder "Taslak Ürün …" titles. Reverted on commit `d5f3e7c`.
+  GeoBot now fires only from `applyConfirmation` after wizard confirm.
+  **Protected rule** recorded in PROJECT_STATE.md — do not reintroduce
+  any `auto_visual_approved` trigger.
+- **D-163 — Wizard step reorder.** Commerce fields (category,
+  productType, price, sizes, stock) now precede label fields
+  (stockCode, title) in `getNextWizardStep`. Commit `69b801c`.
+  **Protected rule** recorded in PROJECT_STATE.md — do not reorder
+  label fields back to the top without an explicit operator decision.
 
 ---
 
@@ -11,100 +53,46 @@ _Last updated: 2026-04-08 (Phase G Dry-Run Preview D-135; Phase D Channel Dispat
 **All schema changes on Neon MUST be applied manually via SQL.**
 Before adding any new collection/global: manually verify the new table + `payload_locked_documents_rels` column exist in Neon after deploy.
 
-### Blocker 1: Workspace Folder Out of Sync with Remote — ACTIVE
-The workspace folder (`/mnt/uygunayakkabi-store`) is on a diverged history from remote main.
-Remote is at `8089dde` (Step 27 + fixes). Workspace is at `beb681a` (pre-Step 25).
-The workspace CANNOT be updated with a simple `git pull` — histories have diverged.
-**Fix (requires explicit operator authorization):** `git fetch origin && git reset --hard origin/main`
-This will discard local uncommitted changes and diverged local commits — IRREVERSIBLE.
-Do NOT execute without operator confirmation.
+### Blocker 1: Workspace Folder Out of Sync with Remote — RESOLVED (Phase 14)
+Resolved 2026-04-04. Phase 14 used a clean shallow clone at `/tmp/fix-nullbytes` to bypass the diverged workspace and phantom `index.lock` issue. All commits (9f69443 null byte fix, fb46b2a TS fixes) were pushed to remote main from the clean clone. Production Vercel deployment (EXFoRu3Tn) built successfully from commit fb46b2a.
+**Remaining:** The workspace mount still has a dirty `tsconfig.json` and phantom `index.lock`. Operator should run `git checkout -- tsconfig.json` from Windows terminal to clean up.
 
-### Blocker 2: No AI Image Gen Job Proven End-to-End — RESOLVED
-~~No AI image generation job proven in production.~~ RESOLVED by VF-6 validation (2026-04-05). Product #180 / Job #147: Gemini image gen → preview → approval → generative gallery attached (6 images). visualStatus transitions verified: pending→approved. Full pipeline proven end-to-end.
+### Blocker 2: No AI Image Gen Job Proven End-to-End — CRITICAL
+No AI image generation job (Gemini, OpenAI, Luma) has produced a confirmed successful result in production. Step 25 has been deployed through multiple iterations but the operator has never confirmed "this works, images match the product."
 
 ---
 
-## 🟢 NOW — Current Sprint (VISUAL-FIRST PIPELINE VALIDATED — 2026-04-05)
+## 🟢 NOW — Current Sprint (CLEANUP + ONE-PRODUCT PIPELINE VALIDATION — 2026-04-19)
 
-### ✅ Image Pipeline v38 — Slot 3 Rebuild + Global Background Lock: DEPLOYED (2026-04-07)
-- Replaced `detail_closeup` (macro) with `back_hero` (3/4 rear hero: heel counter, back stitching)
-- New slot 3 is a full-shoe shot → all post-processing works: bg enforcement, frame crop, brightness, centering, centering QC
-- Removed all macro-specific code: corner-only bg sampling, tighter thresholds, centering skip
-- Global background-lock formalized: slot 1 is bg-family source, slots 2-5 must match exactly
-- Removed macro/editorial/lifestyle background exceptions from TASK_FRAMING_BLOCK
-- Unified bg enforcement thresholds (90/50) for all slots
-- No-frame rule verified hardened at all 3 levels (prompt, QC, post-processing)
-- D-124
+Phase 14 (deploy + migration) and Phase 15 (smoke test + truth matrix) are COMPLETE.
+Core platform is PROD-VALIDATED. 30 subsystems are DEPLOYED but await first operator interaction.
+**Current focus: project memory cleanup + one-product full pipeline validation. No new feature expansion until pipeline is proven end-to-end.**
 
-### ✅ Image Pipeline v37 — Centering QC Hard Gate + Sharp Bugfix: DEPLOYED (2026-04-07)
-- Fixed Sharp chaining bug: `.extract().extend().resize()` computed resize from post-extract dims, undoing centering
-- Fix: split into two separate Sharp instances (extract+extend first, conditional resize second)
-- measureCentering() QC function added: 12% offset threshold on either axis
-- Centering retry loop: up to 3 full gen cycles per hero slot (side_angle, commerce_front)
-- V37 verification: both heroes pass QC first cycle, 0% offset confirmed via pixel analysis
-- SKU stamp (overlayStockNumber) causes false positives in naive post-download bbox analysis — not a real offset
-- D-123, commit cd02c19
+### Priority 1: Run Full Pipeline on One Product (OPERATOR ACTION)
+Execute the 12-step end-to-end test from SMOKE_TESTS.md on a single product:
+1. Send photo with caption → verify product created
+2. `#gorsel <id>` → verify image generation attempt (may fail — Blocker 2)
+3. `/confirm <id>` → complete wizard → verify confirmed
+4. `/content <id> trigger` → verify Geobot content generation
+5. `/audit` → verify auto-triggered audit
+6. `/pipeline <id>` → verify full lifecycle view
+7. `/merch popular add <id>` → verify merchandising flag
+8. Set status=active in admin → verify channel dispatch
+9. Visit homepage → verify product in sections
+10. Update stock via Telegram → verify state machine
+11. Decrement to 0 → verify soldout exclusion
+12. Restock → verify restock transition
 
-### ✅ Image Pipeline v36 — Centering + Tighter Brightness: DEPLOYED (2026-04-07)
-- centerProduct(): detects product bbox, measures offset from image center, shifts composition
-- Tightened brightness band: TARGET_HIGH 170→145, TARGET_LOW 100→85, TARGET_MID 135→115
-- Added CENTERING—CRITICAL prompt block to all studio slot prompts
-- Pipeline order: bg enforcement → frame crop → brightness norm → centering
-- V36 verification: brightness PASS (product lum 92-109), centering PARTIAL (operational but limited by Gemini generation variance)
-- Known: slot 3 frame + surface bg persists (pre-existing, not v36 regression)
-- D-122, commit 8c3904d
+**Success criteria:** Each step transitions product to the next pipeline stage.
+**Failure investigation:** Check Vercel function logs for errors at each step.
 
-### ✅ Image Pipeline v35 — Brightness Normalization: DEPLOYED (2026-04-07)
-- Deterministic product-aware brightness normalization added to all outputs
-- normalizeBrightness(): measures PRODUCT pixel luminance only, selective gamma correction
-- Runs unconditionally on every slot after bg enforcement + frame detection
-- Background pixels preserved (not affected by gamma correction)
-- Target band: product mean luminance 100-170 (was no real enforcement before)
-- Tightened QC thresholds: mean>200 (was 210), highlight>30% (was 35%)
-- Audit confirmed: NO DM/group code divergence — same pipeline for all
+### Priority 2: Prove AI Image Gen End-to-End (Blocker 2)
+No AI image generation job has produced a confirmed success. Two paths to test:
+- `#gorsel <productId>` — Gemini image gen (112 jobs exist, 0 successes)
+- `#claid <productId>` — Claid.ai product enhancement (never tested)
 
-### ✅ Image Pipeline v34 — Background Lock + Slot Reorder: DEPLOYED (2026-04-07)
-- Side-angle is now the primary hero (index 0) across website, channels, Telegram
-- generativeGallery shown on product page + homepage (AI images first, originals as fallback)
-- enforceSlotBackground v34: corner-only sampling for macro, contamination guard, batch consistency check
-- DB hotfix: 3 missing enum types for hasMany select join tables
-
-### ✅ Phase 21 Operator Runbook: COMPLETED (2026-04-06)
-Comprehensive operator-facing daily SOP created: `project-control/OPERATOR_RUNBOOK.md`.
-Covers daily flow, all commands, pipeline stages, automated behaviors, exception handling, critical warnings, daily checklist, and key thresholds.
-
-### ✅ Visual-First Pipeline: PROD-VALIDATED (D-117)
-Full end-to-end pipeline proven on product #180:
-- Intake → Image Gen → Visual Approval → /confirm Wizard → Content Gen → Audit → Activation → Homepage
-- All gates enforced: /confirm blocked pre-approval, /content blocked pre-approval
-- Confirmation wizard: category buttons, productType buttons, sizes multi-select, stock manual, brand text, targets multi-select, summary+confirm
-- Content: commerce+discovery packs generated at 100% confidence
-- Audit: approved_with_warning, all 3 dimensions pass
-- Activation: status=active, Yeni badge, homepage visible
-- 11 bot events across full lifecycle
-
-### Priority 1: Operator Visual Approval of 53 Preview Products
-VF-7 normalized the backlog. 53 products now have vis=preview (images generated, awaiting operator approval). 5 products already vis=approved and ready for /confirm. 34 products have no image gen yet (vis=pending).
-Operator action: review preview images for the 53 products and approve/reject via Telegram buttons.
-
-### Priority 2: Homepage Size Display Fix
-Homepage JSON shows default size range [38-45] instead of actual DB variants.
-Pre-existing storefront rendering issue — not a VF regression.
-Investigate `page.tsx` or product serialization logic.
-
-### ~~Blocker 3: Media Storage~~ — RESOLVED (2026-04-05)
-`BLOB_READ_WRITE_TOKEN` was set in Vercel since Mar 10. Vercel Blob storage operational — files uploaded and publicly accessible. Payload `/api/media/file/` static handler proxies from Blob correctly (HTTP 200). Previous 404 was a transient cold-start issue.
-
-### ~~Blocker 4: Instagram/Facebook Dispatch~~ — RESOLVED (2026-04-05, Phase 20A)
-Root causes found and fixed:
-- **P20-1 RESOLVED**: Facebook Page was DEACTIVATED in Meta Business Suite — re-activated. Instagram userId `17841443128892405` confirmed valid (uygunayakkabi_34). All env vars were present.
-- **P20-2 RESOLVED**: Code bug — afterChange hook passed `doc` at depth=0, so images[].image was bare ID (686) not populated object. extractMediaUrls() returned empty array → direct API paths skipped. Fixed with `findByID({ depth: 1 })` before dispatch (commit ca4ccad).
-- **P20-3 RESOLVED**: Manual API verification — Instagram container+publish and Facebook page photo post both succeeded on product #180.
-
-### Step 21b — Shopier Stock Decrement on Order
-1. On `order.created` webhook: decrement `products.stockQuantity`
-2. Create `InventoryLog` entry with reason `shopier_order`
-3. Optional: Telegram notification to ops group
+### Priority 3: Confirm /confirm Wizard Works in Production
+All 95 products show `confirmationStatus='pending'`. Run `/confirm` on one product to validate the full wizard flow end-to-end.
 
 ---
 
@@ -195,9 +183,9 @@ Root causes found and fixed:
 - ✅ DEPLOY_CHECKLIST.md + PRODUCTION_TRUTH_MATRIX.md: updated with D-115 status
 - ✅ No production mutations — prep only
 
-### Phase 14 — Next Steps (Builds on D-114/D-115)
-- Deploy Phases 1-13 to production with proper Neon migration
-- Run smoke test plan and validate all subsystems
+### Phase 16 — Next Steps (Builds on Phase 14+15 Deploy)
+- ✅ Deploy Phases 1-13 to production with proper Neon migration — DONE (Phase 14)
+- ✅ Run smoke test plan and validate all subsystems — DONE (Phase 15, partial — core validated, operator commands await interaction)
 - Shopier stock sync-back: poll Shopier inventory → update local stock
 - Merchandising sync cron: periodic bestSellerScore recalculation from order data
 - Website checkout/cart/payment integration (PayTR or equivalent)
@@ -214,25 +202,20 @@ Root causes found and fixed:
 
 ### Phase 2B Remaining Channels
 
-**Dolap Integration:**
-- Research Dolap API availability (no public docs found yet)
-- Stub workflow exists: `n8n-workflows/stubs/channel-dolap.json`
-- `publishDolap` toggle already scaffolded
+**X (Twitter) Integration:** ✅ LIVE (D-195c, prod-validated 2026-04-14)
+- OAuth 1.0a direct publish from Payload
 
-**X (Twitter) Integration:**
-- Scaffold complete (SupportedChannel, env var, toggle, OAuth callback, n8n stub)
-- Real integration needs: X API v2 POST /2/tweets + OAuth 2.0 PKCE
-- Token refresh: access ~2hr, refresh ~6mo
+**Dolap Integration:** DE-SCOPED
+- No public Dolap API documentation found. Scaffold-only code exists (`n8n-workflows/stubs/channel-dolap.json`, `publishDolap` toggle).
+- Reactivation requires a new operator decision + confirmed API access.
 
-**LinkedIn Integration:**
-- Scaffold complete (same as X)
-- Real integration needs: LinkedIn Marketing API POST /rest/posts
-- Decide: personal vs organization page posting
+**LinkedIn Integration:** DE-SCOPED
+- Scaffold + OAuth callback exists, no post implementation.
+- Reactivation requires a new operator decision.
 
 **Threads Integration:**
-- Scaffold complete (same as X)
-- Real integration needs: Threads API /{user_id}/threads
-- Reuses same Meta App as Instagram
+- Scaffold complete. Real integration needs: Threads API /{user_id}/threads. Reuses same Meta App as Instagram.
+- Low priority — not on active roadmap.
 
 ### Phase 2C — Content Growth Layer
 
@@ -258,9 +241,18 @@ Root causes found and fixed:
 
 ## 🚫 BLOCKED — Waiting on External
 
-### Dolap API Research
+### Telegram Stories Publishing — BLOCKED_OFFICIALLY
+- **Blocked by**: Telegram Bot API does not support story publishing
+- StoryJobs collection and dispatch code exist but cannot publish. No workaround.
+- Unblocks when/if Telegram adds story support to the Bot API.
+
+### WhatsApp Status Publishing — BLOCKED_OFFICIALLY
+- **Blocked by**: official WhatsApp Business API does not support status/story publishing
+- Marked `blocked_officially` in `src/lib/storyTargets.ts`. No workaround.
+
+### Dolap API Research — DE-SCOPED
 - **Blocked on**: finding official API documentation or seller integration
-- Cannot proceed without confirmed API access
+- No public API found. Scaffold-only code exists. De-scoped until reactivated by operator decision.
 
 ### Mentix Level B Skills Activation
 - **Blocked on**: Level A skills being ops-tested first (see NOW section)
@@ -358,23 +350,44 @@ Infrastructure, collections, schema, storefront — all validated in production.
 </details>
 
 <details>
+<summary>Phase 13 Prep — Production Hardening Execution (D-115, 2026-04-04) ✅</summary>
+
+- Hardcoded secret cleanup: generate-api-key/route.ts migrated to GENERATE_API_KEY_SECRET env var
+- .env.example rewrite: 7 missing vars added, 3 stale vars removed, classified sections
+- MIGRATION_NOTES.md: exact DDL capture procedure (5-step)
+- DEPLOY_CHECKLIST.md + PRODUCTION_TRUTH_MATRIX.md updated
+</details>
+
+<details>
+<summary>Phase 14 — Deploy Validation + Neon Migration (2026-04-04) ✅</summary>
+
+- Fixed 3 build errors: null bytes in telegram/route.ts, sectionIds scope in page.tsx, storyTargets TS2339 in Products.ts
+- Pushed fixes in 2 commits: 9f69443 (null bytes), fb46b2a (TS errors)
+- Applied 110/110 migration SQL statements to Neon production (35 tables, 120 products columns, 39 enum types)
+- Set GENERATE_API_KEY_SECRET in Vercel env vars
+- Vercel deployment EXFoRu3Tn built successfully (47s build)
+- Production domain www.uygunayakkabi.com responding HTTP 200
+</details>
+
+<details>
+<summary>Phase 15 — Live Smoke Test + Production Truth Validation (2026-04-04) ✅</summary>
+
+- Validated core platform: storefront, Payload admin, Neon DB, Vercel Blob, deployment
+- Validated security: Telegram webhook 401, Shopier HMAC 401, generate-api-key 405
+- Validated merchandising engine: isHomepageEligible() + resolveHomepageSections() working server-side
+- Confirmed 95 products (all draft), 459 media, 112 image_generation_jobs, 0 bot_events, 2 orders
+- Updated PRODUCTION_TRUTH_MATRIX.md: 27 PROD-VALIDATED, 30 DEPLOYED-NOT-VALIDATED
+- Updated PROJECT_STATE.md, DEPLOY_CHECKLIST.md, TASK_QUEUE.md, DECISIONS.md
+- Verdict: PRODUCTION USABLE WITH LIMITATIONS
+</details>
+
+<details>
 <summary>Channel Scaffolds ✅</summary>
 
 - X (Twitter): scaffold + OAuth callback + n8n stub
 - Facebook Page: scaffold + n8n stub (real integration live via Step 19)
 - LinkedIn: scaffold + OAuth callback + n8n stub
 - Threads: scaffold + n8n stub
-</details>
-
-<details>
-<summary>Image Pipeline v39 — Visual Standard Reset (2026-04-07) ✅</summary>
-
-- Background hex map shifted from near-white (~95%) to visibly colored (~78%)
-- Brightness normalization band shifted darker (70-120, mid 95)
-- QC brightness thresholds tightened (mean>185, highlight>25%)
-- Slot 3 rebuilt: back_hero → close_shot_hero (3/4 front close hero)
-- TASK_FRAMING_BLOCK updated: darker/richer visual emphasis
-- Decision: D-125
 </details>
 
 <details>
@@ -386,76 +399,3 @@ Infrastructure, collections, schema, storefront — all validated in production.
 - Blocker 4: Product save 500 (products_channel_targets) → id column fixed to SERIAL (2026-03-17)
 - Blocker 5: Instagram publish error 100/33 → direct publish bypass (2026-03-22)
 </details>
-
----
-
-## IMAGE GENERATION — FROZEN (2026-04-07)
-
-**Status:** BASELINE LOCKED — D-129
-
-The image generation pipeline is frozen at v50 (commit e99e9cb). All components listed below are NOT to be modified without explicit operator approval:
-
-### Frozen Items
-- [ ] ~~Image pipeline slot prompts~~ — LOCKED
-- [ ] ~~Background color mappings~~ — LOCKED
-- [ ] ~~Anti-frame instructions~~ — LOCKED
-- [ ] ~~Input image padding logic~~ — LOCKED
-- [ ] ~~SN overlay (bitmap pixel font)~~ — LOCKED
-- [ ] ~~QC checks (color/brand/shot)~~ — LOCKED
-- [ ] ~~Visual quality parameters~~ — LOCKED
-
-### Requires Explicit Operator Approval To Change
-Any modification to `src/lib/imageProviders.ts` or `src/jobs/imageGenTask.ts` that affects:
-- Slot ordering or slot prompt text
-- Background color hex values or color-to-backdrop logic
-- Anti-frame prompt blocks
-- Input image resize/padding behavior
-- Stock number overlay rendering
-- Brightness, sharpness, contrast, or any visual post-processing
-- QC check thresholds or pass/fail logic
-
-### What CAN Still Be Changed (without image-gen approval)
-- Telegram command handling (non-prompt logic)
-- Product data flow / job orchestration (non-visual)
-- New features unrelated to image generation
-- Bug fixes that don't alter visual output
-
-
----
-
-## CONTENT ARCHITECTURE — Implementation Phases (2026-04-07)
-
-**Status:** PLANNED — Awaiting operator approval to begin
-
-### Phase A — Wire Content to Storefront (HIGHEST PRIORITY)
-- [x] Product page: render `commercePack.websiteDescription` (fallback to `description` if empty)
-- [x] Product page: render `commercePack.highlights` as feature bullet list
-- [x] Product page: render `discoveryPack.faq` as expandable FAQ accordion
-- [x] Product page <head>: use discoveryPack.metaTitle + metaDescription for SEO meta
-- [x] Product page: add JSON-LD Product structured data
-- [x] Product page: add JSON-LD FAQPage structured data (if FAQ exists)
-
-### Phase B — Blog Frontend
-- [x] Create `/blog` listing page (published BlogPosts, paginated)
-- [x] Create `/blog/[slug]` detail page (article body, featured image, SEO fields)
-- [x] Blog detail page: proper `<head>` meta from BlogPost.seo fields
-- [x] Blog listing: category filter (category badge display — filter UI deferred)
-- [ ] Add blog posts to sitemap.xml (deferred — no sitemap.xml exists yet)
-
-### Phase C — Channel Dispatch Wiring
-- [ ] Instagram dispatch: use `commercePack.instagramCaption` instead of building from `description`
-- [ ] Shopier dispatch: use `commercePack.shopierCopy` for product description
-- [ ] X dispatch: use `commercePack.xPost` when X channel goes live
-- [ ] Facebook dispatch: use `commercePack.facebookCopy` when Facebook channel goes live
-
-### Phase D — Content Quality (DEFERRED)
-- [ ] Operator content review UI in admin (preview all 5 channel copies)
-- [ ] Content regeneration on product field update
-- [ ] Analytics feedback loop (click-through, engagement)
-
-### Dependencies
-- Phase A has NO blockers — can start immediately
-- Phase B has NO blockers — can run parallel with Phase A
-- Phase C depends on channel integrations being live
-- Phase D is future enhancement
-

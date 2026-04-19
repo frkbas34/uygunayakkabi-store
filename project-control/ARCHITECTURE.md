@@ -1,6 +1,6 @@
 # ARCHITECTURE — Uygunayakkabi
 
-_Last updated: 2026-04-04 (Phase 13 Prep — D-115; Phase 13 D-114; Phase 12 D-113; Phase 11 D-112; Phase 10 D-111; Phases 1-9 complete)_
+_Last updated: 2026-04-19 (Memory cleanup — intake path corrected, platform limits added, OpenClaw/n8n roles clarified)_
 
 ## High-Level Overview
 Uygunayakkabi is a **Telegram-first, AI-assisted, multi-channel commerce engine** with integrated content generation, visual expansion, and future try-on capabilities. It is not a simple storefront — it is a central product management system that publishes to multiple channels (website, Instagram, Shopier, Dolap) from a single source of truth (Payload CMS).
@@ -17,20 +17,25 @@ Uygunayakkabi is a **Telegram-first, AI-assisted, multi-channel commerce engine*
 - **Styling**: Storefront uses inline-style token system (no Tailwind); Admin uses default Payload light theme
 - **Media Storage (Production)**: Vercel Blob Storage via `@payloadcms/storage-vercel-blob`
 
-### Automation Infrastructure (VPS — Netcup)
+### Primary Product Intake (Vercel — Direct Telegram Webhook)
+- **Path**: Telegram → `POST /api/telegram` (Vercel serverless) → Payload CMS → Neon DB
+- **Auth**: `X-Telegram-Bot-Api-Secret-Token` verified on all incoming requests
+- **Bots**: @Uygunops_bot (operator commands, product intake), @Geeeeobot (content generation)
+- **No VPS dependency for product creation** — direct webhook since Steps 22–24 (D-096)
+
+### VPS Infrastructure (Netcup — Operations/Support Layer)
 - **OS**: Ubuntu 22.04.5 LTS (128G disk, expanded root ~125G)
 - **Containerization**: Docker + Docker Compose
 - **Reverse Proxy / TLS**: Caddy (Docker container, auto-HTTPS)
-- **Workflow Engine**: n8n (Docker container) → `flow.uygunayakkabi.com`
-- **AI Agent Layer**: OpenClaw (Docker containers) → `agent.uygunayakkabi.com`
-- **Bot Interface**: Telegram bot (`mentix_aibot`) connected via OpenClaw
-- **AI Model Provider**: OpenAI (`openai/gpt-5-mini`)
+- **Workflow/Support Engine**: n8n (Docker container) → `flow.uygunayakkabi.com` — orchestration and support layer where current code still uses it (e.g., possible Instagram dispatch fallback). NOT the primary product intake path.
+- **AI Agent/Operations Layer**: OpenClaw (Docker containers) → `agent.uygunayakkabi.com` — hosts Mentix skills for operations, debugging, diagnostics, and decision support. NOT the primary product intake path.
+- **AI Model Provider**: OpenAI (`openai/gpt-5-mini`) for OpenClaw/Mentix reasoning
 - **DNS/CDN**: Cloudflare (A records → VPS IP for `flow.*` and `agent.*` subdomains)
 
 ### Mentix Intelligence Layer v2 (OpenClaw Skills)
 - **Skills Location**: VPS: `/home/furkan/.openclaw/skills/`
-- **Active Skill**: `mentix-intake` (product intake via Telegram)
-- **Designed Skills (pending deployment)**: 12 skills in 3 activation levels
+- **Active Skill**: `mentix-intake` (operations intake via Telegram — NOT primary product creation)
+- **Deployed Skills**: 13 skills in 3 activation levels (deployed to VPS 2026-03-22)
   - **Level A (Active)**: skill-vetter, browser-automation, sql-toolkit, agent-memory, github-workflow, uptime-kuma, **product-flow-debugger** (first-class diagnostic module — 13-step trace map)
   - **Level B (Controlled)**: eachlabs-image-edit, upload-post, research-cog (optional branch), senior-backend
   - **Level C (Observe)**: learning-engine (OER separation — outcome/evaluation/reward distinct)
@@ -68,7 +73,7 @@ src/
 │   │   └── admin/[[...segments]] # Payload admin entry
 │   └── api/                      # Custom API routes
 │       ├── inquiries/route.ts    # Customer inquiry endpoint
-│       ├── telegram/route.ts     # Telegram webhook handler (Phase 2 scaffold — not primary intake path)
+│       ├── telegram/route.ts     # PRIMARY Telegram webhook handler — product intake, operator commands, image gen, wizard, all bot interactions (4700+ lines)
 │       ├── automation/
 │       │   ├── products/route.ts     # POST — creates draft products from automation pipeline
 │       │   │                         #   Auth: X-Automation-Secret header
@@ -209,11 +214,12 @@ n8n-workflows/                   # Steps 14+16: n8n workflow assets (VCS-tracked
 - Banners (campaign management: discount/announcement/flash_sale, date ranges, placement)
 - SiteSettings (centralized control: contact info, shipping rules, trust badges, announcement bar)
 
-### Integration Domain (Phase 2A — PIPELINE LIVE ✅)
-- **Telegram bot** (`mentix_aibot`): group allowlist `[5450039553, 8049990232]`, mention-only, BotFather Group Privacy OFF
-- **OpenClaw**: AI agent at `agent.uygunayakkabi.com`, mentix-intake skill at `/home/furkan/.openclaw/skills/mentix-intake/SKILL.md`
-- **n8n**: workflow engine at `flow.uygunayakkabi.com`, `Mentix Intake Webhook` workflow active (`POST /webhook/mentix-intake`)
-- **Payload automation endpoints**: `POST /api/automation/products` + `POST /api/automation/attach-media` (X-Automation-Secret auth)
+### Integration Domain (PIPELINE LIVE ✅)
+- **Telegram bot** (`@Uygunops_bot`): group allowlist `[5450039553, 8049990232]`, BotFather Group Privacy OFF
+- **Primary intake**: Direct Telegram webhook → `POST /api/telegram` → Payload CMS (D-096, Steps 22–24)
+- **OpenClaw** (operations layer): AI agent at `agent.uygunayakkabi.com`, 13 Mentix skills deployed for debugging, diagnostics, decision support. NOT primary product intake.
+- **n8n** (support layer): workflow engine at `flow.uygunayakkabi.com`, available for orchestration/support. NOT primary product intake.
+- **Payload automation endpoints** (legacy, still functional): `POST /api/automation/products` + `POST /api/automation/attach-media` (X-Automation-Secret auth) — used by the old OpenClaw→n8n intake path
 - **Idempotency**: telegramChatId + telegramMessageId dedup — returns `{ status: "duplicate" }` if same message re-submitted
 - **Publish guard**: beforeChange hook blocks activation if price ≤ 0; storefront 404s for draft slugs
 - **Admin review components**: ReviewPanel, SourceBadgeCell, StatusCell all active in importMap
@@ -222,9 +228,18 @@ n8n-workflows/                   # Steps 14+16: n8n workflow assets (VCS-tracked
 - **BlogPosts**: AI-generated SEO blog posts linked to products, with draft/published states and ai/admin source tracking
 - **AutomationSettings** (global): Centralized toggles for all automation behavior (publish channels, blog generation, visual expansion, group mode)
 
-### Distribution Domain (Phase 2B — PLANNED)
-- **Channel adapters**: Website (native), Instagram, Shopier, Dolap — each with independent publish toggles
+### Distribution Domain (Phase 2B — PARTIALLY LIVE)
+- **Live channels**: Website (native), Instagram (Graph API direct), Facebook (Graph API direct), X/Twitter (API v2, OAuth 1.0a), Shopier (jobs queue sync)
+- **De-scoped**: Dolap (no public API found, scaffold-only), LinkedIn (scaffold + OAuth callback, no post implementation)
 - **Per-product override**: `channelTargets` field on Products allows per-product channel control
+- **Publish rule**: All external publishing requires explicit human confirmation — no auto-publish
+
+### Platform Limits / Blocked Channels
+- **Telegram Stories**: BLOCKED — Telegram Bot API does not support story publishing. Bot can only send messages/photos/videos, not stories. StoryJobs collection and dispatch code exist but cannot actually publish stories until API support is added.
+- **WhatsApp Status**: BLOCKED — official WhatsApp Business API does not support status/story publishing. Marked `blocked_officially` in `src/lib/storyTargets.ts`.
+- **Instagram**: ALLOWED — Graph API direct publish, single image and carousel supported. Requires explicit approval. Token expires ~60 days (refresh needed before ~2026-05-20).
+- **Facebook Page**: ALLOWED — Graph API photo post with Page Access Token exchange. Requires explicit approval.
+- **Shopier**: ALLOWED — REST API v1 product sync via jobs queue. Shopier PAT expires 2031-03-23.
 
 ### Visual & Experience Domain (Phase 3 — PLANNED)
 - **Visual Expansion Engine**: AI-generated additional product angles (2–4 from 1–2 originals) with strict product integrity preservation
@@ -240,10 +255,11 @@ n8n-workflows/                   # Steps 14+16: n8n workflow assets (VCS-tracked
 - SSL fix, reverse media lookup, debug logs removed
 - End-to-end pipeline validated: admin product → storefront confirmed working
 
-### Phase 2A — Controlled Product Intake (STEPS 1–19 COMPLETE ✅ — 2026-03-23)
+### Phase 2A — Controlled Product Intake (STEPS 1–24 COMPLETE ✅ — 2026-03-28)
 - VPS: Docker + Caddy + n8n + OpenClaw all running, Docker network persistent
 - Security rotation complete, Telegram group allowlist active
-- **Live flow**: Telegram mention → OpenClaw mentix-intake skill → curl n8n webhook → Parse Fields → POST /api/automation/products → Neon DB draft → Has Media? → POST /api/automation/attach-media → product.images updated
+- **Original flow (Steps 1–19, SUPERSEDED for primary intake)**: Telegram → OpenClaw → n8n → Payload API
+- **Current flow (Steps 22–24, D-096)**: Telegram → `POST /api/telegram` (Vercel) → Payload CMS directly. No VPS dependency for product creation.
 - Idempotency, admin review UI, stockQuantity, variant color, publish guard all live
 - Product model expanded: `source`, `channels`, `automationMeta`, `stockQuantity`, `productFamily`, `productType`, `channelTargets`, `automationFlags`, `sourceMeta`
 - AutomationSettings global for centralized toggle control
@@ -258,12 +274,14 @@ n8n-workflows/                   # Steps 14+16: n8n workflow assets (VCS-tracked
 - **Step 19**: Facebook Page direct publish — `publishFacebookDirectly()` in channelDispatch.ts, Page Access Token exchange, correct page ID discovery via graph.facebook.com/me/accounts
 - **Step 20**: Shopier product sync — `src/lib/shopierApi.ts` (REST v1 client, Bearer JWT), `src/lib/shopierSync.ts` (Payload jobs queue), `src/app/api/webhooks/shopier/route.ts` (HMAC-SHA256 multi-token verification), `src/app/api/payload-jobs/run/route.ts` (jobs runner). GitHub Actions cron every 5 min (`process-jobs.yml`). 4 webhooks registered (order.created, order.fulfilled, refund.requested, refund.updated). Smoke test: Product 11 → Shopier ID `45456186` ✅. `payload_jobs` table + `source_meta_shopier_*` columns created manually in Neon. Shopier PAT expires 2031-03-23.
 
-### Phase 2B — Multi-Channel Distribution (PARTIALLY LIVE ✅ — 2026-03-23)
+### Phase 2B — Multi-Channel Distribution (PARTIALLY LIVE ✅ — 2026-04-14)
 - Website publish (native — already works via active status) ✅
-- Instagram adapter (Graph API — LIVE, bypasses n8n via publishInstagramDirectly) ✅
-- Facebook Page adapter (LIVE, publishFacebookDirectly) ✅
+- Instagram adapter (Graph API — LIVE, direct publish from Payload) ✅
+- Facebook Page adapter (LIVE, direct publish from Payload) ✅
+- X/Twitter adapter (LIVE — API v2, OAuth 1.0a, D-195c, prod-validated 2026-04-14) ✅
 - **Shopier adapter (LIVE — Step 20, non-blocking jobs queue, 5-min GitHub Actions cron)** ✅
-- Dolap adapter (listing sync — PLANNED, API research needed)
+- Dolap adapter — DE-SCOPED (no public API found, scaffold-only code exists)
+- LinkedIn adapter — DE-SCOPED (scaffold + OAuth callback, no post implementation)
 - Per-channel independent toggles ✅
 
 ### Phase 2C — Content Growth Layer (PLANNED)
@@ -302,30 +320,37 @@ Domain Routing:
 └── agent.uygunayakkabi.com    → VPS → Caddy → openclaw-gateway:18789
 ```
 
-## Phase 2 Data Flow (Target)
+## Product Intake Data Flow (Current — since Steps 22–24, D-096)
 
 ```
-User (phone) → Telegram Group/DM → mentix_aibot
+User (phone) → Telegram Group/DM → @Uygunops_bot
     ↓
-OpenClaw (intent parsing / AI agent)
+Vercel Serverless: POST /api/telegram (direct webhook, X-Telegram-Bot-Api-Secret-Token auth)
     ↓
-n8n webhook (workflow trigger)
+route.ts: parse caption → download photo → upload to Vercel Blob → create Payload Media + Product (draft)
     ↓
-n8n workflow: parse caption → download photo → upload to Vercel Blob
+Operator: /confirm → wizard → content generation → audit → publish readiness
     ↓
-Payload API: create product (status: toggle-controlled active/draft)
-    ↓
-Distribution Engine (if active):
+Distribution Engine (on status=active, explicit approval):
     ├─ Website (native — storefront shows active products)
-    ├─ Instagram (Graph API adapter — future)
-    ├─ Shopier (listing sync adapter — future)
-    └─ Dolap (listing sync adapter — future)
+    ├─ Instagram (Graph API direct publish — publishInstagramDirectly)
+    ├─ Facebook (Graph API direct publish — publishFacebookDirectly)
+    ├─ X/Twitter (API v2 direct publish — OAuth 1.0a)
+    └─ Shopier (Payload jobs queue — shopierSyncTask)
     ↓
-Content Engine (if active + generateBlog):
-    └─ AI SEO blog post → BlogPosts collection
+Content Engine (after /confirm — Geobot):
+    └─ Gemini 2.5 Flash → commerce pack + discovery pack → draft BlogPost
 ```
 
-## Webhook Contract (OpenClaw → n8n)
+## SUPERSEDED: Old Intake Data Flow (Steps 1–19, before D-096)
+
+_The following intake path was the original design. It has been replaced by the direct Telegram webhook above. OpenClaw and n8n remain active for operations/support but are NOT the primary product intake path._
+
+```
+[SUPERSEDED] User → Telegram → OpenClaw (mentix-intake) → n8n webhook → Payload API
+```
+
+## Webhook Contract (OpenClaw → n8n) — HISTORICAL REFERENCE
 
 ```json
 {
@@ -355,8 +380,8 @@ Content Engine (if active + generateBlog):
 - Admin: override/control layer over all data (including automation-created records)
 - Automation (Phase 2): must not bypass core product model — always creates via Payload API
 - VPS services: isolated from Vercel deployment; communicate via webhooks/API calls
-- OpenClaw: AI agent layer, not a data store — routes intents to n8n or direct API calls
-- n8n: workflow orchestration only — does not own data, calls Payload API for mutations
+- OpenClaw: AI operations/debug layer — hosts Mentix skills for diagnostics, decision support, and operations. NOT the primary product intake path (superseded by direct webhook in Steps 22–24).
+- n8n: workflow orchestration/support layer — available for complex multi-step workflows. NOT the primary product intake path. May still be used for channel dispatch fallback.
 - SiteSettings global: single source of truth for site-wide config values used by frontend
 
 ## Phase 13 Prep — Production Hardening Execution (2026-04-04)

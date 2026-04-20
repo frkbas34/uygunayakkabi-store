@@ -1238,16 +1238,25 @@ async function uploadImageToX(
     // Build multipart/form-data body with raw image bytes under field name "media".
     // Per OAuth 1.0a spec, multipart body params are NOT included in the signature base string,
     // so the oauth_* header produced above is valid as-is.
+    // D-211: X v2 /2/media/upload requires the "media_category" field even for simple image
+    // uploads (v1.1 did not). Value "tweet_image" matches X v2 enum for inline tweet images.
+    // Prod evidence (2026-04-20, product 294): X returned
+    //   400 {"message":"$.media_category: is missing but it is required"}
     const boundary = `----uygunayakkabiX${crypto.randomBytes(8).toString('hex')}`
     const filename = 'image.jpg'
     const preamble =
       `--${boundary}\r\n` +
       `Content-Disposition: form-data; name="media"; filename="${filename}"\r\n` +
       `Content-Type: ${contentType}\r\n\r\n`
+    const categoryPart =
+      `\r\n--${boundary}\r\n` +
+      `Content-Disposition: form-data; name="media_category"\r\n\r\n` +
+      `tweet_image`
     const epilogue = `\r\n--${boundary}--\r\n`
     const multipartBody = Buffer.concat([
       Buffer.from(preamble, 'utf8'),
       imgBuffer,
+      Buffer.from(categoryPart, 'utf8'),
       Buffer.from(epilogue, 'utf8'),
     ])
 

@@ -365,19 +365,24 @@ function Hero({ onNav, settings, allProducts }) {
         <div style={{ display: "inline-flex", alignItems: "center", gap: 10, fontFamily: T.sans, fontSize: 11, fontWeight: 600, textTransform: "uppercase",
           letterSpacing: "0.22em", color: T.red, marginBottom: 32, background: T.redSoft, padding: "8px 24px", borderRadius: T.r.full, border: "1px solid rgba(200,16,46,0.1)" }}>
           <span style={{ width: 8, height: 8, borderRadius: "50%", background: T.red }} />
-          YENİ KOLEKSİYON
+          AKILLI ERİŞİM
         </div>
 
         {/* Title */}
-        <h1 style={{ fontFamily: T.serif, fontSize: "clamp(52px, 7vw, 96px)", fontWeight: 800, color: T.text,
-          lineHeight: 1.0, letterSpacing: "-0.03em", marginBottom: 28 }}>
-          Kaliteli<br />Ayakkabılar
+        <h1 style={{ fontFamily: T.serif, fontSize: "clamp(38px, 5.5vw, 72px)", fontWeight: 800, color: T.text,
+          lineHeight: 1.1, letterSpacing: "-0.03em", marginBottom: 28 }}>
+          Kaliteli ayakkabıya<br />merkezinden, daha akıllı erişim
         </h1>
 
         {/* Description */}
-        <p style={{ fontFamily: T.sans, fontSize: 17, color: T.textLight, lineHeight: 1.85,
-          margin: "0 auto 48px", maxWidth: 520 }}>
-          En popüler markaların en iyi modelleri, piyasanın altında fiyatlarla. Beğendiğiniz ayakkabıyı seçin, WhatsApp'tan yazın.
+        <p style={{ fontFamily: T.sans, fontSize: 16, color: T.textLight, lineHeight: 1.85,
+          margin: "0 auto 36px", maxWidth: 640 }}>
+          UygunAyakkabi.com, Türkiye'de ayakkabı ve deri sektörünün merkezlerinden biri olan Aymakoop Sanayi Sitesi içindeki doğrudan erişimini, yapay zekâ destekli otomasyon sistemleriyle birleştirerek; tekleme, az adetli ve özel kalan kaliteli ayakkabıları daha ulaşılabilir fiyatlarla sunar.
+        </p>
+
+        {/* Support line */}
+        <p style={{ fontFamily: T.sans, fontSize: 13, fontWeight: 600, color: T.textLighter, letterSpacing: "0.08em", marginBottom: 40 }}>
+          Fiziksel güç + dijital zekâ + doğru fiyat.
         </p>
 
         {/* Buttons */}
@@ -389,17 +394,17 @@ function Hero({ onNav, settings, allProducts }) {
             display: "inline-flex", alignItems: "center", gap: 10,
             transition: "all 0.3s",
           }}>
-            AYAKKABILARI GÖR {I.arrow}
+            ÜRÜNLERİ KEŞFET {I.arrow}
           </button>
-          <a href={waLink(contact.whatsappFull)} target="_blank" rel="noreferrer" style={{
+          <button onClick={() => { const el = document.getElementById("neden-biz"); if (el) el.scrollIntoView({ behavior: "smooth" }); }} style={{
             fontFamily: T.sans, fontSize: 12, fontWeight: 600, letterSpacing: "0.12em",
             textTransform: "uppercase", color: T.text, background: "transparent",
             border: "1px solid rgba(28,26,22,0.15)", padding: "17px 40px", borderRadius: T.r.full,
             cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 10,
-            textDecoration: "none", transition: "all 0.3s",
+            transition: "all 0.3s",
           }}>
-            {I.wa} WHATSAPP
-          </a>
+            NEDEN BİZ?
+          </button>
         </div>
 
         {/* Scroll CTA */}
@@ -482,55 +487,175 @@ function BestSellersScroll({ allProducts, onView }) {
 }
 
 // ============================================
+// NEDEN UYGUN AYAKKABI (Why Us)
+// ============================================
+const WHY_US_CARDS = [
+  { icon: "🏭", title: "Doğrudan Merkezden Erişim", text: "Türkiye'nin ayakkabı ve deri üretim merkezlerinden biri olan Aymakoop içindeki erişimimiz sayesinde ürünleri kaynağından takip edebiliyoruz." },
+  { icon: "💎", title: "Tekleme ve Özel Ürünler", text: "Seri dışı kalan, az adetli, tekleme ya da özel kalan kaliteli ürünlere ulaşabiliyoruz." },
+  { icon: "💰", title: "Daha Güçlü Fiyat Avantajı", text: "Aracı katmanların azalması sayesinde, çoğu zaman piyasadaki değerinden daha uygun fiyatlarla ürün sunabiliyoruz." },
+  { icon: "🤖", title: "Yapay Zekâ Destekli Sistem", text: "Ürün yönetimi, içerik akışı ve dijital sunum tarafında yapay zekâ destekli otomasyonlardan faydalanıyoruz." },
+  { icon: "🌐", title: "Güçlü Dijital Varlık", text: "Web sitemiz ve sosyal medya kanallarımız, bu güçlü tedarik yapısını hızlı ve çağdaş bir şekilde yansıtmak için kuruldu." },
+  { icon: "✦", title: "Her Yerde Bulunmayan Ürünler", text: "Bizdeki birçok ürün, klasik mağaza düzeninde kolayca bulunmayan, sınırlı ve özel ürünlerden oluşur." },
+];
+
+function WhyUsSection() {
+  return (
+    <section id="neden-biz" style={{ padding: "100px 40px", maxWidth: 1440, margin: "0 auto", borderTop: "1px solid rgba(28,26,22,0.06)", position: "relative", zIndex: 1 }}>
+      <div style={{ textAlign: "center", marginBottom: 64 }}>
+        <p style={{ fontFamily: T.sans, fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.18em", color: T.red, marginBottom: 10 }}>FARKIMIZ</p>
+        <h2 style={{ fontFamily: T.serif, fontSize: "clamp(30px, 3.5vw, 48px)", fontWeight: 700, color: T.text, letterSpacing: "-0.02em", marginBottom: 20 }}>Neden Uygun Ayakkabı?</h2>
+        <p style={{ fontFamily: T.sans, fontSize: 15, color: T.textLight, lineHeight: 1.85, maxWidth: 620, margin: "0 auto" }}>
+          Çünkü biz klasik bir satış modeliyle ilerlemiyoruz. Bizim gücümüz, kaliteli ürüne doğrudan erişim ile modern dijital sistemleri bir araya getirmemizden geliyor.
+        </p>
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 20 }}>
+        {WHY_US_CARDS.map((c, i) => (
+          <div key={i} style={{
+            background: "rgba(238,232,222,0.5)", border: "1px solid rgba(28,26,22,0.06)", borderRadius: 20,
+            padding: "36px 28px", position: "relative", overflow: "hidden",
+            backdropFilter: "blur(10px)", transition: "all 0.35s",
+          }}>
+            <div style={{ position: "absolute", top: 0, left: "50%", transform: "translateX(-50%)", width: 50, height: 3, borderRadius: "0 0 3px 3px", background: T.red, opacity: 0.6 }} />
+            <span style={{ fontSize: 32, display: "block", marginBottom: 18 }}>{c.icon}</span>
+            <p style={{ fontFamily: T.sans, fontSize: 15, fontWeight: 700, color: T.text, marginBottom: 10 }}>{c.title}</p>
+            <p style={{ fontFamily: T.sans, fontSize: 13, color: "rgba(28,26,22,0.5)", lineHeight: 1.75 }}>{c.text}</p>
+          </div>
+        ))}
+      </div>
+      <style>{`
+        @media(max-width:768px) {
+          #neden-biz > div:last-child { grid-template-columns: 1fr !important; }
+        }
+        @media(min-width:769px) and (max-width:1024px) {
+          #neden-biz > div:last-child { grid-template-columns: repeat(2, 1fr) !important; }
+        }
+      `}</style>
+    </section>
+  );
+}
+
+// ============================================
+// NEDEN BİZDEN ALMALISINIZ (Trust / Value)
+// ============================================
+function TrustValueSection() {
+  return (
+    <section style={{ padding: "100px 40px", maxWidth: 1440, margin: "0 auto", borderTop: "1px solid rgba(28,26,22,0.06)", position: "relative", zIndex: 1 }}>
+      <div style={{ maxWidth: 780, margin: "0 auto" }}>
+        <p style={{ fontFamily: T.sans, fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.18em", color: T.red, marginBottom: 10, textAlign: "center" }}>GÜVEN</p>
+        <h2 style={{ fontFamily: T.serif, fontSize: "clamp(28px, 3vw, 40px)", fontWeight: 700, color: T.text, lineHeight: 1.3, letterSpacing: "-0.02em", marginBottom: 28, textAlign: "center" }}>
+          Neden Bizden Almalısınız?
+        </h2>
+        <div style={{ fontFamily: T.sans, fontSize: 15, color: T.textLight, lineHeight: 1.9 }}>
+          <p style={{ marginBottom: 20 }}>
+            Çünkü biz rastgele ürün toplayan sıradan bir satıcı değiliz.
+          </p>
+          <p style={{ marginBottom: 20 }}>
+            Biz, ayakkabı ve deri sektörünün merkezindeki doğrudan erişim avantajını; yapay zekâ destekli dijital sistemler, güçlü ürün seçimi ve modern satış kanallarıyla birleştiren bir yapı kurduk.
+          </p>
+          <p style={{ marginBottom: 16 }}>Bu sayede müşterilerimize:</p>
+          <div style={{
+            background: "rgba(238,232,222,0.5)", border: "1px solid rgba(28,26,22,0.06)", borderRadius: 16,
+            padding: "24px 32px", marginBottom: 24,
+          }}>
+            {[
+              "daha seçilmiş ürünler,",
+              "daha ulaşılabilir fiyatlar,",
+              "sınırlı ve özel stoklara erişim,",
+              "daha güçlü dijital sunum,",
+              "daha güven veren bir alışveriş deneyimi",
+            ].map((item, i) => (
+              <div key={i} style={{ display: "flex", alignItems: "center", gap: 12, padding: "8px 0" }}>
+                <span style={{ width: 6, height: 6, borderRadius: "50%", background: T.red, flexShrink: 0 }} />
+                <span style={{ fontFamily: T.sans, fontSize: 14, color: T.text, fontWeight: 500 }}>{item}</span>
+              </div>
+            ))}
+          </div>
+          <p style={{ marginBottom: 4 }}>sunabiliyoruz.</p>
+          <p style={{ marginTop: 20, marginBottom: 4 }}>Bizim farkımız sadece fiyat değil.</p>
+          <p style={{ fontFamily: T.sans, fontSize: 16, fontWeight: 700, color: T.text }}>
+            Bizim farkımız; erişim, sistem ve ürün zekâsıdır.
+          </p>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+// ============================================
 // BIZ KIMIZ (About)
 // ============================================
 function AboutSection({ settings }) {
   const tb = settings?.trustBadges || DEFAULT_SETTINGS.trustBadges;
   return (
     <section style={{ padding: "100px 40px", maxWidth: 1440, margin: "0 auto", borderTop: "1px solid rgba(28,26,22,0.06)", position: "relative", zIndex: 1 }}>
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 80, alignItems: "center" }}>
+      <div className="about-grid" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 80, alignItems: "start" }}>
         {/* Left — text */}
         <div>
           <p style={{ fontFamily: T.sans, fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.18em", color: T.red, marginBottom: 10 }}>BİZ KİMİZ</p>
-          <h2 style={{ fontFamily: T.serif, fontSize: "clamp(28px, 3vw, 40px)", fontWeight: 700, color: T.text, lineHeight: 1.3, letterSpacing: "-0.02em", marginBottom: 24 }}>Kaliteli ayakkabıyı herkes için erişilebilir kılıyoruz.</h2>
-          <p style={{ fontFamily: T.sans, fontSize: 15, color: T.textLight, lineHeight: 1.9, marginBottom: 36 }}>UygunAyakkabı olarak en sevilen markaların en iyi modellerini, piyasanın altında fiyatlarla sunuyoruz. Amacımız basit: herkes kaliteli ayakkabı giyebilmeli.</p>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
-            {[
-              { icon: "🎯", title: "Uygun Fiyat", desc: "Piyasanın altında, kaliteden ödün vermeden" },
-              { icon: "🚀", title: "Hızlı Kargo", desc: "1-3 iş günü içinde kapınızda" },
-              { icon: "✅", title: "%100 Orijinal", desc: "Tüm ürünler orijinal ve garantili" },
-              { icon: "💬", title: "Kolay İletişim", desc: "WhatsApp'tan anında cevap" },
-            ].map((v, i) => (
-              <div key={i} style={{
-                background: "rgba(238,232,222,0.5)", border: "1px solid rgba(28,26,22,0.06)", borderRadius: 18,
-                padding: "28px 22px", backdropFilter: "blur(8px)", transition: "all 0.3s",
-              }}>
-                <span style={{ fontSize: 28, display: "block", marginBottom: 14 }}>{v.icon}</span>
-                <p style={{ fontFamily: T.sans, fontSize: 14, fontWeight: 700, color: T.text, marginBottom: 6 }}>{v.title}</p>
-                <p style={{ fontFamily: T.sans, fontSize: 12, color: "rgba(28,26,22,0.4)", lineHeight: 1.6 }}>{v.desc}</p>
-              </div>
-            ))}
+          <h2 style={{ fontFamily: T.serif, fontSize: "clamp(28px, 3vw, 40px)", fontWeight: 700, color: T.text, lineHeight: 1.3, letterSpacing: "-0.02em", marginBottom: 24 }}>Biz Kimiz?</h2>
+          <div style={{ fontFamily: T.sans, fontSize: 15, color: T.textLight, lineHeight: 1.9 }}>
+            <p style={{ marginBottom: 18 }}>
+              UygunAyakkabi.com, kaliteli ayakkabıya daha ulaşılabilir şekilde erişmek isteyen insanlar için kurulmuş yeni nesil bir platformdur.
+            </p>
+            <p style={{ marginBottom: 18, fontWeight: 600, color: T.text }}>
+              Bizim çıkış noktamız çok net:
+            </p>
+            <p style={{ marginBottom: 18 }}>
+              Türkiye'de ayakkabı ve deri sektörünün en güçlü merkezlerinden biri olan Aymakoop Sanayi Sitesi içindeki doğrudan erişimimizi, insanların gerçekten avantajlı ürünlere ulaşabileceği bir sisteme dönüştürmek.
+            </p>
+            <p style={{ marginBottom: 18 }}>
+              Bu sayede; tekleme, az adetli, seri devamı olmayan ama kalite açısından güçlü ürünlere doğrudan ulaşabiliyoruz. Bu ürünler çoğu zaman piyasada daha yüksek fiyatlarla yer bulurken, biz onları daha ulaşılabilir seviyelerde sunabiliyoruz.
+            </p>
+            <p style={{ marginBottom: 18, fontWeight: 600, color: T.text }}>
+              Ancak bizi farklı yapan yalnızca ürün erişimi değil.
+            </p>
+            <p style={{ marginBottom: 18 }}>
+              Bu fiziksel avantajı, yapay zekâ destekli otomasyon sistemleri, dijital içerik yapısı ve modern satış kanallarıyla birleştiriyoruz.
+            </p>
+            <p style={{ marginBottom: 18 }}>
+              Web sitemiz, sosyal medya hesaplarımız ve dijital operasyonlarımız; doğrudan erişim + akıllı sistem + doğru fiyat anlayışıyla şekilleniyor.
+            </p>
+            <p style={{ marginBottom: 4 }}>
+              Bizim amacımız yalnızca ayakkabı satmak değil;
+            </p>
+            <p style={{ fontWeight: 700, color: T.text, fontSize: 16 }}>
+              kaliteli ürünü daha akıllı bir modelle insanlara ulaştırmak.
+            </p>
           </div>
         </div>
         {/* Right — image + stats overlay */}
-        <div style={{ borderRadius: 24, overflow: "hidden", aspectRatio: "4/3", background: "#ebe5da", border: "1px solid rgba(28,26,22,0.06)", position: "relative" }}>
-          <img src="https://images.unsplash.com/photo-1556906781-9a412961c28c?w=800&h=600&fit=crop&q=80" alt="UygunAyakkabı" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
-          <div style={{ position: "absolute", bottom: 0, left: 0, right: 0, padding: 32, background: "linear-gradient(transparent, rgba(0,0,0,0.55))" }}>
-            <div style={{ display: "flex", gap: 40 }}>
-              {[
-                { val: tb.monthlyCustomers, label: "Mutlu Müşteri" },
-                { val: tb.totalProducts, label: "Ürün" },
-                { val: tb.satisfactionRate, label: "Memnuniyet" },
-              ].map((s, i) => (
-                <div key={i}>
-                  <p style={{ fontSize: 24, fontWeight: 800, color: "#fff" }}>{s.val}</p>
-                  <p style={{ fontSize: 10, color: "rgba(255,255,255,0.7)", textTransform: "uppercase", letterSpacing: "0.1em", marginTop: 4 }}>{s.label}</p>
-                </div>
-              ))}
+        <div style={{ position: "sticky", top: 100 }}>
+          <div style={{ borderRadius: 24, overflow: "hidden", aspectRatio: "4/3", background: "#ebe5da", border: "1px solid rgba(28,26,22,0.06)", position: "relative" }}>
+            <img src="https://images.unsplash.com/photo-1556906781-9a412961c28c?w=800&h=600&fit=crop&q=80" alt="UygunAyakkabı" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+            <div style={{ position: "absolute", bottom: 0, left: 0, right: 0, padding: 32, background: "linear-gradient(transparent, rgba(0,0,0,0.55))" }}>
+              <div style={{ display: "flex", gap: 40 }}>
+                {[
+                  { val: tb.monthlyCustomers, label: "Mutlu Müşteri" },
+                  { val: tb.totalProducts, label: "Ürün" },
+                  { val: tb.satisfactionRate, label: "Memnuniyet" },
+                ].map((s, i) => (
+                  <div key={i}>
+                    <p style={{ fontSize: 24, fontWeight: 800, color: "#fff" }}>{s.val}</p>
+                    <p style={{ fontSize: 10, color: "rgba(255,255,255,0.7)", textTransform: "uppercase", letterSpacing: "0.1em", marginTop: 4 }}>{s.label}</p>
+                  </div>
+                ))}
+              </div>
             </div>
+          </div>
+          {/* Brand microcopy badge */}
+          <div style={{
+            marginTop: 20, textAlign: "center", fontFamily: T.sans, fontSize: 12, fontWeight: 600,
+            color: T.textLighter, letterSpacing: "0.06em",
+          }}>
+            Kaynağından seçilmiş, akıllıca sunulmuş
           </div>
         </div>
       </div>
+      <style>{`
+        @media(max-width:768px) {
+          .about-grid { grid-template-columns: 1fr !important; gap: 40px !important; }
+        }
+      `}</style>
     </section>
   );
 }
@@ -673,14 +798,20 @@ export default function App({ dbProducts = [], siteSettings = null, banners = []
             </div>
           </section>
 
+          {/* Neden Uygun Ayakkabı — Why Us */}
+          <WhyUsSection />
+
           {/* Sipariş Adımları */}
           <StepsSection />
 
           {/* Çok Satanlar — horizontal scroll */}
           <BestSellersScroll allProducts={allProducts} onView={view} />
 
-          {/* Biz Kimiz */}
+          {/* Biz Kimiz — About */}
           <AboutSection settings={S} />
+
+          {/* Neden Bizden Almalısınız — Trust / Value */}
+          <TrustValueSection />
 
           {/* Kategori Overlay + İndirimli Ürünler */}
           <CategoryOverlay onNav={nav} />
@@ -906,7 +1037,7 @@ function Footer({ onNav, settings }) {
             <span style={{ fontFamily: T.serif, fontSize: 16, fontWeight: 800, color: "#f0ece4", letterSpacing: "0.12em" }}>UYGUN</span>
             <span style={{ fontFamily: T.serif, fontSize: 16, fontWeight: 300, color: T.red }}>AYAKKABI</span>
           </div>
-          <p style={{ fontFamily: T.sans, fontSize: 13, color: "rgba(240,236,228,0.35)", lineHeight: 1.85, maxWidth: 300 }}>Kaliteli ayakkabılar, uygun fiyatlar. Geniş marka yelpazesi, hızlı kargo.</p>
+          <p style={{ fontFamily: T.sans, fontSize: 13, color: "rgba(240,236,228,0.35)", lineHeight: 1.85, maxWidth: 340 }}>Kaliteli ayakkabıya daha akıllı erişim. Sanayiden dijitale uzanan güçlü satış modeli.</p>
         </div>
         <div>
           <h5 style={{ fontFamily: T.sans, fontSize: 10, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.16em", color: "rgba(240,236,228,0.28)", marginBottom: 22 }}>Sayfalar</h5>
@@ -937,7 +1068,7 @@ function Footer({ onNav, settings }) {
         </div>
       </div>
       <div style={{ maxWidth: 1440, margin: "0 auto", padding: "20px 0", borderTop: "1px solid rgba(240,236,228,0.08)", display: "flex", justifyContent: "space-between", flexWrap: "wrap", gap: 8 }}>
-        <p style={{ fontFamily: T.sans, fontSize: 11, color: "rgba(240,236,228,0.22)" }}>© 2025 UygunAyakkabı — Tüm hakları saklıdır.</p>
+        <p style={{ fontFamily: T.sans, fontSize: 11, color: "rgba(240,236,228,0.22)" }}>© 2026 UygunAyakkabı — Tüm hakları saklıdır.</p>
         <p style={{ fontFamily: T.sans, fontSize: 11, color: "rgba(240,236,228,0.22)" }}>uygunayakkabi.com</p>
       </div>
     </footer>

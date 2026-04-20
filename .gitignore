@@ -57,3 +57,11 @@ payload.db
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# credentials / secrets (never commit)
+UygunAyakkabi-API-Credentials.docx
+
+# temp / generated
+sessions/
+tmp/
+vercel-deploy.log

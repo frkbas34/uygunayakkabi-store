@@ -1,0 +1,12 @@
+.gitignore
+project-control/DECISIONS.md
+project-control/DEPLOY_CHECKLIST.md
+project-control/MEMORY_CONSOLIDATION_REPORT.md
+project-control/PRODUCTION_TRUTH_MATRIX.md
+src/app/(app)/products/[slug]/page.tsx
+src/app/api/telegram/route.ts
+src/jobs/imageGenTask.ts
+src/lib/channelDispatch.ts
+src/lib/confirmationWizard.ts
+src/lib/imageProviders.ts
+src/lib/shopierSync.ts

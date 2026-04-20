@@ -1,0 +1,3617 @@
+diff --git a/.gitignore b/.gitignore
+index f84e244..0c33d30 100644
+--- a/.gitignore
++++ b/.gitignore
+@@ -57,3 +57,5 @@ payload.db
+ # typescript
+ *.tsbuildinfo
+ next-env.d.ts
++
++.vercel
+diff --git a/project-control/DECISIONS.md b/project-control/DECISIONS.md
+index 5360d42..ecf8c11 100644
+--- a/project-control/DECISIONS.md
++++ b/project-control/DECISIONS.md
+@@ -2484,830 +2484,579 @@ Updated: `project-control/PRODUCTION_TRUTH_MATRIX.md`
+ 
+ ---
+ 
+-## D-116a — sellable=false Bug Fix: reactToStockChange After Variant Creation
+-**Decision:**
+-Call `reactToStockChange()` explicitly in `applyConfirmation()` after variant creation. The Variants afterChange hook only fires on `operation === 'update'`, not on `create`. During confirmation, variants are created (not updated), leaving sellable at its defaultValue of false.
+-
+-**Reason:**
+-Product 125 had sellable=false despite confirmed status + stock + variants. Root cause: Variants afterChange hook guard `if (operation !== 'update') return doc` skips create operations. Without explicit call, sellable stays at schema default (false) forever for newly confirmed products.
+-
+-**Status:** ACTIVE
+-
+----
++## D-116 — Phase 14 Deploy Validation + Neon Migration (2026-04-04)
+ 
+-## D-116b — Discovery Pack maxOutputTokens Increase to 8192
+ **Decision:**
+-Increase Gemini `maxOutputTokens` from 4096 to 8192 for discovery pack generation. Commerce pack stays at 4096.
++Deploy Phases 1-13 code to production by fixing build errors and running manual Neon SQL migration.
+ 
+ **Reason:**
+-Discovery pack prompt requests 800-1500 word Turkish article + FAQ + meta + keywords in JSON. At ~1.5-2 tokens/word for Turkish, the article alone needs 1200-3000 tokens. With JSON structure overhead, 4096 was consistently insufficient — discovery pack silently failed on every attempt.
++Phase 13 Prep (D-115) confirmed the repo was deploy-safe. The next step was actual production deployment with schema migration. Three build errors were discovered during Vercel build that needed fixing before successful deployment.
+ 
+-**Status:** ACTIVE
+-
+----
++**Implementation:**
+ 
+-## D-116c — Content Retry for Partial Failures
+-**Decision:**
+-Add `canRetriggerContent()` function and `/content <id> retry` Telegram command. `triggerContentGeneration()` now accounts for existing packs in DB when determining final contentStatus (e.g., existing commercePack + newly generated discoveryPack → 'ready').
+-
+-**Reason:**
+-`shouldAutoTriggerContent()` only fires for contentStatus='pending'. Once set to 'commerce_generated' (partial failure), there was no retry path. Operator had no way to regenerate the missing pack.
++**A) Build Error Fixes (2 commits)**
++- Commit 9f69443: Removed trailing null bytes from `src/app/api/telegram/route.ts` (3154+ lines, null bytes at end caused TS1127)
++- Commit fb46b2a: Fixed 2 TypeScript errors:
++  - `src/app/(app)/page.tsx`: `sectionIds` declared as `const` inside `try` block but referenced outside → moved to `let` declaration before `try`
++  - `src/collections/Products.ts` line 246: `settings?.storyTargets` TS2339 → changed to `(settings as any)?.storyTargets ?? null` (type not updated for storyTargets field)
++
++**B) Neon Production Migration**
++- Applied 110/110 SQL migration statements to production Neon database
++- Result: 35 tables, 120 products columns, 39 enum types
++- All new tables confirmed: bot_events, story_jobs, story_jobs_targets, homepage_merchandising_settings, blog_posts, blog_posts_rels, products_story_settings_story_targets
++- All workflow/merchandising/content/audit columns confirmed on products table
++- payload_locked_documents_rels FK columns confirmed
++
++**C) Environment Variable**
++- Set GENERATE_API_KEY_SECRET in Vercel dashboard (random hex, 32+ chars)
++- Redeployed to pick up the new env var
++
++**D) Vercel Deployment**
++- Deployment ID: EXFoRu3Tn
++- Build time: 47s, status: Ready
++- Production domain: www.uygunayakkabi.com (HTTP 200)
++- Commit: fb46b2a
++
++**Workarounds:**
++- Workspace mount had phantom `index.lock` file — used clean shallow clone at `/tmp/fix-nullbytes` for all git operations
++- Vercel build logs inaccessible in virtualized UI — used `npx tsc --noEmit` locally to find remaining TS errors
++- Vercel Deployment Protection (SSO) blocks curl on auto-generated domains — used production custom domain for all validation
+ 
+ **Status:** ACTIVE
+ 
+ ---
+ 
+-## D-116d — /activate Telegram Command for Product Activation
+-**Decision:**
+-Add `/activate <id>` Telegram command that validates 6/6 publish readiness, then sets status=active + merchandising.publishedAt/newUntil + workflow.workflowStatus=active + publishStatus=published. Goes through Payload `update()` to trigger afterChange hooks (channel dispatch, story, Shopier sync).
+-
+-**Reason:**
+-No existing Telegram command for product activation. The only path was Payload admin UI. Operators need a Telegram-based activation flow to complete the product lifecycle without leaving the bot interface.
+-
+-**Status:** ACTIVE
+-
+----
++## D-117 — Phase 15 Live Smoke Test + Production Truth Validation (2026-04-04)
+ 
+-## D-116e — Explicit Workflow Fields in stockReaction Update
+ **Decision:**
+-Replace `...(product.workflow ?? {})` spread in `reactToStockChange()` with explicit field enumeration (`workflowStatus`, `visualStatus`, `confirmationStatus`, `contentStatus`, `auditStatus`, `publishStatus`, `productConfirmedAt`, `stockState`, `sellable`, `lastHandledByBot`).
++Run live production validation against www.uygunayakkabi.com and Neon production database to establish honest subsystem status for every feature deployed in Phases 1-13.
+ 
+ **Reason:**
+-The workflow spread included Payload CMS internal/metadata fields from the fetched document that caused the `payload.update()` call to fail silently. The product update never persisted during restock transitions (soldout → active), leaving the product in an inconsistent state (variant stock > 0 but product-level status still soldout). Explicit field enumeration ensures only valid schema fields are sent in the update payload.
+-
+-**Status:** ACTIVE
+-
+----
+-
+-## D-116f — Phase 19 External Channel Dispatch Classification
+-**Decision:**
+-Classified all 7 external channels + website based on production evidence: AutomationSettings global flags, Instagram token state, env var presence (via dispatchNotes webhookConfigured field), and product-level channel config.
+-
+-**Findings (VERIFIED):**
+-- Website: PROD-VALIDATED (implicit via status=active)
+-- Instagram: DEPLOYED, NOT VALIDATED — Direct Graph API path. Token valid until 2026-05-21 (connected 2026-03-22). userId present. N8N webhook also configured. Was live-tested 2026-03-22 but never dispatched through Phase 1-19 pipeline.
+-- Facebook: DEPLOYED, NOT VALIDATED — Same Meta token. facebookPageId injected from INSTAGRAM_PAGE_ID env var (not in DB column, D-077 risk). Was live-tested 2026-03-22.
+-- Shopier: BLOCKED — Global flag disabled, SHOPIER_PAT status unknown.
+-- Dolap/X/LinkedIn/Threads: BLOCKED — Global flags disabled, no N8N webhooks set, n8n-only dispatch paths.
+-- Product 125 only has channelTargets=[website] — no external dispatch was ever attempted during activation.
+-
+-**Risks identified:**
+-1. Instagram token has no automated refresh (manual re-auth needed before 2026-05-21)
+-2. Facebook facebookPageId not persisted in DB — relies on env var injection
+-3. No end-to-end pipeline validation for Instagram or Facebook (last verified via direct test, not pipeline)
++Phase 14 deployed all code and migrated schema, but no operator interaction had validated the new features. A truthful production status was needed to separate what actually works from what is merely deployed.
++
++**Validation Method:**
++- HTTP endpoint checks against `www.uygunayakkabi.com`
++- Direct Neon PostgreSQL queries against production database
++- Browser rendering verification via Vercel deployment
++- Schema verification (35 tables, 120 products columns, 39 enum types)
++
++**Key Findings:**
++
++| Category | Count |
++|----------|-------|
++| PROD-VALIDATED | 27 subsystems |
++| DEPLOYED — NOT YET VALIDATED | 30 subsystems |
++| PARTIAL | 1 (merchandising sync cron) |
++| BLOCKED | 2 (Telegram stories, WhatsApp stories) |
++| SCAFFOLDED | 4 (Dolap, X, LinkedIn, Threads) |
++| NOT IMPLEMENTED | 2 (website checkout, Instagram stories) |
++| IMPLEMENTED — DISABLED | 2 (OpenAI, Luma) |
++
++**Production Data:**
++- 95 products (all draft status), 459 media records
++- 112 image_generation_jobs (0 confirmed successes)
++- 0 bot_events, 0 story_jobs, 0 blog_posts
++- 2 orders, 2 variants
++- All 95 products: confirmationStatus=pending, contentStatus=pending, auditStatus=pending
++
++**Verdict:** PRODUCTION USABLE WITH LIMITATIONS
++- Core platform works: storefront renders, admin loads, DB is healthy, webhooks are guarded
++- All Phase 1-13 code is deployed and schema is migrated
++- 30 subsystems await first operator Telegram interaction to move from "deployed" to "validated"
++- AI image generation remains unproven (Blocker 2)
++
++**Docs Updated:**
++- PRODUCTION_TRUTH_MATRIX.md — complete rewrite with live validation results
++- PROJECT_STATE.md — Phase 14+15 completion entries
++- DEPLOY_CHECKLIST.md — header updated
++- TASK_QUEUE.md — Phase 14+15 completion, updated blockers and priorities
++- DECISIONS.md — D-116 and D-117 added
+ 
+ **Status:** ACTIVE
+ 
+ ---
+ 
+-## D-117 — Visual-First Pipeline Enforcement + E2E Validation
+-**Decision:**
+-Enforced visual-first pipeline order across the entire product lifecycle. Visual approval is now a prerequisite for both commercial confirmation and content generation.
+-
+-**Implementation (VF-2 through VF-5, commits 00a5666..619c20d):**
+-- VF-2: visualStatus written truthfully during image-gen lifecycle (9 transition points)
+-- VF-3: /confirm gated on visualStatus===approved with per-state operator messages
+-- VF-4: content generation gated on visualStatus===approved (auto-trigger, manual, retry)
+-- VF-5: confirmation wizard UX: productType buttons, brand text input with find-or-create
+-- VF-5 hotfix: brands collection uses `name` field not `title` — fixed in 619c20d
+-
+-**E2E Validation (VF-6, product #180, job #147):**
+-- A: Intake PASS — draft product, correct initial state
+-- B: Image Gen PASS — visualStatus pending→approved, workflowStatus draft→visual_ready
+-- C: Visual Gate PASS — /confirm and /content both blocked when visualStatus=pending
+-- D: Wizard PASS — productType(Erkek), price(999), sizes(40-43), stock(3), brand(TestMarka), targets(website+instagram)
+-- E: Content PASS — auto-triggered, commerce+discovery 100% confidence
+-- F: Audit PASS — approved_with_warning, all dimensions pass
+-- G: Activation PASS — status=active, Yeni badge, 7-day window
+-- H: Homepage PASS — product visible with correct data
+-
+-**Known issues found:**
+-1. Brand field name mismatch (name vs title) — FIXED
+-2. Homepage size array shows default range instead of DB variants — PRE-EXISTING, not VF regression
+-3. 170+ pre-VF-2 products have visualStatus=pending despite having preview jobs — need operator-driven approval
+-
+-**Status:** ACTIVE — This is now the production operating model.
+-
+----
+-
+-## D-117b — VF-7 Legacy Backlog Normalization
+-**Decision:**
+-Normalized 61 pre-VF-2 products whose workflow.visualStatus was inconsistent with their actual image generation evidence. Applied directly to Neon production DB.
+-
+-**Rules applied (evidence-based only, no faked approvals):**
+-1. **5 products** with approved image-gen jobs + generative gallery attached → `visualStatus=approved`, `workflowStatus=visual_ready`. (Products: 122, 145, 146, 152, 159)
+-2. **54 products** with preview image-gen jobs but `visualStatus=pending` → `visualStatus=preview`, `workflowStatus=visual_pending`. These still need operator visual approval.
+-3. **2 products** (#123, #125) already confirmed/active pre-VF-2 with original images → retroactive `visualStatus=approved`. Operator implicitly accepted these products commercially.
+-
+-**Post-normalization state (95 total products):**
+-- approved: 8 (5 newly eligible for /confirm)
+-- preview: 53 (need operator visual approval to unlock pipeline)
+-- pending: 34 (no image gen attempted yet)
+-- Remaining inconsistencies: 0
+-
+-**Risks:**
+-- Rule 3 is a retroactive assumption — operator accepted these products before VF gates existed. Acceptable because they were already commercially validated.
+-- The 54 preview products still need human approval — normalization only made the state truthful, not approved.
+-
+-**Status:** COMPLETED
+-
+----
+-
+-## D-118 — Phase 20A: Instagram/Facebook Dispatch Validation — RESOLVED
+-
+-**Decision:**
+-Phase 20 blockers fully diagnosed and resolved. Original D-118 assessment was partially incorrect — env vars were present, media storage was operational. True root causes identified and fixed.
+-
+-**Root Causes Found (correcting original D-118):**
+-
+-1. **P20-1 RESOLVED: Facebook Page was DEACTIVATED.** The stored userId `17841443128892405` was valid all along. The Graph API error 100/33 occurred because the Facebook Page "UygunAyakkabı" (ID: 1040379692491003) was deactivated in Meta Business Suite. After re-activating the page: `GET /{pageId}?fields=instagram_business_account` confirmed userId `17841443128892405` (username: uygunayakkabi_34). `/me/accounts` returning empty was a separate issue (app not re-authorized with page) but does not affect direct API calls.
+-
+-2. **P20-2 RESOLVED: Env vars were present.** `INSTAGRAM_PAGE_ID=1040379692491003` set since Mar 22. `BLOB_READ_WRITE_TOKEN` set since Mar 10. The original assessment was wrong.
+-
+-3. **P20-3 RESOLVED: Code bug — depth=0 in afterChange hook.** The afterChange hook passed `doc` (depth=0) to `dispatchProductToChannels()`. At depth=0, `images[].image` is a bare numeric ID (e.g., 686) not a populated object. `extractMediaUrls()` tried to read `686.url` → undefined → returned empty array. With no mediaUrls, both Instagram and Facebook direct API conditions failed (`mediaUrls.length > 0` check) and fell through to the n8n webhook path. **Fix:** Added `req.payload.findByID({ collection: 'products', id: doc.id, depth: 1 })` before dispatch call. Commit `ca4ccad`.
+-
+-4. **Media serving confirmed working.** Payload `/api/media/file/` static handler correctly proxies from Vercel Blob. Files uploaded via Telegram bot's `payload.create({ file })` are stored in Blob automatically. Previous 404 was transient.
+-
+-**Manual API Verification:**
+-- Instagram: container created (id: 18066372815437630) + published (postId: 18016666670834577) ✅
+-- Facebook: page token exchange succeeded + photo posted (postId: 1040379692491003_122103937328884171) ✅
+-- Both using product #180's image via Payload static handler URL
+-
+-**Additional Root Cause Found During Validation:**
+-
+-5. **fetchAutomationSettings() was silently failing.** The `automation_settings_story_targets` table (for the `storyTargets` array field in AutomationSettings global) did not exist in Neon. This is another instance of Blocker 0 (push:true doesn't work in production). The Payload query for AutomationSettings includes a LEFT JOIN to this table — when it didn't exist, the entire query failed. `fetchAutomationSettings()` caught the error and returned `null`. With `settings = null`, `instagramTokens` was `undefined`, so the direct API conditions (`instagramTokens?.accessToken`) were false. **Fix:** Created the table manually via DDL in Neon.
+-
+-**Automated Dispatch Validation (FINAL):**
+-- Dispatch triggered via `forceRedispatch=true` PATCH on product #180
+-- Instagram: `dispatched=true`, `mode=direct`, `postId=18085404884600056`, `containerId=18066373853437630`
+-- Facebook: `dispatched=true`, `mode=direct`, `postId=122103938528884171`, `pageId=1040379692491003`, `tokenMode=page-token`
+-- `dispatchedChannels=["instagram","facebook"]`
+-- Media URL used: `https://uygunayakkabi.com/api/media/file/tg-180-1775323061276.jpg`
+-
+-**Status:** PROD-VALIDATED — both channels publish successfully through automated pipeline
+-
+----
+-
+-## D-119 — Image Pipeline v34: Side-Angle Primary + Product-Level Background Lock
+-
+-**Decision:**
+-Side-angle (90° lateral profile) is the primary/hero image for all products across website, external channels, and Telegram previews. Product-level background lock ensures all generated images share one visual background family.
+-
+-**Changes:**
+-1. EDITING_SCENES reordered: side_angle → index 0, commerce_front → index 1
+-2. Website product page + homepage: generativeGallery shown before product.images
+-3. Channel dispatch: extractMediaUrls() prefers generativeGallery[0] as hero
+-4. enforceSlotBackground v34: dual-mode (corner sampling for macro, edge strips for full-shoe)
+-5. Batch background consistency check: post-generation corner drift measurement + re-enforcement
+-6. Strengthened prompts with "same studio backdrop" framing
+-
+-**Root Cause of Slot 3 Drift:**
+-enforceSlotBackground used edge-strip sampling (outer 5%) which was contaminated by product pixels in macro/closeup shots where shoe fills 85%+ of frame. Corner-only sampling fixes this.
+-
+-**Status:** DEPLOYED — awaiting live visual verification
+-
+----
+-
+-## D-120 — DB Hotfix: Missing PostgreSQL Enum Types for hasMany Select Fields
+-
+-**Decision:**
+-Created 3 missing PostgreSQL enum types and altered join table columns from varchar to enum. This is push:true drift incident #4.
+-
+-**Tables Fixed:**
+-- `products_story_settings_story_targets` → `enum_products_story_settings_story_targets` ('telegram','instagram','whatsapp')
+-- `products_channel_targets` → `enum_products_channel_targets` ('website','instagram','shopier','dolap','x','facebook','linkedin','threads')
+-- `story_jobs_targets` → `enum_story_jobs_targets` ('telegram','instagram','whatsapp')
+-
+-**Root Cause:**
+-Payload CMS v3's Drizzle adapter generates INSERT statements that cast to enum types. When tables were created by push:true (which may have run in an earlier version or dev mode), they used varchar instead of enum. Production inserts failed when Payload tried to cast to non-existent enum types.
+-
+-**Status:** APPLIED — product #194 created successfully after fix
+-
+----
+-
+-## D-121 — Image Pipeline v35: Deterministic Brightness Normalization
+-
+-**Decision:**
+-Replace conditional `enforceBrightness()` (v33 sharp.modulate) with unconditional `normalizeBrightness()` using product-pixel-only selective gamma correction. Run on every slot, not just failures.
+-
+-**Problem:**
+-v33/v34 brightness enforcement had three issues:
+-1. Thresholds too lenient (mean>210 whole-image including light background) — washed products passed
+-2. Enforcement was conditional — only ran after retry failure, not on images that barely passed
+-3. `sharp.modulate({ brightness })` affected entire image including background, undoing bg enforcement
+-
+-**DM vs Group Audit:**
+-Confirmed NO code divergence. Both DM and group `#gorsel` commands flow through identical path: `isGorselTrigger → create ImageGenerationJob → queue image-gen task → generateByGeminiPro()`. No chat-type branching anywhere.
+-
+-**Solution — normalizeBrightness():**
+-1. Detect background color from image edges (or use explicit target bg hex)
+-2. Classify each pixel as background (color distance < 80 from bg) or product
+-3. Measure mean luminance of PRODUCT pixels only (BT.709 formula)
+-4. If product mean lum > 170: darken via gamma > 1 (max 1.8)
+-5. If product mean lum < 100: brighten via gamma < 1 (min 0.55)
+-6. Apply gamma ONLY to product pixels with soft 40px blend margin at boundary
+-7. Background pixels are untouched — enforced bg color preserved
+-
+-**Pipeline Position:**
+-Runs UNCONDITIONALLY on every successful slot, after:
+-1. Background enforcement (preserves enforced bg)
+-2. Frame detection/crop (works on clean image)
+-Before: final buffer push to results
+-
+-**QC Threshold Changes:**
+-- Mean brightness: 210 → 200 (triggers retry earlier)
+-- Highlight percent: 35% → 30% (catches more blown highlights)
+-
+-**Status:** DEPLOYED — commit 88c4d5f
+-
+----
+-
+-## D-122 — Image Pipeline v36: Deterministic Centering + Tighter Brightness Band
+-
+-**Decision:**
+-Add unconditional `centerProduct()` post-processing to correct Gemini's systematic lower-right placement bias. Tighten brightness normalization band from 100-170 to 85-145 product mean luminance.
+-
+-**Problem — Centering:**
+-Gemini 2.5 Flash consistently generates shoes placed in the lower-right quadrant of the frame. Across multiple generations, product center offset from image center is typically +80-110px X, +150-210px Y (7-20% of frame), despite explicit centering prompt instructions.
+-
+-**Problem — Brightness:**
+-v35 band (100-170 product mean lum) was still too permissive for dark leather (brown, espresso). Product appeared correctly measured but visually still too bright for e-commerce presentation.
+-
+-**Solution — centerProduct():**
+-1. Detect background color from image edges (same method as normalizeBrightness)
+-2. Find product bounding box via non-bg pixel envelope (color distance > 50 from bg)
+-3. Measure offset between product bbox center and image center
+-4. If offset > 25px: crop excess bg from the side where product is shifted, extend opposite side with fill color
+-5. Safety: skip if required crop > 30% of image dimension
+-6. Skip for `detail_closeup` slot (macro — product intentionally fills frame)
+-
+-**Solution — Brightness Tightening:**
+-- TARGET_HIGH: 170 → 145 (darker max for product pixels)
+-- TARGET_LOW: 100 → 85 (richer shadows allowed)
+-- TARGET_MID: 135 → 115 (midpoint pulls darker)
+-
+-**Pipeline Position:**
+-centerProduct runs LAST in post-processing chain:
+-1. Background enforcement (v28)
+-2. Frame detection/crop (v28)
+-3. Brightness normalization (v35)
+-4. Product centering (v36) ← NEW
+-
+-**Prompt Enhancement:**
+-Added CENTERING — CRITICAL block to all studio slot prompts: dead-center requirement, equal whitespace on all sides, explicit rejection language for off-center placement.
+-
+-**V36 Verification Results (Product #194, Job #169):**
+-- Brightness: PASS — product mean lum 92-109 (within 85-145 band), highlights ≤0.1%
+-- Centering: PARTIAL — function operational (confirmed via non-1024 output dims + slotLog), but residual offset persists (7-17% X, 14-18% Y) due to Gemini generation variance across runs
+-- Background: PASS on slots 1-2 (clean studio gray), slot 3 persistent surface bg
+-- Frame: PASS on slots 1-2, slot 3 persistent border
+-
+-**Known Limitation:**
+-centerProduct corrects the offset of each individual generation, but since each `#gorsel` produces entirely new images from Gemini, the correction amount varies per run. The systematic Gemini lower-right bias means centering improves each individual image but results still vary across generations. A more robust approach would add centering-specific QC rejection (reject + retry if offset > N% after correction).
+-
+-**Status:** DEPLOYED — commit 8c3904d
+-
+----
+-
+-## D-123 — Image Pipeline v37: Centering QC Hard Gate + Sharp Chaining Bugfix
+-
+-**Decision:**
+-Make centering a HARD QC requirement for hero slots (side_angle, commerce_front). After ALL post-processing, measure final centering. If offset exceeds 12% on either axis, reject and regenerate the slot (up to 3 cycles). Also fix a Sharp library chaining bug that was silently undoing centering corrections in v36.
+-
+-**Root Cause — Sharp Chaining Bug:**
+-`sharp(buf).extract(946×872).extend(→1026×1062).resize(1026×1062, {fit:'fill'})` produces wrong output dimensions. Sharp computes resize scale from post-extract dimensions (946×872), NOT post-extend dimensions (1026×1062). Scale factor: 1026/946=1.085 applied to post-extend width 1026→1113, 1062/872=1.218 applied to post-extend height 1062→1293. This silently undid all centering corrections in v36.
+-
+-**Fix — Split Sharp Instances:**
+-Replace single-pipeline `.extract().extend().resize()` with two separate Sharp instances:
+-1. `sharp(buf).extract().extend().jpeg().toBuffer()` — guaranteed correct dimensions
+-2. `sharp(shifted).resize(w, h, {fit:'fill'}).jpeg().toBuffer()` — only if dimensions mismatch (rounding edge case)
+-
+-**Fix — measureCentering() QC Function:**
+-New function using same bbox detection as centerProduct (edge-based bg, PRODUCT_DIST_THRESHOLD=50). Returns pass/fail plus offset on each axis. Non-hero slots always pass (skip).
+-
+-**Fix — Centering Retry Loop:**
+-Hero slots wrapped in centering retry loop (MAX_CENTERING_CYCLES=3). Each cycle is a full generation + D1-D5 QC + post-processing. If centering QC fails after max cycles, accepts best attempt with warning in slotLog.
+-
+-**Threshold:**
+-MAX_CENTER_OFFSET_PCT = 12% on either axis. Chosen as strict enough to catch visible off-center placement while allowing for normal product asymmetry (shoes are not perfectly symmetric objects).
+-
+-**SlotLog Fields Added:**
+-- `centeringPass: boolean` — QC result
+-- `centeringOffsetX: number` — X offset %
+-- `centeringOffsetY: number` — Y offset %
+-- `centeringAttempts: number` — total generation cycles
+-
+-**V37 Verification Results (Product #194, Job #171):**
+-- side_angle: centeringPass=true, offset X=0% Y=0%, 1 cycle
+-- commerce_front: centeringPass=true, offset X=0% Y=0.1%, 1 cycle
+-- detail_closeup: centered=true (non-hero, no QC gate), 1 cycle
+-- No batch BG re-enforcement triggered (batchBgReEnforced absent)
+-- Post-download pixel analysis confirmed 0% offset on both hero slots when SKU overlay region excluded
+-- NOTE: SKU stamp (overlayStockNumber) adds dark pill at bottom-right; naive bbox analysis on final images will report false offset due to SKU pixels being detected as "product"
+-
+-**Files Changed:**
+-- `src/lib/imageProviders.ts`: centerProduct() split-sharp fix (~line 1427), measureCentering() new function (~line 1480), SlotLog type expanded, centering retry loop in generateByGeminiPro() (~line 2486-2766)
+-
+-**Status:** DEPLOYED — commit cd02c19
+-
+----
+-
+-## D-124 — Image Pipeline v38: Slot 3 Rebuild + Global Background Lock
+-
+-**Decision:**
+-Replace slot 3 (`detail_closeup` macro) with a production-stable 3/4 rear hero (`back_hero`). Formalize global background-lock where slot 1 is the background-family source and all other slots must match. Remove all macro-specific code paths.
+-
+-**Problem — Slot 3 Macro:**
+-The `detail_closeup` macro slot was the least stable slot in the pipeline. Recurring issues: (1) Gemini generates frames/borders/inset panels ~30-40% of the time. (2) Shallow DoF bokeh color drifts from batch background despite 21 lines of prompt instructions. (3) Surface/tabletop bleed from reference photos despite explicit bans. (4) Required special-case code: corner-only bg sampling, tighter enforcement thresholds, centering skip, no centering QC. The macro framing instruction ("full shoe must NOT be visible") fundamentally conflicts with the pipeline's full-shoe assumptions.
+-
+-**Problem — Background Lock:**
+-Background lock was enforced at code level (`getBackgroundForColor` + `enforceSlotBackground` + batch check) but the prompt-level lock had macro/editorial/lifestyle exceptions that weakened it. The global framing block mentioned "bokeh color = backdrop color" for macro, "surface color" for editorial, and "dominant blurred tone" for lifestyle — all weaker than "same exact color."
+-
+-**Solution — New Slot 3 (`back_hero`):**
+-3/4 rear hero shot: camera 30-45° behind the shoe, heel counter dominant, full shoe visible, standard studio background. This angle reveals genuinely different product features (heel counter, pull tab, rear stitching) that slots 1-2 don't show. Being a full-shoe shot, ALL existing post-processing works on it: bg enforcement (edge-strip mode), frame detection, brightness normalization, centering, centering QC.
+-
+-**Solution — Global Background Lock:**
+-Strengthened TASK_FRAMING_BLOCK background lock section: removed macro/editorial/lifestyle exceptions. New rule: "Slot 1 sets the background-family. Slots 2-5 MUST produce the same color." Rejection test: "any visible color temperature shift between slots = REJECTED." Existing code-level enforcement unchanged (already correct): `getBackgroundForColor` → same hex for all slots, `enforceSlotBackground` → pixel-level correction, batch bg check → post-loop re-enforcement.
+-
+-**Code Removed:**
+-- `isMacroSlot` flag and corner-only sampling mode in `enforceSlotBackground`
+-- Tighter macro thresholds (MAX_BG_DISTANCE=70, BLEND_MARGIN=40) — now unified at 90/50
+-- `centerProduct` skip for `detail_closeup` — all slots get centering now
+-- `detail_closeup` shot criteria in SHOT_CRITERIA — replaced with `back_hero`
+-- Macro exception in TASK_FRAMING_BLOCK scale rule
+-- 21-line macro-specific background instruction block in EDITING_SCENES[2]
+-
+-**Files Changed:**
+-- `src/lib/imageProviders.ts`: EDITING_SCENES[2] replaced, SHOT_CRITERIA updated, centerProduct skip removed, CENTERING_QC_SLOTS expanded, enforceSlotBackground simplified, TASK_FRAMING_BLOCK background lock strengthened
+-- `src/jobs/imageGenTask.ts`: ALL_SLOT_NAMES[2], ALL_SLOT_LABELS[2], CLEAN_SLOT_LABELS[2] updated
+-- `src/lib/imagePromptBuilder.ts`: concept type and prompt updated (legacy builder, not active)
+-
+-**No-Frame Enforcement (verified, no changes needed):**
+-Already hardened at 3 levels: (1) TASK_FRAMING_BLOCK anti-inset rules, (2) D3 shot compliance includes frame detection, (3) `detectAndRemoveFrame` post-processing runs unconditionally.
+-
+-**Status:** DEPLOYED — commit b6a5bd7
+-
+----
+-
+-## D-125 — Image Pipeline v39: Visual Standard Reset — Darker/Richer + Close Shot Hero
++## D-162 — Revert Premature GeoBot Content Trigger (2026-04-11)
+ 
+ **Decision:**
+-Operator-driven visual standard reset. Remove the bright/washed look from all slots, shift backgrounds from near-white to visibly colored, rebuild slot 3 as a front-side close hero replacing back_hero.
+-
+-**Problem — Bright/Washed Look:**
+-The operator rejected v38 output as too bright and washed. Background hex values in `getBackgroundForColor()` were ~93-98% luminance (near-white), making them appear as "no background." Brightness normalization band (85-145, mid 115) allowed output that read as overexposed. QC brightness thresholds (mean>200, highlight>30%) were too permissive.
+-
+-**Problem — Slot 3 (back_hero):**
+-Operator explicitly rejected back_hero: "Slot 3 must NOT be back hero." Required instead: "a close shot hero, useful detail-oriented angle, same visual family as slot 1 and slot 2, no frame, no inset, no macro." The back view was not valued enough to occupy a standard-stage slot.
+-
+-**Solution — Background Color Reset:**
+-All `getBackgroundForColor()` hex codes shifted from near-white (~93-98% luminance) to visibly colored (~75-80% luminance): black→#D4C9B8, white→#B8B5B0, brown→#D6CCBE, tan→#C8C6C3, grey→#D9D5CE, navy→#C9C4BC, red→#C2C0BD, default→#CBC7C0.
+-
+-**Solution — Brightness Normalization Reset:**
+-`normalizeBrightness()` target band shifted darker: TARGET_LOW=70 (was 85), TARGET_HIGH=120 (was 145), TARGET_MID=95 (was 115).
++GeoBot content generation must NOT fire when visuals are approved. The
++only legitimate automatic trigger for `triggerContentGeneration` is
++`confirmationWizard.applyConfirmation()` after the operator completes
++and confirms the intake wizard. Any image-approval-time trigger is
++prohibited and must be reverted on sight.
+ 
+-**Solution — QC Brightness Tightening:**
+-`checkBrightnessExposure()` thresholds tightened: mean>185 (was 200), highlight>25% (was 30%).
+-
+-**Solution — Slot 3 Rebuild (close_shot_hero):**
+-3/4 front-side close hero: camera at 30-45° from the front-side at low-mid height, vamp and toe area as hero, tighter framing (78-85% of image height), full shoe visible. Shows toe shape, vamp texture, lacing/closure detail — genuinely different from side_angle (90° pure side) and commerce_front (dead-on front). Same visual family — all three are studio product shots, no lifestyle or editorial.
+-
+-**Solution — TASK_FRAMING_BLOCK Darker Emphasis:**
+-Quality standard section updated: added "VISUAL TONE: Rich, warm, slightly dark. NOT bright or airy. NOT high-key." Exposure section updated: "DARK & RICH exposure is the standard," background described as "a VISIBLE COLOR (not near-white)," photographer analogy changed from "meters for the product" to "warmly-lit studio with a colored backdrop — NOT a white infinity curve."
+-
+-**Files Changed:**
+-- `src/lib/imageProviders.ts`: getBackgroundForColor hex reset, normalizeBrightness target band, checkBrightnessExposure thresholds, EDITING_SCENES[2] replaced (back_hero→close_shot_hero), SHOT_CRITERIA updated, CENTERING_QC_SLOTS updated, TASK_FRAMING_BLOCK quality+exposure sections updated
+-- `src/jobs/imageGenTask.ts`: ALL_SLOT_NAMES[2], ALL_SLOT_LABELS[2], CLEAN_SLOT_LABELS[2] updated
+-- `src/lib/imagePromptBuilder.ts`: concept type, comment, label, prompt updated (legacy builder)
++**Reason:**
++D-159 (commit 5bc074b, 2026-04-10) and D-160 (commit 2643f41,
++2026-04-10) moved GeoBot content generation to run immediately on
++visual approval. In production this fired against the placeholder
++title "Taslak Ürün …" and missing price/sizes/stock, so GeoBot
++produced low-quality generic copy that the operator then had to
++rewrite. The image-approval trigger was a correct-sounding idea
++("when images are ready, write the description") but wrong for the
++actual operator workflow, where intake data is entered AFTER image
++approval via the `/confirm` wizard.
+ 
+-**Slot Map After v39:**
+-| Slot | Name | Angle | Stage |
+-|------|------|-------|-------|
+-| 1 | side_angle | 90° pure lateral side profile | standard |
+-| 2 | commerce_front | Dead-on front, toe cap facing camera | standard |
+-| 3 | close_shot_hero | 3/4 front-side close hero, vamp/toe detail | standard |
+-| 4 | tabletop_editorial | 55-65° overhead editorial, marble surface | premium |
+-| 5 | worn_lifestyle | Lifestyle worn shot, human foot, outdoor | premium |
++**Implementation:**
++- Commit `d5f3e7c` on `origin/main` (2026-04-11), +22 / −134 lines.
++- `src/app/api/telegram/route.ts` — deleted the 70-line D-159/D-160
++  auto-trigger block from `approveImageGenJob()` (lines 552–623 in
++  pre-D-162 tree). Removed the ack line "🤖 GeoBot ürün
++  açıklamalarını arka planda yazıyor…" that promised a trigger that
++  wouldn't run any more, and replaced it with "📋 Ürün bilgilerini
++  girip onayladıktan sonra GeoBot açıklamaları yazacak." so the
++  handoff remains visible to the operator but is honest about timing.
++- `src/lib/contentPack.ts :: isContentEligible` — restored the
++  `confirmationStatus === 'confirmed'` requirement that D-159 dropped.
++- `src/lib/contentPack.ts :: shouldAutoTriggerContent` — reverted to
++  pre-D-159 logic: `return !contentStatus || contentStatus === 'pending'`.
++- `src/lib/contentPack.ts` — deleted the `isContentGenerationInFlight`
++  helper (only needed by the dead image-approval trigger path).
++- `src/lib/contentPack.ts :: triggerContentGeneration` — removed
++  `'auto_visual_approved'` from the `triggerSource` union.
++- `src/lib/confirmationWizard.ts :: applyConfirmation` — untouched.
++  Its `shouldAutoTriggerContent + triggerContentGeneration('auto_confirmation')`
++  block at lines 822–845 was never removed, only shadowed by the
++  premature trigger. With D-162 it is once again the *only* automatic
++  path that fires GeoBot in the app.
++
++**Verified:**
++- `grep -r "triggerContentGeneration\|import.*contentPack" src/app/api/telegram/`
++  returns zero matches outside admin/retry handlers.
++- `isContentEligible` now gates on visualStatus === 'approved' AND
++  confirmationStatus === 'confirmed' AND contentStatus !== 'ready'.
++- Typecheck: three pre-existing baseline errors (unrelated), zero
++  new errors introduced. Verified via `git stash` comparison.
++
++**Protected rule (PROJECT_STATE.md will reflect this):**
++GeoBot content generation is only allowed to fire from
++`applyConfirmation`. No other call site may invoke
++`triggerContentGeneration` with `triggerSource = 'auto_*'`.
++`'telegram_command'`, `'admin'`, and `'retry'` remain allowed for
++their explicit operator-driven paths.
+ 
+-**Status:** SUPERSEDED by D-126
++**Status:** ACTIVE
+ 
+ ---
+ 
+-## D-126 — Image Pipeline v40: Aggressive Visual Enforcement
++## D-163 — Wizard Step Reorder: Commerce Fields Before Label Fields (2026-04-11)
+ 
+ **Decision:**
+-v39 was too subtle — operator confirmed problems persisted. v40 applies aggressive, multi-layer enforcement to guarantee visible backgrounds and dark/rich product tones.
++`getNextWizardStep` in `src/lib/confirmationWizard.ts` asks the
++commerce-critical fields (category, productType, price, sizes, stock)
++BEFORE the label fields (stockCode, title) and the optional fields
++(brand, targets). This matches how the operator actually thinks about
++a product during intake.
+ 
+-**Root Cause:**
+-v39 hex codes (~79% luminance) were still perceived as near-white on screen. The shift-based background enforcement preserved whatever Gemini generated rather than forcing the target. Brightness normalization band (70-120, mid 95) still allowed bright-looking output.
+-
+-**Changes:**
+-
+-1. **Background hex codes → ~60% luminance**: All colors dropped ~20% further. E.g. black shoe: #D4C9B8 (79%) → #B8A68E (61%). These are now undeniably colored — warm sand, medium grey, slate — not interpretable as white.
+-
+-2. **enforceSlotBackground → HARD REPLACE**: Background-classified pixels are now SET to the exact target RGB, not shifted relative to Gemini's output. Formula changed from `pixel + (target - detected) * blend` to `pixel + (target - pixel) * blend`. Guarantees exact target color regardless of what Gemini generated.
+-
+-3. **normalizeBrightness band → 60-105, mid 82**: Down from 70-120/95. Max darkening gamma raised from 1.8 to 2.2. Product pixels will be visibly darker.
+-
+-4. **QC brightness thresholds → mean>165, highlight>18%**: Down from 185/25%. Forces Gemini to retry with darker output.
+-
+-5. **TASK_FRAMING_BLOCK**: Added aggressive anti-white/anti-bright language. Retry hint demands "2 stops darker." Background described as "medium-tone surface, NOT white, NOT light grey."
++**Reason:**
++The pre-D-163 order was `title → stockCode → category → productType
++→ price → sizes → stock → brand → targets → summary`. Because fresh
++products out of image intake always have the placeholder "Taslak
++Ürün …" title and a `TG-xxx` auto-SKU, the wizard forced the operator
++to type a label BEFORE declaring what the product is. Once D-162
++established that GeoBot only fires after confirmation, the wizard
++order became a pure UX concern — but an important one, because the
++operator explicitly requested that the product be described before
++its label is typed.
+ 
+-**Files Changed:**
+-- `src/lib/imageProviders.ts`: getBackgroundForColor, enforceSlotBackground, normalizeBrightness, checkBrightnessExposure, TASK_FRAMING_BLOCK
++**Implementation:**
++- Commit `69b801c` on `origin/main` (2026-04-11), +26 / −15 lines.
++- Single function rewrite in `src/lib/confirmationWizard.ts ::
++  getNextWizardStep`. No other file touched. No new steps, no
++  removed steps, no schema change, no API change. The `WizardStep`
++  union, the per-step handlers, and `applyConfirmation` are all
++  unchanged.
++- New order:
++  1. category (button)
++  2. productType / style (button — classic / sneaker / bot / günlük)
++  3. price (text, only if missing)
++  4. sizes (button multi-select)
++  5. stock per size (text, only if sizes were just collected)
++  6. stockCode (text, only if SKU is still auto-generated `TG-xxx`)
++  7. title (text, only if still placeholder `Taslak Ürün …`)
++  8. brand (text, only if not set)
++  9. channelTargets (button multi-select, only if empty)
++  10. summary → operator confirms → `applyConfirmation`
++- Every optional step auto-skips when the field is already
++  populated, so an operator who pre-edited title/SKU in the admin
++  goes from `stock` directly to `summary`.
++
++**Data effect on GeoBot:**
++Unchanged from D-162 — `applyConfirmation` still writes every
++collected field to the product before re-fetching and calling
++`triggerContentGeneration('auto_confirmation')`. GeoBot's
++`buildCommercePrompt` in `src/lib/geobotRuntime.ts` already reads
++`product.title`, `product.category`, `product.brand`,
++`product.productType`, `product.price`, `product.variants` (size +
++stock) and `product.stockQuantity`, so with the new order it sees
++the confirmed category (e.g. "Klasik"), the confirmed productType,
++the confirmed price, the confirmed size+stock matrix, and a
++non-placeholder title — "Taslak Ürün …" can no longer leak into
++the generated copy.
++
++**Protected rule (PROJECT_STATE.md will reflect this):**
++Commerce fields must come before label fields in the Telegram
++intake wizard. This is now a protected workflow rule; do not reorder
++label fields back to the top without an explicit operator decision.
+ 
+-**Status:** REVERTED — superseded by D-127
++**Status:** ACTIVE
+ 
+ ---
+ 
+-## D-127 — Image Pipeline v43: Full Rollback to v27 + Baseline Lock
++## D-164 — Image Pipeline Padding Rollback to v50 Baseline (2026-04-11)
+ 
+ **Decision:**
+-Operator rejected ALL post-processing changes from v28-v42. Full rollback to v27 clean baseline (raw Gemini output only). Then apply three surgical, prompt-only fixes: side hero as slot 1, background lock (one color per shoe), anti-frame hardening.
+-
+-**Context:**
+-v28-v42 added layers of pixel-manipulation post-processing (brightness normalization, centering, bg enforcement, frame detection, softening). Each iteration made images worse — too dark, painting-like, gradient backgrounds, sole bleed. Operator explicitly requested full removal. The v27 raw Gemini output is the approved visual standard.
+-
+-**What was REMOVED (v28-v42, permanently):**
+-- `normalizeBrightness` (v35) — gamma correction on product pixels
+-- `centerProduct` (v36) — bbox-based product centering
+-- `enforceSlotBackground` (v28-v34) — pixel-level bg color replacement
+-- `detectAndRemoveFrame` (v33) — frame/border detection and crop
+-- `softenImage` (v41) — gaussian blur softening
+-- `measureCentering` / centering QC gate (v37)
+-- `checkBrightnessExposure` (v30) — brightness QC gate
+-- `checkSlotBackground` (v28) — background color QC gate
+-
+-**What was PRESERVED from v27 baseline:**
+-- Raw Gemini image generation (no pixel manipulation)
+-- Color match check (Gemini Vision)
+-- Brand fidelity check (Gemini Vision)
+-- Shot compliance check (Gemini Vision)
+-- Stock number overlay
+-- Current visual quality, brightness, lighting, sharpness
++Image generation input padding is `paddingRGB = bgRGB` in both
++`generateByEditing` and `generateByGeminiPro`. The scene-target
++background color computed by `getBackgroundForColor(mainColor)` is
++also the padding color for the 768→1024 letterbox and the 128px
++`.extend()` ring. No edge sampling. No white fallback. No decoupling.
++This restores the v50 LOCKED baseline defined by
++`LOCK_REMINDER_BLOCK` Rule 2 ("the reference image's padding/edge
++color is NOT the target — it is only neutral camouflage").
+ 
+-**Three prompt-only fixes applied on top of v27:**
+-
+-1. **Slot order → side_angle first**: EDITING_SCENES[0] = side_angle (was commerce_front). generativeGallery[0] = side profile = website hero. Standard `#gorsel` produces [side_angle, commerce_front, detail_closeup].
+-
+-2. **Background lock**: getBackgroundForColor returns ONE exact color per shoe color (removed "or" options). TASK_FRAMING_BLOCK adds "BACKGROUND CONSISTENCY" section — all slots must use identical backdrop. Detail closeup bokeh must match batch color.
+-
+-3. **Anti-frame hardening**: TASK_FRAMING_BLOCK adds 7-line "ANTI-FRAME RULE (ZERO TOLERANCE)" section. Explicit bans: image-inside-image, bordered panels, decorative edges, shadow boxing, vignette, printed-on-paper look.
+-
+-**Slot Map (v43):**
+-| Slot | Index | Name | Stage |
+-|------|-------|------|-------|
+-| 1 | 0 | side_angle | standard (PRIMARY) |
+-| 2 | 1 | commerce_front | standard |
+-| 3 | 2 | detail_closeup | standard |
+-| 4 | 3 | tabletop_editorial | premium |
+-| 5 | 4 | worn_lifestyle | premium |
+-
+-**Files Changed:**
+-- `src/lib/imageProviders.ts`: EDITING_SCENES order, getBackgroundForColor, TASK_FRAMING_BLOCK
+-- `src/jobs/imageGenTask.ts`: ALL_SLOT_NAMES, ALL_SLOT_LABELS
+-- `src/lib/imagePromptBuilder.ts`: prompt order, header comment
+-
+-**Status:** DEPLOYED
+-
+----
+-
+-## D-128 — Image Pipeline v47: Slots 1-3 Locked — Confirmed Working
+-**Decision:**  
+-Lock slots 1-3 prompt definitions as confirmed working by operator.
+-
+-**Details:**
+-- Slot 1 (side_angle): 90° lateral profile — CONFIRMED WORKING
+-- Slot 2 (commerce_front): Front studio hero — CONFIRMED WORKING
+-- Slot 3 (detail_closeup): Detail close-up of toe/vamp, 25-35cm, moderate depth — CONFIRMED WORKING
+-- Triple-layer anti-frame active on all slots (per-slot + TASK_FRAMING_BLOCK + ANTI_FRAME_FINAL_BLOCK)
+-- v32 bitmap pixel font SN overlay restored and working on Vercel
+-- v27 raw Gemini baseline preserved — NO post-processing
+-
+-**Constraint:**  
+-Do NOT modify slot 1-3 sceneInstructions, TASK_FRAMING_BLOCK, or overlayStockNumber without explicit operator approval.
++**Reason:**
++Operator reported persistent frame regressions on SN0151 (Nike
++Blazer) and SN0153 (black Converse Run Star Hike). For SN0153, the
++three slot screenshots showed a white outer ring around a warm-beige
++scene (Slot 1), a near-white scene with a faint horizon line
++(Slot 2), and a gray-gradient scene (Slot 3) — three different
++background colors across slots, in direct violation of Rules 1 and 2.
++
++Verified root cause of the visible outer ring:
++- D-157 (2026-04-09) replaced the v50 baseline `paddingRGB = bgRGB`
++  with an edge-sampled color from the four reference-image corners.
++  D-157 also contained a sharp API misuse where
++  `.extract(rect).stats()` did not respect the extract and returned
++  the whole-image mean for every corner.
++- D-161 (2026-04-10) fixed the sharp API misuse using
++  `.extract().removeAlpha().raw().toBuffer()` with manual pixel
++  summation, and added a Chebyshev spread > 40 guard that falls
++  back to pure white `(255,255,255)` on non-uniform references.
++- On SN0153, the target scene color for a black shoe is warm beige
++  `#F5F0E8`, but the reference had non-uniform edges so D-161's
++  guard fired → padding became pure white. Gemini then drew the
++  warm-beige scene inside the 768×768 inner area and preserved the
++  128px white outer ring as a visible frame. Every non-white target
++  color produces the same frame under D-161.
++
++The per-slot background color variance observed on SN0153 is a
++separate problem (Gemini disobeying Rule 2 in its own output
++generation, which is a prompt-strength / post-gen QC concern) and
++is NOT addressed by D-164. D-164 addresses only the input-canvas
++frame regression.
+ 
+-**Status:**  
+-ACTIVE — locked at commit 5cfcd4f (v47)
++**Implementation:**
++- Commit `c2b402a` on `origin/main` (2026-04-11), +42 / −23 lines.
++- `src/lib/imageProviders.ts :: generateByEditing` — replaced
++  `const paddingRGB = await sampleEdgeBackgroundRGB(referenceImage)`
++  with `const paddingRGB = bgRGB`. Log tag updated from D-157 to
++  D-164. Comment block rewritten to reference this decision.
++- `src/lib/imageProviders.ts :: generateByGeminiPro` — same two-line
++  change, same comment rewrite.
++- `src/lib/imageProviders.ts :: sampleEdgeBackgroundRGB` — kept
++  defined but retired with a clear `// D-164: RETIRED` comment and
++  an `eslint-disable-next-line @typescript-eslint/no-unused-vars`
++  directive. The D-161 raw-buffer/Chebyshev diagnostic code is
++  preserved as reference only and is not called from anywhere.
++- No other file touched. No schema change, no API change, no
++  dependency change. Fully reversible.
++
++**Verified:**
++- `grep -n "sampleEdgeBackgroundRGB" src/lib/imageProviders.ts`
++  returns the function definition and one commented reference —
++  no live call sites.
++- Typecheck clean; the three pre-existing baseline errors in
++  `next.config.ts`, `(app)/page.tsx`, and `collections/Products.ts`
++  are unchanged from before D-164, verified via git stash.
++
++**Re-sealing the lock:**
++The `project_image_baseline_locked.md` auto-memory file is updated
++to point the sealed commit at `c2b402a`. Previous sealed commits:
++- `e99e9cb` — v50 visual baseline (D-129)
++- `de9413d` — restoration to v50 after silent violation (D-152)
++- `20ad563` — v50 + runtime reminder block (D-153)
++- `9fba8a5` — D-161 edge-sampling fix (superseded by D-164)
++- `c2b402a` — D-164 padding rollback to v50 baseline (ACTIVE)
++
++**Not addressed by D-164 (flagged as PROPOSED for a future D-xxx):**
++Cross-slot background drift in Gemini's output. Even with correct
++padding, Gemini still sometimes draws different studio backdrops
++per slot (Rule 2 output violation). The likely fix is a post-gen
++`checkBackgroundConsistency` reject-and-retry gate, or a stronger
++`LOCK_REMINDER_BLOCK` Rule 2 reminder. Treat as a separate decision
++once D-164 has a live test against SN0153 or a comparable black-shoe
++generation.
+ 
++**Status:** ACTIVE
+ 
+ ---
+ 
+-## D-129 — Image Pipeline v50: FULL BASELINE LOCKED — Operator Approved
+-**Decision:**  
+-Lock the ENTIRE image generation pipeline as the approved production baseline. No further changes without explicit operator approval.
+-
+-**Locked Components (commit e99e9cb):**
+-
+-| Component | State | Details |
+-|-----------|-------|---------|
+-| Slot 1 (side_angle) | LOCKED | 90° lateral profile, PRIMARY hero |
+-| Slot 2 (commerce_front) | LOCKED | Front studio hero |
+-| Slot 3 (detail_closeup) | LOCKED | 3/4 angle close-up, 18-25cm, toe/vamp focus |
+-| Slot 4 (tabletop_editorial) | LOCKED | Overhead 55-65°, seamless studio floor |
+-| Slot 5 (worn_lifestyle) | LOCKED | Ground-level lifestyle, worn on foot |
+-| TASK_FRAMING_BLOCK | LOCKED | Global framing + anti-frame + background consistency |
+-| ANTI_FRAME_FINAL_BLOCK | LOCKED | End-of-prompt frame verification checklist |
+-| CANONICAL_PROHIBITIONS_BLOCK | LOCKED | Product preservation rules |
+-| getBackgroundForColor() | LOCKED | Color→backdrop map (black/white/brown/tan/grey/navy/red/green/blue/pink/beige + default) |
+-| getBackgroundRGB() | LOCKED | Hex parser for input padding color |
+-| Input padding | LOCKED | Background-color padding (NOT white) — root cause fix for frames |
+-| overlayStockNumber() | LOCKED | v32 bitmap pixel font (SVG rects, zero font deps) |
+-| QC checks | LOCKED | Color match, brand fidelity, shot compliance (all Gemini Vision) |
+-| Visual baseline | LOCKED | v27 raw Gemini output — NO post-processing |
+-
+-**Constraint:**  
+-Do NOT modify ANY of the above without explicit operator approval in a future task. This includes:
+-- Slot ordering, slot prompts, slot camera angles
+-- Background color mappings
+-- Input image padding logic
+-- Anti-frame instructions
+-- SN overlay function
+-- QC check thresholds
+-- Brightness, sharpness, or any visual quality parameters
+-
+-**Version History:**
+-- v27 (e13623e): Raw Gemini baseline — all post-processing removed
+-- v43: Slot order fix + background lock + anti-frame hardening
+-- v44: Bitmap SN overlay restored + slots 2-3 anti-frame
+-- v45: Triple-layer anti-frame (per-slot + global + final block)
+-- v46-v47: Slot 3 extreme macro → pulled back to moderate close-up
+-- v48: Slots 4-5 rewritten with deep integrated anti-frame
+-- v49: ROOT CAUSE frame fix — background-color padding instead of white
+-- v50: Green/blue/pink/beige color maps + slot 3 closer 3/4 angle
++## D-165 — Remove category defaultValue so intake wizard asks category
++**Date:** 2026-04-11
++**Commit:** `948c839`
++
++**Symptom (verified):**
++After D-163 reordered the wizard to commerce-first
++(category → productType → price → sizes → stock → ...), operators
++reported that productType and price were being asked but the category
++step was silently skipped on fresh Telegram products. The operator
++never got to pick from the CATEGORY_OPTIONS keyboard.
++
++**Root cause (verified):**
++`src/collections/Products.ts` line 448 declared
++`defaultValue: 'Günlük'` on the `category` select field. Payload applies
++`defaultValue` at create time whenever the incoming data does not include
++the field. The Telegram intake path in `src/app/api/telegram/route.ts`
++at `payload.create({...})` line 2388 only sets category when either the
++caption parser or Claude Vision returned one
++(`...(category ? { category } : {})`). When neither did, Payload filled
++in `'Günlük'` and the product was born already-categorized.
++
++The wizard step selector in `src/lib/confirmationWizard.ts` line 407
++checks `if (!product.category && !collected.category) return 'category'`.
++`product.category === 'Günlük'` is truthy, so the check failed and the
++category step was skipped — exactly the "default placeholder counting
++as a confirmed business choice" pattern the operator flagged.
++
++**Why this was the right fix (not a wizard-logic patch):**
++The wizard's step selector is correct — it uses `!field` as the
++"missing" signal, which is how every other step works. Patching the
++wizard to treat `'Günlük'` as "maybe-default, maybe-real" would be
++fragile (what if 'Günlük' is the operator's real choice?). The cleanest
++invariant is: **a field that was never explicitly set by an operator
++should read as null, not as a Payload-injected default.** Removing the
++defaultValue enforces that invariant at the data layer.
++
++**Fix applied:**
++Removed the `defaultValue: 'Günlük'` line from the category field
++definition in `src/collections/Products.ts`. Added an inline comment
++noting the D-165 rationale and confirming all reader sites are
++null-safe.
++
++**Files changed:**
++- `src/collections/Products.ts` — removed defaultValue + rationale comment
++
++**Blast radius (verified null-safe at every read site):**
++- `contentPack.ts` — `category: product.category ?? null`
++- `shopierSync.ts` — `localCategory` null-safe, falls back to first
++  available Shopier category with a warning log
++- `(app)/page.tsx` — `CATEGORY_LABELS[p.category] || p.category || 'Günlük'`
++- `geobotRuntime.ts` — `if (product.category) lines.push(...)` guarded
++- `imagePromptBuilder.ts` — `categoryLabel(category?: string | null)`
++
++Existing database rows are unaffected. This is a go-forward behavior
++change — any product already stored with `category: 'Günlük'` (real or
++default) keeps its value. For in-flight products mid-wizard that were
++born before D-165, operators can re-pick category via admin if needed.
++
++**Result:**
++Fresh Telegram-created products are now born with `category: null`.
++The wizard's `getNextWizardStep` returns `'category'` as step 1, the
++operator is shown the CATEGORY_OPTIONS keyboard, and picks a real value.
++The rest of the wizard (productType → price → sizes → stock → stockCode
++→ title → brand → targets → summary) proceeds unchanged. GeoBot still
++only fires from `applyConfirmation()` after summary confirmation (D-162).
++
++**Typecheck:** 3 pre-existing baseline errors (next.config.ts,
++(app)/page.tsx, collections/Products.ts:304 storyTargets) — identical
++before and after, verified via git stash.
+ 
+-**Status:**  
+-ACTIVE — PRODUCTION BASELINE LOCKED at commit e99e9cb (v50)
++**Status:** ACTIVE
+ 
+ 
+ ---
+ 
+-## D-130 — Content Architecture Audit + Production Plan
+-**Decision:**  
+-Audit the Geobot content system and define the production content architecture.
+-
+-**Current Reality (VERIFIED):**
+-
+-The content GENERATION layer is fully implemented:
+-- `geobotRuntime.ts` (364 lines) — Real Gemini 2.5 Flash AI generation
+-- `contentPack.ts` (860 lines) — Full lifecycle: trigger, write, blog creation, audit handoff
+-- Product schema has complete content fields: commercePack (5 channels) + discoveryPack (SEO/GEO)
+-- BlogPosts collection (186 lines) with SEO fields, auto-creation from discoveryPack
+-- Telegram `/content` command: show, trigger, retry
+-- Auto-trigger after product confirmation
+-- BotEvent tracking for full content pipeline
+-- Mentix audit auto-trigger after content ready
+-
+-The content CONSUMPTION layer is NOT wired:
+-- Storefront product page uses `product.description` (basic field), NOT `commercePack.websiteDescription`
+-- Channel dispatch (Instagram) builds caption from `product.description`, NOT `commercePack.instagramCaption`
+-- Shopier dispatch does NOT use `commercePack.shopierCopy`
+-- No `/blog` or `/blog/[slug]` frontend routes exist — BlogPosts collection has data but no public pages
+-- No SEO meta tags from `discoveryPack.metaTitle` / `metaDescription` in page `<head>`
+-- No FAQ rendering on product pages from `discoveryPack.faq`
+-- No structured data (JSON-LD) generated from content packs
+-
+-**Content Types That Exist (IMPLEMENTED):**
+-
+-| Type | Field | Status |
+-|------|-------|--------|
+-| Website product description | commercePack.websiteDescription | Generated, NOT rendered |
+-| Instagram caption | commercePack.instagramCaption | Generated, NOT used in dispatch |
+-| X/Twitter post | commercePack.xPost | Generated, NOT used |
+-| Facebook copy | commercePack.facebookCopy | Generated, NOT used |
+-| Shopier description | commercePack.shopierCopy | Generated, NOT used in dispatch |
+-| Product highlights | commercePack.highlights | Generated, NOT rendered |
+-| SEO article | discoveryPack.articleBody | Generated, stored in BlogPost (draft) |
+-| SEO meta title | discoveryPack.metaTitle | Generated, NOT in page head |
+-| SEO meta description | discoveryPack.metaDescription | Generated, NOT in page head |
+-| FAQ | discoveryPack.faq | Generated, NOT rendered |
+-| Keywords/entities | discoveryPack.keywordEntities | Generated, NOT used |
+-| Internal link targets | discoveryPack.internalLinkTargets | Generated, NOT used |
+-| BlogPost | BlogPosts collection | Auto-created as draft, no public pages |
+-
+-**What Is MISSING (consumption/wiring):**
+-
+-1. Storefront must render `commercePack.websiteDescription` instead of basic `description`
+-2. Product page needs `discoveryPack.metaTitle` + `metaDescription` in `<head>`
+-3. Product page should render `commercePack.highlights` as feature list
+-4. Product page should render `discoveryPack.faq` as expandable FAQ section
+-5. `/blog` listing page + `/blog/[slug]` detail page for BlogPosts
+-6. Blog pages need proper SEO meta from BlogPost.seo fields
+-7. Channel dispatch must use AI-generated captions (instagramCaption, facebookCopy, etc.)
+-8. Structured data (JSON-LD Product + FAQ) from content pack fields
+-9. Sitemap inclusion for blog posts
+-
+-**Proposed Production Content Architecture:**
+-
+-Phase A — Wire existing content to storefront:
+-- Product page: websiteDescription, highlights, FAQ, SEO meta
+-- JSON-LD structured data
+-
+-Phase B — Blog frontend:
+-- `/blog` listing page
+-- `/blog/[slug]` detail page
+-- Blog SEO meta + sitemap entry
+-
+-Phase C — Channel dispatch wiring:
+-- Instagram: use instagramCaption from commercePack
+-- Shopier: use shopierCopy from commercePack
+-- X/Facebook: use xPost/facebookCopy when channels go live
+-
+-Phase D — Content quality loop:
+-- Operator review/edit flow for AI-generated content
+-- Content regeneration on product update
++## D-166 — Make wizard session persistence awaitable (fix silent drop)
++**Date:** 2026-04-11
++**Commit:** `81a533b`
++
++**Symptom (verified via operator screenshot):**
++Bot sent the "💰 Fiyat girin (₺): / Örnek: 899 veya 1299.90" prompt.
++Operator replied "899". Bot sent NO reply — not the success ack, not
++the parse-error warning, not the catch-block "Sihirbaz hatası". Pure
++silent drop. The wizard sat frozen mid-step.
++
++**Root cause (verified):**
++`src/lib/confirmationWizard.ts` declared `persistWizardSessionBackground`
++and `deleteWizardSessionBackground` as fire-and-forget: they called
++`pool.query(...)` with a `.catch(warn)` tail but no `await`, and
++`setWizardSession` / `clearWizardSession` were synchronous `void`
++functions that invoked them without awaiting.
++
++On Vercel serverless, once the `/confirm` handler returned its
++`NextResponse.json({ ok: true })`, Vercel froze the Lambda. The
++in-flight `wizard_sessions` DB write could be cut off before it
++drained. The operator's follow-up "899" text message then landed on
++a cold Lambda (or a different warm instance), called
++`hydrateWizardSession(payload, chatId, msgUserId)`, found no row in
++`wizard_sessions` (previous write never completed), returned null,
++and the wizard text interceptor's `if (wizSession) { ... }` block was
++skipped entirely. The request fell through to photo handler (no match)
++and command handlers (no match) and returned 200 silently. Every
++wizard state transition (30+ `setWizardSession` callsites) had the
++same race; the `/confirm` creation path was just the most visible.
++
++**Fix (3 parts):**
++
++1. **Awaitable persistence** in `src/lib/confirmationWizard.ts`:
++   - Renamed `persistWizardSessionBackground` → `persistWizardSession`,
++     changed to `async function ... Promise<void>`. Internal try/catch
++     preserved so Neon transient failures still do not 500 the webhook.
++   - Same rename + async conversion for `deleteWizardSession`.
++   - `setWizardSession` signature now
++     `async (chatId, state, userId?): Promise<void>`, internally
++     awaits persistWizardSession.
++   - `clearWizardSession` same pattern.
++   - `getWizardSession`'s stale-session cleanup path still uses
++     fire-and-forget `void deleteWizardSession(...)` because
++     `getWizardSession` is sync by design and a missed stale delete
++     self-cleans on the next hydrate (which filters
++     `started_at > NOW() - INTERVAL '30 minutes'`).
++
++2. **36 await insertions** in `src/app/api/telegram/route.ts`:
++   Every callsite of `setWizardSession(...)` and `clearWizardSession(...)`
++   now has `await`. Covers /confirm startup, /confirm_cancel,
++   callback_query handlers for wz_cat/wz_ptype/wz_size/wz_target/
++   wz_confirm, and all per-step text interceptor handlers. All
++   callsites were already inside the main async POST handler so no
++   signature changes were required.
++
++3. **Defensive null-wizSession fallback** in the text interceptor
++   at `src/app/api/telegram/route.ts` line ~2189. When
++   `hydrateWizardSession` returns null but the incoming text matches
++   a wizard-input heuristic (`^\d+([.,]\d+)?$` for price,
++   `^\d{2}([,\s]+\d{2})+$` for size list, or `^\d{2}-\d{2}$` for
++   size range), the bot now sends "ℹ️ Aktif sihirbaz oturumu
++   bulunamadı — /confirm <ürün_id> ile yeniden başlatabilirsiniz"
++   instead of the previous silent drop. This is a safety net for
++   session expiry (30 min timeout), Neon transient outages, and any
++   future race not yet diagnosed.
++
++**Files changed:**
++- `src/lib/confirmationWizard.ts` — persist/delete made async and
++  awaitable; setWizardSession/clearWizardSession made async
++- `src/app/api/telegram/route.ts` — 36 `await` insertions + defensive
++  null-wizSession else branch in text interceptor
++
++**Latency impact:**
++Each `setWizardSession` now waits for a Neon INSERT/UPDATE
++(~20–60ms on warm pool). Typical Telegram webhook has 1–3
++setWizardSession calls, so added latency is ~60–180ms per request.
++Acceptable for an operator-in-the-loop flow.
++
++**Typecheck:** 3 pre-existing baseline errors (next.config.ts,
++(app)/page.tsx, collections/Products.ts:304 storyTargets) — identical
++before and after, verified via git stash.
++
++**Verification plan:**
++1. Start a fresh `/confirm <id>` in Telegram.
++2. Let the wizard advance to the price step.
++3. Reply with a plain number ("899").
++4. Expect: `✅ Fiyat: ₺899` followed by the next prompt.
++5. Repeat across several fresh products to confirm the race is gone.
++6. Additional: start a wizard, wait >30 min, then reply with a
++   number — expect the new "ℹ️ Aktif sihirbaz oturumu bulunamadı"
++   fallback message instead of a silent drop.
+ 
+-**Status:**  
+-ACTIVE — Architecture defined, implementation phases planned
++**Status:** ACTIVE
+ 
+ 
+ ---
+ 
+-## D-131 — Phase A: Storefront Content Wiring — IMPLEMENTED
+-**Decision:**  
+-Wire Geobot-generated content into the storefront product page.
+-
+-**Changes:**
+-
+-1. **websiteDescription** (commercePack → fallback to basic description):
+-   - Product page now renders `content.commercePack.websiteDescription` first
+-   - Falls back to `product.description` if commercePack is empty
+-   - Falls back to nothing if both are empty
++## D-167 — Mirror-extend padding — permanent frame elimination
++**Date:** 2026-04-12
++**Commit:** `cef930a`
+ 
+-2. **Highlights** (commercePack.highlights):
+-   - Rendered as a checkmark list under "Ürün Özellikleri" heading
+-   - Only shows if array has valid string entries
+-   - Gracefully hidden if empty
++**Symptom (verified via operator screenshot):**
++Brown suede sneaker on gray concrete floor. All 3 generated slots
++had visible rectangular frames — a clear boundary between the shoe
++photo area and the surrounding generated scene.
+ 
+-3. **FAQ** (discoveryPack.faq):
+-   - New `ProductFAQ` client component with expand/collapse accordion
+-   - Renders below the product info grid
+-   - Only shows if FAQ array has valid {q, a} entries
+-   - Gracefully hidden if empty
++**Root cause (verified — 5th incident in the same chain):**
++Every previous padding approach used a SOLID COLOR:
++  - v50 (D-129/D-164): paddingRGB = bgRGB (scene target)
++  - D-157: paddingRGB = edge-sampled reference color
++  - D-161: paddingRGB = white fallback
+ 
+-4. **SEO Meta** (discoveryPack → fallback):
+-   - `generateMetadata()` export for Next.js head management
+-   - Title: `discoveryPack.metaTitle` → fallback "{title} — UygunAyakkabı"
+-   - Description: `discoveryPack.metaDescription` → `websiteDescription[:160]` → `description[:160]`
+-   - Keywords: from `discoveryPack.keywordEntities` if present
+-   - OpenGraph title + description set
++ALL of these create a visible rectangular boundary whenever the
++reference image's own background differs from the padding color.
++For this shoe: reference background = gray concrete; scene target
++= warm cream (#F5F1E6). The cream padding ring around the gray
++photo creates a hard edge Gemini preserves as a frame in its output.
+ 
+-5. **JSON-LD Product** structured data:
+-   - Schema.org Product with name, description, sku, brand, color, material, price, availability, image
+-   - Uses websiteDescription (Geobot → fallback) for description
+-   - Injected via `<script type="application/ld+json">`
++**No solid color can fix this.** The problem is structural.
+ 
+-6. **JSON-LD FAQPage** structured data:
+-   - Only emitted when FAQ exists
+-   - Schema.org FAQPage with Question + Answer entities
+-   - Injected via separate `<script type="application/ld+json">`
++**Fix (permanent):**
++Replaced all solid-color padding with Sharp's `extendWith: 'mirror'`.
++The reference image's edge pixels are mirrored outward, creating a
++seamless continuation of whatever background the photo already has.
++Zero color boundaries. Nothing frame-shaped for Gemini to copy.
+ 
+-7. **Bonus: originalPrice + color + material** rendering added to product info grid
++Implementation (both `generateByEditing` and `generateByGeminiPro`):
++  1. `sharp(ref).resize(fitW, fitH)` — scale to fit inside 768x768
++     without adding letterbox bars
++  2. `.extend({ ..., extendWith: 'mirror' })` — pad to 768x768 with
++     mirrored edges
++  3. `.extend({ top:128, bottom:128, left:128, right:128,
++     extendWith: 'mirror' })` — pad to 1024x1024
+ 
+-**Files Changed:**
+-- `src/app/(app)/products/[slug]/page.tsx` — Full rewrite with content wiring
+-- `src/components/ProductFAQ.tsx` — New client component for FAQ accordion
++`paddingRGB` (bgRGB) retained as variable for logging only. Not used
++in any Sharp operation.
+ 
+-**Fallback Safety:**
+-Every content field has graceful fallback: Geobot content → basic field → hidden. The page works identically to before if no Geobot content exists.
+-
+-**Status:**  
+-ACTIVE — Phase A complete
++Sharp version 0.34.5 (requirement: >= 0.32.0 for extendWith support).
+ 
++**LOCK_REMINDER_BLOCK status:**
++Rule 1 (NO FRAMES) and Rule 2 (BACKGROUND MATCH) remain as prompt
++text guards. Mirror-extend ensures the INPUT IMAGE itself no longer
++violates them before Gemini even starts processing.
+ 
+----
++**Supersedes:**
++- D-164 "paddingRGB = bgRGB" locked rule — solid-color padding is
++  no longer used at all. The INTENT of D-164 (no visible inner
++  rectangle) is now achieved more correctly by mirror-extend.
++- D-157 / D-161 — both were attempts to match the padding to the
++  reference edge; mirror-extend makes this moot.
+ 
+-## D-132 — Phase B: Blog Frontend — IMPLEMENTED
+-**Decision:**  
+-Build the blog frontend to render Geobot-generated blog/article content.
+-
+-**New Routes:**
+-
+-| Route | Purpose |
+-|-------|---------|
+-| `/blog` | Listing of published blog posts, sorted by publishedAt descending |
+-| `/blog/[slug]` | Full article detail page with SEO meta, JSON-LD, related products |
+-
+-**Implementation Details:**
+-
+-1. **`/blog` listing page:**
+-   - Queries BlogPosts where `status === 'published'`, sorted by `-publishedAt`
+-   - Card layout: thumbnail, category badge, date, title, excerpt
+-   - Static metadata: "Blog — UygunAyakkabı"
+-   - Empty state: "Henüz yayınlanmış yazı yok."
+-   - Revalidates every 120 seconds
+-
+-2. **`/blog/[slug]` detail page:**
+-   - `generateMetadata()` for SEO: `seo.title` → fallback "{title} — UygunAyakkabı Blog"
+-   - `seo.description` → excerpt → title fallback
+-   - `seo.keywords` → tags fallback
+-   - OpenGraph with `type: article` and `publishedTime`
+-   - JSON-LD Article structured data (headline, author, publisher, datePublished)
+-   - Featured image rendering
+-   - Article body: Lexical richText → text extraction → paragraph/heading/list rendering
+-   - Basic Markdown detection (# headings, - bullet lists)
+-   - Tags rendered as chips
+-   - Related products grid with images, titles, prices (from `relatedProducts` relationship)
+-   - Back link to /blog
+-   - 404 for non-published posts
+-
+-3. **Fallback safety:**
+-   - Draft/archived posts return 404
+-   - Missing content shows "Bu yazının içeriği henüz eklenmedi."
+-   - Missing featured image, tags, excerpt — gracefully hidden
+-   - Empty related products — section hidden
+-
+-**Files Created:**
+-- `src/app/(app)/blog/page.tsx` — Blog listing
+-- `src/app/(app)/blog/[slug]/page.tsx` — Blog detail
+-
+-**Operator workflow:**
+-Geobot auto-creates BlogPosts as `draft`. Operator reviews in admin panel, sets status to `published` (and optionally sets `publishedAt`). Post then appears on `/blog`.
++**Files changed:**
++  `src/lib/imageProviders.ts` — both generation paths
+ 
+-**Status:**  
+-ACTIVE — Phase B complete
+-
+----
++**Typecheck:** 3 pre-existing baseline errors — unchanged.
+ 
+-## D-133 — Phase C: Blog Discoverability — IMPLEMENTED
+-**Date:** 2026-04-08  
+-**Decision:**  
+-Add visible Blog link to storefront navigation (desktop + mobile) and footer.
+-
+-**Implementation:**
+-- Desktop navbar: `<a href="/blog">BLOG</a>` after KOLEKSİYON, styled identically to existing nav links
+-- Mobile menu: `<a href="/blog">BLOG</a>` after KOLEKSİYON, closes mobile menu on click
+-- Footer "Sayfalar" section: `<a href="/blog">Blog</a>` after Koleksiyon
+-- Blog is a separate server-rendered Next.js route — uses `<a href>` not SPA `onNav` callback
+-
+-**Files Changed:**
+-- `src/app/(app)/UygunApp.jsx` — 3 insertion points (desktop nav, mobile nav, footer)
++**Status:** ACTIVE
+ 
+-**Status:**  
+-ACTIVE — Phase C complete, verified in production
+ 
+ ---
+ 
+-## D-134 — Phase D: Channel Dispatch Geobot Wiring — IMPLEMENTED
+-**Date:** 2026-04-08  
+-**Decision:**  
+-Wire Geobot-generated channel-specific content into the existing dispatch pipeline so downstream channels receive AI-generated copy instead of basic product descriptions.
+-
+-**Gap identified:**
+-- `buildDispatchPayload()` only included `product.description` — Geobot's `content.commercePack.*` fields were never extracted
+-- `buildInstagramCaption()` built captions from basic fields — ignored `instagramCaption`
+-- `publishFacebookDirectly()` reused Instagram caption builder — ignored `facebookCopy`
+-- `buildShopierProductBody()` used `product.description` — ignored `shopierCopy`
+-
+-**Implementation:**
+-1. Extended `ChannelDispatchPayload` type with optional `geobot` field containing all 6 commerce pack fields
+-2. `buildDispatchPayload()` extracts `product.content.commercePack` into `payload.geobot`
+-3. `buildInstagramCaption()` prefers `geobot.instagramCaption` when present, falls back to template builder
+-4. `publishFacebookDirectly()` prefers `geobot.facebookCopy` when present, falls back to caption builder
+-5. `buildShopierProductBody()` prefers `geobot.shopierCopy` → `product.description` → title fallback
+-6. All n8n webhook payloads now include `geobot` field for `xPost`, `linkedinCopy`, etc.
+-
+-**Graceful degradation:**
+-All paths fall back to existing logic if Geobot content is absent. Zero risk to products without content generation.
+-
+-**Files Changed:**
+-- `src/lib/channelDispatch.ts` — type extension + payload builder + Instagram/Facebook caption preference
+-- `src/lib/shopierSync.ts` — Shopier description preference chain
++## D-168 — Bypass group filter when wizard session is active
++**Date:** 2026-04-12
++**Commit:** `5f5f778`
+ 
+-**Status:**  
+-ACTIVE — Phase D complete
++**Symptom (verified — 2nd test after D-166):**
++D-166 was deployed. Operator typed "899" in group chat for the price
++step. Still no reply. D-166's awaitable persistence wasn't the issue.
+ 
+----
++**Root cause (verified):**
++Two group activation filters in `route.ts` silently drop plain text:
++  1. Line ~1789 (Phase Y): Uygunops in groups only passes photos and
++     reply-to-bot messages.
++  2. Line ~1855 (Phase I+K): general group filter requires slash
++     commands, @mentions, reply-to-bot, hashtags, STOCK, or photos.
++Plain text "899" matches none, so both filters return silently BEFORE
++the wizard text interceptor at line ~1970 ever runs. D-166's fix was
++correct but unreachable.
+ 
+-## D-135 — Phase G: Dry-Run Preview Mode for Channel Dispatch — IMPLEMENTED
+-**Date:** 2026-04-08  
+-**Decision:**  
+-Implement a safe preview/dry-run mode for direct-publish channels so operators can verify the exact Geobot-derived caption/body that WOULD be posted, without making any public post.
++**Fix:**
++Added early wizard session hydration before the group filters. When a
++plain text message arrives in a group, check wizard_sessions for an
++active session for this chat+user. If found, `hasActiveWizardSession=true`
++bypasses both filters, letting the text reach the wizard interceptor.
+ 
+-**Problem:**
+-No safe way to verify Geobot content integration without creating real public posts on Instagram/Facebook. This blocked Phase F validation.
++`getPayload()` is a cached singleton (free). `hydrateWizardSession`
++is one SELECT. For messages with no active wizard, the SELECT returns
++0 rows and the existing filters still drop the message — no behavior
++change for random group chatter.
+ 
+-**Implementation:**
+-1. Added `previewDispatch` checkbox in `sourceMeta` (alongside `forceRedispatch`)
+-2. When both `previewDispatch + forceRedispatch` are checked + saved on an active product:
+-   - Full dispatch pipeline runs (eligibility, payload building, caption selection)
+-   - `dispatchProductToChannels()` receives `{ dryRun: true }` option
+-   - `resolvePreviewCaption()` uses the SAME content-selection logic as real publish
+-   - NO external API calls made (Instagram Graph API, Facebook Graph API, Shopier, n8n webhooks)
+-   - Shopier job queue suppressed, story dispatch suppressed
+-3. Preview results written to `sourceMeta.dispatchNotes` with `mode: "preview"`
+-4. Each channel result includes: `caption`, `source` (geobot|template-fallback|description-fallback), `geobotField`, `mediaUrl`, `mediaCount`
+-5. Telegram notification sent to operator with formatted preview of all channel captions
+-6. Both `forceRedispatch` and `previewDispatch` auto-reset after preview completes
+-
+-**Safety guarantees:**
+-- Real publish paths completely unchanged (dryRun defaults to false/undefined)
+-- Preview only fires when BOTH checkboxes are checked (previewDispatch alone does nothing)
+-- Status transitions (draft→active) never trigger preview — only manual forceRedispatch
+-
+-**Files Changed:**
+-- `src/lib/channelDispatch.ts` — `resolvePreviewCaption()` + dryRun option in orchestrator
+-- `src/collections/Products.ts` — `previewDispatch` field + hook logic + Telegram notification
++**Files changed:**
++- `src/app/api/telegram/route.ts`
+ 
+-**Status:**  
+-ACTIVE — Phase G complete
++**Status:** ACTIVE
+diff --git a/project-control/DEPLOY_CHECKLIST.md b/project-control/DEPLOY_CHECKLIST.md
+index f3fdda2..755d828 100644
+--- a/project-control/DEPLOY_CHECKLIST.md
++++ b/project-control/DEPLOY_CHECKLIST.md
+@@ -1,7 +1,7 @@
+ # DEPLOY CHECKLIST — Uygunayakkabi
+ 
+ _Production deployment readiness checklist_
+-_Last updated: 2026-04-04 (D-115 — hardcoded secret fixed, env truth pass)_
++_Last updated: 2026-04-04 (Phase 15 — all Phase 14 deploy steps COMPLETE)_
+ 
+ ---
+ 
+diff --git a/project-control/MEMORY_CONSOLIDATION_REPORT.md b/project-control/MEMORY_CONSOLIDATION_REPORT.md
+deleted file mode 100644
+index 6a3f545..0000000
+--- a/project-control/MEMORY_CONSOLIDATION_REPORT.md
++++ /dev/null
+@@ -1,87 +0,0 @@
+-# MEMORY CONSOLIDATION REPORT — 2026-03-23 (Updated)
+-
+-## Summary
+-
+-Full consolidation performed across all project-control files, ai-knowledge modules, and raw chat archives. Project has been worked on across 10+ separate AI conversation windows since 2026-03-04.
+-
+----
+-
+-## Issues Found & Fixed
+-
+-### 1. CRITICAL: Duplicate Decision IDs (FIXED)
+-**Problem**: D-052 through D-060 had two different definitions each, from separate sessions.
+-**Root cause**: Decisions added in parallel sessions without checking last used ID.
+-**Fix applied**:
+-- D-052 (Media Public Read) → renumbered to **D-090**
+-- D-053 (Upload Production Rule) → renumbered to **D-091**
+-- D-054/D-055 duplicates → removed (content already in canonical D-054/D-055)
+-- D-056 through D-060 duplicates → noted but not renumbered (later definitions take precedence by file position; lower risk)
+-- **Next available ID: D-092**
+-
+-### 2. Stale TASK_QUEUE.md Sections (FIXED)
+-**Problem**: Phase 1 validation checklist still listed as "CURRENT PRIORITY" despite Phase 1 being complete since 2026-03-13.
+-**Fix**: Replaced with collapsed "✅ COMPLETE" section + deferred cleanup list.
+-
+-### 3. Stale ai-knowledge Files (FIXED)
+-**Problem**: `admin-storefront-debug.md` still treated a 2026-03-13 resolved issue as active.
+-**Fix**: Added "⚠️ RESOLVED" header, kept as historical reference.
+-
+-### 4. Missing Governance Files (CREATED)
+-**Created**:
+-- `MEMORY_LOCK.md` — Stable truths, do-not-restart rules, decision ID registry
+-- `OPEN_QUESTIONS.md` — 11 unresolved questions ranked by priority
+-- `SAVED_PROMPTS.md` — 6 reusable prompts/context loaders
+-
+----
+-
+-## Changelog of Understanding
+-
+-### Repeated across many windows (STABLE TRUTHS)
+-- Telegram-first commerce vision
+-- Payload CMS as single source of truth
+-- Phase-based build strategy
+-- Turkish language first
+-- VPS + Docker + Caddy + n8n + OpenClaw stack
+-
+-### Newest truth (overrides older context)
+-- Instagram/Facebook publish directly from Payload (NOT via n8n) — D-088, D-089
+-- INSTAGRAM_PAGE_ID must be `1040379692491003` (legacy ID), NOT `61576525131424` (NPE profile ID)
+-- 13 Mentix skills deployed and live on VPS (not just designed)
+-- Steps 1-19 complete (not just 1-16 as some files suggest)
+-
+-### Old context that should no longer drive decisions
+-- "DM-only Telegram policy" → superseded by allowlisted group mode
+-- "Always create draft products" → superseded by toggle-controlled publish
+-- "n8n publishes to Instagram" → superseded by direct Graph API publish
+-- "Admin → storefront pipeline broken" → resolved 2026-03-13
+-- "Git branch divergence risk" → resolved 2026-03-13
+-
+-### Known remaining conflicts
+-- ARCHITECTURE.md references through Step 16; PROJECT_STATE.md through Step 19. Architecture needs Step 17-19 additions.
+-- D-056 through D-060 still have duplicate IDs in the file (low risk — later definitions win by file position)
+-- Some TASK_QUEUE.md sections reference "Phase 2B Channel Integration — Instagram" with old n8n-based instructions despite Instagram now being direct publish
+-
+----
+-
+-## File Inventory (project-control/)
+-
+-| File | Lines | Status | Notes |
+-|------|-------|--------|-------|
+-| PROJECT_STATE.md | ~300 | ✅ Current (Step 19) | Most up-to-date file |
+-| ARCHITECTURE.md | ~277 | 🟡 Slightly stale | Missing Steps 17-19 details |
+-| TASK_QUEUE.md | ~500 | 🟡 Mixed | Steps current, channel sections partially stale |
+-| DECISIONS.md | ~1500 | 🟡 ID conflicts exist | D-090/091 renumbered, D-056-060 noted |
+-| MEMORY_LOCK.md | ~100 | ✅ New | Stable truths and continuity rules |
+-| OPEN_QUESTIONS.md | ~80 | ✅ New | 11 open questions ranked |
+-| SAVED_PROMPTS.md | ~80 | ✅ New | 6 reusable prompts |
+-| SYSTEM_PROMPT.md | ~180 | ✅ Current | Repo governance prompt |
+-| MENTIX_SYSTEM_PROMPT.md | ~200 | ✅ Current | Mentix skill stack governance |
+-
+----
+-
+-## Recommendations
+-
+-1. **Immediate**: Use MEMORY_LOCK.md as the first file any new session reads
+-2. **Next session**: Update ARCHITECTURE.md with Steps 17-19 (Instagram/Facebook direct publish)
+-3. **When time permits**: Do a full D-056 through D-060 renumbering pass
+-4. **Before Phase 2C**: Review OPEN_QUESTIONS.md Q6 (blog routes) and Q7 (n8n role)
+diff --git a/project-control/PRODUCTION_TRUTH_MATRIX.md b/project-control/PRODUCTION_TRUTH_MATRIX.md
+index 89eb1c7..4d03929 100644
+--- a/project-control/PRODUCTION_TRUTH_MATRIX.md
++++ b/project-control/PRODUCTION_TRUTH_MATRIX.md
+@@ -1,7 +1,7 @@
+ # PRODUCTION TRUTH MATRIX — Uygunayakkabi
+ 
+ _Honest classification of every subsystem's production status_
+-_Last updated: 2026-04-04 (D-115 — hardcoded secret fixed, env truth pass complete)_
++_Last updated: 2026-04-04 (Phase 15 — Live Smoke Test + Production Truth Validation)_
+ 
+ ---
+ 
+@@ -9,212 +9,229 @@ _Last updated: 2026-04-04 (D-115 — hardcoded secret fixed, env truth pass comp
+ 
+ | Status | Meaning |
+ |--------|---------|
+-| **PROD-VALIDATED** | Code deployed, tested in production, confirmed working by operator |
+-| **IMPLEMENTED** | Code complete, tested locally or in dev, not yet confirmed in production |
++| **PROD-VALIDATED** | Code deployed, tested in production, confirmed working |
++| **DEPLOYED — NOT YET VALIDATED** | Code live on production, schema migrated, but no live operator test yet |
++| **IMPLEMENTED — DISABLED** | Code exists but intentionally disabled from operator flow |
+ | **PARTIAL** | Core logic exists but missing pieces prevent full operation |
+ | **BLOCKED** | Cannot function due to external limitation or missing dependency |
+ | **SCAFFOLDED** | Structure exists but no real implementation behind it |
++| **NOT IMPLEMENTED** | Not yet built |
++
++---
++
++## Phase 15 Validation Method
++
++All results below were obtained 2026-04-04 by:
++- HTTP endpoint checks against `www.uygunayakkabi.com` (production domain)
++- Direct Neon PostgreSQL queries against production database
++- Browser rendering checks via Vercel deployment
++- Schema verification (35 tables, 120 products columns, 39 enum types confirmed)
+ 
+ ---
+ 
+ ## Core Platform
+ 
+-| Subsystem | Status | Notes |
+-|-----------|--------|-------|
+-| Next.js storefront | **PROD-VALIDATED** | Live at uygunayakkabi.com |
+-| Payload CMS admin | **PROD-VALIDATED** | All 14 collections, Turkish i18n |
+-| Neon PostgreSQL | **PROD-VALIDATED** | Production database operational |
+-| Vercel Blob media | **PROD-VALIDATED** | Image upload/serve working |
+-| Vercel deployment | **PROD-VALIDATED** | Auto-deploy from main branch |
++| Subsystem | Status | Evidence |
++|-----------|--------|----------|
++| Next.js storefront | **PROD-VALIDATED** | HTTP 200 on www.uygunayakkabi.com (1.1s), hero + nav renders |
++| Payload CMS admin | **PROD-VALIDATED** | HTTP 200 on /admin/login, Turkish i18n ("E-posta", "Parola", "Giriş") |
++| Neon PostgreSQL | **PROD-VALIDATED** | 35 tables, 120 products columns, 39 enum types. Direct query confirmed |
++| Vercel Blob media | **PROD-VALIDATED** | 459 media records in production |
++| Vercel deployment | **PROD-VALIDATED** | Deployment EXFoRu3Tn — Ready, 47s build, commit fb46b2a |
++| GENERATE_API_KEY_SECRET | **PROD-VALIDATED** | Set in Vercel env vars, redeployed. /api/generate-api-key returns 405 (guard working) |
++
++---
++
++## Database Migration (Phase 14)
++
++| Item | Status | Evidence |
++|------|--------|----------|
++| New tables (bot_events, story_jobs, story_jobs_targets, homepage_merchandising_settings, blog_posts, blog_posts_rels, products_story_settings_story_targets) | **PROD-VALIDATED** | All present in pg_tables query |
++| Products new columns (workflow, merchandising, storySettings, content, auditResult) | **PROD-VALIDATED** | 120 columns confirmed; workflow fields returning correct defaults on all 95 products |
++| New enum types | **PROD-VALIDATED** | 39 enum types in pg_type |
++| payload_locked_documents_rels new FK columns | **PROD-VALIDATED** | Table present in 35-table list |
++| Indexes and foreign keys | **PROD-VALIDATED** | Applied as part of 110/110 migration statements |
+ 
+ ---
+ 
+ ## Product Pipeline
+ 
+-| Subsystem | Status | Notes |
+-|-----------|--------|-------|
+-| Telegram photo intake | **PROD-VALIDATED** | Direct webhook, photo → Media + Product |
+-| Caption parsing | **PROD-VALIDATED** | Turkish/English, title/price/size extraction |
+-| Duplicate guard | **PROD-VALIDATED** | chatId + messageId idempotency |
+-| Product CRUD (admin) | **PROD-VALIDATED** | Full edit/create/delete with hooks |
+-| Auto-slug / Auto-SKU | **PROD-VALIDATED** | beforeValidate hook |
+-| FK-safe deletion | **PROD-VALIDATED** | Nullifies variant + media refs before delete |
++| Subsystem | Status | Evidence |
++|-----------|--------|----------|
++| Telegram photo intake | **PROD-VALIDATED** | 95 products exist, recent ones from 2026-04-04 with source='telegram' |
++| Caption parsing | **PROD-VALIDATED** | automation_meta_raw_caption populated on products |
++| Duplicate guard | **PROD-VALIDATED** | chatId + messageId idempotency (historical confirmation) |
++| Product CRUD (admin) | **PROD-VALIDATED** | Products collection returns proper auth errors (schema working) |
++| Auto-slug / Auto-SKU | **PROD-VALIDATED** | Historical confirmation |
++| Telegram webhook guard | **PROD-VALIDATED** | POST /api/telegram returns 401 "Unauthorized" without secret |
+ 
+ ---
+ 
+ ## AI Image Generation
+ 
+-| Subsystem | Status | Notes |
+-|-----------|--------|-------|
+-| Gemini image gen (#gorsel) | **IMPLEMENTED — NOT PROD-VALIDATED** | v18 code deployed, ZERO confirmed successful prod runs. Blocker 2 in TASK_QUEUE. |
+-| OpenAI image editing | **IMPLEMENTED — DISABLED** | Code exists, disabled from operator flow in v19 (D-109) |
+-| Luma AI pipeline | **IMPLEMENTED — DISABLED** | Full code, route deactivated in v18. Can restore from commit a27b78a |
+-| Claid.ai enhancement | **IMPLEMENTED — NOT TESTED** | #claid command, 3 modes, CLAID_API_KEY set. No live test performed |
+-| Generative gallery | **IMPLEMENTED** | Dual-track: product.images vs generativeGallery separation working |
++| Subsystem | Status | Evidence |
++|-----------|--------|----------|
++| Gemini image gen (#gorsel) | **DEPLOYED — NOT YET VALIDATED** | 112 image_generation_jobs in DB, but ZERO confirmed successful end-to-end runs |
++| OpenAI image editing | **IMPLEMENTED — DISABLED** | Disabled from operator flow in v19 |
++| Luma AI pipeline | **IMPLEMENTED — DISABLED** | Route deactivated in v18 |
++| Claid.ai enhancement | **DEPLOYED — NOT YET VALIDATED** | CLAID_API_KEY set, no live test performed |
++| Generative gallery | **DEPLOYED — NOT YET VALIDATED** | products_generative_gallery table exists |
+ 
+ ---
+ 
+ ## Confirmation Wizard
+ 
+-| Subsystem | Status | Notes |
+-|-----------|--------|-------|
+-| /confirm command | **IMPLEMENTED — NOT PROD-VALIDATED** | Phase 5. Full wizard: category → price → sizes → stock → targets |
+-| Inline keyboards | **IMPLEMENTED** | Category/target selection via Telegram buttons |
+-| confirmationStatus field | **IMPLEMENTED** | pending → confirmed → blocked lifecycle |
+-| BotEvent emission | **IMPLEMENTED** | product.confirmed event |
++| Subsystem | Status | Evidence |
++|-----------|--------|----------|
++| /confirm command | **DEPLOYED — NOT YET VALIDATED** | Code live, schema migrated, all 95 products show confirmationStatus='pending' |
++| Inline keyboards | **DEPLOYED — NOT YET VALIDATED** | Code deployed |
++| confirmationStatus field | **PROD-VALIDATED** | Column exists, defaults working (all 95 = 'pending') |
++| BotEvent emission | **DEPLOYED — NOT YET VALIDATED** | bot_events table exists (0 rows — no events fired yet) |
+ 
+ ---
+ 
+ ## Content Generation (Geobot)
+ 
+-| Subsystem | Status | Notes |
+-|-----------|--------|-------|
+-| Gemini 2.5 Flash generation | **IMPLEMENTED — NOT PROD-VALIDATED** | Real API calls, requires GEMINI_API_KEY |
+-| Commerce pack (5 channel copies) | **IMPLEMENTED** | websiteDescription, instagramCaption, xPost, facebookCopy, shopierCopy |
+-| Discovery pack (SEO article) | **IMPLEMENTED** | articleTitle, articleBody, metaTitle, metaDescription, faq, keywords |
+-| BlogPost auto-creation | **IMPLEMENTED** | Draft blog post created from discovery pack |
+-| Content readiness check | **IMPLEMENTED** | checkContentReadiness() evaluates both packs |
+-| Auto-trigger after confirmation | **IMPLEMENTED** | Non-blocking, fires if shouldAutoTriggerContent() |
+-| /content command | **IMPLEMENTED** | Status display + manual trigger |
+-| Partial success handling | **IMPLEMENTED** | One pack can fail while other succeeds |
++| Subsystem | Status | Evidence |
++|-----------|--------|----------|
++| Gemini 2.5 Flash generation | **DEPLOYED — NOT YET VALIDATED** | GEMINI_API_KEY set in Vercel. No content generated yet |
++| Commerce pack (5 channel copies) | **DEPLOYED — NOT YET VALIDATED** | Schema columns migrated |
++| Discovery pack (SEO article) | **DEPLOYED — NOT YET VALIDATED** | Schema columns migrated |
++| BlogPost auto-creation | **DEPLOYED — NOT YET VALIDATED** | blog_posts table exists (0 rows) |
++| /content command | **DEPLOYED — NOT YET VALIDATED** | Code deployed |
+ 
+ ---
+ 
+ ## Mentix Audit
+ 
+-| Subsystem | Status | Notes |
+-|-----------|--------|-------|
+-| 4-dimension audit | **IMPLEMENTED — NOT PROD-VALIDATED** | Visual, commerce, discovery, overall |
+-| approvedForPublish gate | **IMPLEMENTED** | true only when all dimensions pass |
+-| Auto-trigger after content.ready | **IMPLEMENTED** | Non-blocking in contentPack.ts |
+-| /audit command | **IMPLEMENTED** | Status display + manual run |
+-| BotEvent emission | **IMPLEMENTED** | audit.approved/failed/needs_revision events |
++| Subsystem | Status | Evidence |
++|-----------|--------|----------|
++| 4-dimension audit | **DEPLOYED — NOT YET VALIDATED** | auditResult columns migrated, all defaults correct |
++| approvedForPublish gate | **DEPLOYED — NOT YET VALIDATED** | Column exists |
++| Auto-trigger after content.ready | **DEPLOYED — NOT YET VALIDATED** | Code deployed |
++| /audit command | **DEPLOYED — NOT YET VALIDATED** | Code deployed |
+ 
+ ---
+ 
+ ## Publish Readiness (Phase 12)
+ 
+-| Subsystem | Status | Notes |
+-|-----------|--------|-------|
+-| 6-dimension evaluation | **IMPLEMENTED — NOT DEPLOYED** | confirmation + visuals + content + audit + sellable + targets |
+-| workflowStatus='publish_ready' gate | **IMPLEMENTED — NOT DEPLOYED** | Only set when ALL 6 dimensions pass |
+-| product.publish_ready BotEvent | **IMPLEMENTED — NOT DEPLOYED** | Emitted on full readiness |
+-| /pipeline command | **IMPLEMENTED — NOT DEPLOYED** | 10-stage lifecycle + readiness + coherence |
+-| State coherence validation | **IMPLEMENTED — NOT DEPLOYED** | 7 contradiction rules |
++| Subsystem | Status | Evidence |
++|-----------|--------|----------|
++| 6-dimension evaluation | **DEPLOYED — NOT YET VALIDATED** | publishReadiness.ts deployed, not yet exercised |
++| workflowStatus='publish_ready' gate | **DEPLOYED — NOT YET VALIDATED** | All products at 'draft' — never reached |
++| /pipeline command | **DEPLOYED — NOT YET VALIDATED** | Code deployed |
++| State coherence validation | **DEPLOYED — NOT YET VALIDATED** | Code deployed |
++| /diagnostics command | **DEPLOYED — NOT YET VALIDATED** | Code deployed |
+ 
+ ---
+ 
+ ## Homepage Merchandising
+ 
+-| Subsystem | Status | Notes |
+-|-----------|--------|-------|
+-| Merchandising engine (5 sections) | **IMPLEMENTED — NOT DEPLOYED** | resolveHomepageSections() with Yeni, Popüler, Çok Satanlar, Fırsatlar, İndirimli |
+-| isHomepageEligible() server filter | **IMPLEMENTED — NOT DEPLOYED** | Filters soldout/non-sellable before client |
+-| UygunApp section rendering | **IMPLEMENTED — NOT DEPLOYED** | 5 real sections with client fallbacks |
+-| HomepageMerchandisingSettings | **IMPLEMENTED — NOT DEPLOYED** | Section toggles, limits, scoring params |
+-| /merch commands | **IMPLEMENTED — NOT DEPLOYED** | preview, status, popular, deal, bestseller |
+-| Merchandising sync cron | **PARTIAL** | Fields exist (bestSellerScore, etc.) but NO cron job implemented |
++| Subsystem | Status | Evidence |
++|-----------|--------|----------|
++| Merchandising engine (5 sections) | **PROD-VALIDATED** | Homepage HTML contains sections prop: `{"yeni":[],"popular":[],"bestSellers":[],"deals":[],"discounted":[]}` — correctly empty because all 95 products are draft |
++| isHomepageEligible() server filter | **PROD-VALIDATED** | No draft products appear on homepage — filter working |
++| UygunApp section rendering | **PROD-VALIDATED** | Client-side fallbacks active (no active products) |
++| HomepageMerchandisingSettings | **DEPLOYED — NOT YET VALIDATED** | Global table exists, no operator configuration done |
++| /merch commands | **DEPLOYED — NOT YET VALIDATED** | Code deployed |
++| Merchandising sync cron | **PARTIAL** | Fields exist but NO cron job implemented |
+ 
+ ---
+ 
+ ## Stock / Soldout Automation
+ 
+-| Subsystem | Status | Notes |
+-|-----------|--------|-------|
+-| Central reactToStockChange() | **IMPLEMENTED — NOT DEPLOYED** | Phase 9. Single entry point for all stock sources |
+-| Stock state machine | **IMPLEMENTED** | in_stock → low_stock → sold_out → restocked |
+-| Soldout transition | **IMPLEMENTED** | status=soldout, sellable=false, BotEvent |
+-| Restock transition | **IMPLEMENTED** | status=active, sellable=true, BotEvent |
+-| Telegram stock alerts | **IMPLEMENTED** | sendStockAlertToTelegram() on transitions |
+-| /stok command | **IMPLEMENTED** | Per-product stock status with variant breakdown |
+-| Variants afterChange hook | **IMPLEMENTED — NOT DEPLOYED** | Admin stock edits → reactToStockChange |
+-| Orders afterChange hook | **IMPLEMENTED — NOT DEPLOYED** | Non-Shopier order stock decrement |
+-| Shopier refund restoration | **IMPLEMENTED — NOT DEPLOYED** | Stock increment on order cancellation |
++| Subsystem | Status | Evidence |
++|-----------|--------|----------|
++| Central reactToStockChange() | **DEPLOYED — NOT YET VALIDATED** | Code deployed, 2 variants in DB |
++| Stock state machine | **DEPLOYED — NOT YET VALIDATED** | All products default workflow_stock_state='in_stock' |
++| Soldout exclusion on homepage | **PROD-VALIDATED** | isHomepageEligible() confirmed filtering server-side |
++| /stok command | **DEPLOYED — NOT YET VALIDATED** | Code deployed |
++| Telegram stock alerts | **DEPLOYED — NOT YET VALIDATED** | Code deployed |
+ 
+ ---
+ 
+ ## Commerce / Orders
+ 
+-| Subsystem | Status | Notes |
+-|-----------|--------|-------|
+-| Shopier order webhooks | **PROD-VALIDATED** | order.created, fulfilled, refund events |
+-| Shopier product sync | **PROD-VALIDATED** | Jobs queue, 5-min cron |
+-| Shopier stock decrement | **PROD-VALIDATED** | On order.created |
+-| Website checkout/cart | **NOT IMPLEMENTED** | PayTR integration planned but not started |
+-| Order admin management | **PROD-VALIDATED** | Full CRUD in Payload |
++| Subsystem | Status | Evidence |
++|-----------|--------|----------|
++| Shopier order webhooks | **PROD-VALIDATED** | /api/webhooks/shopier returns "Invalid signature" (401) — HMAC guard working |
++| Shopier product sync | **PROD-VALIDATED** | Historical confirmation |
++| Shopier stock decrement | **PROD-VALIDATED** | Historical confirmation |
++| Orders collection | **PROD-VALIDATED** | 2 orders in production DB |
++| Website checkout/cart | **NOT IMPLEMENTED** | PayTR integration not started |
+ 
+ ---
+ 
+ ## Channel Publishing
+ 
+-| Subsystem | Status | Notes |
+-|-----------|--------|-------|
+-| Instagram direct publish | **PROD-VALIDATED** | Graph API v21.0, verified live |
+-| Facebook page publish | **PROD-VALIDATED** | Page Access Token exchange, verified live |
+-| Shopier sync | **PROD-VALIDATED** | Non-blocking jobs queue |
+-| Dolap | **SCAFFOLDED** | n8n webhook stub only, no real API |
+-| X (Twitter) | **SCAFFOLDED** | OAuth scaffold, no posting |
+-| LinkedIn | **SCAFFOLDED** | OAuth scaffold, no posting |
++| Subsystem | Status | Evidence |
++|-----------|--------|----------|
++| Instagram direct publish | **PROD-VALIDATED** | Historical confirmation (2026-03-22) |
++| Facebook page publish | **PROD-VALIDATED** | Historical confirmation (2026-03-22) |
++| Shopier sync | **PROD-VALIDATED** | Historical confirmation |
++| Channel dispatch orchestration | **DEPLOYED — NOT YET VALIDATED** | afterChange hook deployed with new phases |
++| Dolap | **SCAFFOLDED** | n8n webhook stub only |
++| X (Twitter) | **SCAFFOLDED** | OAuth scaffold only |
++| LinkedIn | **SCAFFOLDED** | OAuth scaffold only |
+ | Threads | **SCAFFOLDED** | n8n webhook stub only |
+-| Channel dispatch orchestration | **PROD-VALIDATED** | afterChange hook on Products |
+ 
+ ---
+ 
+ ## Story Pipeline
+ 
+-| Subsystem | Status | Notes |
+-|-----------|--------|-------|
+-| StoryJobs collection | **IMPLEMENTED** | 12 fields, full lifecycle schema |
+-| Story dispatch logic | **IMPLEMENTED** | dispatchStory(), target resolution, asset selection |
+-| Telegram story targets | **BLOCKED** | Bot API does NOT support stories |
++| Subsystem | Status | Evidence |
++|-----------|--------|----------|
++| StoryJobs collection | **DEPLOYED — NOT YET VALIDATED** | story_jobs table exists (0 rows) |
++| Story dispatch logic | **DEPLOYED — NOT YET VALIDATED** | Code deployed |
++| Telegram stories | **BLOCKED** | Bot API does NOT support stories |
+ | WhatsApp story/status | **BLOCKED** | Meta API has no story/status endpoint |
+-| Instagram stories | **NOT IMPLEMENTED** | Not in story targets, uses separate channel dispatch |
+-| Story approval flow | **IMPLEMENTED** | Inline keyboards, approval callbacks |
+-| Auto-trigger on publish | **IMPLEMENTED** | afterChange hook in Products.ts |
++| Instagram stories | **NOT IMPLEMENTED** | Separate from story pipeline |
++| Story approval flow | **DEPLOYED — NOT YET VALIDATED** | Code deployed |
++| Auto-trigger on publish | **DEPLOYED — NOT YET VALIDATED** | Code deployed |
+ 
+ ---
+ 
+ ## Operator Tools (Telegram)
+ 
+-| Command | Status | Notes |
+-|---------|--------|-------|
+-| Photo intake | **PROD-VALIDATED** | Direct photo → product |
+-| STOCK SKU: command | **IMPLEMENTED** | Bulk variant stock update |
+-| /stok | **IMPLEMENTED** | Stock status display |
+-| /confirm | **IMPLEMENTED** | Confirmation wizard |
+-| /content | **IMPLEMENTED** | Content status + trigger |
+-| /audit | **IMPLEMENTED** | Audit status + manual run |
+-| /pipeline | **IMPLEMENTED — NOT DEPLOYED** | Full lifecycle view (Phase 12) |
+-| /merch | **IMPLEMENTED — NOT DEPLOYED** | Merchandising control (Phase 11) |
+-| /story | **IMPLEMENTED** | Story job creation |
+-| /shopier | **IMPLEMENTED** | Shopier sync management |
+-| #gorsel | **IMPLEMENTED — NOT PROVEN** | Gemini image generation |
+-| #claid | **IMPLEMENTED — NOT TESTED** | Claid photo enhancement |
++| Command | Status | Evidence |
++|---------|--------|----------|
++| Photo intake | **PROD-VALIDATED** | 95 products from Telegram intake |
++| STOCK SKU: command | **DEPLOYED — NOT YET VALIDATED** | Code deployed |
++| /stok | **DEPLOYED — NOT YET VALIDATED** | Code deployed |
++| /confirm | **DEPLOYED — NOT YET VALIDATED** | Code deployed |
++| /content | **DEPLOYED — NOT YET VALIDATED** | Code deployed |
++| /audit | **DEPLOYED — NOT YET VALIDATED** | Code deployed |
++| /pipeline | **DEPLOYED — NOT YET VALIDATED** | Code deployed |
++| /merch | **DEPLOYED — NOT YET VALIDATED** | Code deployed |
++| /diagnostics | **DEPLOYED — NOT YET VALIDATED** | Code deployed |
++| /story | **DEPLOYED — NOT YET VALIDATED** | Code deployed |
++| /shopier | **PROD-VALIDATED** | Historical confirmation |
++| #gorsel | **DEPLOYED — NOT PROVEN** | 112 jobs, 0 confirmed successes |
++| #claid | **DEPLOYED — NOT TESTED** | CLAID_API_KEY set, never tested |
+ 
+ ---
+ 
+ ## Infrastructure
+ 
+-| Subsystem | Status | Notes |
+-|-----------|--------|-------|
+-| VPS (Netcup) | **PROD-VALIDATED** | Ubuntu 22.04, Docker, Caddy |
+-| n8n workflows | **PROD-VALIDATED** | flow.uygunayakkabi.com |
+-| OpenClaw agent | **PROD-VALIDATED** | agent.uygunayakkabi.com |
+-| GitHub Actions cron | **PROD-VALIDATED** | 5-min jobs runner |
+-| Vercel hosting | **PROD-VALIDATED** | Auto-deploy, serverless functions |
+-| Cloudflare DNS | **PROD-VALIDATED** | A records for VPS subdomains |
++| Subsystem | Status | Evidence |
++|-----------|--------|----------|
++| Vercel hosting | **PROD-VALIDATED** | Deployment EXFoRu3Tn Ready, auto-deploy from main |
++| Neon PostgreSQL | **PROD-VALIDATED** | 35 tables, all migrated |
++| VPS (Netcup) | **PROD-VALIDATED** | Historical confirmation |
++| GitHub Actions cron | **PROD-VALIDATED** | Historical confirmation |
+ 
+ ---
+ 
+-## Summary Counts
++## Summary Counts (Phase 15 — Post-Deploy)
+ 
+ | Status | Count |
+ |--------|-------|
+-| PROD-VALIDATED | 22 subsystems |
+-| IMPLEMENTED (not prod-validated) | 28 subsystems |
++| PROD-VALIDATED | 27 subsystems |
++| DEPLOYED — NOT YET VALIDATED | 30 subsystems |
+ | PARTIAL | 1 subsystem (merchandising sync cron) |
+ | BLOCKED | 2 subsystems (Telegram stories, WhatsApp stories) |
+ | SCAFFOLDED | 4 subsystems (Dolap, X, LinkedIn, Threads) |
+-| NOT IMPLEMENTED | 1 subsystem (website checkout) |
++| NOT IMPLEMENTED | 2 subsystems (website checkout, Instagram stories) |
++| IMPLEMENTED — DISABLED | 2 subsystems (OpenAI, Luma) |
+ 
+-**Overall:** Core platform and original channels are production-proven. Phases 1-12 autonomous pipeline features are code-complete but not yet deployed/validated in production. Two story targets are officially blocked by platform API limitations.
++**Overall:** Core platform prod-validated. Phases 1-13 code is DEPLOYED and schema is MIGRATED. All new tables/columns confirmed present. Workflow defaults verified correct. 30 subsystems await first operator interaction to move from "deployed" to "validated". Two story targets remain officially blocked by platform API limitations.
+diff --git a/src/app/(app)/products/[slug]/page.tsx b/src/app/(app)/products/[slug]/page.tsx
+index c94bdd3..52d922c 100644
+--- a/src/app/(app)/products/[slug]/page.tsx
++++ b/src/app/(app)/products/[slug]/page.tsx
+@@ -77,7 +77,7 @@ async function getProduct(slug: string): Promise<ProductDoc | undefined> {
+   const { docs } = await payload.find({
+     collection: 'products',
+     where: { slug: { equals: slug } },
+-    depth: 2,
++    depth: 3,
+     limit: 1,
+   })
+   return docs[0] as ProductDoc | undefined
+@@ -203,11 +203,18 @@ export default async function ProductPage({ params }: Props) {
+   const availableSizes = variants.filter((v) => v.stock > 0)
+ 
+   // Helper: extract URLs from an image entry array
++  // D-187: depth:3 + defensive check for unresolved relationships (raw ID instead of object)
++  const serverUrl = process.env.NEXT_PUBLIC_SERVER_URL || ''
+   const extractUrls = (entries: ImageEntry[]): string[] =>
+     entries
+       .map((img) => {
+         const mediaDoc = img.image as MediaDoc
+-        if (mediaDoc?.url) return mediaDoc.url
++        // If relationship not resolved (still a raw ID), skip gracefully
++        if (!mediaDoc || typeof mediaDoc === 'number' || typeof mediaDoc === 'string') return null
++        // Prefer sizes.large for detail page quality
++        const largeUrl = (mediaDoc as any)?.sizes?.large?.url
++        if (largeUrl) return largeUrl.startsWith('http') ? largeUrl : `${serverUrl}${largeUrl}`
++        if (mediaDoc?.url) return mediaDoc.url.startsWith('http') ? mediaDoc.url : `${serverUrl}${mediaDoc.url}`
+         if ((mediaDoc as any)?.filename) return `/media/${(mediaDoc as any).filename}`
+         return null
+       })
+diff --git a/src/app/api/telegram/route.ts b/src/app/api/telegram/route.ts
+index c09aa7d..79b0e9b 100644
+--- a/src/app/api/telegram/route.ts
++++ b/src/app/api/telegram/route.ts
+@@ -2503,7 +2503,11 @@ export async function POST(req: NextRequest) {
+           automationSettings,
+         )
+ 
+-        const channelDecision = resolveChannelTargets(['website'], automationSettings)
++        // D-196: Pass ALL standard channels — resolveChannelTargets filters by global toggles
++        const channelDecision = resolveChannelTargets(
++          ['website', 'instagram', 'shopier', 'x', 'facebook'],
++          automationSettings,
++        )
+ 
+         // 9. Ürün oluştur
+         const product = await payload.create({
+@@ -2522,9 +2526,9 @@ export async function POST(req: NextRequest) {
+             channelTargets: channelDecision.effectiveTargets as any,
+             channels: {
+               publishWebsite: channelDecision.effectiveTargets.includes('website'),
+-              publishInstagram: false,
+-              publishShopier: false,
+-              publishDolap: false,
++              publishInstagram: channelDecision.effectiveTargets.includes('instagram'),
++              publishShopier: channelDecision.effectiveTargets.includes('shopier'),
++              publishDolap: channelDecision.effectiveTargets.includes('dolap'),
+             },
+             automationMeta: {
+               telegramChatId: tgChatId,
+diff --git a/src/jobs/imageGenTask.ts b/src/jobs/imageGenTask.ts
+index afc7e17..862aa14 100644
+--- a/src/jobs/imageGenTask.ts
++++ b/src/jobs/imageGenTask.ts
+@@ -1153,32 +1153,82 @@ async function overlayStockNumber(
+   const width = metadata.width || 1024
+   const height = metadata.height || 1024
+ 
+-  // SVG overlay: low-key premium stock number — bottom-right corner.
+-  // Spec: "Low opacity (70–80%), must NOT distract from the product."
+-  // Pill bg at 0.25 opacity, text at 0.72 — subtle but readable.
+-  // Pill bg at 0.30 opacity, text at 0.85 — subtle but clearly readable.
++  // v29: Two-layer approach — pill background + text rendered separately.
++  // This avoids relying on SVG text which needs system fonts (may not exist on Vercel).
++  // Layer 1: Dark semi-transparent pill (pure SVG rect — no font needed)
++  // Layer 2: White text rendered via sharp's Pango text API (font built into libvips)
+   const fontSize = Math.max(14, Math.round(width * 0.022)) // ~22px on 1024px
+   const paddingX = Math.round(fontSize * 0.6)
+   const paddingY = Math.round(fontSize * 0.4)
+-  const textWidth = stockNumber.length * fontSize * 0.62 // approximate monospace-ish width
++  const textWidth = stockNumber.length * fontSize * 0.62
+   const boxWidth = Math.round(textWidth + paddingX * 2)
+   const boxHeight = Math.round(fontSize + paddingY * 2)
+   const margin = Math.round(width * 0.015) // ~15px margin on 1024px
+ 
+   // Pill position — bottom-right
+-  const rectX = width - boxWidth - margin
+-  const rectY = height - boxHeight - margin
+-  // Text position — horizontally centered in pill, vertically centered via dy
+-  const textX = rectX + Math.round(boxWidth / 2)
+-  const textY = rectY + Math.round(boxHeight / 2)
++  const pillLeft = width - boxWidth - margin
++  const pillTop  = height - boxHeight - margin
++
++  // Layer 1: Full-size SVG with just the pill rectangle (no text — no font needed)
++  const pillSvg = Buffer.from(
++    `<svg width="${width}" height="${height}" xmlns="http://www.w3.org/2000/svg">` +
++    `<rect x="${pillLeft}" y="${pillTop}" width="${boxWidth}" height="${boxHeight}" rx="4" ry="4" fill="rgba(0,0,0,0.30)"/>` +
++    `</svg>`,
++  )
++
++  // Layer 2: Render text via sharp's built-in Pango text engine (no system fonts needed)
++  // Pango is compiled into libvips which sharp bundles — works on Vercel serverless.
++  let textImage: Buffer
++  try {
++    textImage = await sharp({
++      text: {
++        text: `<span foreground="white" font_weight="bold">${stockNumber}</span>`,
++        rgba: true,
++        dpi: Math.round(fontSize * 7.2), // scale DPI to approximate desired font size
++        font: 'sans-serif',
++      },
++    })
++      .ensureAlpha()
++      .png()
++      .toBuffer()
++  } catch {
++    // Fallback: if Pango text fails, use SVG text (original approach)
++    console.warn('[overlayStockNumber v29] Pango text failed — falling back to SVG text')
++    const fallbackSvg = Buffer.from(
++      `<svg width="${boxWidth}" height="${boxHeight}" xmlns="http://www.w3.org/2000/svg">` +
++      `<text x="${Math.round(boxWidth / 2)}" y="${Math.round(boxHeight / 2)}" dy="0.35em" ` +
++      `font-family="monospace,sans-serif" font-size="${fontSize}" font-weight="600" ` +
++      `fill="rgba(255,255,255,0.85)" text-anchor="middle">${stockNumber}</text>` +
++      `</svg>`,
++    )
++    textImage = await sharp(fallbackSvg).ensureAlpha().png().toBuffer()
++  }
++
++  // Resize text image to fit inside pill with padding
++  const textMeta = await sharp(textImage).metadata()
++  const maxTextW = boxWidth - paddingX * 2
++  const maxTextH = boxHeight - paddingY * 2
++  const resizedText = await sharp(textImage)
++    .resize(maxTextW, maxTextH, { fit: 'inside' })
++    .ensureAlpha()
++    .png()
++    .toBuffer()
++
++  const resizedMeta = await sharp(resizedText).metadata()
++  const textLeft = pillLeft + Math.round((boxWidth - (resizedMeta.width || maxTextW)) / 2)
++  const textTop  = pillTop + Math.round((boxHeight - (resizedMeta.height || maxTextH)) / 2)
+ 
+-  const svgOverlay = Buffer.from(`<svg width="${width}" height="${height}" xmlns="http://www.w3.org/2000/svg">
+-  <rect x="${rectX}" y="${rectY}" width="${boxWidth}" height="${boxHeight}" rx="4" ry="4" fill="rgba(0,0,0,0.30)"/>
+-  <text x="${textX}" y="${textY}" dy="0.35em" font-family="Arial,Helvetica,sans-serif" font-size="${fontSize}" font-weight="600" fill="rgba(255,255,255,0.85)" text-anchor="middle">${stockNumber}</text>
+-</svg>`)
++  console.log(
++    `[overlayStockNumber v29] stockNumber="${stockNumber}" fontSize=${fontSize} ` +
++    `pill=${boxWidth}x${boxHeight} at (${pillLeft},${pillTop}) text at (${textLeft},${textTop}) ` +
++    `textSize=${resizedMeta.width}x${resizedMeta.height} pangoTextSize=${textMeta?.width}x${textMeta?.height}`,
++  )
+ 
+   return sharp(imageBuffer)
+-    .composite([{ input: svgOverlay, top: 0, left: 0 }])
++    .composite([
++      { input: pillSvg, top: 0, left: 0 },
++      { input: resizedText, top: textTop, left: textLeft },
++    ])
+     .jpeg({ quality: 92 })
+     .toBuffer()
+ }
+diff --git a/src/lib/channelDispatch.ts b/src/lib/channelDispatch.ts
+index a2f8419..f10f314 100644
+--- a/src/lib/channelDispatch.ts
++++ b/src/lib/channelDispatch.ts
+@@ -25,6 +25,7 @@
+  */
+ 
+ import type { AutomationSettingsSnapshot } from './automationDecision'
++import crypto from 'crypto'
+ 
+ // ── Types ─────────────────────────────────────────────────────────────────────
+ 
+@@ -34,7 +35,6 @@ export type SupportedChannel =
+   | 'dolap'
+   | 'x'
+   | 'facebook'
+-  | 'linkedin'
+   | 'threads'
+ 
+ /** All non-website channels that require external dispatch */
+@@ -44,7 +44,6 @@ export const SUPPORTED_CHANNELS: SupportedChannel[] = [
+   'dolap',
+   'x',
+   'facebook',
+-  'linkedin',
+   'threads',
+ ]
+ 
+@@ -57,6 +56,8 @@ export type ChannelDispatchPayload = {
+   channel: SupportedChannel
+   /** Payload CMS product ID */
+   productId: string | number
++  /** Product slug for URL generation */
++  slug?: string
+   /** SKU / stock code */
+   sku?: string
+   /** Product title — required for all listings */
+@@ -81,6 +82,8 @@ export type ChannelDispatchPayload = {
+   mediaUrls: string[]
+   /** All channel targets on this product (not just the current one) */
+   channelTargets: string[]
++  /** Stock quantity — used for low-stock badge in captions */
++  stockQuantity?: number
+   /** Human-readable reason this dispatch was triggered */
+   triggerReason: string
+   /** ISO timestamp when dispatch was initiated */
+@@ -152,7 +155,6 @@ export function buildChannelWebhookUrl(channel: SupportedChannel): string | unde
+     dolap:     process.env.N8N_CHANNEL_DOLAP_WEBHOOK,
+     x:         process.env.N8N_CHANNEL_X_WEBHOOK,
+     facebook:  process.env.N8N_CHANNEL_FACEBOOK_WEBHOOK,
+-    linkedin:  process.env.N8N_CHANNEL_LINKEDIN_WEBHOOK,
+     threads:   process.env.N8N_CHANNEL_THREADS_WEBHOOK,
+   }
+   const url = envMap[channel]
+@@ -205,11 +207,50 @@ function extractMediaUrls(product: Record<string, unknown>): string[] {
+   const aiUrls = Array.isArray(aiImages) ? resolveUrls(aiImages) : []
+   const origUrls = Array.isArray(originalImages) ? resolveUrls(originalImages) : []
+ 
+-  // AI gallery first (side_angle hero), then originals as supplementary
+-  if (aiUrls.length > 0) return [...aiUrls, ...origUrls]
++  // D-196: When AI images exist, use ONLY AI images — never mix with originals.
++  // Original supplier photos should not appear in social media posts alongside
++  // the AI-generated product shots.
++  if (aiUrls.length > 0) return aiUrls
+   return origUrls
+ }
+ 
++// ── Media URL Pre-warm ───────────────────────────────────────────────────────
++
++/**
++ * Phase W1: Pre-warm a media URL by fetching it.
++ *
++ * Vercel serves /api/media/file/* via a serverless function.  On cold start
++ * the first request can take 2-5 s, which causes Instagram/Facebook's media
++ * fetcher to time out.  A pre-warm GET populates the Vercel edge cache so the
++ * Graph API's subsequent fetch gets a fast cache HIT.
++ *
++ * Non-fatal — callers should proceed even if pre-warm fails.
++ */
++async function prewarmMediaUrl(imageUrl: string, channel: string): Promise<void> {
++  try {
++    const res = await fetch(imageUrl, {
++      method: 'GET',
++      signal: AbortSignal.timeout(15_000),
++    })
++    // Consume the body fully so the CDN caches the complete response
++    const buf = await res.arrayBuffer()
++    console.log(
++      `[channelDispatch] ${channel} pre-warm — url=${imageUrl} ` +
++        `status=${res.status} bytes=${buf.byteLength}`,
++    )
++    if (res.status !== 200) {
++      console.warn(
++        `[channelDispatch] ${channel} pre-warm non-200 — url=${imageUrl} status=${res.status}`,
++      )
++    }
++  } catch (err) {
++    console.warn(
++      `[channelDispatch] ${channel} pre-warm failed (non-fatal) — url=${imageUrl}: ` +
++        (err instanceof Error ? err.message : String(err)),
++    )
++  }
++}
++
+ // ── Instagram Direct Publish ──────────────────────────────────────────────────
+ 
+ /**
+@@ -217,9 +258,13 @@ function extractMediaUrls(product: Record<string, unknown>): string[] {
+  * Mirrors the logic in the n8n "Build Caption" node so output is consistent.
+  */
+ function buildInstagramCaption(payload: ChannelDispatchPayload): string {
++  // D-192: Low-stock urgency suffix — appended to both geobot and fallback captions
++  const lowStockSuffix = (payload.stockQuantity != null && payload.stockQuantity > 0 && payload.stockQuantity <= 3)
++    ? `\n\n🔥 Son ${payload.stockQuantity} adet!`
++    : ''
+   // Phase D: prefer Geobot-generated Instagram caption when available
+   if (payload.geobot?.instagramCaption) {
+-    return payload.geobot.instagramCaption.substring(0, 2200)
++    return (payload.geobot.instagramCaption + lowStockSuffix).substring(0, 2200)
+   }
+   // Fallback: build caption from basic product fields
+   let c = payload.title
+@@ -230,6 +275,7 @@ function buildInstagramCaption(payload: ChannelDispatchPayload): string {
+   if (payload.color)         c += '\n🎨 ' + payload.color
+   if (payload.description && payload.description.length > 0)
+     c += '\n\n' + payload.description.substring(0, 200)
++  c += lowStockSuffix
+   c += '\n\n#uygunayakkabi #ayakkabi'
+   if (payload.brand)    c += ' #' + payload.brand.toLowerCase().replace(/\s+/g, '').replace(/[^a-z0-9]/g, '')
+   if (payload.category) c += ' #' + payload.category.toLowerCase().replace(/\s+/g, '').replace(/[^a-z0-9]/g, '')
+@@ -254,9 +300,9 @@ async function publishFacebookDirectly(
+   userAccessToken: string,
+ ): Promise<ChannelDispatchResult> {
+   const timestamp = new Date().toISOString()
+-  const imageUrl  = payload.mediaUrls[0]
++  const validUrls = payload.mediaUrls.filter((u) => u && u.startsWith('https://'))
+ 
+-  if (!imageUrl || !imageUrl.startsWith('https://')) {
++  if (validUrls.length === 0) {
+     return {
+       channel: 'facebook', eligible: true, dispatched: false,
+       webhookConfigured: false,
+@@ -267,10 +313,17 @@ async function publishFacebookDirectly(
+ 
+   try {
+     // Phase D: prefer Geobot-generated Facebook copy, fallback to Instagram caption builder
++    // D-192: Append low-stock urgency to Facebook copy too
++    const lowStockTag = (payload.stockQuantity != null && payload.stockQuantity > 0 && payload.stockQuantity <= 3)
++      ? `\n\n🔥 Son ${payload.stockQuantity} adet!` : ''
+     const caption = payload.geobot?.facebookCopy
+-      ? payload.geobot.facebookCopy.substring(0, 2200)
++      ? (payload.geobot.facebookCopy + lowStockTag).substring(0, 2200)
+       : buildInstagramCaption(payload)
+ 
++    // ── Phase W1: Pre-warm ALL media URLs in parallel ────────────────────────
++    await Promise.all(validUrls.map((url) => prewarmMediaUrl(url, 'facebook')))
++    await new Promise((r) => setTimeout(r, 500))
++
+     // ── Step 1: Get Page Access Token ─────────────────────────────────────────
+     const pageTokenRes = await fetch(
+       `https://graph.facebook.com/v21.0/${pageId}?fields=access_token,name,id&access_token=${userAccessToken}`,
+@@ -288,9 +341,6 @@ async function publishFacebookDirectly(
+ 
+     if (!pageTokenRes.ok || !pageTokenData.access_token || typeof pageTokenData.access_token !== 'string') {
+       if (isNPEPage) {
+-        // New Pages Experience (NPE) — these pages don't expose access_token via
+-        // GET /{page-id}?fields=access_token.  For NPE pages the user access token
+-        // with pages_manage_posts scope is the correct credential to use directly.
+         console.log(
+           `[channelDispatch] Facebook: step 1 → NPE page detected (err 100/33). ` +
+           `Falling back to user token with pages_manage_posts for page=${pageId}`,
+@@ -298,7 +348,6 @@ async function publishFacebookDirectly(
+         pageAccessToken = userAccessToken
+         tokenMode = 'user-token-npe'
+       } else {
+-        // Some other step 1 failure — surface it for diagnosis
+         const step1Error = pageTokenData.error ?? pageTokenData
+         console.error(
+           `[channelDispatch] Facebook: step 1 FAILED (non-NPE) for page=${pageId}:`,
+@@ -326,46 +375,176 @@ async function publishFacebookDirectly(
+       console.log(`[channelDispatch] Facebook: step 1 ✅ page access token obtained — page="${pageTokenData.name ?? pageId}" id=${pageTokenData.id ?? pageId}`)
+     }
+ 
+-    // ── Step 2: Post photo to page feed ───────────────────────────────────────
+-    const postParams = new URLSearchParams({
+-      url:          imageUrl,
++    // ── Step 2: Post photo(s) to page feed ───────────────────────────────────
++    // D-190: Multi-photo support.
++    // Single image: POST /{pageId}/photos with published=true (same as before)
++    // Multiple images: upload each with published=false → create feed post with attached_media
++    if (validUrls.length === 1) {
++      // ── Single image path (unchanged) ────────────────────────────────────
++      const postParams = new URLSearchParams({
++        url:          validUrls[0],
++        message:      caption,
++        access_token: pageAccessToken,
++        published:    'true',
++      })
++      const postRes  = await fetch(
++        `https://graph.facebook.com/v21.0/${pageId}/photos?${postParams.toString()}`,
++        { method: 'POST', signal: AbortSignal.timeout(20_000) },
++      )
++      const postData = await postRes.json() as Record<string, unknown>
++
++      const postId = (postData.id ?? postData.post_id) as string | undefined
++      if (!postId) {
++        console.error(`[channelDispatch] Facebook post failed (tokenMode=${tokenMode}):`, postData)
++        return {
++          channel: 'facebook', eligible: true, dispatched: false,
++          webhookConfigured: false,
++          error: `Facebook post failed (HTTP ${postRes.status})`,
++          publishResult: {
++            mode: 'api-error', success: false,
++            tokenMode,
++            apiError: JSON.stringify(postData.error ?? postData),
++            apiErrorCode: postData.error ? (postData.error as Record<string, unknown>).code : undefined,
++            timestamp: new Date().toISOString(),
++          },
++          timestamp,
++        }
++      }
++
++      console.log(`[channelDispatch] Facebook direct publish success — product=${payload.productId} postId=${postId} tokenMode=${tokenMode} mode=single`)
++      return {
++        channel: 'facebook', eligible: true, dispatched: true,
++        webhookConfigured: false,
++        responseStatus: 200,
++        publishResult: {
++          received: true, channel: 'facebook', mode: 'direct',
++          success: true, facebookPostId: postId, pageId, tokenMode,
++          mediaUrl: validUrls[0], mediaCount: 1,
++          caption: caption.substring(0, 80) + '…',
++          timestamp: new Date().toISOString(),
++        },
++        timestamp,
++      }
++    }
++
++    // ── Multi-photo path (D-190) ───────────────────────────────────────────
++    // Step 2a: Upload each photo as unpublished
++    const photoIds: string[] = []
++    for (const url of validUrls.slice(0, 10)) {
++      const uploadParams = new URLSearchParams({
++        url,
++        published:    'false',
++        access_token: pageAccessToken,
++      })
++      try {
++        const uploadRes = await fetch(
++          `https://graph.facebook.com/v21.0/${pageId}/photos?${uploadParams.toString()}`,
++          { method: 'POST', signal: AbortSignal.timeout(20_000) },
++        )
++        const uploadData = await uploadRes.json() as Record<string, unknown>
++        const photoId = uploadData.id as string | undefined
++        if (photoId) {
++          photoIds.push(photoId)
++          console.log(`[channelDispatch] Facebook multi-photo: uploaded ${photoIds.length}/${validUrls.length} — photoId=${photoId}`)
++        } else {
++          console.warn(`[channelDispatch] Facebook multi-photo: upload failed for url=${url.slice(-40)}`, uploadData)
++        }
++      } catch (uploadErr) {
++        console.warn(`[channelDispatch] Facebook multi-photo: upload threw for url=${url.slice(-40)}`, uploadErr instanceof Error ? uploadErr.message : uploadErr)
++      }
++    }
++
++    if (photoIds.length === 0) {
++      return {
++        channel: 'facebook', eligible: true, dispatched: false,
++        webhookConfigured: false,
++        error: 'Facebook multi-photo: all uploads failed',
++        timestamp,
++      }
++    }
++
++    // Graceful degradation: if only 1 photo succeeded, publish it directly
++    if (photoIds.length === 1) {
++      console.log(`[channelDispatch] Facebook multi-photo: only 1 of ${validUrls.length} succeeded — falling back to single-photo publish`)
++      const postParams = new URLSearchParams({
++        url:          validUrls[0],
++        message:      caption,
++        access_token: pageAccessToken,
++        published:    'true',
++      })
++      const postRes = await fetch(
++        `https://graph.facebook.com/v21.0/${pageId}/photos?${postParams.toString()}`,
++        { method: 'POST', signal: AbortSignal.timeout(20_000) },
++      )
++      const postData = await postRes.json() as Record<string, unknown>
++      const postId = (postData.id ?? postData.post_id) as string | undefined
++      return {
++        channel: 'facebook', eligible: true, dispatched: !!postId,
++        webhookConfigured: false,
++        responseStatus: postId ? 200 : postRes.status,
++        error: postId ? undefined : `Facebook single-photo fallback failed`,
++        publishResult: {
++          received: true, channel: 'facebook', mode: 'direct-fallback',
++          success: !!postId, facebookPostId: postId, pageId, tokenMode,
++          mediaUrl: validUrls[0], mediaCount: 1,
++          caption: caption.substring(0, 80) + '…',
++          timestamp: new Date().toISOString(),
++        },
++        timestamp,
++      }
++    }
++
++    // Step 2b: Create feed post with attached_media referencing all uploaded photos
++    const feedParams = new URLSearchParams({
+       message:      caption,
+       access_token: pageAccessToken,
+-      published:    'true',
+     })
+-    const postRes  = await fetch(
+-      `https://graph.facebook.com/v21.0/${pageId}/photos?${postParams.toString()}`,
+-      { method: 'POST', signal: AbortSignal.timeout(20_000) },
++    photoIds.forEach((id, i) => {
++      feedParams.append(`attached_media[${i}]`, JSON.stringify({ media_fbid: id }))
++    })
++
++    // Brief wait for Facebook to process the uploaded photos
++    await new Promise((r) => setTimeout(r, 2000))
++
++    const feedRes = await fetch(
++      `https://graph.facebook.com/v21.0/${pageId}/feed`,
++      {
++        method: 'POST',
++        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
++        body: feedParams.toString(),
++        signal: AbortSignal.timeout(20_000),
++      },
+     )
+-    const postData = await postRes.json() as Record<string, unknown>
++    const feedData = await feedRes.json() as Record<string, unknown>
+ 
+-    const postId = (postData.id ?? postData.post_id) as string | undefined
+-    if (!postId) {
+-      console.error(`[channelDispatch] Facebook post failed (tokenMode=${tokenMode}):`, postData)
++    const feedPostId = feedData.id as string | undefined
++    if (!feedPostId) {
++      console.error(`[channelDispatch] Facebook multi-photo feed post failed:`, feedData)
+       return {
+         channel: 'facebook', eligible: true, dispatched: false,
+         webhookConfigured: false,
+-        error: `Facebook post failed (HTTP ${postRes.status})`,
++        error: `Facebook multi-photo feed post failed (HTTP ${feedRes.status})`,
+         publishResult: {
+           mode: 'api-error', success: false,
+           tokenMode,
+-          apiError: JSON.stringify(postData.error ?? postData),
+-          apiErrorCode: postData.error ? (postData.error as Record<string, unknown>).code : undefined,
++          uploadedPhotos: photoIds.length,
++          apiError: JSON.stringify(feedData.error ?? feedData).slice(0, 500),
+           timestamp: new Date().toISOString(),
+         },
+         timestamp,
+       }
+     }
+ 
+-    console.log(`[channelDispatch] Facebook direct publish success — product=${payload.productId} postId=${postId} tokenMode=${tokenMode}`)
++    console.log(`[channelDispatch] Facebook multi-photo success — product=${payload.productId} postId=${feedPostId} photos=${photoIds.length} tokenMode=${tokenMode}`)
+     return {
+       channel: 'facebook', eligible: true, dispatched: true,
+       webhookConfigured: false,
+       responseStatus: 200,
+       publishResult: {
+-        received: true, channel: 'facebook', mode: 'direct',
+-        success: true, facebookPostId: postId, pageId, tokenMode,
+-        mediaUrl: imageUrl, caption: caption.substring(0, 80) + '…',
++        received: true, channel: 'facebook', mode: 'multi-photo',
++        success: true, facebookPostId: feedPostId, pageId, tokenMode,
++        mediaUrl: validUrls[0], mediaCount: photoIds.length,
++        caption: caption.substring(0, 80) + '…',
+         timestamp: new Date().toISOString(),
+       },
+       timestamp,
+@@ -394,15 +573,79 @@ async function publishFacebookDirectly(
+  * This is the preferred path when instagramTokens are available in the payload.
+  * The n8n webhook is used as a fallback only when tokens are absent.
+  */
++/**
++ * Create a single Instagram media container with retry logic.
++ * Used both for single-image posts and as carousel item containers.
++ */
++async function createInstagramContainer(
++  userId: string,
++  accessToken: string,
++  imageUrl: string,
++  opts: { caption?: string; isCarouselItem?: boolean },
++  productId: string | number,
++): Promise<{ containerId?: string; error?: string }> {
++  const maxAttempts = 2
++  let lastError: string | undefined
++
++  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
++    const params: Record<string, string> = {
++      image_url: imageUrl,
++      access_token: accessToken,
++    }
++    if (opts.caption) params.caption = opts.caption
++    if (opts.isCarouselItem) params.is_carousel_item = 'true'
++
++    const res = await fetch(
++      `https://graph.facebook.com/v21.0/${userId}/media?${new URLSearchParams(params).toString()}`,
++      { method: 'POST', signal: AbortSignal.timeout(20_000) },
++    )
++    const data = await res.json() as Record<string, unknown>
++
++    if (data.id) {
++      console.log(
++        `[channelDispatch] Instagram container created — product=${productId} ` +
++          `containerId=${data.id} carousel=${!!opts.isCarouselItem} attempt=${attempt}`,
++      )
++      return { containerId: data.id as string }
++    }
++
++    lastError = JSON.stringify(data)
++    const errCode = (data.error as Record<string, unknown> | undefined)?.code
++    console.warn(
++      `[channelDispatch] Instagram container attempt ${attempt}/${maxAttempts} failed — ` +
++        `product=${productId} code=${errCode}`,
++    )
++
++    // Only retry on media-download errors (9004)
++    if (errCode !== 9004 || attempt >= maxAttempts) break
++    await new Promise((r) => setTimeout(r, 3000))
++  }
++
++  return { error: lastError }
++}
++
++/**
++ * D-188: Publish to Instagram — supports single image AND carousel (2–10 images).
++ *
++ * Carousel flow (Meta Graph API):
++ *   1. For each image → POST /{userId}/media with is_carousel_item=true (no caption)
++ *   2. POST /{userId}/media with media_type=CAROUSEL, children=[id1,id2,...], caption
++ *   3. POST /{userId}/media_publish with creation_id={carousel_container_id}
++ *
++ * Single image flow (1 image):
++ *   1. POST /{userId}/media with image_url + caption
++ *   2. POST /{userId}/media_publish with creation_id={container_id}
++ */
+ async function publishInstagramDirectly(
+   payload: ChannelDispatchPayload,
+   userId: string,
+   accessToken: string,
+ ): Promise<ChannelDispatchResult> {
+   const timestamp = new Date().toISOString()
+-  const imageUrl = payload.mediaUrls[0]
+ 
+-  if (!imageUrl || !imageUrl.startsWith('https://')) {
++  // Filter to only valid https:// URLs (Instagram requires publicly accessible HTTPS)
++  const validUrls = payload.mediaUrls.filter((u) => u.startsWith('https://'))
++  if (validUrls.length === 0) {
+     return {
+       channel: 'instagram', eligible: true, dispatched: false,
+       webhookConfigured: false,
+@@ -411,37 +654,125 @@ async function publishInstagramDirectly(
+     }
+   }
+ 
++  // Instagram carousel supports 2–10 items. Cap at 10.
++  const imageUrls = validUrls.slice(0, 10)
++  const isCarousel = imageUrls.length >= 2
++
+   try {
+     const caption = buildInstagramCaption(payload)
+ 
+-    // ── Step 1: Create media container ────────────────────────────────────────
+-    const createParams = new URLSearchParams({ image_url: imageUrl, caption, access_token: accessToken })
+-    const createRes  = await fetch(
+-      `https://graph.facebook.com/v21.0/${userId}/media?${createParams.toString()}`,
+-      { method: 'POST', signal: AbortSignal.timeout(20_000) },
+-    )
+-    const createData = await createRes.json() as Record<string, unknown>
++    // ── Pre-warm all media URLs to avoid Vercel cold-start timeout ────────────
++    await Promise.all(imageUrls.map((url) => prewarmMediaUrl(url, 'instagram')))
++    await new Promise((r) => setTimeout(r, 500))
+ 
+-    if (!createData.id) {
+-      console.error(`[channelDispatch] Instagram container creation failed:`, createData)
+-      return {
+-        channel: 'instagram', eligible: true, dispatched: false,
+-        webhookConfigured: false,
+-        error: `Container creation failed (HTTP ${createRes.status})`,
+-        publishResult: { step: 'create-container', mode: 'direct-api-error', success: false, apiError: JSON.stringify(createData), timestamp: new Date().toISOString() },
+-        timestamp,
++    let publishContainerId: string
++
++    if (isCarousel) {
++      // ── CAROUSEL FLOW ─────────────────────────────────────────────────────
++      console.log(
++        `[channelDispatch] Instagram carousel — product=${payload.productId} images=${imageUrls.length}`,
++      )
++
++      // Step 1: Create individual carousel item containers (no caption on items)
++      const childIds: string[] = []
++      for (const url of imageUrls) {
++        const { containerId, error } = await createInstagramContainer(
++          userId, accessToken, url, { isCarouselItem: true }, payload.productId,
++        )
++        if (!containerId) {
++          console.error(`[channelDispatch] Instagram carousel item failed — url=${url} error=${error}`)
++          // Skip failed items but continue with others
++          continue
++        }
++        childIds.push(containerId)
++        // Small delay between container creations to avoid rate limiting
++        await new Promise((r) => setTimeout(r, 300))
+       }
+-    }
+ 
+-    const containerId = createData.id as string
+-    console.log(`[channelDispatch] Instagram container created — product=${payload.productId} containerId=${containerId}`)
++      if (childIds.length < 2) {
++        // Not enough items for carousel — fall back to single image if we have 1
++        if (childIds.length === 0) {
++          return {
++            channel: 'instagram', eligible: true, dispatched: false,
++            webhookConfigured: false,
++            error: `Carousel failed — 0 of ${imageUrls.length} containers created`,
++            timestamp,
++          }
++        }
++        // Only 1 succeeded — re-create as single image (carousel items can't be published solo)
++        console.log(`[channelDispatch] Instagram carousel degraded to single image — product=${payload.productId}`)
++        const single = await createInstagramContainer(
++          userId, accessToken, imageUrls[0], { caption }, payload.productId,
++        )
++        if (!single.containerId) {
++          return {
++            channel: 'instagram', eligible: true, dispatched: false,
++            webhookConfigured: false,
++            error: `Single image fallback also failed: ${single.error}`,
++            timestamp,
++          }
++        }
++        publishContainerId = single.containerId
++      } else {
++        // Step 2: Create carousel container
++        const carouselParams = new URLSearchParams({
++          media_type: 'CAROUSEL',
++          children: childIds.join(','),
++          caption,
++          access_token: accessToken,
++        })
++        const carouselRes = await fetch(
++          `https://graph.facebook.com/v21.0/${userId}/media?${carouselParams.toString()}`,
++          { method: 'POST', signal: AbortSignal.timeout(20_000) },
++        )
++        const carouselData = await carouselRes.json() as Record<string, unknown>
++
++        if (!carouselData.id) {
++          console.error(`[channelDispatch] Instagram carousel container failed:`, carouselData)
++          return {
++            channel: 'instagram', eligible: true, dispatched: false,
++            webhookConfigured: false,
++            error: `Carousel container creation failed`,
++            publishResult: {
++              step: 'create-carousel', mode: 'direct-api-error', success: false,
++              childIds, apiError: JSON.stringify(carouselData),
++              timestamp: new Date().toISOString(),
++            },
++            timestamp,
++          }
++        }
++        publishContainerId = carouselData.id as string
++        console.log(
++          `[channelDispatch] Instagram carousel container created — product=${payload.productId} ` +
++            `carouselId=${publishContainerId} children=${childIds.length}`,
++        )
++      }
++    } else {
++      // ── SINGLE IMAGE FLOW ─────────────────────────────────────────────────
++      const { containerId, error } = await createInstagramContainer(
++        userId, accessToken, imageUrls[0], { caption }, payload.productId,
++      )
++      if (!containerId) {
++        return {
++          channel: 'instagram', eligible: true, dispatched: false,
++          webhookConfigured: false,
++          error: `Container creation failed: ${error}`,
++          publishResult: {
++            step: 'create-container', mode: 'direct-api-error', success: false,
++            apiError: error, timestamp: new Date().toISOString(),
++          },
++          timestamp,
++        }
++      }
++      publishContainerId = containerId
++    }
+ 
+-    // ── Step 2: Wait for media processing ─────────────────────────────────────
+-    await new Promise((r) => setTimeout(r, 2000))
++    // ── Wait for media processing ─────────────────────────────────────────────
++    await new Promise((r) => setTimeout(r, isCarousel ? 5000 : 2000))
+ 
+-    // ── Step 3: Publish ────────────────────────────────────────────────────────
+-    const publishParams = new URLSearchParams({ creation_id: containerId, access_token: accessToken })
+-    const publishRes  = await fetch(
++    // ── Publish ────────────────────────────────────────────────────────────────
++    const publishParams = new URLSearchParams({ creation_id: publishContainerId, access_token: accessToken })
++    const publishRes = await fetch(
+       `https://graph.facebook.com/v21.0/${userId}/media_publish?${publishParams.toString()}`,
+       { method: 'POST', signal: AbortSignal.timeout(20_000) },
+     )
+@@ -454,20 +785,29 @@ async function publishInstagramDirectly(
+         channel: 'instagram', eligible: true, dispatched: false,
+         webhookConfigured: false,
+         error: `Publish failed (HTTP ${publishRes.status})`,
+-        publishResult: { step: 'publish', mode: 'direct-api-error', success: false, containerId, apiError: JSON.stringify(publishData), timestamp: new Date().toISOString() },
++        publishResult: {
++          step: 'publish', mode: 'direct-api-error', success: false,
++          containerId: publishContainerId, apiError: JSON.stringify(publishData),
++          timestamp: new Date().toISOString(),
++        },
+         timestamp,
+       }
+     }
+ 
+-    console.log(`[channelDispatch] Instagram direct publish success — product=${payload.productId} postId=${postId}`)
++    console.log(
++      `[channelDispatch] Instagram direct publish success — product=${payload.productId} ` +
++        `postId=${postId} mode=${isCarousel ? 'carousel' : 'single'} images=${imageUrls.length}`,
++    )
+     return {
+       channel: 'instagram', eligible: true, dispatched: true,
+       webhookConfigured: false,
+       responseStatus: 200,
+       publishResult: {
+-        received: true, channel: 'instagram', mode: 'direct',
+-        success: true, instagramPostId: postId, containerId,
+-        mediaUrl: imageUrl, caption: caption.substring(0, 80) + '…',
++        received: true, channel: 'instagram',
++        mode: isCarousel ? 'carousel' : 'direct',
++        success: true, instagramPostId: postId, containerId: publishContainerId,
++        mediaUrl: imageUrls[0], mediaCount: imageUrls.length,
++        caption: caption.substring(0, 80) + '…',
+         timestamp: new Date().toISOString(),
+       },
+       timestamp,
+@@ -588,7 +928,11 @@ export function evaluateChannelEligibility(
+   eligible: SupportedChannel[]
+   skipped: Record<SupportedChannel, string>
+ } {
+-  const channelTargets = (product.channelTargets as string[] | undefined) ?? []
++  // D-187: When channelTargets is empty/undefined, treat as "all channels" —
++  // let the global capability gate (Gate 3) decide which are actually enabled.
++  // Old default was [] which silently blocked ALL dispatch.
++  const rawTargets = (product.channelTargets as string[] | undefined)
++  const channelTargets = (rawTargets && rawTargets.length > 0) ? rawTargets : [...SUPPORTED_CHANNELS]
+   const channels = product.channels as Record<string, boolean | undefined> | undefined
+ 
+   const skipped = {} as Record<SupportedChannel, string>
+@@ -602,6 +946,7 @@ export function evaluateChannelEligibility(
+     }
+ 
+     // Gate 2 — product channel flag: channels.publishX must not be explicitly false
++    // D-187: Skip this gate if channels object is undefined (no explicit flags set)
+     const channelFlagKey =
+       `publish${ch.charAt(0).toUpperCase()}${ch.slice(1)}` as keyof typeof channels
+     if (channels && channels[channelFlagKey] === false) {
+@@ -644,6 +989,7 @@ export function buildDispatchPayload(
+   const payload: ChannelDispatchPayload = {
+     channel,
+     productId: product.id as string | number,
++    slug:          product.slug          as string | undefined,
+     sku:           product.sku           as string | undefined,
+     title:         product.title         as string,
+     price:         product.price         as number,
+@@ -654,6 +1000,7 @@ export function buildDispatchPayload(
+     productType:   product.productType   as string | undefined,
+     color:         product.color         as string | undefined,
+     description:   product.description   as string | undefined,
++    stockQuantity: typeof product.stockQuantity === 'number' ? product.stockQuantity : undefined,
+     mediaUrls:    extractMediaUrls(product),
+     channelTargets: (product.channelTargets as string[] | undefined) ?? ['website'],
+     triggerReason,
+@@ -790,6 +1137,300 @@ export async function dispatchToChannel(
+   }
+ }
+ 
++// ── D-195: X (Twitter) Direct Publish via OAuth 1.0a ────────────────────────
++// D-195c: Switched from OAuth 2.0 PKCE to OAuth 1.0a for reliability.
++// OAuth 1.0a tokens do NOT expire — no refresh logic needed.
++// Credentials are stored as env vars: X_API_KEY, X_API_SECRET,
++// X_ACCESS_TOKEN, X_ACCESS_TOKEN_SECRET.
++// publishXDirectly() posts a tweet via X API v2 POST /2/tweets.
++
++/**
++ * Generate OAuth 1.0a Authorization header for X API requests.
++ * Implements HMAC-SHA1 signature per RFC 5849.
++ */
++function generateOAuth1Header(
++  method: string,
++  url: string,
++  apiKey: string,
++  apiSecret: string,
++  accessToken: string,
++  accessTokenSecret: string,
++): string {
++  const oauthParams: Record<string, string> = {
++    oauth_consumer_key: apiKey,
++    oauth_nonce: crypto.randomBytes(16).toString('hex'),
++    oauth_signature_method: 'HMAC-SHA1',
++    oauth_timestamp: Math.floor(Date.now() / 1000).toString(),
++    oauth_token: accessToken,
++    oauth_version: '1.0',
++  }
++
++  // Build parameter string (sorted by key)
++  const paramString = Object.keys(oauthParams)
++    .sort()
++    .map((k) => `${encodeURIComponent(k)}=${encodeURIComponent(oauthParams[k])}`)
++    .join('&')
++
++  // Build signature base string
++  const baseString = [
++    method.toUpperCase(),
++    encodeURIComponent(url),
++    encodeURIComponent(paramString),
++  ].join('&')
++
++  // Build signing key
++  const signingKey = `${encodeURIComponent(apiSecret)}&${encodeURIComponent(accessTokenSecret)}`
++
++  // Generate HMAC-SHA1 signature
++  const signature = crypto
++    .createHmac('sha1', signingKey)
++    .update(baseString)
++    .digest('base64')
++
++  oauthParams['oauth_signature'] = signature
++
++  // Build Authorization header
++  const headerParts = Object.keys(oauthParams)
++    .sort()
++    .map((k) => `${encodeURIComponent(k)}="${encodeURIComponent(oauthParams[k])}"`)
++    .join(', ')
++
++  return `OAuth ${headerParts}`
++}
++
++/**
++ * D-205: Upload an image to X for inline tweet display.
++ * D-210: Migrated from v1.1 upload.twitter.com/1.1/media/upload.json (sunset 2025-06-09)
++ *        to v2 api.x.com/2/media/upload using multipart/form-data + OAuth 1.0a.
++ *        Body params are NOT included in the OAuth signature for multipart requests,
++ *        so the existing generateOAuth1Header signs only oauth_* params (correct).
++ * Returns media_id string on success, null on failure (tweet goes text-only).
++ */
++async function uploadImageToX(
++  imageUrl: string,
++  apiKey: string,
++  apiSecret: string,
++  accessToken: string,
++  accessTokenSecret: string,
++): Promise<string | null> {
++  try {
++    // Fetch image from Vercel Blob / media URL
++    const imgResponse = await fetch(imageUrl)
++    if (!imgResponse.ok) {
++      console.error(`[channelDispatch] X media fetch failed — url=${imageUrl} status=${imgResponse.status}`)
++      return null
++    }
++    const imgBuffer = Buffer.from(await imgResponse.arrayBuffer())
++    const contentType = imgResponse.headers.get('content-type') ?? 'image/jpeg'
++
++    // X simple (non-chunked) upload limit is 5MB for images
++    if (imgBuffer.length > 5 * 1024 * 1024) {
++      console.warn(`[channelDispatch] X media too large (${imgBuffer.length} bytes), skipping upload`)
++      return null
++    }
++
++    // D-210: v2 media upload endpoint (v1.1 was sunset 2025-06-09)
++    const uploadUrl = 'https://api.x.com/2/media/upload'
++    const authHeader = generateOAuth1Header(
++      'POST', uploadUrl, apiKey, apiSecret, accessToken, accessTokenSecret,
++    )
++
++    // Build multipart/form-data body with raw image bytes under field name "media".
++    // Per OAuth 1.0a spec, multipart body params are NOT included in the signature base string,
++    // so the oauth_* header produced above is valid as-is.
++    const boundary = `----uygunayakkabiX${crypto.randomBytes(8).toString('hex')}`
++    const filename = 'image.jpg'
++    const preamble =
++      `--${boundary}\r\n` +
++      `Content-Disposition: form-data; name="media"; filename="${filename}"\r\n` +
++      `Content-Type: ${contentType}\r\n\r\n`
++    const epilogue = `\r\n--${boundary}--\r\n`
++    const multipartBody = Buffer.concat([
++      Buffer.from(preamble, 'utf8'),
++      imgBuffer,
++      Buffer.from(epilogue, 'utf8'),
++    ])
++
++    const uploadResponse = await fetch(uploadUrl, {
++      method: 'POST',
++      headers: {
++        Authorization: authHeader,
++        'Content-Type': `multipart/form-data; boundary=${boundary}`,
++        'Content-Length': multipartBody.length.toString(),
++      },
++      body: multipartBody,
++    })
++
++    const uploadText = await uploadResponse.text()
++    let uploadData: any = {}
++    try { uploadData = JSON.parse(uploadText) } catch { /* keep raw text */ }
++
++    if (!uploadResponse.ok) {
++      console.error(
++        `[channelDispatch] X media upload failed — status=${uploadResponse.status} body=${uploadText.substring(0, 500)}`,
++      )
++      return null
++    }
++
++    // v2 response shape: { data: { id: "...", media_key: "..." } }
++    // Some intermediate variants also return top-level id / media_id_string — handle all.
++    const mediaId: string | undefined =
++      uploadData?.data?.id ??
++      uploadData?.id ??
++      uploadData?.media_id_string
++    if (!mediaId) {
++      console.error(
++        `[channelDispatch] X media upload returned no id — body=${uploadText.substring(0, 500)}`,
++      )
++      return null
++    }
++    console.log(`[channelDispatch] X media uploaded — media_id=${mediaId} size=${imgBuffer.length}`)
++    return mediaId
++  } catch (err) {
++    console.error(`[channelDispatch] X media upload exception: ${err instanceof Error ? err.message : String(err)}`)
++    return null
++  }
++}
++
++/**
++ * D-195c: Publish a tweet via X API v2 POST /2/tweets using OAuth 1.0a.
++ * D-205: Now uploads product image via v1.1 media/upload for reliable display.
++ * Falls back to text-only tweet if media upload fails.
++ */
++async function publishXDirectly(
++  payload: ChannelDispatchPayload,
++): Promise<ChannelDispatchResult> {
++  const timestamp = new Date().toISOString()
++
++  const apiKey            = process.env.X_API_KEY
++  const apiSecret         = process.env.X_API_SECRET
++  const accessToken       = process.env.X_ACCESS_TOKEN
++  const accessTokenSecret = process.env.X_ACCESS_TOKEN_SECRET
++
++  if (!apiKey || !apiSecret || !accessToken || !accessTokenSecret) {
++    return {
++      channel: 'x',
++      eligible: true,
++      dispatched: false,
++      webhookConfigured: false,
++      error: 'X OAuth 1.0a credentials missing — set X_API_KEY, X_API_SECRET, X_ACCESS_TOKEN, X_ACCESS_TOKEN_SECRET env vars',
++      timestamp,
++    }
++  }
++
++  // D-195b: Build tweet text — ALWAYS include product link for Twitter Card preview.
++  // X auto-renders og:image as a large image card when a URL with proper meta tags is in the tweet.
++  const productLink = payload.slug
++    ? `https://uygunayakkabi.com/products/${payload.slug}`
++    : ''
++
++  let tweetText: string
++  if (payload.geobot?.xPost) {
++    // D-205: Replace [Link] or [Link Buraya] placeholder with actual product URL, then
++    // if no link present at all, append it.
++    let xPost = payload.geobot.xPost.replace(/\[Link(?:\s*Buraya)?\]/gi, productLink)
++    tweetText = xPost.includes('uygunayakkabi.com')
++      ? xPost
++      : `${xPost}${productLink ? `\n${productLink}` : ''}`
++  } else {
++    // Fallback: title + price + link
++    const price = payload.price ? ` ${payload.price}₺` : ''
++    tweetText = `${payload.title}${price}${productLink ? `\n${productLink}` : ''}`
++  }
++
++  // Add low-stock suffix
++  if (payload.stockQuantity != null && payload.stockQuantity > 0 && payload.stockQuantity <= 3) {
++    tweetText += `\n\n🔥 Son ${payload.stockQuantity} adet!`
++  }
++
++  // X tweet limit = 280 chars
++  if (tweetText.length > 280) {
++    tweetText = tweetText.substring(0, 277) + '...'
++  }
++
++  try {
++    // D-205: Upload first product image for inline display
++    let mediaId: string | null = null
++    const firstImage = payload.mediaUrls.find((u) => u && u.startsWith('https://'))
++    if (firstImage) {
++      mediaId = await uploadImageToX(
++        firstImage, apiKey, apiSecret, accessToken, accessTokenSecret,
++      )
++    }
++
++    const tweetUrl = 'https://api.x.com/2/tweets'
++    const authHeader = generateOAuth1Header(
++      'POST', tweetUrl, apiKey, apiSecret, accessToken, accessTokenSecret,
++    )
++
++    // Build tweet body — attach media if upload succeeded
++    const tweetBody: Record<string, unknown> = { text: tweetText }
++    if (mediaId) {
++      tweetBody.media = { media_ids: [mediaId] }
++    }
++
++    const response = await fetch(tweetUrl, {
++      method: 'POST',
++      headers: {
++        'Content-Type': 'application/json',
++        Authorization: authHeader,
++      },
++      body: JSON.stringify(tweetBody),
++    })
++
++    const data = await response.json()
++
++    if (!response.ok) {
++      // D-195c: Log full error body for debugging (truncated to 500 chars)
++      const fullBody = JSON.stringify(data).substring(0, 500)
++      const errorMsg = data.detail ?? data.title ?? fullBody
++      console.error(
++        `[channelDispatch] X publish failed — status=${response.status} error=${errorMsg} fullBody=${fullBody}`,
++      )
++      return {
++        channel: 'x',
++        eligible: true,
++        dispatched: false,
++        webhookConfigured: false,
++        error: `X API error ${response.status}: ${fullBody}`,
++        timestamp,
++      }
++    }
++
++    const tweetId = data.data?.id
++    console.log(
++      `[channelDispatch] ✅ X tweet published — tweetId=${tweetId} chars=${tweetText.length} media=${mediaId ? 'yes' : 'no'}`,
++    )
++
++    return {
++      channel: 'x',
++      eligible: true,
++      dispatched: true,
++      webhookConfigured: false, // not using webhook
++      responseStatus: response.status,
++      publishResult: {
++        tweetId,
++        mode: 'direct',
++        caption: tweetText,
++        source: payload.geobot?.xPost ? 'geobot' : 'template-fallback',
++        mediaUploaded: !!mediaId,
++      },
++      timestamp,
++    }
++  } catch (err) {
++    const message = err instanceof Error ? err.message : String(err)
++    console.error(`[channelDispatch] X publish exception: ${message}`)
++    return {
++      channel: 'x',
++      eligible: true,
++      dispatched: false,
++      webhookConfigured: false,
++      error: message,
++      timestamp,
++    }
++  }
++}
++
+ // ── Phase G: Preview caption resolver ────────────────────────────────────────
+ // Uses the SAME content-selection logic as real publish paths.
+ // Returns the exact caption that would be sent, plus source attribution.
+@@ -828,12 +1469,7 @@ function resolvePreviewCaption(
+     return { caption: payload.title, source: 'title-fallback' }
+   }
+ 
+-  if (channel === 'linkedin') {
+-    if (payload.geobot?.websiteDescription) {
+-      return { caption: payload.geobot.websiteDescription, source: 'geobot', geobotField: 'websiteDescription' }
+-    }
+-    return { caption: payload.description ?? payload.title, source: 'description-fallback' }
+-  }
++
+ 
+   // Dolap / generic
+   if (payload.geobot?.shopierCopy) {
+@@ -856,13 +1492,14 @@ export async function dispatchProductToChannels(
+   product: Record<string, unknown>,
+   settings: AutomationSettingsSnapshot | null,
+   triggerReason: string,
+-  options?: { dryRun?: boolean },
++  options?: { dryRun?: boolean; onlyChannels?: SupportedChannel[] },
+ ): Promise<{
+   results: ChannelDispatchResult[]
+   dispatchedChannels: SupportedChannel[]
+   skippedChannels: Record<SupportedChannel, string>
+ }> {
+   const dryRun = options?.dryRun === true
++  const onlyChannels = options?.onlyChannels
+   const { eligible, skipped } = evaluateChannelEligibility(product, settings)
+ 
+   // Extract Instagram/Facebook tokens from settings snapshot.
+@@ -876,6 +1513,9 @@ export async function dispatchProductToChannels(
+       }
+     : undefined
+ 
++  // D-195c: X (Twitter) now uses OAuth 1.0a via env vars — no DB tokens needed.
++  // xTokens extraction kept for backward compatibility but unused for publishing.
++
+   const results: ChannelDispatchResult[] = []
+ 
+   // Record skipped channels
+@@ -890,9 +1530,28 @@ export async function dispatchProductToChannels(
+     })
+   }
+ 
++  // D-202: Filter eligible channels when onlyChannels is specified.
++  // This prevents forceRedispatch from re-publishing to channels that
++  // already received the product (e.g. Instagram, Facebook, X).
++  const effectiveEligible = onlyChannels
++    ? eligible.filter((ch) => {
++        if (onlyChannels.includes(ch)) return true
++        // Channel is eligible but not in onlyChannels — record as skipped
++        results.push({
++          channel:           ch,
++          eligible:          true,
++          dispatched:        false,
++          skippedReason:     `not in onlyChannels (restricted to: [${onlyChannels.join(', ')}])`,
++          webhookConfigured: !!buildChannelWebhookUrl(ch),
++          timestamp:         new Date().toISOString(),
++        })
++        return false
++      })
++    : eligible
++
+   // Dispatch eligible channels
+   const dispatchedChannels: SupportedChannel[] = []
+-  for (const channel of eligible) {
++  for (const channel of effectiveEligible) {
+     const dispatchPayload = buildDispatchPayload(product, channel, triggerReason, instagramTokens)
+ 
+     // ── Phase G: Dry-run mode — resolve captions, skip all external API calls ──
+@@ -947,6 +1606,12 @@ export async function dispatchProductToChannels(
+         instagramTokens.facebookPageId,
+         instagramTokens.accessToken,
+       )
++    } else if (
++      channel === 'x' &&
++      process.env.X_ACCESS_TOKEN
++    ) {
++      // D-195c: X (Twitter) direct publish via API v2 — OAuth 1.0a (no refresh needed)
++      result = await publishXDirectly(dispatchPayload)
+     } else if (
+       channel === 'shopier' &&
+       process.env.SHOPIER_PAT
+diff --git a/src/lib/confirmationWizard.ts b/src/lib/confirmationWizard.ts
+index e798a57..daa4af2 100644
+--- a/src/lib/confirmationWizard.ts
++++ b/src/lib/confirmationWizard.ts
+@@ -173,7 +173,7 @@ export async function hydrateWizardSession(
+     return cached ?? null
+   }
+ 
+-  // D-173: Auto-create wizard_sessions table if it doesn't exist.
++  // D-173: Auto-create wizard_sessions table if it doesn't exist yet.
+   // Idempotent — CREATE TABLE IF NOT EXISTS is a no-op once the table exists.
+   if (!tableEnsured) {
+     try {
+diff --git a/src/lib/imageProviders.ts b/src/lib/imageProviders.ts
+index ddf3195..01f2d07 100644
+--- a/src/lib/imageProviders.ts
++++ b/src/lib/imageProviders.ts
+@@ -84,6 +84,10 @@ const TASK_FRAMING_BLOCK =
+   `• Ultra clean, high clarity, high sharpness, no noise, no clutter.\n` +
+   `• Soft studio lighting, natural soft shadow under the shoe.\n` +
+   `• No harsh reflections, no dramatic lighting — realistic commercial look.\n` +
++  `• EXPOSURE RULE — CRITICAL: The image must NOT look washed out, overly bright, or high-key.\n` +
++  `  Maintain visible leather/material texture with mid-tone richness.\n` +
++  `  Target overall exposure: balanced, slightly warm, never blown highlights.\n` +
++  `  The product must feel solid and tangible, not flat or overexposed.\n` +
+   `\n` +
+   `BACKGROUND LOCK (BATCH RULE — MANDATORY):\n` +
+   `• ALL images in this batch MUST use the EXACT SAME background color — no exceptions.\n` +
+@@ -180,6 +184,8 @@ export type SlotLog = {
+   /** v28: per-slot background compliance check */
+   bgCheckPass?: boolean
+   detectedBackground?: string
++  /** v35: brightness normalization applied */
++  brightnessNormalized?: boolean
+   rejectionReason?: string
+ }
+ 
+@@ -1021,6 +1027,192 @@ async function enforceSlotBackground(
+   return result
+ }
+ 
++// ─────────────────────────────────────────────────────────────────────────────
++// Brightness Normalization — Deterministic Post-Processing (v35)
++// ─────────────────────────────────────────────────────────────────────────────
++
++/**
++ * Measures the mean luminance of the product region (non-background pixels)
++ * and applies a deterministic gamma/linear correction if the image is too
++ * bright (washed out) or too dark (underexposed).
++ *
++ * Target band: mean luminance 100–170 for product pixels.
++ * Above 170 → darken (reduce gamma)  — fixes washed-out / high-key outputs.
++ * Below 100 → brighten (increase gamma) — fixes underexposed outputs.
++ *
++ * Background pixels (within bgDistance of the detected edge color) are left
++ * mostly untouched to preserve the enforced background color.
++ *
++ * This runs AFTER background enforcement so it doesn't fight the bg color.
++ */
++async function normalizeBrightness(
++  imageBuffer: Buffer,
++  targetBgHex?: string,
++): Promise<Buffer> {
++  // eslint-disable-next-line @typescript-eslint/no-require-imports
++  const sharp = require('sharp') as typeof import('sharp')
++
++  const metadata = await sharp(imageBuffer).metadata()
++  const width  = metadata.width  || 1024
++  const height = metadata.height || 1024
++
++  const { data: rawPixels, info } = await sharp(imageBuffer)
++    .removeAlpha()
++    .raw()
++    .toBuffer({ resolveWithObject: true })
++
++  const channels = info.channels // 3 (RGB)
++
++  // ── Detect background color from edges ──
++  const edgeDepth = Math.max(8, Math.round(Math.min(width, height) * 0.04))
++  let bgR = 0, bgG = 0, bgB = 0, bgCount = 0
++
++  for (let y = 0; y < height; y++) {
++    for (let x = 0; x < width; x++) {
++      const isEdge = y < edgeDepth || y >= height - edgeDepth ||
++                     x < edgeDepth || x >= width - edgeDepth
++      if (!isEdge) continue
++      const idx = (y * width + x) * channels
++      bgR += rawPixels[idx]
++      bgG += rawPixels[idx + 1]
++      bgB += rawPixels[idx + 2]
++      bgCount++
++    }
++  }
++
++  const detBg = {
++    r: Math.round(bgR / bgCount),
++    g: Math.round(bgG / bgCount),
++    b: Math.round(bgB / bgCount),
++  }
++
++  // If we have an explicit target bg hex, use it for more accurate classification
++  const bgRef = targetBgHex ? hexToRgb(targetBgHex) : detBg
++
++  // ── Measure mean luminance of PRODUCT pixels only ──
++  // Product pixels = those far enough from background color
++  const BG_THRESHOLD = 80 // pixels within this distance from bg are "background"
++  let lumSum = 0
++  let productPixelCount = 0
++
++  for (let i = 0; i < rawPixels.length; i += channels) {
++    const pr = rawPixels[i]
++    const pg = rawPixels[i + 1]
++    const pb = rawPixels[i + 2]
++
++    const dr = pr - bgRef.r
++    const dg = pg - bgRef.g
++    const db = pb - bgRef.b
++    const dist = Math.sqrt(dr * dr + dg * dg + db * db)
++
++    if (dist < BG_THRESHOLD) continue // skip background pixels
++
++    // ITU-R BT.709 luminance
++    const lum = 0.2126 * pr + 0.7152 * pg + 0.0722 * pb
++    lumSum += lum
++    productPixelCount++
++  }
++
++  // If we can't find enough product pixels, skip normalization
++  if (productPixelCount < 1000) {
++    console.log(`[normalizeBrightness] only ${productPixelCount} product pixels — skipping`)
++    return imageBuffer
++  }
++
++  const meanLum = lumSum / productPixelCount
++
++  // ── Determine correction needed ──
++  const TARGET_LOW  = 100  // below this = too dark
++  const TARGET_HIGH = 170  // above this = too bright
++  const TARGET_MID  = 135  // ideal target when correcting
++
++  let gamma = 1.0
++
++  if (meanLum > TARGET_HIGH) {
++    // Too bright — need to darken. Gamma > 1 darkens in sharp's gamma pipeline.
++    // We want to bring meanLum down to ~TARGET_MID.
++    // Approximate: newLum = oldLum ^ gamma (normalized), solve for gamma.
++    // gamma = log(targetNorm) / log(currentNorm) where norm = lum/255
++    const currentNorm = meanLum / 255
++    const targetNorm  = TARGET_MID / 255
++    gamma = Math.log(targetNorm) / Math.log(currentNorm)
++    // Clamp to reasonable range to avoid extreme shifts
++    gamma = Math.max(1.05, Math.min(gamma, 1.8))
++  } else if (meanLum < TARGET_LOW) {
++    // Too dark — need to brighten. Gamma < 1 brightens.
++    const currentNorm = meanLum / 255
++    const targetNorm  = TARGET_MID / 255
++    gamma = Math.log(targetNorm) / Math.log(currentNorm)
++    gamma = Math.max(0.55, Math.min(gamma, 0.95))
++  }
++
++  console.log(
++    `[normalizeBrightness] meanLum=${meanLum.toFixed(1)} productPx=${productPixelCount} ` +
++    `bg=rgb(${detBg.r},${detBg.g},${detBg.b}) gamma=${gamma.toFixed(3)} ` +
++    `${gamma === 1.0 ? '(no correction needed)' : gamma > 1 ? '(darkening)' : '(brightening)'}`,
++  )
++
++  if (gamma === 1.0) {
++    return imageBuffer // already in safe band
++  }
++
++  // ── Apply selective gamma: product pixels get corrected, bg pixels stay ──
++  // We use a blended approach: pixels close to bg get minimal correction,
++  // product pixels get full correction. This preserves enforced bg color.
++  const outputPixels = Buffer.from(rawPixels)
++  const BG_BLEND_MARGIN = 40
++
++  for (let i = 0; i < rawPixels.length; i += channels) {
++    const pr = rawPixels[i]
++    const pg = rawPixels[i + 1]
++    const pb = rawPixels[i + 2]
++
++    const dr = pr - bgRef.r
++    const dg = pg - bgRef.g
++    const db = pb - bgRef.b
++    const dist = Math.sqrt(dr * dr + dg * dg + db * db)
++
++    if (dist < BG_THRESHOLD - BG_BLEND_MARGIN) {
++      // Pure background — no correction
++      continue
++    }
++
++    // Blend factor: 0 at bg edge, 1.0 for pure product pixels
++    let blend: number
++    if (dist >= BG_THRESHOLD) {
++      blend = 1.0
++    } else {
++      blend = (dist - (BG_THRESHOLD - BG_BLEND_MARGIN)) / BG_BLEND_MARGIN
++    }
++
++    // Apply gamma correction with blend
++    // gamma correction: newVal = 255 * (val/255)^gamma
++    const applyGamma = (val: number): number => {
++      const norm = val / 255
++      const corrected = Math.pow(norm, gamma) * 255
++      return Math.max(0, Math.min(255, Math.round(corrected)))
++    }
++
++    const corrR = applyGamma(pr)
++    const corrG = applyGamma(pg)
++    const corrB = applyGamma(pb)
++
++    // Blend between original and corrected
++    outputPixels[i]     = Math.round(pr + (corrR - pr) * blend)
++    outputPixels[i + 1] = Math.round(pg + (corrG - pg) * blend)
++    outputPixels[i + 2] = Math.round(pb + (corrB - pb) * blend)
++  }
++
++  const result = await sharp(outputPixels, {
++    raw: { width, height, channels },
++  })
++    .jpeg({ quality: 92 })
++    .toBuffer()
++
++  console.log(`[normalizeBrightness] ✓ gamma=${gamma.toFixed(3)} applied — ${result.length}b`)
++  return result
++}
++
+ // ─────────────────────────────────────────────────────────────────────────────
+ // OpenAI gpt-image-1 Image Edit (the ONLY image generator)
+ // ─────────────────────────────────────────────────────────────────────────────
+@@ -1107,7 +1299,22 @@ const EDITING_SCENES = [
+       `COMPOSITION: Full shoe, 70-80% of image height. Top of collar and sole bottom both visible. Centered. Clean even spacing around shoe — NO excessive empty canvas.\n` +
+       `MUST SEE: Toe cap front face, vamp, lace/closure system, collar — the entire FRONT face.\n` +
+       `MUST NOT SEE: Heel counter, side profile, sole edge.\n` +
+-      `BACKGROUND: {BACKGROUND} Use this EXACT color. Do not shift or reinterpret.\n` +
++      `\n` +
++      `BACKGROUND — CRITICAL BATCH LOCK:\n` +
++      `BACKGROUND: {BACKGROUND}\n` +
++      `This is a STUDIO shot. The shoe is photographed on a clean, seamless studio backdrop.\n` +
++      `The background MUST be the EXACT color specified above — solid, uniform, no texture.\n` +
++      `\n` +
++      `BANNED BACKGROUNDS (will cause REJECTION):\n` +
++      `• NO real-world surface from the reference photo — no concrete, no stone, no asphalt\n` +
++      `• NO tabletop surface — no wood, no marble, no granite, no tiles\n` +
++      `• NO textured floor — no carpet, no parquet, no linoleum\n` +
++      `• NO environmental background — no walls, no outdoor scenes, no fabric\n` +
++      `• NO gradient or vignette — pure solid uniform color only\n` +
++      `• NO dark/black background unless the batch background specifies it\n` +
++      `The reference photo may show the shoe on a real surface (concrete, floor, etc.) — you MUST REMOVE that surface and replace it with the clean studio backdrop specified above.\n` +
++      `If the output background looks like a real-world surface instead of a studio backdrop, this image is WRONG.\n` +
++      `\n` +
+       `LIGHT: Soft studio lighting — overhead softbox + bilateral fill. Natural soft shadow under the shoe only. No harsh reflections.\n` +
+       `OUTPUT: Full-bleed photograph. No frames, no borders, no margins, no mockup. No watermark, no text, no logo overlay.\n` +
+       `THIS IS NOT: a side view, a 3/4 view, a lifestyle shot, a close-up, a framed image.\n` +
+@@ -1125,7 +1332,22 @@ const EDITING_SCENES = [
+       `COMPOSITION: Full shoe from toe tip to heel counter. Entire sole edge visible. Shoe fills 75-80% of image width. Centered. Clean even spacing — NO excessive empty canvas.\n` +
+       `MUST SEE: Complete sole profile (toe to heel), arch curve, heel counter height, collar line. The sole silhouette is the dominant visual.\n` +
+       `MUST NOT SEE: Toe cap front face (if you can see the front of the toe, the angle is WRONG).\n` +
+-      `BACKGROUND: {BACKGROUND} Use this EXACT color — identical to all other slots.\n` +
++      `\n` +
++      `BACKGROUND — CRITICAL BATCH LOCK:\n` +
++      `BACKGROUND: {BACKGROUND}\n` +
++      `This is a STUDIO shot — identical backdrop to all other slots in this batch.\n` +
++      `The background MUST be the EXACT color specified above — solid, uniform, no texture.\n` +
++      `\n` +
++      `BANNED BACKGROUNDS (will cause REJECTION):\n` +
++      `• NO real-world surface from the reference photo — no concrete, no stone, no asphalt\n` +
++      `• NO tabletop surface — no wood, no marble, no granite, no tiles\n` +
++      `• NO textured floor — no carpet, no parquet, no linoleum\n` +
++      `• NO environmental background — no walls, no outdoor scenes, no fabric\n` +
++      `• NO gradient or vignette — pure solid uniform color only\n` +
++      `• NO dark/black background unless the batch background specifies it\n` +
++      `The reference photo may show the shoe on a real surface (concrete, floor, etc.) — you MUST REMOVE that surface and replace it with the clean studio backdrop specified above.\n` +
++      `If the output background looks like a real-world surface instead of a studio backdrop, this image is WRONG.\n` +
++      `\n` +
+       `LIGHT: Soft studio lighting — key from front-left 45°, fill from opposite. Natural soft shadow. No harsh reflections.\n` +
+       `OUTPUT: Full-bleed photograph. No frames, no borders, no margins, no mockup. No watermark, no text, no logo overlay.\n` +
+       `THIS IS NOT: a front view, a 3/4 view, a top-down view, a framed image.\n` +
+@@ -1265,35 +1487,35 @@ export async function generateByEditing(
+       `scenes=${scenes.map((s) => s.name).join(',')}`,
+     )
+ 
+-    // Resize shoe to 768×768 (fit:contain with white bg) then pad to 1024×1024.
+-    // This guarantees at least 128px white border on all sides, giving the model
+-    // visual room for recomposition even on square photos.
++    // ── Compute batch background FIRST so padding matches the target bg ──
++    // BUG FIX v29: white padding caused the model to reproduce white borders.
++    const mainColor    = identityLock.mainColor
++    const refAngle     = identityLock.referenceAngle || 'unknown'
++    const zoneBlock    = identityLock.protectedZoneBlock || ''
++    const hasBrandZones = geminiKey && (identityLock.protectedZones?.length ?? 0) > 0
++    const premiumBackground = getBackgroundForColor(mainColor)
++    const padHex = parseBackgroundHex(premiumBackground) || '#EDEDED'
++    const padRgb = hexToRgb(padHex)
++
++    console.log(
++      `[generateByEditing v12] protected zones: ${hasBrandZones ? (identityLock.protectedZones?.map((z) => z.name).join(',')) : 'none'}`,
++    )
++
++    // Resize shoe to 768×768 then pad to 1024×1024 using batch bg color (not white)
+     const innerBuffer = await sharp(referenceImage)
+-      .resize(768, 768, { fit: 'contain', background: { r: 255, g: 255, b: 255, alpha: 1 } })
++      .resize(768, 768, { fit: 'contain', background: { r: padRgb.r, g: padRgb.g, b: padRgb.b, alpha: 1 } })
+       .png()
+       .toBuffer()
+ 
+     const pngBuffer = await sharp(innerBuffer)
+       .extend({
+         top: 128, bottom: 128, left: 128, right: 128,
+-        background: { r: 255, g: 255, b: 255, alpha: 1 },
++        background: { r: padRgb.r, g: padRgb.g, b: padRgb.b, alpha: 1 },
+       })
+       .png()
+       .toBuffer()
+ 
+-    console.log(`[generateByEditing v12] PNG 1024×1024 ready — ${pngBuffer.length}b (shoe at 768×768 center)`)
+-
+-    const mainColor    = identityLock.mainColor
+-    const refAngle     = identityLock.referenceAngle || 'unknown'
+-    const zoneBlock    = identityLock.protectedZoneBlock || ''
+-    const hasBrandZones = geminiKey && (identityLock.protectedZones?.length ?? 0) > 0
+-
+-    console.log(
+-      `[generateByEditing v12] protected zones: ${hasBrandZones ? (identityLock.protectedZones?.map((z) => z.name).join(',')) : 'none'}`,
+-    )
+-
+-    // Compute premium background once (same for all studio slots in this batch)
+-    const premiumBackground = getBackgroundForColor(mainColor)
++    console.log(`[generateByEditing v29] PNG 1024×1024 ready — ${pngBuffer.length}b padColor=${padHex}`)
+ 
+     for (const scene of scenes) {
+       // Replace placeholders in scene instructions
+@@ -1425,21 +1647,32 @@ export async function generateByEditing(
+         }
+       }
+ 
++      // ── v35: brightness normalization (same as Gemini Pro path) ──────────
++      if (finalBuf) {
++        try {
++          const bgHexNorm = parseBackgroundHex(premiumBackground) || undefined
++          finalBuf = await normalizeBrightness(finalBuf, bgHexNorm)
++          ;(slotLog as Record<string, unknown>).brightnessNormalized = true
++        } catch (normErr) {
++          console.warn(`[generateByEditing v35] brightness normalization failed for ${scene.name}:`, normErr instanceof Error ? normErr.message : normErr)
++        }
++      }
++
+       if (finalBuf) {
+         result.buffers.push(finalBuf)
+         result.successCount++
+         slotLog.success = true
+         slotLog.outputSizeBytes = finalBuf.length
+         console.log(
+-          `[generateByEditing v12] ✓ ${scene.name} — ${finalBuf.length}b ` +
++          `[generateByEditing v35] ✓ ${scene.name} — ${finalBuf.length}b ` +
+           `(attempts=${slotLog.attempts} color=${slotLog.colorCheckPass ?? 'skip'} ` +
+-          `brand=${slotLog.brandFidelityPass ?? 'skip'})`,
++          `brand=${slotLog.brandFidelityPass ?? 'skip'} brightNorm=${(slotLog as Record<string, unknown>).brightnessNormalized ?? false})`,
+         )
+       } else {
+         const msg = `${scene.name}: null after ${slotLog.attempts} attempts`
+         result.errors.push(msg)
+         slotLog.rejectionReason = slotLog.rejectionReason || msg
+-        console.warn(`[generateByEditing v12] ✗ ${msg}`)
++        console.warn(`[generateByEditing v35] ✗ ${msg}`)
+       }
+ 
+       slotLogs.push(slotLog)
+@@ -1447,7 +1680,7 @@ export async function generateByEditing(
+     }
+   } catch (err) {
+     const msg = `Pipeline fatal: ${err instanceof Error ? err.message : err}`
+-    console.error(`[generateByEditing v12] ${msg}`)
++    console.error(`[generateByEditing v35] ${msg}`)
+     result.errors.push(msg)
+   }
+ 
+@@ -1456,7 +1689,7 @@ export async function generateByEditing(
+     if (s.colorCheckPass === false || s.brandFidelityPass === false) return '⚠'
+     return '✓'
+   }).join('')
+-  console.log(`[generateByEditing v12] done — ${result.successCount}/${result.promptCount} [${slotSummary}]`)
++  console.log(`[generateByEditing v35] done — ${result.successCount}/${result.promptCount} [${slotSummary}]`)
+ 
+   return { results: [result], buffers: result.buffers, slotLogs }
+ }
+@@ -1632,28 +1865,35 @@ export async function generateByGeminiPro(
+       `scenes=${scenes.map((s) => s.name).join(',')}`,
+     )
+ 
+-    // Same 768×768 → 1024×1024 padding as generateByEditing
++    // ── Compute batch background FIRST so padding matches the target bg ──
++    // BUG FIX v29: Previously padding was white (#FFFFFF), which caused Gemini
++    // to reproduce white borders in its output ("inset" / "floating canvas" look).
++    // Now padding uses the actual batch background color so the model sees the
++    // correct context color around the shoe — no white border to reproduce.
++    const mainColor   = identityLock.mainColor
++    const refAngle    = identityLock.referenceAngle || 'unknown'
++    const zoneBlock   = identityLock.protectedZoneBlock || ''
++    const hasBrandZones = (identityLock.protectedZones?.length ?? 0) > 0
++
++    const premiumBackground = getBackgroundForColor(mainColor)
++    const padHex = parseBackgroundHex(premiumBackground) || '#EDEDED'
++    const padRgb = hexToRgb(padHex)
++
++    // Resize shoe to 768×768 then pad to 1024×1024 using batch background color
+     const innerBuffer = await sharp(referenceImage)
+-      .resize(768, 768, { fit: 'contain', background: { r: 255, g: 255, b: 255, alpha: 1 } })
++      .resize(768, 768, { fit: 'contain', background: { r: padRgb.r, g: padRgb.g, b: padRgb.b, alpha: 1 } })
+       .png()
+       .toBuffer()
+ 
+     const pngBuffer = await sharp(innerBuffer)
+       .extend({
+         top: 128, bottom: 128, left: 128, right: 128,
+-        background: { r: 255, g: 255, b: 255, alpha: 1 },
++        background: { r: padRgb.r, g: padRgb.g, b: padRgb.b, alpha: 1 },
+       })
+       .png()
+       .toBuffer()
+ 
+-    console.log(`[generateByGeminiPro v14] PNG 1024×1024 ready — ${pngBuffer.length}b`)
+-
+-    const mainColor   = identityLock.mainColor
+-    const refAngle    = identityLock.referenceAngle || 'unknown'
+-    const zoneBlock   = identityLock.protectedZoneBlock || ''
+-    const hasBrandZones = (identityLock.protectedZones?.length ?? 0) > 0
+-
+-    const premiumBackground = getBackgroundForColor(mainColor)
++    console.log(`[generateByGeminiPro v29] PNG 1024×1024 ready — ${pngBuffer.length}b padColor=${padHex}`)
+     const multiAngleBlock = buildMultiAngleBlock(additionalImages?.length || 0)
+ 
+     for (const scene of scenes) {
+@@ -1740,7 +1980,7 @@ export async function generateByGeminiPro(
+           const reinforcedPrompt = correctionLines.join('\n') + '\n\n' + fullPrompt
+ 
+           console.warn(
+-            `[generateByGeminiPro v28] ✗ ${scene.name} fidelity issues — ` +
++            `[generateByGeminiPro v29] ✗ ${scene.name} fidelity issues — ` +
+             `color=${colorCheck.match} brand=${brandCheck?.pass ?? 'skip'} ` +
+             `shot=${shotCheck.pass} bg=${bgCheck.pass} ` +
+             `(bgDetected="${bgCheck.detectedBackground.slice(0, 60)}") — retrying`,
+@@ -1792,16 +2032,16 @@ export async function generateByGeminiPro(
+             const bgHex = parseBackgroundHex(premiumBackground)
+             if (bgHex) {
+               try {
+-                console.log(`[generateByGeminiPro v28] bg still drifted on ${scene.name} after retry — enforcing ${bgHex} via post-process`)
++                console.log(`[generateByGeminiPro v29] bg still drifted on ${scene.name} after retry — enforcing ${bgHex} via post-process`)
+                 finalBuf = await enforceSlotBackground(finalBuf, bgHex)
+                 slotLog.bgCheckPass = true // mark as corrected
+                 ;(slotLog as Record<string, unknown>).bgEnforced = true
+                 // Remove bg warning from rejection reason since we fixed it
+                 const filteredWarnings = warnings.filter((w) => !w.startsWith('background drift'))
+                 slotLog.rejectionReason = filteredWarnings.length > 0 ? filteredWarnings.join('; ') : undefined
+-                console.log(`[generateByGeminiPro v28] ✓ ${scene.name} background enforced via post-process`)
++                console.log(`[generateByGeminiPro v29] ✓ ${scene.name} background enforced via post-process`)
+               } catch (enforceErr) {
+-                console.warn(`[generateByGeminiPro v28] bg enforcement failed for ${scene.name}:`, enforceErr instanceof Error ? enforceErr.message : enforceErr)
++                console.warn(`[generateByGeminiPro v29] bg enforcement failed for ${scene.name}:`, enforceErr instanceof Error ? enforceErr.message : enforceErr)
+                 // Keep the retried image as-is — don't lose it
+               }
+             }
+@@ -1817,16 +2057,46 @@ export async function generateByGeminiPro(
+         result.errors.push(`${scene.name}: ${slotErrMsg}`)
+       }
+ 
++      // ── v29: UNCONDITIONAL background enforcement on every successful slot ──
++      // Previously this only ran after retry+fail. Now it runs on ALL slots
++      // to guarantee deterministic batch background regardless of what Gemini produced.
++      // This is the safety net that eliminates background mismatch across the batch.
++      if (finalBuf) {
++        const bgHex = parseBackgroundHex(premiumBackground)
++        if (bgHex) {
++          try {
++            finalBuf = await enforceSlotBackground(finalBuf, bgHex)
++            ;(slotLog as Record<string, unknown>).bgEnforced = true
++            console.log(`[generateByGeminiPro v35] ✓ ${scene.name} bg enforced to ${bgHex}`)
++          } catch (enforceErr) {
++            console.warn(`[generateByGeminiPro v35] bg enforcement failed for ${scene.name}:`, enforceErr instanceof Error ? enforceErr.message : enforceErr)
++          }
++        }
++
++        // ── v35: UNCONDITIONAL brightness normalization ──────────────────────
++        // Runs AFTER bg enforcement. Measures product pixel luminance and applies
++        // selective gamma correction if the image is too bright (washed out) or
++        // too dark (underexposed). Background pixels are preserved.
++        try {
++          const bgHexForNorm = bgHex || parseBackgroundHex(premiumBackground) || undefined
++          finalBuf = await normalizeBrightness(finalBuf, bgHexForNorm)
++          ;(slotLog as Record<string, unknown>).brightnessNormalized = true
++        } catch (normErr) {
++          console.warn(`[generateByGeminiPro v35] brightness normalization failed for ${scene.name}:`, normErr instanceof Error ? normErr.message : normErr)
++        }
++      }
++
+       if (finalBuf) {
+         result.buffers.push(finalBuf)
+         result.successCount++
+         slotLog.success = true
+         slotLog.outputSizeBytes = finalBuf.length
+         console.log(
+-          `[generateByGeminiPro v28] ✓ ${scene.name} — ${finalBuf.length}b ` +
++          `[generateByGeminiPro v35] ✓ ${scene.name} — ${finalBuf.length}b ` +
+           `(attempts=${slotLog.attempts} color=${slotLog.colorCheckPass ?? 'skip'} ` +
+           `brand=${slotLog.brandFidelityPass ?? 'skip'} shot=${slotLog.shotCompliancePass ?? 'skip'} ` +
+-          `bg=${slotLog.bgCheckPass ?? 'skip'})`,
++          `bg=${slotLog.bgCheckPass ?? 'skip'} bgEnforced=${(slotLog as Record<string, unknown>).bgEnforced ?? false} ` +
++          `brightNorm=${(slotLog as Record<string, unknown>).brightnessNormalized ?? false})`,
+         )
+       } else {
+         const msg = `${scene.name}: null after ${slotLog.attempts} attempts`
+@@ -1849,7 +2119,7 @@ export async function generateByGeminiPro(
+     if (s.colorCheckPass === false || s.brandFidelityPass === false || s.shotCompliancePass === false || s.bgCheckPass === false) return '⚠'
+     return '✓'
+   }).join('')
+-  console.log(`[generateByGeminiPro v28] done — ${result.successCount}/${result.promptCount} [${slotSummary}]`)
++  console.log(`[generateByGeminiPro v35] done — ${result.successCount}/${result.promptCount} [${slotSummary}]`)
+ 
+   return { results: [result], buffers: result.buffers, slotLogs }
+ }
+diff --git a/src/lib/shopierSync.ts b/src/lib/shopierSync.ts
+index b2bb57f..61aecd4 100644
+--- a/src/lib/shopierSync.ts
++++ b/src/lib/shopierSync.ts
+@@ -160,17 +160,28 @@ export async function ensureSelection(
+ /**
+  * Extract media URLs from a Payload product and map to Shopier media input.
+  * Shopier accepts external image URLs in the media array (max 5).
++ *
++ * Priority: generativeGallery (AI-generated images) ONLY.
++ * Original Telegram photos (product.images) are NOT sent to Shopier.
++ * If no AI images exist, returns empty array — sync will be skipped
++ * until AI images are generated and approved.
+  */
+ function buildShopierMedia(product: Record<string, unknown>): ShopierMediaInput[] {
+-  const images = product.images as
++  // Use ONLY AI-generated images from generativeGallery
++  const aiImages = product.generativeGallery as
+     | Array<{ image?: { url?: string; filename?: string } }>
+     | undefined
+ 
+-  if (!Array.isArray(images) || images.length === 0) return []
++  if (!Array.isArray(aiImages) || aiImages.length === 0) {
++    console.warn(
++      `[shopierSync] product ${product.id} has no AI images in generativeGallery — skipping media`,
++    )
++    return []
++  }
+ 
+   const serverUrl = (process.env.NEXT_PUBLIC_SERVER_URL ?? '').replace(/\/$/, '')
+ 
+-  return images
++  return aiImages
+     .slice(0, 5) // Shopier max 5 media files
+     .map((img, i) => {
+       const media = img?.image
+@@ -288,7 +299,7 @@ async function buildShopierProductBody(
+ 
+   const media = buildShopierMedia(product)
+   if (media.length === 0) {
+-    console.error(`[shopierSync] product ${product.id} has no valid media URLs`)
++    console.error(`[shopierSync] product ${product.id} has no AI images in generativeGallery — Shopier requires AI-generated visuals`)
+     return null
+   }
+ 
+@@ -352,7 +363,7 @@ export async function publishProductToShopier(
+     if (!body) {
+       return {
+         success: false,
+-        error: 'Failed to build Shopier product body — missing required fields (title, media, price)',
++        error: 'Failed to build Shopier product body — missing required fields (title, AI images in generativeGallery, price)',
+       }
+     }
+ 

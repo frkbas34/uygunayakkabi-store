@@ -43,7 +43,7 @@ export async function GET(req: NextRequest) {
   if (error) return error
 
   try {
-    const res = await listCategories(100)
+    const res = await listCategories(50)
     if (!res.ok) {
       return NextResponse.json(
         { error: 'Shopier listCategories failed', details: res },

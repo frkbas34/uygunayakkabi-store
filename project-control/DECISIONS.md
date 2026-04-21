@@ -4343,3 +4343,40 @@ Product 294 re-dispatched after D-215 deploy (Vercel `E7NE2aJZw` Ready). Cron ti
 **Branch / Commit:** committed and pushed to `main` as `dd999a3`.
 **Vercel deployment:** `E7NE2aJZw` — Production / Ready / 26s build.
 **Status:** IMPLEMENTED — PROD-VALIDATED (product 294, 2026-04-21).
+
+---
+
+## D-216 — Shopier Bulk Backfill Findings + D-208b Churn Observation — INVESTIGATION NOTE
+
+**Date:** 2026-04-21
+**Decision:** No code change. Document bulk-backfill outcome and two latent Shopier sync behaviors observed, then close the size-selector work stream.
+
+**What was done:**
+After D-215 went live, 7 previously-synced Shopier-linked products (285, 286, 288, 289, 290, 293, 295) were re-dispatched via authenticated admin REST PATCH (`sourceMeta.forceRedispatchChannels: ['shopier']`). Cron ticks 2026-04-21 05:30 and 05:40 UTC processed the queued jobs.
+
+**Result:**
+- **Variants in Payload:** Only product **294** has variants (86/87/88 → sizes 43/44/45). The other 7 products have `variants: []`.
+- **Shopier size selector coverage:** Consequently, Shopier's `<select name="size">` is only expected and observed on product 294 (46375838). All other products correctly have no size selector because there's nothing to select — not a sync bug.
+- **D-208b fallback fires on every UPDATE for variant-less products:** Re-syncing 285, 286, 289, 290, 293, 295 created **new** Shopier products each cycle (old IDs became orphans, e.g. 285: 46148178 → 46376224; 293 churned twice: 46373596 → 46376215 → 46376286 because a duplicate PATCH fired it twice). Only 294 preserved its Shopier ID across re-dispatch (UPDATE succeeded).
+
+**Inferred root cause (NOT verified via log):**
+`publishProductToShopier()` calls `api.updateProduct(existingShopierProductId, body)` first. When the body has no `variants[]`, Shopier returns 403/404, triggering the D-208b fallback (`shopierSync.ts:411-416`) that retries as CREATE. The UPDATE fails consistently for variant-less products but succeeds when variants are present. Exact reason unknown — may be stale `categoryId`, seller-side auto-cleanup of variant-less listings, or API-side quirk. This was latent all along but became visible in bulk.
+
+**Practical impact:**
+- Previously-synced variant-less products accumulate orphan entries in Shopier every time they're re-dispatched. Orphans redirect to the seller's root page (confirmed for 46176930 / 288).
+- Safe for now because re-dispatch is rare, but risks orphan sprawl if bulk flows run frequently.
+
+**Stuck case — product 288:**
+Product 288 remained `forceRedispatch: true` with `shopierSyncStatus: synced` and stale `lastSync: 2026-04-15`. Hook did not re-fire because the boolean didn't transition (two overlapping PATCH runs both wrote `true` → hook's change-detection treated it as a no-op). One-off; not reproduced elsewhere.
+
+**Best next step (PROPOSED — not executed):**
+1. Investigate why Shopier PUT fails on variant-less products (capture one failing PUT body + response from Vercel logs).
+2. Add an explicit `variants` handling path in `publishProductToShopier()` so UPDATE is skipped or adjusted when `variants.length === 0`, avoiding churn.
+3. Manual cleanup of 288 when next touching Shopier sync (PATCH with `forceRedispatch: false` first, then `true`, to break the hook no-op).
+
+**Evidence (VERIFIED via admin REST + live Shopier navigations, 2026-04-21):**
+- 294 storefront: `<select>` with `43, 44, 45` — correct.
+- 285 storefront (46376224): no `<select>`, Payload has no variants — correct.
+- 288 storefront (46176930): redirects to seller root — orphan, needs a follow-up dispatch cycle.
+
+**Status:** INVESTIGATION NOTE — no code change. Backfill work stream CLOSED. Follow-up items logged in TASK_QUEUE.md.

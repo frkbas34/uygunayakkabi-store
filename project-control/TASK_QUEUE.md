@@ -1,6 +1,6 @@
 # TASK QUEUE — Uygunayakkabi
 
-_Last updated: 2026-04-21 (Shopier size selector flow PROD-VALIDATED on product 294 — Numara dropdown 43/44/45 rendering live via D-213 + D-214 + D-215; D-213 Shopier `listSelections` limit cap 100→50 DEPLOYED — size selector root cause fixed at API level; Phase 1 one-product full-pipeline validation CLOSED on product 294 — D-212; D-211 X `media_category=tweet_image` fix prod-validated; Phase 2 Telegram SN/operator controls promoted to NOW; per-channel redispatch selector added to backlog; Phase Z visualStatus state-sync + golden-path pre-run diagnostic D-154; D-153 runtime v50 lock-rules reminder; D-152 v50 image pipeline lock RESTORED after silent violation; Phase O Group Parity D-142; Vercel Build Optimization D-141; Phase N Bot Role Separation D-140; Multi-Bot Support D-139; Phase L D-138; Phase K D-137; Phase I D-136; Phase G D-135; Phase D D-134; Phase C D-133; Image Pipeline v38 D-124; v37 D-123; v36 D-122; v35 D-121; v34 D-120; Phase 21 Operator Runbook; VF-7 D-117b; VF-6 D-117; Phases 16-19 D-116; Phase 13 D-115/D-114; Phases 1-12 complete)_
+_Last updated: 2026-04-21 (Shopier bulk backfill investigation CLOSED — D-216 logged; re-dispatched 7 previously-synced products; confirmed only product 294 has variants; documented D-208b churn on variant-less UPDATE + hook no-op on `forceRedispatch: true→true`; Shopier size selector flow PROD-VALIDATED on product 294 — Numara dropdown 43/44/45 rendering live via D-213 + D-214 + D-215; D-213 Shopier `listSelections` limit cap 100→50 DEPLOYED — size selector root cause fixed at API level; Phase 1 one-product full-pipeline validation CLOSED on product 294 — D-212; D-211 X `media_category=tweet_image` fix prod-validated; Phase 2 Telegram SN/operator controls promoted to NOW; per-channel redispatch selector added to backlog; Phase Z visualStatus state-sync + golden-path pre-run diagnostic D-154; D-153 runtime v50 lock-rules reminder; D-152 v50 image pipeline lock RESTORED after silent violation; Phase O Group Parity D-142; Vercel Build Optimization D-141; Phase N Bot Role Separation D-140; Multi-Bot Support D-139; Phase L D-138; Phase K D-137; Phase I D-136; Phase G D-135; Phase D D-134; Phase C D-133; Image Pipeline v38 D-124; v37 D-123; v36 D-122; v35 D-121; v34 D-120; Phase 21 Operator Runbook; VF-7 D-117b; VF-6 D-117; Phases 16-19 D-116; Phase 13 D-115/D-114; Phases 1-12 complete)_
 
 ---
 
@@ -39,7 +39,16 @@ Three-part fix:
 
 **Trigger path used:** admin REST PATCH on `/api/products/294` with `sourceMeta: { forceRedispatch: true, forceRedispatchChannels: ['shopier'] }` → afterChange hook queued `shopier-sync` job → next cron tick (10-min cadence) ran `syncProductToShopier()` → Shopier accepted the update.
 
-**Bulk backfill next step:** for other previously-synced products, either call `/api/admin/shopier-resync?all=true` with the secret, or iterate the admin REST PATCH per product.
+**Bulk backfill DONE (2026-04-21, D-216):** 7 previously-synced products (285, 286, 288, 289, 290, 293, 295) were re-dispatched via admin REST PATCH; cron ticks 05:30 + 05:40 UTC processed the queue. Findings:
+- Only product 294 has variants in Payload — the 7 others have `variants: []`, so their Shopier pages correctly have no size selector (reflects Payload reality, not a sync bug).
+- **D-208b fallback churn:** variant-less UPDATE returns 403/404 → CREATE fallback fires → new Shopier ID every re-sync cycle. Old Shopier IDs become orphans (redirect to seller root). Only product 294 preserved its ID 46375838.
+- **Product 288 stuck:** `forceRedispatch` didn't reset (hook no-op on `true → true` transition); 288 still on stale Shopier ID 46176930 (orphaned).
+
+Follow-up items (LATER):
+- Investigate root cause of UPDATE failure for variant-less products (capture one failing PUT body + Shopier response from Vercel logs).
+- Add variant-count guard in `publishProductToShopier()` to avoid D-208b churn (e.g. if `variants.length === 0`, skip UPDATE or pass a sentinel).
+- Manually unstick product 288 (PATCH `forceRedispatch: false` first, then `true`) when Shopier sync is next touched.
+- D-214 endpoint cleanup still OK to defer — no bulk operations active.
 
 ### ✅ Phase 1 — One-Product Full Pipeline Validation: CLOSED (2026-04-21)
 - Product 294 end-to-end green: Website/homepage ✅, Instagram carousel ✅, Facebook multi-photo ✅, X with image ✅

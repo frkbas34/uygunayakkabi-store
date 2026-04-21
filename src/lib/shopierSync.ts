@@ -270,7 +270,9 @@ async function buildShopierVariants(
 
     shopierVariants.push({
       variationId: numaraVarId,
-      selectionId,
+      // D-215: Shopier PUT/POST expects selectionId as an array even though
+      // individual variants each pick exactly one selection.
+      selectionId: [selectionId],
       stockStatus: (v.stock ?? 0) > 0 ? 'inStock' : 'outOfStock',
       stockQuantity: v.stock ?? 0,
       primary: i === 0, // first variant is primary

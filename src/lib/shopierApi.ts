@@ -35,7 +35,15 @@ export interface ShopierPriceDataInput {
 
 export interface ShopierVariantInput {
   variationId: string
-  selectionId: string
+  /**
+   * D-215: Shopier REST API requires `selectionId` to be an array on
+   * POST/PUT product bodies, even though GET responses return a single
+   * string per variant (see ShopierProductResponse.variants[].selectionId).
+   * Previously typed as `string` — Shopier replied HTTP 400
+   * `"variants[0].selectionId must be an array"` after D-213 started
+   * resolving real selection IDs.
+   */
+  selectionId: string[]
   stockStatus: ShopierStockStatus
   stockQuantity: number
   primary?: boolean

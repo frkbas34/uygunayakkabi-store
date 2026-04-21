@@ -4380,3 +4380,48 @@ Product 288 remained `forceRedispatch: true` with `shopierSyncStatus: synced` an
 - 288 storefront (46176930): redirects to seller root — orphan, needs a follow-up dispatch cycle.
 
 **Status:** INVESTIGATION NOTE — no code change. Backfill work stream CLOSED. Follow-up items logged in TASK_QUEUE.md.
+
+---
+
+## D-217 — Admin-Auth Shopier Category Ensure Endpoint + Wizard Category Seed — PROD-VALIDATED
+
+**Date:** 2026-04-21
+**Decision:** Add a new admin-auth'd API route `GET/POST /api/admin/shopier-categories` for inspecting and pre-creating Shopier categories, and seed the 6 operator-wizard categories (Spor, Günlük, Klasik, Bot, Terlik, Cüzdan) into Shopier.
+
+**Why:**
+`resolveShopierCategories()` in `shopierSync.ts` matches a Payload product's `category` string against the Shopier categories Map by exact title. If no match is found, it silently falls back to the first available Shopier category (formerly "Günlük") and logs a warning — meaning every Payload product with category `Spor`, `Klasik`, `Bot`, `Terlik`, or `Cüzdan` was being mis-categorized on Shopier. Pre-seeding the wizard categories closes the gap without touching sync logic.
+
+**Auth pattern (new):**
+The D-214 endpoint uses a secret-guarded `x-admin-secret` header. This D-217 endpoint uses Payload session auth (`payload.auth({ headers: req.headers })`) so it's callable from the authenticated admin tab with `credentials: 'include'` and needs no extra secret plumbing.
+
+**Implementation:**
+New file `src/app/api/admin/shopier-categories/route.ts`:
+- `GET` → returns `{ count, categories: [{ id, title, placement }] }` via `listCategories(50)`.
+- `POST` → body `{ titles: string[] }`, fetches current categories, skips already-existing titles, calls `createCategory()` for the rest. Returns `{ total, created, alreadyExists, errors, results[] }`.
+
+**Gotcha encountered (and fixed):**
+Both `GET` and `POST` initially passed `listCategories(100)`. Shopier `/categories` rejects `limit > 50` with the same HTTP 400 `"limit must be less than or equal to 50"` error as D-213 on `/selections`. Capped to `50` in both call sites (`commits 3f3e165` and `064204d`).
+
+**Evidence (VERIFIED live via admin tab):**
+`POST /api/admin/shopier-categories` with `{titles: ["Spor","Günlük","Klasik","Bot","Terlik","Cüzdan"]}` returned `{ total:6, created:5, alreadyExists:1, errors:0 }`. Post-state `GET` confirms 7 categories in Shopier:
+
+| title   | id                 | placement |
+|---------|--------------------|-----------|
+| Günlük  | `6b59e27730d800f7` | 1         |
+| ayakkab | `f440b506ca57b2d1` | 1         |
+| Spor    | `dd158ac4ccd8d5ec` | 2         |
+| Klasik  | `fc356eea18a4aa98` | 3         |
+| Bot     | `7cd3c86a052248e8` | 4         |
+| Terlik  | `39231418b67404e0` | 5         |
+| Cüzdan  | `a707d600ac9ca58d` | 6         |
+
+Note: the pre-existing `ayakkab` row is an operator-side typo from Shopier's admin UI — not touched; left for the operator to rename or delete manually on Shopier.
+
+**Caveats:**
+- `getShopierMappings()` caches the categories Map with a 5-min TTL (`_mappingsCache` in `shopierSync.ts`). New product syncs will pick up the new categories on the next cold start or after the TTL expires.
+- Existing Shopier products were created while only `Günlük` existed, so they currently point to that category. Re-syncing them will still hit the D-208b churn issue for variant-less products (see D-216).
+
+**Commits:** `1ed5a97` (route) + `3f3e165` + `064204d` (50-cap fixes).
+**Vercel deployments:** three sequential — final one (`064204d`) Ready.
+**Status:** IMPLEMENTED — PROD-VALIDATED (2026-04-21).
+**Lifecycle:** transient operator tool, safe to remove after Shopier category seed stabilizes.

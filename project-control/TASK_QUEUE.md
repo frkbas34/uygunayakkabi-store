@@ -1,6 +1,6 @@
 # TASK QUEUE — Uygunayakkabi
 
-_Last updated: 2026-04-21 (Shopier bulk backfill investigation CLOSED — D-216 logged; re-dispatched 7 previously-synced products; confirmed only product 294 has variants; documented D-208b churn on variant-less UPDATE + hook no-op on `forceRedispatch: true→true`; Shopier size selector flow PROD-VALIDATED on product 294 — Numara dropdown 43/44/45 rendering live via D-213 + D-214 + D-215; D-213 Shopier `listSelections` limit cap 100→50 DEPLOYED — size selector root cause fixed at API level; Phase 1 one-product full-pipeline validation CLOSED on product 294 — D-212; D-211 X `media_category=tweet_image` fix prod-validated; Phase 2 Telegram SN/operator controls promoted to NOW; per-channel redispatch selector added to backlog; Phase Z visualStatus state-sync + golden-path pre-run diagnostic D-154; D-153 runtime v50 lock-rules reminder; D-152 v50 image pipeline lock RESTORED after silent violation; Phase O Group Parity D-142; Vercel Build Optimization D-141; Phase N Bot Role Separation D-140; Multi-Bot Support D-139; Phase L D-138; Phase K D-137; Phase I D-136; Phase G D-135; Phase D D-134; Phase C D-133; Image Pipeline v38 D-124; v37 D-123; v36 D-122; v35 D-121; v34 D-120; Phase 21 Operator Runbook; VF-7 D-117b; VF-6 D-117; Phases 16-19 D-116; Phase 13 D-115/D-114; Phases 1-12 complete)_
+_Last updated: 2026-04-21 (D-217 Shopier wizard categories seeded — Spor/Klasik/Bot/Terlik/Cüzdan created via new admin-auth'd `/api/admin/shopier-categories` endpoint; Günlük already existed; Shopier bulk backfill investigation CLOSED — D-216 logged; re-dispatched 7 previously-synced products; confirmed only product 294 has variants; documented D-208b churn on variant-less UPDATE + hook no-op on `forceRedispatch: true→true`; Shopier size selector flow PROD-VALIDATED on product 294 — Numara dropdown 43/44/45 rendering live via D-213 + D-214 + D-215; D-213 Shopier `listSelections` limit cap 100→50 DEPLOYED — size selector root cause fixed at API level; Phase 1 one-product full-pipeline validation CLOSED on product 294 — D-212; D-211 X `media_category=tweet_image` fix prod-validated; Phase 2 Telegram SN/operator controls promoted to NOW; per-channel redispatch selector added to backlog; Phase Z visualStatus state-sync + golden-path pre-run diagnostic D-154; D-153 runtime v50 lock-rules reminder; D-152 v50 image pipeline lock RESTORED after silent violation; Phase O Group Parity D-142; Vercel Build Optimization D-141; Phase N Bot Role Separation D-140; Multi-Bot Support D-139; Phase L D-138; Phase K D-137; Phase I D-136; Phase G D-135; Phase D D-134; Phase C D-133; Image Pipeline v38 D-124; v37 D-123; v36 D-122; v35 D-121; v34 D-120; Phase 21 Operator Runbook; VF-7 D-117b; VF-6 D-117; Phases 16-19 D-116; Phase 13 D-115/D-114; Phases 1-12 complete)_
 
 ---
 
@@ -38,6 +38,29 @@ Three-part fix:
 - **D-215** (commit `dd999a3`, Vercel `E7NE2aJZw`): `ShopierVariantInput.selectionId: string → string[]` and `buildShopierVariants()` emits `[selectionId]`. Shopier's REST API accepts `selectionId` as `string[]` on POST/PUT bodies but returns it as `string` on GET responses; input type was mistakenly modeled on the response shape. Surfaced only after D-213 started resolving real selection IDs.
 
 **Trigger path used:** admin REST PATCH on `/api/products/294` with `sourceMeta: { forceRedispatch: true, forceRedispatchChannels: ['shopier'] }` → afterChange hook queued `shopier-sync` job → next cron tick (10-min cadence) ran `syncProductToShopier()` → Shopier accepted the update.
+
+### ✅ Shopier Wizard Categories Seeded (2026-04-21, D-217)
+Operator requested adding the 6 Telegram wizard categories to Shopier so product syncs stop silently falling back to "first available". Added admin-auth endpoint `/api/admin/shopier-categories` (GET list, POST ensure). Seeded 5 missing categories; **Günlük** already existed.
+
+Current Shopier categories:
+
+| title   | id                 | placement |
+|---------|--------------------|-----------|
+| Günlük  | `6b59e27730d800f7` | 1         |
+| ayakkab | `f440b506ca57b2d1` | 1         |
+| Spor    | `dd158ac4ccd8d5ec` | 2         |
+| Klasik  | `fc356eea18a4aa98` | 3         |
+| Bot     | `7cd3c86a052248e8` | 4         |
+| Terlik  | `39231418b67404e0` | 5         |
+| Cüzdan  | `a707d600ac9ca58d` | 6         |
+
+Notes:
+- `ayakkab` is an operator typo from Shopier admin UI — left as-is; rename/delete manually on Shopier if desired.
+- `getShopierMappings()` has a 5-min cache TTL, so new product syncs pick up the new categories on next cold start or after TTL expires.
+- Existing synced products still point to the old `Günlük` default; re-syncing them to switch categories would still hit the D-216 churn for variant-less products.
+- D-217 endpoint is transient — safe to remove once Shopier category list is considered stable.
+
+---
 
 **Bulk backfill DONE (2026-04-21, D-216):** 7 previously-synced products (285, 286, 288, 289, 290, 293, 295) were re-dispatched via admin REST PATCH; cron ticks 05:30 + 05:40 UTC processed the queue. Findings:
 - Only product 294 has variants in Payload — the 7 others have `variants: []`, so their Shopier pages correctly have no size selector (reflects Payload reality, not a sync bug).

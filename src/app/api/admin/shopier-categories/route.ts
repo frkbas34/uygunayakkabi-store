@@ -84,7 +84,7 @@ export async function POST(req: NextRequest) {
 
   try {
     // Fetch existing categories once so we don't hit Shopier with needless CREATEs
-    const existingRes = await listCategories(100)
+    const existingRes = await listCategories(50)
     if (!existingRes.ok) {
       return NextResponse.json(
         { error: 'Shopier listCategories failed', details: existingRes },

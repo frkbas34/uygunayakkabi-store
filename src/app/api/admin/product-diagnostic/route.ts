@@ -13,23 +13,36 @@ import configPromise from '@payload-config'
  *   snapshot (workflow statuses + recent bot-events) guarded by the same secret
  *   header used by D-214 and D-215, so we can debug without a valid session.
  *
- * Auth:
- *   x-admin-secret: $GENERATE_API_KEY_SECRET (same pattern as /api/admin/shopier-resync)
+ * Auth (either):
+ *   - x-admin-secret: $GENERATE_API_KEY_SECRET header (same pattern as D-214/D-215)
+ *   - Payload admin session cookie (same pattern as D-217)
  *
  * Usage:
  *   GET /api/admin/product-diagnostic?productId=296
  *     Header: x-admin-secret: <secret>
+ *       OR: call from admin tab with credentials:'include'
  *
  * Intended to be a transient tool. Safe to remove after debugging completes.
  */
 export async function GET(req: NextRequest) {
   const expectedSecret = process.env.GENERATE_API_KEY_SECRET
-  if (!expectedSecret) {
-    return NextResponse.json({ error: 'Service not configured' }, { status: 500 })
+  const providedSecret = req.headers.get('x-admin-secret')
+  const secretOk = !!expectedSecret && providedSecret === expectedSecret
+
+  const payload = await getPayload({ config: configPromise })
+
+  let sessionOk = false
+  if (!secretOk) {
+    try {
+      const authResult = await payload.auth({ headers: req.headers })
+      const user = (authResult as { user?: { id?: string | number } }).user
+      sessionOk = !!user
+    } catch {
+      sessionOk = false
+    }
   }
 
-  const secret = req.headers.get('x-admin-secret')
-  if (secret !== expectedSecret) {
+  if (!secretOk && !sessionOk) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
@@ -40,8 +53,6 @@ export async function GET(req: NextRequest) {
   }
 
   try {
-    const payload = await getPayload({ config: configPromise })
-
     const product = (await payload.findByID({
       collection: 'products',
       id: productIdParam,

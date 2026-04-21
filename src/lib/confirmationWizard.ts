@@ -869,6 +869,11 @@ export async function applyConfirmation(
     // 3. Create variants if sizes were collected
     let variantsCreated = 0
     let totalStock = 0
+    // D-219: capture created variant IDs so we can link them to products.variants
+    // (forward-ref relationship). Without this, buildShopierVariants() reads an
+    // empty array and Shopier UPDATE is sent without size options. Verified root
+    // cause of product 297's missing size selector on 2026-04-21.
+    const createdVariantIds: Array<number | string> = []
     if (collected.sizes) {
       const sizes = collected.sizes.split(',')
 
@@ -876,7 +881,7 @@ export async function applyConfirmation(
         const trimmedSize = size.trim()
         // D-171: prefer per-size stock map, fall back to uniform stockPerSize
         const stock = collected.sizeStockMap?.[trimmedSize] ?? collected.stockPerSize ?? 1
-        await payload.create({
+        const created = await payload.create({
           collection: 'variants',
           data: {
             product: productId,
@@ -884,15 +889,22 @@ export async function applyConfirmation(
             stock,
           },
         })
+        createdVariantIds.push((created as { id: number | string }).id)
         totalStock += stock
         variantsCreated++
       }
 
-      // Also update stockQuantity to total
+      // Also update stockQuantity to total AND link the new variant IDs to the
+      // product's forward-ref relationship array. buildShopierVariants() reads
+      // product.variants (not the back-ref on variants.product), so we must
+      // populate both sides explicitly.
       await payload.update({
         collection: 'products',
         id: productId,
-        data: { stockQuantity: totalStock },
+        data: {
+          stockQuantity: totalStock,
+          variants: createdVariantIds,
+        },
         ...(updateReq ? { req: updateReq } : {}),
       })
     }

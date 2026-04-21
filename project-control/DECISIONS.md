@@ -4452,3 +4452,33 @@ Add a transient secret- or session-guarded endpoint `/api/admin/product-diagnost
 **Status:** IMPLEMENTED — DEPLOYED — endpoint live (HTTP 401 without auth confirms it's routing correctly).
 **Lifecycle:** transient debugging tool, safe to remove once content/audit failure patterns are stable and documented.
 **Not yet:** product #296 diagnosis not run — pending operator decision between (a) `/content 296 retry` Telegram path, (b) calling D-218 from an authed admin tab, or (c) invoking D-218 with the secret header.
+
+---
+
+## D-219 — Wizard applyConfirmation must link variant IDs to products.variants — IMPLEMENTED
+
+**Decision:**
+Update `applyConfirmation()` in `src/lib/confirmationWizard.ts` (step "3. Create variants if sizes were collected") to capture each created variant's `id` and include them in the subsequent `products.update({ data: { stockQuantity, variants: createdVariantIds } })` call.
+
+**Why:**
+- `products.variants` is a `relationship` field with `hasMany: true` pointing to the `variants` collection (forward-ref, see `src/collections/Products.ts`).
+- `buildShopierVariants()` in `src/lib/shopierSync.ts` reads `product.variants` (the forward-ref array) and ignores the back-ref on `variants.product`.
+- The wizard was creating variant docs with only the back-ref populated (`variant.product = productId`) and never writing the IDs back to `product.variants`. Result: `product.variants` stayed empty → Shopier UPDATE went out without size options → size selector missing on the Shopier product page.
+- Verified root cause on 2026-04-21 for product #297 (Loafer Günlük). Live fix applied via admin REST `PATCH /api/products/297 { variants: [106,107,108], stockQuantity: 10, sourceMeta.forceRedispatch: true }` — size selector rendered after next cron tick.
+
+**Implementation:**
+- Collect `createdVariantIds: Array<number | string>` as each `payload.create({ collection: 'variants', ... })` returns.
+- Extend the final products update from `data: { stockQuantity: totalStock }` to `data: { stockQuantity: totalStock, variants: createdVariantIds }`.
+- No changes to wizard UX, session state, audit, or Shopier sync logic — purely fixing the forward-ref wiring that was always supposed to exist.
+
+**Blast radius:**
+- Applies only on the wizard confirm path (`applyConfirmation`), after the size-stock step.
+- On the first run, new products will now have `product.variants` populated at confirm time, so the very next shopier-sync tick will send correct variant data.
+- Existing products already in DB with empty `product.variants` but populated `variants` docs need a one-off repair PATCH (same shape as the 297 live fix). Scope of that backfill is small; deferred unless operator flags another instance.
+
+**Does NOT address:**
+- Duplicate wizard-apply bug (two `product.confirmed` events for #297 on 2026-04-21 created 6 variants where 3 were expected and doubled `stockQuantity`). Separate root cause — deferred.
+
+**Status:** IMPLEMENTED (local edit). NOT YET DEPLOYED — awaiting operator confirmation before commit/push.
+**Risk:** low — one added field on an already-executed update; identical in shape to the live fix that just landed green on #297.
+**Reversible:** yes — single commit, single file.

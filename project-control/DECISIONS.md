@@ -4425,3 +4425,30 @@ Note: the pre-existing `ayakkab` row is an operator-side typo from Shopier's adm
 **Vercel deployments:** three sequential — final one (`064204d`) Ready.
 **Status:** IMPLEMENTED — PROD-VALIDATED (2026-04-21).
 **Lifecycle:** transient operator tool, safe to remove after Shopier category seed stabilizes.
+
+---
+
+## D-218 — Admin Product-Diagnostic Endpoint for Content/Audit Debugging — IMPLEMENTED
+
+**Decision:**
+Add a transient secret- or session-guarded endpoint `/api/admin/product-diagnostic?productId=<id>` that returns a compact snapshot of a product's workflow state, content pack presence, and recent `bot-events` (including `payload.error` on `content.failed` records).
+
+**Why:**
+- Operator reported product #296 blocker: `/publish 296` audit returned `PARTIALLY READY (5/6)` with `❌ content: Content generation failed` as the sole unmet gate.
+- Prior Geo event history (per operator screenshot): `content.commerce_generated` at 08:57 → audit at 09:15 flagged content as failed. Implication: discovery pack generation (or a revalidation step) failed between commerce success and audit.
+- Canonical error message for a content failure lives in `bot-events.payload.error` (`src/lib/contentPack.ts:match markContentFailed`). The admin panel doesn't surface `bot-events` inline alongside the product, and querying Payload REST (`/api/products/:id`, `/api/bot-events`) requires a live admin session cookie.
+- When the admin session had expired mid-diagnosis, there was no alternative path to read the error string without either re-login or direct DB access. D-218 closes that gap.
+
+**Implementation:**
+- Route: `src/app/api/admin/product-diagnostic/route.ts` — GET only.
+- Auth: matches session cookie (D-217 pattern) OR `x-admin-secret: $GENERATE_API_KEY_SECRET` header (D-214/D-215 pattern). First match wins.
+- Response: `{ productId, title, category, status, workflow.{workflowStatus, contentStatus, auditStatus, publishStatus, stockState, sellable, lastHandledByBot}, commercePack.{present, keys, titleSeo, primaryKeyword, shortDescriptionLen}, discoveryPack.{present, keys, metaTitleLen, metaDescriptionLen, keywordsCount}, sourceMeta.shopierProductId, recentEvents[<=25].{id, eventType, status, sourceBot, createdAt, notes, payloadError, processedAt} }`.
+- Does NOT trigger anything; strictly read-only.
+
+**Why NOT just re-run content and see?**
+- We will — `canRetriggerContent()` already permits `failed → retry`, and the smallest-correct-next-step for #296 is `/content 296 retry` via Telegram GeoBot. But D-218 is independently useful: it surfaces the prior `payload.error` without having to discard it by overwriting state with a new attempt, and it remains available for future failure-mode investigation without reimplementing the same query each time.
+
+**Commits:** `ae7765b` (initial secret-only) + `9925d23` (added session alt-auth).
+**Status:** IMPLEMENTED — DEPLOYED — endpoint live (HTTP 401 without auth confirms it's routing correctly).
+**Lifecycle:** transient debugging tool, safe to remove once content/audit failure patterns are stable and documented.
+**Not yet:** product #296 diagnosis not run — pending operator decision between (a) `/content 296 retry` Telegram path, (b) calling D-218 from an authed admin tab, or (c) invoking D-218 with the secret header.

@@ -4213,3 +4213,59 @@ Force-redispatching a single channel via `sourceMeta.forceRedispatch=true` curre
 
 **Blast radius:** none — docs-only closure entry. No runtime code touched.
 **Status:** CLOSED
+
+---
+
+## D-213 — Shopier `listSelections` Limit Cap: 100 → 50 — PROD-DEPLOYED
+
+**Date:** 2026-04-21
+**Decision:**
+Change the explicit `api.listSelections(100)` call in `getShopierMappings()` to `api.listSelections(50)` so Shopier's REST API returns variation→selection mappings instead of HTTP 400, restoring the ability of `buildShopierVariants()` to attach the `Numara` variation to synced products.
+
+**Root cause (VERIFIED):**
+`src/lib/shopierSync.ts:67` was passing `limit=100` to `GET /selections`. Shopier's `/selections` endpoint rejects any `limit > 50` with:
+
+```
+HTTP/1.1 400 Bad Request
+{ "detail": [ { "loc": ["query","limit"], "msg": "Input should be less than or equal to 50", "type": "less_than_equal" } ] }
+```
+
+Because `getShopierMappings()` does `Promise.all([listCategories, listVariations, listSelections])` and treats any sub-fetch error as "mappings unavailable", a single `/selections?limit=100` failure silently emptied the selections `Map`. `buildShopierVariants()` then resolved `variationId` successfully (39-45 `Numara` options mapped) but every `selectionId` came back `null`, so the `variants` array ended up either empty or malformed and the Shopier product was created without a size selector.
+
+**Evidence (VERIFIED):**
+Vercel cron run `GET /api/payload-jobs/run` at 2026-04-21 04:00:13.13 TRT (logs scrolled from "Last 12 hours" timeline) printed:
+
+```
+[shopierApi] GET /selections?limit=100 → 400
+[shopierSync] mappings loaded — categories=N variations=N selections=0
+[shopierSync] buildShopierVariants — could not resolve selectionId for size=40
+```
+
+`listCategories` and `listVariations` (default `limit=50`) both returned 200 in the same tick, confirming only the `/selections` override was failing.
+
+**Implementation:**
+Single-line change, single file:
+
+```diff
+--- a/src/lib/shopierSync.ts
++++ b/src/lib/shopierSync.ts
+@@ -65,7 +65,7 @@ export async function getShopierMappings(force = false): Promise<ShopierMappings
+   const [categoriesRes, variationsRes, selectionsRes] = await Promise.all([
+     api.listCategories(50),
+     api.listVariations(50),
+-    api.listSelections(100),
++    api.listSelections(50),
+   ])
+```
+
+Default in `src/lib/shopierApi.ts::listSelections()` is already `50` — the `100` was an accidental explicit override added after Shopier tightened the limit. No other call site uses `listSelections(100)`.
+
+**Blast radius:**
+Zero outside Shopier sync. Module-level `_mappingsCache` (5-min TTL) is now populated on the next cron tick; all subsequent `buildShopierVariants()` calls will resolve selections correctly. Categories/variations pages unaffected — both already used `50`.
+
+**Does NOT retroactively fix already-synced products:**
+Products whose Shopier record was created during the window when selections were empty (e.g. product 294 → Shopier product 46374845) still have no variants attached upstream. Those need either a `sourceMeta.forceRedispatch` re-dispatch (re-enqueues a `shopier-sync` job, which will now succeed) or a bulk backfill via a new Telegram/admin trigger.
+
+**Branch / Commit:** patch prepared in fresh clone at `/tmp/uygunayakkabi-fix`, committed and pushed directly to `main` as commit `f75de51`.
+**Vercel deployment:** `CjiKMqyXZ` — Production / Ready / 28s build.
+**Status:** IMPLEMENTED — DEPLOYED — VERIFIED working at API-client level. Upstream variant attachment on existing products is a follow-up re-dispatch step (blocked on operator-privileged trigger — admin login or Telegram webhook secret).

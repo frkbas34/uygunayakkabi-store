@@ -1,6 +1,6 @@
 # TASK QUEUE — Uygunayakkabi
 
-_Last updated: 2026-04-21 (Phase 1 one-product full-pipeline validation CLOSED on product 294 — D-212; D-211 X `media_category=tweet_image` fix prod-validated; Phase 2 Telegram SN/operator controls promoted to NOW; per-channel redispatch selector added to backlog; Phase Z visualStatus state-sync + golden-path pre-run diagnostic D-154; D-153 runtime v50 lock-rules reminder; D-152 v50 image pipeline lock RESTORED after silent violation; Phase O Group Parity D-142; Vercel Build Optimization D-141; Phase N Bot Role Separation D-140; Multi-Bot Support D-139; Phase L D-138; Phase K D-137; Phase I D-136; Phase G D-135; Phase D D-134; Phase C D-133; Image Pipeline v38 D-124; v37 D-123; v36 D-122; v35 D-121; v34 D-120; Phase 21 Operator Runbook; VF-7 D-117b; VF-6 D-117; Phases 16-19 D-116; Phase 13 D-115/D-114; Phases 1-12 complete)_
+_Last updated: 2026-04-21 (D-213 Shopier `listSelections` limit cap 100→50 DEPLOYED — size selector root cause fixed at API level, re-dispatch of affected products still pending; Phase 1 one-product full-pipeline validation CLOSED on product 294 — D-212; D-211 X `media_category=tweet_image` fix prod-validated; Phase 2 Telegram SN/operator controls promoted to NOW; per-channel redispatch selector added to backlog; Phase Z visualStatus state-sync + golden-path pre-run diagnostic D-154; D-153 runtime v50 lock-rules reminder; D-152 v50 image pipeline lock RESTORED after silent violation; Phase O Group Parity D-142; Vercel Build Optimization D-141; Phase N Bot Role Separation D-140; Multi-Bot Support D-139; Phase L D-138; Phase K D-137; Phase I D-136; Phase G D-135; Phase D D-134; Phase C D-133; Image Pipeline v38 D-124; v37 D-123; v36 D-122; v35 D-121; v34 D-120; Phase 21 Operator Runbook; VF-7 D-117b; VF-6 D-117; Phases 16-19 D-116; Phase 13 D-115/D-114; Phases 1-12 complete)_
 
 ---
 
@@ -28,6 +28,14 @@ Do NOT execute without operator confirmation.
 ---
 
 ## 🟢 NOW — Current Sprint (PHASE 2 — TELEGRAM SN / OPERATOR CONTROLS — 2026-04-21)
+
+### ✅ D-213 Shopier `listSelections` Limit Cap: DEPLOYED (2026-04-21)
+- Root cause: `src/lib/shopierSync.ts:67` passed `limit=100` to `GET /selections`; Shopier caps at 50 → HTTP 400 silently emptied the selections Map → `buildShopierVariants()` produced empty/null selectionIds → Shopier products created without size variants
+- Fix: single-line `listSelections(100) → listSelections(50)` (50 is already the default in `shopierApi.ts`)
+- Commit `f75de51` pushed directly to `main` from fresh clone (local mount still on `chore/project-memory-cleanup`)
+- Vercel production deploy `CjiKMqyXZ` = Ready / 28s build
+- **Still to do on existing products:** re-dispatch products whose Shopier record was created with empty variants (e.g. product 294 → Shopier 46374845). Each re-dispatch will enqueue a `shopier-sync` job that now succeeds. Blocked on operator-privileged trigger: admin login OR Telegram webhook secret. Add a one-shot admin endpoint or a `/shopier backfill-variants` Telegram command when Phase 2 opens.
+- D-213
 
 ### ✅ Phase 1 — One-Product Full Pipeline Validation: CLOSED (2026-04-21)
 - Product 294 end-to-end green: Website/homepage ✅, Instagram carousel ✅, Facebook multi-photo ✅, X with image ✅

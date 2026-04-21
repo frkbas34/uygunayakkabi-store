@@ -203,8 +203,14 @@ function buildShopierMedia(product: Record<string, unknown>): ShopierMediaInput[
 async function buildShopierVariants(
   product: Record<string, unknown>,
 ): Promise<ShopierVariantInput[]> {
+  const productId = product.id
   const mappings = await getShopierMappings()
   const numaraVarId = mappings.variations.get('Numara')
+
+  console.log(
+    `[shopierSync] buildVariants product=${productId} — mappings.variations.size=${mappings.variations.size} ` +
+      `numaraVarId=${numaraVarId ?? 'NULL'} mappings.selections.size=${mappings.selections.size}`,
+  )
 
   if (!numaraVarId) {
     console.warn('[shopierSync] "Numara" variation not found in Shopier — skipping variants')
@@ -216,6 +222,12 @@ async function buildShopierVariants(
     | Array<{ size?: string; stock?: number; color?: string } | string | number>
     | undefined
 
+  console.log(
+    `[shopierSync] buildVariants product=${productId} — product.variants isArray=${Array.isArray(variants)} ` +
+      `len=${Array.isArray(variants) ? variants.length : 'n/a'} ` +
+      `types=${Array.isArray(variants) ? variants.map(v => typeof v).join(',') : 'n/a'}`,
+  )
+
   if (!Array.isArray(variants) || variants.length === 0) return []
 
   const shopierVariants: ShopierVariantInput[] = []
@@ -223,13 +235,32 @@ async function buildShopierVariants(
   for (let i = 0; i < variants.length; i++) {
     const v = variants[i]
     // Skip if it's just an ID (not populated)
-    if (typeof v === 'string' || typeof v === 'number') continue
+    if (typeof v === 'string' || typeof v === 'number') {
+      console.warn(
+        `[shopierSync] buildVariants product=${productId} — variant[${i}] is unpopulated (${typeof v}=${v}) — skipping`,
+      )
+      continue
+    }
 
     const size = v.size
-    if (!size) continue
+    if (!size) {
+      console.warn(
+        `[shopierSync] buildVariants product=${productId} — variant[${i}] has no size — skipping`,
+      )
+      continue
+    }
 
     const selectionId = await ensureSelection(numaraVarId, size)
-    if (!selectionId) continue
+    if (!selectionId) {
+      console.warn(
+        `[shopierSync] buildVariants product=${productId} — ensureSelection(${numaraVarId}, "${size}") returned null — skipping`,
+      )
+      continue
+    }
+
+    console.log(
+      `[shopierSync] buildVariants product=${productId} — variant[${i}] size=${size} selectionId=${selectionId} stock=${v.stock ?? 0}`,
+    )
 
     shopierVariants.push({
       variationId: numaraVarId,
@@ -239,6 +270,10 @@ async function buildShopierVariants(
       primary: i === 0, // first variant is primary
     })
   }
+
+  console.log(
+    `[shopierSync] buildVariants product=${productId} — DONE, returning ${shopierVariants.length} variants`,
+  )
 
   return shopierVariants
 }

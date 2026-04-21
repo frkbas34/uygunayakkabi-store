@@ -64,7 +64,7 @@ export async function getShopierMappings(
   const [catRes, varRes, selRes] = await Promise.all([
     api.listCategories(50),
     api.listVariations(),
-    api.listSelections(100),
+    api.listSelections(50),
   ])
 
   const categories = new Map<string, string>()

@@ -4146,3 +4146,70 @@ Add early wizard session hydration BEFORE group chat activation filters in route
 
 **Status:** IMPLEMENTED
 **Commit:** `7119e08`
+
+---
+
+> **Note on numbering gap (D-170…D-210):** the DECISIONS.md log drifted after D-169 while the codebase continued to land decisions in-flight (captured in PROJECT_STATE.md entries and in-repo commits — e.g. Wizard v2 at D-173, Mentix auto-fix at D-182, Instagram carousel D-188, X OAuth 1.0a D-195c, force-redispatch hook D-202). No back-fill is performed here; only the current-closure entries (D-211, D-212) are added. Back-fill is a separate governance task.
+
+---
+
+## D-211 — X Media Upload Fix: `media_category=tweet_image` Required by X API v2 — PROD-VALIDATED
+
+**Date:** 2026-04-21
+**Decision:**
+Add a `media_category=tweet_image` form-data part to the multipart body of `uploadImageToX()` in `src/lib/channelDispatch.ts`, so X API v2 `/2/media/upload` accepts the upload.
+
+**Root cause:**
+After X deprecated the v1.1 `/1.1/media/upload.json` endpoint on 2025-06-09 and redirected all media uploads to v2 `/2/media/upload`, the `media_category` field — optional in v1.1 — became effectively required for image media. The production path was uploading binary + command fields without it, and X returned HTTP 400 with `{"media_category":["Attribute not allowed."]}`. The error was caught and the tweet fell back to text-only with `mediaUploaded=false`.
+
+**Evidence (VERIFIED):**
+Vercel production logs for product 294 (2026-04-21 02:22-02:24 TRT) showed the exact 400 response from `/2/media/upload`. After the patch and a force-redispatch retest on product 294: `responseStatus=201`, `media_key` returned, `tweetId=2046379952245776422` posted with the image rendered.
+
+**Implementation:**
+Single-file, single-function change. Inserted between the `imgBuffer` and `epilogue` parts of the `Buffer.concat([...])` in `uploadImageToX()`:
+
+```ts
+const categoryPart =
+  `\r\n--${boundary}\r\n` +
+  `Content-Disposition: form-data; name="media_category"\r\n\r\n` +
+  `tweet_image`
+```
+
++9 lines net (4-line rationale comment + the form-data part).
+
+**OAuth math:**
+OAuth 1.0a signature unaffected — RFC 5849 §3.4.1.3.1 explicitly excludes multipart body parameters from the signature base string.
+
+**Blast radius:**
+Zero outside the X upload path. Instagram and Facebook dispatch paths were not touched and both remained `dispatched=true` across the retest.
+
+**Branch / Commit:** `chore/d211-x-media-upload` → rebase-merged to `main` via PR #3, commit `fc0b3ed`.
+**Status:** IMPLEMENTED — PROD-VALIDATED (product 294, 2026-04-21)
+
+---
+
+## D-212 — Phase 1 One-Product Full Pipeline Validation CLOSED — Roadmap Advances to Phase 2
+
+**Date:** 2026-04-21
+**Decision:**
+Close Phase 1 (one-product full-pipeline validation) as complete. Advance the roadmap to Phase 2 — Telegram SN / operator controls.
+
+**What Phase 1 validated end-to-end on product 294 (2026-04-21):**
+- Website / homepage: OK
+- Instagram carousel (per D-188): OK
+- Facebook multi-photo: OK
+- X with image (per D-195c OAuth 1.0a + D-211 `media_category`): OK — `x.mediaUploaded=true`, `responseStatus=201`, `tweetId=2046379952245776422`
+- Final `sourceMeta.dispatchNotes`: `x.dispatched=true`, `ig.dispatched=true`, `fb.dispatched=true`
+
+**Known follow-up (not a regression):**
+Force-redispatching a single channel via `sourceMeta.forceRedispatch=true` currently re-fires every channel not already marked `dispatched=true`. During the X retest this re-posted IG + FB on product 294 as a side effect. There is no per-channel redispatch selector today; `forceRedispatchChannels` is read from `sourceMeta` by the afterChange hook (Products.ts:175) but is NOT a declared Payload schema field, so PATCH-ing via Payload REST silently discards the key. Captured as a Phase 2 backlog improvement (see TASK_QUEUE.md → NEXT → "Per-Channel Redispatch Selector").
+
+**What is NOT included in Phase 1 closure (unchanged):**
+- GEO/blog implementation roadmap (untouched)
+- Shopier automation work (untouched)
+- Image pipeline (v50 baseline still LOCKED — D-129 / D-153 / D-167)
+
+**Next phase:** Phase 2 — Telegram SN / operator controls. Detailed scope to be captured in TASK_QUEUE.md when operator session opens Phase 2.
+
+**Blast radius:** none — docs-only closure entry. No runtime code touched.
+**Status:** CLOSED

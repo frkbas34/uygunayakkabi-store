@@ -1,16 +1,13 @@
 # TASK QUEUE — Uygunayakkabi
 
-_Last updated: 2026-04-10 (Phase Z visualStatus state-sync + golden-path pre-run diagnostic D-154; D-153 runtime v50 lock-rules reminder; D-152 v50 image pipeline lock RESTORED after silent violation; Phase O Group Parity D-142; Vercel Build Optimization D-141; Phase N Bot Role Separation D-140; Multi-Bot Support D-139; Phase L D-138; Phase K D-137; Phase I D-136; Phase G D-135; Phase D D-134; Phase C D-133; Image Pipeline v38 D-124; v37 D-123; v36 D-122; v35 D-121; v34 D-120; Phase 21 Operator Runbook; VF-7 D-117b; VF-6 D-117; Phases 16-19 D-116; Phase 13 D-115/D-114; Phases 1-12 complete)_
+_Last updated: 2026-04-21 (Phase 1 one-product full-pipeline validation CLOSED on product 294 — D-212; D-211 X `media_category=tweet_image` fix prod-validated; Phase 2 Telegram SN/operator controls promoted to NOW; per-channel redispatch selector added to backlog; Phase Z visualStatus state-sync + golden-path pre-run diagnostic D-154; D-153 runtime v50 lock-rules reminder; D-152 v50 image pipeline lock RESTORED after silent violation; Phase O Group Parity D-142; Vercel Build Optimization D-141; Phase N Bot Role Separation D-140; Multi-Bot Support D-139; Phase L D-138; Phase K D-137; Phase I D-136; Phase G D-135; Phase D D-134; Phase C D-133; Image Pipeline v38 D-124; v37 D-123; v36 D-122; v35 D-121; v34 D-120; Phase 21 Operator Runbook; VF-7 D-117b; VF-6 D-117; Phases 16-19 D-116; Phase 13 D-115/D-114; Phases 1-12 complete)_
 
 ---
 
 ## ⚠️ Active Blockers
 
-### Blocker Z-1: Phase Z Full Golden-Path Stage 1→14 NOT YET VALIDATED — ACTIVE
-No real product has been pushed through the full 14-stage operator flow since 2026-04-05 (product 180 / D-149).
-Since then: D-129 lock, Phase X preview (D-151), D-152 restoration, D-153 runtime reminder, D-154 state-sync hook.
-All 14 stages code-wired and type-clean, but real-world operator UX across the whole path is unverified.
-**Unblocks by:** Operator pushing ONE fresh shoe photo through the Mentix group and reporting back the first real break (if any). Expected result: product created → 3 images generated with v50-locked baseline + D-153 reminder → operator approves → wizard → confirmation → GeoBot handoff → content generation → content preview → audit → activate → DB state green.
+### Blocker Z-1: Phase Z Full Golden-Path Stage 1→14 — RESOLVED (2026-04-21)
+~~No real product has been pushed through the full 14-stage operator flow since 2026-04-05.~~ RESOLVED by Phase 1 one-product full-pipeline validation on product 294 (D-212, 2026-04-21). Full Telegram intake → image gen → visual approval → wizard → confirmation → GeoBot handoff → content generation → audit → activation → website/IG carousel/FB multi-photo/X-with-image dispatch all verified green. Final remaining gap (X image rendering) closed by D-211 (`media_category=tweet_image` form-data part added to `uploadImageToX()`). Re-dispatch retest on product 294: `x.mediaUploaded=true`, `responseStatus=201`, `tweetId=2046379952245776422`. See PROJECT_STATE.md and DECISIONS.md D-211/D-212.
 
 ### Blocker 0: push:true Does NOT Run in Production — ONGOING RISK
 `push: true` is guarded by `NODE_ENV !== 'production'` in `@payloadcms/db-postgres/dist/connect.js`.
@@ -30,7 +27,21 @@ Do NOT execute without operator confirmation.
 
 ---
 
-## 🟢 NOW — Current Sprint (VISUAL-FIRST PIPELINE VALIDATED — 2026-04-05)
+## 🟢 NOW — Current Sprint (PHASE 2 — TELEGRAM SN / OPERATOR CONTROLS — 2026-04-21)
+
+### ✅ Phase 1 — One-Product Full Pipeline Validation: CLOSED (2026-04-21)
+- Product 294 end-to-end green: Website/homepage ✅, Instagram carousel ✅, Facebook multi-photo ✅, X with image ✅
+- Final blocker resolved by D-211: `media_category=tweet_image` now sent to X API v2 `/2/media/upload`
+- Retest confirmation: `x.mediaUploaded=true`, `responseStatus=201`, `tweetId=2046379952245776422`
+- D-212 closes Phase 1; D-211 is the underlying code change (commit `fc0b3ed`, PR #3)
+- Scope of Phase 1 closure: docs-only — no runtime code touched beyond D-211 X fix
+- See PROJECT_STATE.md + DECISIONS.md D-211 + D-212
+
+### 🎯 Phase 2 — Telegram SN / Operator Controls: NEW PRIORITY (2026-04-21)
+Now that the one-product pipeline is proven end-to-end, the next phase is operator control surfaces:
+- Stock-number / SN based operator commands (details to be scoped per operator session)
+- Operator-facing controls for day-to-day pipeline steering from Telegram
+- Explicitly OUT OF SCOPE for Phase 2: image pipeline (v50 stays LOCKED), GEO/blog engine, Shopier automation
 
 ### ✅ Image Pipeline v38 — Slot 3 Rebuild + Global Background Lock: DEPLOYED (2026-04-07)
 - Replaced `detail_closeup` (macro) with `back_hero` (3/4 rear hero: heel counter, back stitching)
@@ -240,6 +251,14 @@ Root causes found and fixed:
 
 ## 🔜 NEXT — After Current Sprint
 
+### Per-Channel Redispatch Selector (Phase 1 closure follow-up — 2026-04-21)
+- **Context:** During product 294 X retest, `sourceMeta.forceRedispatch=true` re-fired every channel not already marked `dispatched=true`. That re-posted IG + FB as a side effect while re-testing X.
+- **Observed mechanics:** `forceRedispatchChannels` is read from `sourceMeta` by the afterChange hook (Products.ts:175) but is NOT a declared Payload schema field — a PATCH via Payload REST silently discards the unknown key (D-202 fallback logic then resolves to "channels not yet successfully dispatched").
+- **Smallest correct fix (proposed, not yet scheduled):** declare `sourceMeta.forceRedispatchChannels` as an explicit `array` of select values in `src/collections/Products.ts` so Payload persists it cleanly, then honor it as an allow-list inside the afterChange hook.
+- **Acceptance:** operator can redispatch only `['x']` without triggering IG/FB reposts; existing `forceRedispatch=true` path remains as an "all" shortcut.
+- **Blast radius:** single schema field + single filter in dispatch selection. No publish code paths affected.
+- **Status:** BACKLOG IMPROVEMENT (not a regression — existing behavior documented and understood)
+
 ### Instagram Carousel Posts
 - When `mediaUrls.length > 1`, publish all images as carousel
 - Graph API: create child containers → `media_type=CAROUSEL` + `children[]`
@@ -349,9 +368,11 @@ Root causes found and fixed:
 - Stub workflow exists: `n8n-workflows/stubs/channel-dolap.json`
 - `publishDolap` toggle already scaffolded
 
-**X (Twitter) Integration:**
-- Scaffold complete (SupportedChannel, env var, toggle, OAuth callback, n8n stub)
-- Real integration needs: X API v2 POST /2/tweets + OAuth 2.0 PKCE
+**X (Twitter) Integration:** — PROD-VALIDATED (2026-04-21)
+- Status: OAuth 1.0a user-context publishing live (D-195c). Media upload via v2 `/2/media/upload` with `media_category=tweet_image` (D-211).
+- Prod-validated on product 294: `mediaUploaded=true`, `responseStatus=201`, `tweetId=2046379952245776422`.
+- Tweet text source: `commercePack.xPost` if present, otherwise fallback (see `src/lib/channelDispatch.ts`).
+- ~~Real integration needs: X API v2 POST /2/tweets + OAuth 2.0 PKCE~~ (superseded by OAuth 1.0a path).
 - Token refresh: access ~2hr, refresh ~6mo
 
 **Threads Integration:**

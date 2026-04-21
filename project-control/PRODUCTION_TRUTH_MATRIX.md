@@ -1,7 +1,7 @@
 # PRODUCTION TRUTH MATRIX — Uygunayakkabi
 
 _Honest classification of every subsystem's production status_
-_Last updated: 2026-04-04 (D-115 — hardcoded secret fixed, env truth pass complete)_
+_Last updated: 2026-04-21 (Phase 1 one-product full-pipeline validation CLOSED on product 294 — D-212; X channel flipped SCAFFOLDED → PROD-VALIDATED after D-195c OAuth 1.0a + D-211 `media_category=tweet_image`; previous: 2026-04-04 D-115 hardcoded secret fixed, env truth pass complete)_
 
 ---
 
@@ -153,7 +153,7 @@ _Last updated: 2026-04-04 (D-115 — hardcoded secret fixed, env truth pass comp
 | Facebook page publish | **PROD-VALIDATED** | Page Access Token exchange, verified live |
 | Shopier sync | **PROD-VALIDATED** | Non-blocking jobs queue |
 | Dolap | **SCAFFOLDED** | n8n webhook stub only, no real API |
-| X (Twitter) | **SCAFFOLDED** | OAuth scaffold, no posting |
+| X (Twitter) | **PROD-VALIDATED** | OAuth 1.0a user-context (D-195c) + v2 `/2/media/upload` with `media_category=tweet_image` (D-211). Prod-validated on product 294 2026-04-21: `mediaUploaded=true`, `responseStatus=201`, `tweetId=2046379952245776422` |
 | Threads | **SCAFFOLDED** | n8n webhook stub only |
 | Channel dispatch orchestration | **PROD-VALIDATED** | afterChange hook on Products |
 
@@ -209,11 +209,11 @@ _Last updated: 2026-04-04 (D-115 — hardcoded secret fixed, env truth pass comp
 
 | Status | Count |
 |--------|-------|
-| PROD-VALIDATED | 22 subsystems |
+| PROD-VALIDATED | 23 subsystems |
 | IMPLEMENTED (not prod-validated) | 28 subsystems |
 | PARTIAL | 1 subsystem (merchandising sync cron) |
 | BLOCKED | 2 subsystems (Telegram stories, WhatsApp stories) |
-| SCAFFOLDED | 3 subsystems (Dolap, X, Threads) |
+| SCAFFOLDED | 2 subsystems (Dolap, Threads) |
 | NOT IMPLEMENTED | 1 subsystem (website checkout) |
 
-**Overall:** Core platform and original channels are production-proven. Phases 1-12 autonomous pipeline features are code-complete but not yet deployed/validated in production. Two story targets are officially blocked by platform API limitations.
+**Overall:** Core platform and original channels are production-proven. Phase 1 one-product full-pipeline validation CLOSED on 2026-04-21 (product 294 — D-212): Website + Instagram carousel + Facebook multi-photo + X-with-image all green end-to-end. X channel flipped PROD-VALIDATED via D-195c (OAuth 1.0a) + D-211 (`media_category=tweet_image` for X API v2 media upload). Phases 1-12 autonomous pipeline features remain the operating baseline. Two story targets are officially blocked by platform API limitations. Remaining channel scaffolds: Dolap, Threads.

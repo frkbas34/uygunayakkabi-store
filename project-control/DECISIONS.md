@@ -4268,4 +4268,78 @@ Products whose Shopier record was created during the window when selections were
 
 **Branch / Commit:** patch prepared in fresh clone at `/tmp/uygunayakkabi-fix`, committed and pushed directly to `main` as commit `f75de51`.
 **Vercel deployment:** `CjiKMqyXZ` — Production / Ready / 28s build.
-**Status:** IMPLEMENTED — DEPLOYED — VERIFIED working at API-client level. Upstream variant attachment on existing products is a follow-up re-dispatch step (blocked on operator-privileged trigger — admin login or Telegram webhook secret).
+**Status:** IMPLEMENTED — DEPLOYED — VERIFIED PROD-WORKING end-to-end on product 294 after D-215 (selectionId array fix). Size selector now rendering on https://www.shopier.com/46374845 with sizes 43/44/45.
+
+---
+
+## D-214 — One-Shot Admin-Triggered Shopier Re-Sync Endpoint — DEPLOYED (stand-by tool)
+
+**Date:** 2026-04-21
+**Decision:**
+Add a secret-guarded `GET /api/admin/shopier-resync` endpoint that can re-sync a single Payload product (or all products with a `sourceMeta.shopierProductId`) to Shopier without going through the admin UI or Telegram.
+
+**Why:**
+After D-213 deployed, Shopier records created while selections were empty (e.g. product 294 → Shopier 46374845) still needed a trigger to re-run `syncProductToShopier()` so the newly-resolvable variants would attach. The usual triggers (admin UI `forceRedispatch` tick, Telegram `/shopier republish`) require either an interactive admin session or the Telegram webhook secret. This endpoint is the clean, auditable, secret-guarded shortcut.
+
+**Guard:**
+`x-admin-secret: $GENERATE_API_KEY_SECRET` — same env var already used by `/api/generate-api-key` (D-115). Returns 401 otherwise.
+
+**Usage:**
+```
+GET /api/admin/shopier-resync?productId=294
+GET /api/admin/shopier-resync?all=true
+Header: x-admin-secret: <secret>
+```
+
+**Implementation:**
+New file `src/app/api/admin/shopier-resync/route.ts`. Calls `syncProductToShopier()` directly (not via jobs queue) so the response body carries the per-product `ShopierSyncResult`. For `all=true`, iterates over every product where `sourceMeta.shopierProductId` exists.
+
+**Blast radius:**
+Zero when the secret is unset (returns 500 "Service not configured"). When set, only callers with the secret can invoke it. Runtime behavior identical to the normal sync path.
+
+**Status:** DEPLOYED (commit `af0437a`, Vercel `3WoeLYjZY` Ready). Not used in the product 294 end-to-end fix — the admin REST PATCH path worked, and the cron ran the queued job. Kept as a transient operator tool. Safe to remove after bulk backfill completes.
+
+---
+
+## D-215 — Shopier Variant Payload Fix: `selectionId` Must Be an Array on POST/PUT — PROD-VALIDATED
+
+**Date:** 2026-04-21
+**Decision:**
+Change `ShopierVariantInput.selectionId` from `string` to `string[]`, and emit `selectionId: [selectionId]` in `buildShopierVariants()`. Response type stays `string` (unchanged).
+
+**Root cause (VERIFIED from live API error):**
+After D-213 unblocked the selections Map, the first re-dispatch of product 294 failed with:
+
+```
+HTTP 400 — {"error":"invalid","message":"variants[0].selectionId must be an array"}
+```
+
+Shopier's REST API is inconsistent between directions:
+- **POST /products** and **PUT /products/:id** request bodies accept `variants[].selectionId` as a `string[]`
+- **GET /products/:id** response returns `variants[].selectionId` as a single `string`
+
+The input interface `ShopierVariantInput` was typed off the response shape. Before D-213 this never surfaced because the `selections` Map was empty → `buildShopierVariants()` bailed out on line 269 (`if (!selectionId) continue`) → `variants[]` was empty → Shopier accepted the product.
+
+**Implementation:**
+```diff
+ export interface ShopierVariantInput {
+   variationId: string
+-  selectionId: string
++  selectionId: string[]
+   stockStatus: ShopierStockStatus
+   ...
+ }
+
+ // buildShopierVariants
+-    selectionId,
++    selectionId: [selectionId],
+```
+
+`ShopierProductResponse.variants[].selectionId` left as `string` — response shape unchanged.
+
+**Evidence (VERIFIED):**
+Product 294 re-dispatched after D-215 deploy (Vercel `E7NE2aJZw` Ready). Cron tick 2026-04-21 04:30:28 UTC → `shopierSyncStatus: synced`, `shopierLastError: null`. Public page https://www.shopier.com/46374845 now renders `<select name="size" id="first_variation_group">` with options `43, 44, 45` matching Payload variants 86/87/88.
+
+**Branch / Commit:** committed and pushed to `main` as `dd999a3`.
+**Vercel deployment:** `E7NE2aJZw` — Production / Ready / 26s build.
+**Status:** IMPLEMENTED — PROD-VALIDATED (product 294, 2026-04-21).

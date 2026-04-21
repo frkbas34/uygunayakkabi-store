@@ -21,6 +21,7 @@ import { BlogPosts } from "./src/collections/BlogPosts";
 import { ImageGenerationJobs } from "./src/collections/ImageGenerationJobs";
 import { BotEvents } from "./src/collections/BotEvents";
 import { StoryJobs } from "./src/collections/StoryJobs";
+import { ProductIntelligenceReports } from "./src/collections/ProductIntelligenceReports";
 import { SiteSettings } from "./src/globals/SiteSettings";
 import { AutomationSettings } from "./src/globals/AutomationSettings";
 import { HomepageMerchandisingSettings } from "./src/globals/HomepageMerchandisingSettings";
@@ -72,6 +73,7 @@ export default buildConfig({
     ImageGenerationJobs,
     BotEvents,
     StoryJobs,
+    ProductIntelligenceReports,
   ],
   globals: [SiteSettings, AutomationSettings, HomepageMerchandisingSettings],
 

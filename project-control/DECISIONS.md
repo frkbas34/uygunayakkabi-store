@@ -4479,6 +4479,90 @@ Update `applyConfirmation()` in `src/lib/confirmationWizard.ts` (step "3. Create
 **Does NOT address:**
 - Duplicate wizard-apply bug (two `product.confirmed` events for #297 on 2026-04-21 created 6 variants where 3 were expected and doubled `stockQuantity`). Separate root cause — deferred.
 
-**Status:** IMPLEMENTED (local edit). NOT YET DEPLOYED — awaiting operator confirmation before commit/push.
+**Status:** IMPLEMENTED — PUSHED TO MAIN (commit `5942698`, 2026-04-21).
 **Risk:** low — one added field on an already-executed update; identical in shape to the live fix that just landed green on #297.
 **Reversible:** yes — single commit, single file.
+
+---
+
+## D-220 — Product Intelligence Bot + GeoBot Handoff MVP — IMPLEMENTED (not yet deployed)
+
+**Decision:**
+Add a new Telegram-triggered Product Intelligence (PI) workflow that (1) runs Gemini vision over a product's uploaded originals + supporting photos, (2) attempts a reverse image search for market context, (3) generates an original Turkish SEO + GEO content pack that never copies reference-product wording, and (4) exposes the result to the operator in Telegram as a Turkish summary with an inline keyboard. On explicit operator approval, the PI report is merged into the existing `product.content.{commercePack, discoveryPack}` fields — the same surface GeoBot and channelDispatch already consume. There is no new publishing path: PI prepares, GeoBot/channels publish.
+
+**Why:**
+- Operator wanted a "photo-first" diagnostic and content-generation step that verifies what the product actually looks like (detected type/color/material/style/gender/useCases/visibleBrand) before content is written, and that pulls in market-reference context without introducing copy-paste or false "exact match" claims.
+- The project's existing pipeline (Telegram intake → wizard → GeoBot content → audit → activation) does not have a "look at the photo and decide" layer — Gemini content was running from title/category only. This is the gap.
+- Existing decisions to preserve: Gemini-only (v19), per-request bot-token isolation (D-174), `bot-events` as the observability spine, Neon `push:true` drift risk (feedback_push_true_drift.md — so we use JSON columns where feasible).
+
+**Implementation (scope):**
+
+New files (all under `src/`):
+- `collections/ProductIntelligenceReports.ts` — new Payload collection `product-intelligence-reports` with JSON-typed columns for `detectedAttributes`, `referenceProducts`, `seoPack`, `geoPack`, `riskWarnings`, `imagesUsed`, `rawProviderData`, `telegram`; scalar columns for `status` (draft|ready|approved|sent_to_geo|rejected|failed), `matchType`, `matchConfidence`, `exactProductFound`, `triggerSource`, timestamps.
+- `lib/productIntelligence/types.ts` — shared types (`PiMatchType`, `PiReportStatus`, `PiTriggerSource`, `PiDetectedAttributes`, `PiReferenceProduct`, `PiSeoPack`, `PiGeoPack`, `PiImagesUsed`, `PiTelegramContext`, `PiReport`, `PiCollectedImages`, `PiReverseSearchResult`, `PiProductContext`).
+- `lib/productIntelligence/collectImages.ts` — priority: originals from `product.images[]` → generated from `product.generativeGallery[]` → fallback `media` collection scan filtered by the product relation. Deduplicates by URL. Caps supporting at 6. Writes `conflicts` note when both originals and 2+ generated images coexist.
+- `lib/productIntelligence/analyzeProduct.ts` — Gemini 2.5 Flash vision with `inlineData` base64 parts (up to 3 images: primary + 2 supporting). Temperature 0.3. Fail-soft when `GEMINI_API_KEY` missing.
+- `lib/productIntelligence/reverseImageSearch.ts` — SerpAPI Google Lens provider. Returns `{available: false, ...}` when `SERPAPI_API_KEY` missing (not an error — `matchType=visual_only_no_external_search`). Ordering-based similarity capped at 85, so the provider alone can never promote a result past `similar_style`. Falls back from primary → supporting[0] if primary returns nothing, downgrading supporting-derived hits by 10 points.
+- `lib/productIntelligence/generateSeoGeoPack.ts` — Gemini 2.5 Flash text, temperature 0.6. Strict "do NOT copy reference-product sentences, references are keyword/category context only" rule baked into the prompt. Returns `{seoPack, geoPack, riskWarnings}` with defensive defaults so the caller never sees an undefined field.
+- `lib/productIntelligence/createProductIntelligenceReport.ts` — orchestrator. Flow: create draft row (traceable even on crash) → fetch product context → collect images → vision → reverse search → `decideMatchType()` → generate pack → update to `ready` (or `failed` + `errorMessage`). `decideMatchType()` is the single place that classifies confidence: `exact_match` requires both `top.classification === 'exact_match'` AND a vision-detected `visibleBrand` signal — ordering alone never auto-claims exact.
+- `lib/productIntelligence/geoBotHandoff.ts` — exports `sendProductIntelligenceToGeoBot()`, `approveReport()`, `rejectReport()`. Preserve-existing merge into `product.content`:
+  - `seoPack.productDescription` → `content.commercePack.websiteDescription`
+  - `seoPack.shortDescription` → `content.commercePack.shopierCopy`
+  - `seoPack.seoTitle` → `content.discoveryPack.metaTitle`
+  - `seoPack.metaDescription` → `content.discoveryPack.metaDescription`
+  - `seoPack.faq` → `content.discoveryPack.faq`
+  - `seoPack.keywords` → `content.discoveryPack.keywordEntities`
+  - `geoPack.blogDraftIdea` → `content.discoveryPack.articleTitle`
+  - `content.contentGenerationSource = 'product_intelligence'` (if empty)
+  On approval we emit a `bot-events` row with `eventType='pi.sent_to_geo'`, `sourceBot='uygunops'`, `targetBot='geobot'`, `status='processed'`.
+- `lib/productIntelligence/telegramReport.ts` — Turkish HTML summary (`formatReportSummary`) and the 2×2 inline keyboard (`buildReportKeyboard`) used to acknowledge/reject reports. Callbacks: `pi:approve:{id}`, `pi:sendgeo:{id}`, `pi:regen:{id}`, `pi:reject:{id}`.
+
+Edits (minimal):
+- `payload.config.ts` — register `ProductIntelligenceReports` in the collections array.
+- `src/app/api/telegram/route.ts` — four surgical splices, no wholesale rewrite:
+  1. Add `'pi:'` to `OPS_CB_PREFIXES` so the new callbacks route to Uygunops.
+  2. Extend `isHashtagTrigger` regex with `geohazirla|seoara|productintel|urunzeka`.
+  3. Add those hashtags to `OPS_HASHTAGS`.
+  4. Insert an `isPiTrigger` hashtag handler that resolves the product id (reply-to-bot or inline `\d+`), verifies the product exists, sends an "analysis starting" ack, then in `after()` runs the orchestrator and sends the summary + keyboard.
+  5. Insert a `pi:` callback handler block with four sub-actions (approve, sendgeo, regen, reject), each using `after()` for background work and `answerCallbackQuery()` for immediate button ack so Telegram never freezes.
+
+**Design invariants explicitly enforced:**
+- **Originals-first.** `collectImages.ts` always sets `primary` to an uploaded original when one exists; generated images only become primary when no originals exist. This matches the operator rule that the uploaded photo is the product's true identity.
+- **No copy-paste from references.** The SEO/GEO prompt states this explicitly; the `riskWarnings` field surfaces any model-flagged copyright concerns.
+- **Never auto-claim exact match.** `decideMatchType()` downgrades provider `exact_match` to `high_similarity` unless vision detected a visible brand.
+- **Graceful degradation.** Missing `GEMINI_API_KEY` → fail-soft with a warning in the report. Missing `SERPAPI_API_KEY` → `matchType=visual_only_no_external_search` (not an error). Missing supporting images → pack is still produced from product data alone.
+- **Preserve operator-curated content.** The handoff only fills empty fields in `product.content.{commercePack, discoveryPack}` — a curated `metaDescription` is never blind-overwritten.
+- **Audit trail.** Every attempt creates a row in `product-intelligence-reports` even on crash (`status='failed'` + `errorMessage`). Handoff emits a `bot-events` row readable by the existing Mentix auto-fix (D-181) and audit (D-167) paths.
+
+**Trigger surface (Turkish hashtags, operator-chosen):**
+- `#geohazirla <id>` — generate PI report for product id (or reply-to-product message without id).
+- `#seoara <id>` — alias.
+- `#productintel <id>` — alias.
+- `#urunzeka <id>` — alias.
+All four route to the same handler; aliases exist so the operator can pick whichever reads naturally in context.
+
+**Environment variables:**
+- `GEMINI_API_KEY` — REQUIRED (already configured in prod; used by existing geobot runtime).
+- `SERPAPI_API_KEY` — OPTIONAL. If absent, reverse search returns `available: false` and the report is flagged `visual_only_no_external_search`. Not a blocker.
+
+**Why JSON-typed columns:**
+Neon `push:true` has repeatedly drifted silently (feedback_push_true_drift.md, 3 incidents). Using JSON columns for the heavy structured fields (`detectedAttributes`, `seoPack`, `geoPack`, `referenceProducts`, `imagesUsed`, `rawProviderData`, `telegram`, `riskWarnings`) keeps the schema delta minimal: one new table + a handful of scalar columns. On deploy, only the new `product_intelligence_reports` table needs to exist; field-level changes within JSON columns don't require further DDL.
+
+**TypeScript compile:** `tsc --noEmit` run against the full repo after D-220 edits — zero new errors introduced. The 4 remaining errors (`next.config.ts`, `page.tsx` HomepageSections, `route.ts` `geo_activate_auto`, `Products.ts` storyTargets) are pre-existing and unrelated to D-220.
+
+**Blast radius / reversibility:**
+- All new code is additive. No existing lib modified behaviorally.
+- The four `route.ts` splices are additive (new prefix, new regex alternatives, new handler blocks); they don't rewrite existing branches.
+- On Neon, rolling back means dropping `product_intelligence_reports` (table only — no references from other collections except the `product` FK, which is on the PI row, not on products).
+- No new HTTP provider, no new webhook, no schedule/cron surface.
+- If `GEMINI_API_KEY` goes missing, the existing GeoBot path also stops working — so D-220 has the same failure mode as the baseline, not a worse one.
+
+**Does NOT address:**
+- Automatic re-sync of existing products through PI (manual trigger only).
+- Bulk/batch PI generation (single product per hashtag call — consistent with the rest of the operator surface).
+- PI-triggered image regeneration — kept out of scope; PI reads existing images, it doesn't generate new ones.
+- Fixing product #296 content generation failure (D-218) — that's a separate track and `/content 296 retry` is still the correct next step.
+
+**Status:** IMPLEMENTED (local edits + new files). TYPECHECKED. NOT YET DEPLOYED — awaiting commit/push decision.
+**Risk:** low-to-medium. New collection introduces schema delta (one table); behavior is gated behind operator-typed Turkish hashtags, so it cannot auto-trigger on existing flows. SerpAPI key not yet provisioned → first runs will honestly return `visual_only_no_external_search`.
+**Reversible:** yes — single commit, isolated directory (`src/lib/productIntelligence/`) + one new collection file + four small `route.ts` splices + one `payload.config.ts` import.

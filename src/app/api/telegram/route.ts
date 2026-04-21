@@ -907,7 +907,9 @@ export async function POST(req: NextRequest) {
       // into the ops GROUP chat — the Phase N "Uygunops-in-group → silent drop"
       // rule was swallowing every imgapprove/imgregen/imgreject/imgpremium/wz_*
       // button click and breaking the entire golden-path approval flow.
-      const OPS_CB_PREFIXES = ['imagegen:', 'imgapprove:', 'imgreject:', 'imgregen:', 'imgpremium:', 'wz_start:', 'wz_cat:', 'wz_ptype:', 'wz_tgt:', 'wz_size:', 'wz_stock:', 'wz_confirm:', 'wz_cancel:', 'wz_edit:']
+      // D-220: `pi:` callbacks are Product Intelligence Bot approval actions
+      //        (pi:approve|sendgeo|regen|reject:{reportId}) — owned by Uygunops.
+      const OPS_CB_PREFIXES = ['imagegen:', 'imgapprove:', 'imgreject:', 'imgregen:', 'imgpremium:', 'wz_start:', 'wz_cat:', 'wz_ptype:', 'wz_tgt:', 'wz_size:', 'wz_stock:', 'wz_confirm:', 'wz_cancel:', 'wz_edit:', 'pi:']
       const GEO_CB_PREFIXES = ['storyapprove:', 'storyreject:', 'storyretry:', 'geo_content:', 'geo_audit:', 'geo_auditrun:', 'geo_activate:', 'geo_retry:']
       // D-191c: /ara and /sn are shared commands — their callbacks must work on BOTH bots
       const SHARED_CB_PREFIXES = ['ara_stok:', 'ara_pipe:', 'ara_activate:', 'ara_shopier:', 'sn_']
@@ -1024,6 +1026,182 @@ export async function POST(req: NextRequest) {
             )
           }
         })
+      }
+
+      // ── D-220: pi:{action}:{reportId} — Product Intelligence Bot actions ─
+      // Actions:
+      //   pi:approve:{id}   → mark report approved (does NOT publish yet)
+      //   pi:sendgeo:{id}   → merge pack into product.content + emit bot-event
+      //                       (operator still controls final channel publish)
+      //   pi:regen:{id}     → regenerate SEO/GEO pack from same inputs
+      //   pi:reject:{id}    → mark report rejected
+      //
+      // Hand-off rule: PI Bot PREPARES, GeoBot + channelDispatch PUBLISH.
+      // Nothing here writes to external channels; it only stages content
+      // into fields the existing pipeline already understands.
+      if (cbData.startsWith('pi:')) {
+        const parts = cbData.split(':')
+        const piAction = parts[1] as 'approve' | 'sendgeo' | 'regen' | 'reject'
+        const piReportId = parts[2]
+        if (!piReportId) {
+          await answerCallbackQuery(cbQueryId, '❌ Rapor ID yok')
+          return NextResponse.json({ ok: true })
+        }
+
+        if (piAction === 'approve') {
+          await answerCallbackQuery(cbQueryId, '✅ Onaylanıyor...')
+          after(async () => {
+            try {
+              const piPayload = await getPayload()
+              const { approveReport } = await import('@/lib/productIntelligence/geoBotHandoff')
+              const r = await approveReport(piPayload, piReportId, cbUserId)
+              if (!r.ok) {
+                await sendTelegramMessage(cbChatId, `❌ Onay hatası: ${r.error ?? 'bilinmeyen'}`)
+                return
+              }
+              await sendTelegramMessage(
+                cbChatId,
+                `✅ <b>Rapor #${piReportId} onaylandı.</b>\nGeoBot\'a göndermek için <code>pi:sendgeo:${piReportId}</code> butonunu kullanın.`,
+              )
+            } catch (err) {
+              console.error('[telegram/webhook] pi:approve failed:', err)
+              await sendTelegramMessage(cbChatId, `❌ Onay hatası: ${err instanceof Error ? err.message : 'bilinmeyen'}`)
+            }
+          })
+          return NextResponse.json({ ok: true })
+        }
+
+        if (piAction === 'sendgeo') {
+          await answerCallbackQuery(cbQueryId, '📤 GeoBot\'a gönderiliyor...')
+          after(async () => {
+            try {
+              const piPayload = await getPayload()
+              const { sendProductIntelligenceToGeoBot } = await import(
+                '@/lib/productIntelligence/geoBotHandoff'
+              )
+              const result = await sendProductIntelligenceToGeoBot(piPayload, piReportId)
+              if (!result.ok) {
+                await sendTelegramMessage(
+                  cbChatId,
+                  `❌ GeoBot handoff başarısız: ${result.error ?? 'bilinmeyen'}`,
+                )
+                return
+              }
+              const fields = result.fieldsUpdated.length > 0
+                ? result.fieldsUpdated.map((f) => `• ${f}`).join('\n')
+                : '(ürünün içerik alanları zaten doluydu — yeni alan eklenmedi)'
+              await sendTelegramMessage(
+                cbChatId,
+                `📤 <b>GeoBot\'a gönderildi — rapor #${piReportId}</b>\n\n` +
+                  `Güncellenen alanlar:\n${fields}\n\n` +
+                  `Yayınlama, mevcut kanal dispatch akışı üzerinden operatör onayıyla devam eder.`,
+              )
+            } catch (err) {
+              console.error('[telegram/webhook] pi:sendgeo failed:', err)
+              await sendTelegramMessage(cbChatId, `❌ GeoBot handoff hatası: ${err instanceof Error ? err.message : 'bilinmeyen'}`)
+            }
+          })
+          return NextResponse.json({ ok: true })
+        }
+
+        if (piAction === 'regen') {
+          await answerCallbackQuery(cbQueryId, '🔄 Yeniden üretiliyor...')
+          after(async () => {
+            try {
+              const piPayload = await getPayload()
+              const existing = await piPayload.findByID({
+                collection: 'product-intelligence-reports',
+                id: piReportId,
+                depth: 0,
+              })
+              if (!existing) {
+                await sendTelegramMessage(cbChatId, '❌ Rapor bulunamadı')
+                return
+              }
+              const existingProductId = typeof existing.product === 'object' ? existing.product?.id : existing.product
+              if (!existingProductId) {
+                await sendTelegramMessage(cbChatId, '❌ Raporda ürün referansı yok')
+                return
+              }
+              const { createProductIntelligenceReport } = await import(
+                '@/lib/productIntelligence/createProductIntelligenceReport'
+              )
+              const { formatReportSummary, buildReportKeyboard, formatFailedReport } = await import(
+                '@/lib/productIntelligence/telegramReport'
+              )
+              const summary = await createProductIntelligenceReport(piPayload, {
+                productId: existingProductId,
+                triggerSource: 'telegram',
+                telegram: { chatId: cbChatId, operatorUserId: cbUserId },
+              })
+              if (summary.status === 'failed') {
+                await sendTelegramMessage(cbChatId, formatFailedReport(existingProductId, summary.error ?? 'unknown'))
+                return
+              }
+              const fresh = await piPayload.findByID({
+                collection: 'product-intelligence-reports',
+                id: summary.reportId,
+                depth: 0,
+              })
+              const sp = (fresh?.seoPack ?? {}) as Record<string, unknown>
+              const gp = (fresh?.geoPack ?? {}) as Record<string, unknown>
+              const { docs: prodDocs } = await piPayload.find({
+                collection: 'products',
+                where: { id: { equals: existingProductId } },
+                limit: 1,
+                depth: 0,
+              })
+              const pTitle = String(prodDocs[0]?.title ?? `Ürün #${existingProductId}`)
+              const msgText = formatReportSummary(
+                pTitle,
+                existingProductId,
+                summary,
+                {
+                  seoTitle: !!sp.seoTitle,
+                  metaDescription: !!sp.metaDescription,
+                  productDescription: !!sp.productDescription,
+                  tags: Array.isArray(sp.tags) && (sp.tags as unknown[]).length > 0,
+                  faq: Array.isArray(sp.faq) && (sp.faq as unknown[]).length > 0,
+                },
+                {
+                  aiSearchSummary: !!gp.aiSearchSummary,
+                  buyerIntentKeywords: Array.isArray(gp.buyerIntentKeywords) && (gp.buyerIntentKeywords as unknown[]).length > 0,
+                  productComparisonText: !!gp.productComparisonText,
+                },
+              )
+              const kb = buildReportKeyboard(summary.reportId)
+              await sendTelegramMessageWithKeyboard(cbChatId, msgText, kb)
+            } catch (err) {
+              console.error('[telegram/webhook] pi:regen failed:', err)
+              await sendTelegramMessage(cbChatId, `❌ Yeniden üretim hatası: ${err instanceof Error ? err.message : 'bilinmeyen'}`)
+            }
+          })
+          return NextResponse.json({ ok: true })
+        }
+
+        if (piAction === 'reject') {
+          await answerCallbackQuery(cbQueryId, '🚫 Reddedildi')
+          after(async () => {
+            try {
+              const piPayload = await getPayload()
+              const { rejectReport } = await import('@/lib/productIntelligence/geoBotHandoff')
+              const r = await rejectReport(piPayload, piReportId, cbUserId)
+              if (!r.ok) {
+                await sendTelegramMessage(cbChatId, `❌ Red hatası: ${r.error ?? 'bilinmeyen'}`)
+                return
+              }
+              await sendTelegramMessage(cbChatId, `🚫 Rapor #${piReportId} reddedildi.`)
+            } catch (err) {
+              console.error('[telegram/webhook] pi:reject failed:', err)
+              await sendTelegramMessage(cbChatId, `❌ Red hatası: ${err instanceof Error ? err.message : 'bilinmeyen'}`)
+            }
+          })
+          return NextResponse.json({ ok: true })
+        }
+
+        // Unknown pi: action — silent ack to avoid Telegram retries
+        await answerCallbackQuery(cbQueryId)
+        return NextResponse.json({ ok: true })
       }
 
       // ── imgapprove:{jobId}:all  or  imgapprove:{jobId}:{1,2,4} ────────────
@@ -2275,7 +2453,8 @@ export async function POST(req: NextRequest) {
       const isReplyToBot = message.reply_to_message?.from?.id === BOT_ID
       // Phase O: allow hashtag triggers (#gorsel, #geminipro etc.) and STOCK batch commands
       // These are intentional operator commands, equivalent to slash commands
-      const isHashtagTrigger = /^#(gorsel|geminipro|luma|chatgpt|claid)\b/i.test(text) ||
+      // D-220: PI Bot hashtags (#geohazirla, #seoara, #productintel, #urunzeka)
+      const isHashtagTrigger = /^#(gorsel|geminipro|luma|chatgpt|claid|geohazirla|seoara|productintel|urunzeka)\b/i.test(text) ||
         /#gorsel/i.test(text)
       const isStockCommand = text.startsWith('STOCK SKU:')
 
@@ -2355,7 +2534,8 @@ export async function POST(req: NextRequest) {
       // D-186: /ara works on BOTH bots (shared command) so operator can search from group
       const GEO_CMDS = ['/content', '/audit', '/preview', '/activate', '/shopier', '/merch', '/story', '/restory', '/targets', '/approve_story', '/reject_story']
       const SHARED_CMDS = ['/ara', '/pipeline', '/sn']
-      const OPS_HASHTAGS = ['#gorsel', '#geminipro']
+      // D-220: PI Bot hashtags owned by Uygunops (operator approval is required before GeoBot handoff).
+      const OPS_HASHTAGS = ['#gorsel', '#geminipro', '#geohazirla', '#seoara', '#productintel', '#urunzeka']
       // Deactivated providers still show deactivation msg — keep them on ops side
       const OPS_HASHTAGS_DEACTIVATED = ['#luma', '#chatgpt', '#claid']
 
@@ -3099,6 +3279,123 @@ export async function POST(req: NextRequest) {
           await payload.jobs.run({ limit: 1, overrideAccess: true })
         } catch (err) {
           console.error('[telegram/webhook] after() #gorsel jobs.run failed:', err)
+        }
+      })
+
+      return NextResponse.json({ ok: true })
+    }
+
+    // ── D-220: #geoHazirla / #seoara / #productintel / #urunzeka ───────────
+    // Product Intelligence Bot trigger. Analyzes a product's photo(s) + data,
+    // runs reverse image search (if SERPAPI_API_KEY is set; falls back
+    // gracefully otherwise), generates an original SEO + GEO content pack,
+    // and posts a Telegram summary with approval buttons.
+    //
+    // Usage:
+    //   - Reply to a product/photo message with  #geoHazirla
+    //   - Send  #geoHazirla 42   (explicit product ID)
+    //   - Aliases: #seoara, #productintel, #urunzeka
+    //
+    // The actual handoff to GeoBot happens on the `pi:sendgeo:{id}` callback.
+    const isPiTrigger = /#(geohazirla|seoara|productintel|urunzeka)\b/i.test(text)
+    if (isPiTrigger) {
+      // Resolve product ID: 1) reply context  2) explicit N in the command
+      let piProductId: number | null = resolveProductFromReply(
+        message.reply_to_message as Record<string, unknown> | undefined,
+      )
+      if (!piProductId) {
+        const idMatch = text.match(/#(?:geohazirla|seoara|productintel|urunzeka)\s+(\d+)/i)
+        if (idMatch) piProductId = parseInt(idMatch[1])
+      }
+      if (!piProductId) {
+        await sendTelegramMessage(
+          chatId,
+          '❌ <b>Ürün bulunamadı.</b>\n\n' +
+            'Lütfen ürün mesajına <b>reply</b> yapın veya ID ekleyin: <code>#geoHazirla 42</code>',
+        )
+        return NextResponse.json({ ok: true })
+      }
+
+      // Verify the product actually exists before spinning up work.
+      const { docs: piDocs } = await payload.find({
+        collection: 'products',
+        where: { id: { equals: piProductId } },
+        limit: 1,
+        depth: 0,
+      })
+      if (piDocs.length === 0) {
+        await sendTelegramMessage(chatId, `❌ Ürün bulunamadı: #${piProductId}`)
+        return NextResponse.json({ ok: true })
+      }
+      const piProduct = piDocs[0] as Record<string, unknown>
+
+      await sendTelegramMessage(
+        chatId,
+        `🧠 <b>Ürün Zeka analizi başlatıldı — #${piProductId}</b>\nAnaliz ~30-60 saniye sürebilir.`,
+      )
+
+      // Run the pipeline in the background so the webhook returns fast.
+      after(async () => {
+        try {
+          const { createProductIntelligenceReport } = await import(
+            '@/lib/productIntelligence/createProductIntelligenceReport'
+          )
+          const { formatReportSummary, buildReportKeyboard, formatFailedReport } =
+            await import('@/lib/productIntelligence/telegramReport')
+
+          const summary = await createProductIntelligenceReport(payload, {
+            productId: piProductId!,
+            triggerSource: 'telegram',
+            telegram: {
+              chatId,
+              messageId: message.message_id,
+              operatorUserId: message.from?.id,
+            },
+          })
+
+          if (summary.status === 'failed') {
+            await sendTelegramMessage(chatId, formatFailedReport(piProductId!, summary.error ?? 'unknown'))
+            return
+          }
+
+          // Reload the report to know exactly which pack fields landed
+          const report = await payload.findByID({
+            collection: 'product-intelligence-reports',
+            id: summary.reportId,
+            depth: 0,
+          })
+          const seoPack = (report?.seoPack ?? {}) as Record<string, unknown>
+          const geoPack = (report?.geoPack ?? {}) as Record<string, unknown>
+          const seoPackPresent = {
+            seoTitle: !!seoPack.seoTitle,
+            metaDescription: !!seoPack.metaDescription,
+            productDescription: !!seoPack.productDescription,
+            tags: Array.isArray(seoPack.tags) && (seoPack.tags as unknown[]).length > 0,
+            faq: Array.isArray(seoPack.faq) && (seoPack.faq as unknown[]).length > 0,
+          }
+          const geoPackPresent = {
+            aiSearchSummary: !!geoPack.aiSearchSummary,
+            buyerIntentKeywords:
+              Array.isArray(geoPack.buyerIntentKeywords) &&
+              (geoPack.buyerIntentKeywords as unknown[]).length > 0,
+            productComparisonText: !!geoPack.productComparisonText,
+          }
+
+          const msgText = formatReportSummary(
+            String(piProduct.title ?? `Ürün #${piProductId}`),
+            piProductId!,
+            summary,
+            seoPackPresent,
+            geoPackPresent,
+          )
+          const kb = buildReportKeyboard(summary.reportId)
+          await sendTelegramMessageWithKeyboard(chatId, msgText, kb)
+        } catch (err) {
+          console.error('[telegram/webhook] after() PI pipeline failed:', err)
+          await sendTelegramMessage(
+            chatId,
+            `❌ Ürün Zeka analizi başarısız: ${err instanceof Error ? err.message : 'bilinmeyen hata'}`,
+          )
         }
       })
 

@@ -2414,14 +2414,18 @@ export async function POST(req: NextRequest) {
     if (botParam !== 'geo' && isGroupChat) {
       // Phase Y: Uygunops in group — allow photo intake (any photo) + reply-to-bot
       // D-168: also allow text when there's an active wizard session
+      // D-220b: allow operator-owned hashtags (#geohazirla, #gorsel, etc.) as
+      // intentional group commands. They still route through the Phase R
+      // ownership gate below, so Geo_bot's redirect behaviour is unchanged.
       const hasPhoto = !!message.photo || !!(message.reply_to_message?.photo && /[uü]r[uü]ne\s+[cç]evir/i.test(text))
       const isReplyToBotEarly = message.reply_to_message?.from?.id === 8702872700
+      const isOpsHashtagEarly = /^#(gorsel|geminipro|luma|chatgpt|claid|geohazirla|seoara|productintel|urunzeka)\b/i.test(text || '')
 
-      if (!hasPhoto && !isReplyToBotEarly && !hasActiveWizardSession) {
+      if (!hasPhoto && !isReplyToBotEarly && !hasActiveWizardSession && !isOpsHashtagEarly) {
         console.log(`[telegram/phase-n] Uygunops ignoring group message in chat ${chatId} — Geo_bot owns group context`)
         return NextResponse.json({ ok: true })
       }
-      console.log(`[telegram/phase-y] Uygunops group pass-through — chat ${chatId}, photo=${hasPhoto}, replyToBot=${isReplyToBotEarly}, activeWizard=${hasActiveWizardSession}`)
+      console.log(`[telegram/phase-y] Uygunops group pass-through — chat ${chatId}, photo=${hasPhoto}, replyToBot=${isReplyToBotEarly}, activeWizard=${hasActiveWizardSession}, opsHashtag=${isOpsHashtagEarly}`)
     }
 
     // ── Phase I+K: Group chat activation filter ────────────────────────────────

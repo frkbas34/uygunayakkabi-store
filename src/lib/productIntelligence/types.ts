@@ -92,6 +92,10 @@ export interface PiImagesUsed {
   supportingImageSources: string[]
   imageConfidenceNotes: string
   detectedConflicts: string
+  // D-221: how many distinct images were actually sent to the reverse-search
+  // provider (0 when no provider is configured). Lets the Telegram report be
+  // explicit about the evidence base instead of inferring from results alone.
+  searchedImageCount?: number
 }
 
 // ── Telegram context snapshot ───────────────────────────────────────────────
@@ -136,6 +140,13 @@ export interface PiReverseSearchResult {
   results: PiReferenceProduct[]
   raw: unknown
   error?: string
+  // D-221: explicit, redundant-but-reliable signals for the report layer so
+  // it never has to infer "did we actually search?" from other fields.
+  externalSearchRan?: boolean
+  searchedImageCount?: number
+  onlineMatchesFound?: number
+  // Which image sources ended up contributing results (useful for audit).
+  searchedImageSources?: Array<{ url: string; source: 'original' | 'generated' | 'enhanced' }>
 }
 
 // ── Product data we need for prompting (compatible with GeobotProductContext) ─

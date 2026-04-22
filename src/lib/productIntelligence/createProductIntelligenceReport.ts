@@ -152,6 +152,16 @@ export interface CreatedReportSummary {
   error?: string
   images: PiCollectedImages
   attributes: PiDetectedAttributes
+  // D-221: surface online-search stats directly to the Telegram layer so it
+  // can render "externalSearchRan yes/no · provider · matches found · top 3"
+  // without re-querying the DB.
+  search?: {
+    externalSearchRan: boolean
+    provider: string | null
+    searchedImageCount: number
+    onlineMatchesFound: number
+    topMatches: PiReferenceProduct[]
+  }
 }
 
 export async function createProductIntelligenceReport(
@@ -205,7 +215,13 @@ export async function createProductIntelligenceReport(
     // Collect warnings
     const warnings: string[] = []
     if (analysis.error) warnings.push(`Vision: ${analysis.error}`)
-    if (!search.available) warnings.push('Reverse search sağlayıcısı yok — matchType=visual_only_no_external_search')
+    if (!search.available) {
+      // D-221: be explicit about WHY online matches are absent, so the
+      // operator sees "provider missing" vs "provider failed" vs "no hits".
+      warnings.push(
+        'Online arama kullanılamıyor — sağlayıcı/API anahtarı yok (SERPAPI_API_KEY). Güven skoru düşürüldü.',
+      )
+    }
     if (search.error) warnings.push(`Reverse search: ${search.error}`)
     if (pack.error) warnings.push(`SEO/GEO: ${pack.error}`)
     warnings.push(...pack.riskWarnings)
@@ -229,6 +245,9 @@ export async function createProductIntelligenceReport(
           supportingImageSources: images.supporting.map((s) => s.url),
           imageConfidenceNotes: images.notes || '',
           detectedConflicts: images.conflicts || '',
+          // D-221: persist the probe count so it's auditable in admin/JSON
+          // without re-running the reverse search.
+          searchedImageCount: search.searchedImageCount ?? 0,
         },
         rawProviderData: {
           gemini: analysis.rawText ? String(analysis.rawText).slice(0, 8000) : null,
@@ -246,6 +265,13 @@ export async function createProductIntelligenceReport(
       warnings,
       images,
       attributes: analysis.attributes,
+      search: {
+        externalSearchRan: search.externalSearchRan ?? search.available,
+        provider: search.provider,
+        searchedImageCount: search.searchedImageCount ?? 0,
+        onlineMatchesFound: search.onlineMatchesFound ?? search.results.length,
+        topMatches: search.results.slice(0, 3),
+      },
     }
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err)

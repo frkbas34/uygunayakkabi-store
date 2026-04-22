@@ -147,6 +147,14 @@ export interface PiReverseSearchResult {
   onlineMatchesFound?: number
   // Which image sources ended up contributing results (useful for audit).
   searchedImageSources?: Array<{ url: string; source: 'original' | 'generated' | 'enhanced' }>
+  // D-222: provider metadata so the Telegram report can print
+  // "Provider: DataForSEO · Queue: standard · Depth: 10".
+  providerDisplayName?: string | null
+  providerQueue?: string | null
+  providerDepth?: number | null
+  // D-222: DataForSEO async — task ids that did NOT finish within the
+  // poll budget. Operator can regen after the tasks complete.
+  pendingTaskIds?: string[]
 }
 
 // ── Product data we need for prompting (compatible with GeobotProductContext) ─

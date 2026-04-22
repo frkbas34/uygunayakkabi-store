@@ -123,16 +123,25 @@ export function formatReportSummary(
     imageLines.push(`- Çakışma notu: ${esc(String(images.conflicts).slice(0, 220))}`)
   }
 
-  // ── Online search evidence (D-221) ─────────────────────────────────────
+  // ── Online search evidence (D-221 / D-222) ─────────────────────────────
   const search = summary.search
   const onlineLines: string[] = []
   if (!search || !search.externalSearchRan) {
-    onlineLines.push('- Online arama: <b>kullanılamıyor</b> (sağlayıcı/API anahtarı yok)')
+    onlineLines.push('- Sağlayıcı: <b>yok</b>')
+    onlineLines.push('- Online arama: <b>kullanılamıyor</b> (DataForSEO/SerpAPI kimlik bilgileri yok)')
     onlineLines.push('- Güven skoru düşürüldü; eşleşme yalnızca görsel+metin analizine dayanıyor')
   } else {
-    onlineLines.push(`- Online arama: <b>çalıştı</b> (${esc(search.provider ?? 'bilinmiyor')})`)
+    const providerLabel = esc(search.providerDisplayName || search.provider || 'bilinmiyor')
+    onlineLines.push(`- Sağlayıcı: <b>${providerLabel}</b>`)
+    if (search.providerQueue) onlineLines.push(`- Kuyruk: ${esc(search.providerQueue)}`)
+    if (search.providerDepth != null) onlineLines.push(`- Derinlik: ${search.providerDepth}`)
     onlineLines.push(`- Sorgulanan görsel: ${search.searchedImageCount}`)
-    onlineLines.push(`- Bulunan eşleşme sayısı: ${search.onlineMatchesFound}`)
+    onlineLines.push(`- Bulunan eşleşme: ${search.onlineMatchesFound}`)
+    if (search.pendingTaskIds.length > 0) {
+      onlineLines.push(
+        `- ⏳ Bekleyen görev: ${search.pendingTaskIds.length} (regen ile tekrar denenebilir)`,
+      )
+    }
     if (search.topMatches.length > 0) {
       const topLines = search.topMatches.slice(0, 3).map((r, i) => {
         const title = esc(String(r.title).slice(0, 70))

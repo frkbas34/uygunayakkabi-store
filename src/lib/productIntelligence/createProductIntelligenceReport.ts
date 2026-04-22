@@ -152,15 +152,19 @@ export interface CreatedReportSummary {
   error?: string
   images: PiCollectedImages
   attributes: PiDetectedAttributes
-  // D-221: surface online-search stats directly to the Telegram layer so it
-  // can render "externalSearchRan yes/no · provider · matches found · top 3"
+  // D-221/D-222: surface online-search stats directly to the Telegram layer
+  // so it can render "Provider · Queue · Depth · matches found · top 3"
   // without re-querying the DB.
   search?: {
     externalSearchRan: boolean
     provider: string | null
+    providerDisplayName: string | null
+    providerQueue: string | null
+    providerDepth: number | null
     searchedImageCount: number
     onlineMatchesFound: number
     topMatches: PiReferenceProduct[]
+    pendingTaskIds: string[]
   }
 }
 
@@ -216,10 +220,17 @@ export async function createProductIntelligenceReport(
     const warnings: string[] = []
     if (analysis.error) warnings.push(`Vision: ${analysis.error}`)
     if (!search.available) {
-      // D-221: be explicit about WHY online matches are absent, so the
-      // operator sees "provider missing" vs "provider failed" vs "no hits".
+      // D-221 / D-222: explain which providers are missing so the operator
+      // knows whether to add DataForSEO creds or a SerpAPI key.
       warnings.push(
-        'Online arama kullanılamıyor — sağlayıcı/API anahtarı yok (SERPAPI_API_KEY). Güven skoru düşürüldü.',
+        'Online arama kullanılamıyor — sağlayıcı yapılandırılmamış (DATAFORSEO_LOGIN/PASSWORD veya SERPAPI_API_KEY). Güven skoru düşürüldü.',
+      )
+    }
+    // D-222: DataForSEO async — if any tasks didn't finish within the
+    // poll budget, warn so the operator can regenerate later.
+    if (Array.isArray(search.pendingTaskIds) && search.pendingTaskIds.length > 0) {
+      warnings.push(
+        `DataForSEO: ${search.pendingTaskIds.length} görev henüz tamamlanmadı (task_id: ${search.pendingTaskIds.join(', ')}). Daha sonra yeniden üretin.`,
       )
     }
     if (search.error) warnings.push(`Reverse search: ${search.error}`)
@@ -268,9 +279,13 @@ export async function createProductIntelligenceReport(
       search: {
         externalSearchRan: search.externalSearchRan ?? search.available,
         provider: search.provider,
+        providerDisplayName: search.providerDisplayName ?? null,
+        providerQueue: search.providerQueue ?? null,
+        providerDepth: search.providerDepth ?? null,
         searchedImageCount: search.searchedImageCount ?? 0,
         onlineMatchesFound: search.onlineMatchesFound ?? search.results.length,
         topMatches: search.results.slice(0, 3),
+        pendingTaskIds: search.pendingTaskIds ?? [],
       },
     }
   } catch (err) {

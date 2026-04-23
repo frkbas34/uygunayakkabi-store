@@ -1,18 +1,31 @@
 /**
- * providers/index.ts — D-222
+ * providers/index.ts — D-222, extended in D-223
  *
  * Reverse-image-search provider selection.
  *
  * Resolution rules (first match wins):
- *   1. `REVERSE_SEARCH_PROVIDER=dataforseo`  → DataForSEO (requires creds)
- *   2. `REVERSE_SEARCH_PROVIDER=serpapi`     → SerpAPI (requires key)
- *   3. `REVERSE_SEARCH_PROVIDER=auto` (default, also: unset/empty):
- *        - DataForSEO if credentials exist
+ *   1. `REVERSE_SEARCH_PROVIDER=googlevision` → Google Cloud Vision
+ *        (requires GOOGLE_VISION_API_KEY).
+ *   2. `REVERSE_SEARCH_PROVIDER=dataforseo`   → DataForSEO
+ *        (requires DATAFORSEO_LOGIN + DATAFORSEO_PASSWORD + funded balance).
+ *   3. `REVERSE_SEARCH_PROVIDER=serpapi`      → SerpAPI
+ *        (requires SERPAPI_API_KEY).
+ *   4. `REVERSE_SEARCH_PROVIDER=auto` (default, also: unset/empty):
+ *        - Google Vision if its key is set
+ *        - else DataForSEO if credentials exist
  *        - else SerpAPI if SERPAPI_API_KEY exists
- *   4. No provider configured → returns null; orchestrator treats this as
+ *   5. No provider configured → returns null; orchestrator treats this as
  *      a capability gap (matchType `visual_only_no_external_search`).
  *
+ * Why Google Vision is preferred in `auto`: 1,000 Web Detection requests
+ * per month are free (covers the PI Bot's ~300/month volume), whereas
+ * DataForSEO requires a $50 minimum deposit and SerpAPI has a per-month
+ * subscription after 100 free searches. D-223 pivoted the PI Bot to
+ * Google Vision to avoid the upfront cost while keeping the same
+ * provider-abstraction contract.
+ *
  * Env vars consumed here (read once at provider build time):
+ *   GOOGLE_VISION_API_KEY, GOOGLE_VISION_MAX_RESULTS, GOOGLE_VISION_MAX_IMAGES,
  *   DATAFORSEO_LOGIN, DATAFORSEO_PASSWORD,
  *   DATAFORSEO_LOCATION_NAME, DATAFORSEO_LANGUAGE_NAME,
  *   DATAFORSEO_DEPTH, DATAFORSEO_MAX_IMAGES,
@@ -22,6 +35,7 @@
  */
 
 import { buildDataForSeoProvider, type DataForSeoConfig } from './dataForSeo'
+import { buildGoogleVisionProvider, type GoogleVisionConfig } from './googleVision'
 import { buildSerpApiProvider } from './serpApi'
 import type { ReverseSearchProvider } from './types'
 
@@ -40,6 +54,17 @@ function dataForSeoCreds(): { login: string; password: string } | null {
   const password = process.env.DATAFORSEO_PASSWORD
   if (!login || !password) return null
   return { login, password }
+}
+
+function buildGoogleVisionFromEnv(): ReverseSearchProvider | null {
+  const apiKey = process.env.GOOGLE_VISION_API_KEY
+  if (!apiKey) return null
+  const cfg: GoogleVisionConfig = {
+    apiKey,
+    maxResults: intEnv('GOOGLE_VISION_MAX_RESULTS', 10),
+  }
+  const maxImages = intEnv('GOOGLE_VISION_MAX_IMAGES', DEFAULT_MAX_IMAGES)
+  return buildGoogleVisionProvider(cfg, maxImages)
 }
 
 function buildDataForSeoFromEnv(): ReverseSearchProvider | null {
@@ -70,14 +95,22 @@ function buildSerpApiFromEnv(): ReverseSearchProvider | null {
 export function selectProvider(): ReverseSearchProvider | null {
   const pref = (process.env.REVERSE_SEARCH_PROVIDER || 'auto').trim().toLowerCase()
 
+  if (pref === 'googlevision' || pref === 'google_vision' || pref === 'google-vision') {
+    return buildGoogleVisionFromEnv()
+  }
   if (pref === 'dataforseo') {
     return buildDataForSeoFromEnv()
   }
   if (pref === 'serpapi') {
     return buildSerpApiFromEnv()
   }
-  // 'auto' (and any unrecognized value) — prefer DataForSEO, fall back to SerpAPI.
-  return buildDataForSeoFromEnv() ?? buildSerpApiFromEnv()
+  // 'auto' (and any unrecognized value) — prefer Google Vision (free tier),
+  // then DataForSEO, then SerpAPI.
+  return (
+    buildGoogleVisionFromEnv() ??
+    buildDataForSeoFromEnv() ??
+    buildSerpApiFromEnv()
+  )
 }
 
 /**
@@ -85,11 +118,13 @@ export function selectProvider(): ReverseSearchProvider | null {
  * Used by the Telegram report to explain WHY a capability gap exists.
  */
 export function providerAvailability(): {
+  googleVision: boolean
   dataForSeo: boolean
   serpApi: boolean
   preference: string
 } {
   return {
+    googleVision: !!process.env.GOOGLE_VISION_API_KEY,
     dataForSeo: !!dataForSeoCreds(),
     serpApi: !!process.env.SERPAPI_API_KEY,
     preference: (process.env.REVERSE_SEARCH_PROVIDER || 'auto').trim().toLowerCase(),

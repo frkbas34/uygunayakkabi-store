@@ -220,10 +220,11 @@ export async function createProductIntelligenceReport(
     const warnings: string[] = []
     if (analysis.error) warnings.push(`Vision: ${analysis.error}`)
     if (!search.available) {
-      // D-221 / D-222: explain which providers are missing so the operator
-      // knows whether to add DataForSEO creds or a SerpAPI key.
+      // D-221 / D-222 / D-223: explain which providers are missing so the
+      // operator knows which credential to add. Google Vision is the
+      // preferred provider now (free tier covers the expected volume).
       warnings.push(
-        'Online arama kullanılamıyor — sağlayıcı yapılandırılmamış (DATAFORSEO_LOGIN/PASSWORD veya SERPAPI_API_KEY). Güven skoru düşürüldü.',
+        'Online arama kullanılamıyor — sağlayıcı yapılandırılmamış (GOOGLE_VISION_API_KEY, DATAFORSEO_LOGIN/PASSWORD veya SERPAPI_API_KEY). Güven skoru düşürüldü.',
       )
     }
     // D-222: DataForSEO async — if any tasks didn't finish within the

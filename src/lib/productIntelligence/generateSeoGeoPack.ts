@@ -77,7 +77,7 @@ function buildSeoGeoPrompt(
     if (sizes) lines.push(`- Mevcut bedenler: ${sizes}`)
   }
   lines.push('')
-  lines.push('GÖRSEL ANALİZ (vision çıktısı):')
+  lines.push('GÖRSEL ANALİZ (vision çıktısı — bu alanları SEO/GEO paketinde somut şekilde kullan):')
   if (attrs.productType) lines.push(`- Görsel ürün tipi: ${attrs.productType}`)
   if (attrs.color) lines.push(`- Renk: ${attrs.color}`)
   if (attrs.materialGuess) lines.push(`- Malzeme tahmini: ${attrs.materialGuess}`)
@@ -87,7 +87,22 @@ function buildSeoGeoPrompt(
     lines.push(`- Kullanım alanları: ${attrs.useCases.join(', ')}`)
   }
   if (attrs.visibleBrand) lines.push(`- Görünen marka: ${attrs.visibleBrand}`)
-  if (attrs.visualNotes) lines.push(`- Görsel notlar: ${attrs.visualNotes}`)
+  // D-229: expose the wider vision evidence to the SEO/GEO prompt so the
+  // new pack fields (brandTechnologyExplainer, technicalSpecs, etc.) have
+  // concrete details to cite rather than going generic.
+  if (attrs.soleType) lines.push(`- Taban tipi: ${attrs.soleType}`)
+  if (attrs.closureType) lines.push(`- Kapanma: ${attrs.closureType}`)
+  if (Array.isArray(attrs.brandTechnologies) && attrs.brandTechnologies.length > 0) {
+    lines.push(`- Marka teknolojileri (görselden): ${attrs.brandTechnologies.join(', ')}`)
+  }
+  if (Array.isArray(attrs.distinctiveFeatures) && attrs.distinctiveFeatures.length > 0) {
+    lines.push(`- Ayırt edici detaylar: ${attrs.distinctiveFeatures.join(', ')}`)
+  }
+  if (Array.isArray(attrs.colorAccents) && attrs.colorAccents.length > 0) {
+    lines.push(`- Renk aksanları: ${attrs.colorAccents.join(', ')}`)
+  }
+  if (attrs.constructionNotes) lines.push(`- Üretim notları: ${attrs.constructionNotes}`)
+  if (attrs.visualNotes) lines.push(`- Görsel notlar (uzun): ${attrs.visualNotes}`)
   lines.push('')
 
   if (refs.length > 0) {
@@ -109,24 +124,44 @@ function buildSeoGeoPrompt(
   lines.push('- metaTitle <= 60 karakter, metaDescription <= 160 karakter.')
   lines.push('- Yalnızca JSON döndür, başka metin yazma.')
   lines.push('')
+  // D-229: expanded pack with brandTechnologyExplainer, careAndMaintenance,
+  // sizingGuidance, styleGuide, technicalSpecs, useCaseExplainer,
+  // alternativeSearchQueries. Each is optional — fill only what evidence
+  // supports. MANDATORY: if brandTechnologies[] has items, produce
+  // brandTechnologyExplainer; if distinctiveFeatures[] has items, include
+  // them in technicalSpecs.
+  lines.push('EK KURALLAR (D-229 ZENGİNLEŞTİRME):')
+  lines.push('- Görsel analizde brandTechnologies varsa, brandTechnologyExplainer ZORUNLU (her teknolojiyi sade Türkçe ile açıkla, 2-4 cümle).')
+  lines.push('- distinctiveFeatures ve soleType/closureType varsa, technicalSpecs listesine somut maddeler ekle (ör: "Kauçuk kaba taban", "Bağcıklı kapanma", "Yastıklı dil").')
+  lines.push('- careAndMaintenance, sizingGuidance, styleGuide: somut olsun, "kaliteli", "şık" gibi boş laf yok.')
+  lines.push('- alternativeSearchQueries: gerçek alıcı kalıpları (ör: "skechers beyaz erkek spor ayakkabı 43 numara", "air cooled memory foam ayakkabı").')
+  lines.push('')
+
   lines.push('JSON ŞEMASI (tam olarak bu alanları döndür):')
   lines.push(`{
   "seoPack": {
     "seoTitle": "60 karaktere kadar SEO başlığı",
     "metaDescription": "160 karaktere kadar meta açıklama",
-    "productDescription": "200-400 karakter orijinal Türkçe ürün açıklaması",
+    "productDescription": "250-450 karakter orijinal Türkçe ürün açıklaması — görsel detayları kullan",
     "shortDescription": "80-140 karakter kısa açıklama",
-    "tags": ["5-8 ürün etiketi"],
-    "keywords": ["8-12 SEO anahtar kelimesi, Türkçe"],
-    "faq": [{"q":"Soru", "a":"Cevap"}]
+    "tags": ["6-10 ürün etiketi"],
+    "keywords": ["10-15 SEO anahtar kelimesi, Türkçe, uzun kuyruk dahil"],
+    "faq": [{"q":"Soru", "a":"Cevap"}],
+    "brandTechnologyExplainer": "Eğer brandTechnologies tespit edildiyse: 2-4 cümle sade Türkçe açıklama. Yoksa boş bırak.",
+    "careAndMaintenance": "2-3 cümle — bu malzeme ve taban tipi için somut temizlik/saklama önerisi",
+    "sizingGuidance": "1-2 cümle — bu marka/stil için numara notu (dar/geniş kalıp, numara büyüklüğü)",
+    "styleGuide": "2-3 cümle — bu ayakkabıyı neyle kombinlemek uygun (somut giyim örnekleri)",
+    "technicalSpecs": ["5-8 madde — taban tipi, kapanma, malzeme katmanları, belirgin detaylar"]
   },
   "geoPack": {
-    "aiSearchSummary": "AI arama motorları için 1-2 cümle ürün özeti",
-    "buyerIntentKeywords": ["5-10 alıcı niyetli Türkçe ifade"],
-    "comparisonAngles": ["3-5 karşılaştırma ekseni (ör. günlük kullanım, fiyat/performans)"],
-    "productComparisonText": "150-250 karakter benzer ürünler ile farkı anlatan ORİJİNAL metin — rakip ismi verme",
+    "aiSearchSummary": "AI arama motorları için 2-3 cümle ürün özeti — marka + tip + renk + taban + teknoloji dahil",
+    "buyerIntentKeywords": ["6-12 alıcı niyetli Türkçe ifade"],
+    "comparisonAngles": ["4-6 karşılaştırma ekseni"],
+    "productComparisonText": "200-300 karakter benzer ürünler ile farkı anlatan ORİJİNAL metin — rakip ismi verme",
     "blogDraftIdea": "Tek cümlelik blog yazısı fikri",
-    "publishNotes": "Editör için kısa notlar"
+    "publishNotes": "Editör için kısa notlar",
+    "useCaseExplainer": "2-3 cümle — bu ürünün somut senaryolarda nasıl kullanılacağı",
+    "alternativeSearchQueries": ["5-8 alternatif arama sorgusu — gerçek kullanıcı kalıpları"]
   },
   "riskWarnings": ["İçerik/marka/telif ile ilgili varsa uyarılar"]
 }`)
@@ -168,7 +203,10 @@ export async function generateSeoGeoPack(
   const prompt = buildSeoGeoPrompt(product, attrs, refs)
 
   try {
-    const raw = await callGeminiText(prompt, 4096)
+    // D-229: budget raised 4096 → 10240. Schema grew from ~13 fields to
+    // ~21 fields, several with 200-450 char prose bodies. 2.5-flash also
+    // needs thinking-token headroom on top of the visible output.
+    const raw = await callGeminiText(prompt, 10240)
     const match = raw.match(/\{[\s\S]*\}/)
     if (!match) {
       return {
@@ -198,6 +236,12 @@ export async function generateSeoGeoPack(
             )
             .map((f: { q: string; a: string }) => ({ q: f.q, a: f.a }))
         : [],
+      // D-229: deeper pack fields.
+      brandTechnologyExplainer: asString(sp.brandTechnologyExplainer),
+      careAndMaintenance: asString(sp.careAndMaintenance),
+      sizingGuidance: asString(sp.sizingGuidance),
+      styleGuide: asString(sp.styleGuide),
+      technicalSpecs: asStringArray(sp.technicalSpecs),
     }
     const geoPack: PiGeoPack = {
       aiSearchSummary: asString(gp.aiSearchSummary),
@@ -206,6 +250,9 @@ export async function generateSeoGeoPack(
       productComparisonText: asString(gp.productComparisonText),
       blogDraftIdea: asString(gp.blogDraftIdea),
       publishNotes: asString(gp.publishNotes),
+      // D-229: deeper GEO fields.
+      useCaseExplainer: asString(gp.useCaseExplainer),
+      alternativeSearchQueries: asStringArray(gp.alternativeSearchQueries),
     }
     const riskWarnings = asStringArray(parsed?.riskWarnings)
 

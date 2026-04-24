@@ -38,6 +38,7 @@ import { collectProductImages } from './collectImages'
 import { analyzeProduct } from './analyzeProduct'
 import { runReverseImageSearch } from './reverseImageSearch'
 import { generateSeoGeoPack } from './generateSeoGeoPack'
+import { runDataForSeoTextSearch } from './providers/dataForSeoText'
 
 // NOTE: `where` and `data` are loosened to `any` so BasePayload (which uses
 // Payload's stricter `Where` + collection-specific `data` types) is directly
@@ -206,6 +207,54 @@ export async function createProductIntelligenceReport(
     // 5. Reverse image search
     const search = await runReverseImageSearch(images)
 
+    // D-229: Text-search fallback — when image search returns zero online
+    // matches BUT vision gave us a strong brand / product-type / distinctive-
+    // feature signal, run a Google Organic text query via DataForSEO to pull
+    // competitor/retailer snippets as reference context. Results are marked
+    // `similar_style` (text search never inspects pixels) and merged into
+    // the reference list so the SEO/GEO prompt has more to work with.
+    //
+    // Feature-flagged (opt-out) via PI_TEXT_SEARCH_FALLBACK. Non-blocking:
+    // any error is captured into risk_warnings, the pipeline continues.
+    let textSearchRaw: unknown = null
+    {
+      const textFallbackEnabled =
+        (process.env.PI_TEXT_SEARCH_FALLBACK ?? 'true').toLowerCase() !== 'false'
+      const primaryAttrs = analysis.attributes
+      const hasStrongSignal =
+        !!primaryAttrs.visibleBrand ||
+        !!primaryAttrs.productType ||
+        (Array.isArray(primaryAttrs.distinctiveFeatures) && primaryAttrs.distinctiveFeatures.length > 0)
+      if (
+        textFallbackEnabled &&
+        hasStrongSignal &&
+        search.results.length === 0 &&
+        search.externalSearchRan !== false
+      ) {
+        const queryParts: string[] = []
+        if (primaryAttrs.visibleBrand) queryParts.push(primaryAttrs.visibleBrand)
+        if (product.title && product.title !== primaryAttrs.visibleBrand) {
+          queryParts.push(product.title)
+        }
+        if (primaryAttrs.productType) queryParts.push(primaryAttrs.productType)
+        if (primaryAttrs.color) queryParts.push(primaryAttrs.color)
+        if (primaryAttrs.brandTechnologies && primaryAttrs.brandTechnologies.length > 0) {
+          queryParts.push(primaryAttrs.brandTechnologies[0])
+        }
+        const query = queryParts.join(' ').slice(0, 300)
+        const textRes = await runDataForSeoTextSearch(query)
+        textSearchRaw = { query, ...textRes }
+        if (textRes.ok && textRes.results.length > 0) {
+          // Merge into the search result list so downstream (SEO/GEO pack
+          // prompt, Telegram report) sees richer references. We keep
+          // matchConfidence from the image path — text search never
+          // promotes identification, only enriches context.
+          search.results.push(...textRes.results)
+          search.onlineMatchesFound = (search.onlineMatchesFound ?? 0) + textRes.results.length
+        }
+      }
+    }
+
     // 6. Classify match
     const { matchType, confidence, exactProductFound } = decideMatchType(
       search,
@@ -264,6 +313,8 @@ export async function createProductIntelligenceReport(
         rawProviderData: {
           gemini: analysis.rawText ? String(analysis.rawText).slice(0, 8000) : null,
           search: search.raw,
+          // D-229: record the text-search fallback result (or null if not invoked)
+          textSearch: textSearchRaw,
         },
       },
     })

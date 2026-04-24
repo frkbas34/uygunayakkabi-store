@@ -49,6 +49,14 @@ export interface PiDetectedAttributes {
   category?: string | null
   visibleBrand?: string | null
   visualNotes?: string | null
+  // D-229: wider vision evidence so the downstream prompt has concrete
+  // shoe-anatomy detail to cite instead of generic descriptors.
+  soleType?: string | null              // e.g. "kaba kauçuk taban", "EVA köpük taban"
+  closureType?: string | null           // e.g. "bağcıklı", "cırt cırt", "slip-on"
+  brandTechnologies?: string[] | null   // e.g. ["Air-Cooled Memory Foam"]
+  distinctiveFeatures?: string[] | null // e.g. ["yastıklı dil", "dikişli burun"]
+  colorAccents?: string[] | null        // e.g. ["lacivert taban", "gri logo"]
+  constructionNotes?: string | null     // e.g. "tabaka yapıştırma, çift dikiş"
 }
 
 // ── Reference products (from reverse search) ────────────────────────────────
@@ -75,6 +83,14 @@ export interface PiSeoPack {
   tags?: string[]
   keywords?: string[]
   faq?: Array<{ q: string; a: string }>
+  // D-229: depth fields that give GeoBot + operator richer seed material
+  // than a plain product description. All optional — prompt fills only
+  // what it can defend with evidence.
+  brandTechnologyExplainer?: string  // explains the detected brand tech in plain Turkish
+  careAndMaintenance?: string        // how to clean/store this product type
+  sizingGuidance?: string            // sizing notes specific to brand/style
+  styleGuide?: string                // what to pair it with (combin önerileri)
+  technicalSpecs?: string[]          // bullet-style spec list
 }
 
 export interface PiGeoPack {
@@ -84,6 +100,9 @@ export interface PiGeoPack {
   productComparisonText?: string
   blogDraftIdea?: string
   publishNotes?: string
+  // D-229: extra GEO fields for AI-search surfaces.
+  useCaseExplainer?: string           // 2-3 sentence scenario-based usage text
+  alternativeSearchQueries?: string[] // variants a real buyer might type
 }
 
 // ── Image provenance notes ──────────────────────────────────────────────────

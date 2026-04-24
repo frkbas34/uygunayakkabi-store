@@ -36,6 +36,24 @@ export interface GeobotPiResearch {
   // seam/stitching, material visible etc. Must reach the prompt; previously
   // silently dropped at the resolvePiResearch translation layer.
   detectedVisualNotes?: string | null
+  // D-229: wider vision evidence so the final copy can cite concrete
+  // shoe-anatomy detail (sole type, closure, brand tech, etc.).
+  detectedSoleType?: string | null
+  detectedClosureType?: string | null
+  detectedBrandTechnologies?: string[] | null
+  detectedDistinctiveFeatures?: string[] | null
+  detectedColorAccents?: string[] | null
+  detectedConstructionNotes?: string | null
+  // D-229: deeper SEO/GEO seed material piped into the discovery prompt
+  // so the mandatory sections (Marka Teknolojisi, Bakım, Stil Rehberi)
+  // have ready-made seeds rather than having to reinvent from scratch.
+  suggestedBrandTechnologyExplainer?: string | null
+  suggestedCareAndMaintenance?: string | null
+  suggestedSizingGuidance?: string | null
+  suggestedStyleGuide?: string | null
+  suggestedTechnicalSpecs?: string[] | null
+  suggestedUseCaseExplainer?: string | null
+  suggestedAlternativeSearchQueries?: string[] | null
   // Reverse-search / online signals.
   topReferenceTitles?: string[] | null
   topReferenceSources?: string[] | null
@@ -258,6 +276,23 @@ function buildPiResearchBlock(pi: GeobotPiResearch): string {
   if (pi.detectedUseCases && pi.detectedUseCases.length > 0) {
     detectedBits.push(`Kullanım: ${pi.detectedUseCases.join(', ')}`)
   }
+  // D-229: surface the wider vision evidence (sole, closure, brand tech,
+  // distinctive features, color accents, construction). These become
+  // concrete citations in the final copy.
+  if (pi.detectedSoleType) detectedBits.push(`Taban: ${pi.detectedSoleType}`)
+  if (pi.detectedClosureType) detectedBits.push(`Kapanma: ${pi.detectedClosureType}`)
+  if (pi.detectedBrandTechnologies && pi.detectedBrandTechnologies.length > 0) {
+    detectedBits.push(`Marka Teknolojileri: ${pi.detectedBrandTechnologies.join(', ')}`)
+  }
+  if (pi.detectedDistinctiveFeatures && pi.detectedDistinctiveFeatures.length > 0) {
+    detectedBits.push(`Ayırt Edici Detaylar: ${pi.detectedDistinctiveFeatures.join(', ')}`)
+  }
+  if (pi.detectedColorAccents && pi.detectedColorAccents.length > 0) {
+    detectedBits.push(`Renk Aksanları: ${pi.detectedColorAccents.join(', ')}`)
+  }
+  if (pi.detectedConstructionNotes) {
+    detectedBits.push(`Üretim: ${pi.detectedConstructionNotes}`)
+  }
   // D-227: surface the richest vision signal (logo/tongue text, sole type,
   // stitching, visible text on the shoe) so the final copy can cite concrete
   // evidence instead of falling back to title-based generic phrasing.
@@ -296,6 +331,29 @@ function buildPiResearchBlock(pi: GeobotPiResearch): string {
   }
   if (pi.aiSearchSummary) {
     suggestedBits.push(`AI arama özeti: ${pi.aiSearchSummary.slice(0, 400)}`)
+  }
+  // D-229: deeper PI seed material for the mandatory discovery sections.
+  // These are SEEDS — GeoBot rewrites in its own voice.
+  if (pi.suggestedBrandTechnologyExplainer) {
+    suggestedBits.push(`Marka teknolojisi tohumu: ${pi.suggestedBrandTechnologyExplainer.slice(0, 400)}`)
+  }
+  if (pi.suggestedCareAndMaintenance) {
+    suggestedBits.push(`Bakım tohumu: ${pi.suggestedCareAndMaintenance.slice(0, 300)}`)
+  }
+  if (pi.suggestedSizingGuidance) {
+    suggestedBits.push(`Numara notu: ${pi.suggestedSizingGuidance.slice(0, 200)}`)
+  }
+  if (pi.suggestedStyleGuide) {
+    suggestedBits.push(`Stil rehberi tohumu: ${pi.suggestedStyleGuide.slice(0, 300)}`)
+  }
+  if (pi.suggestedTechnicalSpecs && pi.suggestedTechnicalSpecs.length > 0) {
+    suggestedBits.push(`Teknik özellikler: ${pi.suggestedTechnicalSpecs.slice(0, 8).join(' | ')}`)
+  }
+  if (pi.suggestedUseCaseExplainer) {
+    suggestedBits.push(`Kullanım senaryosu tohumu: ${pi.suggestedUseCaseExplainer.slice(0, 300)}`)
+  }
+  if (pi.suggestedAlternativeSearchQueries && pi.suggestedAlternativeSearchQueries.length > 0) {
+    suggestedBits.push(`Alternatif arama sorguları: ${pi.suggestedAlternativeSearchQueries.slice(0, 6).join(' | ')}`)
   }
   if (suggestedBits.length > 0) {
     lines.push('ÖNERİLEN İÇERİK SİNYALLERİ (PI Bot — tohum olarak kullan, kendi sesinle yeniden yaz):')
@@ -371,8 +429,9 @@ KURALLAR:
 - Fiyat ve beden bilgisi varsa dahil et
 - Marka varsa doğru yaz, yoksa ekleme
 - Aşırı pazarlama dili kullanma, doğal ol${hasPi ? `
-- ZORUNLU: ÜRÜN KİMLİĞİ bloğundaki alanlar (marka, ürün tipi, renk, malzeme, stil, görsel detaylar) mevcutsa websiteDescription + instagramCaption + shopierCopy + facebookCopy içinde açıkça görünmelidir. Sadece başlığı tekrar etme — somut özelliklerden en az 2'sini her metne işle.
-- ZORUNLU: Görsel Detaylar varsa (logo, yazı, taban tipi, kumaş, renk kombinasyonu), en az bir somut detayı websiteDescription'da kullan. Genel ifadelerle (örn. "yüksek kaliteli malzeme", "şık tasarım") geçiştirme.
+- ZORUNLU: ÜRÜN KİMLİĞİ bloğundaki alanlar (marka, ürün tipi, renk, malzeme, stil, taban, kapanma, marka teknolojileri, ayırt edici detaylar, renk aksanları, görsel detaylar) mevcutsa websiteDescription + instagramCaption + shopierCopy + facebookCopy içinde açıkça görünmelidir. Sadece başlığı tekrar etme — somut özelliklerden en az 3'ünü her metne işle.
+- ZORUNLU: Marka Teknolojileri varsa (örn. Air-Cooled Memory Foam), websiteDescription'da MUTLAKA adıyla geçmelidir.
+- ZORUNLU: Görsel Detaylar / Üretim / Renk Aksanları varsa, websiteDescription'da en az iki somut detay (logo/yazı/taban/kumaş/aksan/dikiş) geçmelidir. Genel ifadelerle (örn. "yüksek kaliteli malzeme", "şık tasarım") geçiştirme.
 - ÜRÜN KİMLİĞİ başlıkla çelişiyorsa ÜRÜN KİMLİĞİ'ni kullan (örn. başlık "Blue" ama renk "Lacivert" ise "lacivert" kullan).
 - ÖNERİLEN SİNYALLER'i tohum olarak kullan, kendi sesinle yeniden yaz, birebir kopyalama
 - UYARILAR varsa onlara uy, o konulardan kaçın` : ''}
@@ -447,25 +506,35 @@ KURALLAR:
 - Anahtar kelimeler ürünle alakalı ve gerçek arama terimleri olsun
 - İç bağlantı hedefleri site yapısına uygun slug'lar olsun
 - metaTitle max 60 karakter, metaDescription max 160 karakter${hasPi ? `
-- ZORUNLU: ÜRÜN KİMLİĞİ bloğundaki alanlar (marka, ürün tipi, renk, malzeme, stil, görsel detaylar) makalenin GİRİŞ paragrafında + en az bir alt başlığın gövdesinde açıkça yer almalıdır. Jenerik "kaliteli malzeme / şık tasarım" cümleleriyle geçiştirilmesi YASAK.
-- ZORUNLU: Görsel Detaylar varsa (logo, yazı, taban, kumaş), bunlardan en az biri makale gövdesinde somut şekilde geçmelidir (örn. "dil kısmındaki Air-Cooled Memory Foam yazısı", "kalın kauçuk taban" vb).
+- ZORUNLU: ÜRÜN KİMLİĞİ bloğundaki alanlar (marka, ürün tipi, renk, malzeme, stil, görsel detaylar, taban, kapanma, marka teknolojileri, ayırt edici detaylar, renk aksanları, üretim notları) makalenin GİRİŞ paragrafında + en az iki alt başlığın gövdesinde açıkça yer almalıdır. Jenerik "kaliteli malzeme / şık tasarım" cümleleriyle geçiştirilmesi YASAK.
+- ZORUNLU: Görsel Detaylar varsa (logo, yazı, taban, kumaş), bunlardan en az ikisi makale gövdesinde somut şekilde geçmelidir (örn. "dil kısmındaki Air-Cooled Memory Foam yazısı", "kalın kauçuk taban", "yan panelde file doku").
 - ZORUNLU: metaTitle ve articleTitle ÜRÜN KİMLİĞİ'ndeki marka + ürün tipi + renk kombinasyonunu içermelidir (sadece başlığı echo etmek yasak).
+- ZORUNLU MAKALE BÖLÜMLERİ (her biri ayrı ## alt başlık olarak):
+    1. Giriş (ürün kimliği + marka + stil + somut görsel detay)
+    2. ## Tasarım ve Görünüm (renkler, aksanlar, logo, yazılar, taban görüntüsü)
+    3. ## Marka Teknolojisi ve Konfor (brandTechnologies varsa mutlaka açıkla; yoksa stil özellikleri üzerinden yaz — "konforlu" diye geçme)
+    4. ## Kullanım Senaryoları (useCases ve kullanım senaryosu tohumunu kullan — somut senaryolar)
+    5. ## Bakım ve Dayanıklılık (bakım tohumunu + malzeme/taban tipine göre somut öneri)
+    6. ## Numara ve Kalıp Notları (numara notu varsa kullan; beden listesi ve kalıp karakteri)
+    7. ## Stil Rehberi (stil rehberi tohumunu kullan; somut kombin önerileri)
+    8. ## Benzer Ürünlerle Farkı (karşılaştırma açılarını kullan; rakip ismi verme)
 - ÖNERİLEN anahtar kelime ve alıcı niyet tohumlarını keywordEntities için başlangıç olarak kullan, genişlet, birebir kopyalama
-- ÖNERİLEN karşılaştırma açılarını makalede ayrı bir alt başlık olarak değerlendir
 - ÖNERİLEN FAQ varsa kendi sesinle yeniden formüle et, aynen kopyalama
 - UYARILAR varsa makale içinde o konulardan kaçın` : ''}
 
 {
   "articleTitle": "Makale başlığı — bilgilendirici, tıklanabilir, 50-70 karakter",
-  "articleBody": "800-1500 kelime arası uzun form makale. Ürün incelemesi, kullanım alanları, bakım önerileri, benzer ürünlerle karşılaştırma gibi bölümler. Markdown başlık formatı kullan (## alt başlıklar). Doğal dil, spam değil.",
+  "articleBody": ${hasPi
+    ? '"1200-2000 kelime arası uzun form makale. Yukarıda sıralanan 8 ZORUNLU BÖLÜMÜ sırayla üret; her biri ayrı ## alt başlık olsun. Somut görsel/marka/üretim detaylarını cümle içinde kullan. Markdown başlık formatı. Doğal dil, spam değil, satış kalıplarından kaçın."'
+    : '"800-1500 kelime arası uzun form makale. Ürün incelemesi, kullanım alanları, bakım önerileri, benzer ürünlerle karşılaştırma gibi bölümler. Markdown başlık formatı kullan (## alt başlıklar). Doğal dil, spam değil."'},
   "metaTitle": "SEO meta title — max 60 karakter, ürün adı + kategori + marka içersin",
   "metaDescription": "SEO meta description — max 160 karakter, ürünü özetleyen ve tıklamaya teşvik eden açıklama",
   "faq": [
     {"q": "Soru 1", "a": "Cevap 1"},
     {"q": "Soru 2", "a": "Cevap 2"},
-    {"q": "Soru 3", "a": "Cevap 3"}
+    {"q": "Soru 3", "a": "Cevap 3"}${hasPi ? ',\n    {"q": "Soru 4", "a": "Cevap 4"},\n    {"q": "Soru 5", "a": "Cevap 5"}' : ''}
   ],
-  "keywordEntities": ["5-10 adet anahtar kelime veya varlık, örn: 'erkek spor ayakkabı', 'günlük kullanım', marka adı vb"],
+  "keywordEntities": ["${hasPi ? '10-15' : '5-10'} adet anahtar kelime veya varlık, örn: 'erkek spor ayakkabı', 'günlük kullanım', marka adı vb"],
   "internalLinkTargets": [
     {"slug": "/kategori/ilgili-slug", "anchor": "Bağlantı metni"},
     {"slug": "/urun/ilgili-urun-slug", "anchor": "Bağlantı metni"}

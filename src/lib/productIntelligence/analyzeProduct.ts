@@ -74,11 +74,28 @@ function buildAnalysisPrompt(product: PiProductContext, images: PiCollectedImage
   lines.push('- Uydurma özellik ekleme. Emin değilsen alan boş kalsın.')
   lines.push('- Tüm metin değerler Türkçe olsun.')
   lines.push('')
-  lines.push('JSON şeması (diğer alan ekleme):')
+  // D-229: expanded schema — ask Gemini for explicit shoe-anatomy detail
+  // the downstream prompt can cite concretely. All fields optional; parser
+  // fills what's present, leaves missing fields null.
+  lines.push('JSON ŞEMASI (tam olarak bu alanları döndür, emin değilsen boş bırak):')
   lines.push(
-    '{"productType": string, "color": string, "materialGuess": string, "style": string, ' +
-      '"gender": string, "useCases": string[], "category": string, "visibleBrand": string, ' +
-      '"visualNotes": string}',
+    '{\n' +
+      '  "productType": string,           // ör: Spor Ayakkabı, Bot, Klasik Ayakkabı\n' +
+      '  "color": string,                 // ana renk\n' +
+      '  "materialGuess": string,         // görünen malzeme (sentetik deri, file, hakiki deri)\n' +
+      '  "style": string,                 // stil (günlük, sneaker, klasik, kaba taban)\n' +
+      '  "gender": string,                // erkek / kadın / unisex / çocuk\n' +
+      '  "useCases": string[],            // kullanım alanları\n' +
+      '  "category": string,              // kategori\n' +
+      '  "visibleBrand": string,          // görselde logolu/yazılı marka (yoksa boş)\n' +
+      '  "visualNotes": string,           // logo, dil yazısı, taban detayı, yazılar\n' +
+      '  "soleType": string,              // taban tipi (kauçuk, EVA, kaba, düz, yüksek)\n' +
+      '  "closureType": string,           // kapanma (bağcıklı, cırt cırt, slip-on)\n' +
+      '  "brandTechnologies": string[],   // görünen marka teknolojileri (Air-Cooled Memory Foam, Boost)\n' +
+      '  "distinctiveFeatures": string[], // ayırt edici detaylar (yastıklı dil, dikişli burun)\n' +
+      '  "colorAccents": string[],        // ikincil renkler + konum (ör: "lacivert taban")\n' +
+      '  "constructionNotes": string      // üretim detayı (çift dikiş, yapıştırma)\n' +
+      '}',
   )
   return lines.join('\n')
 }
@@ -140,12 +157,11 @@ export async function analyzeProduct(
         generationConfig: {
           responseMimeType: 'application/json',
           temperature: 0.3,
-          // D-226: bumped from 1024 → 4096. Gemini 2.5-flash counts "thinking"
-          // tokens against the budget; at 1024 we observed finishReason=MAX_TOKENS
-          // with only ~76 chars of visible output (mid-JSON truncation). 4096
-          // comfortably covers the thinking overhead for this compact schema.
-          // Same class of fix as D-224's discovery bump (8192 → 16384).
-          maxOutputTokens: 4096,
+          // D-226: bumped 1024 → 4096 (thinking-token overhead).
+          // D-229: expanded schema (6 new fields, 2 of them arrays); bumped
+          // 4096 → 6144 to leave headroom for visualNotes + constructionNotes
+          // prose plus the array outputs.
+          maxOutputTokens: 6144,
         },
       }),
     })
@@ -204,6 +220,13 @@ export async function analyzeProduct(
       useCases: asStringArray(parsed.useCases),
       category: asStringOrNull(parsed.category),
       visibleBrand: asStringOrNull(parsed.visibleBrand),
+      // D-229: wider vision evidence.
+      soleType: asStringOrNull(parsed.soleType),
+      closureType: asStringOrNull(parsed.closureType),
+      brandTechnologies: asStringArray(parsed.brandTechnologies),
+      distinctiveFeatures: asStringArray(parsed.distinctiveFeatures),
+      colorAccents: asStringArray(parsed.colorAccents),
+      constructionNotes: asStringOrNull(parsed.constructionNotes),
       visualNotes: asStringOrNull(parsed.visualNotes),
     }
 

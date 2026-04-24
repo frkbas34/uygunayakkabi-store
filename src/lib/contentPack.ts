@@ -445,6 +445,21 @@ async function resolvePiResearch(
       // sole detail). Previously dropped at this translation layer, so the
       // prompt lost e.g. "Skechers Air-Cooled Memory Foam" read off a shoe.
       detectedVisualNotes: typeof attrs.visualNotes === 'string' ? attrs.visualNotes : null,
+      // D-229: wider vision evidence.
+      detectedSoleType: typeof attrs.soleType === 'string' ? attrs.soleType : null,
+      detectedClosureType: typeof attrs.closureType === 'string' ? attrs.closureType : null,
+      detectedBrandTechnologies: Array.isArray(attrs.brandTechnologies) ? attrs.brandTechnologies : null,
+      detectedDistinctiveFeatures: Array.isArray(attrs.distinctiveFeatures) ? attrs.distinctiveFeatures : null,
+      detectedColorAccents: Array.isArray(attrs.colorAccents) ? attrs.colorAccents : null,
+      detectedConstructionNotes: typeof attrs.constructionNotes === 'string' ? attrs.constructionNotes : null,
+      // D-229: deeper SEO/GEO seed material for the mandatory discovery sections.
+      suggestedBrandTechnologyExplainer: typeof seo.brandTechnologyExplainer === 'string' ? seo.brandTechnologyExplainer : null,
+      suggestedCareAndMaintenance: typeof seo.careAndMaintenance === 'string' ? seo.careAndMaintenance : null,
+      suggestedSizingGuidance: typeof seo.sizingGuidance === 'string' ? seo.sizingGuidance : null,
+      suggestedStyleGuide: typeof seo.styleGuide === 'string' ? seo.styleGuide : null,
+      suggestedTechnicalSpecs: Array.isArray(seo.technicalSpecs) ? seo.technicalSpecs : null,
+      suggestedUseCaseExplainer: typeof geo.useCaseExplainer === 'string' ? geo.useCaseExplainer : null,
+      suggestedAlternativeSearchQueries: Array.isArray(geo.alternativeSearchQueries) ? geo.alternativeSearchQueries : null,
       topReferenceTitles: topReferenceTitles.length > 0 ? topReferenceTitles : null,
       topReferenceSources: topReferenceSources.length > 0 ? topReferenceSources : null,
       matchType: typeof report.matchType === 'string' ? report.matchType : null,

@@ -732,6 +732,49 @@ export async function applyConfirmation(
   req?: any,
 ): Promise<ConfirmationApplyResult> {
   try {
+    // D-228: Idempotency guard — if the operator double-tapped "Onayla",
+    // Telegram replayed the callback, or two callbacks arrived in parallel
+    // for the same wizard session, we used to run the ENTIRE pipeline twice:
+    // two product.confirmed events, two triggerContentGeneration calls, two
+    // GeoBot commerce+discovery Gemini calls, two audit runs. That also
+    // caused the second run to sometimes null the first run's commerce pack
+    // via a stale product.content snapshot (observed on product 304).
+    //
+    // Re-read the product's current confirmationStatus + productConfirmedAt
+    // from the DB. If it was confirmed within the last 5 minutes, treat this
+    // call as a duplicate and short-circuit. We return success so the
+    // Telegram UI still shows a green check; the caller's `result.variantsCreated`
+    // comes back zero so the confirmation message omits the variant note.
+    //
+    // 5-minute window is wide enough to cover Telegram webhook retries +
+    // operator delayed re-taps, but narrow enough that a legitimate re-confirm
+    // after a fix (via wz_edit) works naturally once they edit fields.
+    try {
+      const freshProduct: any = await payload.findByID({
+        collection: 'products',
+        id: productId,
+        depth: 0,
+      })
+      const wf = freshProduct?.workflow ?? {}
+      if (wf.confirmationStatus === 'confirmed' && wf.productConfirmedAt) {
+        const confirmedAtMs = new Date(wf.productConfirmedAt).getTime()
+        const ageMs = Date.now() - confirmedAtMs
+        if (Number.isFinite(ageMs) && ageMs >= 0 && ageMs < 5 * 60_000) {
+          console.log(
+            `[confirmationWizard] applyConfirmation skipped — product=${productId} ` +
+              `already confirmed ${Math.round(ageMs / 1000)}s ago (duplicate callback).`,
+          )
+          return { success: true, variantsCreated: 0 }
+        }
+      }
+    } catch (idemErr) {
+      // Best-effort — if the re-read fails, fall through to the normal path.
+      console.warn(
+        `[confirmationWizard] idempotency re-read failed (non-blocking) — product=${productId}:`,
+        idemErr instanceof Error ? idemErr.message : String(idemErr),
+      )
+    }
+
     // D-172e: Ensure new category ENUM values exist in Postgres before updating.
     // Payload's push:true doesn't reliably ALTER TYPE for new enum values.
     // This is idempotent — IF NOT EXISTS prevents errors on subsequent calls.

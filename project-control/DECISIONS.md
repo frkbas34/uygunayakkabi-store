@@ -4566,3 +4566,74 @@ Neon `push:true` has repeatedly drifted silently (feedback_push_true_drift.md, 3
 **Status:** IMPLEMENTED (local edits + new files). TYPECHECKED. NOT YET DEPLOYED — awaiting commit/push decision.
 **Risk:** low-to-medium. New collection introduces schema delta (one table); behavior is gated behind operator-typed Turkish hashtags, so it cannot auto-trigger on existing flows. SerpAPI key not yet provisioned → first runs will honestly return `visual_only_no_external_search`.
 **Reversible:** yes — single commit, isolated directory (`src/lib/productIntelligence/`) + one new collection file + four small `route.ts` splices + one `payload.config.ts` import.
+
+---
+
+## D-224 — Gemini JSON Parser Hardening (GeoBot discovery + commerce) — PROD-VALIDATED
+
+**Decision:**
+Replace the "strip code fences + JSON.parse" path in `generateCommercePack` and `generateDiscoveryPack` with a layered parser (`parseGeminiJson<T>`) that:
+1. tolerates Gemini wrapping the object in ```` ```json ``` ```` fences or prose preambles,
+2. direct-parses when possible,
+3. falls back to balanced-brace extraction (first `{` → matching `}`), and
+4. on failure, returns a truthful `parseError` with `finishReason` and a 300-char sample — never fabricates fields.
+
+Also:
+- `callGeminiText()` now returns `{ text, finishReason }` so the parser can attach `MAX_TOKENS` vs `STOP` context to error messages.
+- Discovery pack `maxOutputTokens` bumped from 8192 → 16384. Turkish SEO articles were routinely hitting the 8192 ceiling mid-JSON, producing unclosed braces that the old parser silently reported as "content generation failed."
+
+**Reason:**
+Product #296 (and intermittently others) had been landing on `contentStatus = 'failed'` with no usable pack despite Gemini returning well-formed content. Root cause was parser brittleness + token truncation, not model quality. D-224 removes that entire failure class while keeping the "never invent data" guarantee (partial responses surface as clear errors rather than silent `null`).
+
+**Scope:**
+- `src/lib/geobotRuntime.ts` only. Prompt structure, model ID (`gemini-2.5-flash`), and output contract unchanged.
+- 100% backward-compatible — successful 8192-token runs still succeed identically.
+
+**Status:**
+- Merged to `main` at commit `fbeeab2` on 2026-04-24.
+- Production deploy live at `https://uygunayakkabi-store.vercel.app`.
+- **PROD-VALIDATED 2026-04-24:** product #296 (which had been stuck in `contentStatus=failed` since D-218 flagged it) regenerated cleanly — commerce confidence 100%, discovery confidence 100%, article title + meta description populated, `contentStatus=ready` and `workflowStatus=content_ready`.
+
+**Reversible:** yes — single-file change on one commit.
+
+---
+
+## D-225 — PI Bot → GeoBot Automatic Bridge — PROD-VALIDATED
+
+**Decision:**
+Wire Product Intelligence Bot into the automatic content pipeline as a first-class step, not a parallel manual tool.
+
+At the moment `triggerContentGeneration()` builds the Gemini prompt context (just before calling `generateFullContentPack`), a new `resolvePiResearch(payload, productId)` helper:
+1. looks up the freshest PI report for this product in status `ready` / `approved` / `sent_to_geo`,
+2. if none exists and `PI_AUTO_FOR_GEOBOT` is not explicitly `false`/`0`/`off`, auto-invokes `createProductIntelligenceReport(...)` with `triggerSource: 'manual'` (the same pipeline the `#geohazirla` hashtag uses),
+3. on successful auto-run emits a `bot-events` row `eventType = 'pi.auto_triggered_by_geo'` so the auto-trigger is auditable,
+4. translates the stored `PiReport` (detectedAttributes + seoPack + geoPack + top referenceProducts + matchType/confidence + riskWarnings) into a narrow `GeobotPiResearch` shape that is dropped into `productContext.piResearch`,
+5. on any failure — PI crash, no provider, API error, DB issue — returns `null` and GeoBot falls back to the legacy product-only prompt. **PI must never block publishing.**
+
+GeoBot's prompt builders (`buildPiResearchBlock`, plus `hasPi`-conditional rules in both `buildCommercePrompt` and `buildDiscoveryPrompt`) fold the PI signal in as labelled Turkish sections (TESPİT EDİLEN / BENZER BAŞLIKLAR / ÖNERİLEN / UYARILAR) so the model reads them as explicit evidence, not as loose hints.
+
+Manual `#geohazirla` / `#seoara` / `#productintel` / `#urunzeka` hashtag paths remain unchanged — they still create their own PI report and still require operator approval before anything writes to `product.content`. D-225 only adds the auto-research layer for the automatic pipeline.
+
+**Reason:**
+PI Bot's SEO/GEO pack and reverse-image signals were never flowing into the automatic content path — they only attached when an operator manually ran `#geohazirla` and approved the report. The automatic `confirmation → content generation → audit` lane was using the product-only prompt, so the research work PI was doing was wasted for the default flow. The bridge makes PI part of the real pipeline.
+
+**Scope:**
+- `src/lib/contentPack.ts`: new `resolvePiResearch()` helper + one line inserting `piResearch` into `productContext`. Wrapped entirely in try/catch.
+- `src/lib/geobotRuntime.ts`: new `GeobotPiResearch` interface, `buildPiResearchBlock()`, `hasPi`-conditional rule sets.
+- No schema change. No new collection. No change to `#geohazirla` flow or to PI operator-approval gate.
+
+**Status:**
+- Merged to `main` at commit `fbeeab2` on 2026-04-24.
+- **PROD-VALIDATED 2026-04-24** on product #296 via a synthetic `/content 296 retry` to `https://uygunayakkabi-store.vercel.app/api/telegram?bot=geo`:
+  - HTTP 200, full pipeline ran in 83 s.
+  - `bot_events` trail: `content.requested` → `pi.auto_triggered_by_geo` (reportId=4) → `content.commerce_generated` → `content.discovery_generated` → `content.ready`.
+  - `product_intelligence_reports` row #4 auto-created with full SEO + GEO pack (Turkish keywords, FAQ, buyerIntent, comparisonAngles).
+  - Product 296 final state: `contentStatus=ready`, `workflowStatus=content_ready`, commerce confidence 100%, discovery confidence 100%.
+  - Generated IG caption uses `#SporŞıklığı` hashtag and article title "Şehir Hayatının Spor Şıklığı ve Konforu" — both mirror PI's `geoPack.comparisonAngles` ("spor şıklığı") and `aiSearchSummary`, confirming PI signal reached the prompt and shaped output.
+
+**Known orthogonal PI-pipeline issues surfaced by this run** (not regressions from D-225, filed as follow-ups):
+1. `analyzeProduct.ts` Gemini-vision call returned non-JSON (`risk_warnings: "Vision: gemini_non_json_response"`). The D-224 parser-hardening should be reused here.
+2. Google Cloud Vision reverse-search failed with `Unsupported URI protocol specified: /api/media/file/tg-296-…` — the image URL builder is handing Vision a relative path where an absolute `https://` URL is required.
+Both are isolated to PI Bot's input quality; the bridge itself functioned correctly and PI's SEO/GEO pack was produced and consumed even with those two signals missing.
+
+**Reversible:** yes — two-file change on one commit; setting `PI_AUTO_FOR_GEOBOT=false` in Vercel env also disables the auto-run path without a code rollback.

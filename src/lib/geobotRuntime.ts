@@ -14,6 +14,43 @@
 
 // ── Types ─────────────────────────────────────────────────────────────
 
+/**
+ * D-225: PI Bot research snippet fed into GeoBot prompts.
+ *
+ * This is deliberately narrower than PI Bot's full `PiReport` — we only
+ * import the fields GeoBot's prompt actually benefits from, and we keep
+ * the shape stable so changes to PI's internal types don't ripple here.
+ * The caller (contentPack.ts) is responsible for translating `PiReport`
+ * into this shape via `resolvePiResearch()`.
+ */
+export interface GeobotPiResearch {
+  // Vision-detected authoritative signals (override guessing from title alone).
+  detectedBrand?: string | null
+  detectedProductType?: string | null
+  detectedStyle?: string | null
+  detectedColor?: string | null
+  detectedMaterial?: string | null
+  detectedGender?: string | null
+  detectedUseCases?: string[] | null
+  // Reverse-search / online signals.
+  topReferenceTitles?: string[] | null
+  topReferenceSources?: string[] | null
+  matchType?: string | null
+  matchConfidence?: number | null
+  // Already-drafted suggestions from PI Bot — GeoBot uses these as seeds,
+  // not verbatim. Rewriting keeps the final copy in GeoBot's own voice.
+  suggestedSeoKeywords?: string[] | null
+  suggestedTags?: string[] | null
+  suggestedFaq?: Array<{ q: string; a: string }> | null
+  suggestedBuyerIntent?: string[] | null
+  suggestedComparisonAngles?: string[] | null
+  seoTitleDraft?: string | null
+  metaDescriptionDraft?: string | null
+  aiSearchSummary?: string | null
+  // Operator-visible caveats the prompt should respect.
+  riskWarnings?: string[] | null
+}
+
 export interface GeobotProductContext {
   id: number | string
   title: string
@@ -25,6 +62,10 @@ export interface GeobotProductContext {
   productType?: string | null
   variants?: Array<{ size?: string; stock?: number; color?: string }> | null
   stockQuantity?: number | null
+  // D-225: optional PI Bot research. When present, Gemini prompts should
+  // treat detected signals as authoritative over guessing from the title,
+  // and use the suggested-content bits as rewriting seeds.
+  piResearch?: GeobotPiResearch | null
 }
 
 export interface CommercePackOutput {
@@ -63,7 +104,15 @@ export interface GeobotGenerationResult {
 
 const GEMINI_TEXT_MODEL = 'gemini-2.5-flash'
 
-async function callGeminiText(prompt: string, maxOutputTokens = 4096): Promise<string> {
+interface GeminiTextResult {
+  text: string
+  finishReason: string | null
+}
+
+async function callGeminiText(
+  prompt: string,
+  maxOutputTokens = 4096,
+): Promise<GeminiTextResult> {
   const apiKey = process.env.GEMINI_API_KEY
   if (!apiKey) {
     throw new Error('GEMINI_API_KEY is not configured')
@@ -91,15 +140,164 @@ async function callGeminiText(prompt: string, maxOutputTokens = 4096): Promise<s
 
   const data = await response.json()
   const text = data?.candidates?.[0]?.content?.parts?.[0]?.text
+  const finishReason = data?.candidates?.[0]?.finishReason ?? null
   if (!text) {
-    const finishReason = data?.candidates?.[0]?.finishReason
     throw new Error(`Gemini returned empty response. finishReason=${finishReason ?? 'unknown'}`)
   }
 
-  return text
+  return { text, finishReason }
+}
+
+/**
+ * D-224: Parse a JSON object from a Gemini text response defensively.
+ *
+ * Handles three real-world failure modes we've observed in production:
+ *   1. Bare JSON (happy path) — JSON.parse works on trimmed input.
+ *   2. Markdown-fenced JSON (```json ... ```) — despite responseMimeType
+ *      being 'application/json', some safety-filtered or fallback responses
+ *      arrive wrapped in fences.
+ *   3. Truncated JSON on MAX_TOKENS — we extract the largest balanced {...}
+ *      by scanning depth; if that still fails and finishReason is MAX_TOKENS,
+ *      we surface that truthfully so the caller knows to bump the token
+ *      budget instead of swallowing it as a generic parse error.
+ *
+ * Root cause this addresses: products 296/300 Discovery failures where the
+ * response arrived as "not valid JSON (length=1114)" — invisible truncation
+ * mid-article with finishReason=MAX_TOKENS buried in the payload.
+ */
+function parseGeminiJson<T = any>(
+  raw: string,
+  finishReason: string | null,
+  label: string,
+): T {
+  // 1) Strip BOM and common markdown fences
+  let cleaned = raw.trim()
+  if (cleaned.startsWith('\uFEFF')) cleaned = cleaned.slice(1)
+  const fenceMatch = cleaned.match(/^```(?:json)?\s*([\s\S]*?)\s*```$/i)
+  if (fenceMatch) cleaned = fenceMatch[1].trim()
+
+  // 2) Try a direct parse first (happy path for responseMimeType=application/json)
+  try {
+    return JSON.parse(cleaned) as T
+  } catch {
+    // fall through to balanced-brace extraction
+  }
+
+  // 3) Extract the largest balanced {...} by scanning depth (handles trailing garbage)
+  const start = cleaned.indexOf('{')
+  if (start >= 0) {
+    let depth = 0
+    let inStr = false
+    let escape = false
+    for (let i = start; i < cleaned.length; i++) {
+      const ch = cleaned[i]
+      if (escape) {
+        escape = false
+        continue
+      }
+      if (ch === '\\') {
+        escape = true
+        continue
+      }
+      if (ch === '"') {
+        inStr = !inStr
+        continue
+      }
+      if (inStr) continue
+      if (ch === '{') depth++
+      else if (ch === '}') {
+        depth--
+        if (depth === 0) {
+          const candidate = cleaned.slice(start, i + 1)
+          try {
+            return JSON.parse(candidate) as T
+          } catch {
+            break
+          }
+        }
+      }
+    }
+  }
+
+  // 4) Fail truthfully — include finishReason so truncation is diagnosable
+  const reasonSuffix = finishReason ? ` finishReason=${finishReason}` : ''
+  const preview = cleaned.slice(0, 200).replace(/\s+/g, ' ')
+  throw new Error(
+    `${label}: Gemini response is not valid JSON (length=${cleaned.length}${reasonSuffix}) preview="${preview}"`,
+  )
 }
 
 // ── Product context builder ───────────────────────────────────────────
+
+/**
+ * D-225: Serialize PI Bot research into a Turkish prompt block.
+ *
+ * Two design choices worth calling out:
+ *   1. Vision-detected attributes are labelled "TESPİT EDİLEN" (DETECTED) to
+ *      signal to Gemini that these are authoritative observations from the
+ *      product's actual image — stronger evidence than anything in the title.
+ *   2. Suggested SEO keywords / FAQ / buyer-intent are labelled "ÖNERİLEN"
+ *      (SUGGESTED) so Gemini uses them as seeds and rewrites in its own
+ *      voice — we don't want the final copy to parrot PI's draft verbatim.
+ *
+ * Returns the rendered block, or an empty string if no PI signal is useful.
+ */
+function buildPiResearchBlock(pi: GeobotPiResearch): string {
+  const lines: string[] = []
+  const detectedBits: string[] = []
+  if (pi.detectedBrand) detectedBits.push(`Marka: ${pi.detectedBrand}`)
+  if (pi.detectedProductType) detectedBits.push(`Ürün Tipi: ${pi.detectedProductType}`)
+  if (pi.detectedStyle) detectedBits.push(`Stil: ${pi.detectedStyle}`)
+  if (pi.detectedColor) detectedBits.push(`Renk: ${pi.detectedColor}`)
+  if (pi.detectedMaterial) detectedBits.push(`Malzeme: ${pi.detectedMaterial}`)
+  if (pi.detectedGender) detectedBits.push(`Hedef: ${pi.detectedGender}`)
+  if (pi.detectedUseCases && pi.detectedUseCases.length > 0) {
+    detectedBits.push(`Kullanım: ${pi.detectedUseCases.join(', ')}`)
+  }
+  if (detectedBits.length > 0) {
+    lines.push(
+      'TESPİT EDİLEN ÖZELLİKLER (ürün fotoğrafı analizi — bu bilgileri doğru kabul et, başlıktan tahmine güvenme):',
+    )
+    lines.push(detectedBits.map((b) => `  • ${b}`).join('\n'))
+  }
+  if (pi.topReferenceTitles && pi.topReferenceTitles.length > 0) {
+    lines.push('BENZER ÜRÜN BAŞLIKLARI (online arama — stil/kategori ipucu için, kopyalama):')
+    lines.push(
+      pi.topReferenceTitles
+        .slice(0, 5)
+        .map((t) => `  • ${t}`)
+        .join('\n'),
+    )
+  }
+  if (pi.matchType && pi.matchConfidence != null) {
+    lines.push(`Eşleşme Türü: ${pi.matchType} (%${pi.matchConfidence} güven)`)
+  }
+  const suggestedBits: string[] = []
+  if (pi.suggestedSeoKeywords && pi.suggestedSeoKeywords.length > 0) {
+    suggestedBits.push(`Anahtar kelimeler: ${pi.suggestedSeoKeywords.slice(0, 12).join(', ')}`)
+  }
+  if (pi.suggestedBuyerIntent && pi.suggestedBuyerIntent.length > 0) {
+    suggestedBits.push(`Alıcı niyet kelimeleri: ${pi.suggestedBuyerIntent.slice(0, 8).join(', ')}`)
+  }
+  if (pi.suggestedComparisonAngles && pi.suggestedComparisonAngles.length > 0) {
+    suggestedBits.push(
+      `Karşılaştırma açıları: ${pi.suggestedComparisonAngles.slice(0, 5).join(' | ')}`,
+    )
+  }
+  if (pi.aiSearchSummary) {
+    suggestedBits.push(`AI arama özeti: ${pi.aiSearchSummary.slice(0, 400)}`)
+  }
+  if (suggestedBits.length > 0) {
+    lines.push('ÖNERİLEN İÇERİK SİNYALLERİ (PI Bot — tohum olarak kullan, kendi sesinle yeniden yaz):')
+    lines.push(suggestedBits.map((b) => `  • ${b}`).join('\n'))
+  }
+  if (pi.riskWarnings && pi.riskWarnings.length > 0) {
+    lines.push(
+      `UYARILAR (PI Bot — içerikte kaçın): ${pi.riskWarnings.slice(0, 5).join(' | ')}`,
+    )
+  }
+  return lines.length > 0 ? lines.join('\n') : ''
+}
 
 function buildProductContext(product: GeobotProductContext): string {
   const lines: string[] = []
@@ -129,6 +327,16 @@ function buildProductContext(product: GeobotProductContext): string {
     lines.push(`Stok: ${product.stockQuantity} adet`)
   }
 
+  // D-225: append PI Bot research if GeoBot was handed one.
+  if (product.piResearch) {
+    const piBlock = buildPiResearchBlock(product.piResearch)
+    if (piBlock) {
+      lines.push('')
+      lines.push('─── PRODUCT INTELLIGENCE BOT ARAŞTIRMASI ───')
+      lines.push(piBlock)
+    }
+  }
+
   return lines.join('\n')
 }
 
@@ -136,6 +344,7 @@ function buildProductContext(product: GeobotProductContext): string {
 
 function buildCommercePrompt(product: GeobotProductContext): string {
   const ctx = buildProductContext(product)
+  const hasPi = !!product.piResearch
 
   return `Sen UygunAyakkabı e-ticaret sitesi için içerik üreten bir AI asistanısın.
 Aşağıdaki onaylanmış ürün bilgilerine dayanarak, HER KANAL İÇİN FARKLI TARZ VE UZUNLUKTA içerik üret.
@@ -151,7 +360,10 @@ KURALLAR:
 - Emoji kullanımı kanala uygun olsun
 - Fiyat ve beden bilgisi varsa dahil et
 - Marka varsa doğru yaz, yoksa ekleme
-- Aşırı pazarlama dili kullanma, doğal ol
+- Aşırı pazarlama dili kullanma, doğal ol${hasPi ? `
+- PI Bot TESPİT EDİLEN ÖZELLİKLER'i doğru kabul et — başlıkla çelişiyorsa TESPİT EDİLEN'i kullan
+- ÖNERİLEN SİNYALLER'i tohum olarak kullan, kendi sesinle yeniden yaz, birebir kopyalama
+- UYARILAR varsa onlara uy, o konulardan kaçın` : ''}
 
 {
   "websiteDescription": "200-400 karakter arası detaylı ürün açıklaması. HTML kullanma. Ürünün özelliklerini, kullanım alanlarını ve avantajlarını açıkla.",
@@ -167,16 +379,14 @@ export async function generateCommercePack(
   product: GeobotProductContext,
 ): Promise<CommercePackOutput> {
   const prompt = buildCommercePrompt(product)
-  const raw = await callGeminiText(prompt)
+  const { text: raw, finishReason } = await callGeminiText(prompt)
 
-  // Parse JSON from response
-  const jsonMatch = raw.match(/\{[\s\S]*\}/)
-  if (!jsonMatch) {
-    throw new Error('Commerce pack: Gemini response is not valid JSON')
-  }
-
-  const parsed = JSON.parse(jsonMatch[0])
+  // D-224: defensive JSON parse — handles fences, trailing garbage, and truncation
+  const parsed = parseGeminiJson<any>(raw, finishReason, 'Commerce pack')
   const warnings: string[] = []
+  if (finishReason && finishReason !== 'STOP') {
+    warnings.push(`gemini finishReason=${finishReason}`)
+  }
 
   // Validate required fields
   if (!parsed.websiteDescription) warnings.push('websiteDescription boş')
@@ -208,6 +418,7 @@ export async function generateCommercePack(
 
 function buildDiscoveryPrompt(product: GeobotProductContext): string {
   const ctx = buildProductContext(product)
+  const hasPi = !!product.piResearch
 
   return `Sen UygunAyakkabı e-ticaret sitesi için GEO/SEO içerik üreten bir AI asistanısın.
 Aşağıdaki onaylanmış ürün bilgilerine dayanarak, arama motoru keşfi ve kullanıcı bilgilendirmesi için uzun form içerik üret.
@@ -223,7 +434,12 @@ KURALLAR:
 - FAQ gerçekçi sorular ve yararlı cevaplar içersin
 - Anahtar kelimeler ürünle alakalı ve gerçek arama terimleri olsun
 - İç bağlantı hedefleri site yapısına uygun slug'lar olsun
-- metaTitle max 60 karakter, metaDescription max 160 karakter
+- metaTitle max 60 karakter, metaDescription max 160 karakter${hasPi ? `
+- PI Bot TESPİT EDİLEN ÖZELLİKLER'i doğru kabul et — makale gövdesinde bu özelliklere açıkça değin (marka, stil, malzeme, renk, kullanım alanları)
+- ÖNERİLEN anahtar kelime ve alıcı niyet tohumlarını keywordEntities için başlangıç olarak kullan, genişlet, birebir kopyalama
+- ÖNERİLEN karşılaştırma açılarını makalede ayrı bir alt başlık olarak değerlendir
+- ÖNERİLEN FAQ varsa kendi sesinle yeniden formüle et, aynen kopyalama
+- UYARILAR varsa makale içinde o konulardan kaçın` : ''}
 
 {
   "articleTitle": "Makale başlığı — bilgilendirici, tıklanabilir, 50-70 karakter",
@@ -247,23 +463,26 @@ export async function generateDiscoveryPack(
   product: GeobotProductContext,
 ): Promise<DiscoveryPackOutput> {
   const prompt = buildDiscoveryPrompt(product)
-  // Discovery pack needs higher token limit: 800-1500 word article + FAQ + metadata in JSON
-  const raw = await callGeminiText(prompt, 8192)
-
-  const jsonMatch = raw.match(/\{[\s\S]*\}/)
-  if (!jsonMatch) {
-    console.error(`[geobotRuntime] Discovery pack raw response (first 500): ${raw.slice(0, 500)}`)
-    throw new Error(`Discovery pack: Gemini response is not valid JSON (length=${raw.length})`)
-  }
+  // D-224: Discovery pack needs a higher token limit than commerce — it
+  // produces an 800-1500 word article + FAQ + metadata inside a JSON payload.
+  // Bumped from 8192 → 16384 because products 296/300 hit MAX_TOKENS mid-JSON
+  // and returned an unparseable truncated body (observed length=1114 — nowhere
+  // near a finished 800+ word article).
+  const { text: raw, finishReason } = await callGeminiText(prompt, 16384)
 
   let parsed: any
   try {
-    parsed = JSON.parse(jsonMatch[0])
+    parsed = parseGeminiJson<any>(raw, finishReason, 'Discovery pack')
   } catch (parseErr) {
-    console.error(`[geobotRuntime] Discovery JSON parse failed. Raw length=${raw.length}, match length=${jsonMatch[0].length}`)
-    throw new Error(`Discovery pack: JSON parse error — ${parseErr instanceof Error ? parseErr.message : String(parseErr)}`)
+    console.error(
+      `[geobotRuntime] Discovery parse failed. rawLength=${raw.length} finishReason=${finishReason} first500="${raw.slice(0, 500)}"`,
+    )
+    throw parseErr
   }
   const warnings: string[] = []
+  if (finishReason && finishReason !== 'STOP') {
+    warnings.push(`gemini finishReason=${finishReason}`)
+  }
 
   // Validate required fields
   if (!parsed.articleTitle) warnings.push('articleTitle boş')

@@ -285,6 +285,161 @@ export function canRetriggerContent(product: ContentProduct): boolean {
   return contentStatus === 'commerce_generated' || contentStatus === 'discovery_generated' || contentStatus === 'failed'
 }
 
+// ── D-225: PI Bot research resolver ───────────────────────────────────
+
+/**
+ * D-225: Fetch or auto-create a Product Intelligence report and translate
+ * it into the narrow `GeobotPiResearch` shape that GeoBot's prompt consumes.
+ *
+ * Policy:
+ *   1. Look for the most recent `ready` / `approved` / `sent_to_geo` report.
+ *   2. If none exists and `PI_AUTO_FOR_GEOBOT` is not explicitly disabled,
+ *      auto-run the PI Bot pipeline (same code path as #geohazirla).
+ *   3. If PI fails for any reason, return `null` — GeoBot degrades to the
+ *      legacy product-only prompt path. PI must NEVER block publishing.
+ *
+ * All steps are wrapped in try/catch so the legacy flow is preserved.
+ */
+async function resolvePiResearch(
+  payload: any,
+  productId: number | string,
+): Promise<import('@/lib/geobotRuntime').GeobotPiResearch | null> {
+  const envFlag = (process.env.PI_AUTO_FOR_GEOBOT ?? 'true').toLowerCase()
+  const autoEnabled = envFlag !== 'false' && envFlag !== '0' && envFlag !== 'off'
+
+  try {
+    // 1. Look for the freshest usable report.
+    const { docs } = await payload.find({
+      collection: 'product-intelligence-reports',
+      where: {
+        and: [
+          { product: { equals: productId } },
+          { status: { in: ['ready', 'approved', 'sent_to_geo'] } },
+        ],
+      },
+      sort: '-updatedAt',
+      limit: 1,
+      depth: 0,
+    })
+    let report: any = docs?.[0]
+
+    // 2. Auto-create if nothing usable exists.
+    if (!report && autoEnabled) {
+      try {
+        const { createProductIntelligenceReport } = await import(
+          '@/lib/productIntelligence/createProductIntelligenceReport'
+        )
+        console.log(
+          `[contentPack/resolvePiResearch] No PI report for product ${productId} — auto-running PI Bot.`,
+        )
+        const summary = await createProductIntelligenceReport(payload, {
+          productId,
+          triggerSource: 'manual',
+        })
+        if (summary.status === 'ready') {
+          // Emit a BotEvent so the operator can see PI was auto-triggered.
+          try {
+            await payload.create({
+              collection: 'bot-events',
+              data: {
+                eventType: 'pi.auto_triggered_by_geo',
+                product: productId,
+                sourceBot: 'geobot',
+                targetBot: 'uygunops',
+                status: 'processed',
+                payload: {
+                  reportId: summary.reportId,
+                  matchType: summary.matchType,
+                  matchConfidence: summary.matchConfidence,
+                  onlineMatchesFound: summary.search?.onlineMatchesFound ?? 0,
+                  triggeredAt: new Date().toISOString(),
+                },
+                notes: `PI Bot auto-triggered by GeoBot for product ${productId}. reportId=${summary.reportId} matchType=${summary.matchType}.`,
+                processedAt: new Date().toISOString(),
+              },
+            })
+          } catch {
+            // best-effort — event emission is not critical
+          }
+          // Re-fetch the now-ready report.
+          try {
+            report = await payload.findByID({
+              collection: 'product-intelligence-reports',
+              id: summary.reportId,
+              depth: 0,
+            })
+          } catch {
+            report = null
+          }
+        } else {
+          console.warn(
+            `[contentPack/resolvePiResearch] PI auto-run returned status=${summary.status} for product ${productId}. Falling back to legacy prompt.`,
+          )
+        }
+      } catch (piErr) {
+        // PI Bot failure should NEVER block GeoBot — degrade gracefully.
+        console.warn(
+          `[contentPack/resolvePiResearch] PI auto-run failed for product ${productId} (non-blocking):`,
+          piErr instanceof Error ? piErr.message : String(piErr),
+        )
+      }
+    } else if (!report) {
+      // autoEnabled=false and no cached report → legacy path
+      return null
+    }
+
+    if (!report) return null
+
+    // 3. Translate PiReport into the narrow GeobotPiResearch shape.
+    const attrs = report.detectedAttributes ?? {}
+    const refs: any[] = Array.isArray(report.referenceProducts) ? report.referenceProducts : []
+    const seo = report.seoPack ?? {}
+    const geo = report.geoPack ?? {}
+
+    const topReferenceTitles = refs
+      .slice(0, 5)
+      .map((r) => (typeof r?.title === 'string' ? r.title : null))
+      .filter((v): v is string => !!v && v.length > 0)
+    const topReferenceSources = refs
+      .slice(0, 5)
+      .map((r) => (typeof r?.source === 'string' ? r.source : null))
+      .filter((v): v is string => !!v && v.length > 0)
+
+    return {
+      detectedBrand: attrs.visibleBrand ?? null,
+      detectedProductType: attrs.productType ?? null,
+      detectedStyle: attrs.style ?? null,
+      detectedColor: attrs.color ?? null,
+      detectedMaterial: attrs.materialGuess ?? null,
+      detectedGender: attrs.gender ?? null,
+      detectedUseCases: Array.isArray(attrs.useCases) ? attrs.useCases : null,
+      topReferenceTitles: topReferenceTitles.length > 0 ? topReferenceTitles : null,
+      topReferenceSources: topReferenceSources.length > 0 ? topReferenceSources : null,
+      matchType: typeof report.matchType === 'string' ? report.matchType : null,
+      matchConfidence: typeof report.matchConfidence === 'number' ? report.matchConfidence : null,
+      suggestedSeoKeywords: Array.isArray(seo.keywords) ? seo.keywords : null,
+      suggestedTags: Array.isArray(seo.tags) ? seo.tags : null,
+      suggestedFaq: Array.isArray(seo.faq) ? seo.faq : null,
+      suggestedBuyerIntent: Array.isArray(geo.buyerIntentKeywords)
+        ? geo.buyerIntentKeywords
+        : null,
+      suggestedComparisonAngles: Array.isArray(geo.comparisonAngles)
+        ? geo.comparisonAngles
+        : null,
+      seoTitleDraft: typeof seo.seoTitle === 'string' ? seo.seoTitle : null,
+      metaDescriptionDraft: typeof seo.metaDescription === 'string' ? seo.metaDescription : null,
+      aiSearchSummary: typeof geo.aiSearchSummary === 'string' ? geo.aiSearchSummary : null,
+      riskWarnings: Array.isArray(report.riskWarnings) ? report.riskWarnings : null,
+    }
+  } catch (err) {
+    console.warn(
+      `[contentPack/resolvePiResearch] Unexpected error for product ${productId} (non-blocking):`,
+      err instanceof Error ? err.message : String(err),
+    )
+    return null
+  }
+}
+
 // ── Geobot trigger ────────────────────────────────────────────────────
 
 /**
@@ -293,13 +448,16 @@ export function canRetriggerContent(product: ContentProduct): boolean {
  * Phase 7: NOW CALLS REAL GEOBOT RUNTIME.
  * 1. Sets workflow to content_pending
  * 2. Emits BotEvent(content.requested)
- * 3. Calls geobotRuntime.generateFullContentPack() — REAL AI generation
- * 4. Writes results to product content fields
- * 5. Updates contentStatus truthfully (commerce_generated/discovery_generated/ready/failed)
- * 6. Emits appropriate BotEvents
- * 7. If discovery pack generated, creates/links BlogPost
+ * 3. D-225: Resolves PI Bot research (auto-runs PI if no report exists)
+ * 4. Calls geobotRuntime.generateFullContentPack() — REAL AI generation
+ *    with PI research injected into the prompt context when available
+ * 5. Writes results to product content fields
+ * 6. Updates contentStatus truthfully (commerce_generated/discovery_generated/ready/failed)
+ * 7. Emits appropriate BotEvents
+ * 8. If discovery pack generated, creates/links BlogPost
  *
- * Non-blocking: catches all errors, never throws.
+ * Non-blocking: catches all errors, never throws. PI failures degrade to
+ * the legacy product-only prompt so publishing stability is preserved.
  */
 export async function triggerContentGeneration(
   payload: any, // PayloadInstance
@@ -398,6 +556,11 @@ export async function triggerContentGeneration(
       }
     }
 
+    // D-225: Resolve PI Bot research (auto-run if none exists). Non-blocking —
+    // if PI fails or is disabled, piResearch is null and GeoBot runs the legacy
+    // product-only prompt path exactly as before.
+    const piResearch = await resolvePiResearch(payload, product.id)
+
     const productContext = {
       id: product.id,
       title: product.title ?? `Ürün #${product.id}`,
@@ -409,6 +572,7 @@ export async function triggerContentGeneration(
       productType: product.productType,
       variants,
       stockQuantity: (product as any).stockQuantity ?? null,
+      piResearch,
     }
 
     const result = await generateFullContentPack(productContext)

@@ -32,6 +32,10 @@ export interface GeobotPiResearch {
   detectedMaterial?: string | null
   detectedGender?: string | null
   detectedUseCases?: string[] | null
+  // D-227: Richest vision detail — logo/text/tongue reading, tread type,
+  // seam/stitching, material visible etc. Must reach the prompt; previously
+  // silently dropped at the resolvePiResearch translation layer.
+  detectedVisualNotes?: string | null
   // Reverse-search / online signals.
   topReferenceTitles?: string[] | null
   topReferenceSources?: string[] | null
@@ -254,9 +258,15 @@ function buildPiResearchBlock(pi: GeobotPiResearch): string {
   if (pi.detectedUseCases && pi.detectedUseCases.length > 0) {
     detectedBits.push(`Kullanım: ${pi.detectedUseCases.join(', ')}`)
   }
+  // D-227: surface the richest vision signal (logo/tongue text, sole type,
+  // stitching, visible text on the shoe) so the final copy can cite concrete
+  // evidence instead of falling back to title-based generic phrasing.
+  if (pi.detectedVisualNotes) {
+    detectedBits.push(`Görsel Detaylar (logo/yazı/taban/kumaş): ${pi.detectedVisualNotes}`)
+  }
   if (detectedBits.length > 0) {
     lines.push(
-      'TESPİT EDİLEN ÖZELLİKLER (ürün fotoğrafı analizi — bu bilgileri doğru kabul et, başlıktan tahmine güvenme):',
+      'ÜRÜN KİMLİĞİ — ZORUNLU KULLANIM (ürün fotoğrafı analizi, kesin kabul edilir):',
     )
     lines.push(detectedBits.map((b) => `  • ${b}`).join('\n'))
   }
@@ -361,7 +371,9 @@ KURALLAR:
 - Fiyat ve beden bilgisi varsa dahil et
 - Marka varsa doğru yaz, yoksa ekleme
 - Aşırı pazarlama dili kullanma, doğal ol${hasPi ? `
-- PI Bot TESPİT EDİLEN ÖZELLİKLER'i doğru kabul et — başlıkla çelişiyorsa TESPİT EDİLEN'i kullan
+- ZORUNLU: ÜRÜN KİMLİĞİ bloğundaki alanlar (marka, ürün tipi, renk, malzeme, stil, görsel detaylar) mevcutsa websiteDescription + instagramCaption + shopierCopy + facebookCopy içinde açıkça görünmelidir. Sadece başlığı tekrar etme — somut özelliklerden en az 2'sini her metne işle.
+- ZORUNLU: Görsel Detaylar varsa (logo, yazı, taban tipi, kumaş, renk kombinasyonu), en az bir somut detayı websiteDescription'da kullan. Genel ifadelerle (örn. "yüksek kaliteli malzeme", "şık tasarım") geçiştirme.
+- ÜRÜN KİMLİĞİ başlıkla çelişiyorsa ÜRÜN KİMLİĞİ'ni kullan (örn. başlık "Blue" ama renk "Lacivert" ise "lacivert" kullan).
 - ÖNERİLEN SİNYALLER'i tohum olarak kullan, kendi sesinle yeniden yaz, birebir kopyalama
 - UYARILAR varsa onlara uy, o konulardan kaçın` : ''}
 
@@ -435,7 +447,9 @@ KURALLAR:
 - Anahtar kelimeler ürünle alakalı ve gerçek arama terimleri olsun
 - İç bağlantı hedefleri site yapısına uygun slug'lar olsun
 - metaTitle max 60 karakter, metaDescription max 160 karakter${hasPi ? `
-- PI Bot TESPİT EDİLEN ÖZELLİKLER'i doğru kabul et — makale gövdesinde bu özelliklere açıkça değin (marka, stil, malzeme, renk, kullanım alanları)
+- ZORUNLU: ÜRÜN KİMLİĞİ bloğundaki alanlar (marka, ürün tipi, renk, malzeme, stil, görsel detaylar) makalenin GİRİŞ paragrafında + en az bir alt başlığın gövdesinde açıkça yer almalıdır. Jenerik "kaliteli malzeme / şık tasarım" cümleleriyle geçiştirilmesi YASAK.
+- ZORUNLU: Görsel Detaylar varsa (logo, yazı, taban, kumaş), bunlardan en az biri makale gövdesinde somut şekilde geçmelidir (örn. "dil kısmındaki Air-Cooled Memory Foam yazısı", "kalın kauçuk taban" vb).
+- ZORUNLU: metaTitle ve articleTitle ÜRÜN KİMLİĞİ'ndeki marka + ürün tipi + renk kombinasyonunu içermelidir (sadece başlığı echo etmek yasak).
 - ÖNERİLEN anahtar kelime ve alıcı niyet tohumlarını keywordEntities için başlangıç olarak kullan, genişlet, birebir kopyalama
 - ÖNERİLEN karşılaştırma açılarını makalede ayrı bir alt başlık olarak değerlendir
 - ÖNERİLEN FAQ varsa kendi sesinle yeniden formüle et, aynen kopyalama

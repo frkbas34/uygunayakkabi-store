@@ -380,10 +380,36 @@ async function resolvePiResearch(
         }
       } catch (piErr) {
         // PI Bot failure should NEVER block GeoBot — degrade gracefully.
+        const errMsg = piErr instanceof Error ? piErr.message : String(piErr)
         console.warn(
           `[contentPack/resolvePiResearch] PI auto-run failed for product ${productId} (non-blocking):`,
-          piErr instanceof Error ? piErr.message : String(piErr),
+          errMsg,
         )
+        // D-227: surface the silent failure as a bot-event so an operator can
+        // tell "PI never ran" (env flag off, create threw, cold start) apart
+        // from "PI ran and produced nothing useful". Previously these
+        // auto-bridge failures left no trace except server logs.
+        try {
+          await payload.create({
+            collection: 'bot-events',
+            data: {
+              eventType: 'pi.auto_trigger_failed',
+              product: productId,
+              sourceBot: 'geobot',
+              targetBot: 'uygunops',
+              status: 'failed',
+              payload: {
+                error: errMsg.slice(0, 500),
+                failedAt: new Date().toISOString(),
+                autoEnabled,
+              },
+              notes: `PI Bot auto-trigger failed for product ${productId}: ${errMsg.slice(0, 200)}`,
+              processedAt: new Date().toISOString(),
+            },
+          })
+        } catch {
+          // best-effort — do not cascade a failure here into GeoBot
+        }
       }
     } else if (!report) {
       // autoEnabled=false and no cached report → legacy path
@@ -415,6 +441,10 @@ async function resolvePiResearch(
       detectedMaterial: attrs.materialGuess ?? null,
       detectedGender: attrs.gender ?? null,
       detectedUseCases: Array.isArray(attrs.useCases) ? attrs.useCases : null,
+      // D-227: surface the richest vision signal (tongue text, logo shape,
+      // sole detail). Previously dropped at this translation layer, so the
+      // prompt lost e.g. "Skechers Air-Cooled Memory Foam" read off a shoe.
+      detectedVisualNotes: typeof attrs.visualNotes === 'string' ? attrs.visualNotes : null,
       topReferenceTitles: topReferenceTitles.length > 0 ? topReferenceTitles : null,
       topReferenceSources: topReferenceSources.length > 0 ? topReferenceSources : null,
       matchType: typeof report.matchType === 'string' ? report.matchType : null,

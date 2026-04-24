@@ -67,6 +67,7 @@ export const ProductIntelligenceReports: CollectionConfig = {
         { label: 'Telegram', value: 'telegram' },
         { label: 'Manuel', value: 'manual' },
         { label: 'Ürün Sayfası', value: 'product_page' },
+        { label: 'GeoBot Otomatik', value: 'geo_auto' },
       ],
     },
     {

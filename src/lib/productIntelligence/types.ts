@@ -36,7 +36,7 @@ export type PiReportStatus =
   | 'rejected'
   | 'failed'
 
-export type PiTriggerSource = 'telegram' | 'manual' | 'product_page'
+export type PiTriggerSource = 'telegram' | 'manual' | 'product_page' | 'geo_auto'
 
 // ── Detected attributes (from vision) ───────────────────────────────────────
 export interface PiDetectedAttributes {

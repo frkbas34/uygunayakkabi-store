@@ -47,17 +47,42 @@ type MediaDoc = {
   sizes?: Record<string, { url?: string | null } | undefined> | null
 }
 
+/**
+ * D-226: Compute the site origin used to absolutize Payload's relative media
+ * URLs (`/api/media/file/...`). Both Gemini vision (inlineData fetch) and
+ * Google Cloud Vision (imageUri fetch) require absolute https URLs —
+ * handing them a relative path silently drops the image in vision and
+ * produces `google_vision_response: Unsupported URI protocol specified`
+ * in reverse search. Mirrors the pattern in `src/jobs/imageGenTask.ts`.
+ */
+function resolveSiteBase(): string | null {
+  const fromEnv = process.env.NEXT_PUBLIC_SERVER_URL?.trim()
+  if (fromEnv) return fromEnv.replace(/\/$/, '')
+  const vercel = process.env.VERCEL_URL?.trim()
+  if (vercel) return `https://${vercel.replace(/\/$/, '')}`
+  return null
+}
+
+function absolutizeUrl(url: string | null): string | null {
+  if (!url) return null
+  if (/^https?:\/\//i.test(url)) return url
+  const base = resolveSiteBase()
+  if (!base) return url // fail-soft: preserve original, caller may still cope
+  // Payload writes leading-slash paths; defend against concatenation drift.
+  return url.startsWith('/') ? `${base}${url}` : `${base}/${url}`
+}
+
 function resolveMediaUrl(media: unknown): string | null {
   if (!media) return null
-  if (typeof media === 'string') return media
+  if (typeof media === 'string') return absolutizeUrl(media)
   const m = media as MediaDoc
   // Prefer large size, fall back to card, then the original url
-  return (
+  const rawUrl =
     m?.sizes?.large?.url ||
     m?.sizes?.card?.url ||
     m?.url ||
     null
-  )
+  return absolutizeUrl(rawUrl)
 }
 
 function pickSource(media: unknown): 'original' | 'generated' | 'enhanced' {

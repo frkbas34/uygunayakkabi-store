@@ -334,7 +334,9 @@ async function resolvePiResearch(
         )
         const summary = await createProductIntelligenceReport(payload, {
           productId,
-          triggerSource: 'manual',
+          // D-226: tag auto-created reports so the PI reports UI/analytics
+          // can distinguish GeoBot-triggered runs from manual operator runs.
+          triggerSource: 'geo_auto',
         })
         if (summary.status === 'ready') {
           // Emit a BotEvent so the operator can see PI was auto-triggered.

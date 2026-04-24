@@ -21,6 +21,7 @@
  */
 
 import type { PiCollectedImages, PiDetectedAttributes, PiProductContext } from './types'
+import { parseGeminiJson } from '@/lib/util/parseGeminiJson'
 
 const GEMINI_VISION_MODEL = 'gemini-2.5-flash'
 
@@ -157,24 +158,33 @@ export async function analyzeProduct(
 
     const data = (await res.json()) as any
     const text: string | undefined = data?.candidates?.[0]?.content?.parts?.[0]?.text
+    const finishReason: string | null = data?.candidates?.[0]?.finishReason ?? null
     if (!text) {
       return {
-        attributes: { visualNotes: 'Gemini boş yanıt döndü.' },
+        attributes: {
+          visualNotes: `Gemini boş yanıt döndü${finishReason ? ` (finishReason=${finishReason})` : ''}.`,
+        },
         rawText: null,
-        error: 'gemini_empty_response',
+        error: `gemini_empty_response${finishReason ? `:${finishReason}` : ''}`,
       }
     }
 
-    const jsonMatch = text.match(/\{[\s\S]*\}/)
-    if (!jsonMatch) {
+    // D-226: defensive parse — handles ```json fences, trailing prose, and
+    // truncated tails. Reuses the same helper pattern as D-224 in geobotRuntime.ts.
+    let parsed: Record<string, unknown>
+    try {
+      parsed = parseGeminiJson<Record<string, unknown>>(text, finishReason, 'PI vision')
+    } catch (parseErr) {
+      const msg = parseErr instanceof Error ? parseErr.message : String(parseErr)
       return {
-        attributes: { visualNotes: 'Gemini yanıtı JSON formatında değildi.' },
+        attributes: {
+          visualNotes: `Gemini yanıtı JSON olarak ayrıştırılamadı${finishReason ? ` (finishReason=${finishReason})` : ''}.`,
+        },
         rawText: text,
-        error: 'gemini_non_json_response',
+        error: `gemini_non_json_response: ${msg.slice(0, 200)}`,
       }
     }
 
-    const parsed = JSON.parse(jsonMatch[0]) as Record<string, unknown>
     const asStringOrNull = (v: unknown): string | null =>
       typeof v === 'string' && v.trim().length > 0 ? v.trim() : null
     const asStringArray = (v: unknown): string[] | null =>

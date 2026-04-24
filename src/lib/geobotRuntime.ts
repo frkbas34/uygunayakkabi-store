@@ -450,7 +450,15 @@ export async function generateCommercePack(
   product: GeobotProductContext,
 ): Promise<CommercePackOutput> {
   const prompt = buildCommercePrompt(product)
-  const { text: raw, finishReason } = await callGeminiText(prompt)
+  // D-231: bumped 4096 → 8192. D-229 tightened the PI-enabled commerce
+  // rules (min 3 detected attributes per surface, brand-tech mandatory,
+  // 2+ concrete visual details in websiteDescription, generic-phrase ban)
+  // which made the commerce JSON much longer. With 2.5-flash's
+  // thinking-token overhead, 4096 began hitting MAX_TOKENS mid-JSON so
+  // parseGeminiJson threw and the caller's try/catch left commercePack
+  // undefined — silent failure, no content.commerce_generated event,
+  // commerce columns in DB stayed null (observed on product 306).
+  const { text: raw, finishReason } = await callGeminiText(prompt, 8192)
 
   // D-224: defensive JSON parse — handles fences, trailing garbage, and truncation
   const parsed = parseGeminiJson<any>(raw, finishReason, 'Commerce pack')
@@ -624,33 +632,50 @@ export async function generateDiscoveryPack(
 export async function generateFullContentPack(
   product: GeobotProductContext,
 ): Promise<GeobotGenerationResult> {
-  let commercePack: CommercePackOutput | undefined
-  let discoveryPack: DiscoveryPackOutput | undefined
   const errors: string[] = []
 
-  // Commerce pack
-  try {
-    console.log(`[geobotRuntime] Generating commerce pack for product ${product.id}...`)
-    commercePack = await generateCommercePack(product)
+  // D-231: Run commerce + discovery IN PARALLEL. Previously sequential —
+  // with D-229's enlarged prompts (commerce 8192 tokens, discovery 16384
+  // tokens, 1200-2000 word article with 8 mandatory sections), sequential
+  // execution pushed total wall time on PI-enabled runs to ~90-100s,
+  // which is what the operator perceived as "30 seconds between steps"
+  // and eventually "stopped working". Parallel cuts the wall time to
+  // max(commerce, discovery) ≈ 50-60s. Both calls are independent — they
+  // don't share state and each writes its own result.
+  console.log(`[geobotRuntime] Generating commerce + discovery pack in parallel — product=${product.id}`)
+  const [commerceResult, discoveryResult] = await Promise.allSettled([
+    generateCommercePack(product),
+    generateDiscoveryPack(product),
+  ])
+
+  let commercePack: CommercePackOutput | undefined
+  let discoveryPack: DiscoveryPackOutput | undefined
+
+  if (commerceResult.status === 'fulfilled') {
+    commercePack = commerceResult.value
     console.log(
       `[geobotRuntime] Commerce pack generated — product=${product.id} confidence=${commercePack.confidence}`,
     )
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err)
+  } else {
+    const msg = commerceResult.reason instanceof Error
+      ? commerceResult.reason.message
+      : String(commerceResult.reason)
     console.error(`[geobotRuntime] Commerce pack failed for product ${product.id}:`, msg)
     errors.push(`Commerce: ${msg}`)
   }
 
-  // Discovery pack
-  try {
-    console.log(`[geobotRuntime] Generating discovery pack for product ${product.id}...`)
-    discoveryPack = await generateDiscoveryPack(product)
+  if (discoveryResult.status === 'fulfilled') {
+    discoveryPack = discoveryResult.value
     console.log(
       `[geobotRuntime] Discovery pack generated — product=${product.id} confidence=${discoveryPack.confidence}`,
     )
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err)
-    const stack = err instanceof Error ? err.stack?.split('\n').slice(0, 3).join(' | ') : ''
+  } else {
+    const msg = discoveryResult.reason instanceof Error
+      ? discoveryResult.reason.message
+      : String(discoveryResult.reason)
+    const stack = discoveryResult.reason instanceof Error
+      ? discoveryResult.reason.stack?.split('\n').slice(0, 3).join(' | ')
+      : ''
     console.error(`[geobotRuntime] Discovery pack FAILED for product ${product.id}: ${msg} ${stack}`)
     errors.push(`Discovery: ${msg}`)
   }

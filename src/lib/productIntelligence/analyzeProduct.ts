@@ -140,7 +140,12 @@ export async function analyzeProduct(
         generationConfig: {
           responseMimeType: 'application/json',
           temperature: 0.3,
-          maxOutputTokens: 1024,
+          // D-226: bumped from 1024 → 4096. Gemini 2.5-flash counts "thinking"
+          // tokens against the budget; at 1024 we observed finishReason=MAX_TOKENS
+          // with only ~76 chars of visible output (mid-JSON truncation). 4096
+          // comfortably covers the thinking overhead for this compact schema.
+          // Same class of fix as D-224's discovery bump (8192 → 16384).
+          maxOutputTokens: 4096,
         },
       }),
     })

@@ -800,23 +800,73 @@ async function getProductPrimaryImage(
       depth: 2,
     })
     const imgs: any[] = Array.isArray(product?.images) ? product.images : []
+
+    // D-230 follow-up #4: products.images is an Payload `array` field with a
+    // single `image` relationship inside (see Products.ts:404). At depth=2
+    // each entry is shaped `{ image: { id, url, type, sizes } }`, NOT a
+    // flat media doc. Unwrap the `.image` field before reading url/sizes.
+    // Without this unwrap, pickUrl always returned null → autofill emitted
+    // `no_image` for every product (observed on 311 and 312).
+    const unwrap = (m: any): any => {
+      if (!m) return null
+      if (typeof m === 'string' || typeof m === 'number') return null
+      // Already a flat media doc (has url or sizes).
+      if (m.url || m.sizes) return m
+      // Wrapper shape: { image: <media> }.
+      if (m.image && typeof m.image === 'object') return m.image
+      return null
+    }
     const pickUrl = (m: any): string | null => {
       if (!m) return null
       if (typeof m === 'string') return m
-      return m?.sizes?.large?.url || m?.sizes?.card?.url || m?.url || null
+      const media = unwrap(m)
+      if (!media) return null
+      return media?.sizes?.large?.url || media?.sizes?.card?.url || media?.url || null
     }
+    const pickType = (m: any): string | null => {
+      if (!m || typeof m !== 'object') return null
+      // Type lives on the inner media doc.
+      const media = unwrap(m)
+      return media?.type ?? null
+    }
+
     // Prefer first non-generated original.
     for (const item of imgs) {
-      const isOriginal =
-        typeof item === 'object' && item ? (item as any).type !== 'generated' : true
-      if (isOriginal) {
+      const t = pickType(item)
+      if (t !== 'generated') {
         const u = pickUrl(item)
         if (u) return absolutizeMediaUrl(u)
       }
     }
+    // Fallback: any image regardless of type.
     for (const item of imgs) {
       const u = pickUrl(item)
       if (u) return absolutizeMediaUrl(u)
+    }
+
+    // Final fallback: query the media collection directly. Mirrors
+    // collectImages.ts's "stragglers" scan and rescues us if the
+    // products.images relationship somehow fails to populate.
+    try {
+      const { docs } = await payload.find({
+        collection: 'media',
+        where: { product: { equals: productId } },
+        sort: 'createdAt',
+        limit: 5,
+        depth: 0,
+      })
+      for (const m of docs as any[]) {
+        if (m?.type === 'generated') continue
+        const u = m?.url || m?.sizes?.large?.url || m?.sizes?.card?.url
+        if (u) return absolutizeMediaUrl(u)
+      }
+      // Even generated is acceptable as a last resort.
+      for (const m of docs as any[]) {
+        const u = m?.url || m?.sizes?.large?.url || m?.sizes?.card?.url
+        if (u) return absolutizeMediaUrl(u)
+      }
+    } catch {
+      // best-effort fallback
     }
     return null
   } catch {

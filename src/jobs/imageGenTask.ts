@@ -392,6 +392,7 @@ export const imageGenTask: TaskConfig<{
         identityLock,
         sceneIndices,
         additionalReferenceImages.length > 0 ? additionalReferenceImages : undefined,
+        productId, // D-233: stable per-product background variant
       )
       generatedBuffers = buffers
       slotLogsSummary = slotLogs

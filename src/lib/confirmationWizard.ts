@@ -988,7 +988,15 @@ export async function applyVisionAutofillToSession(
   }
 
   // Category
-  if (result.category && !session.collected.category && !product.category) {
+  // D-230 fix: Do NOT gate on `!product.category`. The wizard's
+  // determineNextStep ALWAYS asks for category (D-171b operator-
+  // experience rule — old `product.category` values may not match the
+  // current 6 valid options). Autofill must mirror that behaviour:
+  // gate only on `!session.collected.category`. Observed on product 310
+  // where product.category='Günlük' was already set, autofill skipped
+  // accordingly, but the wizard still showed the category prompt with
+  // no hint.
+  if (result.category && !session.collected.category) {
     if (result.category.confidence >= HIGH_CONFIDENCE_AUTOFILL) {
       session.collected.category = result.category.value
       filled.push('category')
@@ -998,13 +1006,10 @@ export async function applyVisionAutofillToSession(
     }
   }
 
-  // ProductType (only matters if category=='Erkek Ayakkabı', but we still
-  // record it — the wizard guard handles when to actually ask).
-  if (
-    result.productType &&
-    !session.collected.productType &&
-    !product.productType
-  ) {
+  // ProductType (only asked when category=='Erkek Ayakkabı' AND
+  // collected.productType is unset — wizard ignores product.productType,
+  // so autofill mirrors that).
+  if (result.productType && !session.collected.productType) {
     if (result.productType.confidence >= HIGH_CONFIDENCE_AUTOFILL) {
       session.collected.productType = result.productType.value
       filled.push('productType')

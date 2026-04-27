@@ -502,6 +502,15 @@ export type IdentityLock = {
   protectedZones?: ProtectedZone[]
   /** v12: pre-built prompt section for protected zones, injected per slot */
   protectedZoneBlock?: string
+  // D-232: PI-Bot-style richer fields piped INTO the per-slot prompt as
+  // additional "preserve exactly" anchors. Aim is tighter fidelity to the
+  // reference photo (visible logos/text, accent positions, sole detail,
+  // construction stitches). Does NOT solve gpt-image-1's silhouette drift
+  // — only narrows describable-feature drift.
+  brandTechnologies?: string[]   // ["Air-Cooled Memory Foam", "Boost"]
+  colorAccents?: string[]        // ["white laces", "black heel cap", "gum sole edge"]
+  constructionNotes?: string     // "T-toe stitching, gum rubber sole with serrated edge"
+  visualNotes?: string           // free-form prose: logo positions, visible text, signature details
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -606,6 +615,11 @@ export async function extractIdentityLock(
     `- "closureType": (e.g. "lace-up", "slip-on", "side-zip", "chelsea elastic")\n` +
     `- "distinctiveFeatures": comma-separated details (e.g. "brogue perforations, contrast stitching")\n` +
     `- "referenceAngle": the camera angle in THIS photo (e.g. "45° front-left", "straight front", "overhead", "side profile")\n` +
+    // D-232: richer identity-anchoring fields, modeled on PI Bot's analyzeProduct schema.
+    `- "brandTechnologies": array of visible/printed brand-tech names (e.g. ["Air-Cooled Memory Foam", "Boost", "Flyknit"]). Empty array if none visible.\n` +
+    `- "colorAccents": array of secondary color positions on the shoe (e.g. ["white laces", "black heel counter", "gum-rubber sole edge", "navy heel pull"]). Empty array if none.\n` +
+    `- "constructionNotes": short prose describing visible construction/stitching details (e.g. "T-toe stitching, gum rubber outsole with serrated rand, foxing tape along midsole"). Empty string if nothing distinctive.\n` +
+    `- "visualNotes": free-form prose listing every visible non-color identity detail — logo positions, printed text, signature design elements, hardware (e.g. "Adidas trefoil on tongue, three perforated stripes on lateral side, gum outsole, T-toe overlay, serrated foxing rand"). Be specific and exhaustive — this anchors the regenerated image.\n` +
     `- "protectedZones": array of brand-critical visible zones. Include ONLY zones where a logo, text mark, ` +
     `stripe pattern, or distinctive graphic element is CLEARLY VISIBLE. For each zone include:\n` +
     `  - "name": one of "tongue_label" | "side_branding" | "heel_tab" | "toe_cap_overlay" | "ankle_patch" | "other"\n` +
@@ -626,7 +640,11 @@ export async function extractIdentityLock(
             { inlineData: { mimeType: imageMime, data: imageBuffer.toString('base64') } },
             { text: prompt },
           ] }],
-          generationConfig: { responseMimeType: 'application/json', maxOutputTokens: 900 },
+          // D-232: bumped 900 → 2048. Schema gained 4 new fields (one of
+          // them an exhaustive prose `visualNotes`). Gemini 2.5-flash's
+          // thinking-token overhead consumes the budget before visible
+          // output — see feedback_gemini_token_budget.md.
+          generationConfig: { responseMimeType: 'application/json', maxOutputTokens: 2048 },
         }),
       },
     )
@@ -665,6 +683,18 @@ export async function extractIdentityLock(
     const material     = p.material     || 'as shown'
     const refAngle     = p.referenceAngle || 'unknown angle'
 
+    // D-232: parse the new richer fields. All optional — empty arrays /
+    // empty strings are treated as "not present" and skipped in the prompt.
+    const asStrArr = (v: unknown): string[] =>
+      Array.isArray(v)
+        ? v.filter((x): x is string => typeof x === 'string' && x.trim().length > 0).map((x) => x.trim())
+        : []
+    const asStr = (v: unknown): string => (typeof v === 'string' ? v.trim() : '')
+    const brandTechnologies = asStrArr(p.brandTechnologies)
+    const colorAccents      = asStrArr(p.colorAccents)
+    const constructionNotes = asStr(p.constructionNotes)
+    const visualNotes       = asStr(p.visualNotes)
+
     // Build structured prompt block with aggressive color locking
     const promptBlock = [
       `═══ PRODUCT IDENTITY LOCK ═══`,
@@ -676,6 +706,21 @@ export async function extractIdentityLock(
       p.heelProfile ?   `Heel     : ${p.heelProfile}` : null,
       p.closureType ?   `Closure  : ${p.closureType}` : null,
       p.distinctiveFeatures ? `Details  : ${p.distinctiveFeatures}` : null,
+      // D-232: richer "preserve exactly" anchors. Each is rendered only when
+      // the vision call returned a non-empty value, so the prompt stays
+      // compact for products with sparse visible identity markers.
+      brandTechnologies.length > 0
+        ? `BrandTech: ${brandTechnologies.join(', ')} (visible/printed on shoe — preserve exact text and position)`
+        : null,
+      colorAccents.length > 0
+        ? `Accents  : ${colorAccents.join(', ')} (preserve each accent in its exact position and color)`
+        : null,
+      constructionNotes
+        ? `Build    : ${constructionNotes} (preserve every described stitch/seam/edge exactly)`
+        : null,
+      visualNotes
+        ? `Visual   : ${visualNotes}`
+        : null,
       ``,
       `COLOR LOCK: This shoe is ${mainColor.toUpperCase()}. Output MUST be ${mainColor.toUpperCase()}.`,
       `If you generate a shoe in a different color, the output is WRONG and will be rejected.`,
@@ -689,6 +734,13 @@ export async function extractIdentityLock(
       `• Invent logos, patterns, or decorative elements`,
       `• Change sole shape or thickness`,
       p.closureType ? `• Change the ${p.closureType} closure` : null,
+      // D-232: forbid drift on the new anchors when present.
+      brandTechnologies.length > 0
+        ? `• Drop, rename, or relocate any brand-tech text (${brandTechnologies.join(' / ')})`
+        : null,
+      colorAccents.length > 0
+        ? `• Move, recolor, or remove any of the listed color accents`
+        : null,
       ``,
       `REFERENCE ANGLE: The reference photo was taken from ${refAngle}.`,
       `DO NOT simply reproduce this same angle. Generate the specific angle requested below.`,
@@ -713,8 +765,10 @@ export async function extractIdentityLock(
     const protectedZoneBlock = buildProtectedZoneBlock(protectedZones)
 
     console.log(
-      `[extractIdentityLock] ✓ ${productClass} | ${mainColor} | ${material} | ref=${refAngle} | ` +
-      `zones=${protectedZones.length} (${protectedZones.map((z) => z.name).join(',') || 'none'})`,
+      `[extractIdentityLock D-232] ✓ ${productClass} | ${mainColor} | ${material} | ref=${refAngle} | ` +
+      `zones=${protectedZones.length} (${protectedZones.map((z) => z.name).join(',') || 'none'}) | ` +
+      `tech=${brandTechnologies.length} accents=${colorAccents.length} ` +
+      `build=${constructionNotes ? 'y' : 'n'} visual=${visualNotes ? `${visualNotes.length}c` : 'n'}`,
     )
 
     return {
@@ -731,6 +785,12 @@ export async function extractIdentityLock(
       referenceAngle: refAngle,
       protectedZones,
       protectedZoneBlock,
+      // D-232: surface the new richer fields on the IdentityLock so they
+      // can be inspected in slot logs / job audit trails.
+      brandTechnologies: brandTechnologies.length > 0 ? brandTechnologies : undefined,
+      colorAccents: colorAccents.length > 0 ? colorAccents : undefined,
+      constructionNotes: constructionNotes || undefined,
+      visualNotes: visualNotes || undefined,
     }
   } catch (err) {
     console.warn('[extractIdentityLock] error:', err instanceof Error ? err.message : err)

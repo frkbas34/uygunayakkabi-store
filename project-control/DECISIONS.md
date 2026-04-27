@@ -4637,3 +4637,198 @@ PI Bot's SEO/GEO pack and reverse-image signals were never flowing into the auto
 Both are isolated to PI Bot's input quality; the bridge itself functioned correctly and PI's SEO/GEO pack was produced and consumed even with those two signals missing.
 
 **Reversible:** yes — two-file change on one commit; setting `PI_AUTO_FOR_GEOBOT=false` in Vercel env also disables the auto-run path without a code rollback.
+
+---
+
+## D-226 — PI Bot Quality Bundle (vision parser, absolute media URLs, geo_auto trigger tag) — PROD-VALIDATED
+
+**Decision:**
+Three follow-up fixes on top of D-225 to clear the orthogonal PI-pipeline issues observed during the D-225 validation run on product 296.
+
+1. Reuse the D-224 `parseGeminiJson<T>` helper inside `src/lib/productIntelligence/analyzeProduct.ts`. Lift it into a new shared module `src/lib/util/parseGeminiJson.ts`, import from both call sites. Defends against fenced JSON, prose preambles, and truncated responses.
+2. Absolutize relative `/api/media/file/...` URLs before they reach Gemini vision and Google Cloud Vision. Add `resolveSiteBase()` + `absolutizeUrl()` in `src/lib/productIntelligence/collectImages.ts`, applied at every `resolveMediaUrl()` exit. Reads `NEXT_PUBLIC_SERVER_URL` first, falls back to `VERCEL_URL`. Mirrors the pattern in `src/jobs/imageGenTask.ts`.
+3. Plumb `triggerSource: 'geo_auto'` through `resolvePiResearch` → `createProductIntelligenceReport` so PI reports auto-created by the bridge are stored as `trigger_source='geo_auto'` instead of the historical default `'manual'`. New value added to `PiTriggerSource` type and to the Payload select option list.
+
+Bumped vision `maxOutputTokens` 1024 → 4096 in the same commit (Gemini 2.5-flash thinking-token overhead at 1024 produced finishReason=MAX_TOKENS with only ~76 chars of visible JSON — see `feedback_gemini_token_budget.md` incident #2).
+
+**Reason:**
+The D-225 validation surfaced two production failures that didn't block the bridge but degraded PI evidence: vision returned non-JSON for both 296 and 286 (parser issue), and Google Cloud Vision rejected the relative `/api/media/file/...` URLs (URL builder issue). The third item — `trigger_source` label fidelity — was a low-severity DB hygiene fix so analytics could distinguish bridge-triggered runs from manual operator runs.
+
+**Scope:**
+- `src/lib/util/parseGeminiJson.ts` — new shared helper.
+- `src/lib/productIntelligence/analyzeProduct.ts` — replace inline parsing with `parseGeminiJson`. Token budget bump.
+- `src/lib/productIntelligence/collectImages.ts` — new `absolutizeUrl()` + `resolveSiteBase()`, applied at media-URL exit points.
+- `src/lib/productIntelligence/types.ts` — add `'geo_auto'` to `PiTriggerSource`.
+- `src/collections/ProductIntelligenceReports.ts` — add `'geo_auto'` to the select option list.
+- `src/lib/contentPack.ts` — pass `triggerSource: 'geo_auto'` from `resolvePiResearch` into `createProductIntelligenceReport`.
+
+**Status:** merged to `main` as commits `4dc52ff` (the bundle) + `7de6b21` (token-budget follow-up). Validated by D-227's E2E run on product 304 (vision returned full attributes including `visibleBrand: "Skechers"` and the visualNotes that read "Skechers Air-Cooled Memory Foam" off the insole; Google Vision received absolute https URLs and ran successfully; see also D-227-DDL note about the missing enum value). 2026-04-24.
+
+**Reversible:** yes — three-file working-tree change.
+
+---
+
+## D-227 — PI Signal Strengthening + Observability — PROD-VALIDATED
+
+**Decision:**
+Three targeted fixes after a production observation that final content was still reading generic on real products despite D-225 + D-226 being live.
+
+1. **Observability for silent auto-bridge failures.** `resolvePiResearch` in `src/lib/contentPack.ts` now emits a `pi.auto_trigger_failed` bot-event from its catch block with `{error, failedAt, autoEnabled}` payload, so silent failures (env flag off, cold-start throw, Gemini 429, DB drift) become observable in `bot_events` and the operator can see why PI didn't run.
+2. **Surface `visualNotes` into the GeoBot prompt.** Added `detectedVisualNotes` to `GeobotPiResearch` interface in `src/lib/geobotRuntime.ts`. Rendered in `buildPiResearchBlock` as `Görsel Detaylar (logo/yazı/taban/kumaş): …`. The richest vision signal (e.g. `"Dilde Adidas logosu, yanlarda üç şerit, yan kısımda 'SPEZIAL' yazısı"`) was previously silently dropped at the `resolvePiResearch` translation layer. Now mapped from `attrs.visualNotes` → `detectedVisualNotes`.
+3. **Mandatory PI usage in prompts.** Block header promoted from passive `"TESPİT EDİLEN ÖZELLİKLER"` to mandatory-voiced **`"ÜRÜN KİMLİĞİ — ZORUNLU KULLANIM"`**. `buildCommercePrompt` rules: when PI signals exist, brand/type/color/material/style/visualNotes MUST appear in `websiteDescription`, `instagramCaption`, `shopierCopy`, `facebookCopy`; generic phrases ("kaliteli malzeme", "şık tasarımıyla", "konfor katın") explicitly banned as a fallback. `buildDiscoveryPrompt` rules: ÜRÜN KİMLİĞİ must appear in the article intro plus at least one section body; metaTitle and articleTitle must combine brand + type + color, not echo the operator title.
+
+**Reason:**
+Even with D-225 + D-226 running cleanly, two screenshots from the operator showed final article and IG copy that read like "Skechers SC günlük ayakkabılar ile adımlarınıza konfor ve tarz katın. Yoğun tempolu günlerinizde…" — generic across products. Diagnosis on product 302 confirmed PI never ran (silent bridge failure with no audit trail) and on product 301 found that PI ran with rich data (`visibleBrand=Skechers`, `visualNotes` reading "Air-Cooled Memory Foam") but `visualNotes` wasn't in `GeobotPiResearch` and the prompt rules treated PI as soft hints rather than mandatory content requirements.
+
+**Scope:**
+- `src/lib/geobotRuntime.ts` — `GeobotPiResearch.detectedVisualNotes` field, render in `buildPiResearchBlock`, header text + mandatory-rule strengthening in both prompt builders.
+- `src/lib/contentPack.ts` — map `attrs.visualNotes → detectedVisualNotes` in `resolvePiResearch`, emit `pi.auto_trigger_failed` bot-event in catch block.
+
+**Status:** merged to `main` as commit `0fffd38` on 2026-04-24. **PROD-VALIDATED** on product 304 "Skechers SC" the same day — vision read "Air-Cooled Memory Foam" off the insole and the Skechers 'S' logo off the side; final article body cited every detected signal verbatim. Generic fallback phrasing eliminated.
+
+**DDL follow-up applied directly to Neon (2026-04-24):**
+`ALTER TYPE enum_product_intelligence_reports_trigger_source ADD VALUE IF NOT EXISTS 'geo_auto'`. D-226 had added `'geo_auto'` to the TypeScript type and Payload collection options but Payload `push:true` had silently skipped the PG enum migration. Every auto-bridge attempt from D-226 deploy until the DDL was run failed with `22P02 invalid input value for enum` at the initial draft insert. The new `pi.auto_trigger_failed` bot-event from D-227 caught that silent failure and surfaced the exact query — without it the regression would have stayed invisible. See `feedback_push_true_drift.md` incident #5 and rule 7.
+
+**Reversible:** yes — two-file change on one commit. The DDL is also reversible via `ALTER TYPE … RENAME VALUE` in PG 15+.
+
+---
+
+## D-228 — Idempotent applyConfirmation (duplicate-confirm race protection) — PROD-VALIDATED
+
+**Decision:**
+Add an idempotency guard at the entry of `applyConfirmation` in `src/lib/confirmationWizard.ts`. On entry, re-read `product.workflow.confirmationStatus` and `productConfirmedAt` from the DB. If `confirmationStatus === 'confirmed'` AND `productConfirmedAt` is within the last 5 minutes, short-circuit with `{success: true, variantsCreated: 0}`. The Telegram UI still shows a green check; the duplicate work is skipped. Idempotency check is itself wrapped in try/catch — on a re-read failure, falls through to the normal path.
+
+**Reason:**
+On products 304 and 305 the operator saw every wizard producing duplicate output: 2× `product.confirmed` events, 2× `triggerContentGeneration` calls, 2× GeoBot commerce + discovery Gemini calls, 2× audit, 2× publish_ready. On product 304 the second pipeline pass nulled the first run's commerce pack by reading a stale `product.content` snapshot and writing a `contentUpdate` that didn't include commerce. Root cause: the `wz_confirm` Telegram callback handler had no debouncing — operator double-tap, Telegram webhook replay, or two callbacks arriving in parallel before the first cleared the wizard session all produced two parallel `applyConfirmation` invocations.
+
+**Scope:**
+- `src/lib/confirmationWizard.ts` — 43-line addition at the top of `applyConfirmation`. No schema change. Uses fields the function itself writes on its first run.
+
+**Window rationale:**
+- 5 minutes wide enough to absorb Telegram retries and operator delayed re-taps.
+- Narrow enough that a legitimate re-confirm via wz_edit works naturally once the operator edits any field (the workflow path is different).
+
+**Status:** merged to `main` as commit `20d399e` on 2026-04-25. PROD-VALIDATED on product 306 — exactly one `product.confirmed` event fired (vs the 2× pattern on 304/305). PI bridge spend stayed at 1× because `resolvePiResearch` was already idempotent (reuses existing ready reports).
+
+**Reversible:** yes — single-file diff.
+
+---
+
+## D-229 — PI Output Enrichment (wider vision + deeper pack + sectioned article + text-search fallback) — PROD-VALIDATED
+
+**Decision:**
+Four compounding richness levers shipped in one batch on top of the D-227-validated pipeline.
+
+1. **Wider vision evidence.** Expanded the Gemini vision JSON schema in `src/lib/productIntelligence/analyzeProduct.ts` with six new shoe-anatomy fields: `soleType`, `closureType`, `brandTechnologies[]`, `distinctiveFeatures[]`, `colorAccents[]`, `constructionNotes`. Vision token budget bumped 4096 → 6144. `PiDetectedAttributes` interface grew accordingly.
+2. **Deeper SEO/GEO pack.** `PiSeoPack` gained `brandTechnologyExplainer`, `careAndMaintenance`, `sizingGuidance`, `styleGuide`, `technicalSpecs[]`. `PiGeoPack` gained `useCaseExplainer`, `alternativeSearchQueries[]`. The pack-generation prompt in `src/lib/productIntelligence/generateSeoGeoPack.ts` was extended to surface the new vision evidence and impose mandatory-fill rules (e.g. `brandTechnologyExplainer` required when `brandTechnologies` detected; `technicalSpecs` must include concrete items derived from `soleType`/`closureType`/`distinctiveFeatures`). Pack token budget bumped 4096 → 10240.
+3. **Longer sectioned discovery article.** `GeobotPiResearch` gained `detectedSoleType` / `detectedClosureType` / `detectedBrandTechnologies` / `detectedDistinctiveFeatures` / `detectedColorAccents` / `detectedConstructionNotes` plus seven `suggested*` seed fields from the deeper SEO/GEO pack. `buildPiResearchBlock` renders them all. `buildDiscoveryPrompt`: when PI is available, target is now 1200–2000 words with **8 mandatory `##` sections** (Giriş, Tasarım ve Görünüm, Marka Teknolojisi ve Konfor, Kullanım Senaryoları, Bakım ve Dayanıklılık, Numara ve Kalıp Notları, Stil Rehberi, Benzer Ürünlerle Farkı). FAQ count 3→5, keywordEntities 10→15. Non-PI path unchanged. `buildCommercePrompt`: tightened mandatory-signal rules (≥3 detected attributes per surface, brand-tech mandatory, ≥2 concrete visual details in `websiteDescription`, generic-phrase ban). Discovery `maxOutputTokens` already at 16384 (D-224); commerce stayed at 4096 in D-229 — this caused the D-231 silent failure described below.
+4. **External text-search fallback.** New `src/lib/productIntelligence/providers/dataForSeoText.ts` runs DataForSEO Google Organic Live SERP when image search returns 0 matches AND vision has a strong signal (visibleBrand, productType, or distinctiveFeatures). Builds a query from `brand + title + productType + color + topBrandTech` and pulls up to 8 competitor/retailer snippets, classified `similar_style` (text never inspects pixels). Merged into `search.results` so the SEO/GEO prompt has real-world reference snippets. Feature-flagged via `PI_TEXT_SEARCH_FALLBACK` (default on). Reuses existing `DATAFORSEO_LOGIN`/`DATAFORSEO_PASSWORD` — no new credentials required.
+5. **`resolvePiResearch` mapping.** Maps all 6 new detected fields and all 7 new suggested seed fields from the PI report into the `GeobotPiResearch` shape so they actually reach the prompt.
+
+**Reason:**
+After D-227 made the existing PI signals visible in the prompt, the operator reported the output was now product-specific but still not detailed enough. The user explicitly asked for "richer, more detailed" output and selected all four levers (multi-select) plus "ship all selected in one batch" risk preference. The four levers compound: more vision evidence → more concrete fields in the prompt → more mandatory citations in the article → longer, denser, less generic copy.
+
+**Scope:**
+- `src/lib/productIntelligence/types.ts`
+- `src/lib/productIntelligence/analyzeProduct.ts`
+- `src/lib/productIntelligence/generateSeoGeoPack.ts`
+- `src/lib/productIntelligence/providers/dataForSeoText.ts` (new)
+- `src/lib/productIntelligence/createProductIntelligenceReport.ts`
+- `src/lib/geobotRuntime.ts`
+- `src/lib/contentPack.ts`
+
+**Status:** merged to `main` as commit `89acf4f` on 2026-04-27. **PROD-VALIDATED** on product 305 "Adidas Spezial" the same day:
+- `detectedAttributes` returned `visibleBrand=Adidas`, `productType=Spor Ayakkabı`, `color=Kahverengi`, `materialGuess=Süet`, `style=Günlük`, `soleType=Kauçuk`, `closureType=Bağcıklı`, `distinctiveFeatures=["Üç şeritli tasarım","yan kısımda 'SPEZIAL' yazısı","dokulu kauçuk taban"]`, `colorAccents=["beyaz bağcıklar","beyaz yan şeritler","beyaz topuk detayı","bej iç astar","kahverengi kauçuk taban"]`, `constructionNotes="Dikişli üst kısım ve taban birleşimi"`.
+- `seoPack` returned populated `brandTechnologyExplainer` (correctly empty for Spezial — no brand-tech), `careAndMaintenance` (concrete süet cleaning guidance), `sizingGuidance` (Spezial-specific fit note), `styleGuide` (concrete combin önerileri), `technicalSpecs` (7 concrete items including "İkonik üç şeritli yan tasarım", "Yan kısımda 'SPEZIAL' marka yazısı"), `alternativeSearchQueries` (7 realistic queries).
+- Final article: 1068 words, 7 `##` sections (just shy of the 8 mandatory target — minor gap), copy cited every concrete detail throughout.
+
+**Known follow-ups (deferred, not blocking):**
+- Text-search fallback returned HTTP 403 from DataForSEO — the account has Google Lens enabled but not Organic SERP. Not blocking; the wider vision + deeper pack already produce rich output without competitor snippets. Operator's call whether to enable Organic SERP later.
+- Discovery `metaDescription` occasionally exceeds the 160-char cap with a warning — minor prompt-rule compliance gap.
+
+**Reversible:** yes — additive interface fields are all optional; existing fallback paths preserved.
+
+---
+
+## D-231 — Commerce Token Bump + GeoBot Parallelization — PROD-VALIDATED
+
+**Decision:**
+Two follow-up fixes after D-229's enrichment exposed a silent commerce-pack failure on product 306.
+
+1. **Commerce silent failure.** `generateCommercePack` was still calling `callGeminiText(prompt)` with the 4096-token default after D-229 substantially tightened the commerce prompt rules. With Gemini 2.5-flash's thinking-token overhead, the commerce JSON ran past the cap → `parseGeminiJson` threw on the truncated payload → `generateFullContentPack`'s try/catch left `commercePack=undefined` → no `content.commerce_generated` event → commerce columns in DB stayed null. Product 306 ended up `content_status=discovery_generated` with every commerce_* column null. **Fix:** raise commerce `maxOutputTokens` 4096 → 8192. Same class of fix as D-226 (vision 1024→6144) and D-229 (SEO/GEO 4096→10240).
+2. **Perceived 30 s step latency.** `generateFullContentPack` was running commerce THEN discovery sequentially. Post-D-229 sizes (commerce 8192, discovery 16384, 1200–2000-word article with 8 mandatory sections) pushed total wall time to ~90–100 s on PI-enabled runs and the operator read this as "30 seconds between steps / stopped working". **Fix:** commerce + discovery now run in parallel via `Promise.allSettled`. Wall time drops to `max(commerce, discovery) ≈ 50–60 s`; one pack failing no longer blocks the other from being persisted.
+
+**Reason:**
+D-229 tightened the rules without revisiting commerce's token budget — a textbook recurrence of the `feedback_gemini_token_budget.md` pattern (4 incidents now, this is incident #4). Sequential generation also failed the operator-experience bar after D-229 made each pack longer.
+
+**Scope:**
+- `src/lib/geobotRuntime.ts` — single-file diff. `generateCommercePack` adds `maxOutputTokens: 8192` to the `callGeminiText` call. `generateFullContentPack` rewrites the sequential commerce/discovery section into a `Promise.allSettled` block.
+
+**Status:** merged to `main` as commit `832baf3` on 2026-04-28. Validated by D-230 product 305 + product 312 runs which both produced commerce + discovery cleanly in ~50–60 s.
+
+**Reversible:** yes — single-file diff.
+
+---
+
+## D-230 — Wizard Vision Autofill (category + productType + brand) — PROD-VALIDATED
+
+**Decision:**
+Run one Gemini vision call at wizard initialization to auto-fill the wizard's category + productType + brand+model+color steps. Three confidence bands:
+- **HIGH (≥70%)** — write the value directly into `session.collected`. Wizard `determineNextStep` skips that step.
+- **LOW-MED (40–69%)** — leave `collected` empty but stash the suggestion in `session.autofillPreview`. Prompt builders (`getCategoryPrompt`, `getProductTypePrompt`, `getBrandPrompt`) render a `🤖 PI önerisi: <value> (güven %X)` hint inline above the keyboard / text prompt. Operator can accept (button click or `tamam`/`ok`/`onayla`/`kabul`/`evet` text shortcut for brand) or override.
+- **<40%** — no hint, prompt as before.
+
+Send one `🤖 PI Bot Görsel Tespitleri` summary message at wizard start so the operator can see at a glance what was filled vs suggested. wz_edit (Düzenle button) re-runs the autofill so editing produces the same UX as a fresh start.
+
+**Reason:**
+Operator request after D-229 stabilization: "I want PI bot to autofill these parts. Only bring the prompt when there is really rare product uploaded and vision could not detect it." The category and brand wizard steps are by far the most common typing burden — vision can identify them on every clearly branded photo. The prompt-with-hint mode handles the borderline case without forcing a hard yes/no decision.
+
+**Scope:**
+- `src/lib/confirmationWizard.ts` — new `tryAutofillFromVision`, `applyVisionAutofillToSession`, `formatAutofillReport`. Three prompt builders take an optional suggestion arg. `WizardState` gains `autofillAttempted` + `autofillPreview` fields.
+- `src/app/api/telegram/route.ts` — 4 wizard initialization sites (approveImageGenJob, wz_start callback, /confirm command, /confirm 5188 path) call `applyVisionAutofillToSession` and pass suggestions to the prompt builders. Mid-wizard prompt dispatchers also pass `session.autofillPreview` to the builders. `tamam`-style shortcut accepts the brand suggestion in the text handler. wz_edit handler resets `autofillAttempted=false` and re-runs the autofill so Düzenle behaves like a fresh start.
+
+**Token budget:** 3072 (small 4-field schema). Wall-clock ~2–4 s.
+
+**Feature-flagged:** `WIZARD_BRAND_AUTOFILL=false` opts out without a code rollback.
+
+**Follow-up fixes shipped before stabilization (all in `src/lib/confirmationWizard.ts` and `src/app/api/telegram/route.ts`):**
+1. `4f1321e` — drop `!product.category` and `!product.productType` gating from the autofill check. The wizard's `determineNextStep` always asks for category regardless of `product.category` (D-171b operator-experience rule), so the autofill must mirror that. Brand check kept as-is — wizard correctly skips brand step when `product.brand` is set.
+2. `58256ea` — re-run vision autofill on wz_edit. The "Düzenle" button used to clear `collected` to `{}` but leave `autofillAttempted=true`, so the autofill never re-ran and prompts re-appeared with no hints. Fix: reset `autofillAttempted=false` and `autofillPreview=undefined`, re-run `applyVisionAutofillToSession`, send a fresh autofill report.
+3. `5131417` — surface autofill failures with a one-line `🤖 PI Bot: görsel analiz çalıştı ama kullanılabilir sonuç dönmedi (<reason>)` message; relax category mapping with substring/alias matching (vision often returns "Spor Ayakkabı" or "Sneaker" instead of one of the 6 valid labels).
+4. `f32018a` — fix the `no_image` bug. `products.images` is defined in the schema as a Payload `array` field with a single `image` relationship inside, NOT a flat relationship-hasMany. At depth=2 the resolved shape is `{ image: <media> }` per item, NOT a flat media doc. The strict `pickUrl` was reading `.url` / `.sizes` directly off the wrapper and always returning null. Final fallback added: query the `media` collection by `product` relation. Mirrors the rescue path that the existing PI Bot's `collectImages.ts` uses.
+
+**Status:** merged to `main` as commits `fa3b57d` + `4f1321e` + `58256ea` + `5131417` + `f32018a` on 2026-04-27 / 2026-04-28. PROD-VALIDATED — operator confirmed "it's working perfectly now" after the no_image fix.
+
+**Reversible:** yes — additive helper. `WIZARD_BRAND_AUTOFILL=false` disables it. `WizardState` field additions are optional. Existing prompt-builder signatures are backward compatible (the suggestion arg is optional).
+
+---
+
+## D-LOCK-2026-04-28 — PI/Wizard Stabilization Lock
+
+**Decision:**
+Lock D-227 → D-231 as the **stable production baseline** for the PI Bot → GeoBot bridge, prompt weighting, idempotency, richness, and wizard vision autofill subsystems. Future work in this area must branch from this baseline as a new D-23x or D-24x decision; do not modify locked behaviour without explicit operator authorization.
+
+**Operator confirmation:** "it's working perfectly now" (2026-04-28).
+
+**What is locked (production-validated):**
+- D-227 — PI observability + visualNotes in prompt + mandatory prompt rules
+- D-227 Neon DDL — `geo_auto` enum value
+- D-228 — applyConfirmation idempotency / duplicate-confirm protection
+- D-229 — wider vision evidence, deeper SEO/GEO pack, longer sectioned article, text-search fallback
+- D-230 — wizard vision autofill for category + productType + brand+model+color
+- D-231 — commerce maxOutputTokens 4096→8192, parallel commerce/discovery
+- D-230 follow-up fixes (category gating alignment, wz_edit re-run, diagnostic surface, no_image image-wrapper fix)
+
+**What is intentionally deferred / optional (not blocking the lock):**
+- DataForSEO Organic SERP 403 — wider vision + deeper pack already produce rich output without competitor snippets. Enable later if higher-quality references are wanted.
+- Discovery `metaDescription` occasional 160-char overflow — warning only, not a hard failure.
+- Older open-task investigations: task #10 (product 288 forceRedispatch hook no-op), task #15 (duplicate wizard-apply variants on 297 — D-228 likely covers this), task #29 (D-223 #geohazirla 298 validation), task #9 (D-208b churn root cause). Lower priority backlog.
+- Future enhancements in the wizard / PI / GeoBot space (e.g. mid-confidence button-click suggestions, multi-image vision aggregation, brand-confidence display in summary, finer-grained prompt sections). Not in scope for the current lock; require new D-numbers.
+
+**Lessons recorded in memory:**
+- Enum/select-field option additions on Neon require manual `ALTER TYPE … ADD VALUE`; `push:true` silently skips them. See `feedback_push_true_drift.md` rule 7.
+- When Gemini prompt requirements grow, `maxOutputTokens` MUST be revisited. 2.5-flash thinking-token overhead consumes the budget before visible output. Current floors: vision 6144, commerce 8192, discovery 16384, SEO/GEO pack 10240, wizard brand-autofill 3072. See `feedback_gemini_token_budget.md` (4 incidents).
+- Wizard autofill depends on the actual product image shape — `products.images` is `{ image: <media> }` wrapper, not a flat media array. Always unwrap.
+- Silent failures must surface visible events / diagnostics. Apply this to every step that can quietly drop output (parseGeminiJson, vision call, autofill, commerce-pack generation). Use bot-events or one-line Telegram diagnostics.
+
+**Status:** LOCKED 2026-04-28.

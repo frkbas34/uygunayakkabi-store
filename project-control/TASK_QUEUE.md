@@ -1,6 +1,39 @@
 # TASK QUEUE — Uygunayakkabi
 
-_Last updated: 2026-04-21 (D-220 Product Intelligence Bot + GeoBot Handoff MVP implemented locally — photo-first content workflow via `#geohazirla`/`#seoara`/`#productintel`/`#urunzeka`, Gemini vision + optional SerpAPI reverse search + original Turkish SEO/GEO pack, operator-approved merge into `product.content.{commercePack, discoveryPack}` reusing existing GeoBot surface; new JSON-heavy collection `product-intelligence-reports`; `tsc --noEmit` clean; awaiting commit/push decision and Neon DDL for new table; D-219 link variant IDs to products.variants on wizard confirm PUSHED to main (commit `5942698`); D-218 product-diagnostic endpoint deployed — secret OR session auth, returns workflow/commercePack/discoveryPack/recent bot-events for a product; transient debugging tool parallel to D-214/D-215/D-217; triggered by product #296 content-failed blocker; smallest-correct-next-step for 296 is `/content 296 retry` via Telegram GeoBot since `canRetriggerContent()` permits failed→retry; D-217 Shopier wizard categories seeded — Spor/Klasik/Bot/Terlik/Cüzdan created via new admin-auth'd `/api/admin/shopier-categories` endpoint; Günlük already existed; Shopier bulk backfill investigation CLOSED — D-216 logged; re-dispatched 7 previously-synced products; confirmed only product 294 has variants; documented D-208b churn on variant-less UPDATE + hook no-op on `forceRedispatch: true→true`; Shopier size selector flow PROD-VALIDATED on product 294 — Numara dropdown 43/44/45 rendering live via D-213 + D-214 + D-215; D-213 Shopier `listSelections` limit cap 100→50 DEPLOYED — size selector root cause fixed at API level; Phase 1 one-product full-pipeline validation CLOSED on product 294 — D-212; D-211 X `media_category=tweet_image` fix prod-validated; Phase 2 Telegram SN/operator controls promoted to NOW; per-channel redispatch selector added to backlog; Phase Z visualStatus state-sync + golden-path pre-run diagnostic D-154; D-153 runtime v50 lock-rules reminder; D-152 v50 image pipeline lock RESTORED after silent violation; Phase O Group Parity D-142; Vercel Build Optimization D-141; Phase N Bot Role Separation D-140; Multi-Bot Support D-139; Phase L D-138; Phase K D-137; Phase I D-136; Phase G D-135; Phase D D-134; Phase C D-133; Image Pipeline v38 D-124; v37 D-123; v36 D-122; v35 D-121; v34 D-120; Phase 21 Operator Runbook; VF-7 D-117b; VF-6 D-117; Phases 16-19 D-116; Phase 13 D-115/D-114; Phases 1-12 complete)_
+_Last updated: 2026-04-28 (LOCK CHECKPOINT — D-227 → D-231 stabilization. PI auto-bridge + observability + mandatory prompts + idempotent applyConfirmation + richer pack + parallel geobot + wizard vision autofill, all PROD-VALIDATED. Operator: "it's working perfectly now". Future work branches from this baseline.)_
+
+---
+
+## 🔒 LOCK CHECKPOINT — 2026-04-28 — Production Baseline
+
+This is a **stabilization checkpoint**. Do not reopen D-227 → D-231 implementation. Future work in the PI / wizard / GeoBot space must come in as a new D-23x or D-24x decision and must not modify the locked behaviour without explicit operator authorization.
+
+### LOCKED — production-validated, treated as authoritative
+
+- D-227 — PI observability (`pi.auto_trigger_failed`), `detectedVisualNotes` in prompt, mandatory prompt rules ("ÜRÜN KİMLİĞİ — ZORUNLU KULLANIM").
+- D-227 Neon DDL — `ALTER TYPE enum_product_intelligence_reports_trigger_source ADD VALUE 'geo_auto'`.
+- D-228 — applyConfirmation idempotency / duplicate-confirm race protection.
+- D-229 — wider vision evidence (soleType, closureType, brandTechnologies[], distinctiveFeatures[], colorAccents[], constructionNotes), deeper SEO/GEO pack (brandTechnologyExplainer, careAndMaintenance, sizingGuidance, styleGuide, technicalSpecs[], useCaseExplainer, alternativeSearchQueries[]), 1200–2000 word discovery article with 8 mandatory sections, DataForSEO text-search fallback.
+- D-230 — wizard vision autofill for category + productType + brand+model+color (one Gemini call at wizard init; HIGH ≥70% silently fills, LOW-MED 40–69% renders hint, <40% prompts as before; `tamam` shortcut accepts brand suggestion; wz_edit re-runs autofill).
+- D-230 follow-up fixes: category/productType gate aligned with wizard flow; wz_edit re-runs autofill correctly; diagnostic surface for silent failures; image wrapper / `no_image` bug fixed (`products.images` is `{ image: <media> }` wrapper, not flat media doc).
+- D-231 — commerce `maxOutputTokens` 4096 → 8192; commerce + discovery now run in parallel via `Promise.allSettled` (wall time ~50–60 s vs ~100 s sequential).
+- Operator confirmation 2026-04-28: "it's working perfectly now."
+
+### DEFERRED / OPTIONAL — not blocking the lock
+
+- **DataForSEO Organic SERP 403** (D-229 text-search fallback). The DataForSEO account has Google Lens enabled but not Organic SERP. Wider vision + deeper pack already produce rich output without competitor snippets. **Action:** later, optionally enable Organic SERP in the DataForSEO dashboard. Not blocking the lock.
+- **Discovery `metaDescription` occasionally exceeds 160-char cap** — warning only, not a hard failure. **Action:** later, tighten the prompt rule. Not blocking.
+- **Task #10 — product 288 forceRedispatch hook no-op.** Pre-existing Shopier dispatch issue. Not in PI/wizard scope. **Action:** investigate in a separate sprint. Lower priority.
+- **Task #15 — duplicate wizard-apply variants on product 297.** Likely covered by D-228 idempotency, but never explicitly verified on 297. **Action:** spot-check next time the operator runs that product, or write a one-off DB diagnostic. Not blocking.
+- **Task #29 — D-223 #geohazirla 298 validation.** Pre-D-227 task; the pipeline that this would have validated has since been replaced by D-225 + D-227's auto-bridge. **Action:** mark as superseded by the D-227 product 304 validation. Not blocking.
+- **Task #9 — D-208b churn root cause for variant-less Shopier UPDATE.** Pre-existing Shopier issue documented in D-216. Not in PI/wizard scope. **Action:** keep on backlog. Not blocking.
+
+### Future-work guardrails
+
+- New scope = new D-number. Do not extend D-227, D-228, D-229, D-230, D-231 sections retroactively.
+- Schema or enum changes still require manual Neon DDL + post-deploy verification (Blocker 0 still applies).
+- Token-budget changes require consulting `feedback_gemini_token_budget.md` first.
+- Wizard image-shape changes must respect the `{ image: <media> }` wrapper rule (D-230 follow-up #4).
 
 ---
 

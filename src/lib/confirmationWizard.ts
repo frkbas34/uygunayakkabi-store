@@ -921,12 +921,30 @@ export async function tryAutofillFromVision(
     }
 
     const catRaw = norm(parsed.category)
-    // Map vision's category to one of our valid options (case-insensitive
-    // exact match). Anything else falls back to the closest valid value
-    // or drops out entirely.
-    const cat = validCategories.find((v) => v.toLowerCase() === catRaw.toLowerCase()) || ''
+    // D-230 follow-up #3: more forgiving category mapping. Vision often
+    // returns the SHOE TYPE directly (e.g. "Spor Ayakkabı", "Sneaker",
+    // "Bot") instead of one of our 6 category labels. Map the common
+    // variants to the right bucket; otherwise fall back to substring
+    // match. Anything that still doesn't resolve drops out.
+    const catRawLower = catRaw.toLowerCase()
+    let cat = validCategories.find((v) => v.toLowerCase() === catRawLower) || ''
+    if (!cat && catRawLower) {
+      // Substring + alias mapping
+      if (/spor|sneaker|sport|running|kos[uü]/i.test(catRawLower)) cat = 'Spor'
+      else if (/g[uü]nl[uü]k|casual|daily|loafer|babet/i.test(catRawLower)) cat = 'Günlük'
+      else if (/klasik|classic|oxford|derby|dress/i.test(catRawLower)) cat = 'Klasik'
+      else if (/bot|boot|çizme/i.test(catRawLower)) cat = 'Bot'
+      else if (/terlik|sandal|slipper/i.test(catRawLower)) cat = 'Terlik'
+      else if (/c[uü]zdan|wallet|kart/i.test(catRawLower)) cat = 'Cüzdan'
+    }
     const ptRaw = norm(parsed.productType)
-    const pt = validProductTypes.find((v) => v.toLowerCase() === ptRaw.toLowerCase()) || ''
+    const ptRawLower = ptRaw.toLowerCase()
+    let pt = validProductTypes.find((v) => v.toLowerCase() === ptRawLower) || ''
+    if (!pt && ptRawLower) {
+      if (/sneaker/i.test(ptRawLower)) pt = 'Sneaker'
+      else if (/classic|klasik/i.test(ptRawLower)) pt = 'Classic'
+      else if (/daily|g[uü]nl[uü]k/i.test(ptRawLower)) pt = 'Daily'
+    }
 
     return {
       ok: true,
@@ -1051,7 +1069,16 @@ export function formatAutofillReport(
   suggested: string[],
   result: WizardAutofillResult,
 ): string {
-  if (!result.ok) return ''
+  // D-230 follow-up #3: surface failures too — silent failures look
+  // identical to "feature not deployed". A short diagnostic line lets the
+  // operator (and us) see why autofill didn't help on a given product.
+  if (!result.ok) {
+    const reason = result.reason || 'bilinmeyen_hata'
+    // Don't surface "disabled_by_flag" — operator has explicitly turned
+    // the flag off, no need to nag them about it on every wizard.
+    if (reason === 'disabled_by_flag') return ''
+    return `🤖 <b>PI Bot</b>: görsel analiz çalıştı ama kullanılabilir sonuç dönmedi (<code>${reason}</code>).`
+  }
   const lines: string[] = ['🤖 <b>PI Bot Görsel Tespitleri</b>']
   const fmtField = (name: string): string => {
     if (name === 'category') return '📁 Kategori'

@@ -99,6 +99,19 @@ export interface WizardState {
   /** Message ID of the size selection keyboard message (for editMessageText) */
   sizeMessageId?: number
   startedAt: number // Date.now()
+  /** D-230: have we already attempted vision-based autofill for this session? */
+  autofillAttempted?: boolean
+  /** D-230: vision-detected suggestions per autofillable wizard step. Filled
+   *  by tryAutofillFromVision at wizard init. High-confidence values are
+   *  written directly into `collected`; low-confidence values stay here so
+   *  the prompt builders can render a "PI önerisi: …" hint.
+   *  Confidence 0-100 per field. */
+  autofillPreview?: {
+    category?: { value: string; confidence: number }
+    productType?: { value: string; confidence: number }
+    brand?: { value: string; confidence: number }
+    rawBrand?: string  // just the brand name, no type/color, for summary display
+  }
 }
 
 // ── Constants ─────────────────────────────────────────────────────────
@@ -646,22 +659,34 @@ export function getStockCodePrompt(currentSku: string): string {
   )
 }
 
-export function getCategoryPrompt(): { text: string; keyboard: Array<Array<{ text: string; callback_data: string }>> } {
+export function getCategoryPrompt(
+  suggestion?: { value: string; confidence: number },
+): { text: string; keyboard: Array<Array<{ text: string; callback_data: string }>> } {
   // D-176: layout buttons in rows of 2 so they don't overflow on mobile
   const buttons = CATEGORY_OPTIONS.map((o) => ({ text: o.label, callback_data: `wz_cat:${o.value}` }))
   const rows: Array<Array<{ text: string; callback_data: string }>> = []
   for (let i = 0; i < buttons.length; i += 2) {
     rows.push(buttons.slice(i, i + 2))
   }
+  // D-230: if vision had a low-confidence suggestion, render it as a hint
+  // so the operator can still pick the right button quickly.
+  const hint = suggestion
+    ? `\n\n🤖 <i>PI önerisi: <b>${suggestion.value}</b> (güven %${suggestion.confidence})</i>`
+    : ''
   return {
-    text: '📁 <b>Kategori seçin:</b>',
+    text: `📁 <b>Kategori seçin:</b>${hint}`,
     keyboard: rows,
   }
 }
 
-export function getProductTypePrompt(): { text: string; keyboard: Array<Array<{ text: string; callback_data: string }>> } {
+export function getProductTypePrompt(
+  suggestion?: { value: string; confidence: number },
+): { text: string; keyboard: Array<Array<{ text: string; callback_data: string }>> } {
+  const hint = suggestion
+    ? `\n\n🤖 <i>PI önerisi: <b>${suggestion.value}</b> (güven %${suggestion.confidence})</i>`
+    : ''
   return {
-    text: '👟 <b>Ayakkabı stili seçin:</b>',
+    text: `👟 <b>Ayakkabı stili seçin:</b>${hint}`,
     keyboard: [
       PRODUCT_TYPE_OPTIONS.map((o) => ({ text: o.label, callback_data: `wz_ptype:${o.value}` })),
     ],
@@ -691,14 +716,393 @@ export function getStockPrompt(sizes: string[]): string {
 }
 
 // D-178: Combined brand + model prompt (replaces separate title & brand steps)
-export function getBrandPrompt(): string {
-  return (
+// D-230: optional pre-filled suggestion when vision had partial confidence
+export function getBrandPrompt(suggestion?: { value: string; confidence: number }): string {
+  const base =
     '🏷️ <b>Marka ve model adını girin:</b>\n\n' +
     'Marka + varsa model/renk/detay yazın.\n\n' +
     'Örnek: <code>Nike Air Max 90 Siyah</code>\n' +
     'Örnek: <code>Adidas Superstar Beyaz</code>\n' +
     'Örnek: <code>Skechers</code> (sadece marka)'
+  if (!suggestion) return base
+  return (
+    base +
+    '\n\n🤖 <i>PI önerisi: <code>' +
+    suggestion.value +
+    `</code> (güven %${suggestion.confidence})</i>\n` +
+    'Kabul etmek için <code>tamam</code> yazın, veya kendi yanıtınızı girin.'
   )
+}
+
+// ── D-230: PI vision autofill ─────────────────────────────────────────
+//
+// Fast multi-field Gemini vision call that runs ONCE at wizard
+// initialization. Detects category + productType + brand+model+color
+// from the product's primary image.
+//
+// HIGH confidence (>= 70 per field): write directly into collected,
+//   wizard skips the corresponding prompt entirely.
+// LOW-MED confidence (40-69): leave collected empty but stash a
+//   suggestion in session.autofillPreview, so the prompt builder
+//   renders a "PI önerisi: …" hint and the operator can confirm or
+//   override quickly.
+// VERY LOW (<40) or missing: no hint, prompt as today.
+//
+// Token budget kept tight (~3072) — we only need a 4-field JSON.
+// Confidence gate applied in JS so prompt-engineering is consistent.
+
+const HIGH_CONFIDENCE_AUTOFILL = 70
+const LOW_CONFIDENCE_HINT = 40
+
+export interface WizardAutofillResult {
+  ok: boolean
+  category?: { value: string; confidence: number }
+  productType?: { value: string; confidence: number }
+  brand?: { value: string; confidence: number }
+  rawBrand?: string
+  rawColor?: string
+  reason?: string
+}
+
+async function fetchImageInline(
+  imageUrl: string,
+): Promise<{ data: string; mimeType: string } | null> {
+  try {
+    const res = await fetch(imageUrl)
+    if (!res.ok) return null
+    const buf = Buffer.from(await res.arrayBuffer())
+    if (buf.byteLength > 8_000_000) return null
+    const mimeType = res.headers.get('content-type')?.split(';')[0].trim() || 'image/jpeg'
+    return { data: buf.toString('base64'), mimeType }
+  } catch {
+    return null
+  }
+}
+
+function absolutizeMediaUrl(url: string | null): string | null {
+  if (!url) return null
+  if (/^https?:\/\//i.test(url)) return url
+  const base =
+    process.env.NEXT_PUBLIC_SERVER_URL?.trim().replace(/\/$/, '') ||
+    (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL.trim().replace(/\/$/, '')}` : '')
+  if (!base) return url
+  return url.startsWith('/') ? `${base}${url}` : `${base}/${url}`
+}
+
+async function getProductPrimaryImage(
+  payload: any,
+  productId: string | number,
+): Promise<string | null> {
+  try {
+    const product: any = await payload.findByID({
+      collection: 'products',
+      id: productId,
+      depth: 2,
+    })
+    const imgs: any[] = Array.isArray(product?.images) ? product.images : []
+    const pickUrl = (m: any): string | null => {
+      if (!m) return null
+      if (typeof m === 'string') return m
+      return m?.sizes?.large?.url || m?.sizes?.card?.url || m?.url || null
+    }
+    // Prefer first non-generated original.
+    for (const item of imgs) {
+      const isOriginal =
+        typeof item === 'object' && item ? (item as any).type !== 'generated' : true
+      if (isOriginal) {
+        const u = pickUrl(item)
+        if (u) return absolutizeMediaUrl(u)
+      }
+    }
+    for (const item of imgs) {
+      const u = pickUrl(item)
+      if (u) return absolutizeMediaUrl(u)
+    }
+    return null
+  } catch {
+    return null
+  }
+}
+
+/**
+ * D-230: Fast multi-field vision call. Returns category + productType +
+ * brand+model+color, each with its own confidence. Fail-soft.
+ */
+export async function tryAutofillFromVision(
+  payload: any,
+  productId: string | number,
+): Promise<WizardAutofillResult> {
+  const apiKey = process.env.GEMINI_API_KEY
+  if (!apiKey) return { ok: false, reason: 'no_gemini_key' }
+  if ((process.env.WIZARD_BRAND_AUTOFILL ?? 'true').toLowerCase() === 'false') {
+    return { ok: false, reason: 'disabled_by_flag' }
+  }
+
+  const imageUrl = await getProductPrimaryImage(payload, productId)
+  if (!imageUrl) return { ok: false, reason: 'no_image' }
+
+  const inlineData = await fetchImageInline(imageUrl)
+  if (!inlineData) return { ok: false, reason: 'image_fetch_failed' }
+
+  const validCategories = CATEGORY_OPTIONS.map((o) => o.value)
+  const validProductTypes = PRODUCT_TYPE_OPTIONS.map((o) => o.value)
+
+  const prompt =
+    'Bu ürün görseline bak. Aşağıdaki 4 alanı çıkar. SADECE JSON döndür, başka metin yazma.\n\n' +
+    'KURALLAR:\n' +
+    '- Marka SADECE görselde logo/yazı olarak görünüyorsa belirt; tahmin etme. Yoksa boş bırak.\n' +
+    `- Kategori MUTLAKA şu listeden birini seç: ${validCategories.join(', ')}.\n` +
+    '  Eşleşen yoksa "Günlük" seç ve confidence düşür.\n' +
+    `- ProductType (sadece Erkek Ayakkabı için anlamlı): ${validProductTypes.join(', ')}.\n` +
+    '  Bu üründe kadın/çocuk/cüzdan/bot/terlik varsa boş bırak.\n' +
+    '- BrandLine: marka + ürün tipi + ana renk birleşimi (Türkçe). Marka yoksa boş bırak.\n' +
+    '  Örnek: "Nike Air Max 90 Siyah", "Adidas Superstar Beyaz", "Skechers SC Beyaz".\n' +
+    '- Her alan için 0-100 arası ayrı confidence.\n\n' +
+    'JSON ŞEMASI:\n' +
+    '{\n' +
+    '  "category": string,\n' +
+    '  "categoryConfidence": number,\n' +
+    '  "productType": string,\n' +
+    '  "productTypeConfidence": number,\n' +
+    '  "brandLine": string,\n' +
+    '  "brandLineConfidence": number,\n' +
+    '  "rawBrand": string,\n' +
+    '  "rawColor": string\n' +
+    '}'
+
+  try {
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        contents: [{ parts: [{ text: prompt }, { inlineData }] }],
+        generationConfig: {
+          responseMimeType: 'application/json',
+          temperature: 0.1,
+          // 4 short fields × ~100 chars + thinking-token overhead.
+          // See feedback_gemini_token_budget.md.
+          maxOutputTokens: 3072,
+        },
+      }),
+    })
+    if (!res.ok) return { ok: false, reason: `gemini_http_${res.status}` }
+    const data: any = await res.json()
+    const text: string | undefined = data?.candidates?.[0]?.content?.parts?.[0]?.text
+    if (!text) return { ok: false, reason: 'gemini_empty' }
+
+    let parsed: any = null
+    try {
+      parsed = JSON.parse(text)
+    } catch {
+      const m = text.match(/\{[\s\S]*\}/)
+      if (m) {
+        try {
+          parsed = JSON.parse(m[0])
+        } catch {
+          /* fall through */
+        }
+      }
+    }
+    if (!parsed || typeof parsed !== 'object') {
+      return { ok: false, reason: 'gemini_non_json' }
+    }
+
+    const norm = (v: unknown): string => {
+      if (typeof v !== 'string') return ''
+      const t = v.trim()
+      if (!t) return ''
+      if (/^(none|unknown|yok|bilinmiyor|tespit edilemedi|n\/a|null)$/i.test(t)) return ''
+      return t
+    }
+    const numConf = (v: unknown): number => {
+      const n = typeof v === 'number' ? v : Number(v)
+      return Number.isFinite(n) ? Math.max(0, Math.min(100, n)) : 0
+    }
+
+    const catRaw = norm(parsed.category)
+    // Map vision's category to one of our valid options (case-insensitive
+    // exact match). Anything else falls back to the closest valid value
+    // or drops out entirely.
+    const cat = validCategories.find((v) => v.toLowerCase() === catRaw.toLowerCase()) || ''
+    const ptRaw = norm(parsed.productType)
+    const pt = validProductTypes.find((v) => v.toLowerCase() === ptRaw.toLowerCase()) || ''
+
+    return {
+      ok: true,
+      category: cat ? { value: cat, confidence: numConf(parsed.categoryConfidence) } : undefined,
+      productType: pt
+        ? { value: pt, confidence: numConf(parsed.productTypeConfidence) }
+        : undefined,
+      brand: (() => {
+        const b = norm(parsed.brandLine)
+        return b ? { value: b, confidence: numConf(parsed.brandLineConfidence) } : undefined
+      })(),
+      rawBrand: norm(parsed.rawBrand) || undefined,
+      rawColor: norm(parsed.rawColor) || undefined,
+    }
+  } catch (err) {
+    return {
+      ok: false,
+      reason: err instanceof Error ? err.message : 'unknown_error',
+    }
+  }
+}
+
+/**
+ * D-230: Apply vision autofill to a wizard session. Returns a structured
+ * report so the caller can send a "🤖 PI Bot tespitleri" message
+ * summarizing what was filled vs suggested.
+ *
+ * Side effects:
+ *   - Writes session.autofillAttempted = true.
+ *   - For each high-confidence detection, fills session.collected.X.
+ *   - For each low-confidence detection, stashes session.autofillPreview.X
+ *     (prompt builders render this as a hint).
+ *
+ * Idempotent: if autofillAttempted is already true, returns immediately.
+ */
+export async function applyVisionAutofillToSession(
+  payload: any,
+  product: ConfirmableProduct,
+  session: WizardState,
+): Promise<{
+  filled: string[]    // field names written into collected at high confidence
+  suggested: string[] // field names left as low-confidence hints
+  result: WizardAutofillResult
+}> {
+  if (session.autofillAttempted) {
+    return { filled: [], suggested: [], result: { ok: false, reason: 'already_attempted' } }
+  }
+  session.autofillAttempted = true
+
+  const result = await tryAutofillFromVision(payload, product.id)
+  if (!result.ok) {
+    return { filled: [], suggested: [], result }
+  }
+
+  const filled: string[] = []
+  const suggested: string[] = []
+  const preview: NonNullable<WizardState['autofillPreview']> = {
+    rawBrand: result.rawBrand,
+  }
+
+  // Category
+  if (result.category && !session.collected.category && !product.category) {
+    if (result.category.confidence >= HIGH_CONFIDENCE_AUTOFILL) {
+      session.collected.category = result.category.value
+      filled.push('category')
+    } else if (result.category.confidence >= LOW_CONFIDENCE_HINT) {
+      preview.category = result.category
+      suggested.push('category')
+    }
+  }
+
+  // ProductType (only matters if category=='Erkek Ayakkabı', but we still
+  // record it — the wizard guard handles when to actually ask).
+  if (
+    result.productType &&
+    !session.collected.productType &&
+    !product.productType
+  ) {
+    if (result.productType.confidence >= HIGH_CONFIDENCE_AUTOFILL) {
+      session.collected.productType = result.productType.value
+      filled.push('productType')
+    } else if (result.productType.confidence >= LOW_CONFIDENCE_HINT) {
+      preview.productType = result.productType
+      suggested.push('productType')
+    }
+  }
+
+  // Brand+model+color
+  if (result.brand && !session.collected.brand && !product.brand) {
+    if (result.brand.confidence >= HIGH_CONFIDENCE_AUTOFILL) {
+      session.collected.brand = result.brand.value
+      // Mirror into title for downstream meta/copy.
+      if (!session.collected.title) {
+        session.collected.title = result.brand.value
+      }
+      filled.push('brand')
+    } else if (result.brand.confidence >= LOW_CONFIDENCE_HINT) {
+      preview.brand = result.brand
+      suggested.push('brand')
+    }
+  }
+
+  if (preview.category || preview.productType || preview.brand || preview.rawBrand) {
+    session.autofillPreview = preview
+  }
+
+  return { filled, suggested, result }
+}
+
+/**
+ * D-230: Build a human-readable Telegram message summarizing what
+ * vision detected. Sent ONCE at wizard start so the operator can
+ * see at a glance which steps were skipped vs which still need input.
+ */
+export function formatAutofillReport(
+  filled: string[],
+  suggested: string[],
+  result: WizardAutofillResult,
+): string {
+  if (!result.ok) return ''
+  const lines: string[] = ['🤖 <b>PI Bot Görsel Tespitleri</b>']
+  const fmtField = (name: string): string => {
+    if (name === 'category') return '📁 Kategori'
+    if (name === 'productType') return '👟 Stil'
+    if (name === 'brand') return '🏷️ Marka/Model'
+    return name
+  }
+  if (filled.length > 0) {
+    lines.push('')
+    lines.push('<b>✅ Otomatik dolduruldu (yüksek güven):</b>')
+    for (const f of filled) {
+      const v =
+        f === 'category'
+          ? result.category?.value
+          : f === 'productType'
+            ? result.productType?.value
+            : f === 'brand'
+              ? result.brand?.value
+              : ''
+      const c =
+        f === 'category'
+          ? result.category?.confidence
+          : f === 'productType'
+            ? result.productType?.confidence
+            : result.brand?.confidence
+      lines.push(`  ${fmtField(f)}: <b>${v}</b> (güven %${c})`)
+    }
+  }
+  if (suggested.length > 0) {
+    lines.push('')
+    lines.push('<b>⚠️ Düşük güven — onaylamanız gerekiyor:</b>')
+    for (const f of suggested) {
+      const v =
+        f === 'category'
+          ? result.category?.value
+          : f === 'productType'
+            ? result.productType?.value
+            : f === 'brand'
+              ? result.brand?.value
+              : ''
+      const c =
+        f === 'category'
+          ? result.category?.confidence
+          : f === 'productType'
+            ? result.productType?.confidence
+            : result.brand?.confidence
+      lines.push(`  ${fmtField(f)}: <i>${v}</i> (güven %${c})`)
+    }
+  }
+  if (filled.length === 0 && suggested.length === 0) {
+    lines.push('')
+    lines.push('<i>Görselden güvenilir bilgi çıkarılamadı — manuel adımlar devam edecek.</i>')
+  }
+  lines.push('')
+  lines.push('<i>Yanlışsa wizard sonunda Düzenle butonuyla değiştirebilirsiniz.</i>')
+  return lines.join('\n')
 }
 
 export function getTargetsPrompt(): { text: string; keyboard: Array<Array<{ text: string; callback_data: string }>> } {

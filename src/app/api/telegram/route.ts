@@ -593,15 +593,34 @@ async function approveImageGenJob(
         checkConfirmationFields, getNextWizardStep, setWizardSession, clearWizardSession,
         getTitlePrompt, getCategoryPrompt, getProductTypePrompt,
         getPricePrompt, getTargetsPrompt, getBrandPrompt, formatConfirmationSummary,
+        applyVisionAutofillToSession, formatAutofillReport,
       } = await import('@/lib/confirmationWizard')
 
       const freshProduct = await payload.findByID({ collection: 'products', id: productId, depth: 1 })
       const check = checkConfirmationFields(freshProduct as any)
       const collected: Record<string, unknown> = {}
+
+      // D-230: Run vision autofill ONCE here so high-confidence detections
+      // pre-fill `collected` BEFORE getNextWizardStep decides which step to
+      // ask. Low-confidence detections become hint suggestions on the
+      // prompt builders.
+      const wizState: any = {
+        productId, chatId, userId,
+        step: 'category' as any, // placeholder — overwritten below
+        collected,
+        startedAt: Date.now(),
+      }
+      const autofill = await applyVisionAutofillToSession(payload, freshProduct as any, wizState)
+      const autofillMsg = formatAutofillReport(autofill.filled, autofill.suggested, autofill.result)
+      if (autofillMsg) {
+        await sendTelegramMessage(chatId, autofillMsg)
+      }
+
       const nextStep = getNextWizardStep(freshProduct as any, collected as any)
+      wizState.step = nextStep
 
       if (check.ready && nextStep === 'summary') {
-        const summary = formatConfirmationSummary(freshProduct as any, {} as any)
+        const summary = formatConfirmationSummary(freshProduct as any, collected as any)
         await sendTelegramMessageWithKeyboard(chatId, summary, [
           [
             { text: '✅ Onayla', callback_data: `wz_confirm:${productId}` },
@@ -610,25 +629,24 @@ async function approveImageGenJob(
           ],
         ])
         await setWizardSession(chatId, {
-          productId, chatId, userId,
-          step: 'summary', collected: {} as any, startedAt: Date.now(),
+          ...wizState,
+          step: 'summary',
         }, userId)
       } else {
         await clearWizardSession(chatId, userId)
-        const wizState: any = {
-          productId, chatId, userId,
-          step: nextStep, collected, startedAt: Date.now(),
-        }
         await setWizardSession(chatId, wizState, userId)
 
-        // Dispatch first wizard prompt directly
+        // Dispatch first wizard prompt directly. D-230: pass autofillPreview
+        // hints to category/productType/brand builders so low-confidence
+        // suggestions render inline.
+        const ap = wizState.autofillPreview
         if (nextStep === 'title') {
           await sendTelegramMessage(chatId, getTitlePrompt((freshProduct as any).title ?? `Ürün #${productId}`))
         } else if (nextStep === 'category') {
-          const catPrompt = getCategoryPrompt()
+          const catPrompt = getCategoryPrompt(ap?.category)
           await sendTelegramMessageWithKeyboard(chatId, catPrompt.text, catPrompt.keyboard)
         } else if (nextStep === 'productType') {
-          const ptypePrompt = getProductTypePrompt()
+          const ptypePrompt = getProductTypePrompt(ap?.productType)
           await sendTelegramMessageWithKeyboard(chatId, ptypePrompt.text, ptypePrompt.keyboard)
         } else if (nextStep === 'price') {
           await sendTelegramMessage(chatId, getPricePrompt())
@@ -639,7 +657,7 @@ async function approveImageGenJob(
           if (sizeMsg) wizState.sizeMessageId = sizeMsg
           await setWizardSession(chatId, wizState, userId)
         } else if (nextStep === 'brand') {
-          await sendTelegramMessage(chatId, getBrandPrompt())
+          await sendTelegramMessage(chatId, getBrandPrompt(ap?.brand))
         } else if (nextStep === 'targets') {
           const tgtPrompt = getTargetsPrompt()
           await sendTelegramMessageWithKeyboard(chatId, tgtPrompt.text, tgtPrompt.keyboard)
@@ -1626,15 +1644,30 @@ export async function POST(req: NextRequest) {
             checkConfirmationFields, getNextWizardStep, setWizardSession, clearWizardSession,
             getTitlePrompt, getCategoryPrompt, getProductTypePrompt,
             getPricePrompt, getTargetsPrompt, getBrandPrompt, getStockPrompt, formatConfirmationSummary,
+            applyVisionAutofillToSession, formatAutofillReport,
           } = await import('@/lib/confirmationWizard')
 
           const check = checkConfirmationFields(product as any)
           const collected: Record<string, unknown> = {}
+
+          // D-230: vision autofill — same pattern as approveImageGenJob site.
+          const wizState: any = {
+            productId: wzProductId, chatId: cbChatId, userId: cbUserId,
+            step: 'category' as any, // placeholder
+            collected, startedAt: Date.now(),
+          }
+          const autofill = await applyVisionAutofillToSession(payloadInst, product as any, wizState)
+          const autofillMsg = formatAutofillReport(autofill.filled, autofill.suggested, autofill.result)
+          if (autofillMsg) {
+            await sendTelegramMessage(cbChatId, autofillMsg)
+          }
+
           const nextStep = getNextWizardStep(product as any, collected as any)
+          wizState.step = nextStep
 
           // If everything is already filled, go straight to summary
           if (check.ready && nextStep === 'summary') {
-            const summary = formatConfirmationSummary(product as any, {} as any)
+            const summary = formatConfirmationSummary(product as any, collected as any)
             await sendTelegramMessageWithKeyboard(cbChatId, summary, [
               [
                 { text: '✅ Onayla', callback_data: `wz_confirm:${wzProductId}` },
@@ -1642,10 +1675,7 @@ export async function POST(req: NextRequest) {
                 { text: '❌ İptal', callback_data: `wz_cancel:${wzProductId}` },
               ],
             ])
-            await setWizardSession(cbChatId, {
-              productId: wzProductId, chatId: cbChatId, userId: cbUserId,
-              step: 'summary', collected: {} as any, startedAt: Date.now(),
-            }, cbUserId)
+            await setWizardSession(cbChatId, { ...wizState, step: 'summary' }, cbUserId)
             return NextResponse.json({ ok: true })
           }
 
@@ -1653,20 +1683,17 @@ export async function POST(req: NextRequest) {
           // wizard immediately shows first prompt, no need for a preamble
 
           await clearWizardSession(cbChatId, cbUserId)
-          const wizState: any = {
-            productId: wzProductId, chatId: cbChatId, userId: cbUserId,
-            step: nextStep, collected, startedAt: Date.now(),
-          }
           await setWizardSession(cbChatId, wizState, cbUserId)
 
-          // Dispatch first prompt
+          // Dispatch first prompt — D-230 passes autofill suggestions
+          const ap = wizState.autofillPreview
           if (nextStep === 'title') {
             await sendTelegramMessage(cbChatId, getTitlePrompt((product as any).title ?? `Ürün #${wzProductId}`))
           } else if (nextStep === 'category') {
-            const catPrompt = getCategoryPrompt()
+            const catPrompt = getCategoryPrompt(ap?.category)
             await sendTelegramMessageWithKeyboard(cbChatId, catPrompt.text, catPrompt.keyboard)
           } else if (nextStep === 'productType') {
-            const ptypePrompt = getProductTypePrompt()
+            const ptypePrompt = getProductTypePrompt(ap?.productType)
             await sendTelegramMessageWithKeyboard(cbChatId, ptypePrompt.text, ptypePrompt.keyboard)
           } else if (nextStep === 'price') {
             await sendTelegramMessage(cbChatId, getPricePrompt())
@@ -1678,7 +1705,7 @@ export async function POST(req: NextRequest) {
             if (sizeMsg) wizState.sizeMessageId = sizeMsg
             await setWizardSession(cbChatId, wizState, cbUserId)
           } else if (nextStep === 'brand') {
-            await sendTelegramMessage(cbChatId, getBrandPrompt())
+            await sendTelegramMessage(cbChatId, getBrandPrompt(ap?.brand))
           } else if (nextStep === 'targets') {
             const tgtPrompt = getTargetsPrompt()
             await sendTelegramMessageWithKeyboard(cbChatId, tgtPrompt.text, tgtPrompt.keyboard)
@@ -1715,7 +1742,7 @@ export async function POST(req: NextRequest) {
           await setWizardSession(cbChatId, session, cbUserId)
 
           if (nextStep === 'productType') {
-            const ptypePrompt = getProductTypePrompt()
+            const ptypePrompt = getProductTypePrompt(session.autofillPreview?.productType)
             await sendTelegramMessageWithKeyboard(cbChatId, ptypePrompt.text, ptypePrompt.keyboard)
           } else if (nextStep === 'price') {
             await sendTelegramMessage(cbChatId, getPricePrompt())
@@ -1738,7 +1765,7 @@ export async function POST(req: NextRequest) {
           } else if (nextStep === 'title') {
             await sendTelegramMessage(cbChatId, getTitlePrompt((product as any).title ?? `Ürün #${session.productId}`))
           } else if (nextStep === 'brand') {
-            await sendTelegramMessage(cbChatId, getBrandPrompt())
+            await sendTelegramMessage(cbChatId, getBrandPrompt(session.autofillPreview?.brand))
           } else if (nextStep === 'targets') {
             const tgtPrompt = getTargetsPrompt()
             await sendTelegramMessageWithKeyboard(cbChatId, tgtPrompt.text, tgtPrompt.keyboard)
@@ -1805,7 +1832,7 @@ export async function POST(req: NextRequest) {
           } else if (nextStep === 'title') {
             await sendTelegramMessage(cbChatId, getTitlePrompt((product as any).title ?? `Ürün #${session.productId}`))
           } else if (nextStep === 'brand') {
-            await sendTelegramMessage(cbChatId, getBrandPrompt())
+            await sendTelegramMessage(cbChatId, getBrandPrompt(session.autofillPreview?.brand))
           } else if (nextStep === 'targets') {
             const tgtPrompt = getTargetsPrompt()
             await sendTelegramMessageWithKeyboard(cbChatId, tgtPrompt.text, tgtPrompt.keyboard)
@@ -2029,7 +2056,7 @@ export async function POST(req: NextRequest) {
               await sendTelegramMessage(cbChatId, getTitlePrompt((product as any).title ?? `Ürün #${session.productId}`))
             } else if (nextStep === 'brand') {
               const { getBrandPrompt } = await import('@/lib/confirmationWizard')
-              await sendTelegramMessage(cbChatId, getBrandPrompt())
+              await sendTelegramMessage(cbChatId, getBrandPrompt(session.autofillPreview?.brand))
             } else if (nextStep === 'targets') {
               const { getTargetsPrompt } = await import('@/lib/confirmationWizard')
               const tgtPrompt = getTargetsPrompt()
@@ -2617,11 +2644,13 @@ export async function POST(req: NextRequest) {
         session.step = nextStep as any
         await setWizardSession(chatId, session, msgUserId)
 
+        // D-230: read autofill suggestions (if any) from session
+        const ap = (session as any).autofillPreview
         if (nextStep === 'category') {
-          const catPrompt = getCategoryPrompt()
+          const catPrompt = getCategoryPrompt(ap?.category)
           await sendTelegramMessageWithKeyboard(chatId, catPrompt.text, catPrompt.keyboard)
         } else if (nextStep === 'productType') {
-          const ptypePrompt = getProductTypePrompt()
+          const ptypePrompt = getProductTypePrompt(ap?.productType)
           await sendTelegramMessageWithKeyboard(chatId, ptypePrompt.text, ptypePrompt.keyboard)
         } else if (nextStep === 'price') {
           await sendTelegramMessage(chatId, getPricePrompt())
@@ -2657,7 +2686,7 @@ export async function POST(req: NextRequest) {
         } else if (nextStep === 'title') {
           await sendTelegramMessage(chatId, getTitlePrompt((product as any).title ?? `Ürün #${session.productId}`))
         } else if (nextStep === 'brand') {
-          await sendTelegramMessage(chatId, getBrandPrompt())
+          await sendTelegramMessage(chatId, getBrandPrompt(ap?.brand))
         } else if (nextStep === 'targets') {
           const tgtPrompt = getTargetsPrompt()
           await sendTelegramMessageWithKeyboard(chatId, tgtPrompt.text, tgtPrompt.keyboard)
@@ -2718,7 +2747,24 @@ export async function POST(req: NextRequest) {
 
           // D-178: Combined brand + model step
           if (wizSession.step === 'brand') {
-            const brandText = text.trim()
+            let brandText = text.trim()
+
+            // D-230: "tamam" shortcut accepts the vision suggestion when one
+            // is present (low-confidence autofill case). Operator types
+            // tamam → we use session.autofillPreview.brand.value as if they
+            // typed it themselves.
+            const tamamPattern = /^(tamam|ok|onayla|kabul|evet)$/i
+            if (
+              tamamPattern.test(brandText) &&
+              wizSession.autofillPreview?.brand?.value
+            ) {
+              brandText = wizSession.autofillPreview.brand.value
+              await sendTelegramMessage(
+                chatId,
+                `🤖 PI önerisi kabul edildi: <code>${brandText}</code>`,
+              )
+            }
+
             if (!brandText || brandText.length < 2) {
               await sendTelegramMessage(chatId, '⚠️ En az 2 karakter girin. Örnek: <code>Nike Air Max 90</code>')
               return NextResponse.json({ ok: true })
@@ -5141,27 +5187,37 @@ export async function POST(req: NextRequest) {
 
           // Initialize wizard
           const collected: Record<string, unknown> = {}
-          const nextStep = getNextWizardStep(product as any, collected as any)
 
+          // D-230: vision autofill before first step is decided
           await clearWizardSession(chatId, msgUserId) // Clear any stale session
           const wizState = {
             productId,
             chatId,
             userId: msgUserId,
-            step: nextStep,
+            step: 'category' as any,  // placeholder
             collected: collected as any,
             startedAt: Date.now(),
           } as any
+          const { applyVisionAutofillToSession, formatAutofillReport } = await import('@/lib/confirmationWizard')
+          const autofill = await applyVisionAutofillToSession(payload, product as any, wizState)
+          const autofillMsg = formatAutofillReport(autofill.filled, autofill.suggested, autofill.result)
+          if (autofillMsg) {
+            await sendTelegramMessage(chatId, autofillMsg)
+          }
+
+          const nextStep = getNextWizardStep(product as any, collected as any)
+          wizState.step = nextStep
           await setWizardSession(chatId, wizState, msgUserId)
 
-          // Send first prompt
+          // Send first prompt — D-230: pass autofill suggestions
+          const ap = wizState.autofillPreview
           if (nextStep === 'title') {
             await sendTelegramMessage(chatId, getTitlePrompt((product as any).title ?? `Ürün #${productId}`))
           } else if (nextStep === 'category') {
-            const catPrompt = getCategoryPrompt()
+            const catPrompt = getCategoryPrompt(ap?.category)
             await sendTelegramMessageWithKeyboard(chatId, catPrompt.text, catPrompt.keyboard)
           } else if (nextStep === 'productType') {
-            const ptypePrompt = getProductTypePrompt()
+            const ptypePrompt = getProductTypePrompt(ap?.productType)
             await sendTelegramMessageWithKeyboard(chatId, ptypePrompt.text, ptypePrompt.keyboard)
           } else if (nextStep === 'price') {
             await sendTelegramMessage(chatId, getPricePrompt())
@@ -5173,7 +5229,7 @@ export async function POST(req: NextRequest) {
             if (sizeMsg) wizState.sizeMessageId = sizeMsg
             await setWizardSession(chatId, wizState, msgUserId)
           } else if (nextStep === 'brand') {
-            await sendTelegramMessage(chatId, getBrandPrompt())
+            await sendTelegramMessage(chatId, getBrandPrompt(ap?.brand))
           } else if (nextStep === 'targets') {
             const tgtPrompt = getTargetsPrompt()
             await sendTelegramMessageWithKeyboard(chatId, tgtPrompt.text, tgtPrompt.keyboard)

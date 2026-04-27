@@ -2151,18 +2151,44 @@ export async function POST(req: NextRequest) {
       }
 
       // D-179: wz_edit:{productId} — restart wizard from category step (keep session)
+      // D-230: re-run vision autofill so the operator gets the same auto-fills
+      // and hints they had on the first pass. Without this, Düzenle wipes
+      // the autofill-derived collected values AND clears autofillPreview, so
+      // every prompt re-appears with no hint (observed on product 310).
       if (cbData.startsWith('wz_edit:')) {
         try {
           const editProductId = cbData.replace('wz_edit:', '')
-          const { hydrateWizardSession, setWizardSession, getCategoryPrompt } = await import('@/lib/confirmationWizard')
+          const {
+            hydrateWizardSession, setWizardSession,
+            getCategoryPrompt, applyVisionAutofillToSession, formatAutofillReport,
+          } = await import('@/lib/confirmationWizard')
           const session = await hydrateWizardSession({ productId: editProductId } as any, cbChatId, cbUserId)
           if (session) {
-            // Reset all collected data so every step is re-asked
+            // Reset all collected data so every step is re-asked. D-230:
+            // also clear autofillAttempted + autofillPreview so the next
+            // applyVisionAutofillToSession call actually runs and produces
+            // fresh fills + hints.
             session.collected = {}
             session.step = 'category'
+            session.autofillAttempted = false
+            session.autofillPreview = undefined
+
+            // Re-run vision autofill against the current product state.
+            const payloadInst = await getPayload()
+            const product = await payloadInst.findByID({ collection: 'products', id: editProductId })
+            const autofill = await applyVisionAutofillToSession(payloadInst, product as any, session)
+            const autofillMsg = formatAutofillReport(
+              autofill.filled, autofill.suggested, autofill.result,
+            )
+
             await setWizardSession(cbChatId, session, cbUserId)
             await answerCallbackQuery(cbQueryId, '✏️ Düzenleme başladı')
-            const catPrompt = getCategoryPrompt()
+            if (autofillMsg) {
+              await sendTelegramMessage(cbChatId, autofillMsg)
+            }
+            // Pass the (possibly fresh) hint to the category prompt.
+            const ap = (session as any).autofillPreview
+            const catPrompt = getCategoryPrompt(ap?.category)
             await sendTelegramMessageWithKeyboard(cbChatId, `✏️ <b>Düzenleme modu — tekrar doldurun:</b>\n\n${catPrompt.text}`, catPrompt.keyboard)
           } else {
             await answerCallbackQuery(cbQueryId, '⚠️ Oturum bulunamadı')

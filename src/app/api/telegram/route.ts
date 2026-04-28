@@ -4972,10 +4972,10 @@ export async function POST(req: NextRequest) {
       try {
         const {
           getInboxOverview, getInboxPending, getInboxPublish,
-          getInboxStock, getInboxFailed, getInboxToday, getInboxLeads,
+          getInboxStock, getInboxFailed, getInboxToday, getInboxLeads, getInboxOrders,
           formatInboxOverview, formatInboxPending, formatInboxPublish,
           formatInboxStock, formatInboxFailed, formatInboxToday,
-          formatInboxLeadsHeader,
+          formatInboxLeadsHeader, formatInboxOrdersHeader,
         } = await import('@/lib/operatorInbox')
 
         // D-242: /inbox leads — needs streaming render (header + per-lead
@@ -4999,6 +4999,32 @@ export async function POST(req: NextRequest) {
               await sendTelegramMessage(
                 chatId,
                 `<i>+ ${d.totalOpen - display.length} daha — tüm liste için /leads</i>`,
+              )
+            }
+          }
+          return NextResponse.json({ ok: true })
+        }
+
+        // D-246: /inbox orders — same pattern as /inbox leads. Header text
+        // + per-order cards with the D-245 orderButtonsKeyboard so operator
+        // can ship/deliver/cancel in-place.
+        if (sub === 'orders' || sub === 'order' || sub === 'sipariş' || sub === 'siparis') {
+          const d = await getInboxOrders(payload)
+          await sendTelegramMessage(chatId, formatInboxOrdersHeader(d))
+          if (d.totalOpen > 0) {
+            const { formatOrderLine, orderButtonsKeyboard } = await import('@/lib/orderDesk')
+            const display = d.topItems.slice(0, 5)
+            for (const o of display) {
+              await sendTelegramMessageWithKeyboard(
+                chatId,
+                formatOrderLine(o),
+                orderButtonsKeyboard(o),
+              )
+            }
+            if (d.totalOpen > display.length) {
+              await sendTelegramMessage(
+                chatId,
+                `<i>+ ${d.totalOpen - display.length} daha — tüm liste için /orders</i>`,
               )
             }
           }
@@ -5040,9 +5066,10 @@ export async function POST(req: NextRequest) {
               `<code>/inbox publish</code> — yayına hazır ürünler\n` +
               `<code>/inbox stock</code> — stok aciliyeti (tükenmiş, az kaldı)\n` +
               `<code>/inbox leads</code> — açık müşteri leadleri (kart + aksiyon düğmeleri)\n` +
+              `<code>/inbox orders</code> — açık siparişler (kart + Kargola/Teslim/İptal düğmeleri)\n` +
               `<code>/inbox failed</code> — hata kuyruğu (içerik, audit, Shopier, son 24sa olaylar)\n` +
               `<code>/inbox today</code> — bugünkü operasyonel görüntü\n\n` +
-              `<i>Hepsi salt-okunur. Aksiyon için /find /soldout /restock /redispatch /contacted /won vb. kullanın.</i>`
+              `<i>Hepsi salt-okunur. Aksiyon için /find /soldout /restock /redispatch /contacted /won /ship /deliver vb. kullanın.</i>`
             break
         }
         await sendTelegramMessage(chatId, msg)

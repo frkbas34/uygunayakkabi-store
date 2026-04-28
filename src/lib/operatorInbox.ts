@@ -309,6 +309,45 @@ export async function getInboxLeads(
   }
 }
 
+/**
+ * D-246: Order bucket — wraps D-245 getOpenOrders so /inbox and /orders
+ * share a single source of truth (no parallel rules). Adds a lightweight
+ * "stale shipping" aging signal (shipped orders whose shippedAt is older
+ * than `staleDays`, default 3) — late-delivery early warning. No schema
+ * change; computed in-memory from the same query result.
+ */
+export async function getInboxOrders(
+  payload: any,
+  opts: { staleDays?: number } = {},
+): Promise<{
+  totalOpen: number
+  newCount: number
+  confirmedCount: number
+  shippedCount: number
+  staleShippedCount: number
+  staleDays: number
+  topItems: any[] // raw OrderEntry list, capped — formatter renders
+}> {
+  const { getOpenOrders } = await import('./orderDesk')
+  const open = await getOpenOrders(payload)
+  const staleDays = opts.staleDays ?? 3
+  const staleCutoff = Date.now() - staleDays * 24 * 60 * 60 * 1000
+  const staleShippedCount = open.items.reduce((acc, o) => {
+    if (o.status !== 'shipped') return acc
+    const ts = o.shippedAt ?? o.createdAt
+    return new Date(ts).getTime() < staleCutoff ? acc + 1 : acc
+  }, 0)
+  return {
+    totalOpen: open.totalOpen,
+    newCount: open.counts.new,
+    confirmedCount: open.counts.confirmed,
+    shippedCount: open.counts.shipped,
+    staleShippedCount,
+    staleDays,
+    topItems: open.items,
+  }
+}
+
 /** OVERVIEW — small mixed snapshot. */
 export async function getInboxOverview(payload: any): Promise<{
   pending: { visualPreview: number; wizardIncomplete: number }
@@ -316,13 +355,15 @@ export async function getInboxOverview(payload: any): Promise<{
   stock: { soldout: number; lowStock: number }
   failed: { contentFailed: number; auditFailed: number; shopierError: number; eventsLast24h: number }
   leads: { totalOpen: number; newCount: number; followUpCount: number; contactedCount: number; staleCount: number; staleDays: number }
+  orders: { totalOpen: number; newCount: number; confirmedCount: number; shippedCount: number; staleShippedCount: number; staleDays: number }
 }> {
-  const [pending, publish, stock, failed, leads] = await Promise.all([
+  const [pending, publish, stock, failed, leads, orders] = await Promise.all([
     getInboxPending(payload),
     getInboxPublish(payload),
     getInboxStock(payload),
     getInboxFailed(payload),
     getInboxLeads(payload),
+    getInboxOrders(payload),
   ])
   return {
     pending: {
@@ -351,6 +392,14 @@ export async function getInboxOverview(payload: any): Promise<{
       staleCount: leads.staleCount,
       staleDays: leads.staleDays,
     },
+    orders: {
+      totalOpen: orders.totalOpen,
+      newCount: orders.newCount,
+      confirmedCount: orders.confirmedCount,
+      shippedCount: orders.shippedCount,
+      staleShippedCount: orders.staleShippedCount,
+      staleDays: orders.staleDays,
+    },
   }
 }
 
@@ -374,7 +423,8 @@ export function formatInboxOverview(o: Awaited<ReturnType<typeof getInboxOvervie
     o.publish.publishReady + o.publish.contentReadyNotActive +
     o.stock.soldout + o.stock.lowStock +
     o.failed.contentFailed + o.failed.auditFailed + o.failed.shopierError +
-    o.leads.totalOpen
+    o.leads.totalOpen +
+    o.orders.totalOpen
   const lines: string[] = [
     `📋 <b>Operator Inbox</b>`,
     ``,
@@ -399,13 +449,22 @@ export function formatInboxOverview(o: Awaited<ReturnType<typeof getInboxOvervie
       ? [`  • ⏰ Bayat (${o.leads.staleDays}+ gün): ${o.leads.staleCount}`]
       : []),
     ``,
+    // D-246: Order bucket — same source of truth as /orders (D-245 getOpenOrders)
+    `<b>📦 Sipariş</b>: ${o.orders.totalOpen}`,
+    `  • Yeni: ${o.orders.newCount}`,
+    `  • Onaylı (kargo bekliyor): ${o.orders.confirmedCount}`,
+    `  • Kargoda: ${o.orders.shippedCount}`,
+    ...(o.orders.staleShippedCount > 0
+      ? [`  • ⏰ Geç teslim (${o.orders.staleDays}+ gün kargoda): ${o.orders.staleShippedCount}`]
+      : []),
+    ``,
     `<b>❌ Hatalar</b>: ${o.failed.contentFailed + o.failed.auditFailed + o.failed.shopierError}`,
     `  • İçerik üretimi başarısız: ${o.failed.contentFailed}`,
     `  • Audit fail / revizyon: ${o.failed.auditFailed}`,
     `  • Shopier sync hatası: ${o.failed.shopierError}`,
     `  • Son 24sa hata olayları: ${o.failed.eventsLast24h}`,
     ``,
-    `<i>Detay: /inbox pending · /inbox publish · /inbox stock · /inbox leads · /inbox failed · /inbox today</i>`,
+    `<i>Detay: /inbox pending · /inbox publish · /inbox stock · /inbox leads · /inbox orders · /inbox failed · /inbox today</i>`,
   ]
   if (tot === 0) {
     return `📋 <b>Operator Inbox</b>\n\n✅ Aksiyon gerektiren bir şey yok. Temiz.\n\n<i>/inbox today — bugünkü etkinliğe bak</i>`
@@ -540,4 +599,32 @@ export function formatInboxToday(d: Awaited<ReturnType<typeof getInboxToday>>): 
     if (d.activatedToday.totalDocs > 3) lines.push(`  <i>+ ${d.activatedToday.totalDocs - 3} daha</i>`)
   }
   return lines.join('\n')
+}
+
+/**
+ * D-246: text body for /inbox orders. The route handler renders each top
+ * item as its own message with the D-245 orderButtonsKeyboard so the
+ * operator can act in-place. Same pattern as formatInboxLeadsHeader.
+ */
+export function formatInboxOrdersHeader(d: Awaited<ReturnType<typeof getInboxOrders>>): string {
+  if (d.totalOpen === 0) {
+    return (
+      `📦 <b>Inbox · Sipariş</b>\n\n` +
+      `✅ Açık sipariş yok.\n\n` +
+      `<i>/orders today — bugünkü etkinlik · /order &lt;id&gt; — detay</i>`
+    )
+  }
+  const summary = [
+    d.newCount > 0 ? `🆕 yeni: <b>${d.newCount}</b>` : null,
+    d.confirmedCount > 0 ? `✅ onaylı: <b>${d.confirmedCount}</b>` : null,
+    d.shippedCount > 0 ? `📦 kargoda: <b>${d.shippedCount}</b>` : null,
+    d.staleShippedCount > 0 ? `⏰ geç teslim (${d.staleDays}+gün): <b>${d.staleShippedCount}</b>` : null,
+  ].filter(Boolean).join(' · ')
+  return [
+    `📦 <b>Inbox · Sipariş</b> — açık: ${d.totalOpen}`,
+    summary,
+    ``,
+    `<i>Aşağıda en öncelikli siparişler kartlar halinde — düğmelerle aksiyon alabilirsiniz.</i>`,
+    `<i>Tüm açık liste: /orders · bugünkü etkinlik: /orders today</i>`,
+  ].join('\n')
 }

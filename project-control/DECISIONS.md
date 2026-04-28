@@ -5651,3 +5651,71 @@ Soak harness committed at `scripts/d245-soak.ts`. Typecheck: zero new errors.
 **Status:** Shipped to `main`. Soak passed end-to-end at the data layer. **Next operator step:** `/orders` to confirm the queue renders → `/order <id>` on a real order → `/ship <id>` → confirm idempotency by pressing again → `/deliver <id>` → confirm timestamps on the order in admin.
 
 **Reversible:** yes — new helper file + 1 callback prefix block + 5 new slash commands. No schema change.
+
+---
+
+## D-246 — Order Integration into /inbox
+
+**Decision:**
+Surface customer orders inside the existing `/inbox` operator queue so daily Telegram triage starts in one place. **Symmetric extension of D-242** (which did the same for leads) — same pattern, no new architecture, no new collection, no schema change. Reuse D-245's `getOpenOrders` as the single source of truth so `/inbox` and `/orders` can never diverge.
+
+**Order bucket rules — no parallel definitions:**
+- "Open" = `status ∈ {new, confirmed, shipped}`. Same set as `/orders`. Closed states (`delivered`, `cancelled`) excluded.
+- Priority sort on the cards: `new` newest-first → `confirmed` newest-first → `shipped` oldest-first (so late-shipping orders bubble up).
+- "Stale shipping" lightweight aging signal: `shipped` orders whose `shippedAt` (or `createdAt` if missing) is older than **3 days**. Late-delivery early warning. Computed in-memory from the same `getOpenOrders` result — no schema change, no extra DB hit.
+
+**Inbox overview extension** (`getInboxOverview` + `formatInboxOverview` in `src/lib/operatorInbox.ts`):
+- New `orders` field returned: `{ totalOpen, newCount, confirmedCount, shippedCount, staleShippedCount, staleDays }`.
+- New `📦 Sipariş` section in the formatter, between `📬 Lead` and `❌ Hatalar`:
+  ```
+  📦 Sipariş: <total>
+    • Yeni: N
+    • Onaylı (kargo bekliyor): N
+    • Kargoda: N
+    • ⏰ Geç teslim (3+ gün kargoda): N    ← only rendered when staleShippedCount > 0
+  ```
+- Empty short-circuit (`✅ Aksiyon gerektiren bir şey yok. Temiz.`) still fires when ALL buckets are zero, now including orders.
+- Detail line updated to advertise `/inbox orders` and `/ship /deliver` action paths.
+
+**New sub-command `/inbox orders`** (aliases: `/inbox order`, `/inbox sipariş`, `/inbox siparis`):
+- Renders the header text via new `formatInboxOrdersHeader`.
+- Streams the priority-sorted top-5 open orders, each as its own message with the full **D-245 `orderButtonsKeyboard`** — Row 1: `📦 Kargola · 🏠 Teslim · ❌ İptal` (`oract:<id>:<action>` callbacks); Row 2: `🆔 Lead #N · 🔍 Ürün` nav (only when applicable).
+- Overflow above 5 → `+ N daha — tüm liste için /orders` hint.
+- Empty state: `📦 Inbox · Sipariş — ✅ Açık sipariş yok.` with pointer at `/orders today` and `/order <id>`.
+
+**Why per-order cards in `/inbox orders` but NOT in the `/inbox` overview itself:**
+Same rationale as D-242 leads — overview is a counts-only summary; clutter from 5 buttons per bucket would overwhelm. Counts in overview tell the operator WHAT to look at; `/inbox orders` is one tap deeper for actual triage. Mirrors how `/inbox publish` shows counts but actions live in `/publishready`.
+
+**Convergence with D-245 — no duplicate source of truth:**
+- `getInboxOrders` is a thin wrapper over `getOpenOrders`. Same query, same priority sort, same status set.
+- Action buttons reuse `orderButtonsKeyboard` exactly; callbacks land on the same `applyOrderStatus` helper as the slash commands.
+- Audit trail in `bot-events` continues to work unchanged (one `order.status_changed` event per action, regardless of entry point).
+
+**Soak evidence:**
+| Check | Result |
+|---|---|
+| Typecheck (zero new errors) | ✓ |
+| `getInboxOrders` counts match real Neon (4 open: 1 new + 1 confirmed + 2 shipped) | ✓ |
+| `staleShippedCount=1` correctly flagged for the 5-day-old backdated order | ✓ |
+| `formatInboxOrdersHeader` populated render — all 4 status counts + stale highlight | ✓ |
+| `formatInboxOrdersHeader` empty render | ✓ |
+| Per-order card with correct `oract:<id>:ship` callback | ✓ |
+| `formatInboxOverview` with leads + orders + stale shipping (all sections render) | ✓ |
+| `formatInboxOverview` with orders but no stale (stale row hidden) | ✓ |
+| `formatInboxOverview` fully-empty short-circuit (`Temiz`) | ✓ |
+
+Soak harness committed at `scripts/d246-soak.ts` for future re-runs.
+
+**Out of scope (v1):**
+- Per-order inline action buttons inside the overview itself — kept as concise text. Actions live one tap deeper at `/inbox orders` (mirrors D-242).
+- SLA/breach alerts beyond the simple 3-day stale-shipping count.
+- Order bulk-selection mirroring D-240 — defer until volume warrants.
+- `/inbox stale-shipping` filter view — current `/orders` already prioritizes shipped oldest-first via `getOpenOrders` sort.
+- Per-customer or per-cargo-firma filter.
+- Customer-facing notification on status change.
+
+**Risk class:** very low. Additive helpers + 1 new switch case + 1 new section in the overview formatter + 1 help-line update. No mutations. No schema change. No new collection. Reusable from existing patterns. Reversible via single-commit revert.
+
+**Status:** Shipped to `main`. Soak validation passed at the data layer. Operator validation: `/inbox` → see the new `📦 Sipariş` row → `/inbox orders` → see the cards with action buttons → tap `📦 Kargola` on any → confirm immediate status update + audit event (same as direct `/ship` from D-245 since both routes converge on `applyOrderStatus`).
+
+**Reversible:** yes — extends existing helpers + adds 1 switch case + 1 sub-command branch. No schema change.

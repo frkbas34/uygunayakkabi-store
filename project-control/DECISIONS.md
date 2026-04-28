@@ -5391,3 +5391,80 @@ Soak harness committed at `scripts/d242-soak.ts` for future re-runs.
 **Status:** Shipped to `main`. Soak validation passed at the data layer. Operator validation: `/inbox` → see the new `📬 Lead` row → `/inbox leads` → see the 3 reset test leads with action buttons → tap `📞 Arandı` on any → confirm immediate status update + audit event (same as direct `/contacted` from D-241 since both routes converge on `applyLeadStatus`).
 
 **Reversible:** yes — extends existing helpers + adds 1 switch case + 1 sub-command branch. No schema change.
+
+---
+
+## D-243 — Lead Alerts / Follow-Up Reminder Layer v1
+
+**Decision:**
+Add a three-pronged lightweight reminder layer on top of D-241/D-242:
+1. **Push** — proactive Telegram alert when a new lead arrives via the storefront.
+2. **Pull** — `/leadreminders` slash command surfacing stale-and-open leads with action buttons.
+3. **Snapshot** — `/leads summary` daily digest.
+
+No new collection. No schema change. No scheduler/cron. All three reuse existing helpers + the same `TELEGRAM_CHAT_ID` chat-routing convention as `src/lib/stockReaction.ts`.
+
+**Push: new-lead Telegram alert**
+- Trigger: `POST /api/inquiries` after `payload.create` succeeds.
+- Fire-and-forget via `void (async ()=>{...})()` so a Telegram failure never blocks the storefront response (the lead is already saved).
+- New helper `sendNewLeadAlert(payload, leadId)` in `src/lib/leadDesk.ts` — fetches the lead, formats a concise card via new `formatNewLeadAlert`, posts to `https://api.telegram.org/bot<TOKEN>/sendMessage` with the full 5-button `leadButtonsKeyboard`. Same `TELEGRAM_BOT_TOKEN` + `TELEGRAM_CHAT_ID` env, same fire-and-forget pattern as the stock alerts.
+- Alert content: `🚨 YENİ LEAD · #<id>` + 👤 name + 📱 phone + 🛍️ product (SN tag if linked) + 📐 size + 💬 message preview (200-char cap) + 🌐 source + `Detay: /lead <id>` hint.
+- Audit trail: `lead.new_alert_sent` bot-event with `{leadId, sentAt, chatId}` payload (best-effort; non-fatal on failure).
+- Storefront route extended to also accept `message` and `source` from the body — existing form should already pass these.
+
+**Pull: /leadreminders (aliases: /hatirla, /hatırla)**
+- Reuses D-242's stale rule **exactly** — no parallel definition. Stale = `status ∈ {new, contacted, follow_up}` AND `(lastContactedAt ?? createdAt)` older than 3 days.
+- New helper `getStaleLeads(payload, {staleDays=3, limit=25})` calls `getOpenLeads`, filters by age, sorts oldest-first, splits into `neverTouchedCount` (`status='new'`) vs `needsFollowupCount` (`contacted` / `follow_up`).
+- Header counts: `🆕 hiç dokunulmamış: N · 🔁 takip gecikti: N` so urgency is visible at a glance.
+- Streams top-5 stale leads as cards with the existing `leadButtonsKeyboard` (one tap → action). Overflow above 5 → `+ N bayat lead daha — tüm açık liste için /leads` hint.
+- Empty state: `✅ Bayat lead yok (3 günden eski açık lead bulunamadı)`.
+- Closed leads (`closed_won`/`closed_lost`/`spam`/`completed`) explicitly excluded by reusing `getOpenLeads`.
+- Registered in SHARED_CMDS (`/leadreminders`, `/hatirla`, `/hatırla`).
+
+**Snapshot: /leads summary (alias: özet, ozet)**
+- Concise daily digest — bugün yeni / arandı / kazanıldı / kaybedildi / spam counts + açık total + stale signal in one block.
+- New helper `getDailyLeadSummary(payload)` wraps `getTodayLeads` (D-241) + `getOpenLeads` + `getStaleLeads`. Single source of truth preserved.
+- Footer: `/leads · /leadreminders · /inbox leads` so operator can drill into each lane.
+
+**Convergence — no parallel rules:**
+| Concept | Defined in | Reused by |
+|---|---|---|
+| Open status set | `getOpenLeads` (D-241) | D-242 `getInboxLeads`, D-243 `getStaleLeads`, D-243 `getDailyLeadSummary` |
+| Stale rule (3 days, lastContactedAt ?? createdAt) | D-242 `getInboxLeads` aging signal | D-243 `getStaleLeads` (same threshold) |
+| Action buttons | D-241 `leadButtonsKeyboard` | D-242 `/inbox leads`, D-243 alert + reminders |
+| Status writes | D-241 `applyLeadStatus` | All ldact: callbacks (slash + button paths) |
+| Chat routing | `TELEGRAM_CHAT_ID` env (`stockReaction.ts` precedent) | D-243 alert dispatch |
+
+**Noise / dedup behaviour:**
+- New-lead alert fires **once per successful create**. Storefront POST is a single transactional event — duplicate POSTs would create duplicate rows AND duplicate alerts (same as existing semantics). Not different from stock alerts.
+- `/leadreminders` is operator-pulled — no spam.
+- No proactive cron yet. Defer until operator confirms `/leadreminders` cadence is right; cron can be layered on later with a `lead.stale_reminder_sent` bot-event for per-lead-per-day dedup.
+
+**Test evidence (against live Neon, 9 assertions all pass):**
+| Check | Result |
+|---|---|
+| sendNewLeadAlert captures correct Telegram payload (URL, chat_id, text, keyboard) | ✓ |
+| Audit-event delta = 1 (`lead.new_alert_sent` written) | ✓ |
+| Missing TELEGRAM env → safe noop with warn | ✓ |
+| Missing lead id → safe noop, no throw | ✓ |
+| Empty stale state → `✅ Bayat lead yok` rendered | ✓ |
+| Backdated leads correctly surface (2 stale: 1 never-touched + 1 needs-followup) | ✓ |
+| Oldest-first sort | ✓ |
+| Closed lead correctly excluded from /leadreminders | ✓ |
+| Daily summary counts + format correct | ✓ |
+
+Soak harness committed at `scripts/d243-soak.ts`. Typecheck: zero new errors.
+
+**Out of scope (v1):**
+- Proactive stale-reminder cron — `/leadreminders` is operator-pulled in v1. If/when added, dedup via `lead.stale_reminder_sent` bot-event keyed on (leadId, day).
+- Per-customer mute / snooze.
+- SLA breach alerts beyond stale threshold.
+- Multi-chat dispatch routing — single `TELEGRAM_CHAT_ID` like every other system alert.
+- Rich media in alerts (product image preview).
+- Time-window filters on `/leadreminders` (e.g. "stale 5+ days").
+
+**Risk class:** very low. Additive helpers in `leadDesk.ts` + 1 alert dispatch wired into `/api/inquiries` POST (fire-and-forget, non-blocking) + 2 new slash commands. No schema change. No mutations beyond what `applyLeadStatus` already does (button callbacks). Reversible via single-commit revert.
+
+**Status:** Shipped to `main`. Soak validation passed at the data layer. Operator validation: submit a test inquiry via the storefront form → confirm a `🚨 YENİ LEAD` message arrives with the action buttons. Then `/leadreminders` (with no stale leads, expect empty state) and `/leads summary` (always renders the daily counts).
+
+**Reversible:** yes — additive helpers + 2 new commands + 1 alert dispatch. No schema change.

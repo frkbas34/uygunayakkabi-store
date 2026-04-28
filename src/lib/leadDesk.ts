@@ -487,3 +487,218 @@ export function leadButtonsKeyboard(leadId: number | string) {
     ],
   ]
 }
+
+// ── D-243: Alerts + reminders + daily summary ───────────────────────────────
+
+const STALE_DAYS_DEFAULT = 3
+
+/**
+ * D-243: Concise new-lead notification card. Shorter than formatLeadCard so
+ * the operator can act fast without scrolling. Includes lead id + name +
+ * phone + product (if linked) + size + message preview + source. Pairs with
+ * leadButtonsKeyboard for in-place action.
+ */
+export function formatNewLeadAlert(l: LeadEntry): string {
+  const lines = [
+    `🚨 <b>YENİ LEAD</b> · #${l.id}`,
+    ``,
+    `👤 ${escapeHtml(l.name)}`,
+    `📱 ${fmtPhone(l.phone)}`,
+  ]
+  if (l.product) {
+    const ptag = l.product.stockNumber ?? `ID:${l.product.id}`
+    const ptitle = l.product.title ? ` — ${escapeHtml(l.product.title).slice(0, 50)}` : ''
+    lines.push(`🛍️ <code>${ptag}</code>${ptitle}`)
+  }
+  if (l.size) lines.push(`📐 Beden: ${escapeHtml(l.size)}`)
+  if (l.message) {
+    const m = escapeHtml(l.message).slice(0, 200)
+    lines.push(``, `💬 <i>${m}</i>`)
+  }
+  if (l.source) lines.push(`🌐 ${escapeHtml(l.source)}`)
+  lines.push(``, `<i>Detay: /lead ${l.id}</i>`)
+  return lines.join('\n')
+}
+
+/**
+ * D-243: Send the new-lead Telegram alert to the operator chat. Reuses the
+ * same env (TELEGRAM_BOT_TOKEN + TELEGRAM_CHAT_ID) and fire-and-forget
+ * pattern as src/lib/stockReaction.ts so dispatch routing stays consistent.
+ *
+ * Emits a `lead.new_alert_sent` bot-event for audit trail (and to give
+ * future cron / dedup layers something to read against).
+ *
+ * Errors are swallowed — alert failure must never block lead creation.
+ */
+export async function sendNewLeadAlert(payload: any, leadId: number | string): Promise<void> {
+  const token = process.env.TELEGRAM_BOT_TOKEN
+  const chatId = process.env.TELEGRAM_CHAT_ID
+  if (!token || !chatId) {
+    console.warn('[leadDesk D-243] TELEGRAM env not set — new-lead alert skipped')
+    return
+  }
+  try {
+    const lead = await getLeadById(payload, leadId)
+    if (!lead) {
+      console.warn(`[leadDesk D-243] new-lead alert: lead ${leadId} not found post-create`)
+      return
+    }
+    const text = formatNewLeadAlert(lead)
+    const kb = leadButtonsKeyboard(lead.id)
+    await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        chat_id: chatId,
+        text,
+        parse_mode: 'HTML',
+        reply_markup: { inline_keyboard: kb },
+      }),
+    })
+    // Audit-trail event (best-effort)
+    try {
+      await payload.create({
+        collection: 'bot-events',
+        data: {
+          eventType: 'lead.new_alert_sent',
+          sourceBot: 'uygunops',
+          status: 'processed',
+          payload: {
+            leadId: lead.id,
+            sentAt: new Date().toISOString(),
+            chatId: String(chatId),
+          },
+          notes: `New lead alert sent for lead ${lead.id}.`,
+          processedAt: new Date().toISOString(),
+        },
+      })
+    } catch {
+      /* non-fatal */
+    }
+  } catch (err) {
+    console.error(
+      `[leadDesk D-243] new-lead alert failed (non-blocking):`,
+      err instanceof Error ? err.message : String(err),
+    )
+  }
+}
+
+/**
+ * D-243: Stale-open leads. Reuses D-242's stale rule: status ∈
+ * {contacted, follow_up} AND (lastContactedAt ?? createdAt) older than
+ * staleDays. Also surfaces "never-touched" leads — status='new' AND
+ * createdAt older than staleDays — which are the loudest signal that
+ * nothing has been done.
+ *
+ * Returns priority-sorted (oldest first) so the operator sees the worst
+ * offenders at the top.
+ */
+export async function getStaleLeads(
+  payload: any,
+  opts: { staleDays?: number; limit?: number } = {},
+): Promise<{
+  staleDays: number
+  totalStale: number
+  neverTouchedCount: number
+  needsFollowupCount: number
+  items: LeadEntry[]
+}> {
+  const staleDays = opts.staleDays ?? STALE_DAYS_DEFAULT
+  const limit = opts.limit ?? 25
+  const open = await getOpenLeads(payload)
+  const cutoff = Date.now() - staleDays * 24 * 60 * 60 * 1000
+
+  type Aged = { lead: LeadEntry; ageMs: number; isNeverTouched: boolean }
+  const aged: Aged[] = []
+  for (const l of open.items) {
+    const ts = l.lastContactedAt ?? l.createdAt
+    const tms = new Date(ts).getTime()
+    if (!Number.isFinite(tms) || tms >= cutoff) continue
+    aged.push({
+      lead: l,
+      ageMs: Date.now() - tms,
+      isNeverTouched: l.status === 'new',
+    })
+  }
+  aged.sort((a, b) => b.ageMs - a.ageMs) // oldest first
+
+  const neverTouchedCount = aged.filter((a) => a.isNeverTouched).length
+  const needsFollowupCount = aged.length - neverTouchedCount
+  return {
+    staleDays,
+    totalStale: aged.length,
+    neverTouchedCount,
+    needsFollowupCount,
+    items: aged.slice(0, limit).map((a) => a.lead),
+  }
+}
+
+/** D-243: header text for /leadreminders. Per-lead cards are sent
+ *  separately by the route handler with leadButtonsKeyboard. */
+export function formatLeadRemindersHeader(d: Awaited<ReturnType<typeof getStaleLeads>>): string {
+  if (d.totalStale === 0) {
+    return (
+      `⏰ <b>Lead Hatırlatıcıları</b>\n\n` +
+      `✅ Bayat lead yok (${d.staleDays} günden eski açık lead bulunamadı).\n\n` +
+      `<i>Açık liste için /leads · özet için /leads summary</i>`
+    )
+  }
+  const summary = [
+    d.neverTouchedCount > 0 ? `🆕 hiç dokunulmamış: <b>${d.neverTouchedCount}</b>` : null,
+    d.needsFollowupCount > 0 ? `🔁 takip gecikti: <b>${d.needsFollowupCount}</b>` : null,
+  ].filter(Boolean).join(' · ')
+  return [
+    `⏰ <b>Lead Hatırlatıcıları</b> — bayat: ${d.totalStale} (eşik: ${d.staleDays} gün)`,
+    summary,
+    ``,
+    `<i>Aşağıda en eski leadler kartlar halinde — düğmelerle aksiyon alabilirsiniz.</i>`,
+    `<i>Tüm açık liste: /leads · bugünkü etkinlik: /leads summary</i>`,
+  ].join('\n')
+}
+
+/** D-243: Daily lead summary — wraps getTodayLeads (D-241) and getOpenLeads
+ *  + getStaleLeads for a single concise snapshot. */
+export async function getDailyLeadSummary(payload: any): Promise<{
+  newToday: number
+  contactedToday: number
+  wonToday: number
+  lostToday: number
+  spamToday: number
+  totalOpen: number
+  totalStale: number
+  staleDays: number
+}> {
+  const [today, open, stale] = await Promise.all([
+    getTodayLeads(payload),
+    getOpenLeads(payload),
+    getStaleLeads(payload),
+  ])
+  return {
+    newToday: today.totalCreatedToday,
+    contactedToday: today.contactedToday,
+    wonToday: today.wonToday,
+    lostToday: today.lostToday,
+    spamToday: today.spamToday,
+    totalOpen: open.totalOpen,
+    totalStale: stale.totalStale,
+    staleDays: stale.staleDays,
+  }
+}
+
+export function formatDailyLeadSummary(d: Awaited<ReturnType<typeof getDailyLeadSummary>>): string {
+  const lines = [
+    `📊 <b>Lead Özeti</b> (UTC günü)`,
+    ``,
+    `<b>Bugün</b>`,
+    `  📥 Yeni: ${d.newToday}`,
+    `  📞 Arandı: ${d.contactedToday}`,
+    `  🏆 Kazanıldı: ${d.wonToday}`,
+    `  ❌ Kaybedildi: ${d.lostToday}`,
+    `  🚮 Spam: ${d.spamToday}`,
+    ``,
+    `<b>Açık Toplam</b>: ${d.totalOpen}` + (d.totalStale > 0 ? ` · ⏰ Bayat (${d.staleDays}+gün): <b>${d.totalStale}</b>` : ''),
+    ``,
+    `<i>/leads · /leadreminders · /inbox leads</i>`,
+  ]
+  return lines.join('\n')
+}

@@ -2842,6 +2842,8 @@ export async function POST(req: NextRequest) {
         '/selection', '/clearselection',
         // D-241 Lead Desk
         '/leads', '/lead', '/contacted', '/followup', '/won', '/lost', '/spam',
+        // D-243 reminders
+        '/leadreminders', '/hatirla', '/hatırla',
       ]
       // D-220: PI Bot hashtags owned by Uygunops (operator approval is required before GeoBot handoff).
       const OPS_HASHTAGS = ['#gorsel', '#geminipro', '#geohazirla', '#seoara', '#productintel', '#urunzeka']
@@ -5128,12 +5130,52 @@ export async function POST(req: NextRequest) {
             await sendTelegramMessage(chatId, lead.formatLeadsToday(d))
             return NextResponse.json({ ok: true })
           }
+          // D-243: /leads summary — concise daily snapshot
+          if (sub === 'summary' || sub === 'özet' || sub === 'ozet') {
+            const d = await lead.getDailyLeadSummary(payload)
+            await sendTelegramMessage(chatId, lead.formatDailyLeadSummary(d))
+            return NextResponse.json({ ok: true })
+          }
           const d = await lead.getOpenLeads(payload)
           await sendTelegramMessage(chatId, lead.formatOpenLeadsList(d))
         } catch (err) {
           const m = err instanceof Error ? err.message : String(err)
           console.error(`[telegram/leads D-241] error:`, m)
           await sendTelegramMessage(chatId, `❌ Lead Desk hatası: ${m}`)
+        }
+        return NextResponse.json({ ok: true })
+      }
+    }
+
+    // ── D-243: /leadreminders — stale open leads + per-lead action cards ──
+    {
+      const firstWordRem = text.trim().split(/\s+/)[0].replace(/@\w+$/, '').toLowerCase()
+      if (firstWordRem === '/leadreminders' || firstWordRem === '/hatirla' || firstWordRem === '/hatırla') {
+        try {
+          const lead = await import('@/lib/leadDesk')
+          const d = await lead.getStaleLeads(payload)
+          await sendTelegramMessage(chatId, lead.formatLeadRemindersHeader(d))
+          if (d.totalStale > 0) {
+            // Cap at 5 to keep the surface concise — overflow points at /leads.
+            const display = d.items.slice(0, 5)
+            for (const l of display) {
+              await sendTelegramMessageWithKeyboard(
+                chatId,
+                lead.formatLeadLine(l),
+                lead.leadButtonsKeyboard(l.id),
+              )
+            }
+            if (d.totalStale > display.length) {
+              await sendTelegramMessage(
+                chatId,
+                `<i>+ ${d.totalStale - display.length} bayat lead daha — tüm açık liste için /leads</i>`,
+              )
+            }
+          }
+        } catch (err) {
+          const m = err instanceof Error ? err.message : String(err)
+          console.error(`[telegram/leadreminders D-243] error:`, m)
+          await sendTelegramMessage(chatId, `❌ Hatırlatıcı hatası: ${m}`)
         }
         return NextResponse.json({ ok: true })
       }

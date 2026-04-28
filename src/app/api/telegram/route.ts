@@ -2253,6 +2253,112 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ ok: true })
       }
 
+      // ── D-237: Publish Desk button callbacks ─────────────────────────────
+      // pdesk_act:<id>  — Aktif Et (delegates to existing activate path)
+      // pdesk_rej:<id>  — Reddet (recordPublishDecision rejected)
+      if (cbData.startsWith('pdesk_')) {
+        const [shortAction, pIdStr] = cbData.replace('pdesk_', '').split(':')
+        const pId = parseInt(pIdStr, 10)
+        if (Number.isNaN(pId)) {
+          await answerCallbackQuery(cbQueryId, '❌ Geçersiz ürün')
+          return NextResponse.json({ ok: true })
+        }
+        try {
+          const cbPayload = await getPayload()
+          if (shortAction === 'rej') {
+            await answerCallbackQuery(cbQueryId, '🚫 Reddediliyor...')
+            const { recordPublishDecision } = await import('@/lib/publishDesk')
+            const r = await recordPublishDecision(cbPayload, pId, 'rejected', 'telegram_button')
+            await sendTelegramMessage(cbChatId, r.message)
+            return NextResponse.json({ ok: true })
+          }
+          if (shortAction === 'act') {
+            // Same activation logic as /activate. Inline because the slash
+            // command path is far from here in the source order.
+            await answerCallbackQuery(cbQueryId, '🚀 Aktive ediliyor...')
+            const product = await cbPayload.findByID({ collection: 'products', id: pId, depth: 1 }) as any
+            if (!product) {
+              await sendTelegramMessage(cbChatId, `❌ Ürün #${pId} bulunamadı.`)
+              return NextResponse.json({ ok: true })
+            }
+            if (product.status === 'active') {
+              await sendTelegramMessage(cbChatId, `✅ Ürün #${pId} zaten aktif.`)
+              return NextResponse.json({ ok: true })
+            }
+            const { evaluatePublishReadiness } = await import('@/lib/publishReadiness')
+            const readiness = evaluatePublishReadiness(product as any)
+            if (readiness.level !== 'ready') {
+              await sendTelegramMessage(
+                cbChatId,
+                `⚠️ <b>Aktivasyon engellendi</b>\nReadiness: ${readiness.passedCount}/${readiness.totalCount}\n\n` +
+                  readiness.blockers.map((b) => `❌ ${b}`).join('\n') +
+                  `\n\n/pipeline ${pId} — Detaylı durum`,
+              )
+              return NextResponse.json({ ok: true })
+            }
+            // publish.approved audit-trail event before activation
+            const { recordPublishDecision } = await import('@/lib/publishDesk')
+            await recordPublishDecision(cbPayload, pId, 'approved', 'telegram_button')
+
+            const { calculateNewWindow } = await import('@/lib/merchandising')
+            const { publishedAt, newUntil } = calculateNewWindow()
+            await cbPayload.update({
+              collection: 'products',
+              id: pId,
+              data: {
+                status: 'active',
+                workflow: {
+                  ...(product.workflow ?? {}),
+                  workflowStatus: 'active',
+                  publishStatus: 'published',
+                  lastHandledByBot: 'uygunops',
+                },
+                merchandising: {
+                  ...(product.merchandising ?? {}),
+                  publishedAt,
+                  newUntil,
+                },
+              },
+            })
+            await cbPayload.create({
+              collection: 'bot-events',
+              data: {
+                eventType: 'product.activated',
+                product: pId,
+                sourceBot: 'uygunops',
+                status: 'processed',
+                payload: {
+                  previousStatus: product.status,
+                  activatedAt: new Date().toISOString(),
+                  publishedAt,
+                  newUntil,
+                  readinessScore: `${readiness.passedCount}/${readiness.totalCount}`,
+                  triggeredBy: 'pdesk_button',
+                },
+                notes: `Product ${pId} activated via Publish Desk button.`,
+                processedAt: new Date().toISOString(),
+              },
+            })
+            const sn = product.stockNumber ? `<code>${product.stockNumber}</code>` : `ID:${pId}`
+            await sendTelegramMessage(
+              cbChatId,
+              `🚀 <b>${sn} AKTİF!</b>\n\n` +
+                `🟢 status = active\n` +
+                `📅 publishedAt = ${publishedAt.split('T')[0]}\n` +
+                `📅 newUntil = ${newUntil.split('T')[0]}\n` +
+                `🔄 Kanal dispatch tetiklendi`,
+            )
+            return NextResponse.json({ ok: true })
+          }
+          await answerCallbackQuery(cbQueryId, '❌ Bilinmeyen işlem')
+        } catch (err) {
+          const m = err instanceof Error ? err.message : String(err)
+          console.error(`[telegram/pdesk D-237] callback action=${shortAction} pId=${pId} error:`, m)
+          await sendTelegramMessage(cbChatId, `❌ Publish Desk hatası: ${m}`)
+        }
+        return NextResponse.json({ ok: true })
+      }
+
       // ── D-235: per-channel redispatch button callbacks ───────────────────
       // Buttons: redis_x / redis_ig / redis_fb / redis_shopier (id at suffix).
       // Maps to operatorActions.triggerChannelRedispatch — same code path as
@@ -2576,13 +2682,14 @@ export async function POST(req: NextRequest) {
       const OPS_CMDS = ['/confirm', '/confirm_cancel', '/stok', '/diagnostics']
       // D-186: /ara works on BOTH bots (shared command) so operator can search from group
       const GEO_CMDS = ['/content', '/audit', '/preview', '/activate', '/shopier', '/merch', '/story', '/restory', '/targets', '/approve_story', '/reject_story']
-      // D-234 / D-235 / D-236: Operator Pack commands are SHARED so the
+      // D-234 / D-235 / D-236 / D-237: Operator Pack commands are SHARED so the
       // operator can use them from either bot.
       const SHARED_CMDS = [
         '/ara', '/pipeline', '/sn',
         '/find', '/soldout', '/oneleft', '/twoleft', '/restock', '/stopsale', '/restartsale',
         '/redispatch',
         '/inbox',
+        '/publishready', '/approvepublish', '/rejectpublish',
       ]
       // D-220: PI Bot hashtags owned by Uygunops (operator approval is required before GeoBot handoff).
       const OPS_HASHTAGS = ['#gorsel', '#geminipro', '#geohazirla', '#seoara', '#productintel', '#urunzeka']
@@ -4132,10 +4239,24 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ ok: true })
       }
 
-      const productId = parseInt(arg)
-      if (isNaN(productId)) {
-        await sendTelegramMessage(chatId, '⚠️ Geçersiz ürün ID.')
-        return NextResponse.json({ ok: true })
+      // D-237: accept SN-or-ID via shared resolver. Falls back to legacy
+      // numeric-only when the shared module isn't available (defensive).
+      let productId: number
+      try {
+        const { resolveProductIdentifier, formatIdentifierMissingMessage } = await import('@/lib/operatorActions')
+        const resolved = await resolveProductIdentifier(payload, arg)
+        if (!resolved) {
+          await sendTelegramMessage(chatId, formatIdentifierMissingMessage(arg))
+          return NextResponse.json({ ok: true })
+        }
+        productId = resolved.productId as number
+      } catch {
+        const fallback = parseInt(arg, 10)
+        if (Number.isNaN(fallback)) {
+          await sendTelegramMessage(chatId, '⚠️ Geçersiz ürün ID.')
+          return NextResponse.json({ ok: true })
+        }
+        productId = fallback
       }
 
       try {
@@ -4147,7 +4268,7 @@ export async function POST(req: NextRequest) {
 
         // Guard: already active
         if ((product as any).status === 'active') {
-          await sendTelegramMessage(chatId, `✅ Ürün #${productId} zaten aktif. Tekrar dispatch için Admin'den forceRedispatch kullanın.`)
+          await sendTelegramMessage(chatId, `✅ Ürün #${productId} zaten aktif. Tekrar dispatch için /redispatch &lt;kanal&gt; ${productId} kullanın.`)
           return NextResponse.json({ ok: true })
         }
 
@@ -4752,6 +4873,178 @@ export async function POST(req: NextRequest) {
         const m = err instanceof Error ? err.message : String(err)
         console.error(`[telegram/inbox D-236] sub=${sub} error:`, m)
         await sendTelegramMessage(chatId, `❌ Inbox hatası: ${m}`)
+      }
+      return NextResponse.json({ ok: true })
+    }
+
+    // ── D-237: Publish Desk / Approval Gate v1 ────────────────────────────
+    // /publishready [today]            — list ready items with action buttons
+    // /approvepublish <sn-or-id>       — explicit approval (event) + delegates to /activate
+    // /rejectpublish <sn-or-id>        — record rejection (event), no state mutation
+    if (text.trim().toLowerCase().startsWith('/publishready')) {
+      const parts = text.trim().split(/\s+/)
+      const todayOnly = (parts[1] || '').toLowerCase() === 'today' || (parts[1] || '').toLowerCase() === 'bugun' || (parts[1] || '').toLowerCase() === 'bugün'
+      try {
+        const {
+          getPublishReadyList,
+          formatPublishReadyHeader,
+          formatPublishReadyEntry,
+          formatPublishReadyEmpty,
+          publishDeskButtons,
+        } = await import('@/lib/publishDesk')
+        const list = await getPublishReadyList(payload, { todayOnly })
+        if (list.items.length === 0) {
+          await sendTelegramMessage(chatId, formatPublishReadyEmpty(todayOnly))
+          return NextResponse.json({ ok: true })
+        }
+        // Header first, then per-item cards with their own buttons.
+        await sendTelegramMessage(chatId, formatPublishReadyHeader(list, todayOnly))
+        for (const entry of list.items) {
+          await sendTelegramMessageWithKeyboard(
+            chatId,
+            formatPublishReadyEntry(entry),
+            publishDeskButtons(entry.product.id),
+          )
+        }
+      } catch (err) {
+        const m = err instanceof Error ? err.message : String(err)
+        console.error(`[telegram/publishready D-237] error:`, m)
+        await sendTelegramMessage(chatId, `❌ Publish Desk hatası: ${m}`)
+      }
+      return NextResponse.json({ ok: true })
+    }
+
+    if (text.trim().toLowerCase().startsWith('/approvepublish')) {
+      const parts = text.trim().split(/\s+/)
+      const idArg = parts[1]
+      if (!idArg) {
+        await sendTelegramMessage(
+          chatId,
+          '✅ <b>/approvepublish &lt;sn-or-id&gt;</b>\n\n' +
+            'Operatörün açık yayın onayını kaydeder ve aktive eder.\n\n' +
+            '<code>/approvepublish SN0186</code> veya <code>/approvepublish 312</code>\n\n' +
+            '<i>Audit trail için ek bir publish.approved bot-event yazılır, sonra /activate çalıştırılır.</i>',
+        )
+        return NextResponse.json({ ok: true })
+      }
+      try {
+        const { resolveProductIdentifier, formatIdentifierMissingMessage } = await import('@/lib/operatorActions')
+        const { recordPublishDecision } = await import('@/lib/publishDesk')
+        const resolved = await resolveProductIdentifier(payload, idArg)
+        if (!resolved) {
+          await sendTelegramMessage(chatId, formatIdentifierMissingMessage(idArg))
+          return NextResponse.json({ ok: true })
+        }
+        // 1. Emit publish.approved bot-event (audit trail)
+        const decision = await recordPublishDecision(payload, resolved.productId, 'approved', 'telegram_command')
+        await sendTelegramMessage(chatId, decision.message)
+        // 2. Delegate to existing /activate flow by re-injecting the command. The
+        // existing handler does the readiness check + state transition + dispatch.
+        // Smallest path: rewrite `text` and let the loop below pick it up. But we're
+        // already past the /activate handler in route.ts source order — so we
+        // call the same logic here inline. Reuse evaluatePublishReadiness +
+        // payload.update + bot-event emission.
+        const product = await payload.findByID({ collection: 'products', id: resolved.productId, depth: 1 })
+        if ((product as any).status === 'active') {
+          await sendTelegramMessage(chatId, `✅ Ürün ${resolved.sn ?? resolved.productId} zaten aktif. Yeniden dispatch için /redispatch kullanın.`)
+          return NextResponse.json({ ok: true })
+        }
+        const { evaluatePublishReadiness } = await import('@/lib/publishReadiness')
+        const readiness = evaluatePublishReadiness(product as any)
+        if (readiness.level !== 'ready') {
+          await sendTelegramMessage(
+            chatId,
+            `⚠️ <b>Aktivasyon engellendi</b>\n\n` +
+              `Publish readiness: ${readiness.passedCount}/${readiness.totalCount}\n\n` +
+              `<b>Engelleyenler:</b>\n` +
+              readiness.blockers.map((b) => `❌ ${b}`).join('\n') +
+              `\n\n<i>publish.approved kaydedildi ama aktivasyon henüz mümkün değil. Eksikler tamamlanınca /activate ${resolved.sn ?? resolved.productId} ile devam edin.</i>`,
+          )
+          return NextResponse.json({ ok: true })
+        }
+        // Reuse the same activate path the /activate handler uses
+        const { calculateNewWindow } = await import('@/lib/merchandising')
+        const { publishedAt, newUntil } = calculateNewWindow()
+        await payload.update({
+          collection: 'products',
+          id: resolved.productId,
+          data: {
+            status: 'active',
+            workflow: {
+              ...((product as any).workflow ?? {}),
+              workflowStatus: 'active',
+              publishStatus: 'published',
+              lastHandledByBot: 'uygunops',
+            },
+            merchandising: {
+              ...((product as any).merchandising ?? {}),
+              publishedAt,
+              newUntil,
+            },
+          },
+        })
+        await payload.create({
+          collection: 'bot-events',
+          data: {
+            eventType: 'product.activated',
+            product: resolved.productId,
+            sourceBot: 'uygunops',
+            status: 'processed',
+            payload: {
+              previousStatus: (product as any).status,
+              activatedAt: new Date().toISOString(),
+              publishedAt,
+              newUntil,
+              readinessScore: `${readiness.passedCount}/${readiness.totalCount}`,
+              triggeredBy: 'approvepublish',
+            },
+            notes: `Product ${resolved.productId} activated via /approvepublish. status: draft→active.`,
+            processedAt: new Date().toISOString(),
+          },
+        })
+        await sendTelegramMessage(
+          chatId,
+          `🚀 <b>${resolved.sn ?? resolved.productId} AKTİF!</b>\n\n` +
+            `🟢 status = active\n` +
+            `📅 publishedAt = ${publishedAt.split('T')[0]}\n` +
+            `📅 newUntil = ${newUntil.split('T')[0]}\n` +
+            `🔄 Kanal dispatch tetiklendi (afterChange hook)`,
+        )
+      } catch (err) {
+        const m = err instanceof Error ? err.message : String(err)
+        console.error(`[telegram/approvepublish D-237] error:`, m)
+        await sendTelegramMessage(chatId, `❌ Hata: ${m}`)
+      }
+      return NextResponse.json({ ok: true })
+    }
+
+    if (text.trim().toLowerCase().startsWith('/rejectpublish')) {
+      const parts = text.trim().split(/\s+/)
+      const idArg = parts[1]
+      if (!idArg) {
+        await sendTelegramMessage(
+          chatId,
+          '🚫 <b>/rejectpublish &lt;sn-or-id&gt;</b>\n\n' +
+            'Yayın reddini operatör adına kaydeder.\n\n' +
+            '<code>/rejectpublish SN0186</code>\n\n' +
+            '<i>Ürün durumu değişmez. publish.rejected bot-event yazılır. Publish Desk listesinden 30 gün gizlenir.</i>',
+        )
+        return NextResponse.json({ ok: true })
+      }
+      try {
+        const { resolveProductIdentifier, formatIdentifierMissingMessage } = await import('@/lib/operatorActions')
+        const { recordPublishDecision } = await import('@/lib/publishDesk')
+        const resolved = await resolveProductIdentifier(payload, idArg)
+        if (!resolved) {
+          await sendTelegramMessage(chatId, formatIdentifierMissingMessage(idArg))
+          return NextResponse.json({ ok: true })
+        }
+        const r = await recordPublishDecision(payload, resolved.productId, 'rejected', 'telegram_command')
+        await sendTelegramMessage(chatId, r.message)
+      } catch (err) {
+        const m = err instanceof Error ? err.message : String(err)
+        console.error(`[telegram/rejectpublish D-237] error:`, m)
+        await sendTelegramMessage(chatId, `❌ Hata: ${m}`)
       }
       return NextResponse.json({ ok: true })
     }

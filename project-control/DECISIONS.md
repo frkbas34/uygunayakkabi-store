@@ -4985,3 +4985,62 @@ Inbox truthfully surfaces 17 actionable items for the operator to triage.
 **Status:** Shipped to `main`.
 
 **Reversible:** yes — single new helper file + 1 route.ts command branch + 1 SHARED_CMDS entry.
+
+---
+
+## D-237 — Publish Desk / Approval Gate v1
+
+**Decision:**
+Add a Telegram-first publish surface so the operator can see ready items, approve, reject, and activate routine ready products without opening admin. **Hard publish rule preserved** — every action is an explicit operator gesture (slash command or inline button); no auto-publish anywhere.
+
+**Semantic resolution (smallest correct):**
+- `approve ≡ activate` — there is no separate persisted "approved-but-not-activated" state in the schema today and inventing one would introduce a phantom limbo state. `/approvepublish` and `/activate` both flip `status=active` and trigger dispatch via the existing afterChange hook. `/approvepublish` additionally emits a `publish.approved` bot-event so the audit trail clearly shows the operator's explicit intent.
+- `reject = recorded refusal, no state mutation` — `/rejectpublish` emits a `publish.rejected` bot-event only. Product stays in publish_ready limbo. Operator can `/activate` or `/approvepublish` later — the newer affirmative event wins because the publish desk reads "latest publish.* event" for each product.
+
+**Persisted decision state via bot-events.** No schema change. The publish desk derives "current decision" from the latest `publish.approved` or `publish.rejected` event in the last 30 days. This mirrors how `stockState` is derived from stock events. Auditable. Reversible (just emit a newer event).
+
+**Surface:**
+- `/publishready` — lists products where `status != 'active'` AND `evaluatePublishReadiness(product).level === 'ready'` AND no recent `publish.rejected`. Each item rendered as its own card with `🚀 Aktif Et / 🚫 Reddet / 🔍 Bul` inline buttons.
+- `/publishready today` — same filter, additionally requires `content.lastContentGenerationAt` OR `workflow.productConfirmedAt` after `startOfTodayUTC`.
+- `/approvepublish <sn-or-id>` — emits `publish.approved` event, then runs the full activation path. Refuses with concrete blockers if readiness != 6/6.
+- `/rejectpublish <sn-or-id>` — emits `publish.rejected` event. No state mutation. Product disappears from `/publishready` listings for 30 days.
+- `/activate <sn-or-id>` — existing handler patched to accept SN via `resolveProductIdentifier` (D-234 pattern). Guards unchanged: refuses if already active, refuses if readiness != 6/6.
+- Inline buttons: `pdesk_act:<id>` (full activation including `publish.approved` audit event) and `pdesk_rej:<id>` (rejection record).
+
+**Implementation:**
+- New `src/lib/publishDesk.ts` (~250 LOC). Exports `getPublishReadyList`, `recordPublishDecision`, `formatPublishReadyHeader/Entry/Empty`, `publishDeskButtons`. Merges approval+rejection events with newest-wins so an approval after a rejection un-hides the product. Uses existing `evaluatePublishReadiness` to gate "fully ready" — same 6 dimensions the rest of the system uses.
+- `src/app/api/telegram/route.ts`: 3 new slash command branches (`/publishready`, `/approvepublish`, `/rejectpublish`), one `pdesk_*` callback handler, plus a small SN-or-ID patch on the existing `/activate` handler. The activation logic for `/approvepublish` and the `pdesk_act` callback is inlined (small duplication of the existing `/activate` body) because each path is in a different region of route.ts; future cleanup could extract a shared `activateProduct(payload, productId, source)` helper. SHARED_CMDS gets `/publishready /approvepublish /rejectpublish`. `/activate` stays in GEO_CMDS per the D-144 bot-role split.
+
+**Idempotency / safety:**
+- `/approvepublish` and `pdesk_act` refuse already-active products with a clear message.
+- `/approvepublish` refuses if readiness < 6/6 with the exact blockers from `evaluatePublishReadiness`.
+- `/rejectpublish` does not mutate product state — repeated presses just emit additional events. The desk uses the newest event so re-rejecting is harmless.
+- `/activate` keeps its existing not-already-active + readiness-check guards.
+
+**Out of scope:**
+- Auto-publish — forbidden by the hard rule.
+- Per-channel approval gates — operator approves the whole publish + dispatch as a unit; per-channel control is the existing `/redispatch` flow.
+- Multi-stage reviewer workflow.
+- Persisting decision state as a real product field — bot-events are the journal; revisit only if the latest-event pattern proves insufficient.
+
+**Risk class:** low. Read query + bot-event emit + inlined activation reuses existing logic. No schema change. No new env var.
+
+**Smoke evidence (current Neon, 2026-04-28):**
+| Filter step | Count |
+|---|---|
+| Broad pre-filter (status≠active AND (publish_ready OR contentStatus=ready)) | 8 |
+| Fully ready (all 6 dimensions pass) | 6 expected (2 with `audit=pending` fail the audit dimension) |
+| Recent publish-decision events | 0 |
+
+Operator-runnable test cases:
+- `/publishready` → expect ~6 cards each with 3 buttons.
+- `/publishready today` → subset where confirmed/content-ready today.
+- Press `🚫 Reddet` on one card → "publish.rejected" event written; `/publishready` should now show that card filtered out.
+- Press `🚀 Aktif Et` on another card → activation runs end-to-end (status=active + dispatch); product disappears from `/publishready` because `status='active'` is filtered.
+- `/approvepublish <not-ready-sn>` → refused with concrete blockers.
+- `/activate <not-ready-sn>` → same refusal (existing behaviour).
+- Repeated `/rejectpublish` on same product → safe (emits more events; latest still wins).
+
+**Status:** Shipped to `main`. PROD soak validation = operator runs `/publishready` against real ready items, verifies the queue is correct, presses Aktif Et / Reddet on a couple to confirm both paths work and the listing reflects the change.
+
+**Reversible:** yes — new helper file + ~3 route.ts command branches + 1 callback handler + small SN-or-ID patch on `/activate`.

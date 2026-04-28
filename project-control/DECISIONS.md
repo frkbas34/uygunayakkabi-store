@@ -5044,3 +5044,68 @@ Operator-runnable test cases:
 **Status:** Shipped to `main`. PROD soak validation = operator runs `/publishready` against real ready items, verifies the queue is correct, presses Aktif Et / Reddet on a couple to confirm both paths work and the listing reflects the change.
 
 **Reversible:** yes — new helper file + ~3 route.ts command branches + 1 callback handler + small SN-or-ID patch on `/activate`.
+
+---
+
+## D-238 — State Coherence Sweep + Repair
+
+**Decision:**
+Detect, repair, and prevent product state drift so the Telegram operator surfaces (`/inbox`, `/publishready`, `/find`, `/pipeline`) stay truthful. Real production drift confirmed via raw-SQL scan: 1 product with `workflow=active+status=draft` (SN0032 — exactly the case the operator spotted in the D-237 screenshot) and 3 products with `status=active+publishStatus=not_requested` (SN0013, SN0002, SN0033 — older activations).
+
+**Three layers — detect, repair, prevent.**
+
+**Detect.** Two new rules added to the existing `detectStateIncoherence` in `publishReadiness.ts`:
+- Rule 8 (severity error): `workflow.workflowStatus='active' AND status!='active'` — inverse of rule #1, catches the SN0032 direction.
+- Rule 9 (severity warning): `status='active' AND publishStatus IN ('not_requested','pending')` — catches post-activation drift on legacy products.
+
+The other 7 rules are preserved verbatim — `detectStateIncoherence` is the single canonical source for the operator-facing coherence message displayed by `/pipeline` and now `/repair scan`.
+
+**Repair.** New `src/lib/stateCoherence.ts` (~250 LOC) with two exports:
+
+`normalizeProductState(payload, productId, {dryRun})`. Deterministic. Idempotent.
+- Computes the correct values from ground truth:
+  - `workflowStatus` derived from full pipeline progression — soldout/active take precedence over earlier stages; otherwise step through audit → content → confirmation → visual.
+  - `publishStatus = 'published'` when `status='active'`. Does NOT downgrade existing 'published' on rollback (preserves audit trail).
+  - `sellable = true` when `status='active' AND stockState!='sold_out'`, `false` when soldout, untouched otherwise.
+- Compares against actual values, builds a minimal patch.
+- `dryRun=true` (default): returns the diff as a Telegram-ready preview, writes nothing.
+- `dryRun=false`: applies the patch in a single `payload.update` with `context: { isDispatchUpdate: true }` (suppresses the afterChange dispatch hook — repair is a coherence write, not a publish). Emits `state.repaired` bot-event with the full audit payload.
+- Skips archived products entirely.
+- If everything's already coherent, returns `changed: false` and a "tutarlı — düzeltilmesi gereken alan yok" message. Repeated calls are no-ops.
+
+`scanCoherenceDrift(payload, {limit=200})`. Read-only. Iterates non-archived products, runs `detectStateIncoherence` on each, returns `{totalScanned, drifted: [{id, sn, issues, sample}]}`. `formatScanReport` renders the top 10 + overflow hint.
+
+**Prevent.** Patched `applyOperatorAction` in `operatorActions.ts` so soldout/oneleft/twoleft/restartsale/restock now align `workflow.workflowStatus` alongside `status`:
+- `soldout`: when status flips to soldout, also set `workflowStatus='soldout'`. Previously left at whatever it was (often 'active'), causing post-soldout drift.
+- `oneleft`/`twoleft`/`restartsale`/`restock`: when status flips back to 'active' AND previous workflowStatus was 'soldout', revert workflowStatus to 'active'. For other previous workflow stages (e.g. content_ready, publish_ready) the value is preserved — only the specific soldout↔active transition gets aligned, no broader rewrite.
+
+This closes the most likely future source of drift — the action helpers were the ones leaving workflowStatus stale on status flips. /activate and /approvepublish were already aligning correctly (D-237 verified).
+
+**Surface.** New `/repair` slash command, four modes:
+- `/repair` → help message
+- `/repair scan` → catalog-wide drift report (top 10 + overflow)
+- `/repair <sn-or-id>` → single-product preview (dry-run)
+- `/repair <sn-or-id> confirm` → apply the patch
+Registered in `SHARED_CMDS` so both bots accept it.
+
+**Verification (current Neon, simulated rules against the 4 known-drifted products):**
+| SN | Patches |
+|---|---|
+| SN0002 | workflowStatus content_ready → active; publishStatus not_requested → published |
+| SN0013 | workflowStatus publish_ready → active; publishStatus not_requested → published |
+| SN0032 | workflowStatus active → publish_ready (audit=approved + status=draft → publish_ready is the correct derived value) |
+| SN0033 | workflowStatus publish_ready → active; publishStatus not_requested → published |
+
+All 4 produce sensible, minimal patches. Idempotent — running once fixes the drift; running again on the same product is a no-op.
+
+**Out of scope:**
+- Auto-running normalize on every mutation. Kept explicit/operator-callable so future bugs surface as drift instead of being silently scrubbed.
+- Repair for archived products.
+- PI/wizard/image-pipeline state — D-238 only touches workflow/status/publish/sellable.
+- Mass scripted repair without operator review — every applied repair is `/repair <sn> confirm`.
+
+**Risk class:** low. Read + emit + minimal-diff write. No schema change. Reusing existing helpers (publishReadiness + bot-events). Reversible via single-commit revert.
+
+**Status:** Shipped to `main`. PROD soak validation = operator runs `/repair scan` to confirm the 4-drifted-product report, then `/repair SN0032` (preview) + `/repair SN0032 confirm` (apply), then `/pipeline SN0032` to verify coherence message is now clean.
+
+**Reversible:** yes — new helper file + 1 route.ts command branch + 2 new rules in publishReadiness.ts + 3 small workflowStatus alignment patches in operatorActions.ts.

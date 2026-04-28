@@ -274,6 +274,12 @@ export async function applyOperatorAction(
         return idempotentResult(action, sn, productId, before, '🔴 Zaten tükendi — değişiklik yok.')
       }
       updateData.status = 'soldout'
+      // D-238: align workflowStatus to 'soldout' when we're flipping status to
+      // soldout. Previously left at whatever it was (often 'active'), causing
+      // post-soldout drift visible in /pipeline + /publishready.
+      if (product.workflow?.workflowStatus !== 'soldout') {
+        updateData.workflow = { ...(product.workflow ?? {}), workflowStatus: 'soldout' }
+      }
       // Don't force sellable=false here — stockReaction will settle stockState
       // and downstream gates handle soldout → not-sellable cascade.
       if (snapshot.hasVariants) {
@@ -321,8 +327,21 @@ export async function applyOperatorAction(
       }
       if ((product.stockQuantity ?? 0) !== wantStock) updateData.stockQuantity = wantStock
       if (product.status !== wantStatus) updateData.status = wantStatus
-      if (product.workflow?.sellable !== wantSellable) {
-        updateData.workflow = { ...(product.workflow ?? {}), sellable: wantSellable }
+      // D-238: when re-activating a previously soldout product (workflowStatus
+      // stuck at 'soldout'), align workflowStatus back to 'active'. Skip
+      // alignment if workflowStatus is already 'active' or in an earlier
+      // pre-publish stage we don't want to override.
+      const wantWorkflow =
+        product.workflow?.workflowStatus === 'soldout' ? 'active' : product.workflow?.workflowStatus
+      if (
+        product.workflow?.sellable !== wantSellable ||
+        product.workflow?.workflowStatus !== wantWorkflow
+      ) {
+        updateData.workflow = {
+          ...(product.workflow ?? {}),
+          sellable: wantSellable,
+          ...(wantWorkflow ? { workflowStatus: wantWorkflow } : {}),
+        }
       }
       break
     }
@@ -356,8 +375,18 @@ export async function applyOperatorAction(
         return idempotentResult(action, sn, productId, before, '▶️ Zaten satışa açık.')
       }
       if (product.status !== wantStatus) updateData.status = wantStatus
-      if (product.workflow?.sellable !== wantSellable) {
-        updateData.workflow = { ...(product.workflow ?? {}), sellable: wantSellable }
+      // D-238: align workflowStatus when reverting from soldout → active.
+      const wantWorkflow =
+        product.workflow?.workflowStatus === 'soldout' ? 'active' : product.workflow?.workflowStatus
+      if (
+        product.workflow?.sellable !== wantSellable ||
+        product.workflow?.workflowStatus !== wantWorkflow
+      ) {
+        updateData.workflow = {
+          ...(product.workflow ?? {}),
+          sellable: wantSellable,
+          ...(wantWorkflow ? { workflowStatus: wantWorkflow } : {}),
+        }
       }
       break
     }
@@ -399,8 +428,18 @@ export async function applyOperatorAction(
       }
       if ((product.stockQuantity ?? 0) !== wantStock) updateData.stockQuantity = wantStock
       if (product.status !== wantStatus) updateData.status = wantStatus
-      if (product.workflow?.sellable !== wantSellable) {
-        updateData.workflow = { ...(product.workflow ?? {}), sellable: wantSellable }
+      // D-238: align workflowStatus when reverting from soldout → active.
+      const wantWorkflow =
+        product.workflow?.workflowStatus === 'soldout' ? 'active' : product.workflow?.workflowStatus
+      if (
+        product.workflow?.sellable !== wantSellable ||
+        product.workflow?.workflowStatus !== wantWorkflow
+      ) {
+        updateData.workflow = {
+          ...(product.workflow ?? {}),
+          sellable: wantSellable,
+          ...(wantWorkflow ? { workflowStatus: wantWorkflow } : {}),
+        }
       }
       break
     }

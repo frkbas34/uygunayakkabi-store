@@ -2682,14 +2682,15 @@ export async function POST(req: NextRequest) {
       const OPS_CMDS = ['/confirm', '/confirm_cancel', '/stok', '/diagnostics']
       // D-186: /ara works on BOTH bots (shared command) so operator can search from group
       const GEO_CMDS = ['/content', '/audit', '/preview', '/activate', '/shopier', '/merch', '/story', '/restory', '/targets', '/approve_story', '/reject_story']
-      // D-234 / D-235 / D-236 / D-237: Operator Pack commands are SHARED so the
-      // operator can use them from either bot.
+      // D-234 / D-235 / D-236 / D-237 / D-238: Operator Pack commands are
+      // SHARED so the operator can use them from either bot.
       const SHARED_CMDS = [
         '/ara', '/pipeline', '/sn',
         '/find', '/soldout', '/oneleft', '/twoleft', '/restock', '/stopsale', '/restartsale',
         '/redispatch',
         '/inbox',
         '/publishready', '/approvepublish', '/rejectpublish',
+        '/repair',
       ]
       // D-220: PI Bot hashtags owned by Uygunops (operator approval is required before GeoBot handoff).
       const OPS_HASHTAGS = ['#gorsel', '#geminipro', '#geohazirla', '#seoara', '#productintel', '#urunzeka']
@@ -4873,6 +4874,53 @@ export async function POST(req: NextRequest) {
         const m = err instanceof Error ? err.message : String(err)
         console.error(`[telegram/inbox D-236] sub=${sub} error:`, m)
         await sendTelegramMessage(chatId, `❌ Inbox hatası: ${m}`)
+      }
+      return NextResponse.json({ ok: true })
+    }
+
+    // ── D-238: /repair — state coherence sweep + repair ──────────────────
+    // /repair scan                  → scan whole catalog for drift
+    // /repair <sn-or-id>            → preview repair for one product (dry-run)
+    // /repair <sn-or-id> confirm    → apply the repair
+    if (text.trim().toLowerCase().startsWith('/repair')) {
+      const parts = text.trim().split(/\s+/)
+      const arg1 = parts[1]
+      const arg2 = (parts[2] || '').toLowerCase()
+      try {
+        if (!arg1) {
+          await sendTelegramMessage(
+            chatId,
+            '🔧 <b>State Coherence Repair</b>\n\n' +
+              '<code>/repair scan</code>\n  Tüm aktif ürünleri tutarsızlık için tarar.\n\n' +
+              '<code>/repair &lt;sn-or-id&gt;</code>\n  Tek ürün için önizleme (dry-run, hiçbir şey değişmez).\n\n' +
+              '<code>/repair &lt;sn-or-id&gt; confirm</code>\n  Önizlenen düzeltmeyi uygular.\n\n' +
+              '<i>Düzeltme deterministik kuralları kullanır — workflowStatus, publishStatus, sellable alanlarını ground truth status / stockState / contentStatus / auditStatus alanlarından türetir.</i>',
+          )
+          return NextResponse.json({ ok: true })
+        }
+
+        if (arg1.toLowerCase() === 'scan') {
+          const { scanCoherenceDrift, formatScanReport } = await import('@/lib/stateCoherence')
+          const scan = await scanCoherenceDrift(payload, { limit: 200 })
+          await sendTelegramMessage(chatId, formatScanReport(scan))
+          return NextResponse.json({ ok: true })
+        }
+
+        // Single-product repair (dry-run by default; pass `confirm` to apply)
+        const { resolveProductIdentifier, formatIdentifierMissingMessage } = await import('@/lib/operatorActions')
+        const { normalizeProductState } = await import('@/lib/stateCoherence')
+        const resolved = await resolveProductIdentifier(payload, arg1)
+        if (!resolved) {
+          await sendTelegramMessage(chatId, formatIdentifierMissingMessage(arg1))
+          return NextResponse.json({ ok: true })
+        }
+        const dryRun = arg2 !== 'confirm'
+        const report = await normalizeProductState(payload, resolved.productId, { dryRun })
+        await sendTelegramMessage(chatId, report.message)
+      } catch (err) {
+        const m = err instanceof Error ? err.message : String(err)
+        console.error(`[telegram/repair D-238] error:`, m)
+        await sendTelegramMessage(chatId, `❌ Repair hatası: ${m}`)
       }
       return NextResponse.json({ ok: true })
     }

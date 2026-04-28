@@ -535,6 +535,39 @@ export function detectStateIncoherence(product: ReadinessProduct): CoherenceIssu
     })
   }
 
+  // 8. D-238: workflowStatus='active' but status is not 'active'.
+  // Observed in production on SN0032 (workflow.workflowStatus stuck at 'active'
+  // after status was rolled back to draft via some path that didn't realign
+  // workflowStatus). Inverse of rule #1 — same coherence concern, opposite
+  // direction.
+  if (wf.workflowStatus === 'active' && product.status !== 'active') {
+    issues.push({
+      field: 'status vs workflowStatus',
+      expected: `status='active' (because workflowStatus='active')`,
+      actual: `status='${product.status ?? 'draft'}'`,
+      severity: 'error',
+    })
+  }
+
+  // 9. D-238: status=active but publishStatus is pre-publish.
+  // Observed on legacy activations (SN0013, SN0002, SN0033) where the
+  // /activate path didn't set publishStatus or earlier paths reset it.
+  // Severity warning rather than error: customer-facing state is correct
+  // (status=active means visible on storefront), but the publishStatus
+  // signal misleads /pipeline / /inbox.
+  if (
+    product.status === 'active' &&
+    wf.publishStatus &&
+    ['not_requested', 'pending'].includes(wf.publishStatus)
+  ) {
+    issues.push({
+      field: 'publishStatus',
+      expected: `'published' (status is 'active')`,
+      actual: wf.publishStatus,
+      severity: 'warning',
+    })
+  }
+
   return issues
 }
 

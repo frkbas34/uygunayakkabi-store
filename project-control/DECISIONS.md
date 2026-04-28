@@ -5164,3 +5164,81 @@ Behaviour identical to the legacy inlined version — refuse-already-active (ide
 **Status:** Shipped to `main`. Soak validation = operator runs a small batch (3 SNs) for `/approvepublish` or `/soldout`, verifies per-product result lines, then runs the same batch again to confirm idempotency badge (`🟰`). Single-item commands continue to work exactly as before.
 
 **Reversible:** yes — new helper file + new helper export + one batch-detection branch per command (3 commands) + the unified D-234 state-write block.
+
+---
+
+## D-240 — Selection-Based Bulk Actions from /publishready
+
+**Decision:**
+Add tap-select bulk actions to the Telegram operator layer so the operator can pick multiple products from `/publishready` and run a single bulk action against the selection without retyping comma lists. Reuse D-239's `runBatch` + the existing per-item helpers — no new mutation logic.
+
+**Selection state model — smallest correct:**
+- In-memory `Map<sessionKey, SelectionState>` in `src/lib/operatorSelection.ts`.
+- `sessionKey = "${chatId}:${userId}"` in groups, `"${chatId}"` in DMs. Mirrors `confirmationWizard` so isolation rules are predictable.
+- 30-minute TTL — abandoned selections expire silently on the next read.
+- Cold-start clears the Map; the operator just re-selects. Acceptable trade — no schema change, no Neon write per click.
+- Insertion-ordered (`Map<productId, SelectionEntry>`) so the bulk summary lists items in the order the operator selected them.
+
+**Telegram surface:**
+- Each `/publishready` card now carries a second-row `☑ Seç` button (callback `selt:<id>`).
+- After all cards, `/publishready` sends a footer control message with a 4-row keyboard:
+  - Row 1: `☑ Tümünü Seç` · `🗑 Temizle`
+  - Row 2: `🚀 Aktif Et (N)` · `🚫 Reddet (N)`
+  - Row 3: `🔴 Tükendi (N)` · `📦 Stop (N)` · `▶ Devam (N)`
+  - Row 4: `📋 Seçimi Göster`
+- Counts in labels are rendered at message-send time; the underlying selection state is consulted **live** when the action runs, so a stale label can't cause a wrong target.
+- New slash commands: `/selection` (shows current list + control keyboard from anywhere), `/clearselection`. Both registered in `SHARED_CMDS`.
+
+**Callback wiring:**
+- `selt:<id>` — toggle one item, answer with `✅ Seçildi · Toplam: N` or `❌ Kaldırıldı · Toplam: N`. SN looked up best-effort so bulk summaries read with SNs not raw IDs.
+- `seladd:pr` — re-fetch the current `/publishready` list and add all visible IDs, deduping. Sends a fresh control message with the new count.
+- `selclr` — clear, answer with `🗑 Seçim temizlendi (N)`.
+- `selshow` — re-render the selection text + control keyboard.
+- `selrun:<action>` — execute against current selection.
+
+**Execution — reuses D-239 unchanged:**
+| Action | Per-item helper |
+|---|---|
+| `act` | `approveAndActivateProduct` (publishDesk.ts) |
+| `rej` | `recordPublishDecision('rejected')` (publishDesk.ts) |
+| `soldout` / `oneleft` / `twoleft` / `stopsale` / `restartsale` | `applyOperatorAction` (operatorActions.ts) |
+
+All wrapped in `runBatch` from D-239 — per-item refusals (`⚠️ engellendi`), idempotency (`🟰 zaten ...`), notFound (`❓`), and exceptions (`❌`) flow through `formatBatchSummary` exactly like the slash-command batch path. Identical UX, identical safety.
+
+**Post-action selection cleanup:**
+- For `act` and `rej`: successfully-actioned items are dropped from the selection so the next bulk press doesn't re-target them. Failed/refused items stay so the operator can investigate without re-selecting.
+- For state-write actions: selection preserved (operator might want to chain — soldout → /find each).
+
+**Graceful eligibility drift:**
+If a selected item became ineligible between selection and execution (e.g. it was activated separately, or its readiness lapsed because someone unconfirmed), the per-item helper refuses cleanly with the concrete reason. `runBatch` collects it as `refused` and the summary line shows the actual blocker. Nothing crashes; nothing else gets blocked.
+
+**Hard publish rule preserved.**
+Every bulk action is one explicit operator gesture (the button press). No auto-publish anywhere. The same `evaluatePublishReadiness` gate refuses ineligible items per-item. Same audit-trail events (`publish.approved`, `publish.rejected`, `product.activated`, `state.repaired`-style coherence patches) are emitted exactly as in single-item flows — `triggeredBy: 'selection_bulk'` distinguishes the entry point in the bot-events payload.
+
+**Verification — selection state machine smoke test:**
+| Case | Result |
+|---|---|
+| toggle add 100 / 200 / 300 → size 3 | ✓ |
+| toggle add then remove 200 → size 2 | ✓ |
+| identifiers fall back to ID when no SN | ✓ (`["SN0100","300"]`) |
+| addMany dedups items already in selection | ✓ |
+| different user same chat → fresh selection | ✓ |
+| DM (no userId) → key falls back to chatId, independent of group | ✓ |
+| clear drops all | ✓ |
+| empty / non-empty format strings | ✓ |
+| control keyboard shape (4 rows, count in labels) | ✓ |
+
+Typecheck: zero new errors. Only the four pre-existing ones remain.
+
+**Out of scope (v1):**
+- `/inbox publish` per-item selection — that surface is text bullet lines, not per-item keyboards. Restructuring would mean N extra messages per `/inbox publish` view. The operator can `/find` an item then use `☑ Seç` from the resulting card, or use `/publishready` which is the priority surface. Defer until proven necessary.
+- Persistent selection across Lambda cold-starts — the in-memory Map is sufficient at the operator's daily scale; cold-start clears act as a natural safety net against forgotten selections.
+- `/restock` bulk via selection — qty disambiguation needs UI (one qty for all? per-item qty?) Operator uses the slash command `/restock SN1,SN2 10` for now (D-239 batch path).
+- Per-channel redispatch via selection — `/redispatch` stays single-target per D-235.
+- `/repair` via selection — repair stays explicit and per-product per D-238 to avoid silent mass scrubbing.
+
+**Risk class:** low. New file (`operatorSelection.ts`) + 1 new button row in `publishDeskButtons` + 2 new slash commands + 1 new callback prefix block. No schema change, no DB writes. Reversible via single-commit revert.
+
+**Status:** Shipped to `main`. Soak validation = run `/publishready` → tap `☑ Seç` on 2 cards → press `🚀 Aktif Et (2)` → confirm both activate via the bulk summary; press `📋 Seçimi Göster` between actions to verify the running count; let selection sit > 30 min and verify it expires silently (next press shows empty).
+
+**Reversible:** yes — new helper file + per-card button row + footer control message + 5 callbacks + 2 slash commands.

@@ -2290,6 +2290,188 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ ok: true })
       }
 
+      // ── D-240: selection callbacks (selt:<id>, seladd:<src>, selclr,
+      //          selshow, selrun:<action>) ──────────────────────────────────
+      // Per-(chat,user) ephemeral selection state. Bulk actions reuse the
+      // D-239 runBatch + per-item helpers — no new mutation logic.
+      if (cbData.startsWith('selt:') || cbData.startsWith('seladd:') || cbData === 'selclr' || cbData === 'selshow' || cbData.startsWith('selrun:')) {
+        try {
+          const sel = await import('@/lib/operatorSelection')
+
+          // selt:<id>  → toggle a single item
+          if (cbData.startsWith('selt:')) {
+            const pId = parseInt(cbData.slice(5), 10)
+            if (Number.isNaN(pId)) {
+              await answerCallbackQuery(cbQueryId, '❌ Geçersiz ürün')
+              return NextResponse.json({ ok: true })
+            }
+            // Resolve SN best-effort so the bulk summary lines look operator-friendly.
+            let sn: string | null = null
+            try {
+              const cbPayload = await getPayload()
+              const p = await cbPayload.findByID({ collection: 'products', id: pId, depth: 0 })
+              sn = (p as any)?.stockNumber ?? null
+            } catch {
+              /* sn lookup is best-effort; selection still works without it */
+            }
+            const r = sel.toggleSelection(cbChatId, cbUserId, pId, sn)
+            await answerCallbackQuery(cbQueryId, r.added ? `✅ Seçildi · Toplam: ${r.size}` : `❌ Kaldırıldı · Toplam: ${r.size}`)
+            return NextResponse.json({ ok: true })
+          }
+
+          // seladd:<src>  → select all visible from source list
+          if (cbData.startsWith('seladd:')) {
+            const src = cbData.slice('seladd:'.length)
+            await answerCallbackQuery(cbQueryId, '⏳ Listeden ekleniyor...')
+            if (src === 'pr') {
+              const cbPayload = await getPayload()
+              const { getPublishReadyList } = await import('@/lib/publishDesk')
+              const list = await getPublishReadyList(cbPayload, {})
+              const items = list.items.map((it) => ({
+                productId: it.product.id as number,
+                sn: (it.product.stockNumber as string) || null,
+              }))
+              const r = sel.addManyToSelection(cbChatId, cbUserId, items)
+              await sendTelegramMessageWithKeyboard(
+                cbChatId,
+                `☑ <b>Tümünü Seç</b>\n\n` +
+                  `Yeni eklenen: <b>${r.added}</b>\n` +
+                  `Toplam seçim: <b>${r.size}</b> ürün`,
+                sel.selectionControlKeyboard(r.size, 'pr'),
+              )
+              return NextResponse.json({ ok: true })
+            }
+            await answerCallbackQuery(cbQueryId, '❌ Bilinmeyen kaynak')
+            return NextResponse.json({ ok: true })
+          }
+
+          // selclr  → clear current selection
+          if (cbData === 'selclr') {
+            const r = sel.clearSelection(cbChatId, cbUserId)
+            await answerCallbackQuery(cbQueryId, r.cleared > 0 ? `🗑 Seçim temizlendi (${r.cleared})` : '🗑 Seçim zaten boştu')
+            return NextResponse.json({ ok: true })
+          }
+
+          // selshow  → re-render selection + control kb
+          if (cbData === 'selshow') {
+            await answerCallbackQuery(cbQueryId, '📋')
+            const size = sel.getSelectionSize(cbChatId, cbUserId)
+            await sendTelegramMessageWithKeyboard(
+              cbChatId,
+              sel.formatSelectionMessage(cbChatId, cbUserId),
+              sel.selectionControlKeyboard(size, 'pr'),
+            )
+            return NextResponse.json({ ok: true })
+          }
+
+          // selrun:<action>  → execute bulk action against current selection
+          if (cbData.startsWith('selrun:')) {
+            const action = cbData.slice('selrun:'.length)
+            const idents = sel.getSelectionIdentifiers(cbChatId, cbUserId)
+            if (idents.length === 0) {
+              await answerCallbackQuery(cbQueryId, '⚠️ Seçim boş')
+              await sendTelegramMessage(
+                cbChatId,
+                `🧰 Seçim boş — önce /publishready üzerinden ☑ Seç ile ürün ekleyin.`,
+              )
+              return NextResponse.json({ ok: true })
+            }
+            await answerCallbackQuery(cbQueryId, `⏳ ${idents.length} ürün için ${action} çalışıyor...`)
+
+            const cbPayload = await getPayload()
+            const { runBatch, formatBatchSummary } = await import('@/lib/operatorBatch')
+
+            // Map selrun:<action> → per-item helper. Mirrors D-239 wiring.
+            if (action === 'act') {
+              const { approveAndActivateProduct } = await import('@/lib/publishDesk')
+              const r = await runBatch(cbPayload, '/selection · aktive et', idents, async (ctx) => {
+                const out = await approveAndActivateProduct(cbPayload, ctx.productId, 'telegram_button', 'selection_bulk')
+                const tag = ctx.sn ?? `ID:${ctx.productId}`
+                if (!out.ok) return { ok: false, badge: '⚠️', line: out.summary || `<code>${tag}</code> · engellendi` }
+                if (out.idempotent) return { ok: true, badge: '🟰', line: `<code>${tag}</code> · zaten aktif` }
+                return { ok: true, badge: '🚀', line: out.summary || `<code>${tag}</code> · aktive edildi` }
+              })
+              await sendTelegramMessage(cbChatId, formatBatchSummary(r))
+              if (r.succeeded > 0) {
+                // Drop successfully-actioned items so the next bulk button
+                // press doesn't re-target them. Preserves failed/refused so
+                // operator can investigate without re-selecting.
+                const remaining = sel.getSelection(cbChatId, cbUserId).filter((e) =>
+                  r.entries.some((entry) => entry.productId === e.productId && !entry.ok),
+                )
+                sel.clearSelection(cbChatId, cbUserId)
+                if (remaining.length > 0) sel.addManyToSelection(cbChatId, cbUserId, remaining)
+              }
+              return NextResponse.json({ ok: true })
+            }
+
+            if (action === 'rej') {
+              const { recordPublishDecision } = await import('@/lib/publishDesk')
+              const r = await runBatch(cbPayload, '/selection · reddet', idents, async (ctx) => {
+                const out = await recordPublishDecision(cbPayload, ctx.productId, 'rejected', 'telegram_button')
+                const tag = ctx.sn ?? `ID:${ctx.productId}`
+                return {
+                  ok: out.ok,
+                  badge: out.ok ? '🚫' : '⚠️',
+                  line: `<code>${tag}</code> · ${out.ok ? 'reddedildi (kayıt)' : 'kaydedilemedi'}`,
+                }
+              })
+              await sendTelegramMessage(cbChatId, formatBatchSummary(r))
+              if (r.succeeded > 0) {
+                const remaining = sel.getSelection(cbChatId, cbUserId).filter((e) =>
+                  r.entries.some((entry) => entry.productId === e.productId && !entry.ok),
+                )
+                sel.clearSelection(cbChatId, cbUserId)
+                if (remaining.length > 0) sel.addManyToSelection(cbChatId, cbUserId, remaining)
+              }
+              return NextResponse.json({ ok: true })
+            }
+
+            // State-write actions reuse applyOperatorAction (D-234).
+            const stateActionMap: Record<string, 'soldout' | 'oneleft' | 'twoleft' | 'stopsale' | 'restartsale'> = {
+              soldout: 'soldout',
+              oneleft: 'oneleft',
+              twoleft: 'twoleft',
+              stopsale: 'stopsale',
+              restartsale: 'restartsale',
+            }
+            const stateAction = stateActionMap[action]
+            if (stateAction) {
+              const { applyOperatorAction } = await import('@/lib/operatorActions')
+              const r = await runBatch(cbPayload, `/selection · ${stateAction}`, idents, async (ctx) => {
+                const out = await applyOperatorAction(cbPayload, ctx.productId, stateAction, {
+                  source: 'telegram_button',
+                })
+                const tag = ctx.sn ?? `ID:${ctx.productId}`
+                if (!out.ok) {
+                  return { ok: false, badge: '⚠️', line: `<code>${tag}</code> · ${out.refusalReason ?? 'reddedildi'}` }
+                }
+                if (out.idempotent) {
+                  return { ok: true, badge: '🟰', line: `<code>${tag}</code> · zaten bu durumda` }
+                }
+                const after = (out.after ?? {}) as Record<string, unknown>
+                const status = String(after.status ?? '—')
+                return {
+                  ok: true,
+                  badge: '✅',
+                  line: `<code>${tag}</code> · ${stateAction} → status=${status}`,
+                }
+              })
+              await sendTelegramMessage(cbChatId, formatBatchSummary(r))
+              return NextResponse.json({ ok: true })
+            }
+
+            await sendTelegramMessage(cbChatId, `❌ Bilinmeyen toplu işlem: ${action}`)
+            return NextResponse.json({ ok: true })
+          }
+        } catch (err) {
+          const m = err instanceof Error ? err.message : String(err)
+          console.error(`[telegram/selection D-240] cb=${cbData} error:`, m)
+          await sendTelegramMessage(cbChatId, `❌ Seçim hatası: ${m}`)
+        }
+        return NextResponse.json({ ok: true })
+      }
+
       // ── D-235: per-channel redispatch button callbacks ───────────────────
       // Buttons: redis_x / redis_ig / redis_fb / redis_shopier (id at suffix).
       // Maps to operatorActions.triggerChannelRedispatch — same code path as
@@ -2622,6 +2804,7 @@ export async function POST(req: NextRequest) {
         '/inbox',
         '/publishready', '/approvepublish', '/rejectpublish',
         '/repair',
+        '/selection', '/clearselection',
       ]
       // D-220: PI Bot hashtags owned by Uygunops (operator approval is required before GeoBot handoff).
       const OPS_HASHTAGS = ['#gorsel', '#geminipro', '#geohazirla', '#seoara', '#productintel', '#urunzeka']
@@ -4808,11 +4991,48 @@ export async function POST(req: NextRequest) {
             publishDeskButtons(entry.product.id),
           )
         }
+        // D-240: footer control message with the bulk-action keyboard.
+        // Selection state is per-(chat,user); count reflects what the
+        // operator has accumulated so far.
+        const { getSelectionSize, selectionControlKeyboard, SELECTION_TTL_MINUTES } = await import('@/lib/operatorSelection')
+        const selSize = getSelectionSize(chatId, msgUserId)
+        await sendTelegramMessageWithKeyboard(
+          chatId,
+          `🧰 <b>Toplu İşlem</b> — Seçim: <b>${selSize}</b> ürün\n\n` +
+            `<i>Yukarıdaki kartlardan ☑ Seç ile ekleyin, sonra aşağıdan toplu işlem yapın.</i>\n` +
+            `<i>Seçim ${SELECTION_TTL_MINUTES} dk sonra otomatik temizlenir.</i>`,
+          selectionControlKeyboard(selSize, 'pr'),
+        )
       } catch (err) {
         const m = err instanceof Error ? err.message : String(err)
-        console.error(`[telegram/publishready D-237] error:`, m)
+        console.error(`[telegram/publishready D-237/D-240] error:`, m)
         await sendTelegramMessage(chatId, `❌ Publish Desk hatası: ${m}`)
       }
+      return NextResponse.json({ ok: true })
+    }
+
+    // ── D-240: /selection — show current selection + control keyboard ─────
+    if (text.trim().toLowerCase().startsWith('/selection')) {
+      const { getSelectionSize, formatSelectionMessage, selectionControlKeyboard } = await import('@/lib/operatorSelection')
+      const size = getSelectionSize(chatId, msgUserId)
+      await sendTelegramMessageWithKeyboard(
+        chatId,
+        formatSelectionMessage(chatId, msgUserId),
+        selectionControlKeyboard(size, 'pr'),
+      )
+      return NextResponse.json({ ok: true })
+    }
+
+    // ── D-240: /clearselection — drop the current selection ───────────────
+    if (text.trim().toLowerCase().startsWith('/clearselection')) {
+      const { clearSelection } = await import('@/lib/operatorSelection')
+      const { cleared } = clearSelection(chatId, msgUserId)
+      await sendTelegramMessage(
+        chatId,
+        cleared > 0
+          ? `🗑 Seçim temizlendi (${cleared} ürün).`
+          : `🗑 Seçim zaten boştu.`,
+      )
       return NextResponse.json({ ok: true })
     }
 

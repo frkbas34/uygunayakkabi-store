@@ -284,6 +284,12 @@ export function publishDeskButtons(productId: number | string) {
       { text: '🚫 Reddet', callback_data: `pdesk_rej:${productId}` },
       { text: '🔍 Bul', callback_data: `sn_card:${productId}` },
     ],
+    // D-240: per-card selection toggle. Pairs with the bulk-action control
+    // keyboard sent at the end of /publishready (selectionControlKeyboard
+    // in src/lib/operatorSelection.ts).
+    [
+      { text: '☑ Seç', callback_data: `selt:${productId}` },
+    ],
   ]
 }
 

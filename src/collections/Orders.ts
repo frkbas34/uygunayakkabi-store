@@ -18,6 +18,27 @@ export const Orders: CollectionConfig = {
       },
     ],
     afterChange: [
+      // ── D-247: Fire-and-forget new-order Telegram alert ──────────────────
+      // Universal — fires for every create regardless of source — EXCEPT
+      // when source==='telegram' (operator already saw the /convert response
+      // message from D-244, double-notifying would be noise).
+      // Stock decrement lives in the next entry — separate concern.
+      async ({ doc, operation, req }) => {
+        if (operation !== 'create') return doc
+        if (req?.context?.isDispatchUpdate) return doc
+        const source = (doc as any).source
+        if (source === 'telegram') return doc
+        // Fire-and-forget — never block order persistence.
+        void (async () => {
+          try {
+            const { sendNewOrderAlert } = await import('@/lib/orderDesk')
+            await sendNewOrderAlert(req.payload, doc.id)
+          } catch (e) {
+            console.error('[Orders.afterChange D-247] alert dispatch failed (non-blocking):', e instanceof Error ? e.message : e)
+          }
+        })()
+        return doc
+      },
       // Phase 10: Decrement stock + trigger stock reaction for non-Shopier orders.
       // Shopier orders already handle stock in their webhook — this covers website/manual/phone orders.
       async ({ doc, operation, req }) => {

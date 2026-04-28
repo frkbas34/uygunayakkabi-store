@@ -2913,6 +2913,8 @@ export async function POST(req: NextRequest) {
         '/convert', '/conversion', '/sales',
         // D-245 order fulfillment
         '/orders', '/order', '/ship', '/deliver', '/cancelorder',
+        // D-247 order reminders
+        '/orderreminders', '/orderreminder', '/siparishatirla', '/sipariş_hatirla', '/siparis_hatirla',
       ]
       // D-220: PI Bot hashtags owned by Uygunops (operator approval is required before GeoBot handoff).
       const OPS_HASHTAGS = ['#gorsel', '#geminipro', '#geohazirla', '#seoara', '#productintel', '#urunzeka']
@@ -5261,10 +5263,15 @@ export async function POST(req: NextRequest) {
             await sendTelegramMessage(chatId, desk.formatOrdersToday(await desk.getTodayOrders(payload)))
             return NextResponse.json({ ok: true })
           }
+          // D-247: /orders summary — concise daily snapshot with stale signal
+          if (sub === 'summary' || sub === 'özet' || sub === 'ozet') {
+            await sendTelegramMessage(chatId, desk.formatDailyOrderSummary(await desk.getDailyOrderSummary(payload)))
+            return NextResponse.json({ ok: true })
+          }
           await sendTelegramMessage(chatId, desk.formatOpenOrdersList(await desk.getOpenOrders(payload)))
         } catch (err) {
           const m = err instanceof Error ? err.message : String(err)
-          console.error(`[telegram/orders D-245] error:`, m)
+          console.error(`[telegram/orders D-245/D-247] error:`, m)
           await sendTelegramMessage(chatId, `❌ Sipariş Desk hatası: ${m}`)
         }
         return NextResponse.json({ ok: true })
@@ -5446,6 +5453,40 @@ export async function POST(req: NextRequest) {
           const m = err instanceof Error ? err.message : String(err)
           console.error(`[telegram/sales D-244] error:`, m)
           await sendTelegramMessage(chatId, `❌ Satış özeti hatası: ${m}`)
+        }
+        return NextResponse.json({ ok: true })
+      }
+    }
+
+    // ── D-247: /orderreminders — stale shipped orders + per-order action cards ──
+    {
+      const firstWordOrdRem = text.trim().split(/\s+/)[0].replace(/@\w+$/, '').toLowerCase()
+      if (firstWordOrdRem === '/orderreminders' || firstWordOrdRem === '/orderreminder' || firstWordOrdRem === '/siparishatirla' || firstWordOrdRem === '/sipariş_hatirla' || firstWordOrdRem === '/siparis_hatirla') {
+        try {
+          const desk = await import('@/lib/orderDesk')
+          const d = await desk.getStaleShippedOrders(payload)
+          await sendTelegramMessage(chatId, desk.formatOrderRemindersHeader(d))
+          if (d.totalStale > 0) {
+            // Cap at 5 to keep the surface concise — overflow points at /orders.
+            const display = d.items.slice(0, 5)
+            for (const o of display) {
+              await sendTelegramMessageWithKeyboard(
+                chatId,
+                desk.formatOrderLine(o),
+                desk.orderButtonsKeyboard(o),
+              )
+            }
+            if (d.totalStale > display.length) {
+              await sendTelegramMessage(
+                chatId,
+                `<i>+ ${d.totalStale - display.length} geç teslim daha — tüm açık liste için /orders</i>`,
+              )
+            }
+          }
+        } catch (err) {
+          const m = err instanceof Error ? err.message : String(err)
+          console.error(`[telegram/orderreminders D-247] error:`, m)
+          await sendTelegramMessage(chatId, `❌ Hatırlatıcı hatası: ${m}`)
         }
         return NextResponse.json({ ok: true })
       }

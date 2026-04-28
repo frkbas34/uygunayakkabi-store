@@ -555,3 +555,199 @@ export function orderButtonsKeyboard(o: OrderEntry) {
   }
   return [row1, row2].filter((r) => r.length > 0)
 }
+
+// ── D-247: Alerts + reminders + daily summary ───────────────────────────────
+
+const STALE_DAYS_DEFAULT = 3
+
+/**
+ * D-247: Concise new-order Telegram card. Shorter than formatOrderCard.
+ * Includes order number + customer + product/SN + size + qty + amount +
+ * source + lead link if present. Pairs with orderButtonsKeyboard for
+ * in-place action.
+ */
+export function formatNewOrderAlert(o: OrderEntry): string {
+  const lines = [
+    `🚨 <b>YENİ SİPARİŞ</b> · <code>${o.orderNumber}</code>`,
+    ``,
+    `👤 ${escapeHtml(o.customerName)}`,
+    `📱 <code>${escapeHtml(o.customerPhone)}</code>`,
+  ]
+  if (o.productSn || o.productTitle) {
+    const ptag = o.productSn ?? `ID:${o.productId}`
+    const ptitle = o.productTitle ? ` — ${escapeHtml(o.productTitle).slice(0, 50)}` : ''
+    lines.push(`🛍️ <code>${ptag}</code>${ptitle}`)
+  }
+  if (o.size || (o.quantity && o.quantity > 1)) {
+    const parts: string[] = []
+    if (o.size) parts.push(`Beden ${escapeHtml(o.size)}`)
+    if (o.quantity && o.quantity > 1) parts.push(`Adet ${o.quantity}`)
+    lines.push(`📐 ${parts.join(' · ')}`)
+  }
+  if (o.totalPrice) lines.push(`💵 Tutar: <b>${o.totalPrice}</b> ₺` + (o.isPaid ? ' · ✅ ödendi' : ''))
+  lines.push(`🌐 ${o.source}`)
+  if (o.relatedInquiryId) lines.push(`🆔 Lead: <code>L#${o.relatedInquiryId}</code>`)
+  lines.push(``, `<i>Detay: /order ${o.id}</i>`)
+  return lines.join('\n')
+}
+
+/**
+ * D-247: Send new-order Telegram alert to the operator chat. Reuses the
+ * same env (TELEGRAM_BOT_TOKEN + TELEGRAM_CHAT_ID) and fire-and-forget
+ * pattern as src/lib/stockReaction.ts and src/lib/leadDesk.ts so dispatch
+ * routing stays consistent across the codebase.
+ *
+ * Emits a `order.new_alert_sent` bot-event for audit + future cron/dedup.
+ *
+ * Errors are swallowed — alert failure must never block order persistence.
+ */
+export async function sendNewOrderAlert(payload: any, orderId: number | string): Promise<void> {
+  const token = process.env.TELEGRAM_BOT_TOKEN
+  const chatId = process.env.TELEGRAM_CHAT_ID
+  if (!token || !chatId) {
+    console.warn('[orderDesk D-247] TELEGRAM env not set — new-order alert skipped')
+    return
+  }
+  try {
+    const order = await getOrderById(payload, orderId)
+    if (!order) {
+      console.warn(`[orderDesk D-247] new-order alert: order ${orderId} not found post-create`)
+      return
+    }
+    const text = formatNewOrderAlert(order)
+    const kb = orderButtonsKeyboard(order)
+    await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        chat_id: chatId,
+        text,
+        parse_mode: 'HTML',
+        reply_markup: { inline_keyboard: kb },
+      }),
+    })
+    try {
+      await payload.create({
+        collection: 'bot-events',
+        data: {
+          eventType: 'order.new_alert_sent',
+          sourceBot: 'uygunops',
+          status: 'processed',
+          payload: {
+            orderId: order.id,
+            orderNumber: order.orderNumber,
+            source: order.source,
+            sentAt: new Date().toISOString(),
+            chatId: String(chatId),
+          },
+          notes: `New order alert sent for ${order.orderNumber}.`,
+          processedAt: new Date().toISOString(),
+        },
+      })
+    } catch {
+      /* non-fatal */
+    }
+  } catch (err) {
+    console.error(
+      `[orderDesk D-247] new-order alert failed (non-blocking):`,
+      err instanceof Error ? err.message : String(err),
+    )
+  }
+}
+
+/**
+ * D-247: Stale shipped orders — `status='shipped'` AND
+ * `shippedAt` (or `createdAt` fallback) older than `staleDays`.
+ * Reuses D-246 stale rule exactly. Returns oldest-first so the operator
+ * sees the worst offenders first.
+ */
+export async function getStaleShippedOrders(
+  payload: any,
+  opts: { staleDays?: number; limit?: number } = {},
+): Promise<{
+  staleDays: number
+  totalStale: number
+  items: OrderEntry[]
+}> {
+  const staleDays = opts.staleDays ?? STALE_DAYS_DEFAULT
+  const limit = opts.limit ?? 25
+  const open = await getOpenOrders(payload)
+  const cutoff = Date.now() - staleDays * 24 * 60 * 60 * 1000
+
+  type Aged = { order: OrderEntry; ageMs: number }
+  const aged: Aged[] = []
+  for (const o of open.items) {
+    if (o.status !== 'shipped') continue
+    const ts = o.shippedAt ?? o.createdAt
+    const tms = new Date(ts).getTime()
+    if (!Number.isFinite(tms) || tms >= cutoff) continue
+    aged.push({ order: o, ageMs: Date.now() - tms })
+  }
+  aged.sort((a, b) => b.ageMs - a.ageMs)
+  return {
+    staleDays,
+    totalStale: aged.length,
+    items: aged.slice(0, limit).map((a) => a.order),
+  }
+}
+
+/** D-247: header text for /orderreminders. Per-order cards are streamed
+ *  separately by the route handler with orderButtonsKeyboard. */
+export function formatOrderRemindersHeader(d: Awaited<ReturnType<typeof getStaleShippedOrders>>): string {
+  if (d.totalStale === 0) {
+    return (
+      `⏰ <b>Sipariş Hatırlatıcıları</b>\n\n` +
+      `✅ Geç teslim olan kargo yok (${d.staleDays} günden eski kargolanmış sipariş bulunamadı).\n\n` +
+      `<i>Açık liste için /orders · özet için /orders summary</i>`
+    )
+  }
+  return [
+    `⏰ <b>Sipariş Hatırlatıcıları</b> — geç teslim: ${d.totalStale} (eşik: ${d.staleDays} gün kargoda)`,
+    ``,
+    `<i>Aşağıda en eski kargolar kartlar halinde — düğmelerle aksiyon alabilirsiniz.</i>`,
+    `<i>Tüm açık liste: /orders · bugünkü etkinlik: /orders summary</i>`,
+  ].join('\n')
+}
+
+/** D-247: Daily order summary — wraps getTodayOrders + open total + stale. */
+export async function getDailyOrderSummary(payload: any): Promise<{
+  createdToday: number
+  shippedToday: number
+  deliveredToday: number
+  cancelledToday: number
+  totalOpen: number
+  totalStale: number
+  staleDays: number
+}> {
+  const [today, open, stale] = await Promise.all([
+    getTodayOrders(payload),
+    getOpenOrders(payload),
+    getStaleShippedOrders(payload),
+  ])
+  return {
+    createdToday: today.createdToday,
+    shippedToday: today.shippedToday,
+    deliveredToday: today.deliveredToday,
+    cancelledToday: today.cancelledToday,
+    totalOpen: open.totalOpen,
+    totalStale: stale.totalStale,
+    staleDays: stale.staleDays,
+  }
+}
+
+export function formatDailyOrderSummary(d: Awaited<ReturnType<typeof getDailyOrderSummary>>): string {
+  const lines = [
+    `📊 <b>Sipariş Özeti</b> (UTC günü)`,
+    ``,
+    `<b>Bugün</b>`,
+    `  📥 Yeni: ${d.createdToday}`,
+    `  📦 Kargolanan: ${d.shippedToday}`,
+    `  🏠 Teslim Edilen: ${d.deliveredToday}`,
+    `  ❌ İptal: ${d.cancelledToday}`,
+    ``,
+    `<b>Açık Toplam</b>: ${d.totalOpen}` + (d.totalStale > 0 ? ` · ⏰ Geç teslim (${d.staleDays}+gün): <b>${d.totalStale}</b>` : ''),
+    ``,
+    `<i>/orders · /orderreminders · /inbox orders</i>`,
+  ]
+  return lines.join('\n')
+}

@@ -5719,3 +5719,96 @@ Soak harness committed at `scripts/d246-soak.ts` for future re-runs.
 **Status:** Shipped to `main`. Soak validation passed at the data layer. Operator validation: `/inbox` → see the new `📦 Sipariş` row → `/inbox orders` → see the cards with action buttons → tap `📦 Kargola` on any → confirm immediate status update + audit event (same as direct `/ship` from D-245 since both routes converge on `applyOrderStatus`).
 
 **Reversible:** yes — extends existing helpers + adds 1 switch case + 1 sub-command branch. No schema change.
+
+---
+
+## D-247 — Order Alerts / Delivery Reminder Layer v1
+
+**Decision:**
+Add a three-pronged lightweight reminder layer for orders, mirroring D-243 leads exactly:
+1. **Push** — proactive Telegram alert when a new order arrives.
+2. **Pull** — `/orderreminders` slash command surfacing stale-shipped orders with action buttons.
+3. **Snapshot** — `/orders summary` daily digest.
+
+No new collection. No schema change. No scheduler/cron. Same `TELEGRAM_CHAT_ID` chat-routing convention as `stockReaction.ts` and D-243.
+
+**Push: new-order Telegram alert — wired into Orders.afterChange**
+- New parallel hook entry in `Orders.afterChange` (separate from the existing stock-decrement entry — single responsibility per callback).
+- Fires on `operation === 'create'` for **EVERY** source EXCEPT `source === 'telegram'` (operator already saw `/convert` response from D-244 — double-notification would be noise).
+- Skip flags applied: `req.context.isDispatchUpdate` and `source === 'telegram'`.
+- Universal coverage: shopier (webhook), website (storefront form), admin (manual), instagram, phone — every channel where the operator hasn't already seen the order.
+- Implementation: `sendNewOrderAlert(payload, orderId)` in `src/lib/orderDesk.ts`. Fetches the order, formats via new `formatNewOrderAlert`, posts to Telegram with the full D-245 `orderButtonsKeyboard` so operator can ship/deliver/cancel from the alert. Wrapped in `void (async ()=>{...})()` so a Telegram failure never blocks order persistence.
+- Alert content: `🚨 YENİ SİPARİŞ · <orderNumber>` + 👤 customer name + 📱 phone + 🛍️ product SN/title + 📐 size/qty + 💵 totalPrice (with `✅ ödendi` badge if isPaid) + 🌐 source + 🆔 lead link if `relatedInquiry` set + `Detay: /order <id>` hint.
+- Audit trail: `order.new_alert_sent` bot-event with `{orderId, orderNumber, source, sentAt, chatId}` payload (best-effort; non-fatal on failure).
+
+**Pull: /orderreminders (aliases: /orderreminder, /siparishatirla, /sipariş_hatirla, /siparis_hatirla)**
+- Reuses D-246's stale rule **exactly** — no parallel definition. Stale = `status === 'shipped'` AND `(shippedAt ?? createdAt)` older than 3 days.
+- New helper `getStaleShippedOrders(payload, {staleDays=3, limit=25})` calls `getOpenOrders`, filters by status+age, sorts oldest-first.
+- Streams top-5 stale orders as cards with the existing `orderButtonsKeyboard` (one tap → action). Overflow above 5 → `+ N geç teslim daha — tüm açık liste için /orders` hint.
+- Empty state: `✅ Geç teslim olan kargo yok (3 günden eski kargolanmış sipariş bulunamadı)`.
+- Delivered/cancelled excluded by reusing `getOpenOrders` (which only returns open statuses).
+- Registered in SHARED_CMDS.
+
+**Snapshot: /orders summary (alias: özet, ozet)**
+- Concise daily digest — bugün yeni / kargolanan / teslim edilen / iptal counts + açık total + stale signal in one block.
+- New helper `getDailyOrderSummary(payload)` wraps `getTodayOrders` (D-245) + `getOpenOrders` + `getStaleShippedOrders`. Single source of truth preserved.
+
+**Convergence — no parallel rules:**
+| Concept | Defined in | Reused by |
+|---|---|---|
+| Open status set | `getOpenOrders` (D-245) | D-246 inbox bucket, D-247 stale + summary |
+| Stale rule (3 days, shippedAt ?? createdAt) | D-246 inbox aging signal | D-247 `getStaleShippedOrders` |
+| Action buttons | D-245 `orderButtonsKeyboard` | D-246 `/inbox orders`, D-247 alert + reminders |
+| Status writes | D-245 `applyOrderStatus` | All `oract:` callbacks (slash + button paths) |
+| Chat routing | `TELEGRAM_CHAT_ID` env (`stockReaction.ts` precedent) | D-243 lead alerts, D-247 order alerts |
+| Alert dispatch pattern | D-243 `sendNewLeadAlert` | D-247 `sendNewOrderAlert` (mirror exactly) |
+
+**Noise / dedup behaviour:**
+- New-order alert fires **once per successful create**. Single transactional event = single fire-and-forget. Duplicate POSTs would create duplicate rows AND duplicate alerts (same as existing stock-alert / lead-alert semantics; no new dedup risk).
+- `/convert` from D-244 sets `source = 'telegram'` so D-247 alert is correctly suppressed — operator only gets one message per `/convert` (the existing `💰 Satış kaydedildi` from D-244).
+- `/orderreminders` is operator-pulled — no spam.
+- No proactive cron in v1. If/when added, dedup via `order.stale_reminder_sent` bot-event keyed on `(orderId, day)`.
+
+**Test evidence (against live Neon, 9 assertions all pass):**
+| Check | Result |
+|---|---|
+| sendNewOrderAlert captures correct Telegram payload (URL, chat_id, text, keyboard with action+nav rows) | ✓ |
+| `order.new_alert_sent` audit-event delta = 1 | ✓ |
+| Missing TELEGRAM env → safe noop with warn | ✓ |
+| Missing order id → safe noop with warn | ✓ |
+| getStaleShippedOrders correctly finds 1 backdated 5-day-old shipped | ✓ |
+| formatOrderRemindersHeader populated render | ✓ |
+| Delivered orders correctly excluded from reminders after status flip | ✓ |
+| formatOrderRemindersHeader empty render | ✓ |
+| Daily summary counts + format correct | ✓ |
+
+Soak harness committed at `scripts/d247-soak.ts`. Typecheck: zero new errors.
+
+**Captured Telegram payload (sample):**
+```
+🚨 YENİ SİPARİŞ · ORD-D247-003473
+👤 TEST D-247 — Website
+📱 +905550030001
+🛍️ SN0001 — Vakko W Collection
+📐 Beden 42
+💵 Tutar: 1499 ₺
+🌐 website
+Detay: /order 14
+[📦 Kargola] [🏠 Teslim] [❌ İptal]
+[🔍 Ürün]
+```
+
+**Out of scope (v1):**
+- Proactive stale-reminder cron — `/orderreminders` is operator-pulled in v1.
+- Per-order mute / snooze.
+- SLA breach alerts beyond stale threshold.
+- Multi-chat dispatch routing — single `TELEGRAM_CHAT_ID` like every other system alert.
+- Rich media in alerts (product image preview).
+- Customer-facing notifications (admin handles those).
+- Carrier-specific late-shipping rules (uniform 3-day threshold for v1).
+
+**Risk class:** very low. Additive helpers in `orderDesk.ts` + 1 new fire-and-forget alert hook entry in Orders.afterChange (skips when source=telegram or context=dispatch — no behavior change for existing paths) + 2 new slash commands. No schema change. No mutations beyond what `applyOrderStatus` already does (button callbacks). Reversible via single-commit revert.
+
+**Status:** Shipped to `main`. Soak validation passed at the data layer. Operator validation: submit a test order via storefront form OR create one in admin → confirm `🚨 YENİ SİPARİŞ` arrives with action buttons. Then `/orderreminders` (with no stale, expect empty state) and `/orders summary` (always renders the daily counts).
+
+**Reversible:** yes — additive helpers + 1 fire-and-forget hook entry + 2 new commands. No schema change.

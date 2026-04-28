@@ -2507,6 +2507,71 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ ok: true })
       }
 
+      // ── D-245: Order fulfillment button callbacks ────────────────────────
+      // Buttons: oract:<orderId>:<action>  where action ∈ ship | deliver | cancel.
+      // Same code path as the slash commands — both converge on applyOrderStatus.
+      if (cbData.startsWith('oract:')) {
+        const [_, idStr, action] = cbData.split(':')
+        const orderId = parseInt(idStr ?? '', 10)
+        if (Number.isNaN(orderId) || !action) {
+          await answerCallbackQuery(cbQueryId, '❌ Geçersiz sipariş/aksiyon')
+          return NextResponse.json({ ok: true })
+        }
+        const validActions = ['ship', 'deliver', 'cancel'] as const
+        if (!(validActions as readonly string[]).includes(action)) {
+          await answerCallbackQuery(cbQueryId, `❌ Bilinmeyen aksiyon: ${action}`)
+          return NextResponse.json({ ok: true })
+        }
+        try {
+          const cbPayload = await getPayload()
+          const { applyOrderStatus, getOrderById, orderButtonsKeyboard } = await import('@/lib/orderDesk')
+          await answerCallbackQuery(cbQueryId, `⏳ ${action}...`)
+          const r = await applyOrderStatus(
+            cbPayload,
+            orderId,
+            action as 'ship' | 'deliver' | 'cancel',
+            'telegram_button',
+          )
+          const fresh = await getOrderById(cbPayload, orderId)
+          if (fresh) {
+            await sendTelegramMessageWithKeyboard(cbChatId, r.message, orderButtonsKeyboard(fresh))
+          } else {
+            await sendTelegramMessage(cbChatId, r.message)
+          }
+        } catch (err) {
+          const m = err instanceof Error ? err.message : String(err)
+          console.error(`[telegram/oract D-245] orderId=${orderId} action=${action} error:`, m)
+          await sendTelegramMessage(cbChatId, `❌ Sipariş durum hatası: ${m}`)
+        }
+        return NextResponse.json({ ok: true })
+      }
+
+      // ── D-245: Lead-card jump from Order keyboard ────────────────────────
+      // Button: ldcard:<leadId> — renders the lead card with leadButtonsKeyboard.
+      if (cbData.startsWith('ldcard:')) {
+        const leadId = parseInt(cbData.slice('ldcard:'.length), 10)
+        if (Number.isNaN(leadId)) {
+          await answerCallbackQuery(cbQueryId, '❌ Geçersiz lead')
+          return NextResponse.json({ ok: true })
+        }
+        try {
+          const cbPayload = await getPayload()
+          const { getLeadById, formatLeadCard, leadButtonsKeyboard } = await import('@/lib/leadDesk')
+          await answerCallbackQuery(cbQueryId, '🆔')
+          const l = await getLeadById(cbPayload, leadId)
+          if (!l) {
+            await sendTelegramMessage(cbChatId, `❌ Lead #${leadId} bulunamadı.`)
+            return NextResponse.json({ ok: true })
+          }
+          await sendTelegramMessageWithKeyboard(cbChatId, formatLeadCard(l), leadButtonsKeyboard(l.id))
+        } catch (err) {
+          const m = err instanceof Error ? err.message : String(err)
+          console.error(`[telegram/ldcard D-245] leadId=${leadId} error:`, m)
+          await sendTelegramMessage(cbChatId, `❌ Lead hatası: ${m}`)
+        }
+        return NextResponse.json({ ok: true })
+      }
+
       // ── D-235: per-channel redispatch button callbacks ───────────────────
       // Buttons: redis_x / redis_ig / redis_fb / redis_shopier (id at suffix).
       // Maps to operatorActions.triggerChannelRedispatch — same code path as
@@ -2846,6 +2911,8 @@ export async function POST(req: NextRequest) {
         '/leadreminders', '/hatirla', '/hatırla',
         // D-244 conversion logging
         '/convert', '/conversion', '/sales',
+        // D-245 order fulfillment
+        '/orders', '/order', '/ship', '/deliver', '/cancelorder',
       ]
       // D-220: PI Bot hashtags owned by Uygunops (operator approval is required before GeoBot handoff).
       const OPS_HASHTAGS = ['#gorsel', '#geminipro', '#geohazirla', '#seoara', '#productintel', '#urunzeka']
@@ -5144,6 +5211,111 @@ export async function POST(req: NextRequest) {
           const m = err instanceof Error ? err.message : String(err)
           console.error(`[telegram/leads D-241] error:`, m)
           await sendTelegramMessage(chatId, `❌ Lead Desk hatası: ${m}`)
+        }
+        return NextResponse.json({ ok: true })
+      }
+    }
+
+    // ── D-245: Order Fulfillment ──────────────────────────────────────────
+    // /orders            — open queue (status in {new, confirmed, shipped})
+    // /orders today      — today's snapshot
+    // /order <id>        — detail card with action buttons
+    // /ship <id>         — mark shipped (stamps shippedAt)
+    // /deliver <id>      — mark delivered (stamps deliveredAt; backfills shippedAt if missing)
+    // /cancelorder <id>  — mark cancelled (does NOT auto-restore stock; surfaces /restock)
+    {
+      const firstWordOrders = text.trim().split(/\s+/)[0].replace(/@\w+$/, '').toLowerCase()
+      if (firstWordOrders === '/orders') {
+        try {
+          const parts = text.trim().split(/\s+/)
+          const sub = (parts[1] ?? '').toLowerCase()
+          const desk = await import('@/lib/orderDesk')
+          if (sub === 'today' || sub === 'bugun' || sub === 'bugün') {
+            await sendTelegramMessage(chatId, desk.formatOrdersToday(await desk.getTodayOrders(payload)))
+            return NextResponse.json({ ok: true })
+          }
+          await sendTelegramMessage(chatId, desk.formatOpenOrdersList(await desk.getOpenOrders(payload)))
+        } catch (err) {
+          const m = err instanceof Error ? err.message : String(err)
+          console.error(`[telegram/orders D-245] error:`, m)
+          await sendTelegramMessage(chatId, `❌ Sipariş Desk hatası: ${m}`)
+        }
+        return NextResponse.json({ ok: true })
+      }
+
+      if (firstWordOrders === '/order') {
+        const parts = text.trim().split(/\s+/)
+        const arg = parts[1]
+        if (!arg) {
+          await sendTelegramMessage(
+            chatId,
+            '🆔 <b>/order &lt;id&gt;</b>\n\n' +
+              'Sipariş detayını ve aksiyon düğmelerini gösterir.\n' +
+              'Örnek: <code>/order 12</code>\n\n' +
+              '<i>Açık liste: /orders · bugün: /orders today</i>',
+          )
+          return NextResponse.json({ ok: true })
+        }
+        const id = parseInt(arg, 10)
+        if (Number.isNaN(id)) {
+          await sendTelegramMessage(chatId, '⚠️ Geçersiz sipariş ID.')
+          return NextResponse.json({ ok: true })
+        }
+        try {
+          const desk = await import('@/lib/orderDesk')
+          const o = await desk.getOrderById(payload, id)
+          if (!o) {
+            await sendTelegramMessage(chatId, `❌ Sipariş #${id} bulunamadı.`)
+            return NextResponse.json({ ok: true })
+          }
+          await sendTelegramMessageWithKeyboard(chatId, desk.formatOrderCard(o), desk.orderButtonsKeyboard(o))
+        } catch (err) {
+          const m = err instanceof Error ? err.message : String(err)
+          console.error(`[telegram/order D-245] id=${id} error:`, m)
+          await sendTelegramMessage(chatId, `❌ Sipariş hatası: ${m}`)
+        }
+        return NextResponse.json({ ok: true })
+      }
+
+      // Status-write slash commands
+      const orderActionMap: Record<string, 'ship' | 'deliver' | 'cancel'> = {
+        '/ship': 'ship',
+        '/deliver': 'deliver',
+        '/cancelorder': 'cancel',
+      }
+      const orderAction = orderActionMap[firstWordOrders]
+      if (orderAction) {
+        const parts = text.trim().split(/\s+/)
+        const arg = parts[1]
+        if (!arg) {
+          await sendTelegramMessage(
+            chatId,
+            `🆔 <b>${firstWordOrders} &lt;order-id&gt;</b>\n\n` +
+              `Siparişin durumunu değiştirir.\n` +
+              `Örnek: <code>${firstWordOrders} 12</code>\n\n` +
+              `<i>Açık liste: /orders · Detay: /order &lt;id&gt;</i>`,
+          )
+          return NextResponse.json({ ok: true })
+        }
+        const id = parseInt(arg, 10)
+        if (Number.isNaN(id)) {
+          await sendTelegramMessage(chatId, '⚠️ Geçersiz sipariş ID.')
+          return NextResponse.json({ ok: true })
+        }
+        try {
+          const { applyOrderStatus, getOrderById, orderButtonsKeyboard } = await import('@/lib/orderDesk')
+          const r = await applyOrderStatus(payload, id, orderAction, 'telegram_command')
+          // Re-fetch the order to render an up-to-date keyboard
+          const fresh = await getOrderById(payload, id)
+          if (fresh) {
+            await sendTelegramMessageWithKeyboard(chatId, r.message, orderButtonsKeyboard(fresh))
+          } else {
+            await sendTelegramMessage(chatId, r.message)
+          }
+        } catch (err) {
+          const m = err instanceof Error ? err.message : String(err)
+          console.error(`[telegram/order-status D-245] cmd=${firstWordOrders} id=${id} error:`, m)
+          await sendTelegramMessage(chatId, `❌ Sipariş durum hatası: ${m}`)
         }
         return NextResponse.json({ ok: true })
       }

@@ -5550,3 +5550,104 @@ First soak run reported `fromLeads=0 totalRevenue=0` despite both orders being l
 **Status:** Shipped to `main`. Neon DDL applied. Soak passed end-to-end. **Next operator step:** `/convert <some-lead-id>` on a real lead to validate the Telegram-side flow. The Order record will appear in admin with the lead link, stock will decrement via the existing afterChange hook, and `/sales today` should show the running tally.
 
 **Reversible:** yes — additive FK + new helpers + 3 new commands + 1 message-line patch. No schema removal needed if reverted (FK column stays harmless).
+
+---
+
+## D-245 — Order Fulfillment / Post-Sale Status Controls v1
+
+**Decision:**
+Add a Telegram-first fulfillment surface so routine post-sale handling (ship → deliver → cancel) can happen without an admin visit. **Reuse the existing Orders collection AS-IS** — no schema change. The schema was already fulfillment-ready: `status ∈ {new, confirmed, shipped, delivered, cancelled}`, `shippedAt` / `deliveredAt` / `shippingCompany` / `trackingNumber` fields all exist. The only gap was Telegram surface.
+
+**Reused, not invented:**
+- `Orders` collection (D-244-extended with `relatedInquiry` FK; everything else pre-existing).
+- `Orders.afterChange` hook unchanged — it only fires on `operation === 'create'` and handles stock decrement + inventory log + stock reaction. Status updates from D-245 pass `context: { isDispatchUpdate: true }` as a defensive belt-and-suspenders even though the hook wouldn't fire on update anyway.
+- `bot-events` for audit trail (`order.status_changed` event type).
+- `getPayload` from `@/lib/payload` — same singleton everywhere.
+
+**New helper — `src/lib/orderDesk.ts` (~360 LOC):**
+- `getOpenOrders(payload)` — `status ∈ {new, confirmed, shipped}`, capped at 10. Sort: `new` newest-first → `confirmed` newest-first → `shipped` oldest-first (so late-shipping orders bubble up).
+- `getTodayOrders(payload)` — created/shipped/delivered/cancelled today + open total + last 5 created.
+- `getOrderById(payload, id)` — null on miss.
+- `applyOrderStatus(payload, orderId, action, source)` — single source of truth. Idempotent. Stamps `shippedAt`/`deliveredAt`. Refuses pathological transitions (see rules below). Emits `order.status_changed` bot-event.
+- Formatters: `formatOrderLine`, `formatOpenOrdersList`, `formatOrdersToday`, `formatOrderCard`.
+- `orderButtonsKeyboard(o)` — 2-row inline keyboard: Row 1 = `📦 Kargola · 🏠 Teslim · ❌ İptal` (only when not terminal); Row 2 = `🆔 Lead #N · 🔍 Ürün` nav (only when relatedInquiryId/productId present).
+
+**Status state machine — refusal rules:**
+| From → Action | Result |
+|---|---|
+| `cancelled` → ship | refuse `invalid_transition` with "yeni sipariş için /convert" hint |
+| `delivered` → ship | refuse `invalid_transition` |
+| `cancelled` → deliver | refuse `invalid_transition` |
+| `confirmed` / `new` → deliver | **ALLOW** with auto-stamped shippedAt = deliveredAt (same-day local courier case; timeline truthfulness preserved) |
+| `delivered` → cancel | refuse with "İade için admin panelinden işlem yapın" hint |
+| same-status → same | idempotent no-op (`🟰 zaten <status>`) |
+
+**Stock side-effects on cancel — explicit, not faked:**
+The repo has no order-cancel restore-stock path. We do NOT silently restore stock. `/cancelorder` response includes:
+```
+⚠️ Stok otomatik geri eklenmedi.
+Gerekirse: /restock <sn> <qty>
+```
+…using the actual SN from the order's product when available, otherwise the generic placeholder. Operator restores stock explicitly via D-234 if needed. This is a deliberate decision — silent stock restoration would be opaque and error-prone (e.g. wrong size variant); explicit /restock keeps the operator in control and matches the existing operator-pack patterns.
+
+**Telegram surface — registered in SHARED_CMDS:**
+| Command | Behaviour |
+|---|---|
+| `/orders` | Open queue (10 max), priority sort, status counts |
+| `/orders today` | Today's snapshot — counts + last 5 created |
+| `/order <id>` | Detail card + inline action/nav keyboard |
+| `/ship <id>` | Mark shipped (stamps shippedAt) |
+| `/deliver <id>` | Mark delivered (stamps deliveredAt; backfills shippedAt if missing) |
+| `/cancelorder <id>` | Mark cancelled with `/restock` hint |
+
+Word-boundary command matching to avoid false positives.
+
+**Inline-button callbacks:**
+- `oract:<orderId>:<action>` — same code path as the slash commands; both converge on `applyOrderStatus`.
+- `ldcard:<leadId>` — used by Order keyboard's "🆔 Lead #N" jump; renders the D-241 lead card with the full leadButtonsKeyboard.
+
+**Convergence with prior D-NNs — no parallel rules:**
+| Concept | Defined in | Reused by |
+|---|---|---|
+| Order schema + stock-on-create | Existing Orders + afterChange | D-245 — unchanged |
+| `relatedInquiry` link | D-244 | D-245 nav button + lead jump |
+| Audit-trail journal | bot-events | D-245 emits `order.status_changed` |
+| Stock restore | `/restock` (D-234) | D-245 surfaces pointer; doesn't duplicate |
+| Lead card render | D-241 `formatLeadCard` + `leadButtonsKeyboard` | D-245 `ldcard:` callback |
+
+**Test evidence (against live Neon, 17 assertions all pass):**
+| Check | Result |
+|---|---|
+| Open queue with 3 seeded orders, priority sort, counts (new=1, confirmed=2) | ✓ |
+| Detail card shows lead nav + product SN | ✓ |
+| `/ship` first run: status flip + shippedAt stamped | ✓ |
+| `/ship` second run: idempotent no-op | ✓ |
+| `/deliver` after shipped: status flip + deliveredAt stamped (raw row verified) | ✓ |
+| `/deliver` second run: idempotent | ✓ |
+| `/ship` after delivered: refused `invalid_transition` | ✓ |
+| `/cancelorder` after delivered: refused with refund hint | ✓ |
+| `/deliver` from confirmed: ALLOWED + auto-stamps shippedAt (raw row: both timestamps set) | ✓ |
+| `/cancelorder` from confirmed: success + `/restock` pointer | ✓ |
+| `/cancelorder` second run: idempotent | ✓ |
+| `/ship` on cancelled: refused | ✓ |
+| Missing order id: `order_not_found` | ✓ |
+| Empty-state /orders render | ✓ |
+| Today snapshot counts | ✓ |
+| 6 `order.status_changed` bot-events written | ✓ |
+| Cleanup leaves no residue | ✓ |
+
+Soak harness committed at `scripts/d245-soak.ts`. Typecheck: zero new errors.
+
+**Out of scope (v1):**
+- Editing shippingCompany / trackingNumber via Telegram — admin only for v1.
+- Refund / return flow — admin only.
+- Bulk operations across orders (mass-ship, mass-cancel) — defer until volume warrants.
+- Per-cargo-firma routing logic.
+- Auto-stock-restore on cancel — architectural decision, kept explicit.
+- Customer-facing notification on status change.
+
+**Risk class:** very low. New helper file + new switch cases in route.ts + 3 new slash commands + 1 new callback prefix block. No schema change. No mutation of existing Orders fields, schema, or afterChange hook. Reusable from existing patterns. Reversible via single-commit revert.
+
+**Status:** Shipped to `main`. Soak passed end-to-end at the data layer. **Next operator step:** `/orders` to confirm the queue renders → `/order <id>` on a real order → `/ship <id>` → confirm idempotency by pressing again → `/deliver <id>` → confirm timestamps on the order in admin.
+
+**Reversible:** yes — new helper file + 1 callback prefix block + 5 new slash commands. No schema change.

@@ -328,3 +328,169 @@ export function formatPublishReadyEmpty(todayOnly: boolean): string {
     `<i>Aday bulmak için: /inbox publish</i>`
   )
 }
+
+// ── D-239: shared approve+activate helper ────────────────────────────────────
+
+export interface ApproveAndActivateResult {
+  ok: boolean
+  /** True when product was already active (no change). */
+  idempotent: boolean
+  productId: number | string
+  sn: string | null
+  /** Set when activation was refused. */
+  refusalReason?:
+    | 'product_not_found'
+    | 'already_active'
+    | 'not_ready'
+  /** Telegram-formatted multi-line message (for single-item callers). */
+  message: string
+  /** One-line summary suitable for batch summary rendering. */
+  summary: string
+  /** Concrete blockers from evaluatePublishReadiness when refused for not_ready. */
+  blockers?: string[]
+}
+
+/**
+ * D-239: Single-product approve+activate path. Both the slash command
+ * (/approvepublish, single + batch) and the inline button callback
+ * (pdesk_act) converge on this helper. Behaviour identical to the legacy
+ * inlined version in route.ts.
+ *
+ * Steps:
+ *   1. Resolve product. Refuse if missing.
+ *   2. Refuse if already active (idempotent=true).
+ *   3. Emit publish.approved bot-event (audit trail of operator intent).
+ *   4. Run evaluatePublishReadiness. Refuse with concrete blockers if !ready.
+ *   5. Apply the activation update (status=active, workflowStatus=active,
+ *      publishStatus=published, merchandising dates).
+ *   6. Emit product.activated bot-event.
+ *
+ * Same code path / same guards as the existing /activate handler — just
+ * wrapped in a function so single + batch + inline-button can all share it.
+ */
+export async function approveAndActivateProduct(
+  payload: any,
+  productId: number | string,
+  source: 'telegram_command' | 'telegram_button' = 'telegram_command',
+  triggeredBy: string = 'approvepublish',
+): Promise<ApproveAndActivateResult> {
+  let product: any
+  try {
+    product = await payload.findByID({ collection: 'products', id: productId, depth: 1 })
+  } catch {
+    return {
+      ok: false,
+      idempotent: false,
+      productId,
+      sn: null,
+      refusalReason: 'product_not_found',
+      message: `❌ Ürün bulunamadı (ID: ${productId})`,
+      summary: `<code>ID:${productId}</code> · bulunamadı`,
+    }
+  }
+  if (!product) {
+    return {
+      ok: false,
+      idempotent: false,
+      productId,
+      sn: null,
+      refusalReason: 'product_not_found',
+      message: `❌ Ürün bulunamadı (ID: ${productId})`,
+      summary: `<code>ID:${productId}</code> · bulunamadı`,
+    }
+  }
+  const sn = (product.stockNumber as string) || `ID:${productId}`
+
+  if (product.status === 'active') {
+    return {
+      ok: true,
+      idempotent: true,
+      productId,
+      sn: product.stockNumber || null,
+      refusalReason: 'already_active',
+      message: `✅ Ürün ${sn} zaten aktif. Yeniden dispatch için /redispatch kullanın.`,
+      summary: `<code>${sn}</code> · zaten aktif`,
+    }
+  }
+
+  // Audit-trail event BEFORE activation
+  await recordPublishDecision(payload, productId, 'approved', source)
+
+  const { evaluatePublishReadiness } = await import('./publishReadiness')
+  const readiness = evaluatePublishReadiness(product as any)
+  if (readiness.level !== 'ready') {
+    return {
+      ok: false,
+      idempotent: false,
+      productId,
+      sn: product.stockNumber || null,
+      refusalReason: 'not_ready',
+      blockers: readiness.blockers,
+      message:
+        `⚠️ <b>Aktivasyon engellendi</b>\n\n` +
+        `Publish readiness: ${readiness.passedCount}/${readiness.totalCount}\n\n` +
+        `<b>Engelleyenler:</b>\n` +
+        readiness.blockers.map((b) => `❌ ${b}`).join('\n') +
+        `\n\n<i>publish.approved kaydedildi ama aktivasyon henüz mümkün değil.</i>`,
+      summary: `<code>${sn}</code> · engellendi: ${readiness.blockers.slice(0, 2).join('; ')}`,
+    }
+  }
+
+  const { calculateNewWindow } = await import('./merchandising')
+  const { publishedAt, newUntil } = calculateNewWindow()
+  await payload.update({
+    collection: 'products',
+    id: productId,
+    data: {
+      status: 'active',
+      workflow: {
+        ...(product.workflow ?? {}),
+        workflowStatus: 'active',
+        publishStatus: 'published',
+        lastHandledByBot: 'uygunops',
+      },
+      merchandising: {
+        ...(product.merchandising ?? {}),
+        publishedAt,
+        newUntil,
+      },
+    },
+  })
+  try {
+    await payload.create({
+      collection: 'bot-events',
+      data: {
+        eventType: 'product.activated',
+        product: productId,
+        sourceBot: 'uygunops',
+        status: 'processed',
+        payload: {
+          previousStatus: product.status,
+          activatedAt: new Date().toISOString(),
+          publishedAt,
+          newUntil,
+          readinessScore: `${readiness.passedCount}/${readiness.totalCount}`,
+          triggeredBy,
+        },
+        notes: `Product ${productId} activated via ${triggeredBy}. status: draft→active.`,
+        processedAt: new Date().toISOString(),
+      },
+    })
+  } catch {
+    /* non-fatal */
+  }
+
+  return {
+    ok: true,
+    idempotent: false,
+    productId,
+    sn: product.stockNumber || null,
+    message:
+      `🚀 <b>${sn} AKTİF!</b>\n\n` +
+      `🟢 status = active\n` +
+      `📅 publishedAt = ${publishedAt.split('T')[0]}\n` +
+      `📅 newUntil = ${newUntil.split('T')[0]}\n` +
+      `🔄 Kanal dispatch tetiklendi (afterChange hook)`,
+    summary: `<code>${sn}</code> · aktive edildi`,
+  }
+}

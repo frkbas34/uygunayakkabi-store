@@ -2273,81 +2273,12 @@ export async function POST(req: NextRequest) {
             return NextResponse.json({ ok: true })
           }
           if (shortAction === 'act') {
-            // Same activation logic as /activate. Inline because the slash
-            // command path is far from here in the source order.
+            // D-239: converged on shared approveAndActivateProduct helper —
+            // same code path as /activate slash + /approvepublish single+batch.
             await answerCallbackQuery(cbQueryId, '🚀 Aktive ediliyor...')
-            const product = await cbPayload.findByID({ collection: 'products', id: pId, depth: 1 }) as any
-            if (!product) {
-              await sendTelegramMessage(cbChatId, `❌ Ürün #${pId} bulunamadı.`)
-              return NextResponse.json({ ok: true })
-            }
-            if (product.status === 'active') {
-              await sendTelegramMessage(cbChatId, `✅ Ürün #${pId} zaten aktif.`)
-              return NextResponse.json({ ok: true })
-            }
-            const { evaluatePublishReadiness } = await import('@/lib/publishReadiness')
-            const readiness = evaluatePublishReadiness(product as any)
-            if (readiness.level !== 'ready') {
-              await sendTelegramMessage(
-                cbChatId,
-                `⚠️ <b>Aktivasyon engellendi</b>\nReadiness: ${readiness.passedCount}/${readiness.totalCount}\n\n` +
-                  readiness.blockers.map((b) => `❌ ${b}`).join('\n') +
-                  `\n\n/pipeline ${pId} — Detaylı durum`,
-              )
-              return NextResponse.json({ ok: true })
-            }
-            // publish.approved audit-trail event before activation
-            const { recordPublishDecision } = await import('@/lib/publishDesk')
-            await recordPublishDecision(cbPayload, pId, 'approved', 'telegram_button')
-
-            const { calculateNewWindow } = await import('@/lib/merchandising')
-            const { publishedAt, newUntil } = calculateNewWindow()
-            await cbPayload.update({
-              collection: 'products',
-              id: pId,
-              data: {
-                status: 'active',
-                workflow: {
-                  ...(product.workflow ?? {}),
-                  workflowStatus: 'active',
-                  publishStatus: 'published',
-                  lastHandledByBot: 'uygunops',
-                },
-                merchandising: {
-                  ...(product.merchandising ?? {}),
-                  publishedAt,
-                  newUntil,
-                },
-              },
-            })
-            await cbPayload.create({
-              collection: 'bot-events',
-              data: {
-                eventType: 'product.activated',
-                product: pId,
-                sourceBot: 'uygunops',
-                status: 'processed',
-                payload: {
-                  previousStatus: product.status,
-                  activatedAt: new Date().toISOString(),
-                  publishedAt,
-                  newUntil,
-                  readinessScore: `${readiness.passedCount}/${readiness.totalCount}`,
-                  triggeredBy: 'pdesk_button',
-                },
-                notes: `Product ${pId} activated via Publish Desk button.`,
-                processedAt: new Date().toISOString(),
-              },
-            })
-            const sn = product.stockNumber ? `<code>${product.stockNumber}</code>` : `ID:${pId}`
-            await sendTelegramMessage(
-              cbChatId,
-              `🚀 <b>${sn} AKTİF!</b>\n\n` +
-                `🟢 status = active\n` +
-                `📅 publishedAt = ${publishedAt.split('T')[0]}\n` +
-                `📅 newUntil = ${newUntil.split('T')[0]}\n` +
-                `🔄 Kanal dispatch tetiklendi`,
-            )
+            const { approveAndActivateProduct } = await import('@/lib/publishDesk')
+            const out = await approveAndActivateProduct(cbPayload, pId, 'telegram_button', 'pdesk_button')
+            await sendTelegramMessage(cbChatId, out.message)
             return NextResponse.json({ ok: true })
           }
           await answerCallbackQuery(cbQueryId, '❌ Bilinmeyen işlem')
@@ -4221,7 +4152,9 @@ export async function POST(req: NextRequest) {
     }
 
     // ── Phase 17: Product Activation Command ────────────────────────────────
-    // /activate {productId} — safely transition a publish-ready product to active
+    // /activate <sn-or-id[,sn,sn]> — safely transition publish-ready product(s) to active
+    // D-239: now batch-aware. Single + batch + pdesk_act inline button all
+    // converge on approveAndActivateProduct (publishDesk.ts).
     if (text.startsWith('/activate')) {
       const parts = text.trim().split(/\s+/)
       const arg = parts[1]
@@ -4230,7 +4163,9 @@ export async function POST(req: NextRequest) {
         await sendTelegramMessage(
           chatId,
           '🚀 <b>Ürün Aktivasyonu</b>\n\n' +
-            '/activate <id> — Publish-ready ürünü aktif et (website yayını)\n\n' +
+            '<code>/activate &lt;sn-or-id[,sn,sn]&gt;</code>\n\n' +
+            'Tek ürün: <code>/activate SN0186</code> veya <code>/activate 186</code>\n' +
+            'Toplu: <code>/activate SN0017,SN0022,SN0023</code>\n\n' +
             'Koşullar: tüm publish readiness boyutları sağlanmalı (6/6).\n' +
             'Aktivasyon otomatik olarak:\n' +
             '• status → active\n' +
@@ -4240,121 +4175,40 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ ok: true })
       }
 
-      // D-237: accept SN-or-ID via shared resolver. Falls back to legacy
-      // numeric-only when the shared module isn't available (defensive).
-      let productId: number
       try {
         const { resolveProductIdentifier, formatIdentifierMissingMessage } = await import('@/lib/operatorActions')
+        const { approveAndActivateProduct } = await import('@/lib/publishDesk')
+        const { parseBatchIdentifiers, isBatch, runBatch, formatBatchSummary } = await import('@/lib/operatorBatch')
+
+        // Batch path — comma-separated identifiers
+        const idents = parseBatchIdentifiers(arg)
+        if (isBatch(idents)) {
+          const r = await runBatch(payload, '/activate', idents, async (ctx) => {
+            const out = await approveAndActivateProduct(payload, ctx.productId, 'telegram_command', 'activate')
+            const tag = ctx.sn ?? `ID:${ctx.productId}`
+            if (!out.ok) {
+              return { ok: false, badge: '⚠️', line: out.summary || `<code>${tag}</code> · engellendi` }
+            }
+            if (out.idempotent) {
+              return { ok: true, badge: '🟰', line: `<code>${tag}</code> · zaten aktif` }
+            }
+            return { ok: true, badge: '🚀', line: out.summary || `<code>${tag}</code> · aktive edildi` }
+          })
+          await sendTelegramMessage(chatId, formatBatchSummary(r))
+          return NextResponse.json({ ok: true })
+        }
+
+        // ── Single-id path ────────────────────────────────────────────────
         const resolved = await resolveProductIdentifier(payload, arg)
         if (!resolved) {
           await sendTelegramMessage(chatId, formatIdentifierMissingMessage(arg))
           return NextResponse.json({ ok: true })
         }
-        productId = resolved.productId as number
-      } catch {
-        const fallback = parseInt(arg, 10)
-        if (Number.isNaN(fallback)) {
-          await sendTelegramMessage(chatId, '⚠️ Geçersiz ürün ID.')
-          return NextResponse.json({ ok: true })
-        }
-        productId = fallback
-      }
-
-      try {
-        const product = await payload.findByID({ collection: 'products', id: productId, depth: 1 })
-        if (!product) {
-          await sendTelegramMessage(chatId, `❌ Ürün #${productId} bulunamadı.`)
-          return NextResponse.json({ ok: true })
-        }
-
-        // Guard: already active
-        if ((product as any).status === 'active') {
-          await sendTelegramMessage(chatId, `✅ Ürün #${productId} zaten aktif. Tekrar dispatch için /redispatch &lt;kanal&gt; ${productId} kullanın.`)
-          return NextResponse.json({ ok: true })
-        }
-
-        // Guard: check publish readiness (all 6 dimensions)
-        const { evaluatePublishReadiness, formatReadinessMessage } = await import('@/lib/publishReadiness')
-        const readiness = evaluatePublishReadiness(product as any)
-
-        if (readiness.level !== 'ready') {
-          await sendTelegramMessage(
-            chatId,
-            `⚠️ <b>Aktivasyon engellendi — Ürün #${productId}</b>\n\n` +
-              `Publish readiness: ${readiness.passedCount}/${readiness.totalCount}\n` +
-              `Tüm boyutların (6/6) sağlanması gerekiyor.\n\n` +
-              `<b>Engelleyenler:</b>\n` +
-              readiness.blockers.map(b => `❌ ${b}`).join('\n') +
-              `\n\n/pipeline ${productId} — Detaylı durum`,
-          )
-          return NextResponse.json({ ok: true })
-        }
-
-        // All checks passed — activate
-        await sendTelegramMessage(
-          chatId,
-          `🚀 <b>Aktivasyon başlatılıyor — Ürün #${productId}</b>\n` +
-            `${(product as any).title ?? 'Untitled'}\n` +
-            `Readiness: ${readiness.passedCount}/${readiness.totalCount} ✅`,
-        )
-
-        // Calculate merchandising dates
-        const { calculateNewWindow } = await import('@/lib/merchandising')
-        const { publishedAt, newUntil } = calculateNewWindow()
-
-        // Activate via payload.update — this triggers the afterChange hook
-        // which handles channel dispatch, Shopier sync, story dispatch, etc.
-        await payload.update({
-          collection: 'products',
-          id: productId,
-          data: {
-            status: 'active',
-            workflow: {
-              ...((product as any).workflow ?? {}),
-              workflowStatus: 'active',
-              publishStatus: 'published',
-              lastHandledByBot: 'uygunops',
-            },
-            merchandising: {
-              ...((product as any).merchandising ?? {}),
-              publishedAt,
-              newUntil,
-            },
-          },
-        })
-
-        // Emit BotEvent
-        await payload.create({
-          collection: 'bot-events',
-          data: {
-            eventType: 'product.activated',
-            product: productId,
-            sourceBot: 'uygunops',
-            status: 'processed',
-            payload: {
-              previousStatus: (product as any).status,
-              activatedAt: new Date().toISOString(),
-              publishedAt,
-              newUntil,
-              readinessScore: `${readiness.passedCount}/${readiness.totalCount}`,
-            },
-            notes: `Product ${productId} activated via Telegram /activate command. Status: draft→active. Website publish + merchandising dates set.`,
-            processedAt: new Date().toISOString(),
-          },
-        })
-
-        await sendTelegramMessage(
-          chatId,
-          `✅ <b>Ürün #${productId} AKTİF!</b>\n\n` +
-            `🟢 status = active\n` +
-            `📅 publishedAt = ${publishedAt.split('T')[0]}\n` +
-            `📅 newUntil = ${newUntil.split('T')[0]} (Yeni bölümünde görünecek)\n` +
-            `🔄 Kanal dispatch tetiklendi (afterChange hook)\n\n` +
-            `/pipeline ${productId} — Pipeline durumu\n` +
-            `/merch status ${productId} — Merchandising durumu`,
-        )
+        const out = await approveAndActivateProduct(payload, resolved.productId, 'telegram_command', 'activate')
+        await sendTelegramMessage(chatId, out.message)
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err)
+        console.error(`[telegram/activate D-239] arg=${arg} error:`, msg)
         await sendTelegramMessage(chatId, `❌ Aktivasyon hatası: ${msg}`)
       }
       return NextResponse.json({ ok: true })
@@ -4968,99 +4822,42 @@ export async function POST(req: NextRequest) {
       if (!idArg) {
         await sendTelegramMessage(
           chatId,
-          '✅ <b>/approvepublish &lt;sn-or-id&gt;</b>\n\n' +
+          '✅ <b>/approvepublish &lt;sn-or-id[,sn,sn]&gt;</b>\n\n' +
             'Operatörün açık yayın onayını kaydeder ve aktive eder.\n\n' +
-            '<code>/approvepublish SN0186</code> veya <code>/approvepublish 312</code>\n\n' +
-            '<i>Audit trail için ek bir publish.approved bot-event yazılır, sonra /activate çalıştırılır.</i>',
+            'Tek ürün: <code>/approvepublish SN0186</code>\n' +
+            'Toplu: <code>/approvepublish SN0017,SN0022,SN0023</code>\n\n' +
+            '<i>Her ürün için publish.approved bot-event yazılır + readiness=6/6 ise aktive edilir. Hazır olmayanlar engelleyiciyle reddedilir.</i>',
         )
         return NextResponse.json({ ok: true })
       }
       try {
+        const { approveAndActivateProduct } = await import('@/lib/publishDesk')
+        const { parseBatchIdentifiers, isBatch, runBatch, formatBatchSummary } = await import('@/lib/operatorBatch')
+        const idents = parseBatchIdentifiers(idArg)
+
+        if (isBatch(idents)) {
+          const r = await runBatch(payload, '/approvepublish', idents, async (ctx) => {
+            const out = await approveAndActivateProduct(payload, ctx.productId, 'telegram_command', 'approvepublish')
+            if (out.idempotent) return { ok: true, badge: '🟰', line: out.summary }
+            if (!out.ok) return { ok: false, badge: '⚠️', line: out.summary }
+            return { ok: true, badge: '🚀', line: out.summary }
+          })
+          await sendTelegramMessage(chatId, formatBatchSummary(r))
+          return NextResponse.json({ ok: true })
+        }
+
+        // Single-id path
         const { resolveProductIdentifier, formatIdentifierMissingMessage } = await import('@/lib/operatorActions')
-        const { recordPublishDecision } = await import('@/lib/publishDesk')
         const resolved = await resolveProductIdentifier(payload, idArg)
         if (!resolved) {
           await sendTelegramMessage(chatId, formatIdentifierMissingMessage(idArg))
           return NextResponse.json({ ok: true })
         }
-        // 1. Emit publish.approved bot-event (audit trail)
-        const decision = await recordPublishDecision(payload, resolved.productId, 'approved', 'telegram_command')
-        await sendTelegramMessage(chatId, decision.message)
-        // 2. Delegate to existing /activate flow by re-injecting the command. The
-        // existing handler does the readiness check + state transition + dispatch.
-        // Smallest path: rewrite `text` and let the loop below pick it up. But we're
-        // already past the /activate handler in route.ts source order — so we
-        // call the same logic here inline. Reuse evaluatePublishReadiness +
-        // payload.update + bot-event emission.
-        const product = await payload.findByID({ collection: 'products', id: resolved.productId, depth: 1 })
-        if ((product as any).status === 'active') {
-          await sendTelegramMessage(chatId, `✅ Ürün ${resolved.sn ?? resolved.productId} zaten aktif. Yeniden dispatch için /redispatch kullanın.`)
-          return NextResponse.json({ ok: true })
-        }
-        const { evaluatePublishReadiness } = await import('@/lib/publishReadiness')
-        const readiness = evaluatePublishReadiness(product as any)
-        if (readiness.level !== 'ready') {
-          await sendTelegramMessage(
-            chatId,
-            `⚠️ <b>Aktivasyon engellendi</b>\n\n` +
-              `Publish readiness: ${readiness.passedCount}/${readiness.totalCount}\n\n` +
-              `<b>Engelleyenler:</b>\n` +
-              readiness.blockers.map((b) => `❌ ${b}`).join('\n') +
-              `\n\n<i>publish.approved kaydedildi ama aktivasyon henüz mümkün değil. Eksikler tamamlanınca /activate ${resolved.sn ?? resolved.productId} ile devam edin.</i>`,
-          )
-          return NextResponse.json({ ok: true })
-        }
-        // Reuse the same activate path the /activate handler uses
-        const { calculateNewWindow } = await import('@/lib/merchandising')
-        const { publishedAt, newUntil } = calculateNewWindow()
-        await payload.update({
-          collection: 'products',
-          id: resolved.productId,
-          data: {
-            status: 'active',
-            workflow: {
-              ...((product as any).workflow ?? {}),
-              workflowStatus: 'active',
-              publishStatus: 'published',
-              lastHandledByBot: 'uygunops',
-            },
-            merchandising: {
-              ...((product as any).merchandising ?? {}),
-              publishedAt,
-              newUntil,
-            },
-          },
-        })
-        await payload.create({
-          collection: 'bot-events',
-          data: {
-            eventType: 'product.activated',
-            product: resolved.productId,
-            sourceBot: 'uygunops',
-            status: 'processed',
-            payload: {
-              previousStatus: (product as any).status,
-              activatedAt: new Date().toISOString(),
-              publishedAt,
-              newUntil,
-              readinessScore: `${readiness.passedCount}/${readiness.totalCount}`,
-              triggeredBy: 'approvepublish',
-            },
-            notes: `Product ${resolved.productId} activated via /approvepublish. status: draft→active.`,
-            processedAt: new Date().toISOString(),
-          },
-        })
-        await sendTelegramMessage(
-          chatId,
-          `🚀 <b>${resolved.sn ?? resolved.productId} AKTİF!</b>\n\n` +
-            `🟢 status = active\n` +
-            `📅 publishedAt = ${publishedAt.split('T')[0]}\n` +
-            `📅 newUntil = ${newUntil.split('T')[0]}\n` +
-            `🔄 Kanal dispatch tetiklendi (afterChange hook)`,
-        )
+        const out = await approveAndActivateProduct(payload, resolved.productId, 'telegram_command', 'approvepublish')
+        await sendTelegramMessage(chatId, out.message)
       } catch (err) {
         const m = err instanceof Error ? err.message : String(err)
-        console.error(`[telegram/approvepublish D-237] error:`, m)
+        console.error(`[telegram/approvepublish D-237/D-239] error:`, m)
         await sendTelegramMessage(chatId, `❌ Hata: ${m}`)
       }
       return NextResponse.json({ ok: true })
@@ -5072,9 +4869,10 @@ export async function POST(req: NextRequest) {
       if (!idArg) {
         await sendTelegramMessage(
           chatId,
-          '🚫 <b>/rejectpublish &lt;sn-or-id&gt;</b>\n\n' +
+          '🚫 <b>/rejectpublish &lt;sn-or-id[,sn,sn]&gt;</b>\n\n' +
             'Yayın reddini operatör adına kaydeder.\n\n' +
-            '<code>/rejectpublish SN0186</code>\n\n' +
+            'Tek ürün: <code>/rejectpublish SN0186</code>\n' +
+            'Toplu: <code>/rejectpublish SN0017,SN0022,SN0023</code>\n\n' +
             '<i>Ürün durumu değişmez. publish.rejected bot-event yazılır. Publish Desk listesinden 30 gün gizlenir.</i>',
         )
         return NextResponse.json({ ok: true })
@@ -5082,6 +4880,25 @@ export async function POST(req: NextRequest) {
       try {
         const { resolveProductIdentifier, formatIdentifierMissingMessage } = await import('@/lib/operatorActions')
         const { recordPublishDecision } = await import('@/lib/publishDesk')
+
+        // D-239: batch mode — comma-separated ids route through runBatch.
+        const { parseBatchIdentifiers, isBatch, runBatch, formatBatchSummary } = await import('@/lib/operatorBatch')
+        const idents = parseBatchIdentifiers(idArg)
+        if (isBatch(idents)) {
+          const r = await runBatch(payload, '/rejectpublish', idents, async (ctx) => {
+            const out = await recordPublishDecision(payload, ctx.productId, 'rejected', 'telegram_command')
+            const tag = ctx.sn ?? `ID:${ctx.productId}`
+            return {
+              ok: out.ok,
+              badge: out.ok ? '🚫' : '⚠️',
+              line: `<code>${tag}</code> · ${out.ok ? 'reddedildi (kayıt)' : 'kaydedilemedi'}`,
+            }
+          })
+          await sendTelegramMessage(chatId, formatBatchSummary(r))
+          return NextResponse.json({ ok: true })
+        }
+
+        // ── Single-id path (unchanged behaviour) ─────────────────────────
         const resolved = await resolveProductIdentifier(payload, idArg)
         if (!resolved) {
           await sendTelegramMessage(chatId, formatIdentifierMissingMessage(idArg))
@@ -5091,7 +4908,7 @@ export async function POST(req: NextRequest) {
         await sendTelegramMessage(chatId, r.message)
       } catch (err) {
         const m = err instanceof Error ? err.message : String(err)
-        console.error(`[telegram/rejectpublish D-237] error:`, m)
+        console.error(`[telegram/rejectpublish D-237/D-239] error:`, m)
         await sendTelegramMessage(chatId, `❌ Hata: ${m}`)
       }
       return NextResponse.json({ ok: true })
@@ -5200,6 +5017,85 @@ export async function POST(req: NextRequest) {
             formatOperatorCard,
             formatIdentifierMissingMessage,
           } = await import('@/lib/operatorActions')
+
+          // D-239: detect batch input (comma-separated). When the operator
+          // passes >1 identifier, route through the shared batch runner.
+          // Single-id path stays unchanged below.
+          const { parseBatchIdentifiers, isBatch, runBatch, formatBatchSummary } = await import('@/lib/operatorBatch')
+          const idents = parseBatchIdentifiers(idArg)
+          if (isBatch(idents)) {
+            // /find is read-only and renders one full card per item — that's
+            // chatty in batch mode. Refuse politely and point at /sn.
+            if (cmd === '/find') {
+              await sendTelegramMessage(
+                chatId,
+                '⚠️ <code>/find</code> toplu modda desteklenmiyor (her ürün için ayrı kart üretir). Tek ürün için <code>/find SN0186</code> kullanın.',
+              )
+              return NextResponse.json({ ok: true })
+            }
+
+            // /restock batch needs the qty as the next positional arg
+            if (cmd === '/restock') {
+              const qty = parseInt(extraArg ?? '', 10)
+              if (!Number.isFinite(qty) || qty < 1) {
+                await sendTelegramMessage(
+                  chatId,
+                  `❌ Toplu /restock için geçerli stok adedi gerekli.\n` +
+                    `Kullanım: <code>/restock SN1,SN2,SN3 10</code>`,
+                )
+                return NextResponse.json({ ok: true })
+              }
+              const r = await runBatch(payload, '/restock', idents, async (ctx) => {
+                const out = await applyOperatorAction(payload, ctx.productId, 'restock', {
+                  restockQty: qty,
+                  source: 'telegram_command',
+                })
+                const tag = ctx.sn ?? `ID:${ctx.productId}`
+                if (!out.ok) return { ok: false, badge: '⚠️', line: `<code>${tag}</code> · ${out.refusalReason ?? 'reddedildi'}` }
+                if (out.idempotent) return { ok: true, badge: '🟰', line: `<code>${tag}</code> · zaten ${qty} adet aktif` }
+                return { ok: true, badge: '✅', line: `<code>${tag}</code> · stok ${qty} ayarlandı, aktif` }
+              })
+              await sendTelegramMessage(chatId, formatBatchSummary(r))
+              return NextResponse.json({ ok: true })
+            }
+
+            // Other state-write commands
+            const cmdToAction: Record<string, 'soldout' | 'oneleft' | 'twoleft' | 'stopsale' | 'restartsale'> = {
+              '/soldout': 'soldout',
+              '/oneleft': 'oneleft',
+              '/twoleft': 'twoleft',
+              '/stopsale': 'stopsale',
+              '/restartsale': 'restartsale',
+            }
+            const action = cmdToAction[cmd]
+            if (!action) {
+              await sendTelegramMessage(chatId, `❌ Toplu mod desteği yok: ${cmd}`)
+              return NextResponse.json({ ok: true })
+            }
+            const r = await runBatch(payload, cmd, idents, async (ctx) => {
+              const out = await applyOperatorAction(payload, ctx.productId, action, {
+                source: 'telegram_command',
+              })
+              const tag = ctx.sn ?? `ID:${ctx.productId}`
+              if (!out.ok) {
+                return { ok: false, badge: '⚠️', line: `<code>${tag}</code> · ${out.refusalReason ?? 'reddedildi'}` }
+              }
+              if (out.idempotent) {
+                return { ok: true, badge: '🟰', line: `<code>${tag}</code> · zaten bu durumda` }
+              }
+              const after = (out.after ?? {}) as Record<string, unknown>
+              const status = String(after.status ?? '—')
+              return {
+                ok: true,
+                badge: '✅',
+                line: `<code>${tag}</code> · ${action} → status=${status}`,
+              }
+            })
+            await sendTelegramMessage(chatId, formatBatchSummary(r))
+            return NextResponse.json({ ok: true })
+          }
+
+          // ── Single-id path (unchanged behaviour) ─────────────────────────
           const resolved = await resolveProductIdentifier(payload, idArg)
           if (!resolved) {
             await sendTelegramMessage(chatId, formatIdentifierMissingMessage(idArg))

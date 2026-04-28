@@ -5109,3 +5109,58 @@ All 4 produce sensible, minimal patches. Idempotent — running once fixes the d
 **Status:** Shipped to `main`. PROD soak validation = operator runs `/repair scan` to confirm the 4-drifted-product report, then `/repair SN0032` (preview) + `/repair SN0032 confirm` (apply), then `/pipeline SN0032` to verify coherence message is now clean.
 
 **Reversible:** yes — new helper file + 1 route.ts command branch + 2 new rules in publishReadiness.ts + 3 small workflowStatus alignment patches in operatorActions.ts.
+
+---
+
+## D-239 — Batch Actions / Bulk Queue Handling v1
+
+**Decision:**
+Add comma-separated multi-target input to the operator command set so bulk queue work doesn't require per-product retyping. Reuse the existing single-item helpers verbatim — no new mutation logic, no parallel state machine. Per-product result reporting; partial failures shown clearly; idempotency preserved end-to-end.
+
+**Surface — commands extended (no new commands):**
+- Approval gate: `/approvepublish <sn1,sn2,sn3>`, `/rejectpublish <sn1,sn2,sn3>`, `/activate <sn1,sn2,sn3>`.
+- State writes: `/soldout`, `/oneleft`, `/twoleft`, `/stopsale`, `/restartsale` accept comma-separated input.
+- Restock: `/restock <sn1,sn2,sn3> <qty>` — qty applies uniformly per item; validated before the per-item loop.
+- `/find` refused in batch mode (one full card per item is too chatty for Telegram).
+
+**New shared layer — `src/lib/operatorBatch.ts` (~210 LOC):**
+- `parseBatchIdentifiers(raw)` — splits on commas, trims, drops empties, dedupes case-insensitively while preserving order. Returns `[]` if nothing usable. Single-token input (no comma) yields a 1-element array → falls through cleanly.
+- `isBatch(idents)` — true when length > 1.
+- `runBatch(payload, command, idents, fn)` — generic per-item executor. Resolves each ident via `resolveProductIdentifier` (D-234, accepts SN/'17'/'SN17'/numeric ID). Catches resolution failures as `notFound`, per-item exceptions as `failed`. Per-item helper return shape: `{ok, badge?, line, detail?}`. Accumulates `{total, succeeded, failed, refused, notFound, entries[]}`. Whole batch never throws.
+- `formatBatchSummary(result)` — Telegram-ready: `🧰 <command> — toplu sonuç (N ürün)` header + filtered stats line + per-entry lines. Capped at 25 lines with `+ N satır daha (kesildi)` overflow.
+
+**Convergence on a single approve-and-activate helper:**
+The legacy inlined `/activate` body (route.ts ~120 LOC) is now factored out into `approveAndActivateProduct(payload, productId, source, triggeredBy)` exported from `src/lib/publishDesk.ts`. Five callers converge on it:
+1. `/approvepublish <sn>` (single)
+2. `/approvepublish <sn1,sn2,...>` (batch)
+3. `/activate <sn>` (single)
+4. `/activate <sn1,sn2,...>` (batch)
+5. Publish Desk inline button `pdesk_act:<id>`
+
+Behaviour identical to the legacy inlined version — refuse-already-active (idempotent=true), emit `publish.approved` audit-trail event, run `evaluatePublishReadiness` (refuse with concrete blockers if !ready), apply activation update (status=active + workflowStatus=active + publishStatus=published + merchandising.publishedAt + newUntil), emit `product.activated` with `triggeredBy` distinguishing the entry point. The helper returns both a single-item `message` (multi-line Telegram message) and a one-line `summary` (used in batch summaries) so callers don't reformat.
+
+**Per-item result mapping (visible to operator):**
+| State | Badge | Counts as |
+|---|---|---|
+| Action succeeded | ✅ / 🚀 / 🚫 (action-specific) | `succeeded` |
+| Already in target state | 🟰 | `succeeded` (idempotent) |
+| Refused by guard (readiness, not active, etc.) | ⚠️ | `refused` |
+| Resolution failed | ❓ | `notFound` |
+| Per-item exception thrown | ❌ | `failed` |
+
+**Idempotency.** Every underlying helper used by the batch path (`applyOperatorAction`, `recordPublishDecision`, `approveAndActivateProduct`) was already idempotent. Running the same batch twice produces `🟰 zaten ...` for items that already reached the target state — no double bot-events, no double dispatches.
+
+**Sequential not parallel.** Items execute sequentially inside `runBatch`. Reasons: (1) failures stay isolated and don't cancel siblings; (2) audit-event ordering per product stays deterministic; (3) no contention on `payload.update` for the same product.
+
+**Out of scope (v1):**
+- Parallelism across batch items (sequential is fine at typical operator bulk sizes; can revisit if a real bottleneck emerges).
+- Cross-channel batch redispatch — `/redispatch` stays single-target (one channel, one product) per D-235.
+- Auto-retries on per-item failures — operator decides to retry only the failed subset.
+- Mixed-action batches (e.g. soldout some + restock others in one call) — keeps the per-item helper signature simple.
+- `/repair` batch (D-238) — repair stays explicit and per-product to avoid silent mass scrubbing.
+
+**Risk class:** low. Additive — new file (`operatorBatch.ts`) + new export (`approveAndActivateProduct`) + thin batch-detection wrapper at the top of each command's existing single-id path. Single-id path unchanged below the wrapper. No schema change. No new state. Reversible via single-commit revert.
+
+**Status:** Shipped to `main`. Soak validation = operator runs a small batch (3 SNs) for `/approvepublish` or `/soldout`, verifies per-product result lines, then runs the same batch again to confirm idempotency badge (`🟰`). Single-item commands continue to work exactly as before.
+
+**Reversible:** yes — new helper file + new helper export + one batch-detection branch per command (3 commands) + the unified D-234 state-write block.

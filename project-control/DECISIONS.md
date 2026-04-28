@@ -4832,3 +4832,41 @@ Lock D-227 → D-231 as the **stable production baseline** for the PI Bot → Ge
 - Silent failures must surface visible events / diagnostics. Apply this to every step that can quietly drop output (parseGeminiJson, vision call, autofill, commerce-pack generation). Use bot-events or one-line Telegram diagnostics.
 
 **Status:** LOCKED 2026-04-28.
+
+---
+
+## D-234 — Operator Pack v1 (Telegram-first stock/state operations)
+
+**Decision:**
+Make Telegram the practical daily control surface for stock/state ops. Extract a single shared helper module `src/lib/operatorActions.ts` that owns identifier resolution + the 6 operator actions, refactor the 3 previously-duplicated case-switches in `route.ts` to delegate to it, and add 7 slash-command aliases for the existing inline-button surface.
+
+**Surface (after D-234):**
+- Read-only: `/find <sn-or-id>`, `/pipeline <sn-or-id>` (now SN-or-ID, was ID-only), `/stok <sn-or-id>` (now SN-or-ID, was ID-only).
+- State writes: `/soldout`, `/oneleft`, `/twoleft`, `/restock <sn-or-id> <qty>`, `/stopsale`, `/restartsale`. All accept SN or numeric ID.
+- Inline buttons: 🔴 Tükendi · ⚠️ Son 1 Adet · ⚠️ Son 2 Adet · ⏸️ Durdur · ▶️ Aç · 📦 Stok — every button now goes through the same `applyOperatorAction()` helper as the slash commands.
+
+**Behaviour rules (variant-aware, smallest correct):**
+- `soldout`: variants → zero every variant.stock then status='soldout'. Non-variant → stockQuantity=0 + status='soldout'. Idempotent if already soldout AND effective stock 0.
+- `oneleft`/`twoleft`: REFUSED on variant products (per-size truth requires per-size update via `/sn ... stok N` or admin). Non-variant → stockQuantity=1/2 + status='active' + sellable=true.
+- `stopsale`: workflow.sellable=false; PRESERVES status (does not clobber soldout → draft, which the previous handler did).
+- `restartsale`: REFUSED if effective stock <= 0 (operator told to `/restock` first). Otherwise status='active' + sellable=true.
+- `restock <qty>`: REFUSED on variant products. Non-variant → stockQuantity=qty (>=1) + status='active' + sellable=true.
+- All actions cascade through `reactToStockChange` (single shared path). Idempotency is checked BEFORE the update — if every write target already holds the would-be value, the helper short-circuits with `idempotent:true` and skips both the update and the bot-event emit. Repeated button presses do not corrupt state and do not spam events.
+
+**Identifier resolution rules:**
+- `SN0186` → exact `stockNumber` match.
+- `186` → padded to `SN0186`, retried as numeric ID if SN miss.
+- All operator commands accept either form. The shared `resolveProductIdentifier()` is the single source.
+
+**Scope:**
+- New file: `src/lib/operatorActions.ts` (~440 LOC). Exports: `resolveProductIdentifier`, `applyOperatorAction`, `formatOperatorCard`, `operatorButtonsKeyboard`, `formatIdentifierMissingMessage`, types.
+- `src/app/api/telegram/route.ts`: refactored 3 duplicated paths (sn_* button callback, /sn sub-actions, /stok and /pipeline ID-only inputs) to use the shared helper. Added 7 new slash commands. Registered them in SHARED_CMDS so they pass the bot-ownership filter on both Uygunops and GeoBot.
+- No schema change. No new collection. No new env var.
+
+**Status:** Shipped to `main` 2026-04-28. PROD soak validation pending — operator to send a small set of touch-tests against SN0032 (or any current SN) covering /find, /pipeline, /stok, all six button presses, and one repeat-press for idempotency.
+
+**Reversible:** yes — single new file + a localized rewrite of 3 handler blocks + 1 shared-cmd-list extension. `git revert` is clean.
+
+**Out of scope:**
+- Per-size variant editing from Telegram (still admin-panel or `/sn ... stok N` for total override). New scope = new D-number.
+- Auto-publish behaviour. External publishing still requires explicit human approval.

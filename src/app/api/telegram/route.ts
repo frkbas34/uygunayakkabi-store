@@ -4893,16 +4893,46 @@ export async function POST(req: NextRequest) {
     }
 
     // ── D-236: /inbox + sub-commands — read-only operator queue ───────────
+    // D-242: /inbox leads added — concise lead bucket with per-lead action
+    //        cards reusing leadButtonsKeyboard (D-241).
     if (text.trim().toLowerCase().startsWith('/inbox')) {
       const parts = text.trim().split(/\s+/)
       const sub = (parts[1] || '').toLowerCase()
       try {
         const {
           getInboxOverview, getInboxPending, getInboxPublish,
-          getInboxStock, getInboxFailed, getInboxToday,
+          getInboxStock, getInboxFailed, getInboxToday, getInboxLeads,
           formatInboxOverview, formatInboxPending, formatInboxPublish,
           formatInboxStock, formatInboxFailed, formatInboxToday,
+          formatInboxLeadsHeader,
         } = await import('@/lib/operatorInbox')
+
+        // D-242: /inbox leads — needs streaming render (header + per-lead
+        // cards with keyboards), so handle it before the single-message
+        // switch below.
+        if (sub === 'leads' || sub === 'lead' || sub === 'müşteri' || sub === 'musteri') {
+          const d = await getInboxLeads(payload)
+          await sendTelegramMessage(chatId, formatInboxLeadsHeader(d))
+          if (d.totalOpen > 0) {
+            const { formatLeadLine, leadButtonsKeyboard } = await import('@/lib/leadDesk')
+            // Cap to top 5 to keep /inbox concise — overflow points at /leads.
+            const display = d.topItems.slice(0, 5)
+            for (const l of display) {
+              await sendTelegramMessageWithKeyboard(
+                chatId,
+                formatLeadLine(l),
+                leadButtonsKeyboard(l.id),
+              )
+            }
+            if (d.topItems.length > display.length || d.totalOpen > display.length) {
+              await sendTelegramMessage(
+                chatId,
+                `<i>+ ${d.totalOpen - display.length} daha — tüm liste için /leads</i>`,
+              )
+            }
+          }
+          return NextResponse.json({ ok: true })
+        }
 
         let msg: string
         switch (sub) {
@@ -4938,15 +4968,16 @@ export async function POST(req: NextRequest) {
               `<code>/inbox pending</code> — bekleyen aksiyon (görsel onay, wizard, vs.)\n` +
               `<code>/inbox publish</code> — yayına hazır ürünler\n` +
               `<code>/inbox stock</code> — stok aciliyeti (tükenmiş, az kaldı)\n` +
+              `<code>/inbox leads</code> — açık müşteri leadleri (kart + aksiyon düğmeleri)\n` +
               `<code>/inbox failed</code> — hata kuyruğu (içerik, audit, Shopier, son 24sa olaylar)\n` +
               `<code>/inbox today</code> — bugünkü operasyonel görüntü\n\n` +
-              `<i>Hepsi salt-okunur. Aksiyon için /find /soldout /restock /redispatch vb. kullanın.</i>`
+              `<i>Hepsi salt-okunur. Aksiyon için /find /soldout /restock /redispatch /contacted /won vb. kullanın.</i>`
             break
         }
         await sendTelegramMessage(chatId, msg)
       } catch (err) {
         const m = err instanceof Error ? err.message : String(err)
-        console.error(`[telegram/inbox D-236] sub=${sub} error:`, m)
+        console.error(`[telegram/inbox D-236/D-242] sub=${sub} error:`, m)
         await sendTelegramMessage(chatId, `❌ Inbox hatası: ${m}`)
       }
       return NextResponse.json({ ok: true })

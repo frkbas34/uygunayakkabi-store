@@ -269,18 +269,60 @@ export async function getInboxToday(payload: any): Promise<{
   }
 }
 
+/**
+ * D-242: Lead bucket — wraps the existing D-241 getOpenLeads so the inbox
+ * has the same source of truth as /leads. No new query, no parallel rules.
+ *
+ * `staleDays` (default 3) marks contacted/follow_up leads whose
+ * lastContactedAt (or createdAt for never-contacted) is older than N days.
+ * Lightweight aging signal — no schema change, computed in-memory.
+ */
+export async function getInboxLeads(
+  payload: any,
+  opts: { staleDays?: number } = {},
+): Promise<{
+  totalOpen: number
+  newCount: number
+  followUpCount: number
+  contactedCount: number
+  staleCount: number
+  staleDays: number
+  topItems: any[] // raw LeadEntry list, capped — formatter renders
+}> {
+  const { getOpenLeads } = await import('./leadDesk')
+  const open = await getOpenLeads(payload)
+  const staleDays = opts.staleDays ?? 3
+  const staleCutoff = Date.now() - staleDays * 24 * 60 * 60 * 1000
+  const staleCount = open.items.reduce((acc, l) => {
+    if (l.status !== 'contacted' && l.status !== 'follow_up') return acc
+    const ts = l.lastContactedAt ?? l.createdAt
+    return new Date(ts).getTime() < staleCutoff ? acc + 1 : acc
+  }, 0)
+  return {
+    totalOpen: open.totalOpen,
+    newCount: open.counts.new,
+    followUpCount: open.counts.follow_up,
+    contactedCount: open.counts.contacted,
+    staleCount,
+    staleDays,
+    topItems: open.items,
+  }
+}
+
 /** OVERVIEW — small mixed snapshot. */
 export async function getInboxOverview(payload: any): Promise<{
   pending: { visualPreview: number; wizardIncomplete: number }
   publish: { publishReady: number; contentReadyNotActive: number }
   stock: { soldout: number; lowStock: number }
   failed: { contentFailed: number; auditFailed: number; shopierError: number; eventsLast24h: number }
+  leads: { totalOpen: number; newCount: number; followUpCount: number; contactedCount: number; staleCount: number; staleDays: number }
 }> {
-  const [pending, publish, stock, failed] = await Promise.all([
+  const [pending, publish, stock, failed, leads] = await Promise.all([
     getInboxPending(payload),
     getInboxPublish(payload),
     getInboxStock(payload),
     getInboxFailed(payload),
+    getInboxLeads(payload),
   ])
   return {
     pending: {
@@ -300,6 +342,14 @@ export async function getInboxOverview(payload: any): Promise<{
       auditFailed: failed.auditFailed.totalDocs,
       shopierError: failed.shopierError.totalDocs,
       eventsLast24h: failed.recentEvents.totalDocs,
+    },
+    leads: {
+      totalOpen: leads.totalOpen,
+      newCount: leads.newCount,
+      followUpCount: leads.followUpCount,
+      contactedCount: leads.contactedCount,
+      staleCount: leads.staleCount,
+      staleDays: leads.staleDays,
     },
   }
 }
@@ -323,7 +373,8 @@ export function formatInboxOverview(o: Awaited<ReturnType<typeof getInboxOvervie
     o.pending.visualPreview + o.pending.wizardIncomplete +
     o.publish.publishReady + o.publish.contentReadyNotActive +
     o.stock.soldout + o.stock.lowStock +
-    o.failed.contentFailed + o.failed.auditFailed + o.failed.shopierError
+    o.failed.contentFailed + o.failed.auditFailed + o.failed.shopierError +
+    o.leads.totalOpen
   const lines: string[] = [
     `📋 <b>Operator Inbox</b>`,
     ``,
@@ -339,18 +390,57 @@ export function formatInboxOverview(o: Awaited<ReturnType<typeof getInboxOvervie
     `  • Tükenmiş: ${o.stock.soldout}`,
     `  • Az kaldı: ${o.stock.lowStock}`,
     ``,
+    // D-242: Lead bucket — same source of truth as /leads (D-241 getOpenLeads)
+    `<b>📬 Lead</b>: ${o.leads.totalOpen}`,
+    `  • Yeni: ${o.leads.newCount}`,
+    `  • Takip: ${o.leads.followUpCount}`,
+    `  • Arandı (açık): ${o.leads.contactedCount}`,
+    ...(o.leads.staleCount > 0
+      ? [`  • ⏰ Bayat (${o.leads.staleDays}+ gün): ${o.leads.staleCount}`]
+      : []),
+    ``,
     `<b>❌ Hatalar</b>: ${o.failed.contentFailed + o.failed.auditFailed + o.failed.shopierError}`,
     `  • İçerik üretimi başarısız: ${o.failed.contentFailed}`,
     `  • Audit fail / revizyon: ${o.failed.auditFailed}`,
     `  • Shopier sync hatası: ${o.failed.shopierError}`,
     `  • Son 24sa hata olayları: ${o.failed.eventsLast24h}`,
     ``,
-    `<i>Detay: /inbox pending · /inbox publish · /inbox stock · /inbox failed · /inbox today</i>`,
+    `<i>Detay: /inbox pending · /inbox publish · /inbox stock · /inbox leads · /inbox failed · /inbox today</i>`,
   ]
   if (tot === 0) {
     return `📋 <b>Operator Inbox</b>\n\n✅ Aksiyon gerektiren bir şey yok. Temiz.\n\n<i>/inbox today — bugünkü etkinliğe bak</i>`
   }
   return lines.join('\n')
+}
+
+/**
+ * D-242: text body for /inbox leads. The route handler renders each top
+ * item as its own message with the D-241 leadButtonsKeyboard so the
+ * operator can act in-place. This formatter returns just the header /
+ * counts text; the per-lead message stream is built in route.ts using
+ * leadDesk.formatLeadLine + leadButtonsKeyboard.
+ */
+export function formatInboxLeadsHeader(d: Awaited<ReturnType<typeof getInboxLeads>>): string {
+  if (d.totalOpen === 0) {
+    return (
+      `📬 <b>Inbox · Lead</b>\n\n` +
+      `✅ Açık lead yok.\n\n` +
+      `<i>/leads today — bugünkü etkinlik · /lead &lt;id&gt; — detay</i>`
+    )
+  }
+  const summary = [
+    d.newCount > 0 ? `🆕 yeni: <b>${d.newCount}</b>` : null,
+    d.followUpCount > 0 ? `🔁 takip: <b>${d.followUpCount}</b>` : null,
+    d.contactedCount > 0 ? `📞 arandı: <b>${d.contactedCount}</b>` : null,
+    d.staleCount > 0 ? `⏰ bayat (${d.staleDays}+gün): <b>${d.staleCount}</b>` : null,
+  ].filter(Boolean).join(' · ')
+  return [
+    `📬 <b>Inbox · Lead</b> — açık: ${d.totalOpen}`,
+    summary,
+    ``,
+    `<i>Aşağıda en öncelikli leadler kartlar halinde — düğmelerle aksiyon alabilirsiniz.</i>`,
+    `<i>Tüm liste için: /leads</i>`,
+  ].join('\n')
 }
 
 export function formatInboxPending(d: Awaited<ReturnType<typeof getInboxPending>>): string {

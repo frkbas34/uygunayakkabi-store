@@ -198,6 +198,23 @@ export const Orders: CollectionConfig = {
       ],
       admin: { position: 'sidebar' },
     },
+    // ── D-244: Lead Provenance ────────────────────────────────
+    // Linked when this order was created via /convert <lead-id> from
+    // the Lead Desk (D-241). Optional — leaves direct-website orders
+    // untouched. Neon DDL required (push:true silently skips, see
+    // feedback_push_true_drift.md):
+    //   ALTER TABLE orders ADD COLUMN IF NOT EXISTS related_inquiry_id
+    //     integer REFERENCES customer_inquiries(id) ON DELETE SET NULL;
+    {
+      name: 'relatedInquiry',
+      type: 'relationship',
+      relationTo: 'customer-inquiries',
+      label: 'İlgili Lead',
+      admin: {
+        position: 'sidebar',
+        description: 'Lead Desk üzerinden /convert ile oluşturulan siparişler için',
+      },
+    },
     // ── Shopier Entegrasyonu ──────────────────────────────────
     {
       name: 'shopierOrderId',

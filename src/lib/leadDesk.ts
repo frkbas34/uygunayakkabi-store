@@ -345,6 +345,13 @@ export async function applyLeadStatus(
   }
 
   const emoji = statusEmoji(toStatus)
+  // D-244: when the lead transitions to closed_won, nudge the operator to
+  // record the actual sale via /convert. Avoids the half-state warning the
+  // D-244 spec calls out — operator always knows the next step.
+  const conversionHint =
+    toStatus === 'closed_won'
+      ? `\n💰 <i>Satış kaydetmek için: <code>/convert ${leadId} [tutar] [not...]</code></i>`
+      : ''
   return {
     ok: true,
     idempotent: false,
@@ -354,7 +361,8 @@ export async function applyLeadStatus(
     message:
       `${emoji} <b>Lead #${leadId}</b> · <code>${fromStatus}</code> → <code>${toStatus}</code>\n` +
       (data.lastContactedAt ? `📞 İletişim: ${(data.lastContactedAt as string).split('T')[0]}\n` : '') +
-      (data.handledAt ? `🏁 Kapanış: ${(data.handledAt as string).split('T')[0]}\n` : ''),
+      (data.handledAt ? `🏁 Kapanış: ${(data.handledAt as string).split('T')[0]}\n` : '') +
+      conversionHint,
     summary: `<code>L${leadId}</code> · ${fromStatus} → ${toStatus}`,
   }
 }
@@ -698,7 +706,361 @@ export function formatDailyLeadSummary(d: Awaited<ReturnType<typeof getDailyLead
     ``,
     `<b>Açık Toplam</b>: ${d.totalOpen}` + (d.totalStale > 0 ? ` · ⏰ Bayat (${d.staleDays}+gün): <b>${d.totalStale}</b>` : ''),
     ``,
-    `<i>/leads · /leadreminders · /inbox leads</i>`,
+    `<i>/leads · /leadreminders · /inbox leads · /sales today</i>`,
   ]
+  return lines.join('\n')
+}
+
+// ── D-244: Lead → Sale conversion logging ───────────────────────────────────
+
+export interface ConversionRecord {
+  orderId: number | string
+  orderNumber: string
+  leadId: number | string
+  customerName: string
+  customerPhone: string
+  productId?: number | null
+  productSn?: string | null
+  productTitle?: string | null
+  size?: string | null
+  totalPrice?: number | null
+  paymentMethod?: string | null
+  notes?: string | null
+  status: string
+  source: string
+  createdAt: string
+}
+
+export interface ConvertLeadResult {
+  ok: boolean
+  idempotent: boolean
+  leadId: number | string
+  conversion?: ConversionRecord
+  refusalReason?: 'lead_not_found' | 'already_converted'
+  message: string
+}
+
+/**
+ * pg returns `numeric` columns as strings by default, so we defensively
+ * coerce here. Payload usually coerces numbers itself but stays correct
+ * either way.
+ */
+function toNumber(v: unknown): number | null {
+  if (v === null || v === undefined) return null
+  if (typeof v === 'number') return Number.isFinite(v) ? v : null
+  const n = Number(v)
+  return Number.isFinite(n) ? n : null
+}
+
+function normalizeOrder(doc: any, leadId: number | string): ConversionRecord {
+  const product = (() => {
+    if (!doc.product) return { id: null, sn: null, title: null }
+    if (typeof doc.product === 'object') {
+      return {
+        id: doc.product.id ?? null,
+        sn: (doc.product.stockNumber as string) ?? null,
+        title: (doc.product.title as string) ?? null,
+      }
+    }
+    return { id: doc.product as number, sn: null, title: null }
+  })()
+  return {
+    orderId: doc.id,
+    orderNumber: String(doc.orderNumber ?? `ORD-${doc.id}`),
+    leadId,
+    customerName: String(doc.customerName ?? ''),
+    customerPhone: String(doc.customerPhone ?? ''),
+    productId: product.id,
+    productSn: product.sn,
+    productTitle: product.title,
+    size: doc.size ?? null,
+    totalPrice: toNumber(doc.totalPrice),
+    paymentMethod: doc.paymentMethod ?? null,
+    notes: doc.notes ?? null,
+    status: String(doc.status ?? 'new'),
+    source: String(doc.source ?? 'telegram'),
+    createdAt: String(doc.createdAt),
+  }
+}
+
+/**
+ * D-244: Look up the existing conversion (Order) for a lead. Returns null
+ * if no order with relatedInquiry=leadId exists. Used by /conversion and
+ * by the idempotency guard in convertLeadToOrder.
+ */
+export async function getConversionForLead(
+  payload: any,
+  leadId: number | string,
+): Promise<ConversionRecord | null> {
+  try {
+    const r = await payload.find({
+      collection: 'orders',
+      where: { relatedInquiry: { equals: leadId } },
+      limit: 1,
+      depth: 1,
+      sort: '-createdAt',
+    })
+    const doc = (r.docs as any[])[0]
+    if (!doc) return null
+    return normalizeOrder(doc, leadId)
+  } catch {
+    return null
+  }
+}
+
+/**
+ * D-244: Convert a lead to a real Order (manual sale). Smallest correct
+ * path: pre-fills customer + product fields from the lead, links the new
+ * order via relatedInquiry, optionally flips lead status to closed_won.
+ *
+ * Idempotent — if an order already exists for this lead, returns it
+ * without creating a duplicate.
+ *
+ * The order's afterChange hook (Orders.ts) handles stock decrement +
+ * inventory log + stock reaction — we do NOT duplicate that work here.
+ *
+ * Optional inputs:
+ *   - totalPrice: numeric, written if > 0
+ *   - notes: free-form operator note
+ *   - flipLeadToWon: default true; set false if the operator has already
+ *     run /won and just wants the order record
+ */
+export async function convertLeadToOrder(
+  payload: any,
+  leadId: number | string,
+  opts: {
+    totalPrice?: number | null
+    notes?: string | null
+    flipLeadToWon?: boolean
+    source?: 'telegram_command' | 'telegram_button'
+  } = {},
+): Promise<ConvertLeadResult> {
+  const lead = await getLeadById(payload, leadId)
+  if (!lead) {
+    return {
+      ok: false,
+      idempotent: false,
+      leadId,
+      refusalReason: 'lead_not_found',
+      message: `❌ Lead bulunamadı (ID: ${leadId})`,
+    }
+  }
+
+  // Idempotency: existing order for this lead?
+  const existing = await getConversionForLead(payload, leadId)
+  if (existing) {
+    return {
+      ok: true,
+      idempotent: true,
+      leadId,
+      conversion: existing,
+      refusalReason: 'already_converted',
+      message:
+        `🟰 <b>Lead #${leadId}</b> zaten dönüştürülmüş.\n` +
+        `📦 Sipariş: <code>${existing.orderNumber}</code> · ID: ${existing.orderId}\n` +
+        `<i>Detay: /conversion ${leadId}</i>`,
+    }
+  }
+
+  // Build the Order data — minimal but truthful. The afterChange hook
+  // handles stock decrement, so we just write the record.
+  const data: Record<string, unknown> = {
+    customerName: lead.name,
+    customerPhone: lead.phone,
+    product: lead.product?.id ?? undefined,
+    size: lead.size ?? undefined,
+    quantity: 1,
+    status: 'confirmed', // operator confirmed the sale; not auto-shipped
+    source: 'telegram',
+    relatedInquiry: leadId,
+  }
+  if (opts.totalPrice && opts.totalPrice > 0) {
+    data.totalPrice = opts.totalPrice
+  }
+  if (opts.notes && opts.notes.trim().length > 0) {
+    data.notes = opts.notes.trim()
+  }
+
+  let created: any
+  try {
+    created = await payload.create({ collection: 'orders', data })
+  } catch (cErr) {
+    const msg = cErr instanceof Error ? cErr.message : String(cErr)
+    console.error(`[leadDesk D-244] order create failed for lead=${leadId}:`, msg)
+    return {
+      ok: false,
+      idempotent: false,
+      leadId,
+      message: `❌ Sipariş oluşturulamadı: ${msg.slice(0, 120)}`,
+    }
+  }
+
+  const conversion = normalizeOrder(created, leadId)
+
+  // Audit-trail event
+  try {
+    await payload.create({
+      collection: 'bot-events',
+      data: {
+        eventType: 'lead.converted',
+        sourceBot: 'uygunops',
+        status: 'processed',
+        payload: {
+          leadId,
+          orderId: conversion.orderId,
+          orderNumber: conversion.orderNumber,
+          totalPrice: conversion.totalPrice,
+          createdAt: new Date().toISOString(),
+          source: opts.source ?? 'telegram_command',
+        },
+        notes: `Lead ${leadId} converted to order ${conversion.orderNumber}.`,
+        processedAt: new Date().toISOString(),
+      },
+    })
+  } catch {
+    /* non-fatal */
+  }
+
+  // Optional: flip lead to closed_won if not already there. Reuses
+  // applyLeadStatus so the same audit + idempotency apply.
+  if (opts.flipLeadToWon !== false && lead.status !== 'closed_won' && lead.status !== 'completed') {
+    try {
+      await applyLeadStatus(payload, leadId, 'won', opts.source ?? 'telegram_command')
+    } catch (wErr) {
+      // Non-blocking — order is already saved with the lead link
+      console.warn(`[leadDesk D-244] follow-up applyLeadStatus(won) failed for lead=${leadId}:`, wErr instanceof Error ? wErr.message : wErr)
+    }
+  }
+
+  const lines = [
+    `💰 <b>Satış kaydedildi</b>`,
+    `📦 Sipariş: <code>${conversion.orderNumber}</code> · ID: ${conversion.orderId}`,
+    `🆔 Lead: #${leadId} → 🏆 closed_won`,
+    `👤 ${escapeHtml(conversion.customerName)} · 📱 <code>${escapeHtml(conversion.customerPhone)}</code>`,
+  ]
+  if (conversion.productSn || conversion.productTitle) {
+    const ptag = conversion.productSn ?? `ID:${conversion.productId}`
+    lines.push(`🛍️ <code>${ptag}</code>` + (conversion.productTitle ? ` — ${escapeHtml(conversion.productTitle).slice(0, 50)}` : ''))
+  }
+  if (conversion.totalPrice) lines.push(`💵 Tutar: <b>${conversion.totalPrice}</b> ₺`)
+  if (conversion.notes) lines.push(`📝 ${escapeHtml(conversion.notes).slice(0, 200)}`)
+  lines.push(``, `<i>Detay: /conversion ${leadId} · özet: /sales today</i>`)
+
+  return {
+    ok: true,
+    idempotent: false,
+    leadId,
+    conversion,
+    message: lines.join('\n'),
+  }
+}
+
+export function formatConversionCard(c: ConversionRecord | null, leadId: number | string): string {
+  if (!c) {
+    return (
+      `📦 <b>Lead #${leadId}</b> için kayıtlı bir satış yok.\n\n` +
+      `<i>Oluşturmak için: /convert ${leadId} [tutar] [not...]</i>`
+    )
+  }
+  const lines = [
+    `💰 <b>Satış Kaydı</b> · <code>${c.orderNumber}</code>`,
+    ``,
+    `🆔 Lead: #${c.leadId} · Sipariş ID: ${c.orderId}`,
+    `📊 Durum: <code>${c.status}</code> · Kaynak: ${c.source}`,
+    `👤 ${escapeHtml(c.customerName)}`,
+    `📱 <code>${escapeHtml(c.customerPhone)}</code>`,
+  ]
+  if (c.productSn || c.productTitle) {
+    const ptag = c.productSn ?? `ID:${c.productId}`
+    lines.push(`🛍️ <code>${ptag}</code>` + (c.productTitle ? ` — ${escapeHtml(c.productTitle).slice(0, 60)}` : ''))
+  }
+  if (c.size) lines.push(`📐 Beden: ${escapeHtml(c.size)}`)
+  if (c.totalPrice) lines.push(`💵 Tutar: <b>${c.totalPrice}</b> ₺`)
+  if (c.paymentMethod) lines.push(`💳 Ödeme: ${escapeHtml(c.paymentMethod)}`)
+  if (c.notes) lines.push(``, `📝 <i>${escapeHtml(c.notes).slice(0, 280)}</i>`)
+  lines.push(``, `📅 ${fmtDate(c.createdAt)}`)
+  return lines.join('\n')
+}
+
+/**
+ * D-244: Today's sales snapshot. Counts orders created today (any source)
+ * + sums totalPrice (where present). Optionally splits the lead-converted
+ * subset.
+ */
+export async function getSalesToday(
+  payload: any,
+  opts: { topN?: number } = {},
+): Promise<{
+  count: number
+  countFromLeads: number
+  totalRevenue: number
+  recent: ConversionRecord[]
+}> {
+  const todayStart = new Date()
+  todayStart.setUTCHours(0, 0, 0, 0)
+  const sinceISO = todayStart.toISOString()
+  const topN = opts.topN ?? 5
+
+  const r = await payload.find({
+    collection: 'orders',
+    where: { createdAt: { greater_than: sinceISO } },
+    sort: '-createdAt',
+    limit: 100,
+    depth: 1,
+  })
+  const docs = (r.docs as any[])
+  let totalRevenue = 0
+  let countFromLeads = 0
+  const recent: ConversionRecord[] = []
+  for (const o of docs) {
+    const tp = toNumber(o.totalPrice)
+    if (tp !== null) totalRevenue += tp
+    // Accept both Payload-shaped (`relatedInquiry`) and raw-DB-shaped
+    // (`relatedInquiryId`) so this is robust across runtimes.
+    const rel = o.relatedInquiry ?? o.relatedInquiryId
+    const linkedLeadId = (() => {
+      if (!rel) return null
+      if (typeof rel === 'object') return rel.id
+      return rel
+    })()
+    if (linkedLeadId) countFromLeads += 1
+    if (recent.length < topN) {
+      recent.push(normalizeOrder(o, linkedLeadId ?? '—'))
+    }
+  }
+  return {
+    count: docs.length,
+    countFromLeads,
+    totalRevenue,
+    recent,
+  }
+}
+
+export function formatSalesTodaySnapshot(d: Awaited<ReturnType<typeof getSalesToday>>): string {
+  if (d.count === 0) {
+    return `📊 <b>Bugünkü Satışlar</b>\n\n✅ Bugün henüz sipariş yok.\n\n<i>/leads · /leads summary</i>`
+  }
+  const lines = [
+    `📊 <b>Bugünkü Satışlar</b> (UTC günü)`,
+    ``,
+    `📦 Toplam sipariş: <b>${d.count}</b>` +
+      (d.countFromLeads > 0 ? ` (${d.countFromLeads} tanesi lead'den)` : ''),
+    d.totalRevenue > 0 ? `💵 Toplam ciro (kayıtlı): <b>${d.totalRevenue}</b> ₺` : null,
+    ``,
+  ].filter(Boolean) as string[]
+  if (d.recent.length > 0) {
+    lines.push(`<b>Son ${d.recent.length}</b>`)
+    for (const c of d.recent) {
+      const tag = `<code>${c.orderNumber}</code>`
+      const who = escapeHtml(c.customerName).slice(0, 20)
+      const product = c.productSn ? ` · <code>${c.productSn}</code>` : ''
+      const amount = c.totalPrice ? ` · ${c.totalPrice}₺` : ''
+      const leadTag = typeof c.leadId === 'number' ? ` · L#${c.leadId}` : ''
+      lines.push(`  ${tag} · ${who}${product}${amount}${leadTag}`)
+    }
+  }
+  if (d.count > d.recent.length) {
+    lines.push(``, `<i>+ ${d.count - d.recent.length} daha (gizlendi)</i>`)
+  }
   return lines.join('\n')
 }

@@ -2844,6 +2844,8 @@ export async function POST(req: NextRequest) {
         '/leads', '/lead', '/contacted', '/followup', '/won', '/lost', '/spam',
         // D-243 reminders
         '/leadreminders', '/hatirla', '/hatırla',
+        // D-244 conversion logging
+        '/convert', '/conversion', '/sales',
       ]
       // D-220: PI Bot hashtags owned by Uygunops (operator approval is required before GeoBot handoff).
       const OPS_HASHTAGS = ['#gorsel', '#geminipro', '#geohazirla', '#seoara', '#productintel', '#urunzeka']
@@ -5142,6 +5144,109 @@ export async function POST(req: NextRequest) {
           const m = err instanceof Error ? err.message : String(err)
           console.error(`[telegram/leads D-241] error:`, m)
           await sendTelegramMessage(chatId, `❌ Lead Desk hatası: ${m}`)
+        }
+        return NextResponse.json({ ok: true })
+      }
+    }
+
+    // ── D-244: Lead → Sale conversion logging ─────────────────────────────
+    // /convert <lead-id> [amount] [note...]   — record sale (idempotent)
+    // /conversion <lead-id>                   — show conversion record
+    // /sales today                            — today's sales snapshot
+    {
+      const firstWordConv = text.trim().split(/\s+/)[0].replace(/@\w+$/, '').toLowerCase()
+      if (firstWordConv === '/convert') {
+        const parts = text.trim().split(/\s+/)
+        const arg = parts[1]
+        if (!arg) {
+          await sendTelegramMessage(
+            chatId,
+            '💰 <b>/convert &lt;lead-id&gt; [tutar] [not...]</b>\n\n' +
+              'Lead\'i gerçek satışa dönüştürür (Order kaydı).\n' +
+              'Örnek:\n' +
+              '<code>/convert 12</code>\n' +
+              '<code>/convert 12 1500</code>\n' +
+              '<code>/convert 12 1500 Kapıda nakit</code>\n\n' +
+              '<i>Mevcut Order varsa idempotent — yeni kayıt oluşturmaz.</i>',
+          )
+          return NextResponse.json({ ok: true })
+        }
+        const id = parseInt(arg, 10)
+        if (Number.isNaN(id)) {
+          await sendTelegramMessage(chatId, '⚠️ Geçersiz lead ID.')
+          return NextResponse.json({ ok: true })
+        }
+        const amt = parts[2] ? Number(parts[2]) : NaN
+        const totalPrice = Number.isFinite(amt) && amt > 0 ? amt : null
+        const noteParts = totalPrice !== null ? parts.slice(3) : parts.slice(2)
+        const notes = noteParts.length > 0 ? noteParts.join(' ') : null
+        try {
+          const { convertLeadToOrder, leadButtonsKeyboard } = await import('@/lib/leadDesk')
+          const r = await convertLeadToOrder(payload, id, {
+            totalPrice,
+            notes,
+            source: 'telegram_command',
+          })
+          await sendTelegramMessageWithKeyboard(chatId, r.message, leadButtonsKeyboard(id))
+        } catch (err) {
+          const m = err instanceof Error ? err.message : String(err)
+          console.error(`[telegram/convert D-244] id=${id} error:`, m)
+          await sendTelegramMessage(chatId, `❌ Dönüşüm hatası: ${m}`)
+        }
+        return NextResponse.json({ ok: true })
+      }
+
+      if (firstWordConv === '/conversion') {
+        const parts = text.trim().split(/\s+/)
+        const arg = parts[1]
+        if (!arg) {
+          await sendTelegramMessage(
+            chatId,
+            '📦 <b>/conversion &lt;lead-id&gt;</b>\n\n' +
+              'Lead için kayıtlı satışı (Order) gösterir.\n' +
+              'Örnek: <code>/conversion 12</code>\n\n' +
+              '<i>Kayıt yoksa: /convert &lt;lead-id&gt; [tutar] [not...]</i>',
+          )
+          return NextResponse.json({ ok: true })
+        }
+        const id = parseInt(arg, 10)
+        if (Number.isNaN(id)) {
+          await sendTelegramMessage(chatId, '⚠️ Geçersiz lead ID.')
+          return NextResponse.json({ ok: true })
+        }
+        try {
+          const { getConversionForLead, formatConversionCard } = await import('@/lib/leadDesk')
+          const c = await getConversionForLead(payload, id)
+          await sendTelegramMessage(chatId, formatConversionCard(c, id))
+        } catch (err) {
+          const m = err instanceof Error ? err.message : String(err)
+          console.error(`[telegram/conversion D-244] id=${id} error:`, m)
+          await sendTelegramMessage(chatId, `❌ Dönüşüm hatası: ${m}`)
+        }
+        return NextResponse.json({ ok: true })
+      }
+
+      if (firstWordConv === '/sales') {
+        const parts = text.trim().split(/\s+/)
+        const sub = (parts[1] || '').toLowerCase()
+        // Only `today` (or `bugun` / `bugün`) is supported in v1.
+        if (sub && sub !== 'today' && sub !== 'bugun' && sub !== 'bugün') {
+          await sendTelegramMessage(
+            chatId,
+            '📊 <b>/sales today</b>\n\n' +
+              'Bugünkü siparişlerin özetini gösterir.\n' +
+              '<i>Şu an sadece <code>today</code> alt-komutu destekleniyor.</i>',
+          )
+          return NextResponse.json({ ok: true })
+        }
+        try {
+          const { getSalesToday, formatSalesTodaySnapshot } = await import('@/lib/leadDesk')
+          const d = await getSalesToday(payload)
+          await sendTelegramMessage(chatId, formatSalesTodaySnapshot(d))
+        } catch (err) {
+          const m = err instanceof Error ? err.message : String(err)
+          console.error(`[telegram/sales D-244] error:`, m)
+          await sendTelegramMessage(chatId, `❌ Satış özeti hatası: ${m}`)
         }
         return NextResponse.json({ ok: true })
       }

@@ -5468,3 +5468,85 @@ Soak harness committed at `scripts/d243-soak.ts`. Typecheck: zero new errors.
 **Status:** Shipped to `main`. Soak validation passed at the data layer. Operator validation: submit a test inquiry via the storefront form → confirm a `🚨 YENİ LEAD` message arrives with the action buttons. Then `/leadreminders` (with no stale leads, expect empty state) and `/leads summary` (always renders the daily counts).
 
 **Reversible:** yes — additive helpers + 2 new commands + 1 alert dispatch. No schema change.
+
+---
+
+## D-244 — Lead → Sale Conversion Logging v1
+
+**Decision:**
+Add a lightweight conversion-logging layer so a "won" lead becomes a real Order linked back to the originating inquiry. **Reuse the existing Orders collection** (rich schema, existing afterChange hook handles stock + inventory + reaction) — do NOT invent a parallel sales/conversion table. Smallest extension: one additive nullable FK from Orders to customer-inquiries, plus helpers + 3 new Telegram commands. No new architecture, no new bot.
+
+**Reuse vs new — verified decision:**
+- `Orders` collection already exists with truthful semantics: `orderNumber` (auto), `customerName`/`customerPhone`/`customerAddress`, `product`/`size`/`quantity`/`totalPrice`, `status` (new/confirmed/shipped/delivered/cancelled), `source` (website/telegram/phone/instagram/shopier), `paymentMethod`/`isPaid`, `notes`, shipping fields.
+- Orders.afterChange hook already decrements stock, writes inventory log, triggers stock reaction (gated on `source !== 'shopier'` and `!isDispatchUpdate`).
+- The single missing piece was lead provenance — no link from `customer-inquiries` (lead) to `orders` (sale).
+- Conclusion: reuse Orders; add `relatedInquiry` FK; do NOT duplicate stock/inventory writes.
+
+**Schema extension (additive only):**
+- New field `relatedInquiry` on Orders: `relationship` → `customer-inquiries`, optional, sidebar-positioned.
+- Neon DDL applied directly in this session: `ALTER TABLE orders ADD COLUMN IF NOT EXISTS related_inquiry_id integer REFERENCES customer_inquiries(id) ON DELETE SET NULL` (per `feedback_push_true_drift.md` lesson — push:true is unreliable for column adds across cold starts).
+
+**New helpers in `src/lib/leadDesk.ts` (~330 LOC):**
+- `convertLeadToOrder(payload, leadId, opts)` — single source of truth for lead-to-sale.
+  - Pre-fills customer + product + size from the lead (no operator data re-entry).
+  - **Idempotent**: refuses with `already_converted` + returns the existing order if a row with `relatedInquiry=leadId` exists. Repeated `/convert` calls never duplicate.
+  - Optional `totalPrice` (numeric, written if > 0) and `notes` (free-form).
+  - **Default-flips lead to `closed_won`** via `applyLeadStatus(won)` so the desk and the Order stay in sync. Set `flipLeadToWon:false` to skip.
+  - Source set to `'telegram'` so Orders.afterChange runs the proper non-Shopier path (decrement stock + inventory log + stock reaction). Zero duplicate writes.
+  - Emits `lead.converted` bot-event for audit.
+- `getConversionForLead(payload, leadId)` — lookup; returns null if no order linked.
+- `getSalesToday(payload, {topN=5})` — counts today's orders (any source), splits `countFromLeads`, sums `totalRevenue`. Defensive numeric coercion via new `toNumber()` helper handles both Payload-coerced numbers and raw pg `numeric` strings.
+- Formatters: `formatConversionCard` (full Order card or empty-state pointer), `formatSalesTodaySnapshot`.
+- `applyLeadStatus` patched: every `closed_won` transition appends `💰 Satış kaydetmek için: /convert <id> [tutar] [not...]` so `/won`, the inline 🏆 button, and the auto-flip from `convertLeadToOrder` all surface the next step. Resolves the "ambiguous half-state" risk the spec calls out.
+
+**Telegram surface (registered in SHARED_CMDS):**
+| Command | Behaviour |
+|---|---|
+| `/convert <lead-id>` | Smallest path: idempotent, no amount/notes |
+| `/convert <lead-id> 1500` | With amount |
+| `/convert <lead-id> 1500 Kapıda nakit` | With amount + free-form note |
+| `/conversion <lead-id>` | Full Order card or empty-state pointer |
+| `/sales today` (alias: bugun, bugün) | Count + lead-converted split + totalRevenue + last 5 |
+
+Word-boundary matching on `/convert`, `/conversion`, `/sales` so future related commands (`/convertall`, `/conversions`, `/salesweek`, etc.) won't false-match.
+
+**Convergence with prior D-NNs — no parallel rules:**
+| Concept | Defined in | Reused by |
+|---|---|---|
+| Lead status writes | D-241 `applyLeadStatus` | D-244 auto-flip after convert + the `/won` hint |
+| Order create + stock side-effects | Existing Orders.afterChange | D-244 `convertLeadToOrder` |
+| Audit-trail journal | bot-events | D-244 emits `lead.converted` |
+| Operator chat routing | TELEGRAM_CHAT_ID env (D-243) | unchanged — no new alerts |
+
+**Test evidence (against live Neon, 10 assertions all pass):**
+| Check | Result |
+|---|---|
+| Empty-state /conversion render | ✓ |
+| /convert first run: order created, all fields populated, lead flipped to closed_won, audit event written | ✓ |
+| /convert second run: idempotent=true, returns existing order number, no duplicate row | ✓ |
+| Lead status auto-flipped to closed_won post-convert | ✓ |
+| /conversion populated render shows full Order card | ✓ |
+| Missing lead refusal: `lead_not_found` | ✓ |
+| Smallest path (no amount/notes) works | ✓ |
+| /sales today: count=2, fromLeads=2, totalRevenue=1500 (after numeric coercion fix) | ✓ |
+| 2x lead.converted bot-events written | ✓ |
+| `/won` hint includes `/convert <id> [tutar] [not...]` line | ✓ |
+
+Soak harness committed at `scripts/d244-soak.ts`. Typecheck: zero new errors.
+
+**Numeric-coercion bug fix discovered during soak:**
+First soak run reported `fromLeads=0 totalRevenue=0` despite both orders being lead-linked with one priced at 1500. Root cause: pg returns `numeric` columns as strings by default, so `typeof o.totalPrice === 'number'` evaluated false. Fixed by adding `toNumber()` defensive coercion in both `normalizeOrder` and `getSalesToday`. Also extended the relatedInquiry shape detection to accept both `relatedInquiry` (Payload runtime) and `relatedInquiryId` (raw DB) for robustness. Re-soak confirmed correct aggregation.
+
+**Out of scope (v1):**
+- Editing an existing Order's amount via Telegram — operator uses admin if they need to change it. `/convert` is for the initial record; subsequent edits stay in admin.
+- Marking an Order shipped/delivered/cancelled via Telegram — Orders has those statuses but they're admin-driven for v1.
+- Refund / cancellation flow.
+- Multi-product Orders — Order schema already supports one product per row, matching the lead model.
+- `/sales week` / `/sales month` / per-source breakdown — defer until daily volume warrants.
+- Auto-creating Order on `/won` — intentionally separate; operator may not have the price at the moment of /won, and the "convert means $$$ commitment" gesture should stay explicit.
+
+**Risk class:** low. One additive nullable FK + new helpers + 3 new slash commands + 1 line patch to applyLeadStatus message. No mutation of existing Orders fields. No mutation of Orders.afterChange. No schema change beyond the FK. Reusable from existing patterns. Reversible via single-commit revert (FK column stays in Postgres but unused, harmless).
+
+**Status:** Shipped to `main`. Neon DDL applied. Soak passed end-to-end. **Next operator step:** `/convert <some-lead-id>` on a real lead to validate the Telegram-side flow. The Order record will appear in admin with the lead link, stock will decrement via the existing afterChange hook, and `/sales today` should show the running tally.
+
+**Reversible:** yes — additive FK + new helpers + 3 new commands + 1 message-line patch. No schema removal needed if reverted (FK column stays harmless).

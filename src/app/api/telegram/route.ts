@@ -2472,6 +2472,41 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ ok: true })
       }
 
+      // ── D-241: Lead Desk button callbacks ────────────────────────────────
+      // Buttons: ldact:<leadId>:<action>  where action ∈ contacted | followup
+      //          | won | lost | spam. Same code path as the slash commands —
+      //          both converge on applyLeadStatus.
+      if (cbData.startsWith('ldact:')) {
+        const [_, idStr, action] = cbData.split(':')
+        const leadId = parseInt(idStr ?? '', 10)
+        if (Number.isNaN(leadId) || !action) {
+          await answerCallbackQuery(cbQueryId, '❌ Geçersiz lead/aksiyon')
+          return NextResponse.json({ ok: true })
+        }
+        try {
+          const cbPayload = await getPayload()
+          const { applyLeadStatus, leadButtonsKeyboard } = await import('@/lib/leadDesk')
+          const validActions = ['contacted', 'followup', 'won', 'lost', 'spam'] as const
+          if (!(validActions as readonly string[]).includes(action)) {
+            await answerCallbackQuery(cbQueryId, `❌ Bilinmeyen aksiyon: ${action}`)
+            return NextResponse.json({ ok: true })
+          }
+          await answerCallbackQuery(cbQueryId, `⏳ ${action}...`)
+          const r = await applyLeadStatus(
+            cbPayload,
+            leadId,
+            action as 'contacted' | 'followup' | 'won' | 'lost' | 'spam',
+            'telegram_button',
+          )
+          await sendTelegramMessageWithKeyboard(cbChatId, r.message, leadButtonsKeyboard(leadId))
+        } catch (err) {
+          const m = err instanceof Error ? err.message : String(err)
+          console.error(`[telegram/ldact D-241] leadId=${leadId} action=${action} error:`, m)
+          await sendTelegramMessage(cbChatId, `❌ Lead durum hatası: ${m}`)
+        }
+        return NextResponse.json({ ok: true })
+      }
+
       // ── D-235: per-channel redispatch button callbacks ───────────────────
       // Buttons: redis_x / redis_ig / redis_fb / redis_shopier (id at suffix).
       // Maps to operatorActions.triggerChannelRedispatch — same code path as
@@ -2805,6 +2840,8 @@ export async function POST(req: NextRequest) {
         '/publishready', '/approvepublish', '/rejectpublish',
         '/repair',
         '/selection', '/clearselection',
+        // D-241 Lead Desk
+        '/leads', '/lead', '/contacted', '/followup', '/won', '/lost', '/spam',
       ]
       // D-220: PI Bot hashtags owned by Uygunops (operator approval is required before GeoBot handoff).
       const OPS_HASHTAGS = ['#gorsel', '#geminipro', '#geohazirla', '#seoara', '#productintel', '#urunzeka']
@@ -5034,6 +5071,123 @@ export async function POST(req: NextRequest) {
           : `🗑 Seçim zaten boştu.`,
       )
       return NextResponse.json({ ok: true })
+    }
+
+    // ── D-241: Lead Desk / Customer Inquiry Pipeline v1 ───────────────────
+    // /leads               — open leads (new + follow_up + contacted)
+    // /leads today         — today's snapshot
+    // /lead <id>           — detail card with action buttons
+    // /contacted <id>      — mark contacted (sets lastContactedAt)
+    // /followup <id>       — mark follow_up
+    // /won <id>            — mark closed_won  (sets handledAt)
+    // /lost <id>           — mark closed_lost (sets handledAt)
+    // /spam <id>           — mark spam        (sets handledAt)
+    {
+      // D-241: word-boundary command match — accept /leads, /leads@bot, with
+      // an optional sub-arg. Avoids false matches for hypothetical future
+      // /leadsearch / /leadassign commands.
+      const firstWordLeads = text.trim().split(/\s+/)[0].replace(/@\w+$/, '').toLowerCase()
+      if (firstWordLeads === '/leads') {
+        try {
+          const parts = text.trim().split(/\s+/)
+          const sub = (parts[1] ?? '').toLowerCase()
+          const lead = await import('@/lib/leadDesk')
+          if (sub === 'today' || sub === 'bugun' || sub === 'bugün') {
+            const d = await lead.getTodayLeads(payload)
+            await sendTelegramMessage(chatId, lead.formatLeadsToday(d))
+            return NextResponse.json({ ok: true })
+          }
+          const d = await lead.getOpenLeads(payload)
+          await sendTelegramMessage(chatId, lead.formatOpenLeadsList(d))
+        } catch (err) {
+          const m = err instanceof Error ? err.message : String(err)
+          console.error(`[telegram/leads D-241] error:`, m)
+          await sendTelegramMessage(chatId, `❌ Lead Desk hatası: ${m}`)
+        }
+        return NextResponse.json({ ok: true })
+      }
+    }
+
+    {
+      const firstWordLead = text.trim().split(/\s+/)[0].replace(/@\w+$/, '').toLowerCase()
+      if (firstWordLead === '/lead') {
+      const parts = text.trim().split(/\s+/)
+      const arg = parts[1]
+      if (!arg) {
+        await sendTelegramMessage(
+          chatId,
+          '🆔 <b>/lead &lt;id&gt;</b>\n\n' +
+            'Lead detayını ve aksiyon düğmelerini gösterir.\n' +
+            'Örnek: <code>/lead 12</code>\n\n' +
+            '<i>Açık liste için /leads · bugün için /leads today</i>',
+        )
+        return NextResponse.json({ ok: true })
+      }
+      const id = parseInt(arg, 10)
+      if (Number.isNaN(id)) {
+        await sendTelegramMessage(chatId, '⚠️ Geçersiz lead ID.')
+        return NextResponse.json({ ok: true })
+      }
+      try {
+        const lead = await import('@/lib/leadDesk')
+        const l = await lead.getLeadById(payload, id)
+        if (!l) {
+          await sendTelegramMessage(chatId, `❌ Lead #${id} bulunamadı.`)
+          return NextResponse.json({ ok: true })
+        }
+        await sendTelegramMessageWithKeyboard(
+          chatId,
+          lead.formatLeadCard(l),
+          lead.leadButtonsKeyboard(l.id),
+        )
+      } catch (err) {
+        const m = err instanceof Error ? err.message : String(err)
+        console.error(`[telegram/lead D-241] id=${id} error:`, m)
+        await sendTelegramMessage(chatId, `❌ Lead Desk hatası: ${m}`)
+      }
+      return NextResponse.json({ ok: true })
+      }
+    }
+
+    {
+      const leadActionMap: Record<string, 'contacted' | 'followup' | 'won' | 'lost' | 'spam'> = {
+        '/contacted': 'contacted',
+        '/followup': 'followup',
+        '/won': 'won',
+        '/lost': 'lost',
+        '/spam': 'spam',
+      }
+      const firstWord = text.trim().split(/\s+/)[0].replace(/@\w+$/, '').toLowerCase()
+      const leadAction = leadActionMap[firstWord]
+      if (leadAction) {
+        const parts = text.trim().split(/\s+/)
+        const arg = parts[1]
+        if (!arg) {
+          await sendTelegramMessage(
+            chatId,
+            `🆔 <b>${firstWord} &lt;lead-id&gt;</b>\n\n` +
+              `Lead durumunu değiştirir.\n` +
+              `Örnek: <code>${firstWord} 12</code>\n\n` +
+              `<i>Açık liste: /leads · Detay: /lead &lt;id&gt;</i>`,
+          )
+          return NextResponse.json({ ok: true })
+        }
+        const id = parseInt(arg, 10)
+        if (Number.isNaN(id)) {
+          await sendTelegramMessage(chatId, '⚠️ Geçersiz lead ID.')
+          return NextResponse.json({ ok: true })
+        }
+        try {
+          const { applyLeadStatus, leadButtonsKeyboard } = await import('@/lib/leadDesk')
+          const r = await applyLeadStatus(payload, id, leadAction, 'telegram_command')
+          await sendTelegramMessageWithKeyboard(chatId, r.message, leadButtonsKeyboard(id))
+        } catch (err) {
+          const m = err instanceof Error ? err.message : String(err)
+          console.error(`[telegram/lead-status D-241] cmd=${firstWord} id=${id} error:`, m)
+          await sendTelegramMessage(chatId, `❌ Lead durum hatası: ${m}`)
+        }
+        return NextResponse.json({ ok: true })
+      }
     }
 
     if (text.trim().toLowerCase().startsWith('/approvepublish')) {

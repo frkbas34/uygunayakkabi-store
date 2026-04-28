@@ -44,11 +44,58 @@ export const CustomerInquiries: CollectionConfig = {
       type: 'select',
       label: 'Durum',
       defaultValue: 'new',
+      // D-241: extended pipeline. `completed` is kept for backward compatibility
+      // (legacy rows) and treated as equivalent to `closed_won` in the operator
+      // surface. New writes should prefer the explicit closed_* values.
+      // NOTE (Neon): adding values to this select requires manual DDL.
+      // See feedback_push_true_drift.md — push:true silently skips the
+      // ALTER TYPE ADD VALUE migration. Run on prod after deploy:
+      //   ALTER TYPE enum_customer_inquiries_status ADD VALUE IF NOT EXISTS 'follow_up';
+      //   ALTER TYPE enum_customer_inquiries_status ADD VALUE IF NOT EXISTS 'closed_won';
+      //   ALTER TYPE enum_customer_inquiries_status ADD VALUE IF NOT EXISTS 'closed_lost';
+      //   ALTER TYPE enum_customer_inquiries_status ADD VALUE IF NOT EXISTS 'spam';
       options: [
         { label: 'Yeni', value: 'new' },
         { label: 'Arandı', value: 'contacted' },
-        { label: 'Tamamlandı', value: 'completed' },
+        { label: 'Takip', value: 'follow_up' },
+        { label: 'Kazanıldı', value: 'closed_won' },
+        { label: 'Kaybedildi', value: 'closed_lost' },
+        { label: 'Spam', value: 'spam' },
+        // legacy — alias for closed_won
+        { label: 'Tamamlandı (legacy)', value: 'completed' },
       ],
+      admin: { position: 'sidebar' },
+    },
+    {
+      // D-241: free-form source tag — defaults 'website' for the existing
+      // /api/inquiries POST (storefront form). Kept text not select so future
+      // sources (whatsapp, instagram, manual_entry) need no migration.
+      name: 'source',
+      type: 'text',
+      label: 'Kaynak',
+      defaultValue: 'website',
+      admin: { position: 'sidebar' },
+    },
+    {
+      name: 'lastContactedAt',
+      type: 'date',
+      label: 'Son İletişim',
+      admin: { position: 'sidebar' },
+    },
+    {
+      name: 'handledAt',
+      type: 'date',
+      label: 'Kapanış Zamanı',
+      admin: {
+        position: 'sidebar',
+        description: 'closed_won / closed_lost / spam durumuna geçiş anı',
+      },
+    },
+    {
+      name: 'assignedTo',
+      type: 'relationship',
+      relationTo: 'users',
+      label: 'Atanan',
       admin: { position: 'sidebar' },
     },
     {

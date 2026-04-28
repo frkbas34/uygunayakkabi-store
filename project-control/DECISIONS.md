@@ -5242,3 +5242,78 @@ Typecheck: zero new errors. Only the four pre-existing ones remain.
 **Status:** Shipped to `main`. Soak validation = run `/publishready` → tap `☑ Seç` on 2 cards → press `🚀 Aktif Et (2)` → confirm both activate via the bulk summary; press `📋 Seçimi Göster` between actions to verify the running count; let selection sit > 30 min and verify it expires silently (next press shows empty).
 
 **Reversible:** yes — new helper file + per-card button row + footer control message + 5 callbacks + 2 slash commands.
+
+---
+
+## D-241 — Lead Desk / Customer Inquiry Pipeline v1
+
+**Decision:**
+Build a Telegram-first Lead Desk on top of the EXISTING `customer-inquiries` collection so the operator can triage website inquiries from Telegram without an admin visit. No new collection. No new architecture. Smallest extension of the existing schema + a new helper module + a small set of slash commands and one inline-button callback prefix.
+
+**Reused, not invented:** the `customer-inquiries` collection, registered in `payload.config.ts`, populated by the existing storefront POST `/api/inquiries` (with `status='new'` defaulted), and already linked from the admin Dashboard. The collection had a 3-status enum (`new | contacted | completed`) — useful but too narrow for a real pipeline.
+
+**Schema extension (additive only):**
+- Status enum: extended from `[new, contacted, completed]` to `[new, contacted, follow_up, closed_won, closed_lost, spam, completed]`. `completed` is intentionally retained as a legacy alias for `closed_won` so pre-D-241 rows render cleanly without a backfill (operator can re-classify with `/won` if needed).
+- New fields: `source` (text, default 'website'), `lastContactedAt` (date), `handledAt` (date), `assignedTo` (relationship → users).
+- All additions are nullable / defaulted — no backfill needed.
+
+**Neon DDL required (per `feedback_push_true_drift.md` lesson — push:true silently skips ALTER TYPE ADD VALUE for select-field options):**
+```
+ALTER TYPE enum_customer_inquiries_status ADD VALUE IF NOT EXISTS 'follow_up';
+ALTER TYPE enum_customer_inquiries_status ADD VALUE IF NOT EXISTS 'closed_won';
+ALTER TYPE enum_customer_inquiries_status ADD VALUE IF NOT EXISTS 'closed_lost';
+ALTER TYPE enum_customer_inquiries_status ADD VALUE IF NOT EXISTS 'spam';
+```
+The DDL is documented inline in `CustomerInquiries.ts` as a comment block above the status field so it can't get lost.
+
+**Defensive code path:** `applyLeadStatus` catches the "invalid input value for enum" PG error and returns a Telegram-friendly refusal that names the exact DDL line the operator needs to run. This means an operator who runs `/contacted` etc. *before* applying the DDL gets a clear, actionable error rather than a silent failure.
+
+**New helper — `src/lib/leadDesk.ts` (~330 LOC):**
+- `getOpenLeads(payload)` — pulls leads whose status is in `{new, contacted, follow_up}`, returns priority-sorted top-10 plus per-status counts. Sort: `new` newest-first, then `follow_up` oldest-contact-first, then `contacted` oldest-contact-first.
+- `getTodayLeads(payload)` — today's snapshot: count of new today + counts of `contacted/closed_won/closed_lost/spam` updated today.
+- `getLeadById(payload, id)`.
+- `applyLeadStatus(payload, leadId, action, source)` — single source of truth for status writes. Action ∈ `{contacted, followup, won, lost, spam}`. Idempotent — if already in target state returns `ok+idempotent` without writing. Stamps `lastContactedAt` on `contacted`/`follow_up`, stamps `handledAt` on `closed_won`/`closed_lost`/`spam`, clears `handledAt` on closed→open reopen. Emits `lead.status_changed` bot-event for audit trail. Treats legacy `completed` as equivalent to `closed_won` for the `/won` short-circuit so legacy rows don't churn.
+- Formatters: `formatOpenLeadsList`, `formatLeadsToday`, `formatLeadCard`, `formatLeadLine`, `statusEmoji`. All HTML-escape user input (verified via smoke test with `<script>` injection).
+- `leadButtonsKeyboard(leadId)` — 2-row inline keyboard: `[📞 Arandı] [🔁 Takip]` / `[🏆 Kazanıldı] [❌ Kaybedildi] [🚮 Spam]`.
+
+**Telegram surface (registered in SHARED_CMDS):**
+| Command | Behaviour |
+|---|---|
+| `/leads` | Open list (capped 10), status counts, priority sort, action hint footer |
+| `/leads today` | Today's snapshot with counts and the day's first 10 created |
+| `/lead <id>` | Detail card + inline 5-button keyboard |
+| `/contacted <id>` | Mark contacted (sets lastContactedAt) |
+| `/followup <id>` | Mark follow_up (sets lastContactedAt) |
+| `/won <id>` | Mark closed_won (sets handledAt) |
+| `/lost <id>` | Mark closed_lost (sets handledAt) |
+| `/spam <id>` | Mark spam (sets handledAt) |
+
+Word-boundary command matching (`firstWord === '/lead'`) — not `startsWith` — so future `/leadassign` / `/leadsearch` don't false-match.
+
+**Inline button callback `ldact:<leadId>:<action>`** routes to the same `applyLeadStatus` helper as the slash commands — slash and button paths are identical, idempotent, and emit the same audit event.
+
+**Audit trail:** `bot-events` rows with `eventType='lead.status_changed'`, `sourceBot='uygunops'`, `payload={leadId, fromStatus, toStatus, action, source, changedAt}`. Reuses the existing journal — no schema change to bot-events. Lead ID lives in the payload JSON since `bot-events.product` is product-only and optional.
+
+**Test evidence (logic-only smoke test, 30 assertions):**
+- statusEmoji map (7 statuses) ✓
+- formatLeadLine includes id/name/phone/SN/size ✓
+- formatOpenLeadsList empty state + non-empty (counts in header) ✓
+- formatLeadsToday counts ✓
+- formatLeadCard includes header/name/message/size/product/source ✓
+- HTML escape safety: `<script>x</script>` in name → `&lt;script&gt;x&lt;/script&gt;` ✓
+- `1<2>3` in message → `1&lt;2&gt;3` ✓
+- leadButtonsKeyboard shape (2 rows, callback_data prefixes correct) ✓
+- Typecheck: zero new errors
+
+**Out of scope (v1):**
+- Bulk lead actions via D-239 `runBatch` — per-lead is fast enough for current volume; can layer on later as `/leads bulk`.
+- `/leadsearch <phone-or-name>` — defer until volume warrants.
+- `/leadassign <id> <operator>` — collection field is there for future use; no UI yet.
+- `/inbox` integration to surface open lead count — defer; `/leads` is the canonical surface.
+- Auto-classifying inbound spam — operator decides per-lead in v1.
+
+**Risk class:** low. Additive schema (4 new optional fields + 4 new enum values) + new helper module + 6 new slash command branches + 1 new callback prefix block. No mutation of existing fields. Existing `/api/inquiries` POST and the admin Dashboard fetch unchanged. Reversible via single-commit revert (the new enum values are harmless even after revert — Postgres doesn't drop enum values).
+
+**Status:** Shipped to `main`. **Next operator step:** apply the 4-line Neon DDL above. Then soak: create a lead via the storefront form (or directly via admin) → `/leads` → `/lead <id>` → press `📞 Arandı` (verify lastContactedAt set + bot-event written) → press it again (verify `🟰 zaten contacted`) → press `🏆 Kazanıldı` (verify handledAt set + status flipped). Repeat for `/lost` and `/spam`.
+
+**Reversible:** yes — additive schema + new helper file + 8 new commands/callbacks. Note: enum values added on Neon stay in the enum even after revert (Postgres doesn't drop enum values), but old code paths simply never write them.

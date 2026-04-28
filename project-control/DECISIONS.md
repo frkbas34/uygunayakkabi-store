@@ -4870,3 +4870,55 @@ Make Telegram the practical daily control surface for stock/state ops. Extract a
 **Out of scope:**
 - Per-size variant editing from Telegram (still admin-panel or `/sn ... stok N` for total override). New scope = new D-number.
 - Auto-publish behaviour. External publishing still requires explicit human approval.
+
+---
+
+## D-235 — Per-Channel Redispatch from Telegram (Operator Pack v1.5)
+
+**Decision:**
+Add a Telegram surface that lets the operator re-fire EXACTLY one channel without re-triggering the others. Slash command `/redispatch <channel> <sn-or-id>` and a per-channel button row on every operator card. Supported channels: X / Instagram / Facebook / Shopier. Website explicitly excluded with a one-line explanation; Dolap and Threads not exposed in this scope.
+
+**Why this design (and why we did NOT extend the afterChange hook):**
+D-202 wired `dispatchProductToChannels(..., {onlyChannels})` and the afterChange hook reads `sourceMeta.forceRedispatchChannels` to set that filter. But verifying against Neon's `information_schema.columns` shows that `source_meta_force_redispatch_channels` does NOT exist as a real column — the field was never persisted via Payload's group validation, so `sourceMeta.forceRedispatchChannels` is always `undefined` when read from a freshly-fetched product. The hook's "explicit channels" branch has been silently dead code in production. The fallback branch ("skip already-dispatched non-shopier channels") is what actually ran, and that is exactly why D-212 saw X-only retests on product 294 also re-posting IG+FB.
+
+Two paths to fix it:
+1. Add a real `forceRedispatchChannels` column → Payload schema change + Neon DDL (per Blocker 0).
+2. Bypass the hook from Telegram and call `dispatchProductToChannels(..., {onlyChannels})` directly.
+
+Path 2 is smaller (no DDL, no schema change), reversible in one commit, and reuses the same dispatch code the hook calls. Path 1 stays available later if admin-panel-driven per-channel redispatch becomes a need.
+
+**Implementation:**
+- `src/lib/operatorActions.ts` gained `triggerChannelRedispatch(payload, productId, channelRaw)`. Resolves channel aliases (x/twitter; instagram/ig/insta; facebook/fb; shopier/shop), validates product is `status='active'` (the hook would refuse otherwise), calls `fetchAutomationSettings` + `dispatchProductToChannels(..., {onlyChannels:[ch]})`, persists the per-channel result note into `sourceMeta.dispatchNotes` while preserving notes for other channels, queues the `shopier-sync` job when applicable. The product update uses `context: { isDispatchUpdate: true }` so the afterChange hook stays silent on the sourceMeta write.
+- `src/lib/operatorActions.ts::operatorButtonsKeyboard` gained a third row of 4 redispatch buttons.
+- `src/app/api/telegram/route.ts` got the `/redispatch` command handler and a new `redis_*` callback handler. Both delegate to `triggerChannelRedispatch`. `/redispatch` registered in `SHARED_CMDS`.
+
+**Refusal cases (with operator-facing messages):**
+- Unknown channel alias → "Geçerli: x, instagram, facebook, shopier".
+- `website` → explanation that storefront renders live and Vercel revalidation handles cache invalidation if ever needed.
+- Product not found → standard 404 message.
+- Product not active → "Önce /restartsale veya panel üzerinden aktive edin."
+
+**What this does NOT change:**
+- afterChange hook unchanged. Still reads `sourceMeta.forceRedispatchChannels` (still empty in prod). Still uses the fallback branch for admin-driven redispatches. Future cleanup can either delete the dead branch or actually persist the field.
+- No new Payload field. No Neon DDL.
+- D-LOCK-2026-04-28 PI/wizard scope untouched.
+- v50 image-pipeline LOCK untouched.
+- Publish-approval policy unchanged: every redispatch is explicitly initiated by the operator.
+
+**Risk class:** medium. Single new helper function (~180 LOC) + 3 small route.ts edits. Wraps existing dispatch logic without modifying it. Reversible via single-commit revert.
+
+**Idempotency:**
+Each press fires a fresh dispatch; the Shopier path queues a fresh job. There is no cooldown or dedupe at this layer — that is by design (operator may want to retry). External services have their own idempotency or are tolerant (the same product POST to Shopier becomes an UPDATE; the same X tweet succeeds and returns a fresh tweetId; Instagram/Facebook return new post IDs).
+
+**Test cases (operator-runnable):**
+- `/redispatch x SN<active-product>` → only X fires; IG/FB/Shopier are not touched. `sourceMeta.dispatchNotes` shows the new X note alongside the previous IG/FB notes (those notes are preserved verbatim).
+- `/redispatch instagram <id>` → only IG fires.
+- `/redispatch facebook <id>` → only FB fires.
+- `/redispatch shopier <id>` → Shopier sync job queued; `shopierSyncStatus='queued'` immediately; cron runs the job.
+- `/redispatch website <id>` → refused with explanation; no dispatch happens.
+- `/redispatch x <draft-product>` → refused with "ürün aktif değil".
+- Inline button presses ("𝕏 Tekrar", "📸 IG Tekrar", "📘 FB Tekrar", "🛒 Shopier") → identical behaviour to the slash commands.
+
+**Status:** Shipped to `main`. PROD soak validation pending (operator to run the test cases above against current SNs).
+
+**Reversible:** yes — single new helper export + 3 route.ts edits.

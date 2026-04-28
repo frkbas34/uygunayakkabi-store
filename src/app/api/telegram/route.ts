@@ -2253,6 +2253,42 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ ok: true })
       }
 
+      // ── D-235: per-channel redispatch button callbacks ───────────────────
+      // Buttons: redis_x / redis_ig / redis_fb / redis_shopier (id at suffix).
+      // Maps to operatorActions.triggerChannelRedispatch — same code path as
+      // /redispatch <channel> <sn-or-id> slash command.
+      if (cbData.startsWith('redis_')) {
+        const [shortCh, pIdStr] = cbData.replace('redis_', '').split(':')
+        const pId = parseInt(pIdStr, 10)
+        if (Number.isNaN(pId)) {
+          await answerCallbackQuery(cbQueryId, '❌ Geçersiz ürün')
+          return NextResponse.json({ ok: true })
+        }
+        const aliasMap: Record<string, string> = {
+          x: 'x',
+          ig: 'instagram',
+          fb: 'facebook',
+          shopier: 'shopier',
+        }
+        const channel = aliasMap[shortCh]
+        if (!channel) {
+          await answerCallbackQuery(cbQueryId, '❌ Bilinmeyen kanal')
+          return NextResponse.json({ ok: true })
+        }
+        try {
+          const cbPayload = await getPayload()
+          const { triggerChannelRedispatch, operatorButtonsKeyboard } = await import('@/lib/operatorActions')
+          await answerCallbackQuery(cbQueryId, '🔁 Tekrar gönderiliyor...')
+          const r = await triggerChannelRedispatch(cbPayload, pId, channel)
+          await sendTelegramMessageWithKeyboard(cbChatId, r.message, operatorButtonsKeyboard(pId))
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err)
+          console.error(`[telegram/redis D-235] callback ch=${shortCh} pId=${pId} error:`, msg)
+          await sendTelegramMessage(cbChatId, `❌ Yeniden gönderim hatası: ${msg}`)
+        }
+        return NextResponse.json({ ok: true })
+      }
+
       // ── D-191 / D-234: /sn stock-code quick-action callbacks ─────────────
       // D-234: handler now delegates to operatorActions.applyOperatorAction so
       // command + button paths share one source of truth + one idempotency
@@ -2540,10 +2576,12 @@ export async function POST(req: NextRequest) {
       const OPS_CMDS = ['/confirm', '/confirm_cancel', '/stok', '/diagnostics']
       // D-186: /ara works on BOTH bots (shared command) so operator can search from group
       const GEO_CMDS = ['/content', '/audit', '/preview', '/activate', '/shopier', '/merch', '/story', '/restory', '/targets', '/approve_story', '/reject_story']
-      // D-234: Operator Pack v1 commands are SHARED so the operator can use them from either bot.
+      // D-234 / D-235: Operator Pack v1 + v1.5 commands are SHARED so the
+      // operator can use them from either bot.
       const SHARED_CMDS = [
         '/ara', '/pipeline', '/sn',
         '/find', '/soldout', '/oneleft', '/twoleft', '/restock', '/stopsale', '/restartsale',
+        '/redispatch',
       ]
       // D-220: PI Bot hashtags owned by Uygunops (operator approval is required before GeoBot handoff).
       const OPS_HASHTAGS = ['#gorsel', '#geminipro', '#geohazirla', '#seoara', '#productintel', '#urunzeka']
@@ -4653,6 +4691,53 @@ export async function POST(req: NextRequest) {
         const msg = err instanceof Error ? err.message : String(err)
         console.error(`[telegram/sn] error sn=${normalizedSN} action=${subAction}:`, msg)
         await sendTelegramMessage(chatId, `❌ Hata: ${msg}`)
+      }
+      return NextResponse.json({ ok: true })
+    }
+
+    // ── D-235: /redispatch <channel> <sn-or-id> ───────────────────────────
+    // Per-channel redispatch from Telegram. Bypasses the afterChange hook
+    // entirely — calls dispatchProductToChannels directly with onlyChannels.
+    // See operatorActions.triggerChannelRedispatch for the why.
+    if (text.trim().toLowerCase().startsWith('/redispatch')) {
+      const parts = text.trim().split(/\s+/)
+      const channelArg = parts[1]
+      const idArg = parts[2]
+
+      if (!channelArg || !idArg) {
+        await sendTelegramMessage(
+          chatId,
+          '🔁 <b>Tek Kanal Yeniden Gönderim</b>\n\n' +
+            '<code>/redispatch &lt;kanal&gt; &lt;sn-or-id&gt;</code>\n\n' +
+            'Kanal seçenekleri: <code>x</code>, <code>instagram</code>, <code>facebook</code>, <code>shopier</code>\n\n' +
+            'Örnek:\n' +
+            '<code>/redispatch x SN0186</code>\n' +
+            '<code>/redispatch instagram 186</code>\n' +
+            '<code>/redispatch shopier 312</code>\n\n' +
+            '<i>Sadece seçilen kanal yeniden gönderilir. Diğer kanallar tekrar tetiklenmez.</i>\n\n' +
+            'ℹ️ Website ayrı bir dispatch hedefi değildir — storefront her istekte güncel state\'i okur.',
+        )
+        return NextResponse.json({ ok: true })
+      }
+
+      try {
+        const {
+          resolveProductIdentifier,
+          triggerChannelRedispatch,
+          operatorButtonsKeyboard,
+          formatIdentifierMissingMessage,
+        } = await import('@/lib/operatorActions')
+        const resolved = await resolveProductIdentifier(payload, idArg)
+        if (!resolved) {
+          await sendTelegramMessage(chatId, formatIdentifierMissingMessage(idArg))
+          return NextResponse.json({ ok: true })
+        }
+        const r = await triggerChannelRedispatch(payload, resolved.productId, channelArg)
+        await sendTelegramMessageWithKeyboard(chatId, r.message, operatorButtonsKeyboard(resolved.productId))
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err)
+        console.error(`[telegram/redispatch D-235] ch=${channelArg} idArg=${idArg} error:`, msg)
+        await sendTelegramMessage(chatId, `❌ Yeniden gönderim hatası: ${msg}`)
       }
       return NextResponse.json({ ok: true })
     }

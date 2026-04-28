@@ -4922,3 +4922,66 @@ Each press fires a fresh dispatch; the Shopier path queues a fresh job. There is
 **Status:** Shipped to `main`. PROD soak validation pending (operator to run the test cases above against current SNs).
 
 **Reversible:** yes — single new helper export + 3 route.ts edits.
+
+---
+
+## D-236 — Operator Inbox / Queue v1 (read-only Telegram queue surface)
+
+**Decision:**
+Add `/inbox` + 5 sub-commands to Telegram so the operator can see what needs attention right now without opening admin. Read-only; aggregates the existing workflow / state / event signals into 5 actionable buckets.
+
+**Buckets and filters (all use existing fields, no schema change):**
+| Bucket | Filter |
+|---|---|
+| **PENDING — visual approval** | `workflow.visualStatus == 'preview'` |
+| **PENDING — wizard incomplete** | `workflow.visualStatus == 'approved' AND workflow.confirmationStatus != 'confirmed'` |
+| **PUBLISH — publish_ready** | `workflow.workflowStatus == 'publish_ready'` |
+| **PUBLISH — content-ready-not-active** | `workflow.contentStatus == 'ready' AND status != 'active' AND workflow.workflowStatus != 'publish_ready'` |
+| **STOCK — soldout** | `status == 'soldout' OR workflow.stockState == 'sold_out'` |
+| **STOCK — low_stock** | `status == 'active' AND workflow.stockState == 'low_stock'` |
+| **FAILED — content** | `workflow.contentStatus == 'failed'` |
+| **FAILED — audit** | `workflow.auditStatus IN ('failed','needs_revision')` |
+| **FAILED — shopier sync** | `sourceMeta.shopierSyncStatus == 'error'` |
+| **FAILED — last 24h events** | `bot_events.eventType IN [...failure types...] AND createdAt > now-24h` |
+| **TODAY — created** | `createdAt > startOfTodayUTC` |
+| **TODAY — confirmed** | `workflow.confirmationStatus == 'confirmed' AND workflow.productConfirmedAt > startOfTodayUTC` |
+| **TODAY — content ready** | `workflow.contentStatus == 'ready' AND content.lastContentGenerationAt > startOfTodayUTC` |
+| **TODAY — activated** | `status == 'active' AND updatedAt > startOfTodayUTC` |
+| **TODAY — soldout** | `status == 'soldout' AND updatedAt > startOfTodayUTC` |
+| **TODAY — failed events count** | `bot_events.eventType IN [...failure types...] AND createdAt::date == today` |
+
+Failure event types tracked: `content.failed`, `pi.auto_trigger_failed`, `audit.failed`, `audit.needs_revision`, `dispatch.failed`, `shopier.sync.failed`, `shopier.error`. Bot-events query is wrapped in try/catch — missing collection or table is non-fatal, the rest of the inbox still renders.
+
+**Implementation:**
+- New `src/lib/operatorInbox.ts` (~290 LOC). Six paired query+format helpers. Each list capped at `LIST_LIMIT=10` items with overflow `+N daha` hint. Empty buckets render `✅ <label>: yok`. `getInboxOverview` runs the four detail queries in parallel via `Promise.all` so the top-level command is fast.
+- Single command in `route.ts` dispatches sub-commands via switch. Aliases included for Turkish (`stok` → `stock`, `bugun`/`bugün` → `today`, `hata` → `failed`).
+- Registered in `SHARED_CMDS` so both Uygunops and GeoBot accept `/inbox`.
+
+**Out of scope:**
+- Mutations — every operator action stays on the existing `/find /soldout /restock /redispatch` etc. surface.
+- Pagination beyond 10 items per bucket.
+- Archived-product surfacing.
+- Dolap/Threads channels in the failed bucket — intentionally limited to current production channels.
+- Custom event-type subscriptions — failure event types are a fixed allow-list, extendable later.
+
+**Risk class:** low. Read-only helper + one command branch in route.ts. Reusing Payload `find` query patterns. Reversible via single-commit revert.
+
+**Smoke evidence (current Neon, 2026-04-28):**
+| Bucket | Count |
+|---|---|
+| visual approval pending | 2 |
+| wizard incomplete | 3 |
+| publish_ready | 4 |
+| content-ready-not-active | 6 |
+| soldout | 0 |
+| low stock | 2 |
+| content failed | 0 |
+| audit failed | 0 |
+| shopier error | 0 |
+| failures last 24h | 0 |
+
+Inbox truthfully surfaces 17 actionable items for the operator to triage.
+
+**Status:** Shipped to `main`.
+
+**Reversible:** yes — single new helper file + 1 route.ts command branch + 1 SHARED_CMDS entry.

@@ -2576,12 +2576,13 @@ export async function POST(req: NextRequest) {
       const OPS_CMDS = ['/confirm', '/confirm_cancel', '/stok', '/diagnostics']
       // D-186: /ara works on BOTH bots (shared command) so operator can search from group
       const GEO_CMDS = ['/content', '/audit', '/preview', '/activate', '/shopier', '/merch', '/story', '/restory', '/targets', '/approve_story', '/reject_story']
-      // D-234 / D-235: Operator Pack v1 + v1.5 commands are SHARED so the
+      // D-234 / D-235 / D-236: Operator Pack commands are SHARED so the
       // operator can use them from either bot.
       const SHARED_CMDS = [
         '/ara', '/pipeline', '/sn',
         '/find', '/soldout', '/oneleft', '/twoleft', '/restock', '/stopsale', '/restartsale',
         '/redispatch',
+        '/inbox',
       ]
       // D-220: PI Bot hashtags owned by Uygunops (operator approval is required before GeoBot handoff).
       const OPS_HASHTAGS = ['#gorsel', '#geminipro', '#geohazirla', '#seoara', '#productintel', '#urunzeka']
@@ -4691,6 +4692,66 @@ export async function POST(req: NextRequest) {
         const msg = err instanceof Error ? err.message : String(err)
         console.error(`[telegram/sn] error sn=${normalizedSN} action=${subAction}:`, msg)
         await sendTelegramMessage(chatId, `❌ Hata: ${msg}`)
+      }
+      return NextResponse.json({ ok: true })
+    }
+
+    // ── D-236: /inbox + sub-commands — read-only operator queue ───────────
+    if (text.trim().toLowerCase().startsWith('/inbox')) {
+      const parts = text.trim().split(/\s+/)
+      const sub = (parts[1] || '').toLowerCase()
+      try {
+        const {
+          getInboxOverview, getInboxPending, getInboxPublish,
+          getInboxStock, getInboxFailed, getInboxToday,
+          formatInboxOverview, formatInboxPending, formatInboxPublish,
+          formatInboxStock, formatInboxFailed, formatInboxToday,
+        } = await import('@/lib/operatorInbox')
+
+        let msg: string
+        switch (sub) {
+          case '':
+          case undefined:
+            msg = formatInboxOverview(await getInboxOverview(payload))
+            break
+          case 'pending':
+            msg = formatInboxPending(await getInboxPending(payload))
+            break
+          case 'publish':
+            msg = formatInboxPublish(await getInboxPublish(payload))
+            break
+          case 'stock':
+          case 'stok':
+            msg = formatInboxStock(await getInboxStock(payload))
+            break
+          case 'failed':
+          case 'hata':
+            msg = formatInboxFailed(await getInboxFailed(payload))
+            break
+          case 'today':
+          case 'bugun':
+          case 'bugün':
+            msg = formatInboxToday(await getInboxToday(payload))
+            break
+          case 'help':
+          case '?':
+          default:
+            msg =
+              `📋 <b>Operator Inbox</b>\n\n` +
+              `<code>/inbox</code> — özet (toplam aksiyon kuyruğu)\n` +
+              `<code>/inbox pending</code> — bekleyen aksiyon (görsel onay, wizard, vs.)\n` +
+              `<code>/inbox publish</code> — yayına hazır ürünler\n` +
+              `<code>/inbox stock</code> — stok aciliyeti (tükenmiş, az kaldı)\n` +
+              `<code>/inbox failed</code> — hata kuyruğu (içerik, audit, Shopier, son 24sa olaylar)\n` +
+              `<code>/inbox today</code> — bugünkü operasyonel görüntü\n\n` +
+              `<i>Hepsi salt-okunur. Aksiyon için /find /soldout /restock /redispatch vb. kullanın.</i>`
+            break
+        }
+        await sendTelegramMessage(chatId, msg)
+      } catch (err) {
+        const m = err instanceof Error ? err.message : String(err)
+        console.error(`[telegram/inbox D-236] sub=${sub} error:`, m)
+        await sendTelegramMessage(chatId, `❌ Inbox hatası: ${m}`)
       }
       return NextResponse.json({ ok: true })
     }

@@ -5812,3 +5812,101 @@ Detay: /order 14
 **Status:** Shipped to `main`. Soak validation passed at the data layer. Operator validation: submit a test order via storefront form OR create one in admin → confirm `🚨 YENİ SİPARİŞ` arrives with action buttons. Then `/orderreminders` (with no stale, expect empty state) and `/orders summary` (always renders the daily counts).
 
 **Reversible:** yes — additive helpers + 1 fire-and-forget hook entry + 2 new commands. No schema change.
+
+---
+
+## D-248 — Business Snapshot / KPI Desk v1
+
+**Decision:**
+Add a one-tap Telegram surface that summarizes the entire daily business state. **Pure composition layer** — zero new queries, no schema change, no new architecture, no new collection. Every metric traces back to an existing helper from prior D-NNs.
+
+**Architecture: composition over re-derivation.**
+Each prior D-NN already exposes a "today summary" or "open count" helper for its domain:
+| Domain | Source | Owns |
+|---|---|---|
+| Leads | `getDailyLeadSummary` (D-243) | new/contacted/won/lost/spam today, open total, stale total |
+| Sales | `getSalesToday` (D-244) | order count today, count from leads, totalRevenue |
+| Orders | `getDailyOrderSummary` (D-247) | created/shipped/delivered/cancelled today, open total, stale shipped |
+| Stock | `getInboxStock` (D-236) | soldout count, low-stock count |
+
+`getBusinessSnapshot(payload)` runs all four in parallel via `Promise.all`. No new SQL, no parallel rules, no risk of metric divergence between `/business` and the underlying domain commands.
+
+**Telegram surface (registered in SHARED_CMDS):**
+| Command | Behaviour |
+|---|---|
+| `/business` | Default — today snapshot |
+| `/business today` | Explicit today snapshot (same render) |
+| `/iş` / `/is` | Turkish aliases |
+
+`/business week` intentionally NOT shipped in v1 — every existing helper is today-scoped, so a week version would need new week-scoped queries. Defer until volume warrants.
+
+**Render — concise grouped, operator-grade:**
+```
+📊 İş Özeti (UTC günü)
+
+📥 Talep (bugün)
+  • Yeni lead: N
+  • İletişim kuruldu: N
+  • Kazanıldı: N
+  • Kaybedildi: N · 🚮 Spam: N      ← spam only when > 0
+  • Açık lead toplam: N
+
+💰 Satış (bugün)
+  • Sipariş: N (M lead'den)          ← M only when > 0
+  • Ciro (kayıtlı): X ₺              ← or "—" when 0
+
+📦 Operasyon
+  • Açık sipariş: N
+  • Kargolanan (bugün): N
+  • Teslim edilen (bugün): N · ❌ İptal: N    ← cancel only when > 0
+
+⚠️ Aciliyet                          ← entire block only when urgency > 0
+  • 📞 bayat lead (3+gün): N
+  • 📦 geç kargo (3+gün): N
+  • 🔴 tükenmiş ürün: N
+  • ⚠️ az stok: N
+
+/leads · /orders · /inbox · /leadreminders · /orderreminders
+```
+
+**Empty-state shortcut:** when ALL 16 signals are zero → single-line `✅ Bugün hiçbir hareket yok ve bekleyen aciliyet yok.` so calm days don't dump a wall of zeros.
+
+**Convergence — no metric divergence risk:**
+- Open lead set: `getOpenLeads` (D-241).
+- Stale lead rule: 3 days against `lastContactedAt ?? createdAt`, defined in D-243 `getStaleLeads`.
+- Open order set: `getOpenOrders` (D-245).
+- Stale shipping rule: 3 days against `shippedAt ?? createdAt`, defined in D-246/D-247 `getStaleShippedOrders`.
+- Today rules: each `getDailyXSummary` already converts to UTC day boundary consistently.
+
+If the operator ever sees a count in `/business` that doesn't match `/leads` or `/orders`, the bug is in the underlying helper — not in D-248. There's only one source of truth per metric.
+
+**Read-only by construction:**
+Every helper called by `getBusinessSnapshot` is read-only (`payload.find` only, no mutations). The composition itself never writes. Verified in soak — the live Neon run produced identical row counts before and after.
+
+**Test evidence (against live Neon, 6 assertions all pass):**
+| Check | Result |
+|---|---|
+| Live composition completes in 1832ms (4 parallel helper calls — under Vercel Lambda budget) | ✓ |
+| Live snapshot renders accurately: 3 open leads, 2 low-stock products surfaced from real data | ✓ |
+| Fully-empty short-circuit (`✅ Temiz`) | ✓ |
+| Busy day with no urgency: urgency block correctly hidden | ✓ |
+| Quiet day with mounting urgency: all 4 urgency lines render | ✓ |
+| Mixed realistic scenario: optional inline bits (🚮 Spam, ❌ İptal, lead-link split) all conditional | ✓ |
+| Typecheck: zero new errors | ✓ |
+
+Soak harness committed at `scripts/d248-soak.ts`.
+
+**Out of scope (v1):**
+- `/business week` — needs new week-scoped queries against existing helpers; defer.
+- Ratio metrics (conversion rate, win rate, AOV) — operator can compute from raw counts; ratio metrics carry interpretation risk on small numbers.
+- Historical charts/graphs — Telegram-only surface; defer.
+- Per-source breakdown (website vs telegram vs shopier) — single helper layer doesn't expose this; defer.
+- KPI threshold alerts — operator can read the snapshot themselves; alert spam risk.
+- Export to CSV / spreadsheet — admin can do this directly.
+- Comparison with yesterday / last week / last month — needs historical-window queries; defer.
+
+**Risk class:** very low. Pure read composition + 1 new file + 1 new switch case + 3 new command aliases. No schema change. No mutations. No new dependencies. Reversible via single-commit revert.
+
+**Status:** Shipped to `main`. Soak validation passed. Operator validation: `/business` from Telegram → see one-screen daily snapshot.
+
+**Reversible:** yes — pure read composition, no schema change.

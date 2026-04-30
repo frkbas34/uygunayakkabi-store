@@ -2915,6 +2915,8 @@ export async function POST(req: NextRequest) {
         '/orders', '/order', '/ship', '/deliver', '/cancelorder',
         // D-247 order reminders
         '/orderreminders', '/orderreminder', '/siparishatirla', '/sipariş_hatirla', '/siparis_hatirla',
+        // D-248 business snapshot
+        '/business', '/iş', '/is',
       ]
       // D-220: PI Bot hashtags owned by Uygunops (operator approval is required before GeoBot handoff).
       const OPS_HASHTAGS = ['#gorsel', '#geminipro', '#geohazirla', '#seoara', '#productintel', '#urunzeka']
@@ -5453,6 +5455,26 @@ export async function POST(req: NextRequest) {
           const m = err instanceof Error ? err.message : String(err)
           console.error(`[telegram/sales D-244] error:`, m)
           await sendTelegramMessage(chatId, `❌ Satış özeti hatası: ${m}`)
+        }
+        return NextResponse.json({ ok: true })
+      }
+    }
+
+    // ── D-248: /business + /business today — composed KPI snapshot ────────
+    // Pure read composition over existing helpers. Read-only.
+    {
+      const firstWordBiz = text.trim().split(/\s+/)[0].replace(/@\w+$/, '').toLowerCase()
+      if (firstWordBiz === '/business' || firstWordBiz === '/iş' || firstWordBiz === '/is') {
+        // /business [today]  — `today` is the implicit default for v1.
+        // Any other sub-arg → still render today (until /business week ships).
+        try {
+          const { getBusinessSnapshot, formatBusinessSnapshot } = await import('@/lib/businessDesk')
+          const snap = await getBusinessSnapshot(payload)
+          await sendTelegramMessage(chatId, formatBusinessSnapshot(snap))
+        } catch (err) {
+          const m = err instanceof Error ? err.message : String(err)
+          console.error(`[telegram/business D-248] error:`, m)
+          await sendTelegramMessage(chatId, `❌ İş özeti hatası: ${m}`)
         }
         return NextResponse.json({ ok: true })
       }

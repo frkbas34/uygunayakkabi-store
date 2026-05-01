@@ -5,7 +5,7 @@ import { Providers } from "./providers";
 export const metadata: Metadata = {
   title: "UygunAyakkabı — Kaliteli Ayakkabılar, Uygun Fiyatlar",
   description:
-    "En popüler markaların en iyi modelleri, piyasanın altında fiyatlarla. %100 orijinal ürünler.",
+    "Popüler markaların öne çıkan modelleri, uygun fiyatlarla. Şık, modern ve günlük kullanıma uygun ayakkabı seçenekleri.",
 };
 
 export default function FrontendLayout({

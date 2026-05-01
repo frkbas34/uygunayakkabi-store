@@ -62,8 +62,17 @@ function buildSeoGeoPrompt(
   refs: PiReferenceProduct[],
 ): string {
   const lines: string[] = []
-  lines.push('Sen Uygunayakkabı e-ticaret platformu için ORİJİNAL SEO + GEO içerik üreten bir AI asistanısın.')
-  lines.push('Amacın: aşağıdaki ürüne özgü, markayı temsil eden, Türkçe, orijinal içerik paketi üretmek.')
+  lines.push('Sen Uygunayakkabı e-ticaret platformu için ÖZGÜN SEO + GEO içerik üreten bir AI asistanısın.')
+  lines.push('Amacın: aşağıdaki ürüne özgü, markayı temsil eden, Türkçe, özgün ve boilerplate olmayan içerik paketi üretmek.')
+  // CLAIM SAFETY (sweep 2026-04-28): "orijinal/orijinallik/garantili/sertifikalı/hakiki/otantik" gibi
+  // ürün özgünlük iddiaları üretilen metinlerde KULLANILMAMALIDIR — bu kelimeler operatörün doğrulayamadığı
+  // hukuki riskli iddialara dönüşür. Yazım stilini "özgün" (boilerplate olmayan) anlamında kullan,
+  // ürünlerin kendisi için "orijinal" kelimesini ASLA kullanma.
+  lines.push('')
+  lines.push('CLAIM SAFETY (zorunlu):')
+  lines.push('- Üretilen hiçbir metin "orijinal ürün", "%100 orijinal", "orijinallik garantisi", "garantili", "sertifikalı", "hakiki", "otantik", "authentic", "genuine" gibi ifadeler içermemeli.')
+  lines.push('- "Orijinal" kelimesi sadece tasarım/üretim stili anlamında değil, sadece "boilerplate olmayan yazım" anlamında geçerli — fakat çıktı metninde bu kelime hiç geçmesin.')
+  lines.push('- Ürün özgünlüğü iddiası yerine nötr perakende dili kullan: "şık tasarım", "modern çizgi", "öne çıkan detaylar", "premium hissiyat", "kaliteli görünüm", "günlük kullanıma uygun" gibi.')
   lines.push('')
   lines.push('ÜRÜN VERİSİ:')
   lines.push(`- Başlık: ${product.title}`)
@@ -120,7 +129,7 @@ function buildSeoGeoPrompt(
   lines.push('KURALLAR (SERT):')
   lines.push('- Referans ürünlerin cümlelerini veya ifadelerini KOPYALAMA. Referanslar yalnızca kategori/keyword anlamak için.')
   lines.push('- Uydurma marka, malzeme veya özellik ekleme. Emin değilsen belirtme.')
-  lines.push('- İçerik orijinal ve Uygunayakkabı markasını temsil etmelidir.')
+  lines.push('- İçerik özgün (boilerplate olmayan) yazımla Uygunayakkabı markasını temsil etmelidir; ürün özgünlüğü/garantisi iddiası içermemelidir.')
   lines.push('- metaTitle <= 60 karakter, metaDescription <= 160 karakter.')
   lines.push('- Yalnızca JSON döndür, başka metin yazma.')
   lines.push('')
@@ -142,7 +151,7 @@ function buildSeoGeoPrompt(
   "seoPack": {
     "seoTitle": "60 karaktere kadar SEO başlığı",
     "metaDescription": "160 karaktere kadar meta açıklama",
-    "productDescription": "250-450 karakter orijinal Türkçe ürün açıklaması — görsel detayları kullan",
+    "productDescription": "250-450 karakter özgün (boilerplate olmayan) Türkçe ürün açıklaması — görsel detayları kullan; ürün özgünlüğü/garantisi iddiası içermemeli",
     "shortDescription": "80-140 karakter kısa açıklama",
     "tags": ["6-10 ürün etiketi"],
     "keywords": ["10-15 SEO anahtar kelimesi, Türkçe, uzun kuyruk dahil"],

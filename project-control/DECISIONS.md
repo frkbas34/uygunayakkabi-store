@@ -5910,3 +5910,118 @@ Soak harness committed at `scripts/d248-soak.ts`.
 **Status:** Shipped to `main`. Soak validation passed. Operator validation: `/business` from Telegram → see one-screen daily snapshot.
 
 **Reversible:** yes — pure read composition, no schema change.
+
+---
+
+## D-249 — Conversion Funnel / Source Performance Snapshot v1
+
+**Decision:**
+Add a Telegram-first read-only funnel snapshot that groups demand by source and shows how each source flows through stages → conversion → revenue. Pure composition over existing collections. No new collection, no schema change, no new architecture.
+
+**Attribution rule — the one judgement call:**
+The funnel groups by **lead source**, not order source.
+- Reason: `/convert` (D-244) always sets `order.source='telegram'` regardless of where the lead originated. If we grouped by order.source, every funnel-converted order would land in `Telegram`, even if the lead came from Instagram or Website. That would be the opposite of useful.
+- Lead source (`customer-inquiries.source`, added in D-241) IS the truthful answer to "where did demand originate."
+- Orders attribute back to the lead's source via the `relatedInquiry` FK (D-244).
+- Orders WITHOUT a relatedInquiry (direct website/admin/Shopier orders that didn't pass through a lead) get a separate "Doğrudan Sipariş (lead-siz)" group with order count + revenue only — no funnel stages because there's no lead to stage.
+- Edge case: order created today linked to a lead from last week → counted as "direct" for a today-window funnel, since the lead isn't in the window. This keeps per-window stage→order ratios honest. Documented in the helper.
+
+**New helper — `src/lib/funnelDesk.ts` (~270 LOC):**
+- `getFunnelSnapshot(payload, {period})` — `period: 'today' | 'week'` (default today). Runs 2 `payload.find` queries (leads-in-window + orders-in-window), groups in memory by lead source.
+- Per-source row: stage counts (new / contacted / follow_up / closed_won / closed_lost / spam) + ordersConverted + revenue.
+- Totals row aggregates lead-attributed only.
+- Direct-orders bucket separate.
+- Defensive numeric coercion via `toNumber()` (pg returns numeric as string).
+- Source labels mapped to operator-friendly names: website→Website, telegram→Telegram, instagram→Instagram, phone→Telefon, shopier→Shopier, manual_entry→Manuel, bilinmiyor→Bilinmeyen. Unknown sources passed through HTML-escaped.
+- Legacy `completed` status (pre-D-241) rolled into `closed_won` for funnel display.
+
+**Concise render:**
+- Per-source blocks omit zero-stage rows automatically (no `Spam: 0` clutter).
+- Zero-revenue rows omitted.
+- Direct-orders block only renders when count > 0, with explanatory footer.
+- Empty short-circuit: zero leads + zero orders in window → single-line `✅ Bu pencerede lead/sipariş hareketi yok.` with pointer at `/business · /leads summary · /sales today`.
+
+**Telegram surface (registered in SHARED_CMDS):**
+| Command | Behaviour |
+|---|---|
+| `/funnel` | Default — today snapshot |
+| `/funnel today` | Explicit today |
+| `/funnel week` (aliases: hafta, son7) | Trailing 7 UTC days |
+| `/huni` | TR alias |
+
+**Convergence — no parallel rules:**
+| Concept | Defined in | Reused by |
+|---|---|---|
+| Lead.source field | D-241 schema | D-249 funnel grouping |
+| Lead status enum (closed_*) | D-241 schema extension | D-249 stage counts |
+| relatedInquiry FK | D-244 schema | D-249 order→lead attribution |
+| order.totalPrice → revenue | D-244/D-247 | D-249 revenue aggregation |
+| UTC day boundary | D-244 getSalesToday / D-247 getDailyOrderSummary | D-249 today-window cutoff |
+| Defensive numeric coercion | D-244 `toNumber()` pattern | D-249 `toNumber()` (mirror) |
+
+**Read-only by construction.**
+Every helper call is `payload.find` — no mutations. Verified in soak: lead+order row counts identical pre/post (3→3, 3→3).
+
+**Test evidence (against live Neon, 6 assertions all pass):**
+| Check | Result |
+|---|---|
+| Live `/funnel today` composes in 162ms (2 `payload.find` calls) | ✓ |
+| Live `/funnel week` same logic, 7-day window | ✓ |
+| Read-only verified: lead+order row counts unchanged pre/post | ✓ |
+| Fully-empty render → `✅ Bu pencerede lead/sipariş hareketi yok.` | ✓ |
+| Busy-day multi-source render (Website/Telegram/Instagram + Toplam) matches spec example shape exactly | ✓ |
+| Direct-orders bucket renders separately with explanatory footer | ✓ |
+
+Soak harness committed at `scripts/d249-soak.ts`. Typecheck: zero new errors.
+
+**Captured render (busy-day scenario):**
+```
+📈 Funnel Özeti (bugün)
+
+Website
+  • Lead: 12
+  • Arandı: 5
+  • Takip: 2
+  • Kazanıldı: 2
+  • Kaybedildi: 1
+  • Siparişe döndü: 1
+  • Ciro: 1499 ₺
+
+Telegram
+  • Lead: 4
+  • Arandı: 3
+  • Kazanıldı: 1
+  • Siparişe döndü: 1
+  • Ciro: 950 ₺
+
+Instagram
+  • Lead: 3
+  • Arandı: 1
+  • Spam: 1
+
+Toplam (lead-bazlı)
+  • Lead: 19
+  • Arandı: 9
+  • Takip: 2
+  • Kazanıldı: 3
+  • Kaybedildi: 1
+  • Spam: 1
+  • Sipariş: 2
+  • Ciro: 2449 ₺
+```
+
+**Out of scope (v1):**
+- Ratio metrics (conversion rate per source, win rate per source) — small-number interpretation risk.
+- Per-product source attribution — single product can sit in multiple lead sources.
+- Cohort analysis (lead created day X → converted day Y).
+- Per-stage time-to-progression averages.
+- Multi-touch attribution (one lead bouncing between sources).
+- CSV export — admin-only.
+- Comparison with previous period.
+- Per-source breakdown in the `/business` snapshot (would clutter that overview; `/funnel` is the dedicated surface).
+
+**Risk class:** very low. Pure read helper + 1 new switch case + 4 new command aliases. No schema change. No mutations. No new dependencies. Reversible via single-commit revert.
+
+**Status:** Shipped to `main`. Soak validation passed. Operator validation: `/funnel` from Telegram → see one-screen daily funnel; cross-check `Toplam · Lead` against `/leads`'s open/total; cross-check `Toplam · Ciro` against `/sales today`'s revenue.
+
+**Reversible:** yes — pure read composition, no schema change.

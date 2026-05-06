@@ -2917,6 +2917,8 @@ export async function POST(req: NextRequest) {
         '/orderreminders', '/orderreminder', '/siparishatirla', '/sipariş_hatirla', '/siparis_hatirla',
         // D-248 business snapshot
         '/business', '/iş', '/is',
+        // D-249 funnel
+        '/funnel', '/huni',
       ]
       // D-220: PI Bot hashtags owned by Uygunops (operator approval is required before GeoBot handoff).
       const OPS_HASHTAGS = ['#gorsel', '#geminipro', '#geohazirla', '#seoara', '#productintel', '#urunzeka']
@@ -5475,6 +5477,29 @@ export async function POST(req: NextRequest) {
           const m = err instanceof Error ? err.message : String(err)
           console.error(`[telegram/business D-248] error:`, m)
           await sendTelegramMessage(chatId, `❌ İş özeti hatası: ${m}`)
+        }
+        return NextResponse.json({ ok: true })
+      }
+    }
+
+    // ── D-249: /funnel + /funnel today/week — source/funnel snapshot ──────
+    // Read-only. Groups demand by lead.source; orders attribute via
+    // related_inquiry_id back to the lead's source.
+    {
+      const firstWordFun = text.trim().split(/\s+/)[0].replace(/@\w+$/, '').toLowerCase()
+      if (firstWordFun === '/funnel' || firstWordFun === '/huni') {
+        try {
+          const parts = text.trim().split(/\s+/)
+          const sub = (parts[1] ?? '').toLowerCase()
+          const period: 'today' | 'week' =
+            (sub === 'week' || sub === 'hafta' || sub === 'son7') ? 'week' : 'today'
+          const { getFunnelSnapshot, formatFunnelSnapshot } = await import('@/lib/funnelDesk')
+          const snap = await getFunnelSnapshot(payload, { period })
+          await sendTelegramMessage(chatId, formatFunnelSnapshot(snap))
+        } catch (err) {
+          const m = err instanceof Error ? err.message : String(err)
+          console.error(`[telegram/funnel D-249] error:`, m)
+          await sendTelegramMessage(chatId, `❌ Funnel hatası: ${m}`)
         }
         return NextResponse.json({ ok: true })
       }

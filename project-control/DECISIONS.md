@@ -6114,3 +6114,87 @@ reported separately in the "Doğrudan Sipariş (lead-siz)" bucket).
 No schema change. No new collections. No new dependencies. Reversible via single-commit revert.
 
 **Status:** Shipped to `main`.
+
+---
+
+## D-251 — Source Detail / UTM & Landing Context Capture v1 (2026-05-06)
+
+**Background:**
+D-250 normalized broad source values ('website', 'instagram', etc.). The next bottleneck is
+granularity — broad buckets can't answer which campaign, which referrer, or which acquisition
+context drove a lead.
+
+**Source-detail signals evaluated:**
+
+| Signal | Where available | Decision |
+|---|---|---|
+| utm_source / utm_medium / utm_campaign | `window.location.search` (client) | ✅ Capture |
+| Referrer domain | `document.referrer` (client) | ✅ Capture (domain-only, no PII) |
+| Landing path | Derivable from `product.slug` via existing FK | ❌ Redundant — skip |
+| Full referrer URL | `document.referrer` | ❌ PII risk (search queries) — skip |
+| Session/cookie data | Requires analytics infrastructure | ❌ Out of scope |
+| Multi-touch history | Requires analytics infrastructure | ❌ Out of scope |
+
+**Fields added to `customer-inquiries`:**
+- `utmSource` (text, nullable) — utm_source param (google, instagram, facebook, etc.)
+- `utmMedium` (text, nullable) — utm_medium param (cpc, social, email, etc.)
+- `utmCampaign` (text, nullable) — utm_campaign param (campaign name/id)
+- `referrer` (text, nullable) — referring hostname only (instagram.com, google.com, etc.)
+
+All four fields are nullable. No invented defaults. Unknown = null. ReadOnly in admin panel
+(automatically captured, not operator-editable — prevents manual pollution).
+
+**Neon DDL required (push:true does not run in production — apply manually after deploy):**
+```sql
+ALTER TABLE customer_inquiries ADD COLUMN IF NOT EXISTS utm_source VARCHAR;
+ALTER TABLE customer_inquiries ADD COLUMN IF NOT EXISTS utm_medium VARCHAR;
+ALTER TABLE customer_inquiries ADD COLUMN IF NOT EXISTS utm_campaign VARCHAR;
+ALTER TABLE customer_inquiries ADD COLUMN IF NOT EXISTS referrer VARCHAR;
+```
+
+**Changes made:**
+
+A) `src/collections/CustomerInquiries.ts`
+- Added 4 fields after `source` field, before `lastContactedAt`.
+- DDL comment block included for operator reference.
+
+B) `src/components/ContactForm.tsx`
+- Added `captureUtmParams()` — reads utm_source/utm_medium/utm_campaign from
+  `window.location.search` at submit time. Trims, lowercases, caps at 200 chars.
+- Added `captureReferrer()` — reads `document.referrer`, extracts hostname only,
+  returns null for same-site referrers and direct navigation (no referrer).
+- Updated `handleSubmit` to include these values in the POST body via spread
+  (absent/null values are not sent, preventing empty-string pollution).
+
+C) `src/app/api/inquiries/route.ts`
+- Added `sanitizeDetail()` — trims, lowercases, caps at 200 chars, returns null
+  for empty/non-string input. Null-first: nothing is stored if data is absent.
+- Destructured `{ utmSource, utmMedium, utmCampaign, referrer }` from request body.
+- Write path uses spread-conditional pattern: only writes to Payload when
+  `sanitizeDetail()` returns a non-null value.
+
+**Separation of concerns (D-250 compatibility):**
+- `customer-inquiries.source` = broad demand channel (website, instagram, phone...)
+  Normalized by `normalizeInquirySource()`. Unchanged.
+- `customer-inquiries.utmSource/utmMedium/utmCampaign/referrer` = detail context.
+  Nullable. No overlap with broad source. Different question: "how specifically?"
+
+**funnelDesk.ts:** No changes. Funnel still groups by broad `source`. UTM/referrer
+fields are available as raw material for future drill-down analysis when volume justifies it.
+
+**Backfill:** Not possible. Past requests did not capture UTM/referrer data.
+Attribution quality improves forward-only from this point.
+
+**What does NOT change:**
+- D-241 lead desk pipeline — unchanged
+- D-249 funnel snapshot — unchanged (groups by `source`, not UTM)
+- D-250 source normalization — unchanged
+- Shopier order path — unaffected (Shopier creates Orders, not Inquiries)
+- Telegram operator commands — unaffected
+
+**Risk class:** very low. Additive-only: new nullable columns + optional POST body fields.
+Inquiry creation path is forward-compatible — old requests without UTM/referrer just
+produce null values in the new columns. No breaking change.
+
+**Status:** Shipped to `main`. Neon DDL must be applied manually by operator before
+new fields are populated in production rows.

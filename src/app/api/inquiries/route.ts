@@ -27,10 +27,23 @@ function normalizeInquirySource(raw: unknown): string {
   return (KNOWN_INQUIRY_SOURCES as readonly string[]).includes(s) ? s : 'website'
 }
 
+/**
+ * D-251: Sanitize a source-detail field (UTM param or referrer domain).
+ * - Non-string, empty, or whitespace-only → null (never store empty strings)
+ * - Trims, lowercases, caps at 200 chars
+ * - No invented values — unknown is stored as null
+ */
+function sanitizeDetail(raw: unknown): string | null {
+  if (typeof raw !== 'string') return null
+  const s = raw.trim().toLowerCase().slice(0, 200)
+  return s.length > 0 ? s : null
+}
+
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json()
-    const { name, phone, size, productId, message, source } = body
+    const { name, phone, size, productId, message, source,
+            utmSource, utmMedium, utmCampaign, referrer } = body
 
     if (!name || !phone) {
       return NextResponse.json({ error: 'Name and phone are required' }, { status: 400 })
@@ -54,6 +67,11 @@ export async function POST(req: NextRequest) {
         message: message || undefined,
         source: normalizeInquirySource(source),
         status: 'new',
+        // D-251: source-detail — store only when present (null = unknown, not fake)
+        ...(sanitizeDetail(utmSource) !== null ? { utmSource: sanitizeDetail(utmSource) } : {}),
+        ...(sanitizeDetail(utmMedium) !== null ? { utmMedium: sanitizeDetail(utmMedium) } : {}),
+        ...(sanitizeDetail(utmCampaign) !== null ? { utmCampaign: sanitizeDetail(utmCampaign) } : {}),
+        ...(sanitizeDetail(referrer) !== null ? { referrer: sanitizeDetail(referrer) } : {}),
       },
     })
 

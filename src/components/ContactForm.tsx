@@ -6,6 +6,44 @@ type Props = {
   productId: string
 }
 
+// ── D-251: Source-detail capture helpers ─────────────────────────────────────
+
+/**
+ * Extract UTM params from the current URL. Returns null for each param that
+ * is absent or empty. Called at submit time so no effect on server render.
+ */
+function captureUtmParams(): { utmSource: string | null; utmMedium: string | null; utmCampaign: string | null } {
+  if (typeof window === 'undefined') return { utmSource: null, utmMedium: null, utmCampaign: null }
+  const p = new URLSearchParams(window.location.search)
+  const clean = (v: string | null) => (v && v.trim() ? v.trim().toLowerCase().slice(0, 200) : null)
+  return {
+    utmSource: clean(p.get('utm_source')),
+    utmMedium: clean(p.get('utm_medium')),
+    utmCampaign: clean(p.get('utm_campaign')),
+  }
+}
+
+/**
+ * Extract the referring domain from document.referrer. Returns null if:
+ *   - no referrer (direct navigation)
+ *   - referrer is the same site (internal navigation — already captured by
+ *     the product relationship, not useful to duplicate here)
+ * Returns only the hostname (e.g. 'www.instagram.com'), not the full URL,
+ * to avoid storing search queries or other PII in the referrer path.
+ */
+function captureReferrer(): string | null {
+  if (typeof document === 'undefined') return null
+  const ref = document.referrer
+  if (!ref) return null
+  try {
+    const url = new URL(ref)
+    if (url.hostname === window.location.hostname) return null // same-site
+    return url.hostname.toLowerCase().slice(0, 200)
+  } catch {
+    return null
+  }
+}
+
 export function ContactForm({ productId }: Props) {
   const [name, setName] = useState('')
   const [phone, setPhone] = useState('')
@@ -17,11 +55,23 @@ export function ContactForm({ productId }: Props) {
     e.preventDefault()
     setStatus('loading')
 
+    // D-251: capture attribution context at submit time (no effect on render)
+    const { utmSource, utmMedium, utmCampaign } = captureUtmParams()
+    const referrer = captureReferrer()
+
     try {
       const res = await fetch('/api/inquiries', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name, phone, size, productId }),
+        body: JSON.stringify({
+          name, phone, size, productId,
+          // D-251: source-detail — null values are dropped by the server,
+          // never stored as empty strings
+          ...(utmSource ? { utmSource } : {}),
+          ...(utmMedium ? { utmMedium } : {}),
+          ...(utmCampaign ? { utmCampaign } : {}),
+          ...(referrer ? { referrer } : {}),
+        }),
       })
 
       if (res.ok) {

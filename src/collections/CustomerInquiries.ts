@@ -76,6 +76,55 @@ export const CustomerInquiries: CollectionConfig = {
       defaultValue: 'website',
       admin: { position: 'sidebar' },
     },
+    // ── D-251: Source-detail / UTM + Referrer capture ──────────────────────
+    // All fields are nullable — written only when truthfully available at
+    // inquiry creation time. Never invent values.
+    //
+    // Neon DDL (push:true silently skips — run manually after deploy):
+    //   ALTER TABLE customer_inquiries ADD COLUMN IF NOT EXISTS utm_source VARCHAR;
+    //   ALTER TABLE customer_inquiries ADD COLUMN IF NOT EXISTS utm_medium VARCHAR;
+    //   ALTER TABLE customer_inquiries ADD COLUMN IF NOT EXISTS utm_campaign VARCHAR;
+    //   ALTER TABLE customer_inquiries ADD COLUMN IF NOT EXISTS referrer VARCHAR;
+    {
+      name: 'utmSource',
+      type: 'text',
+      label: 'UTM Kaynak',
+      admin: {
+        position: 'sidebar',
+        description: 'utm_source param — google, instagram, facebook, vb. (otomatik)',
+        readOnly: true,
+      },
+    },
+    {
+      name: 'utmMedium',
+      type: 'text',
+      label: 'UTM Medium',
+      admin: {
+        position: 'sidebar',
+        description: 'utm_medium param — cpc, social, email, vb. (otomatik)',
+        readOnly: true,
+      },
+    },
+    {
+      name: 'utmCampaign',
+      type: 'text',
+      label: 'UTM Kampanya',
+      admin: {
+        position: 'sidebar',
+        description: 'utm_campaign param — kampanya adı (otomatik)',
+        readOnly: true,
+      },
+    },
+    {
+      name: 'referrer',
+      type: 'text',
+      label: 'Referrer Domain',
+      admin: {
+        position: 'sidebar',
+        description: 'Ziyaretçinin geldiği domain — instagram.com, google.com, vb. (otomatik)',
+        readOnly: true,
+      },
+    },
     {
       name: 'lastContactedAt',
       type: 'date',

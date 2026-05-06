@@ -7,14 +7,17 @@
  *
  * Attribution rule (the only judgement call here):
  *   - The funnel groups by **lead source** (`customer-inquiries.source`).
- *   - An order's source is intentionally NOT used for funnel attribution —
- *     /convert always sets order.source='telegram' regardless of where the
- *     lead came from, so order.source can't tell us "where did the demand
- *     originate". The lead's source is the truthful answer.
+ *   - We use the LEAD's source (not the order's source) even though D-250
+ *     now correctly preserves lead.source on converted orders. This is
+ *     intentional: funnel attribution is about WHEN the lead entered the
+ *     pipeline (lead.createdAt), not when the order was recorded. A lead
+ *     from last week converted today should appear in its original window's
+ *     funnel row, not today's. The relatedInquiry FK is the join that makes
+ *     this window-correct attribution possible.
  *   - Orders are counted under the LEAD's source (via relatedInquiry FK).
- *   - Orders WITHOUT a relatedInquiry (direct website/admin/shopier orders
- *     that didn't go through a lead) are reported as a separate
- *     "Doğrudan Sipariş (lead-siz)" group with order count + revenue only —
+ *   - Orders WITHOUT a relatedInquiry (direct Shopier / admin / future
+ *     website-checkout orders that didn't go through the lead desk) are
+ *     reported as a separate "Doğrudan Sipariş (lead-siz)" group —
  *     no funnel stages because there's no lead to stage.
  *
  * No schema change. No new collection. No mutations. Reuses existing

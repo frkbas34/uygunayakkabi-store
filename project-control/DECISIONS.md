@@ -6025,3 +6025,92 @@ Toplam (lead-bazlı)
 **Status:** Shipped to `main`. Soak validation passed. Operator validation: `/funnel` from Telegram → see one-screen daily funnel; cross-check `Toplam · Lead` against `/leads`'s open/total; cross-check `Toplam · Ciro` against `/sales today`'s revenue.
 
 **Reversible:** yes — pure read composition, no schema change.
+
+---
+
+## D-250 — Source Attribution Hygiene / Capture Hardening (2026-05-06)
+
+**Problem:**
+D-249's funnel snapshot exposed that source attribution data was unreliable in two ways:
+
+1. `convertLeadToOrder()` hardcoded `source: 'telegram'` on every Order created via `/convert`,
+   regardless of where the demand originated. A customer who filled the storefront inquiry form
+   (lead.source='website') would produce an Order with source='telegram' — recording the operational
+   channel (Telegram command), not the demand origin (website). The admin Order view was misleading.
+
+2. `/api/inquiries` accepted any arbitrary string for the `source` field with no validation
+   (`source: source || 'website'`). Future garbage values could silently pollute funnel data.
+
+**Source model chosen:**
+- `orders.source` = **demand origin** (where the customer came from), not the operational channel.
+  The operational channel is implicitly captured by `relatedInquiry` (set = lead desk / /convert).
+- `customer-inquiries.source` = **normalized demand origin** from a known value set.
+- One truthful meaning per field. No overloading.
+
+**funnelDesk.ts attribution rule (unchanged):**
+The funnel still uses `lead.source` for attribution grouping, not `order.source`. This is correct
+even after D-250 because funnel stages are about when the lead *entered* the pipeline
+(lead.createdAt window), not when the order was recorded. Window-correct attribution requires the
+lead's timestamp. The D-249 funnelDesk comment was updated to reflect this reasoning.
+
+**Changes made:**
+
+A) `src/lib/leadDesk.ts`
+- Added `mapLeadSourceToOrderSource()` helper — maps lead.source to a valid `orders.source`
+  enum value; falls back to 'website' for unknown/null.
+- Added `ORDER_SOURCE_VALUES` + `OrderSource` type — single source of truth for valid order sources.
+- In `convertLeadToOrder()`: changed `source: 'telegram'` → `source: mapLeadSourceToOrderSource(lead.source)`.
+  No other logic changed. relatedInquiry is still the indicator that this order was a lead conversion.
+
+B) `src/app/api/inquiries/route.ts`
+- Added `normalizeInquirySource()` helper — validates source against KNOWN_INQUIRY_SOURCES
+  `['website', 'instagram', 'phone', 'telegram', 'whatsapp', 'manual_entry']`.
+  Unknown/empty → 'website'. Prevents future garbage strings.
+- Changed `source: source || 'website'` → `source: normalizeInquirySource(source)`.
+
+C) `src/lib/funnelDesk.ts`
+- Updated attribution comment: corrects the justification for why we use lead.source (it's about
+  window-correct timing, not just because order.source was unreliable). Logic unchanged.
+
+D) `scripts/d250-backfill.ts`
+- One-shot idempotent repair script for existing pre-D-250 orders where
+  `source='telegram' AND relatedInquiry IS NOT NULL`.
+- Reads each linked lead's source, maps it, updates the order.
+- Run: `npx tsx scripts/d250-backfill.ts`
+- Dry-run: `DRY_RUN=1 npx tsx scripts/d250-backfill.ts`
+- Orders where the lead itself has source='telegram' are correctly left unchanged.
+
+**Schema changes:** None. All values written are already valid for existing enum/select definitions.
+No Neon DDL required.
+
+**Backfill:** deterministic + low blast radius. Only touches orders with relatedInquiry set AND
+source='telegram'. If no such orders exist (early adoption), backfill is a no-op.
+
+**What improves:**
+- Future `/convert` calls write the true demand origin on the Order record.
+- Admin order list correctly shows 'Website' for leads that came from the storefront form.
+- `/api/inquiries` now rejects garbage source strings.
+- funnelDesk.ts comment accurately describes the attribution architecture.
+- D-249 funnel correctness is unchanged (still uses lead.source) but the order records
+  are now independently truthful.
+
+**What does NOT change:**
+- funnelDesk.ts logic — still uses lead.source for window-correct funnel attribution.
+- Shopier order path — already writes `source: 'shopier'` correctly.
+- Direct admin-created orders — still default to `source: 'website'` (no worse than before;
+  documented as known ambiguity below).
+
+**Known remaining gap (not fixed in D-250):**
+`orders.source` `defaultValue: 'website'` in Orders.ts means orders manually created in the
+Payload admin panel get `source='website'` by default — even if created by the operator, not
+from a website checkout. There is currently no website checkout path that programmatically
+creates orders (PayTR is integrated for payment but no checkout-to-order flow exists).
+When a website checkout path is added, it should explicitly write `source: 'website'`.
+Until then, any admin-created order without a relatedInquiry appearing as 'website' is a
+known minor ambiguity. This does NOT affect funnel attribution (direct orders are already
+reported separately in the "Doğrudan Sipariş (lead-siz)" bucket).
+
+**Risk class:** very low. Two write-path changes, both narrowing/correcting existing writes.
+No schema change. No new collections. No new dependencies. Reversible via single-commit revert.
+
+**Status:** Shipped to `main`.

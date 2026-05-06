@@ -711,6 +711,38 @@ export function formatDailyLeadSummary(d: Awaited<ReturnType<typeof getDailyLead
   return lines.join('\n')
 }
 
+// ── D-250: Source attribution helpers ──────────────────────────────────────────
+
+/**
+ * D-250: Valid `orders.source` enum values (mirrors Orders.ts select options).
+ * Kept in sync manually — if Orders.ts gains a new source option, add it here.
+ */
+const ORDER_SOURCE_VALUES = ['website', 'telegram', 'phone', 'instagram', 'shopier'] as const
+type OrderSource = (typeof ORDER_SOURCE_VALUES)[number]
+
+/**
+ * D-250: Map a lead's free-text source field to a valid orders.source enum
+ * value, preserving demand origin on the converted Order record.
+ *
+ * Before D-250, convertLeadToOrder() hardcoded source='telegram' (the
+ * operational channel used to record the sale), which erased the original
+ * demand origin. A website lead converted via /convert now correctly shows
+ * source='website' rather than 'telegram'.
+ *
+ * Coercion rules:
+ *   - Exact match to any valid order source → keep as-is
+ *   - 'manual_entry', null, undefined, or unknown text → 'website' fallback
+ *     (most honest available default for non-channel-specific demand)
+ *
+ * Note: 'shopier' is valid in orders.source but should never appear in leads —
+ * Shopier creates Orders directly without going through the lead desk.
+ */
+function mapLeadSourceToOrderSource(leadSource: string | null | undefined): OrderSource {
+  const s = (leadSource ?? '').toLowerCase().trim()
+  if ((ORDER_SOURCE_VALUES as readonly string[]).includes(s)) return s as OrderSource
+  return 'website' // safe fallback for manual_entry, whatsapp, custom tags, etc.
+}
+
 // ── D-244: Lead → Sale conversion logging ───────────────────────────────────
 
 export interface ConversionRecord {
@@ -871,7 +903,12 @@ export async function convertLeadToOrder(
     size: lead.size ?? undefined,
     quantity: 1,
     status: 'confirmed', // operator confirmed the sale; not auto-shipped
-    source: 'telegram',
+    // D-250: preserve original demand origin from the lead, not the operational
+    // channel. 'telegram' was the command used to record the sale — but
+    // source should answer "where did the customer come from", not "how did
+    // the operator log it". relatedInquiry already tells you it went through
+    // the lead desk.
+    source: mapLeadSourceToOrderSource(lead.source),
     relatedInquiry: leadId,
   }
   if (opts.totalPrice && opts.totalPrice > 0) {

@@ -1,6 +1,32 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getPayload } from '@/lib/payload'
 
+/**
+ * D-250: Normalize the free-text source from the request body to a known
+ * customer-inquiries.source value. Prevents garbage strings from polluting
+ * the source field and making funnel reporting noisy over time.
+ *
+ * Known values match the labels funnelDesk.ts renders. Any unknown value
+ * (including empty string) falls back to 'website' — the correct value for
+ * storefront form submissions, which is the only current caller.
+ *
+ * 'whatsapp' and 'manual_entry' are allowed as forward-looking sources
+ * an operator might pass when manually creating an inquiry outside the form.
+ */
+const KNOWN_INQUIRY_SOURCES = [
+  'website',
+  'instagram',
+  'phone',
+  'telegram',
+  'whatsapp',
+  'manual_entry',
+] as const
+
+function normalizeInquirySource(raw: unknown): string {
+  const s = typeof raw === 'string' ? raw.toLowerCase().trim() : ''
+  return (KNOWN_INQUIRY_SOURCES as readonly string[]).includes(s) ? s : 'website'
+}
+
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json()
@@ -26,7 +52,7 @@ export async function POST(req: NextRequest) {
         size: size || undefined,
         product: productId || undefined,
         message: message || undefined,
-        source: source || 'website',
+        source: normalizeInquirySource(source),
         status: 'new',
       },
     })

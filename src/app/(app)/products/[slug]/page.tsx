@@ -577,6 +577,18 @@ export default async function ProductPage({ params }: Props) {
                         Sarı bedenler tükenmek üzere
                       </p>
                     )}
+                    {/* D-263: Size-help reassurance */}
+                    <p style={{
+                      fontFamily: "'Inter', sans-serif",
+                      fontSize: 11,
+                      color: 'rgba(28,26,22,0.4)',
+                      marginTop: 10,
+                      lineHeight: 1.5,
+                    }}>
+                      {isSoldOut
+                        ? 'Farklı beden veya alternatif ürün için talep bırakabilirsiniz — sizi arayarak yardımcı oluruz.'
+                        : 'Beden konusunda emin değilseniz talep formumuzu doldurun — sizi arayarak netleştiririz.'}
+                    </p>
                   </div>
                 )}
 
@@ -718,15 +730,24 @@ export default async function ProductPage({ params }: Props) {
                     fontSize: 16,
                     fontWeight: 700,
                     color: '#1c1a16',
-                    marginBottom: 16,
+                    marginBottom: 4,
                   }}>
-                    Sipariş Ver
+                    Sipariş Ver veya Beden Sor
                   </h3>
+                  <p style={{
+                    fontFamily: "'Inter', sans-serif",
+                    fontSize: 12,
+                    color: 'rgba(28,26,22,0.4)',
+                    marginBottom: 16,
+                    lineHeight: 1.5,
+                  }}>
+                    Beden seçmek zorunda değilsiniz — sizi arayarak yardımcı oluruz.
+                  </p>
                   {/* D-261: 3-step process strip — explains what happens after form submit */}
                   <div style={{ display: 'flex', alignItems: 'flex-start', gap: 0, marginBottom: 20 }}>
                     {[
                       { num: '1', label: 'Formu Doldurun' },
-                      { num: '2', label: 'Sizi Arayalım' },
+                      { num: '2', label: 'Beden & Teslimat Netleşir' },
                       { num: '3', label: 'Ürün Elinizde' },
                     ].map(({ num, label }, i, arr) => (
                       <div key={i} style={{ display: 'flex', alignItems: 'center', flex: i < arr.length - 1 ? 1 : undefined }}>

@@ -155,7 +155,10 @@ export function ContactForm({ productId, productTitle, variants, soldout }: Prop
       {/* D-256: Interactive size chips — only when variants available */}
       {hasVariants && (
         <div>
-          <p className="text-sm font-medium text-gray-700 mb-2">Beden seçin</p>
+          <p className="text-sm font-medium text-gray-700 mb-2">
+            Beden seçin{' '}
+            <span className="text-gray-400 font-normal text-xs">(opsiyonel)</span>
+          </p>
           <div className="flex flex-wrap gap-2 mb-1">
             {availableVariants.map((v) => {
               const selected = size === v.size
@@ -175,7 +178,7 @@ export function ContactForm({ productId, productTitle, variants, soldout }: Prop
               )
             })}
           </div>
-          {size && (
+          {size ? (
             <p className="text-xs text-gray-400">
               Seçili beden: <span className="font-medium text-gray-700">{size}</span>
               {' '}·{' '}
@@ -186,6 +189,11 @@ export function ContactForm({ productId, productTitle, variants, soldout }: Prop
               >
                 temizle
               </button>
+            </p>
+          ) : (
+            /* D-263: "Proceed without size" reassurance */
+            <p className="text-xs text-gray-400 mt-0.5">
+              Beden emin değilseniz seçmeden devam edebilirsiniz — sizi arayarak netleştiririz.
             </p>
           )}
         </div>

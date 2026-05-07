@@ -44,6 +44,19 @@ export interface FunnelSourceRow {
   revenue: number
 }
 
+export interface AttributionTopEntry {
+  value: string
+  count: number
+}
+
+export interface AttributionDetailSummary {
+  /** Number of leads in window that have at least one UTM/referrer field set. */
+  coveredLeads: number
+  topUtmSources: AttributionTopEntry[]
+  topUtmCampaigns: AttributionTopEntry[]
+  topReferrers: AttributionTopEntry[]
+}
+
 export interface FunnelSnapshot {
   /** Period label for the header, e.g. "bugün", "son 7 gün". */
   windowLabel: string
@@ -55,6 +68,8 @@ export interface FunnelSnapshot {
   totals: FunnelSourceRow
   /** Direct orders — created in window, NOT linked to any lead. */
   directOrders: { count: number; revenue: number }
+  /** D-253: Attribution-detail roll-up. Null when no UTM/referrer data in window. */
+  attributionDetail: AttributionDetailSummary | null
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -84,6 +99,39 @@ function startOfPastDaysUTC(days: number): Date {
   const d = startOfTodayUTC()
   d.setUTCDate(d.getUTCDate() - (days - 1))
   return d
+}
+
+// ── Attribution-detail aggregation ──────────────────────────────────────────
+
+/**
+ * D-253: Count occurrences of each non-null value in a field across leads,
+ * return top N entries sorted by count desc. Returns [] when all values null.
+ */
+function topN(leads: any[], field: string, n: number): AttributionTopEntry[] {
+  const counts = new Map<string, number>()
+  for (const l of leads) {
+    const v = l[field]
+    if (v && typeof v === 'string' && v.trim()) {
+      counts.set(v, (counts.get(v) ?? 0) + 1)
+    }
+  }
+  return Array.from(counts.entries())
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, n)
+    .map(([value, count]) => ({ value, count }))
+}
+
+function buildAttributionDetail(leads: any[]): AttributionDetailSummary | null {
+  const coveredLeads = leads.filter(
+    (l) => l.utmSource || l.utmMedium || l.utmCampaign || l.referrer
+  ).length
+  if (coveredLeads === 0) return null
+  return {
+    coveredLeads,
+    topUtmSources: topN(leads, 'utmSource', 3),
+    topUtmCampaigns: topN(leads, 'utmCampaign', 3),
+    topReferrers: topN(leads, 'referrer', 3),
+  }
 }
 
 // ── Reads ────────────────────────────────────────────────────────────────────
@@ -228,6 +276,7 @@ export async function getFunnelSnapshot(
     sources: rows,
     totals,
     directOrders: { count: directCount, revenue: directRevenue },
+    attributionDetail: buildAttributionDetail(leads),
   }
 }
 
@@ -306,6 +355,24 @@ export function formatFunnelSnapshot(d: FunnelSnapshot): string {
     lines.push(`  • Sipariş: ${d.directOrders.count}`)
     if (d.directOrders.revenue > 0) lines.push(`  • Ciro: ${d.directOrders.revenue} ₺`)
     lines.push(``, `<i>Lead-siz siparişler bir lead'e bağlı olmadığı için kaynak kırılımına dahil değil.</i>`)
+  }
+
+  // D-253: attribution-detail footer — only renders when UTM/referrer data exists
+  if (d.attributionDetail) {
+    const a = d.attributionDetail
+    lines.push(``, `<b>📎 Trafik Detayı (${a.coveredLeads} lead)</b>`)
+    if (a.topUtmSources.length > 0) {
+      const vals = a.topUtmSources.map(e => `${escapeHtml(e.value)} (${e.count})`).join(', ')
+      lines.push(`  • UTM Kaynak: ${vals}`)
+    }
+    if (a.topUtmCampaigns.length > 0) {
+      const vals = a.topUtmCampaigns.map(e => `${escapeHtml(e.value)} (${e.count})`).join(', ')
+      lines.push(`  • Kampanya: ${vals}`)
+    }
+    if (a.topReferrers.length > 0) {
+      const vals = a.topReferrers.map(e => `${escapeHtml(e.value)} (${e.count})`).join(', ')
+      lines.push(`  • Referrer: ${vals}`)
+    }
   }
 
   lines.push(``, `<i>/leads · /orders · /business · /sales today</i>`)

@@ -960,35 +960,59 @@ const ALL_CATEGORIES = ["Tümü", "Spor", "Günlük", "Klasik", "Bot", "Sandalet
 function Catalog({ onView, allProducts, initCat, onNav, settings }) {
   const [fl, sFl] = useState(initCat);
   const [szFilter, setSzFilter] = useState(null);
+  const [sort, setSort] = useState("default");
   const [vis, sVis] = useState(12);
 
-  // Extract all unique sizes sorted numerically
-  const allSizes = [...new Set(allProducts.flatMap(p => p.sizes || []))].sort((a, b) => Number(a) - Number(b));
+  // D-259: dynamic heading based on active category
+  const catHeading = fl === "Tümü" ? "Tüm Ürünler"
+    : fl === "Cüzdan" ? "Cüzdanlar"
+    : fl === "Bot" ? "Bot & Kışlık"
+    : fl === "Terlik" ? "Terlikler"
+    : fl === "Sandalet" ? "Sandaletler"
+    : `${fl} Ayakkabıları`;
+
+  // Extract all unique sizes sorted numerically — only from category-filtered products
+  const catFiltered = fl === "Tümü" ? allProducts : allProducts.filter(p => p.category === fl);
+  const allSizes = [...new Set(catFiltered.flatMap(p => p.sizes || []))].sort((a, b) => Number(a) - Number(b));
 
   // Combined filter: category + size
-  const flt = allProducts.filter(p => {
-    const catMatch = fl === "Tümü" || p.category === fl;
-    const sizeMatch = !szFilter || (p.sizes && p.sizes.includes(szFilter));
-    return catMatch && sizeMatch;
-  });
-  const shown = flt.slice(0, vis);
-  const hasMore = vis < flt.length;
+  const flt = catFiltered.filter(p =>
+    !szFilter || (p.sizes && p.sizes.includes(szFilter))
+  );
 
+  // D-259: sort
+  const sorted = sort === "price-asc"  ? [...flt].sort((a, b) => (a.price || 0) - (b.price || 0))
+               : sort === "price-desc" ? [...flt].sort((a, b) => (b.price || 0) - (a.price || 0))
+               : sort === "discount"   ? [...flt].sort((a, b) => {
+                   const dA = a.originalPrice && a.originalPrice > a.price ? a.originalPrice - a.price : 0;
+                   const dB = b.originalPrice && b.originalPrice > b.price ? b.originalPrice - b.price : 0;
+                   return dB - dA;
+                 })
+               : flt;
+
+  const shown = sorted.slice(0, vis);
+  const hasMore = vis < sorted.length;
   const hasActiveFilter = fl !== "Tümü" || szFilter;
+
+  const resetFilters = () => { sFl("Tümü"); setSzFilter(null); setSort("default"); sVis(12); };
 
   return (
     <div style={{ paddingTop: 80, background: T.bg, minHeight: "100vh", position: "relative", zIndex: 1 }}>
       <section style={{ maxWidth: 1440, margin: "0 auto", padding: "60px 40px 100px" }}>
-        {/* Hero */}
-        <div style={{ textAlign: "center", marginBottom: 48 }}>
-          <h1 style={{ fontFamily: T.serif, fontSize: "clamp(36px, 4vw, 56px)", fontWeight: 700, color: T.text, marginBottom: 16 }}>Ayakkabılar</h1>
-          <p style={{ fontFamily: T.sans, fontSize: 16, color: T.textLight, maxWidth: 480, margin: "0 auto" }}>Tüm kategorilerde en iyi seçkiler</p>
+
+        {/* D-259: Dynamic heading */}
+        <div style={{ textAlign: "center", marginBottom: 40 }}>
+          <h1 style={{ fontFamily: T.serif, fontSize: "clamp(36px, 4vw, 56px)", fontWeight: 700, color: T.text, marginBottom: 10 }}>{catHeading}</h1>
+          <p style={{ fontFamily: T.sans, fontSize: 14, color: T.textLight }}>
+            <span style={{ fontWeight: 600, color: T.text }}>{flt.length}</span> ürün
+            {szFilter && <span style={{ color: T.textLighter }}> · Beden {szFilter}</span>}
+          </p>
         </div>
 
         {/* Category Filter */}
-        <div style={{ display: "flex", gap: 10, justifyContent: "center", flexWrap: "wrap", marginBottom: 16 }}>
+        <div style={{ display: "flex", gap: 10, justifyContent: "center", flexWrap: "wrap", marginBottom: 12 }}>
           {ALL_CATEGORIES.map(c => (
-            <button key={c} onClick={() => { sFl(c); sVis(12); }} style={{
+            <button key={c} onClick={() => { sFl(c); setSzFilter(null); setSort("default"); sVis(12); }} style={{
               fontFamily: T.sans, fontSize: 11, fontWeight: 600, letterSpacing: "0.08em",
               padding: "10px 24px", borderRadius: T.r.full, cursor: "pointer", textTransform: "uppercase",
               border: fl === c ? "1px solid #1c1a16" : "1px solid rgba(28,26,22,0.1)",
@@ -1000,14 +1024,14 @@ function Catalog({ onView, allProducts, initCat, onNav, settings }) {
           ))}
         </div>
 
-        {/* Size Filter */}
+        {/* D-259: Size filter — only shows sizes available in current category */}
         {allSizes.length > 0 && (
-          <div style={{ display: "flex", gap: 8, justifyContent: "center", flexWrap: "wrap", marginBottom: 16, alignItems: "center" }}>
-            <span style={{ fontFamily: T.sans, fontSize: 11, fontWeight: 600, letterSpacing: "0.08em", textTransform: "uppercase", color: T.textLight, marginRight: 4 }}>Beden:</span>
+          <div style={{ display: "flex", gap: 8, justifyContent: "center", flexWrap: "wrap", marginBottom: 12, alignItems: "center" }}>
+            <span style={{ fontFamily: T.sans, fontSize: 10, fontWeight: 700, letterSpacing: "0.1em", textTransform: "uppercase", color: T.textLighter, marginRight: 4 }}>Beden:</span>
             {allSizes.map(s => (
               <button key={s} onClick={() => { setSzFilter(szFilter === s ? null : s); sVis(12); }} style={{
                 fontFamily: T.sans, fontSize: 12, fontWeight: 600,
-                width: 42, height: 42, borderRadius: "50%", cursor: "pointer",
+                width: 40, height: 40, borderRadius: "50%", cursor: "pointer",
                 display: "flex", alignItems: "center", justifyContent: "center",
                 border: szFilter === s ? "2px solid #1c1a16" : "1px solid rgba(28,26,22,0.12)",
                 background: szFilter === s ? T.text : "rgba(238,232,222,0.6)",
@@ -1019,38 +1043,58 @@ function Catalog({ onView, allProducts, initCat, onNav, settings }) {
           </div>
         )}
 
-        {/* Clear filters */}
-        {hasActiveFilter && (
-          <div style={{ display: "flex", justifyContent: "center", marginBottom: 32 }}>
-            <button onClick={() => { sFl("Tümü"); setSzFilter(null); sVis(12); }} style={{
-              fontFamily: T.sans, fontSize: 11, fontWeight: 600, letterSpacing: "0.06em",
-              padding: "8px 20px", borderRadius: T.r.full, cursor: "pointer",
-              border: "1px solid rgba(200,16,46,0.3)", background: "rgba(200,16,46,0.06)",
-              color: T.red, transition: "all 0.3s",
-            }}>
-              ✕ Filtreleri Temizle
-            </button>
+        {/* D-259: Sort + clear row */}
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 12, marginBottom: 32, marginTop: 8 }}>
+          {/* Left: clear filters */}
+          <div style={{ minWidth: 140 }}>
+            {hasActiveFilter && (
+              <button onClick={resetFilters} style={{
+                fontFamily: T.sans, fontSize: 11, fontWeight: 600, letterSpacing: "0.06em",
+                padding: "8px 18px", borderRadius: T.r.full, cursor: "pointer",
+                border: "1px solid rgba(200,16,46,0.3)", background: "rgba(200,16,46,0.06)",
+                color: T.red, transition: "all 0.3s",
+              }}>
+                ✕ Filtreleri Temizle
+              </button>
+            )}
           </div>
-        )}
-
-        {/* Results count */}
-        {hasActiveFilter && flt.length > 0 && (
-          <div style={{ textAlign: "center", marginBottom: 24 }}>
-            <p style={{ fontFamily: T.sans, fontSize: 13, color: T.textLight }}>
-              {flt.length} ürün bulundu
-            </p>
+          {/* Right: sort select */}
+          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <span style={{ fontFamily: T.sans, fontSize: 11, fontWeight: 600, letterSpacing: "0.08em", textTransform: "uppercase", color: T.textLighter, whiteSpace: "nowrap" }}>Sırala:</span>
+            <select
+              value={sort}
+              onChange={e => { setSort(e.target.value); sVis(12); }}
+              style={{
+                fontFamily: T.sans, fontSize: 12, fontWeight: 600, color: T.text,
+                background: "rgba(238,232,222,0.8)", border: "1px solid rgba(28,26,22,0.12)",
+                borderRadius: T.r.full, padding: "8px 36px 8px 16px", cursor: "pointer",
+                appearance: "none", WebkitAppearance: "none",
+                backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%231c1a16' stroke-width='2.5'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E")`,
+                backgroundRepeat: "no-repeat", backgroundPosition: "right 12px center",
+                outline: "none",
+              }}
+            >
+              <option value="default">Varsayılan</option>
+              <option value="price-asc">Fiyat: Düşük → Yüksek</option>
+              <option value="price-desc">Fiyat: Yüksek → Düşük</option>
+              <option value="discount">İndirimli Önce</option>
+            </select>
           </div>
-        )}
+        </div>
 
         {/* Grid */}
         {flt.length === 0 ? (
           <div style={{ textAlign: "center", padding: "80px 24px" }}>
+            <div style={{ fontSize: 48, marginBottom: 20 }}>🔍</div>
             <p style={{ fontFamily: T.sans, fontSize: 18, fontWeight: 600, color: T.text, marginBottom: 8 }}>
               {!hasActiveFilter ? "Henüz ürün eklenmedi" : "Bu filtrelere uygun ürün bulunamadı"}
             </p>
+            <p style={{ fontFamily: T.sans, fontSize: 14, color: T.textLighter, marginBottom: 24, lineHeight: 1.6 }}>
+              {hasActiveFilter ? "Filtreleri temizleyerek tüm ürünlere göz atabilirsin." : "Yakında yeni ürünler eklenecek."}
+            </p>
             {hasActiveFilter && (
-              <button onClick={() => { sFl("Tümü"); setSzFilter(null); sVis(12); }} style={{
-                fontFamily: T.sans, fontSize: 13, fontWeight: 600, marginTop: 16,
+              <button onClick={resetFilters} style={{
+                fontFamily: T.sans, fontSize: 13, fontWeight: 600,
                 padding: "12px 32px", borderRadius: T.r.full, cursor: "pointer",
                 border: "none", background: T.text, color: "#fff", transition: "all 0.3s",
               }}>
@@ -1070,7 +1114,7 @@ function Catalog({ onView, allProducts, initCat, onNav, settings }) {
               color: T.text, background: "transparent", border: "1px solid rgba(28,26,22,0.1)",
               padding: "14px 48px", borderRadius: T.r.full, cursor: "pointer",
             }}>
-              DAHA FAZLA ({Math.max(0, flt.length - vis)})
+              DAHA FAZLA ({Math.max(0, sorted.length - vis)})
             </button>
           </div>
         )}

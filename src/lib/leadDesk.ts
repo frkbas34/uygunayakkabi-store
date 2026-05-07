@@ -62,6 +62,10 @@ export interface LeadEntry {
   message?: string | null
   size?: string | null
   source?: string | null
+  utmSource?: string | null
+  utmMedium?: string | null
+  utmCampaign?: string | null
+  referrer?: string | null
   product?: { id: number; title?: string | null; stockNumber?: string | null } | null
   lastContactedAt?: string | null
   handledAt?: string | null
@@ -89,6 +93,10 @@ function normalizeLead(doc: any): LeadEntry {
     message: doc.message ?? null,
     size: doc.size ?? null,
     source: doc.source ?? null,
+    utmSource: doc.utmSource ?? null,
+    utmMedium: doc.utmMedium ?? null,
+    utmCampaign: doc.utmCampaign ?? null,
+    referrer: doc.referrer ?? null,
     product,
     lastContactedAt: doc.lastContactedAt ?? null,
     handledAt: doc.handledAt ?? null,
@@ -478,7 +486,18 @@ export function formatLeadCard(l: LeadEntry): string {
   lines.push(``, `📅 Oluşturulma: ${fmtDate(l.createdAt)}`)
   if (l.lastContactedAt) lines.push(`📞 Son iletişim: ${fmtDate(l.lastContactedAt)}`)
   if (l.handledAt) lines.push(`🏁 Kapanış: ${fmtDate(l.handledAt)}`)
-  if (l.source) lines.push(`🌐 Kaynak: ${escapeHtml(l.source)}`)
+  // D-252: source + attribution detail block (null-safe, no empty placeholders)
+  const hasUtm = !!(l.utmSource || l.utmMedium || l.utmCampaign)
+  const hasAttribution = !!(l.source || hasUtm || l.referrer)
+  if (hasAttribution) {
+    lines.push(``)
+    if (l.source) lines.push(`🌐 Kaynak: ${escapeHtml(l.source)}`)
+    if (hasUtm) {
+      const utmParts = [l.utmSource, l.utmMedium, l.utmCampaign].filter(Boolean)
+      lines.push(`📎 UTM: ${utmParts.map(p => escapeHtml(p!)).join(' / ')}`)
+    }
+    if (l.referrer) lines.push(`🔗 Ref: ${escapeHtml(l.referrer)}`)
+  }
   return lines.join('\n')
 }
 
@@ -523,7 +542,15 @@ export function formatNewLeadAlert(l: LeadEntry): string {
     const m = escapeHtml(l.message).slice(0, 200)
     lines.push(``, `💬 <i>${m}</i>`)
   }
-  if (l.source) lines.push(`🌐 ${escapeHtml(l.source)}`)
+  // D-252: compact attribution hint — source + first available UTM/referrer signal
+  if (l.source || l.utmSource || l.referrer) {
+    const hint = [
+      l.source ? escapeHtml(l.source) : null,
+      l.utmSource ? escapeHtml(l.utmSource) : null,
+      l.referrer ? escapeHtml(l.referrer) : null,
+    ].filter(Boolean).join(' · ')
+    lines.push(`🌐 ${hint}`)
+  }
   lines.push(``, `<i>Detay: /lead ${l.id}</i>`)
   return lines.join('\n')
 }

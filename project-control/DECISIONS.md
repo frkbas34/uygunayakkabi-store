@@ -6429,3 +6429,30 @@ Empty-state variants (3 levels):
 No schema change. No mutation.
 
 **Status:** COMPLETE.
+
+---
+
+## D-256 — Product Page Lead Conversion Polish v1 (2026-05-07)
+**Decision:**
+Polish the product page contact form into a proper conversion surface.
+
+**Changes:**
+- `ContactForm.tsx`: full rebuild (248 lines)
+  - Interactive size chips: available variants rendered as clickable buttons; click selects/deselects, fills `size` field; "temizle" clear link; manual text input only shown when no variants available
+  - Soldout amber notice block (conditional on `soldout` prop)
+  - Success state shows product title: "[Product] için talebinizi aldık."
+  - Submit button text: "Talep Oluştur — Beni Arayın", dark color (`bg-gray-900`)
+  - Trust microcopy: "Bilgileriniz yalnızca sipariş desteği için kullanılır."
+  - Error state includes WhatsApp fallback suggestion
+  - D-251 UTM/referrer capture helpers retained intact
+  - New props: `productTitle`, `variants`, `soldout`
+- `page.tsx`: updated to pass new props + structural improvements
+  - ContactForm receives `productTitle={product.title}`, `variants={variants}`, `soldout={isSoldOut}`
+  - Form container gets `id="inquiry-form"` anchor
+  - Heading updated: "Bilgi Al / Sipariş Ver" → "Sipariş Ver"
+  - Subtext updated: "Beden seçin, bilgilerinizi bırakın — sizi arayalım."
+  - Sticky mobile CTA added (`lg:hidden`, `position: fixed`, `href="#inquiry-form"`) — always visible on mobile, scrolls user to form
+
+**Commit:** f76c47d on main. Zero new TS errors.
+
+**Status:** COMPLETE.

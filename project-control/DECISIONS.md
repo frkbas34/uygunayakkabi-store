@@ -6198,3 +6198,60 @@ produce null values in the new columns. No breaking change.
 
 **Status:** Shipped to `main`. Neon DDL must be applied manually by operator before
 new fields are populated in production rows.
+
+---
+
+## D-252 — Attribution Detail Visibility / Lead Context Surfacing (2026-05-07)
+
+**Commit:** 910c31a
+
+**Problem:** D-251 added UTM + referrer capture on `customer-inquiries` but those
+fields were invisible to the operator. `/lead <id>` showed only the broad `source`
+field. No way to see where specifically a lead came from without querying the DB.
+
+**Changes — `src/lib/leadDesk.ts` only:**
+
+- `LeadEntry` interface: added `utmSource?`, `utmMedium?`, `utmCampaign?`, `referrer?`
+  (all `string | null`, optional).
+- `normalizeLead()`: maps 4 new fields from Payload doc (`doc.utmSource ?? null` etc.).
+- `formatLeadCard()`: attribution block appended after dates section. Blank-line
+  separator. Three conditional lines, each omitted when null:
+  - `🌐 Kaynak: <source>` — broad channel
+  - `📎 UTM: <utmSource> / <utmMedium> / <utmCampaign>` — only UTM parts that exist,
+    joined by ` / `
+  - `🔗 Ref: <referrer>` — hostname only (as stored by D-251)
+  Zero noise when all attribution fields are null (e.g. direct Telegram inquiries).
+- `formatNewLeadAlert()`: compact `🌐 source · utmSource · referrer` hint line.
+  Built from first available signals. Omitted entirely when all three are null.
+
+**Design rule enforced:** no empty placeholders — attribution block only renders if
+at least one field has a value. Telegram-originated leads (where UTM/referrer will
+always be null) see no extra lines.
+
+**Operator UX after D-252:**
+```
+/lead 412  →
+🟡 Lead #412 — new
+
+👤 Ayşe Kaya
+📱 +90 532 ...
+🛍️ UA-0041 — Nike Air Max 90
+📐 Beden: 38
+
+📅 Oluşturulma: 07.05.2026 14:32
+
+🌐 Kaynak: instagram
+📎 UTM: instagram / social / summer_drop
+🔗 Ref: instagram.com
+```
+
+For a direct/Telegram lead, attribution block is absent entirely.
+
+**What does NOT change:** D-241 lead desk, D-250 source mapping, D-251 capture,
+funnelDesk attribution logic, Shopier path, image pipeline.
+
+**Risk class:** zero. Read-only rendering change — no DB writes, no API changes,
+no Neon DDL required. Fields are already in the doc if Neon DDL from D-251 was applied.
+
+**Status:** Shipped to `main` (910c31a). D-250, D-251, D-252 form a complete
+attribution hygiene chain: capture → normalize → surface.

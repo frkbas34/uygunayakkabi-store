@@ -244,11 +244,15 @@ function Card({ p, onView }) {
   const images = aiImgs || [imgSrc];
   const displayImg = images[slideIdx];
 
+  // D-257: Card is a real <a> link — enables right-click, mobile long-press, semantics
+  const cardHref = `/products/${p.slug || p.id}`;
+
   return (
-    <div
+    <a
+      href={cardHref}
       onMouseEnter={() => sH(true)} onMouseLeave={() => { sH(false); setSI(0); }}
-      onClick={() => onView(p)}
       style={{
+        display: "block", textDecoration: "none",
         cursor: "pointer", borderRadius: T.r.lg, overflow: "hidden",
         background: T.bgCard, border: "1px solid rgba(28,26,22,0.06)",
         transition: "all 0.45s cubic-bezier(.22,1,.36,1)", backdropFilter: "blur(10px)",
@@ -342,8 +346,13 @@ function Card({ p, onView }) {
             </span>
           )}
         </div>
+        {/* D-257: Always-visible tap affordance — critical for mobile (no hover state) */}
+        <div style={{ marginTop: 12, paddingTop: 12, borderTop: "1px solid rgba(28,26,22,0.06)", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+          <span style={{ fontFamily: T.sans, fontSize: 11, fontWeight: 600, letterSpacing: "0.08em", textTransform: "uppercase", color: T.text }}>İncele</span>
+          <span style={{ fontFamily: T.sans, fontSize: 14, color: T.textLighter }}>→</span>
+        </div>
       </div>
-    </div>
+    </a>
   );
 }
 
@@ -506,7 +515,7 @@ function StepsSection() {
 // ============================================
 // BEST SELLERS HORIZONTAL SCROLL
 // ============================================
-function BestSellersScroll({ allProducts, onView }) {
+function BestSellersScroll({ allProducts, onView, onNav }) {
   const scrollRef = useRef(null);
   const scroll = (dir) => { if (scrollRef.current) scrollRef.current.scrollBy({ left: dir * 320, behavior: "smooth" }); };
   return (
@@ -516,9 +525,13 @@ function BestSellersScroll({ allProducts, onView }) {
           <p style={{ fontFamily: T.sans, fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.18em", color: T.red, marginBottom: 10 }}>POPÜLER</p>
           <h2 style={{ fontFamily: T.serif, fontSize: "clamp(30px, 3.5vw, 48px)", fontWeight: 700, color: T.text, letterSpacing: "-0.02em" }}>Çok Satanlar</h2>
         </div>
-        <div style={{ display: "flex", gap: 8 }}>
-          <button onClick={() => scroll(-1)} style={{ width: 40, height: 40, borderRadius: "50%", border: "1px solid rgba(28,26,22,0.1)", background: "rgba(238,232,222,0.5)", cursor: "pointer", fontSize: 16, display: "flex", alignItems: "center", justifyContent: "center" }}>←</button>
-          <button onClick={() => scroll(1)} style={{ width: 40, height: 40, borderRadius: "50%", border: "1px solid rgba(28,26,22,0.1)", background: "rgba(238,232,222,0.5)", cursor: "pointer", fontSize: 16, display: "flex", alignItems: "center", justifyContent: "center" }}>→</button>
+        <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
+          {/* D-257: Tümünü Gör link */}
+          {onNav && <button onClick={() => onNav("catalog")} style={{ fontFamily: T.sans, fontSize: 12, fontWeight: 600, letterSpacing: "0.06em", color: T.text, background: "none", border: "1px solid rgba(28,26,22,0.15)", padding: "8px 20px", borderRadius: T.r.full, cursor: "pointer", whiteSpace: "nowrap" }}>Tümünü Gör →</button>}
+          <div style={{ display: "flex", gap: 8 }}>
+            <button onClick={() => scroll(-1)} style={{ width: 40, height: 40, borderRadius: "50%", border: "1px solid rgba(28,26,22,0.1)", background: "rgba(238,232,222,0.5)", cursor: "pointer", fontSize: 16, display: "flex", alignItems: "center", justifyContent: "center" }}>←</button>
+            <button onClick={() => scroll(1)} style={{ width: 40, height: 40, borderRadius: "50%", border: "1px solid rgba(28,26,22,0.1)", background: "rgba(238,232,222,0.5)", cursor: "pointer", fontSize: 16, display: "flex", alignItems: "center", justifyContent: "center" }}>→</button>
+          </div>
         </div>
       </div>
       <div ref={scrollRef} style={{ display: "flex", gap: 16, overflowX: "auto", scrollSnapType: "x mandatory", paddingLeft: 40, paddingRight: 40, scrollbarWidth: "none", msOverflowStyle: "none" }}>
@@ -685,7 +698,7 @@ function CategoryOverlay({ onNav }) {
 // ============================================
 // İNDİRİMLİ ÜRÜNLER (Discounted Horizontal Scroll)
 // ============================================
-function DiscountedSection({ allProducts, onView }) {
+function DiscountedSection({ allProducts, onView, onNav }) {
   const scrollRef = useRef(null);
   const scroll = (dir) => { if (scrollRef.current) scrollRef.current.scrollBy({ left: dir * 320, behavior: "smooth" }); };
   const discounted = allProducts.filter(p => p.originalPrice && p.originalPrice > p.price);
@@ -697,9 +710,13 @@ function DiscountedSection({ allProducts, onView }) {
           <p style={{ fontFamily: T.sans, fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.18em", color: T.red, marginBottom: 10 }}>FIRSATLAR</p>
           <h2 style={{ fontFamily: T.serif, fontSize: "clamp(30px, 3.5vw, 48px)", fontWeight: 700, color: T.text, letterSpacing: "-0.02em" }}>İndirimli Ürünler</h2>
         </div>
-        <div style={{ display: "flex", gap: 8 }}>
-          <button onClick={() => scroll(-1)} style={{ width: 40, height: 40, borderRadius: "50%", border: "1px solid rgba(28,26,22,0.1)", background: "rgba(238,232,222,0.5)", cursor: "pointer", fontSize: 16, display: "flex", alignItems: "center", justifyContent: "center" }}>←</button>
-          <button onClick={() => scroll(1)} style={{ width: 40, height: 40, borderRadius: "50%", border: "1px solid rgba(28,26,22,0.1)", background: "rgba(238,232,222,0.5)", cursor: "pointer", fontSize: 16, display: "flex", alignItems: "center", justifyContent: "center" }}>→</button>
+        <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
+          {/* D-257: Tümünü Gör link */}
+          {onNav && <button onClick={() => onNav("catalog")} style={{ fontFamily: T.sans, fontSize: 12, fontWeight: 600, letterSpacing: "0.06em", color: T.text, background: "none", border: "1px solid rgba(28,26,22,0.15)", padding: "8px 20px", borderRadius: T.r.full, cursor: "pointer", whiteSpace: "nowrap" }}>Tümünü Gör →</button>}
+          <div style={{ display: "flex", gap: 8 }}>
+            <button onClick={() => scroll(-1)} style={{ width: 40, height: 40, borderRadius: "50%", border: "1px solid rgba(28,26,22,0.1)", background: "rgba(238,232,222,0.5)", cursor: "pointer", fontSize: 16, display: "flex", alignItems: "center", justifyContent: "center" }}>←</button>
+            <button onClick={() => scroll(1)} style={{ width: 40, height: 40, borderRadius: "50%", border: "1px solid rgba(28,26,22,0.1)", background: "rgba(238,232,222,0.5)", cursor: "pointer", fontSize: 16, display: "flex", alignItems: "center", justifyContent: "center" }}>→</button>
+          </div>
         </div>
       </div>
       <div ref={scrollRef} style={{ display: "flex", gap: 16, overflowX: "auto", scrollSnapType: "x mandatory", paddingLeft: 40, paddingRight: 40, scrollbarWidth: "none", msOverflowStyle: "none" }}>
@@ -874,9 +891,13 @@ export default function App({ dbProducts = [], siteSettings = null, banners = []
 
           {/* Popüler Ürünler Grid */}
           <section style={{ padding: "100px 40px", maxWidth: 1440, margin: "0 auto", borderTop: "1px solid rgba(28,26,22,0.06)", position: "relative", zIndex: 1 }}>
-            <div style={{ marginBottom: 48 }}>
-              <p style={{ fontFamily: T.sans, fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.18em", color: T.red, marginBottom: 10 }}>POPÜLER</p>
-              <h2 style={{ fontFamily: T.serif, fontSize: "clamp(30px, 3.5vw, 48px)", fontWeight: 700, color: T.text, letterSpacing: "-0.02em" }}>Popüler Ayakkabılar</h2>
+            <div style={{ marginBottom: 48, display: "flex", justifyContent: "space-between", alignItems: "flex-end", flexWrap: "wrap", gap: 16 }}>
+              <div>
+                <p style={{ fontFamily: T.sans, fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.18em", color: T.red, marginBottom: 10 }}>POPÜLER</p>
+                <h2 style={{ fontFamily: T.serif, fontSize: "clamp(30px, 3.5vw, 48px)", fontWeight: 700, color: T.text, letterSpacing: "-0.02em" }}>Popüler Ayakkabılar</h2>
+              </div>
+              {/* D-257: escape to catalog */}
+              <button onClick={() => nav("catalog")} style={{ fontFamily: T.sans, fontSize: 12, fontWeight: 600, letterSpacing: "0.06em", color: T.text, background: "none", border: "1px solid rgba(28,26,22,0.15)", padding: "8px 20px", borderRadius: T.r.full, cursor: "pointer", whiteSpace: "nowrap" }}>Tümünü Gör →</button>
             </div>
             <div className="prod-grid" style={{ display: "grid", gridTemplateColumns: "repeat(6, 1fr)", gap: 16 }}>
               {allProducts.slice(0, 6).map(p => <Card key={p.id || p.slug} p={p} onView={view} />)}
@@ -887,7 +908,7 @@ export default function App({ dbProducts = [], siteSettings = null, banners = []
           <StepsSection />
 
           {/* Çok Satanlar — horizontal scroll */}
-          <BestSellersScroll allProducts={allProducts} onView={view} />
+          <BestSellersScroll allProducts={allProducts} onView={view} onNav={nav} />
 
           {/* Biz Kimiz */}
           <AboutSection settings={S} />
@@ -897,7 +918,7 @@ export default function App({ dbProducts = [], siteSettings = null, banners = []
 
           {/* Kategori Overlay + İndirimli Ürünler */}
           <CategoryOverlay onNav={nav} />
-          <DiscountedSection allProducts={allProducts} onView={view} />
+          <DiscountedSection allProducts={allProducts} onView={view} onNav={nav} />
 
           <Footer onNav={nav} settings={S} />
         </div>

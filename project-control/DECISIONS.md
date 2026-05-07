@@ -6255,3 +6255,28 @@ no Neon DDL required. Fields are already in the doc if Neon DDL from D-251 was a
 
 **Status:** Shipped to `main` (910c31a). D-250, D-251, D-252 form a complete
 attribution hygiene chain: capture → normalize → surface.
+
+---
+
+## D-251 + D-252 — Production Closeout (2026-05-07)
+
+**DDL applied:** 4 columns added to `customer_inquiries` on Neon production:
+`utm_source`, `utm_medium`, `utm_campaign`, `referrer` (all VARCHAR, nullable).
+Applied with `IF NOT EXISTS` — idempotent.
+
+**Soak test result (inquiry #4, cleaned post-verification):**
+- POST to `https://www.uygunayakkabi.com/api/inquiries` with
+  `source=instagram`, `utmSource=instagram`, `utmMedium=social`,
+  `utmCampaign=testdrop`, `referrer=instagram.com`, `productId=319`
+- API returned `{"success":true,"id":4}` (HTTP 200)
+- Neon row verified: all 5 attribution fields stored exactly as submitted
+- Row cleaned from production after verification
+
+**Telegram render verified (simulation against D-252 code):**
+- `/lead <id>` with full attribution → shows `🌐 Kaynak` + `📎 UTM` + `🔗 Ref` block
+- `/lead <id>` with no UTM/referrer → attribution block absent, no blank lines
+- New-lead alert with attribution → compact `🌐 source · utmSource · referrer` hint
+- New-lead alert without attribution → hint line absent entirely
+
+**Status:** D-251 + D-252 FULLY CLOSED. Attribution chain is production-ready:
+capture (D-251) → normalize (D-250) → surface (D-252).

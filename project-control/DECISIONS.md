@@ -6642,3 +6642,40 @@ what happens after contact, and why to trust the process — without redesigning
 
 **Preserved:** D-256 UTM capture, size chip interaction, D-261 trust strip/FAQ, D-262 WA fast-path — all untouched.
 **Commit:** `27c7dba` — `D-263: Size guidance / fit confidence polish V1`
+
+---
+
+## D-264 — Out-of-Stock Size Recovery / Alternative Inquiry Path V1
+
+**Date:** 2026-05-08
+**Status:** IMPLEMENTED — commit `cd2369d`, pushed to `main`
+
+**Problem:**
+- Out-of-stock size chips in PDP were `<div>` with `cursor: not-allowed` and NO click handler — tapping one did absolutely nothing. Complete dead end.
+- ContactForm showed chips only for `availableVariants` (stock > 0). When a user wanted an out-of-stock size (e.g. 43), size 43 wasn't in the chips. Manual size input only showed when `!hasVariants` (no available sizes at all), so a mixed-stock product gave users no way to express "I want size 43" in the form. Second dead end.
+- D-263 note below size block was generic and didn't respond to mixed-stock reality.
+
+**Decision:** Two targeted fixes — make OOS chips actionable (anchor scroll to form) and give users a text input path for unavailable sizes in the form.
+
+**Changes — `src/app/(app)/products/[slug]/page.tsx`:**
+1. OOS size chip `<div>` → `<a href="#inquiry-form">` anchor:
+   - `cursor: pointer`, `title="Bu beden için talep bırakmak ister misiniz?"`
+   - Dashed border style (1.5px dashed) to visually distinguish from available chips
+   - Clicking scrolls user directly to inquiry form — zero JS, pure HTML
+2. D-263 note now context-aware for 3 cases:
+   - `isSoldOut`: "Farklı beden veya alternatif ürün için talep bırakabilirsiniz..."
+   - Mixed stock (some OOS): "Üzeri çizili bedenler için aşağıdan talep bırakabilirsiniz..."
+   - All in stock: "Beden konusunda emin değilseniz talep formumuzu doldurun..."
+
+**Changes — `src/components/ContactForm.tsx`:**
+3. Added `chipSelected: boolean` state — separates "size from chip click" from "size typed manually"
+4. Chip `onClick` sets `chipSelected=true`; "temizle" sets `chipSelected=false`; success reset clears both
+5. When `!chipSelected` (no chip active): shows OOS recovery input:
+   - Label: "Stokta olmayan beden mi arıyorsunuz?"
+   - `<input>` bound to `size` state — user can type any size (e.g. 43 even if not in chips)
+   - Below: "Beden seçmek zorunda değilsiniz — talep bırakın, yardımcı oluruz."
+   When `chipSelected` (chip active): shows original "Seçili beden: X · temizle" indicator
+6. `size` state holds either chip value or typed value — `handleSubmit` unchanged, attribution unchanged
+
+**Preserved:** D-256 UTM capture, D-261 trust strip/FAQ, D-262 WA fast-path, D-263 form heading/process steps — all untouched.
+**Commit:** `cd2369d` — `D-264: Out-of-stock size recovery / alternative inquiry path V1`

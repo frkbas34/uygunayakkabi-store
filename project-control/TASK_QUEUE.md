@@ -733,6 +733,13 @@ Any modification to `src/lib/imageProviders.ts` or `src/jobs/imageGenTask.ts` th
 - [x] D-260: Mobile catalog filter drawer — sticky bar + bottom sheet
 - [x] D-261: PDP trust/delivery/FAQ clarity — trust grid, process steps, always-on FAQ, success state
 
+## OOS Size Recovery / Alternative Inquiry Path (D-264) — COMPLETED 2026-05-08
+
+- [x] D-264: OOS size chips → `<a href="#inquiry-form">` anchors (dashed border, pointer cursor)
+- [x] D-264: Context-aware size-help note — mixed-stock variant ("Üzeri çizili bedenler için...")
+- [x] D-264: ContactForm `chipSelected` state separates chip vs typed size
+- [x] D-264: OOS recovery text input shown when no chip selected ("Stokta olmayan beden mi arıyorsunuz?")
+
 ## Size Guidance / Fit Confidence Polish (D-263) — COMPLETED 2026-05-08
 
 - [x] D-263: Size-help reassurance note below size display chips (page.tsx)

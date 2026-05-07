@@ -6379,3 +6379,53 @@ Normalization (applied before validation):
 No schema change. No mutation. Read-only.
 
 **Status:** COMPLETE.
+
+---
+
+## D-255 — Campaign Review / Attribution QA Surface v1 (2026-05-07)
+
+**Commit:** dd57db2
+
+**Problem:** Attribution chain is live but there was no way to inspect campaign
+quality, spot messy UTM values, or see which campaigns are actually generating
+demand — without querying the DB directly.
+
+**New file: `src/lib/campaignDesk.ts`**
+
+Aggregates:
+- Per-campaign: leadCount, wonCount (closed_won|completed), distinct sources,
+  distinct mediums. Sorted by leadCount desc.
+- Global top 5: utm_source, utm_medium, referrer.
+- Coverage: coveredLeads (have any UTM/referrer) vs totalLeads.
+
+QA signals (all heuristic, labeled as such):
+- unknownSources: utm_source values not in APPROVED_SOURCES
+- unknownMediums: utm_medium values not in APPROVED_MEDIUMS
+- oddCampaigns: campaign names not matching D-254 CAMPAIGN_PATTERN
+- singletonCount: campaigns with count=1 (only flagged when >= 3 campaigns)
+
+Empty-state variants (3 levels):
+1. No leads in window → "hiç lead yok"
+2. Leads exist but zero UTM/referrer → "UTM verisi yok, /utm kullanın"
+3. Active → full campaign table + QA section
+
+`utmBuilder.ts`: exported CAMPAIGN_PATTERN (was private) for QA reuse.
+
+**Commands:**
+- `/campaigns [today|week]` — campaign snapshot (today default)
+- `/campaign <name> [week]` — per-campaign detail: leadCount, wonCount, sources, mediums
+  - Missing name → usage hint
+  - Not found → clean empty-state
+
+**Test cases verified:**
+1. No leads → clean empty state ✓
+2. Leads but no UTM (current prod state) → explains gap + /utm hint ✓
+3. Multiple clean campaigns → table + QA "all approved ✓" ✓
+4. Dirty values (snapchat/push/"Summer Launch") → all 3 QA signals fired ✓
+5. Singleton flag (4 campaigns, 2 with count=1) → singletonCount=2 ✓
+
+**Files changed:** `src/lib/campaignDesk.ts` (new, 339 lines) +
+`src/lib/utmBuilder.ts` (+1 export) + `src/app/api/telegram/route.ts` (+66 lines).
+No schema change. No mutation.
+
+**Status:** COMPLETE.

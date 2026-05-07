@@ -2919,6 +2919,8 @@ export async function POST(req: NextRequest) {
         '/business', '/iş', '/is',
         // D-249 funnel
         '/funnel', '/huni',
+        // D-254 UTM link builder
+        '/utm',
       ]
       // D-220: PI Bot hashtags owned by Uygunops (operator approval is required before GeoBot handoff).
       const OPS_HASHTAGS = ['#gorsel', '#geminipro', '#geohazirla', '#seoara', '#productintel', '#urunzeka']
@@ -5500,6 +5502,99 @@ export async function POST(req: NextRequest) {
           const m = err instanceof Error ? err.message : String(err)
           console.error(`[telegram/funnel D-249] error:`, m)
           await sendTelegramMessage(chatId, `❌ Funnel hatası: ${m}`)
+        }
+        return NextResponse.json({ ok: true })
+      }
+    }
+
+    // ── D-254: /utm — UTM link builder / campaign naming guardrail ──────────────
+    // Read-only. Resolves product by SN or numeric ID, validates source/medium/
+    // campaign against an approved vocabulary, returns a copy-ready tagged URL.
+    {
+      const firstWordUtm = text.trim().split(/\s+/)[0].replace(/@\w+$/, '').toLowerCase()
+      if (firstWordUtm === '/utm') {
+        try {
+          const { normalizeCampaign, validateUtmInputs, buildProductUtmUrl, UTM_USAGE } =
+            await import('@/lib/utmBuilder')
+
+          const parts = text.trim().split(/\s+/)
+          // Expect: /utm <sn-or-id> <source> <medium> <campaign>
+          if (parts.length < 5) {
+            await sendTelegramMessage(chatId, UTM_USAGE)
+            return NextResponse.json({ ok: true })
+          }
+
+          const rawRef     = parts[1]  // SN0034 or 34
+          const rawSource  = parts[2].toLowerCase().trim()
+          const rawMedium  = parts[3].toLowerCase().trim()
+          const rawCampaign = normalizeCampaign(parts.slice(4).join('_'))
+
+          // Resolve product: SN0034 → exact match; bare number → padded SN lookup
+          const normalizedSN = /^SN\d+$/i.test(rawRef)
+            ? rawRef.toUpperCase()
+            : /^\d+$/.test(rawRef)
+              ? `SN${rawRef.padStart(4, '0')}`
+              : null
+
+          if (!normalizedSN) {
+            await sendTelegramMessage(
+              chatId,
+              `❌ Geçersiz ürün referansı: <code>${rawRef}</code>
+Format: <code>SN0034</code> veya sadece numara (ör: <code>34</code>)`,
+            )
+            return NextResponse.json({ ok: true })
+          }
+
+          const snResult = await payload.find({
+            collection: 'products',
+            where: { stockNumber: { equals: normalizedSN } },
+            limit: 1,
+            depth: 0,
+          })
+
+          if (snResult.docs.length === 0) {
+            await sendTelegramMessage(chatId, `🔍 Ürün bulunamadı: <code>${normalizedSN}</code>`)
+            return NextResponse.json({ ok: true })
+          }
+
+          const p = snResult.docs[0] as any
+          const slug = p.slug as string
+          if (!slug) {
+            await sendTelegramMessage(chatId, `❌ Bu ürünün slug'ı yok — önce ürünü tamamlayın.`)
+            return NextResponse.json({ ok: true })
+          }
+
+          // Validate inputs
+          const errors = validateUtmInputs(rawSource, rawMedium, rawCampaign)
+          if (errors.length > 0) {
+            await sendTelegramMessage(chatId, errors.join('\n\n'))
+            return NextResponse.json({ ok: true })
+          }
+
+          // Build URL and return copy-ready output
+          const finalUrl = buildProductUtmUrl(slug, rawSource, rawMedium, rawCampaign)
+          const sn = (p.stockNumber as string) || normalizedSN
+          const title = (p.title as string) || 'İsimsiz'
+          const msg =
+            `🔗 <b>UTM Link</b>
+
+` +
+            `🛍️ <code>${sn}</code> — ${title.slice(0, 60)}
+
+` +
+            `📊 source:   <code>${rawSource}</code>
+` +
+            `📊 medium:   <code>${rawMedium}</code>
+` +
+            `📊 campaign: <code>${rawCampaign}</code>
+
+` +
+            `<code>${finalUrl}</code>`
+          await sendTelegramMessage(chatId, msg)
+        } catch (err) {
+          const m = err instanceof Error ? err.message : String(err)
+          console.error(`[telegram/utm D-254] error:`, m)
+          await sendTelegramMessage(chatId, `❌ UTM hatası: ${m}`)
         }
         return NextResponse.json({ ok: true })
       }

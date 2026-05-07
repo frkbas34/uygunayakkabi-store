@@ -804,3 +804,25 @@ Product page now renders Geobot content with safe fallbacks:
 
 **Files:** `src/app/(app)/blog/page.tsx`, `src/app/(app)/blog/[slug]/page.tsx`
 
+
+---
+
+## Phase C — Attribution Chain (2026-05-07) [D-250 through D-256]
+
+**Status:** COMPLETE — all 7 decisions shipped and prod-validated.
+
+| D# | What | Key files |
+|----|------|-----------|
+| D-250 | Order source attribution hygiene — `convertLeadToOrder` maps lead.source → order.source enum via `mapLeadSourceToOrderSource()` instead of hardcoding `'telegram'` | `src/lib/leadDesk.ts` |
+| D-251 | UTM + referrer capture on inquiries — 4 new nullable Neon columns (`utm_source/medium/campaign`, `referrer`), `ContactForm.tsx` captures at submit time | `src/app/api/inquiries/route.ts`, `src/components/ContactForm.tsx` |
+| D-252 | Attribution visibility in Telegram lead workflow — `/lead <id>` card + new-lead alert show source / UTM / referrer block | `src/lib/leadDesk.ts` |
+| D-253 | Attribution roll-up in `/funnel` — footer block shows top UTM sources, campaigns, referrers for the window | `src/lib/funnelDesk.ts` |
+| D-254 | `/utm` Telegram command — UTM link builder with source/medium/campaign guardrails, SN lookup | `src/lib/utmBuilder.ts`, `src/app/api/telegram/route.ts` |
+| D-255 | `/campaigns` + `/campaign <name>` — campaign QA surface, heuristic signals for untagged/singleton traffic | `src/lib/campaignDesk.ts`, `src/app/api/telegram/route.ts` |
+| D-256 | Product page lead conversion polish — interactive size chips in ContactForm, success state with product title, sticky mobile CTA, `id="inquiry-form"` anchor | `src/components/ContactForm.tsx`, `src/app/(app)/products/[slug]/page.tsx` |
+
+**Schema changes (Neon DDL applied manually — push:true skips silently):**
+- D-251: `ALTER TABLE customer_inquiries ADD COLUMN utm_source / utm_medium / utm_campaign / referrer VARCHAR(255)`
+
+**Telegram commands added:** `/utm`, `/campaigns`, `/campaign`
+

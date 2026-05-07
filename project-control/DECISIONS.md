@@ -1331,20 +1331,20 @@ Meta requires a Redirect URL to be registered before the Business Login flow can
 ## D-083 — Multi-Platform Social Posting: Extend channelDispatch, NOT New Architecture
 
 **Decision:**
-Add X, Facebook, LinkedIn, and Threads as new `SupportedChannel` entries in the existing `channelDispatch.ts` → n8n webhook pattern. Do NOT build a separate social media service layer, scheduler, or direct API integration in the Next.js app.
+Add X, Facebook, and Threads as new `SupportedChannel` entries in the existing `channelDispatch.ts` → n8n webhook pattern. Do NOT build a separate social media service layer, scheduler, or direct API integration in the Next.js app. (D-183: LinkedIn removed from project)
 
 **Reason:**
 The repo already has a mature channel dispatch system: `SupportedChannel` type → 3-gate eligibility → `buildDispatchPayload()` → n8n webhook → `publishResult` write-back. Instagram is already a real integration using this exact pattern. Extending it for 4 new platforms requires only additive changes: type union, env var mappings, admin toggles, product flags, n8n stubs. Zero new dependencies, zero architectural changes.
 
 **What was added:**
-- `SupportedChannel` union: `+ 'x' | 'facebook' | 'linkedin' | 'threads'`
+- `SupportedChannel` union: `+ 'x' | 'facebook' | 'threads'`
 - `buildChannelWebhookUrl()`: 4 new `N8N_CHANNEL_*_WEBHOOK` env var mappings
-- `AutomationSettings.ts`: 4 new `publishX/Facebook/Linkedin/Threads` toggles
+- `AutomationSettings.ts`: 3 new `publishX/Facebook/Threads` toggles
 - `Products.ts`: 4 new channel flags + 4 new `channelTargets` options
 - `automationDecision.ts`: extended `SAFE_DEFAULTS`, `CAPABILITY` map, `AutomationSettingsSnapshot` type
 - `ReviewPanel.tsx`: 4 new `CHANNEL_LABEL` entries
-- OAuth callbacks: `/api/auth/x/callback`, `/api/auth/linkedin/callback` (Facebook/Threads reuse Meta app + Instagram callback)
-- n8n workflow stubs: `channel-x.json`, `channel-facebook.json`, `channel-linkedin.json`, `channel-threads.json`
+- OAuth callbacks: `/api/auth/x/callback` (Facebook/Threads reuse Meta app + Instagram callback)
+- n8n workflow stubs: `channel-x.json`, `channel-facebook.json`, `channel-threads.json`
 - `.env.example`: all new env vars + callback URLs documented
 
 **What remains scaffold-only:**
@@ -1352,7 +1352,6 @@ All 4 new channels are stub-only. Real n8n workflows with actual API calls are a
 
 **Auth architecture:**
 - X: OAuth 2.0 PKCE → own callback `/api/auth/x/callback`
-- LinkedIn: OAuth 2.0 → own callback `/api/auth/linkedin/callback`
 - Facebook: same Meta App as Instagram → reuses Instagram OAuth flow
 - Threads: same Meta App as Instagram → reuses Instagram OAuth flow + separate Threads scopes
 
@@ -2406,7 +2405,7 @@ Created: `project-control/PRODUCTION_TRUTH_MATRIX.md`
 - Every subsystem classified: PROD-VALIDATED / IMPLEMENTED / PARTIAL / BLOCKED / SCAFFOLDED
 - 22 subsystems prod-validated, 28 implemented but not prod-validated
 - 2 subsystems blocked (Telegram stories, WhatsApp stories — API limitations)
-- 4 subsystems scaffolded (Dolap, X, LinkedIn, Threads)
+- 3 subsystems scaffolded (Dolap, X, Threads)
 - 1 not implemented (website checkout)
 
 **E) /diagnostics Telegram Command**
@@ -2459,7 +2458,7 @@ Updated: `.env.example`
 - Added 7 missing vars: `TELEGRAM_CHAT_ID`, `ANTHROPIC_API_KEY`, `GEMINI_VISION_MODEL`, `INSTAGRAM_PAGE_ID`, `INSTAGRAM_USER_ID`, `OPENAI_IMAGE_MODEL`, `GENERATE_API_KEY_SECRET`
 - Marked 3 stale vars as removed (N8N_INTAKE_WEBHOOK, N8N_API_KEY, N8N_BASE_URL — no code references)
 - Reorganized into classified sections: Critical / Core Operator / AI / Commerce / Social / Optional
-- Added "NOTE: not yet implemented" markers on X and LinkedIn OAuth sections
+- Added "NOTE: not yet implemented" markers on X OAuth section
 - Commented out optional override vars to reduce noise
 
 **C) Production Doc Improvements**
@@ -2548,7 +2547,7 @@ Classified all 7 external channels + website based on production evidence: Autom
 - Instagram: DEPLOYED, NOT VALIDATED — Direct Graph API path. Token valid until 2026-05-21 (connected 2026-03-22). userId present. N8N webhook also configured. Was live-tested 2026-03-22 but never dispatched through Phase 1-19 pipeline.
 - Facebook: DEPLOYED, NOT VALIDATED — Same Meta token. facebookPageId injected from INSTAGRAM_PAGE_ID env var (not in DB column, D-077 risk). Was live-tested 2026-03-22.
 - Shopier: BLOCKED — Global flag disabled, SHOPIER_PAT status unknown.
-- Dolap/X/LinkedIn/Threads: BLOCKED — Global flags disabled, no N8N webhooks set, n8n-only dispatch paths.
+- Dolap/X/Threads: BLOCKED — Global flags disabled, no N8N webhooks set, n8n-only dispatch paths.
 - Product 125 only has channelTargets=[website] — no external dispatch was ever attempted during activation.
 
 **Risks identified:**
@@ -2675,7 +2674,7 @@ Created 3 missing PostgreSQL enum types and altered join table columns from varc
 
 **Tables Fixed:**
 - `products_story_settings_story_targets` → `enum_products_story_settings_story_targets` ('telegram','instagram','whatsapp')
-- `products_channel_targets` → `enum_products_channel_targets` ('website','instagram','shopier','dolap','x','facebook','linkedin','threads')
+- `products_channel_targets` → `enum_products_channel_targets` ('website','instagram','shopier','dolap','x','facebook','threads')
 - `story_jobs_targets` → `enum_story_jobs_targets` ('telegram','instagram','whatsapp')
 
 **Root Cause:**
@@ -3265,7 +3264,7 @@ Wire Geobot-generated channel-specific content into the existing dispatch pipeli
 3. `buildInstagramCaption()` prefers `geobot.instagramCaption` when present, falls back to template builder
 4. `publishFacebookDirectly()` prefers `geobot.facebookCopy` when present, falls back to caption builder
 5. `buildShopierProductBody()` prefers `geobot.shopierCopy` → `product.description` → title fallback
-6. All n8n webhook payloads now include `geobot` field for `xPost`, `linkedinCopy`, etc.
+6. All n8n webhook payloads now include `geobot` field for `xPost`, `facebookCopy`, `instagramCaption`, etc.
 
 **Graceful degradation:**
 All paths fall back to existing logic if Geobot content is absent. Zero risk to products without content generation.
@@ -3311,3 +3310,3273 @@ No safe way to verify Geobot content integration without creating real public po
 
 **Status:**  
 ACTIVE — Phase G complete
+
+---
+
+## D-136 — Phase I: Mentix Group Onboarding — Safe Group Filtering — IMPLEMENTED
+**Date:** 2026-04-08  
+**Decision:**  
+Add two safety gates to the Telegram bot so it can safely operate inside the Mentix group without reacting to background chatter.
+
+**Problem:**
+The bot had NO chat-type filtering. Adding it to the Mentix group would cause it to process every photo, text, and caption in the group — potentially creating products, triggering wizards, or sending confusing replies.
+
+**Implementation:**
+1. **Command-only filter** (line 1293): In group/supergroup chats, only messages starting with `/` are processed. Photos, plain text, wizard input, and captions are silently ignored.
+2. **Group allowlisting** (line 1308): After `getPayload()`, group commands are checked against:
+   - `telegram.groupEnabled` must be `true` in AutomationSettings
+   - Sender's `from.id` must be in `telegram.allowedUserIds` (if the list is non-empty)
+   - Fail-closed: if settings can't be read, group messages are dropped
+3. **DM behavior unchanged**: Private chat messages bypass both gates entirely.
+4. **Callback queries unchanged**: Inline button clicks (imagegen mode selection etc.) are handled before the message section and are not affected.
+
+**DB changes (Neon):**
+- `telegram_group_enabled` set to `true`
+- `telegram_allowed_user_ids` set to `5450039553` (Furkan)
+
+**Files Changed:**
+- `src/app/api/telegram/route.ts` — Two guard blocks after chatId/messageId extraction
+
+**Status:**  
+ACTIVE — Phase I complete, extended by Phase K (D-137)
+
+---
+
+## D-137 — Phase K: @Mention + Reply-to-Bot Activation in Groups — IMPLEMENTED
+**Date:** 2026-04-08  
+**Decision:**  
+Extend group activation filter to support natural interaction patterns beyond slash commands.
+
+**Problem:**
+Group operation was limited to slash commands only. Operators needed more natural ways to activate the bot — mentioning it or replying to its messages — while still ignoring background chatter.
+
+**Implementation:**
+Gate 1 (activation filter) now allows three triggers in group chats:
+1. **Slash commands** — `/preview`, `/pipeline`, `/stok`, etc. (unchanged from Phase I)
+2. **@Uygunops_bot mention** — detected via Telegram `entities` array, both `mention` (public username) and `text_mention` (users without usernames) types checked
+3. **Reply to bot message** — `reply_to_message.from.id === BOT_ID` (8702872700)
+
+Gate 2 (allowlisting) applies equally to all three activation types.
+
+**What is now allowed in group (from allowed user):**
+- `/preview 180`
+- `@Uygunops_bot stok bilgisi`
+- Reply to bot's message with any text
+
+**What is still ignored in group:**
+- Plain text without mention/command/reply
+- Photos without explicit activation
+- Messages from non-allowlisted users (even with @mention or reply)
+
+**Constants:**
+- `BOT_ID = 8702872700`
+- `BOT_USERNAME_LC = 'uygunops_bot'`
+
+**Files Changed:**
+- `src/app/api/telegram/route.ts` — Gate 1 block expanded (lines 1293-1319)
+
+**Status:**  
+ACTIVE — Phase K complete, extended by Phase L (D-138)
+
+---
+
+## D-138 — Phase L: Mention Normalization for Group Command Routing — IMPLEMENTED
+**Date:** 2026-04-08  
+**Decision:**  
+Add a text normalization step after both safety gates pass in group chats, before command routing, so mention-prefixed commands behave identically to direct slash commands.
+
+**Problem:**
+`@Uygunops_bot /preview 180` passed the activation gate (Phase K) but `text.startsWith('/preview')` failed because raw text still contained the mention prefix. Similarly, Telegram's inline suffix format `/preview@Uygunops_bot 180` also failed.
+
+**Implementation:**
+After both gates (activation + allowlisting) pass, in group chats only:
+1. Strip leading `@uygunops_bot` prefix + trailing whitespace
+2. Strip inline `@uygunops_bot` anywhere (handles `/cmd@bot` suffix)
+3. Case-insensitive
+4. `text` changed from `const` to `let` to allow reassignment
+5. DM text is never modified
+
+**Patterns now working in group:**
+- `/preview 180` → `/preview 180`
+- `@Uygunops_bot /preview 180` → `/preview 180`
+- `@Uygunops_bot    /preview 180` → `/preview 180`
+- `/preview@Uygunops_bot 180` → `/preview 180`
+- `@UYGUNOPS_BOT /stok` → `/stok`
+
+**What happens with @mention + free text (no command):**
+- `@Uygunops_bot bu kaç lira` → `bu kaç lira` → no handler matches → falls through harmlessly
+
+**Files Changed:**
+- `src/app/api/telegram/route.ts` — Normalization block (lines 1352-1364), `text` const→let
+
+**Status:**  
+ACTIVE — Phase L complete
+
+---
+
+## D-139 — Multi-Bot Support: Geo_bot (@Geeeeobot) Webhook Integration — IMPLEMENTED
+**Date:** 2026-04-08  
+**Decision:**  
+Add multi-bot support so Geo_bot (`@Geeeeobot`, ID `8728094008`) shares the same webhook handler as Uygunops_bot, differentiated by `?bot=geo` URL query parameter.
+
+**Problem:**
+Geo_bot existed as a separate Telegram bot but had no webhook, no code support, and was not in the Mentix group. The intended operating model requires Geo_bot to function as a full operator agent in the Mentix group with near-DM-equivalent capability.
+
+**Implementation:**
+1. Module-level `_requestBotToken` variable + `getBotToken()` helper for per-request bot token scoping
+2. `?bot=geo` URL parameter selects Geo_bot token from `TELEGRAM_GEO_BOT_TOKEN` env var
+3. Webhook secret validation falls back: `TELEGRAM_GEO_WEBHOOK_SECRET` → `TELEGRAM_WEBHOOK_SECRET`
+4. All 5 helper functions (`sendTelegramMessage`, `sendTelegramMessageWithKeyboard`, `editMessageText`, `answerCallbackQuery`, `downloadTelegramFile`) updated to use `getBotToken()`
+5. `BOT_ID` and `BOT_USERNAME_LC` resolved dynamically based on `botParam`
+6. `BOT_MENTIONS` regex extended to include `@Geeeeobot`/`@geeeeobot`
+7. Geo_bot webhook set to `https://www.uygunayakkabi.com/api/telegram?bot=geo` with shared secret_token
+8. Geo_bot added to Mentix group, privacy mode disabled (`can_read_all_group_messages: true`)
+
+**Validation (7 tests passed):**
+- `getMe` identity check ✅
+- `/preview 180` slash command in group ✅
+- `@Geeeeobot /preview 180` mention+command in group ✅
+- Plain text in group — silent ✅
+- `/preview 180` via DM ✅
+- Reply-to-bot command in group ✅
+- Cross-bot isolation (`@Uygunops_bot` mention → Geo_bot stays silent) ✅
+
+**Files Changed:**
+- `src/app/api/telegram/route.ts` — Multi-bot token resolution, dynamic BOT_ID/BOT_USERNAME_LC, getBotToken() pattern
+- Vercel env: `TELEGRAM_GEO_BOT_TOKEN` added to all environments
+
+**Status:**  
+ACTIVE — Multi-bot operational
+
+---
+
+## D-140 — Phase N: Bot Role Separation (Geo_bot=Group, Uygunops=DM) — IMPLEMENTED
+**Date:** 2026-04-08  
+**Decision:**  
+Enforce a clean context separation between the two bots to prevent overlap and operator confusion. Geo_bot owns group context exclusively; Uygunops owns DM context exclusively.
+
+**Problem:**
+After D-139 multi-bot support, both bots shared the identical command surface. Any command sent to either bot in any context (DM or group) would be processed identically. This creates: duplicate responses if both bots are in the same group, operator confusion about which bot to address, and no clear ownership boundary.
+
+**Role Assignment:**
+
+| Bot | Context | Behavior |
+|-----|---------|----------|
+| Geo_bot (@Geeeeobot) | Group chat | ACTIVE — full command surface |
+| Geo_bot (@Geeeeobot) | Private DM | REDIRECTS — sends Turkish message directing operator to @Uygunops_bot |
+| Uygunops (@Uygunops_bot) | Private DM | ACTIVE — full command surface |
+| Uygunops (@Uygunops_bot) | Group chat | SILENT — logged and ignored |
+
+**Implementation:**
+Two surgical gates added to `route.ts`:
+1. **Message gate** (after chat type detection, before Phase I group gates):
+   - `botParam === 'geo' && !isGroupChat` → send redirect, return
+   - `botParam !== 'geo' && isGroupChat` → log, silently return
+2. **Callback gate** (inside callback_query handler, before any callback processing):
+   - Same logic applied to `cbChatType`
+   - Geo_bot DM callbacks → answerCallbackQuery with redirect text
+   - Uygunops group callbacks → silently acknowledge
+
+**Commands owned by each bot (same set, different context):**
+- All 17 slash commands: /preview, /pipeline, /diagnostics, /stok, /audit, /content, /confirm, /activate, /merch, /shopier, /story, /restory, /targets, /approve_story, /reject_story, /confirm_cancel, /start
+- All hashtag triggers: #gorsel, #geminipro, #karma, #premium, #dengeli
+- All callback queries: imagegen, imgapprove, imgreject, imgregen, imgpremium, wz_cat, wz_ptype, wz_tgt, wz_size, wz_confirm, wz_cancel, storyapprove, storyreject, storyretry
+- STOCK batch text input
+- Photo/media intake
+
+**Validation (8 tests, all passed):**
+1. Uygunops DM /preview 180 → processed ✅
+2. Uygunops GROUP /preview 180 → silently ignored ✅
+3. Geo_bot GROUP /preview 180 → processed ✅
+4. Geo_bot DM /preview 180 → redirect message sent ✅
+5. Geo_bot GROUP @mention → processed ✅
+6. Geo_bot GROUP plain text → silent (Phase I gate) ✅
+7. Geo_bot GROUP callback → processed ✅
+8. Uygunops DM callback → processed ✅
+
+**Files Changed:**
+- `src/app/api/telegram/route.ts` — Two Phase N gate blocks (messages + callbacks)
+
+**Status:**  
+ACTIVE — Bot role separation enforced
+
+---
+
+## D-141 — Vercel Build Optimization: ignoreCommand for Docs-Only Commits — IMPLEMENTED
+**Date:** 2026-04-09  
+**Decision:**  
+Add a Vercel `ignoreCommand` that skips builds when only non-runtime files changed, reducing unnecessary build usage by ~40%.
+
+**Problem:**
+Every push to main triggers a Vercel build, even for docs-only commits. 8 of last 20 commits were docs-only, each wasting a full Next.js build cycle.
+
+**Implementation:**
+- `scripts/should-build.sh` — compares `VERCEL_GIT_PREVIOUS_SHA` to `VERCEL_GIT_COMMIT_SHA`
+- `vercel.json` — `"ignoreCommand": "bash scripts/should-build.sh"`
+- Exit 0 = skip, Exit 1 = build
+
+**Runtime paths (always build):** `src/`, `public/`, `payload.config.ts`, `next.config.ts`, `tsconfig.json`, `package.json`, `package-lock.json`, `tailwind.config.ts`, `postcss.config.mjs`, `eslint.config.mjs`, `vercel.json`, `seed.ts`, `.npmrc`
+
+**Non-runtime paths (safe to skip):** `project-control/`, `ai-knowledge/`, `docs/`, `mentix-memory/`, `mentix-skills/`, `n8n-workflows/`, `scripts/`, `media/`, root `.md`/`.html`/`.docx` files
+
+**Safety:** No previous SHA → always builds. Empty diff → always builds. Mixed commits → always builds.
+
+**Validation:** 6 tests against real commit pairs — all correct.
+
+**Files Changed:**
+- `scripts/should-build.sh` (new)
+- `vercel.json` (added ignoreCommand)
+
+**Status:**  
+ACTIVE
+
+---
+
+## D-142 — Phase O: Group Workflow Parity — Gate Fixes for Hashtags, Captions, STOCK — IMPLEMENTED
+**Date:** 2026-04-09  
+**Decision:**  
+Fix three gaps in the group activation gate (Phase I/K) that prevented Geo_bot from handling operator workflows with DM-equivalent parity in the Mentix group.
+
+**Problem:**
+Phase I/K gate only passed messages through if they were: (1) slash commands, (2) @mention of bot, or (3) reply-to-bot. This blocked legitimate operator workflows in group context:
+- `#gorsel 180` — hashtag trigger, not a slash command → blocked
+- Photo + `@Geeeeobot` in caption → mention in `caption_entities` not checked (only `entities`) → blocked  
+- `STOCK SKU:...` — batch stock update, not a slash command → blocked
+
+**Fixes applied:**
+1. **caption_entities**: Gate now merges `message.entities` + `message.caption_entities` before checking for @mentions. Photos with `@Geeeeobot` in caption now pass the gate.
+2. **Hashtag triggers**: Added `isHashtagTrigger` check — `#gorsel`, `#geminipro`, `#luma`, `#chatgpt`, `#claid` now pass the gate without needing @mention.
+3. **STOCK prefix**: Added `isStockCommand` check — `STOCK SKU:` messages now pass the gate.
+
+**Intentionally NOT changed:**
+- `onayla`/`reddet`/`yeniden üret` approval commands still require reply-to-bot in group — this is correct because they are contextual (operator replies to a specific preview message)
+- Plain text still blocked — prevents background chatter from activating the bot
+- Plain photos (no caption, no mention) still blocked — prevents random photo spam from triggering intake
+
+**Known limitation (documented, not fixed):**
+- `/confirm` wizard uses `chatId` as session key. In group, `chatId` = group ID (shared by all users). Only one wizard session can be active at a time in the group, and any user's text input will be intercepted by it. Fixing this requires refactoring the session key to include `userId` — deferred to a future phase.
+
+**Validation (8 scenarios post-fix + 4 real-data tests):**
+
+| # | Scenario | Expected | Result |
+|---|----------|----------|--------|
+| RT1a | Plain photo, no caption | SILENT | ✅ Silent |
+| RT1b | Photo + @Geeeeobot caption_entities | PROCESS | ✅ Passes gate |
+| RT1c | Photo + #gorsel caption | PROCESS | ✅ Passes gate |
+| RT2a | #gorsel 180 (no mention) | PROCESS | ✅ Passes gate |
+| RT3 | /confirm 180 (slash) | PROCESS | ✅ Passes gate |
+| RT4 | STOCK SKU:... (no mention) | PROCESS | ✅ Passes gate |
+| RT5a | onayla (no reply-to-bot) | SILENT | ✅ Silent |
+| RT5b | onayla (reply-to-bot) | PROCESS | ✅ Passes gate |
+| RT6 | Plain text | SILENT | ✅ Silent |
+| Real | /preview 180 | PROCESS | ✅ Full response |
+| Real | #gorsel 180 | PROCESS | ✅ Full response |
+| Real | /stok 180 | PROCESS | ✅ Full response |
+
+## D-143 — Phase P: Group Wizard Session Isolation (chatId:userId keying) — IMPLEMENTED
+**Date:** 2026-04-09  
+**Decision:**  
+Refactor wizard session keying from `chatId`-only to `chatId:userId` so group-based wizard flows are isolated per operator.
+
+**Problem:**
+In group context, `chatId` = group chat ID, shared by all members. The old `Map<string, WizardState>` keyed by `String(chatId)` meant only one wizard session could exist per group at a time. Any user typing text would have their input consumed by whatever wizard was active — even if a different operator started it.
+
+**Solution:**
+- Added `sessionKey(chatId, userId?)` helper that produces `chatId:userId` when userId is provided, or `chatId` alone as fallback.
+- Updated `getWizardSession`, `setWizardSession`, `clearWizardSession` to accept optional `userId` param.
+- Added `userId?: number` field to `WizardState` interface.
+- In `route.ts`, extracted `msgUserId` (from `message.from?.id`) and `cbUserId` (from `callbackQuery.from?.id`) at handler entry points, passed to all 36 wizard session call sites.
+
+**Behavior:**
+- Group: each operator gets their own wizard session → `key = "-5197796539:111"` vs `"-5197796539:222"`
+- DM: userId still passed → `key = "5450039553:5450039553"` — functionally equivalent to old behavior
+- No breaking change: if userId is somehow undefined, falls back to chatId-only key
+
+**Files changed:**
+- `src/lib/confirmationWizard.ts` — sessionKey helper, updated function signatures, WizardState.userId
+- `src/app/api/telegram/route.ts` — cbUserId/msgUserId variables, 36 call site updates
+
+**Commit:** `61a210c`  
+**Status:** VERIFIED (Phase Q validation 2026-04-09)
+
+**Phase Q Validation (2026-04-09):**
+Dual-method validation — local unit tests + production webhook simulation.
+
+*Unit Tests (28/28 passed):*
+- Session key generation: group keys include userId, different users get different keys
+- Interference test: User B has NO session when only User A started wizard
+- Concurrent wizards: User A (product 231) and User B (product 230) coexist independently
+- Cross-contamination: User A advancing does not affect User B's step/state
+- Clear isolation: clearing User A's session leaves User B's intact
+- DM regression: DM wizard creates/works correctly, independent from group
+- Fallback: no-userId key backward compatible, separate from userId-keyed sessions
+
+*Production Webhook Simulation:*
+- 12 webhook calls to live Vercel endpoint (www.uygunayakkabi.com/api/telegram?bot=geo)
+- All returned HTTP 200 with `{"ok":true}`
+- Vercel logs confirmed: External API calls to api.telegram.org/sendMessage returned 200
+- User B (9999999999) temporarily added to allowlist for gate-bypass testing, then restored
+- No crashes, no 500s, no unhandled exceptions across full test sequence
+
+**Status:**  
+ACTIVE — Group parity achieved
+
+## D-144 — Phase R: Command Ownership Split (Ops Bot vs GeoBot) — IMPLEMENTED
+**Date:** 2026-04-09  
+**Decision:**  
+Add command-level ownership routing so each Telegram bot only handles its designated workflow domain. Wrong-bot commands get a clear Turkish redirect message instead of executing.
+
+**Ownership Model:**
+
+| Owner | Commands | Callbacks |
+|-------|----------|-----------|
+| Ops Bot (Uygunops) | `/confirm`, `/confirm_cancel`, `/stok`, `/diagnostics`, `#gorsel`, `#geminipro`, `#luma`*, `#chatgpt`*, `#claid`*, `STOCK SKU:` | `imagegen:`, `imgapprove:`, `imgreject:`, `imgregen:`, `imgpremium:`, `wz_*` |
+| GeoBot | `/content`, `/audit`, `/preview`, `/activate`, `/shopier`, `/merch`, `/story`, `/restory`, `/targets`, `/approve_story`, `/reject_story` | `storyapprove:`, `storyreject:`, `storyretry:` |
+| Shared | `/pipeline` | — |
+
+*Deactivated providers still show deactivation message via Ops Bot.
+
+**Redirect messages:**
+- Ops cmd on GeoBot → "📌 Bu komut @Uygunops_bot üzerinden çalışır. DM'den deneyin."
+- Geo cmd on Uygunops → "📌 Bu komut GeoBot üzerinden çalışır. Mentix grubunda @Geeeeobot ile deneyin."
+- Callback mismatch → toast via answerCallbackQuery with same messaging
+
+**Implementation:**
+- Two gate blocks added to `route.ts` (66 lines, purely additive):
+  1. Message handler: after Phase L normalization, before wizard interceptor
+  2. Callback handler: after Phase N gate, before callback routing
+- No schema changes
+- Server-side auto-trigger of content generation after `/confirm` remains intact (fires at Payload level)
+
+**Validation (18 webhook tests):**
+- 5 ops cmds on GeoBot: all redirected ✅
+- 6 geo cmds on Uygunops: all redirected ✅
+- 2 shared `/pipeline` on both: processed normally ✅
+- 2 ops cmds on Uygunops: processed normally ✅
+- 3 geo cmds on GeoBot: processed normally ✅
+
+**Commit:** `37d9b52`  
+**Status:** IMPLEMENTED
+
+## D-145 — Phase S: GeoBot Visible Handoff (Operator Notifications) — IMPLEMENTED
+**Date:** 2026-04-09  
+**Decision:**  
+Make the two-bot workflow visible to operators. After Ops Bot confirms a product, GeoBot visibly takes over by sending notifications to the Mentix group. Content generation results (ready or failed) are also reported by GeoBot.
+
+**What Changed:**
+
+1. **`route.ts` — `sendTelegramMessageAs` helper** (new):
+   - Sends Telegram messages using an explicit bot token (not the per-request `_requestBotToken`)
+   - Used for cross-bot notifications where GeoBot sends during an Ops Bot request
+
+2. **`route.ts` — `wz_confirm:` success handler** (modified):
+   - After Ops Bot sends confirmation success, GeoBot sends a handoff notification to Mentix group
+   - Message: "📦 Ürün #X — GeoBot devir aldı" with next-step commands (`/content`, `/audit`, `/preview`)
+   - Uses `TELEGRAM_GEO_BOT_TOKEN` env var directly
+
+3. **`contentPack.ts` — `notifyGeoBot` helper** (new):
+   - Sends Telegram messages as GeoBot using `TELEGRAM_GEO_BOT_TOKEN`
+   - Mentix group ID constant: `-5197796539`
+
+4. **`contentPack.ts` — content completion notifications** (new):
+   - On `content.ready`: GeoBot notifies Mentix with pack status and next steps (`/audit`, `/preview`, `/activate`)
+   - On content failure: GeoBot notifies Mentix with error summary and retry command
+
+**Operator Experience (before → after):**
+- Before: Ops Bot says "Geobot içerik üretimi tetiklendi" — but nothing visible from GeoBot
+- After: GeoBot sends handoff message, then reports content results with actionable next steps
+
+**No schema changes.** No new env vars (uses existing `TELEGRAM_GEO_BOT_TOKEN`).
+
+**Validation (9 tests):**
+- GeoBot token valid, username correct ✅
+- GeoBot can send to Mentix group ✅
+- 6 webhook routing tests (Phase R gates intact) ✅
+
+**Commit:** `41ae58d`  
+**Status:** IMPLEMENTED
+
+## D-146 — Phase T1: Title + Stock Code Wizard Steps + /confirm Nudge — IMPLEMENTED
+**Date:** 2026-04-09  
+**Decision:**  
+Improve the intake package quality before GeoBot handoff by collecting the real product title and operator's stock code during the confirmation wizard, and prompting the operator to start `/confirm` after image approval.
+
+**Problem:**
+- 96% of Telegram products (136/141) still had placeholder titles ("Taslak Ürün DD/MM-XXXX")
+- GeoBot was generating content from meaningless titles
+- Operator's own stock code was never captured (auto-generated TG-xxx only)
+- After image approval, no prompt to continue with `/confirm`
+
+**Changes:**
+
+1. **`confirmationWizard.ts`** — Two new wizard steps:
+   - `title`: Asks for real product name if current title starts with "Taslak Ürün". Min 5 chars. Written to `product.title` in `applyConfirmation()`
+   - `stockCode`: Asks for operator's stock code. Written to `product.sku` field. Operator can type `-` to skip (preserves auto-generated TG-xxx SKU). Min 2 chars if not skipping
+   - Both steps come FIRST in the wizard sequence (before category)
+   - `sku` added to `ConfirmableProduct` interface
+   - Summary now shows stock code
+   - New prompt builders: `getTitlePrompt()`, `getStockCodePrompt()`
+
+2. **`route.ts`** — Wizard text input handlers + nudge:
+   - Text input handlers for `title` and `stockCode` with full next-step dispatch
+   - `/confirm` nudge appended to image approval success message: "📋 Sonraki adım: /confirm {id}"
+   - Ready check now uses `getNextWizardStep` to catch title/stockCode even when traditional required fields are present
+
+**Wizard flow (updated):**
+title → stockCode → category → productType → price → sizes → stock → brand → targets → summary → confirm
+
+**Operator stock code → `sku` field rationale:**
+- `sku` field is editable (not readOnly), labeled "SKU / Stok Kodu", accepts text
+- `stockNumber` (SN0001-SN9999) is readOnly, auto-generated, for AI image rendering — left untouched
+- Auto-generated TG-xxx SKU preserved if operator skips with `-`
+- `sku` has `unique: true` constraint — duplicate entries will fail at DB level (acceptable risk for small operator team)
+
+**No schema changes.** Uses existing `sku` and `title` fields.
+
+**Validation (9 webhook tests):**
+- /confirm starts wizard with title step ✅
+- Title text accepted ✅
+- Stock code skip (`-`) accepted ✅
+- Wizard cancel works ✅
+- Already-confirmed product handling ✅
+- Short title rejection ✅
+- Phase R routing still intact ✅
+
+**Commit:** `bb8220e`  
+**Status:** IMPLEMENTED
+
+## D-147 — Phase T2: One-Tap Wizard Launch After Image Approval — IMPLEMENTED
+**Date:** 2026-04-09  
+**Decision:**  
+Replace the plain-text `/confirm` nudge after image approval with an inline keyboard button that launches the confirmation wizard in one tap.
+
+**Problem:**
+Operators had to manually type `/confirm {id}` after approving images. Non-technical operators might forget or not know the command.
+
+**Changes:**
+
+1. **Image approval success message**: Changed from `sendTelegramMessage` to `sendTelegramMessageWithKeyboard` with inline button:
+   - Button text: "📋 Bilgileri Gir → Onaya Gönder"
+   - Callback data: `wz_start:{productId}`
+
+2. **New `wz_start:{productId}` callback handler** (~110 lines):
+   - Same logic as `/confirm {id}`: visual gate, already-confirmed check, field check
+   - Starts wizard at the correct first step (title/stockCode/category/etc.)
+   - If all fields present → straight to summary
+   - Full error handling with user-facing Turkish messages
+
+3. **`wz_start:` added to `OPS_CB_PREFIXES`** for Phase R routing compatibility
+
+**Manual `/confirm {id}` remains fully functional** — the button is a convenience layer, not a replacement.
+
+**No schema changes.**
+
+**Validation (9 webhook tests):**
+- wz_start for approved product → wizard starts ✅
+- Title input via button-launched wizard ✅
+- Already-confirmed product handled ✅
+- Nonexistent product handled ✅
+- Phase R redirect for GeoBot ✅
+- Manual /confirm still works ✅
+- Invalid ID handled ✅
+
+**Commit:** `16ce89f`  
+**Status:** IMPLEMENTED
+
+## D-148 — Phase U: GeoBot One-Tap Post-Handoff Flow — IMPLEMENTED
+**Date:** 2026-04-09  
+**Decision:**  
+Make the GeoBot post-handoff workflow button-driven. After content generation, operators navigate through audit → activate via inline buttons instead of memorizing slash commands.
+
+**Changes:**
+
+1. **`sendTelegramMessageAs` / `notifyGeoBot`**: Both now accept optional `keyboard` parameter for inline buttons
+2. **GeoBot handoff message** (route.ts wz_confirm): Now shows "📋 İçerik Durumu" button
+3. **Content-ready notification** (contentPack.ts): Now shows "🔍 Audit Başlat", "📋 İçerik Durumu", "🚀 Yayına Al" buttons
+4. **Content-failed notification** (contentPack.ts): Now shows "🔄 Tekrar Dene", "📋 İçerik Durumu" buttons
+5. **5 new GeoBot callback handlers** (route.ts):
+   - `geo_content:{id}` — content status via `formatContentStatusMessage`
+   - `geo_audit:{id}` — audit status via `formatAuditStatusMessage`
+   - `geo_auditrun:{id}` — trigger audit via `triggerAudit`, shows "🚀 Yayına Al" on approval
+   - `geo_activate:{id}` — product activation with publish readiness check
+   - `geo_retry:{id}` — content re-generation via `triggerContentGeneration`
+6. **`GEO_CB_PREFIXES`** updated: `geo_content:`, `geo_audit:`, `geo_auditrun:`, `geo_activate:`, `geo_retry:`
+
+**Full button-driven publish workflow:**
+GeoBot handoff → "📋 İçerik Durumu" → (content ready) → "🔍 Audit Başlat" → (audit approved) → "🚀 Yayına Al" → product live
+
+**All slash commands remain as manual fallbacks.**
+
+**No schema changes.**
+
+**Validation (9 webhook tests):**
+- geo_content, geo_audit, geo_auditrun, geo_activate, geo_retry — all functional ✅
+- Nonexistent product handling ✅
+- Phase R redirect for Ops Bot ✅
+- Manual /content still works ✅
+- GeoBot keyboard send to Mentix group ✅
+
+**Commit:** `bf7e175`  
+**Status:** IMPLEMENTED
+
+---
+
+## D-149 — Phase W: First Real Instagram Live Publish Validation — VERIFIED
+
+**Date:** 2026-04-09  
+**Decision:**  
+Execute the first real Instagram publish to validate the full external channel dispatch path end-to-end.
+
+**Method:**
+1. Temporarily set Product #180 status to `draft` via SQL
+2. Disabled Facebook global toggle (safety — Instagram-only test)
+3. Triggered `geo_activate:180` via Telegram webhook callback → Payload `draft→active` transition
+4. afterChange hook fired `dispatchProductToChannels()` with `dryRun=false`
+5. Instagram dispatch attempted but failed: error 9004/2207052 (media download failure)
+6. Root cause: Vercel serverless cold start — Instagram couldn't download `/api/media/file/` URL in time
+7. Manual API call with same token + URL succeeded after Vercel cache warmed
+8. Container created: 18067074557437630, published: 18337760137169144
+9. Restored Facebook toggle. Product #180 back to active.
+
+**Results:**
+- Instagram postId: `18337760137169144`
+- Permalink: `https://www.instagram.com/p/DW6nLC_DgQP/`
+- Post type: IMAGE
+- Caption: test caption
+- Token + API path: FULLY VALIDATED
+
+**Key Finding — Media URL Blocker:**
+All 685 media items in DB use relative URLs (`/api/media/file/...`) instead of Vercel Blob edge URLs. The Vercel Blob storage plugin is configured but AI-generated images bypass it (likely because `imageGenTask.ts` creates media via `payload.create()` buffer upload which doesn't trigger Blob).
+
+Instagram's Graph API fails to download these URLs during cold starts because:
+- `/api/media/file/` is served by a Vercel serverless function
+- First request after idle triggers cold start (2-5s)
+- Instagram's media fetcher has strict timeout
+- Once warm (Vercel cache HIT), the URL works fine
+
+**Fix Path (Phase W+1):**
+Option A: Pre-warm media URL before dispatch (add `fetch()` call to warm cache)
+Option B: Migrate AI pipeline media storage to Vercel Blob (proper fix — edge-served, no cold start)
+Option C: Upload to external CDN (Cloudinary, already referenced in older code)
+
+**Dry-Run Mechanism Documented:**
+- `dispatchProductToChannels(product, settings, reason, { dryRun: true })` — skips all external APIs
+- `isDryRun = sourceMeta.previewDispatch && isForceRedispatch` (Products.ts afterChange hook)
+- Status transition (`draft→active`) always runs real dispatch (isDryRun = false)
+- `forceRedispatch` without `previewDispatch` also runs real dispatch
+
+**Status:** VERIFIED — Instagram publish works. Media serving blocker identified for automated path.
+
+---
+
+## D-150 — Phase W1: Automated Instagram Dispatch Reliability — IMPLEMENTED
+
+**Date:** 2026-04-09  
+**Decision:**  
+Fix the automated Instagram dispatch cold-start failure with a media URL pre-warm + retry strategy. No Vercel Blob migration needed.
+
+**Root Cause (from D-149):**
+Instagram's Graph API container creation failed with error 9004/2207052 because Vercel's serverless function serving `/api/media/file/*` had cold-start latency exceeding Instagram's download timeout.
+
+**Fix Applied:**
+1. `prewarmMediaUrl(imageUrl, channel)` helper added to `channelDispatch.ts`
+   - Fetches the full image via GET before any Graph API call
+   - Consumes the full response body (`arrayBuffer()`) to ensure Vercel CDN caches it
+   - Non-fatal: if pre-warm fails, container creation still attempted
+   - 500ms pause after pre-warm for CDN propagation
+2. Container creation retry: up to 2 attempts for error 9004 with 3s delay
+3. Same pre-warm applied to `publishFacebookDirectly()` for future readiness
+
+**Changes:**
+- `src/lib/channelDispatch.ts`: +88 lines (prewarmMediaUrl helper, retry loop, Facebook pre-warm)
+
+**Test Result:**
+- Product #180, automated `draft→active` via `geo_activate` Telegram callback
+- Pre-warm: status=200, 63555 bytes
+- Container creation: succeeded on first attempt (pre-warm eliminated cold-start)
+- Instagram postId: `18111402145693915`
+- Permalink: `https://www.instagram.com/p/DW6qQFwEl8T/`
+- GeoBot instagramCaption used (not fallback template)
+- dispatchedChannels=["instagram"], mode=direct, success=true
+
+**Alternatives Considered:**
+- Vercel Blob migration: Would solve the root cause (edge-served URLs, no cold start) but requires migrating 685+ existing media items and changing the AI image pipeline. Deferred — pre-warm is sufficient and zero-migration.
+- Cloudinary CDN: Already referenced in older code but would add external dependency and migration effort.
+- Longer Graph API timeout: Not possible — Instagram controls the timeout on their end.
+
+**Commit:** `f0fd0eb`  
+**Status:** IMPLEMENTED + PROD-VALIDATED
+
+---
+
+## D-151 — Phase X: Telegram Content Preview + Wrong-Bot Photo Redirect — IMPLEMENTED
+
+**Date:** 2026-04-09  
+**Decision:**  
+Fix two GeoBot operator UX gaps: (1) content not visible before publish, (2) photos sent to wrong bot get dead-end response.
+
+**Part A — Content Preview:**
+- `formatContentPreviewMessage(product)` added to `contentPack.ts`
+- Shows actual generated channel copy: Instagram caption, Facebook copy, website description, Shopier copy, X post — each truncated for Telegram readability
+- Includes SEO/discovery summary (article title, meta title, meta description)
+- Shows commerce pack highlights if available
+- Returns null if no content generated yet (graceful fallback)
+- Wired into `geo_content:{id}` callback: sends preview after status message with action buttons
+- Wired into `/content {id}` command: sends preview after status message with action buttons
+- Content-ready notification enhanced: includes Instagram caption snippet (200 char preview)
+- "📋 İçerik Durumu" button renamed to "👁️ Önizle" in content-ready notification
+
+**Part B — Wrong-Bot Photo Redirect:**
+- GeoBot DM photo: "📸 Ürün fotoğrafı algılandı → Bu fotoğrafı @Uygunops_bot'a DM olarak gönderin" + role explanation
+- GeoBot group photo (with @mention or "bunu ürüne çevir"): same redirect + "GeoBot ne yapar? → İçerik üretimi, audit, yayın kontrolü"
+- Intercepts BEFORE photo reaches product creation code — no accidental product creation on wrong bot
+- Generic DM redirect still shows for non-photo DMs to GeoBot
+
+**Changes:**
+- `src/lib/contentPack.ts`: +65 lines (`formatContentPreviewMessage`, content-ready notification enhancement)
+- `src/app/api/telegram/route.ts`: +74 lines (geo_content preview, /content preview, DM photo redirect, group photo redirect)
+
+**Validation (4 webhook tests):**
+- `geo_content:180` callback → status + preview rendered ✅
+- Photo DM to GeoBot → photo-aware redirect to Ops Bot ✅
+- Photo with @Geeeeobot in group → photo redirect ✅
+- `/content 180` in group → status + preview ✅
+
+**What operator now sees:**
+1. Content preview: readable channel-specific copy with next-step buttons (Audit, Yayına Al)
+2. Wrong-bot photo: clear explanation of which bot does what + where to send the photo
+
+**Commit:** `c50517f`  
+**Status:** IMPLEMENTED
+
+---
+
+## D-152 — v50 Lock Violation + Restoration — VERIFIED
+
+**Date:** 2026-04-10
+**Decision:**
+Restore `src/lib/imageProviders.ts` and `src/jobs/imageGenTask.ts` to exact v50 state at commit `e99e9cb` after discovering an unauthorized rewrite had silently regressed the pipeline.
+
+**Incident timeline:**
+- 2026-04-07 — D-129 locked v50 at commit `e99e9cb` (operator-approved visual baseline).
+- 2026-04-08 — Commit `773c03b` ("feat: storefront redesign — light beige theme, all home page sections") silently rewrote 3413 lines of `imageProviders.ts` and 2354 lines of `imageGenTask.ts`. The commit message gave no indication of image pipeline changes.
+- 2026-04-10 — Operator reported three visual regressions after Phase Y auto-generation went live:
+  1. Visible frames/white borders on all 3 slots
+  2. Missing pixel-font stock number overlay
+  3. Slot 3 (close-up) showing different background than slots 1/2
+
+**Root cause:**
+Commit `773c03b` silently reverted the locked baseline:
+1. **`ANTI_FRAME_FINAL_BLOCK` DELETED** entirely → frames returned on all slots
+2. **Input padding reverted from `bgRGB` (v49 ROOT CAUSE FIX) → white** `{ r:255, g:255, b:255, alpha:1 }` → slot 3 background inconsistency
+3. **Anti-frame language weakened** ("ZERO TOLERANCE" → "CRITICAL")
+4. **`ANTI_FRAME_FINAL_BLOCK` removed from prompt assembly** in `generateByGeminiPro`
+5. **Version labels reverted** v20/v49 → v14/v28
+6. **Multi-angle / background-lock blocks weakened**
+
+**Evidence (diff of `773c03b~1..773c03b` on locked files):**
+```
+-const ANTI_FRAME_FINAL_BLOCK = ...
+-      .resize(768, 768, { fit: 'contain', background: bgRGB })
++      .resize(768, 768, { fit: 'contain', background: { r: 255, g: 255, b: 255, alpha: 1 } })
+-      const fullPrompt = TASK_FRAMING_BLOCK + identityLock.promptBlock + zoneBlock + sceneText + CANONICAL_PROHIBITIONS_BLOCK + ANTI_FRAME_FINAL_BLOCK
+-    console.log(`[generateByGeminiPro v49] PNG 1024×1024 ready — ${pngBuffer.length}b (pad=${JSON.stringify(bgRGB)})`)
++    console.log(`[generateByGeminiPro v14] PNG 1024×1024 ready — ${pngBuffer.length}b`)
+```
+
+**Restoration:**
+- `git show e99e9cb:src/lib/imageProviders.ts > src/lib/imageProviders.ts`
+- `git show e99e9cb:src/jobs/imageGenTask.ts > src/jobs/imageGenTask.ts`
+- Verified `git diff e99e9cb HEAD -- <locked files>` is empty (bit-exact match).
+- `npx tsc --noEmit` produces no new errors in restored files.
+- Non-image changes from `773c03b` (storefront UI, routing, docs) are preserved — only image pipeline files were restored.
+
+**Commit:** `de9413d`
+**Status:** VERIFIED
+
+**Follow-up guardrails (PROPOSED — not yet implemented):**
+- Add a CI check / pre-commit hook that blocks modifications to locked files listed in D-129 without an explicit override marker in the commit message.
+- Add a CODEOWNERS entry requiring operator approval for any diff in `src/lib/imageProviders.ts` or `src/jobs/imageGenTask.ts`.
+- Add a daily drift check that diffs HEAD of locked files against the sealed commit hash and posts a Telegram alert on mismatch.
+
+---
+
+## D-153 — Runtime Lock-Rules Reminder Prepended To Every Generation — IMPLEMENTED
+
+**Date:** 2026-04-10
+**Decision:**
+Prepend an explicit `LOCK_REMINDER_BLOCK` to every image generation prompt (both GPT-Image edit path and Gemini Pro path), on every slot of every generation, so the v50 locked rules are reinforced at runtime on every single call.
+
+**Motivation (operator request):**
+After the D-152 restoration brought back the v50 baseline, the operator asked for a runtime reminder system: "remind the bot every time before he starts to generate that there are locked rules regarding how he should generate the images the way we want him to generate." The intent is to anchor the model on the operator-approved rules at the top of the prompt, not just via the in-body `TASK_FRAMING_BLOCK` / `ANTI_FRAME_FINAL_BLOCK` blocks.
+
+**Implementation:**
+- New file: `src/lib/imageLockReminder.ts` — exports `LOCK_REMINDER_BLOCK`, a short, sharply-worded block containing:
+  - Rule 1 — NO FRAMES, NO BORDERS, NO WHITE HALOS (no polaroid, no mat, no inset panel, full-bleed background)
+  - Rule 2 — BACKGROUND COLOR MUST MATCH ACROSS ALL SLOTS (close-up must match front/side)
+  - Rule 3 — PRODUCT IDENTITY IS LOCKED (re-photograph, not redesign)
+  - Rule 4 — COMPOSITION FOLLOWS THE SLOT PROMPT EXACTLY
+  - Rule 5 — OUTPUT IS A FULL-BLEED EDIT OF THE REFERENCE IMAGE
+  - Framed with ASCII box headers and a "ZERO TOLERANCE" closing reminder
+- `src/lib/imageProviders.ts`:
+  - Added `import { LOCK_REMINDER_BLOCK } from './imageLockReminder'`
+  - `generateByEditing` (GPT-Image): `fullPrompt = LOCK_REMINDER_BLOCK + TASK_FRAMING_BLOCK + ... + ANTI_FRAME_FINAL_BLOCK`
+  - `generateByGeminiPro`: same prepend
+  - Both call sites now console.log `[lock-reminder D-153] v50 LOCKED rules prepended to every slot prompt — Nb reminder block active` at the start of each generation so the operator can verify the reminder is firing in Vercel logs.
+- No other locked logic modified. The pre-existing `TASK_FRAMING_BLOCK`, `CANONICAL_PROHIBITIONS_BLOCK`, and `ANTI_FRAME_FINAL_BLOCK` are untouched — `LOCK_REMINDER_BLOCK` is purely additive.
+
+**Rebaseline of lock:**
+The v50 locked baseline is now defined as: "commit `e99e9cb` state + the additive `LOCK_REMINDER_BLOCK` integration introduced in D-153." The rest of the locked file contents remain bit-exact to `e99e9cb`. The new sealed commit for lock verification purposes is the D-153 commit; all future drift checks should diff against it.
+
+**What the operator will see:**
+- Every photo sent to Mentix group triggers Gemini Pro generation.
+- Before the first slot starts, Vercel logs show: `[lock-reminder D-153] v50 LOCKED rules prepended to every slot prompt — XXXXb reminder block active`
+- Gemini receives the LOCK_REMINDER_BLOCK at the top of every single prompt for every single slot.
+- If Gemini still drifts, the drift is a model failure and not a prompt-construction gap — which gives a clean diagnostic boundary.
+
+**Commit:** TBD (this commit)
+**Status:** IMPLEMENTED
+
+---
+
+## D-154 — Phase Z: visualStatus state-sync + pre-run diagnostic — IMPLEMENTED
+
+**Date:** 2026-04-10
+**Decision:**
+Wire the missing `visualStatus: generating → preview` transition via an `afterChange` hook on the `image-generation-jobs` collection, and backfill recent stuck test products (234-238) so Phase Z golden-path validation can start from a clean state.
+
+**Phase Z golden-path pre-run diagnostic:**
+Before asking the operator to push a real photo through the full 14-stage flow, inspected DB state of all recent products:
+- Only 3 products have EVER reached past stage 5 (image approval) in the entire database: 180, 125, 123 — all from 2026-04-05.
+- Since then (D-129 lock, D-151 Phase X preview, D-152 lock restoration, D-153 runtime reminder), 0 products have made a full end-to-end run.
+- Most recent test products 234-238 (today) are all stuck at `workflow_visual_status='generating'` even though their `image_generation_jobs.status='preview'` with 3 images successfully generated and no error.
+
+**Root cause of the state mismatch:**
+`updateProductVisualStatus()` in `src/app/api/telegram/route.ts` supports the full state machine `pending | generating | preview | approved | rejected`, but is only called with `'generating'`, `'approved'`, and `'rejected'`. No code path writes `'preview'`. The job-level state correctly flips to `'preview'` when generation completes, but the product-level mirror is never advanced, so `workflow.visualStatus` stays at `'generating'` forever.
+
+**Impact assessment:**
+- Not a hard blocker: the wz_start and wz_confirm gates only require `visualStatus === 'approved'`, which is written correctly by `approveImageGenJob` when the operator clicks approve.
+- Real impact: `publishReadiness`, `mentixAudit`, and operator-diagnostic output all saw stale `'generating'` state for products that were actually ready for operator review. Admin-panel truth was misleading.
+
+**Implementation (additive, zero touch to v50 locked files):**
+- `src/collections/ImageGenerationJobs.ts`: new first `afterChange` hook that fires on `status: * → preview` transition:
+  - Fetches the product
+  - Only advances if `workflow.visualStatus in ['generating', 'pending']` (never clobbers `approved`/`rejected`)
+  - Writes `workflow.visualStatus = 'preview'` with `context: { isDispatchUpdate: true }`
+  - Logs `[ImageGenerationJobs D-154] product X visualStatus: generating → preview`
+  - Non-blocking: errors are logged, hook never throws
+- Existing `status → approved` hook is untouched (it's the second hook in the chain now).
+- No changes to `imageProviders.ts`, `imageGenTask.ts`, `imageLockReminder.ts` — v50 lock fully respected.
+
+**Backfill:**
+Direct SQL one-shot on products 234-238 only:
+```sql
+UPDATE products SET workflow_visual_status = 'preview', updated_at = NOW()
+ WHERE id IN (234, 235, 236, 237, 238) AND workflow_visual_status = 'generating';
+```
+Older stuck products (213-230) and product 180 (published but stale) were intentionally left alone — product 180's stale state needs a separate investigation because it has `status='active'` + `publishStatus='published'` + `visualStatus='generating'`, which is an impossible combination without historical drift from earlier code versions.
+
+**Follow-up (Phase Z stage-by-stage run — NOT YET EXECUTED):**
+Operator must now push one fresh shoe photo through the Mentix group and report back at each break point. Code-level scan of stages 6-14 confirmed all handlers are wired:
+- Stage 6 `wz_start:` → confirmation wizard entry (route.ts:1220)
+- Stage 7 wizard steps `wz_cat/wz_ptype/wz_tgt/wz_size` (route.ts callbacks)
+- Stage 8 `wz_confirm:` → `applyConfirmation` (route.ts:1579, confirmationWizard.ts)
+- Stage 9 GeoBot visible handoff via `sendTelegramMessageAs(geoToken, mentixGroupId, ...)` (route.ts:1633)
+- Stage 10 `triggerContentGeneration` auto-called inside `applyConfirmation` (confirmationWizard.ts:708)
+- Stage 11 `geo_content:` → `formatContentPreviewMessage` (route.ts:1030, Phase X/D-151)
+- Stage 12 `geo_auditrun:` → `triggerAudit` (route.ts:1083, mentixAudit.ts)
+- Stage 13 `geo_activate:` → publish + merchandising (route.ts:1122)
+- Stage 14 DB state verification (direct SQL check)
+
+**Commit:** TBD (this commit)
+**Status:** IMPLEMENTED (hook + backfill) / BLOCKED on operator real-photo run for Phase Z stage 1→14 verification
+
+---
+
+## D-165 — Remove Payload defaultValue from category field
+**Decision:**
+Remove `defaultValue: 'Günlük'` from Products.ts category select field so Telegram-intake wizard properly asks for category on fresh products.
+
+**Root cause:** Payload CMS applies defaultValue at create time even when the field is not in the incoming data. Fresh products born via Telegram intake got `category: 'Günlük'` silently, and the wizard's `getNextWizardStep()` saw it as already filled — skipping the category step entirely.
+
+**Status:** IMPLEMENTED
+**Commit:** `948c839`
+
+---
+
+## D-166 — Await wizard session persistence (fire-and-forget race)
+**Decision:**
+Make `setWizardSession` / `clearWizardSession` async (awaitable) instead of fire-and-forget background persistence. Added `await` to all 36 callsites.
+
+**Root cause:** On Vercel serverless, a Lambda freeze could kill the background `persistWizardSessionBackground` Promise before it completed the Neon write, causing wizard state to be lost between steps.
+
+**Status:** IMPLEMENTED
+**Commit:** `81a533b`
+
+---
+
+## D-167 — Mirror-extend padding permanently replaces solid-color padding
+**Decision:**
+Replace ALL solid-color padding (`background: { r, g, b, alpha }`) with Sharp `extendWith: 'mirror'` in both `generateByEditing` and `generateByGeminiPro`.
+
+**Root cause:** Solid-color padding creates a visible rectangular frame whenever the reference image's background color differs from the padding color. This was the root cause of a 5-incident regression chain (D-129 → D-157 → D-161 → D-164 → D-167).
+
+**Status:** IMPLEMENTED — LOCKED (sealed commit `cef930a`)
+
+---
+
+## D-168 — Early wizard hydration before group chat filters
+**Decision:**
+Add early wizard session hydration BEFORE group chat activation filters in route.ts, and bypass the "no plain text" / "no non-reply" group filters when an active wizard session exists.
+
+**Root cause:** Group chat activation filters silently dropped plain text messages (like price "899") before the wizard interceptor had a chance to process them. The wizard was active in DB but the message never reached it.
+
+**Status:** IMPLEMENTED
+**Commit:** `5f5f778`
+
+---
+
+## D-169 — Fix Geo_bot wizard race + complete all wizard step dispatch branches
+**Decision:**
+1. Add `botParam !== 'geo'` guard to early wizard hydration, preventing Geo_bot from processing wizard inputs.
+2. Create shared `dispatchNextStep()` function with ALL step branches (category, productType, price, sizes, stock, stockCode, title, brand, targets, summary).
+3. Refactor text handlers (stock, brand, title, stockCode, price) and callback handlers (wz_cat, wz_ptype) to use complete dispatch instead of incomplete if-else chains.
+
+**Root cause:** Two bugs: (a) D-168's early hydration didn't filter by bot, so Geo_bot also bypassed group filters and duplicated wizard responses. (b) Stock handler only had branches for brand/targets/summary — when `getNextWizardStep` returned 'stockCode' (for TG-xxx SKU products), no prompt was sent and the wizard stalled with no "Devam" button.
+
+**Status:** IMPLEMENTED
+**Commit:** `7119e08`
+
+---
+
+> **Note on numbering gap (D-170…D-210):** the DECISIONS.md log drifted after D-169 while the codebase continued to land decisions in-flight (captured in PROJECT_STATE.md entries and in-repo commits — e.g. Wizard v2 at D-173, Mentix auto-fix at D-182, Instagram carousel D-188, X OAuth 1.0a D-195c, force-redispatch hook D-202). No back-fill is performed here; only the current-closure entries (D-211, D-212) are added. Back-fill is a separate governance task.
+
+---
+
+## D-211 — X Media Upload Fix: `media_category=tweet_image` Required by X API v2 — PROD-VALIDATED
+
+**Date:** 2026-04-21
+**Decision:**
+Add a `media_category=tweet_image` form-data part to the multipart body of `uploadImageToX()` in `src/lib/channelDispatch.ts`, so X API v2 `/2/media/upload` accepts the upload.
+
+**Root cause:**
+After X deprecated the v1.1 `/1.1/media/upload.json` endpoint on 2025-06-09 and redirected all media uploads to v2 `/2/media/upload`, the `media_category` field — optional in v1.1 — became effectively required for image media. The production path was uploading binary + command fields without it, and X returned HTTP 400 with `{"media_category":["Attribute not allowed."]}`. The error was caught and the tweet fell back to text-only with `mediaUploaded=false`.
+
+**Evidence (VERIFIED):**
+Vercel production logs for product 294 (2026-04-21 02:22-02:24 TRT) showed the exact 400 response from `/2/media/upload`. After the patch and a force-redispatch retest on product 294: `responseStatus=201`, `media_key` returned, `tweetId=2046379952245776422` posted with the image rendered.
+
+**Implementation:**
+Single-file, single-function change. Inserted between the `imgBuffer` and `epilogue` parts of the `Buffer.concat([...])` in `uploadImageToX()`:
+
+```ts
+const categoryPart =
+  `\r\n--${boundary}\r\n` +
+  `Content-Disposition: form-data; name="media_category"\r\n\r\n` +
+  `tweet_image`
+```
+
++9 lines net (4-line rationale comment + the form-data part).
+
+**OAuth math:**
+OAuth 1.0a signature unaffected — RFC 5849 §3.4.1.3.1 explicitly excludes multipart body parameters from the signature base string.
+
+**Blast radius:**
+Zero outside the X upload path. Instagram and Facebook dispatch paths were not touched and both remained `dispatched=true` across the retest.
+
+**Branch / Commit:** `chore/d211-x-media-upload` → rebase-merged to `main` via PR #3, commit `fc0b3ed`.
+**Status:** IMPLEMENTED — PROD-VALIDATED (product 294, 2026-04-21)
+
+---
+
+## D-212 — Phase 1 One-Product Full Pipeline Validation CLOSED — Roadmap Advances to Phase 2
+
+**Date:** 2026-04-21
+**Decision:**
+Close Phase 1 (one-product full-pipeline validation) as complete. Advance the roadmap to Phase 2 — Telegram SN / operator controls.
+
+**What Phase 1 validated end-to-end on product 294 (2026-04-21):**
+- Website / homepage: OK
+- Instagram carousel (per D-188): OK
+- Facebook multi-photo: OK
+- X with image (per D-195c OAuth 1.0a + D-211 `media_category`): OK — `x.mediaUploaded=true`, `responseStatus=201`, `tweetId=2046379952245776422`
+- Final `sourceMeta.dispatchNotes`: `x.dispatched=true`, `ig.dispatched=true`, `fb.dispatched=true`
+
+**Known follow-up (not a regression):**
+Force-redispatching a single channel via `sourceMeta.forceRedispatch=true` currently re-fires every channel not already marked `dispatched=true`. During the X retest this re-posted IG + FB on product 294 as a side effect. There is no per-channel redispatch selector today; `forceRedispatchChannels` is read from `sourceMeta` by the afterChange hook (Products.ts:175) but is NOT a declared Payload schema field, so PATCH-ing via Payload REST silently discards the key. Captured as a Phase 2 backlog improvement (see TASK_QUEUE.md → NEXT → "Per-Channel Redispatch Selector").
+
+**What is NOT included in Phase 1 closure (unchanged):**
+- GEO/blog implementation roadmap (untouched)
+- Shopier automation work (untouched)
+- Image pipeline (v50 baseline still LOCKED — D-129 / D-153 / D-167)
+
+**Next phase:** Phase 2 — Telegram SN / operator controls. Detailed scope to be captured in TASK_QUEUE.md when operator session opens Phase 2.
+
+**Blast radius:** none — docs-only closure entry. No runtime code touched.
+**Status:** CLOSED
+
+---
+
+## D-213 — Shopier `listSelections` Limit Cap: 100 → 50 — PROD-DEPLOYED
+
+**Date:** 2026-04-21
+**Decision:**
+Change the explicit `api.listSelections(100)` call in `getShopierMappings()` to `api.listSelections(50)` so Shopier's REST API returns variation→selection mappings instead of HTTP 400, restoring the ability of `buildShopierVariants()` to attach the `Numara` variation to synced products.
+
+**Root cause (VERIFIED):**
+`src/lib/shopierSync.ts:67` was passing `limit=100` to `GET /selections`. Shopier's `/selections` endpoint rejects any `limit > 50` with:
+
+```
+HTTP/1.1 400 Bad Request
+{ "detail": [ { "loc": ["query","limit"], "msg": "Input should be less than or equal to 50", "type": "less_than_equal" } ] }
+```
+
+Because `getShopierMappings()` does `Promise.all([listCategories, listVariations, listSelections])` and treats any sub-fetch error as "mappings unavailable", a single `/selections?limit=100` failure silently emptied the selections `Map`. `buildShopierVariants()` then resolved `variationId` successfully (39-45 `Numara` options mapped) but every `selectionId` came back `null`, so the `variants` array ended up either empty or malformed and the Shopier product was created without a size selector.
+
+**Evidence (VERIFIED):**
+Vercel cron run `GET /api/payload-jobs/run` at 2026-04-21 04:00:13.13 TRT (logs scrolled from "Last 12 hours" timeline) printed:
+
+```
+[shopierApi] GET /selections?limit=100 → 400
+[shopierSync] mappings loaded — categories=N variations=N selections=0
+[shopierSync] buildShopierVariants — could not resolve selectionId for size=40
+```
+
+`listCategories` and `listVariations` (default `limit=50`) both returned 200 in the same tick, confirming only the `/selections` override was failing.
+
+**Implementation:**
+Single-line change, single file:
+
+```diff
+--- a/src/lib/shopierSync.ts
++++ b/src/lib/shopierSync.ts
+@@ -65,7 +65,7 @@ export async function getShopierMappings(force = false): Promise<ShopierMappings
+   const [categoriesRes, variationsRes, selectionsRes] = await Promise.all([
+     api.listCategories(50),
+     api.listVariations(50),
+-    api.listSelections(100),
++    api.listSelections(50),
+   ])
+```
+
+Default in `src/lib/shopierApi.ts::listSelections()` is already `50` — the `100` was an accidental explicit override added after Shopier tightened the limit. No other call site uses `listSelections(100)`.
+
+**Blast radius:**
+Zero outside Shopier sync. Module-level `_mappingsCache` (5-min TTL) is now populated on the next cron tick; all subsequent `buildShopierVariants()` calls will resolve selections correctly. Categories/variations pages unaffected — both already used `50`.
+
+**Does NOT retroactively fix already-synced products:**
+Products whose Shopier record was created during the window when selections were empty (e.g. product 294 → Shopier product 46374845) still have no variants attached upstream. Those need either a `sourceMeta.forceRedispatch` re-dispatch (re-enqueues a `shopier-sync` job, which will now succeed) or a bulk backfill via a new Telegram/admin trigger.
+
+**Branch / Commit:** patch prepared in fresh clone at `/tmp/uygunayakkabi-fix`, committed and pushed directly to `main` as commit `f75de51`.
+**Vercel deployment:** `CjiKMqyXZ` — Production / Ready / 28s build.
+**Status:** IMPLEMENTED — DEPLOYED — VERIFIED PROD-WORKING end-to-end on product 294 after D-215 (selectionId array fix). Size selector now rendering on https://www.shopier.com/46374845 with sizes 43/44/45.
+
+---
+
+## D-214 — One-Shot Admin-Triggered Shopier Re-Sync Endpoint — DEPLOYED (stand-by tool)
+
+**Date:** 2026-04-21
+**Decision:**
+Add a secret-guarded `GET /api/admin/shopier-resync` endpoint that can re-sync a single Payload product (or all products with a `sourceMeta.shopierProductId`) to Shopier without going through the admin UI or Telegram.
+
+**Why:**
+After D-213 deployed, Shopier records created while selections were empty (e.g. product 294 → Shopier 46374845) still needed a trigger to re-run `syncProductToShopier()` so the newly-resolvable variants would attach. The usual triggers (admin UI `forceRedispatch` tick, Telegram `/shopier republish`) require either an interactive admin session or the Telegram webhook secret. This endpoint is the clean, auditable, secret-guarded shortcut.
+
+**Guard:**
+`x-admin-secret: $GENERATE_API_KEY_SECRET` — same env var already used by `/api/generate-api-key` (D-115). Returns 401 otherwise.
+
+**Usage:**
+```
+GET /api/admin/shopier-resync?productId=294
+GET /api/admin/shopier-resync?all=true
+Header: x-admin-secret: <secret>
+```
+
+**Implementation:**
+New file `src/app/api/admin/shopier-resync/route.ts`. Calls `syncProductToShopier()` directly (not via jobs queue) so the response body carries the per-product `ShopierSyncResult`. For `all=true`, iterates over every product where `sourceMeta.shopierProductId` exists.
+
+**Blast radius:**
+Zero when the secret is unset (returns 500 "Service not configured"). When set, only callers with the secret can invoke it. Runtime behavior identical to the normal sync path.
+
+**Status:** DEPLOYED (commit `af0437a`, Vercel `3WoeLYjZY` Ready). Not used in the product 294 end-to-end fix — the admin REST PATCH path worked, and the cron ran the queued job. Kept as a transient operator tool. Safe to remove after bulk backfill completes.
+
+---
+
+## D-215 — Shopier Variant Payload Fix: `selectionId` Must Be an Array on POST/PUT — PROD-VALIDATED
+
+**Date:** 2026-04-21
+**Decision:**
+Change `ShopierVariantInput.selectionId` from `string` to `string[]`, and emit `selectionId: [selectionId]` in `buildShopierVariants()`. Response type stays `string` (unchanged).
+
+**Root cause (VERIFIED from live API error):**
+After D-213 unblocked the selections Map, the first re-dispatch of product 294 failed with:
+
+```
+HTTP 400 — {"error":"invalid","message":"variants[0].selectionId must be an array"}
+```
+
+Shopier's REST API is inconsistent between directions:
+- **POST /products** and **PUT /products/:id** request bodies accept `variants[].selectionId` as a `string[]`
+- **GET /products/:id** response returns `variants[].selectionId` as a single `string`
+
+The input interface `ShopierVariantInput` was typed off the response shape. Before D-213 this never surfaced because the `selections` Map was empty → `buildShopierVariants()` bailed out on line 269 (`if (!selectionId) continue`) → `variants[]` was empty → Shopier accepted the product.
+
+**Implementation:**
+```diff
+ export interface ShopierVariantInput {
+   variationId: string
+-  selectionId: string
++  selectionId: string[]
+   stockStatus: ShopierStockStatus
+   ...
+ }
+
+ // buildShopierVariants
+-    selectionId,
++    selectionId: [selectionId],
+```
+
+`ShopierProductResponse.variants[].selectionId` left as `string` — response shape unchanged.
+
+**Evidence (VERIFIED):**
+Product 294 re-dispatched after D-215 deploy (Vercel `E7NE2aJZw` Ready). Cron tick 2026-04-21 04:30:28 UTC → `shopierSyncStatus: synced`, `shopierLastError: null`. Public page https://www.shopier.com/46374845 now renders `<select name="size" id="first_variation_group">` with options `43, 44, 45` matching Payload variants 86/87/88.
+
+**Branch / Commit:** committed and pushed to `main` as `dd999a3`.
+**Vercel deployment:** `E7NE2aJZw` — Production / Ready / 26s build.
+**Status:** IMPLEMENTED — PROD-VALIDATED (product 294, 2026-04-21).
+
+---
+
+## D-216 — Shopier Bulk Backfill Findings + D-208b Churn Observation — INVESTIGATION NOTE
+
+**Date:** 2026-04-21
+**Decision:** No code change. Document bulk-backfill outcome and two latent Shopier sync behaviors observed, then close the size-selector work stream.
+
+**What was done:**
+After D-215 went live, 7 previously-synced Shopier-linked products (285, 286, 288, 289, 290, 293, 295) were re-dispatched via authenticated admin REST PATCH (`sourceMeta.forceRedispatchChannels: ['shopier']`). Cron ticks 2026-04-21 05:30 and 05:40 UTC processed the queued jobs.
+
+**Result:**
+- **Variants in Payload:** Only product **294** has variants (86/87/88 → sizes 43/44/45). The other 7 products have `variants: []`.
+- **Shopier size selector coverage:** Consequently, Shopier's `<select name="size">` is only expected and observed on product 294 (46375838). All other products correctly have no size selector because there's nothing to select — not a sync bug.
+- **D-208b fallback fires on every UPDATE for variant-less products:** Re-syncing 285, 286, 289, 290, 293, 295 created **new** Shopier products each cycle (old IDs became orphans, e.g. 285: 46148178 → 46376224; 293 churned twice: 46373596 → 46376215 → 46376286 because a duplicate PATCH fired it twice). Only 294 preserved its Shopier ID across re-dispatch (UPDATE succeeded).
+
+**Inferred root cause (NOT verified via log):**
+`publishProductToShopier()` calls `api.updateProduct(existingShopierProductId, body)` first. When the body has no `variants[]`, Shopier returns 403/404, triggering the D-208b fallback (`shopierSync.ts:411-416`) that retries as CREATE. The UPDATE fails consistently for variant-less products but succeeds when variants are present. Exact reason unknown — may be stale `categoryId`, seller-side auto-cleanup of variant-less listings, or API-side quirk. This was latent all along but became visible in bulk.
+
+**Practical impact:**
+- Previously-synced variant-less products accumulate orphan entries in Shopier every time they're re-dispatched. Orphans redirect to the seller's root page (confirmed for 46176930 / 288).
+- Safe for now because re-dispatch is rare, but risks orphan sprawl if bulk flows run frequently.
+
+**Stuck case — product 288:**
+Product 288 remained `forceRedispatch: true` with `shopierSyncStatus: synced` and stale `lastSync: 2026-04-15`. Hook did not re-fire because the boolean didn't transition (two overlapping PATCH runs both wrote `true` → hook's change-detection treated it as a no-op). One-off; not reproduced elsewhere.
+
+**Best next step (PROPOSED — not executed):**
+1. Investigate why Shopier PUT fails on variant-less products (capture one failing PUT body + response from Vercel logs).
+2. Add an explicit `variants` handling path in `publishProductToShopier()` so UPDATE is skipped or adjusted when `variants.length === 0`, avoiding churn.
+3. Manual cleanup of 288 when next touching Shopier sync (PATCH with `forceRedispatch: false` first, then `true`, to break the hook no-op).
+
+**Evidence (VERIFIED via admin REST + live Shopier navigations, 2026-04-21):**
+- 294 storefront: `<select>` with `43, 44, 45` — correct.
+- 285 storefront (46376224): no `<select>`, Payload has no variants — correct.
+- 288 storefront (46176930): redirects to seller root — orphan, needs a follow-up dispatch cycle.
+
+**Status:** INVESTIGATION NOTE — no code change. Backfill work stream CLOSED. Follow-up items logged in TASK_QUEUE.md.
+
+---
+
+## D-217 — Admin-Auth Shopier Category Ensure Endpoint + Wizard Category Seed — PROD-VALIDATED
+
+**Date:** 2026-04-21
+**Decision:** Add a new admin-auth'd API route `GET/POST /api/admin/shopier-categories` for inspecting and pre-creating Shopier categories, and seed the 6 operator-wizard categories (Spor, Günlük, Klasik, Bot, Terlik, Cüzdan) into Shopier.
+
+**Why:**
+`resolveShopierCategories()` in `shopierSync.ts` matches a Payload product's `category` string against the Shopier categories Map by exact title. If no match is found, it silently falls back to the first available Shopier category (formerly "Günlük") and logs a warning — meaning every Payload product with category `Spor`, `Klasik`, `Bot`, `Terlik`, or `Cüzdan` was being mis-categorized on Shopier. Pre-seeding the wizard categories closes the gap without touching sync logic.
+
+**Auth pattern (new):**
+The D-214 endpoint uses a secret-guarded `x-admin-secret` header. This D-217 endpoint uses Payload session auth (`payload.auth({ headers: req.headers })`) so it's callable from the authenticated admin tab with `credentials: 'include'` and needs no extra secret plumbing.
+
+**Implementation:**
+New file `src/app/api/admin/shopier-categories/route.ts`:
+- `GET` → returns `{ count, categories: [{ id, title, placement }] }` via `listCategories(50)`.
+- `POST` → body `{ titles: string[] }`, fetches current categories, skips already-existing titles, calls `createCategory()` for the rest. Returns `{ total, created, alreadyExists, errors, results[] }`.
+
+**Gotcha encountered (and fixed):**
+Both `GET` and `POST` initially passed `listCategories(100)`. Shopier `/categories` rejects `limit > 50` with the same HTTP 400 `"limit must be less than or equal to 50"` error as D-213 on `/selections`. Capped to `50` in both call sites (`commits 3f3e165` and `064204d`).
+
+**Evidence (VERIFIED live via admin tab):**
+`POST /api/admin/shopier-categories` with `{titles: ["Spor","Günlük","Klasik","Bot","Terlik","Cüzdan"]}` returned `{ total:6, created:5, alreadyExists:1, errors:0 }`. Post-state `GET` confirms 7 categories in Shopier:
+
+| title   | id                 | placement |
+|---------|--------------------|-----------|
+| Günlük  | `6b59e27730d800f7` | 1         |
+| ayakkab | `f440b506ca57b2d1` | 1         |
+| Spor    | `dd158ac4ccd8d5ec` | 2         |
+| Klasik  | `fc356eea18a4aa98` | 3         |
+| Bot     | `7cd3c86a052248e8` | 4         |
+| Terlik  | `39231418b67404e0` | 5         |
+| Cüzdan  | `a707d600ac9ca58d` | 6         |
+
+Note: the pre-existing `ayakkab` row is an operator-side typo from Shopier's admin UI — not touched; left for the operator to rename or delete manually on Shopier.
+
+**Caveats:**
+- `getShopierMappings()` caches the categories Map with a 5-min TTL (`_mappingsCache` in `shopierSync.ts`). New product syncs will pick up the new categories on the next cold start or after the TTL expires.
+- Existing Shopier products were created while only `Günlük` existed, so they currently point to that category. Re-syncing them will still hit the D-208b churn issue for variant-less products (see D-216).
+
+**Commits:** `1ed5a97` (route) + `3f3e165` + `064204d` (50-cap fixes).
+**Vercel deployments:** three sequential — final one (`064204d`) Ready.
+**Status:** IMPLEMENTED — PROD-VALIDATED (2026-04-21).
+**Lifecycle:** transient operator tool, safe to remove after Shopier category seed stabilizes.
+
+---
+
+## D-218 — Admin Product-Diagnostic Endpoint for Content/Audit Debugging — IMPLEMENTED
+
+**Decision:**
+Add a transient secret- or session-guarded endpoint `/api/admin/product-diagnostic?productId=<id>` that returns a compact snapshot of a product's workflow state, content pack presence, and recent `bot-events` (including `payload.error` on `content.failed` records).
+
+**Why:**
+- Operator reported product #296 blocker: `/publish 296` audit returned `PARTIALLY READY (5/6)` with `❌ content: Content generation failed` as the sole unmet gate.
+- Prior Geo event history (per operator screenshot): `content.commerce_generated` at 08:57 → audit at 09:15 flagged content as failed. Implication: discovery pack generation (or a revalidation step) failed between commerce success and audit.
+- Canonical error message for a content failure lives in `bot-events.payload.error` (`src/lib/contentPack.ts:match markContentFailed`). The admin panel doesn't surface `bot-events` inline alongside the product, and querying Payload REST (`/api/products/:id`, `/api/bot-events`) requires a live admin session cookie.
+- When the admin session had expired mid-diagnosis, there was no alternative path to read the error string without either re-login or direct DB access. D-218 closes that gap.
+
+**Implementation:**
+- Route: `src/app/api/admin/product-diagnostic/route.ts` — GET only.
+- Auth: matches session cookie (D-217 pattern) OR `x-admin-secret: $GENERATE_API_KEY_SECRET` header (D-214/D-215 pattern). First match wins.
+- Response: `{ productId, title, category, status, workflow.{workflowStatus, contentStatus, auditStatus, publishStatus, stockState, sellable, lastHandledByBot}, commercePack.{present, keys, titleSeo, primaryKeyword, shortDescriptionLen}, discoveryPack.{present, keys, metaTitleLen, metaDescriptionLen, keywordsCount}, sourceMeta.shopierProductId, recentEvents[<=25].{id, eventType, status, sourceBot, createdAt, notes, payloadError, processedAt} }`.
+- Does NOT trigger anything; strictly read-only.
+
+**Why NOT just re-run content and see?**
+- We will — `canRetriggerContent()` already permits `failed → retry`, and the smallest-correct-next-step for #296 is `/content 296 retry` via Telegram GeoBot. But D-218 is independently useful: it surfaces the prior `payload.error` without having to discard it by overwriting state with a new attempt, and it remains available for future failure-mode investigation without reimplementing the same query each time.
+
+**Commits:** `ae7765b` (initial secret-only) + `9925d23` (added session alt-auth).
+**Status:** IMPLEMENTED — DEPLOYED — endpoint live (HTTP 401 without auth confirms it's routing correctly).
+**Lifecycle:** transient debugging tool, safe to remove once content/audit failure patterns are stable and documented.
+**Not yet:** product #296 diagnosis not run — pending operator decision between (a) `/content 296 retry` Telegram path, (b) calling D-218 from an authed admin tab, or (c) invoking D-218 with the secret header.
+
+---
+
+## D-219 — Wizard applyConfirmation must link variant IDs to products.variants — IMPLEMENTED
+
+**Decision:**
+Update `applyConfirmation()` in `src/lib/confirmationWizard.ts` (step "3. Create variants if sizes were collected") to capture each created variant's `id` and include them in the subsequent `products.update({ data: { stockQuantity, variants: createdVariantIds } })` call.
+
+**Why:**
+- `products.variants` is a `relationship` field with `hasMany: true` pointing to the `variants` collection (forward-ref, see `src/collections/Products.ts`).
+- `buildShopierVariants()` in `src/lib/shopierSync.ts` reads `product.variants` (the forward-ref array) and ignores the back-ref on `variants.product`.
+- The wizard was creating variant docs with only the back-ref populated (`variant.product = productId`) and never writing the IDs back to `product.variants`. Result: `product.variants` stayed empty → Shopier UPDATE went out without size options → size selector missing on the Shopier product page.
+- Verified root cause on 2026-04-21 for product #297 (Loafer Günlük). Live fix applied via admin REST `PATCH /api/products/297 { variants: [106,107,108], stockQuantity: 10, sourceMeta.forceRedispatch: true }` — size selector rendered after next cron tick.
+
+**Implementation:**
+- Collect `createdVariantIds: Array<number | string>` as each `payload.create({ collection: 'variants', ... })` returns.
+- Extend the final products update from `data: { stockQuantity: totalStock }` to `data: { stockQuantity: totalStock, variants: createdVariantIds }`.
+- No changes to wizard UX, session state, audit, or Shopier sync logic — purely fixing the forward-ref wiring that was always supposed to exist.
+
+**Blast radius:**
+- Applies only on the wizard confirm path (`applyConfirmation`), after the size-stock step.
+- On the first run, new products will now have `product.variants` populated at confirm time, so the very next shopier-sync tick will send correct variant data.
+- Existing products already in DB with empty `product.variants` but populated `variants` docs need a one-off repair PATCH (same shape as the 297 live fix). Scope of that backfill is small; deferred unless operator flags another instance.
+
+**Does NOT address:**
+- Duplicate wizard-apply bug (two `product.confirmed` events for #297 on 2026-04-21 created 6 variants where 3 were expected and doubled `stockQuantity`). Separate root cause — deferred.
+
+**Status:** IMPLEMENTED — PUSHED TO MAIN (commit `5942698`, 2026-04-21).
+**Risk:** low — one added field on an already-executed update; identical in shape to the live fix that just landed green on #297.
+**Reversible:** yes — single commit, single file.
+
+---
+
+## D-220 — Product Intelligence Bot + GeoBot Handoff MVP — IMPLEMENTED (not yet deployed)
+
+**Decision:**
+Add a new Telegram-triggered Product Intelligence (PI) workflow that (1) runs Gemini vision over a product's uploaded originals + supporting photos, (2) attempts a reverse image search for market context, (3) generates an original Turkish SEO + GEO content pack that never copies reference-product wording, and (4) exposes the result to the operator in Telegram as a Turkish summary with an inline keyboard. On explicit operator approval, the PI report is merged into the existing `product.content.{commercePack, discoveryPack}` fields — the same surface GeoBot and channelDispatch already consume. There is no new publishing path: PI prepares, GeoBot/channels publish.
+
+**Why:**
+- Operator wanted a "photo-first" diagnostic and content-generation step that verifies what the product actually looks like (detected type/color/material/style/gender/useCases/visibleBrand) before content is written, and that pulls in market-reference context without introducing copy-paste or false "exact match" claims.
+- The project's existing pipeline (Telegram intake → wizard → GeoBot content → audit → activation) does not have a "look at the photo and decide" layer — Gemini content was running from title/category only. This is the gap.
+- Existing decisions to preserve: Gemini-only (v19), per-request bot-token isolation (D-174), `bot-events` as the observability spine, Neon `push:true` drift risk (feedback_push_true_drift.md — so we use JSON columns where feasible).
+
+**Implementation (scope):**
+
+New files (all under `src/`):
+- `collections/ProductIntelligenceReports.ts` — new Payload collection `product-intelligence-reports` with JSON-typed columns for `detectedAttributes`, `referenceProducts`, `seoPack`, `geoPack`, `riskWarnings`, `imagesUsed`, `rawProviderData`, `telegram`; scalar columns for `status` (draft|ready|approved|sent_to_geo|rejected|failed), `matchType`, `matchConfidence`, `exactProductFound`, `triggerSource`, timestamps.
+- `lib/productIntelligence/types.ts` — shared types (`PiMatchType`, `PiReportStatus`, `PiTriggerSource`, `PiDetectedAttributes`, `PiReferenceProduct`, `PiSeoPack`, `PiGeoPack`, `PiImagesUsed`, `PiTelegramContext`, `PiReport`, `PiCollectedImages`, `PiReverseSearchResult`, `PiProductContext`).
+- `lib/productIntelligence/collectImages.ts` — priority: originals from `product.images[]` → generated from `product.generativeGallery[]` → fallback `media` collection scan filtered by the product relation. Deduplicates by URL. Caps supporting at 6. Writes `conflicts` note when both originals and 2+ generated images coexist.
+- `lib/productIntelligence/analyzeProduct.ts` — Gemini 2.5 Flash vision with `inlineData` base64 parts (up to 3 images: primary + 2 supporting). Temperature 0.3. Fail-soft when `GEMINI_API_KEY` missing.
+- `lib/productIntelligence/reverseImageSearch.ts` — SerpAPI Google Lens provider. Returns `{available: false, ...}` when `SERPAPI_API_KEY` missing (not an error — `matchType=visual_only_no_external_search`). Ordering-based similarity capped at 85, so the provider alone can never promote a result past `similar_style`. Falls back from primary → supporting[0] if primary returns nothing, downgrading supporting-derived hits by 10 points.
+- `lib/productIntelligence/generateSeoGeoPack.ts` — Gemini 2.5 Flash text, temperature 0.6. Strict "do NOT copy reference-product sentences, references are keyword/category context only" rule baked into the prompt. Returns `{seoPack, geoPack, riskWarnings}` with defensive defaults so the caller never sees an undefined field.
+- `lib/productIntelligence/createProductIntelligenceReport.ts` — orchestrator. Flow: create draft row (traceable even on crash) → fetch product context → collect images → vision → reverse search → `decideMatchType()` → generate pack → update to `ready` (or `failed` + `errorMessage`). `decideMatchType()` is the single place that classifies confidence: `exact_match` requires both `top.classification === 'exact_match'` AND a vision-detected `visibleBrand` signal — ordering alone never auto-claims exact.
+- `lib/productIntelligence/geoBotHandoff.ts` — exports `sendProductIntelligenceToGeoBot()`, `approveReport()`, `rejectReport()`. Preserve-existing merge into `product.content`:
+  - `seoPack.productDescription` → `content.commercePack.websiteDescription`
+  - `seoPack.shortDescription` → `content.commercePack.shopierCopy`
+  - `seoPack.seoTitle` → `content.discoveryPack.metaTitle`
+  - `seoPack.metaDescription` → `content.discoveryPack.metaDescription`
+  - `seoPack.faq` → `content.discoveryPack.faq`
+  - `seoPack.keywords` → `content.discoveryPack.keywordEntities`
+  - `geoPack.blogDraftIdea` → `content.discoveryPack.articleTitle`
+  - `content.contentGenerationSource = 'product_intelligence'` (if empty)
+  On approval we emit a `bot-events` row with `eventType='pi.sent_to_geo'`, `sourceBot='uygunops'`, `targetBot='geobot'`, `status='processed'`.
+- `lib/productIntelligence/telegramReport.ts` — Turkish HTML summary (`formatReportSummary`) and the 2×2 inline keyboard (`buildReportKeyboard`) used to acknowledge/reject reports. Callbacks: `pi:approve:{id}`, `pi:sendgeo:{id}`, `pi:regen:{id}`, `pi:reject:{id}`.
+
+Edits (minimal):
+- `payload.config.ts` — register `ProductIntelligenceReports` in the collections array.
+- `src/app/api/telegram/route.ts` — four surgical splices, no wholesale rewrite:
+  1. Add `'pi:'` to `OPS_CB_PREFIXES` so the new callbacks route to Uygunops.
+  2. Extend `isHashtagTrigger` regex with `geohazirla|seoara|productintel|urunzeka`.
+  3. Add those hashtags to `OPS_HASHTAGS`.
+  4. Insert an `isPiTrigger` hashtag handler that resolves the product id (reply-to-bot or inline `\d+`), verifies the product exists, sends an "analysis starting" ack, then in `after()` runs the orchestrator and sends the summary + keyboard.
+  5. Insert a `pi:` callback handler block with four sub-actions (approve, sendgeo, regen, reject), each using `after()` for background work and `answerCallbackQuery()` for immediate button ack so Telegram never freezes.
+
+**Design invariants explicitly enforced:**
+- **Originals-first.** `collectImages.ts` always sets `primary` to an uploaded original when one exists; generated images only become primary when no originals exist. This matches the operator rule that the uploaded photo is the product's true identity.
+- **No copy-paste from references.** The SEO/GEO prompt states this explicitly; the `riskWarnings` field surfaces any model-flagged copyright concerns.
+- **Never auto-claim exact match.** `decideMatchType()` downgrades provider `exact_match` to `high_similarity` unless vision detected a visible brand.
+- **Graceful degradation.** Missing `GEMINI_API_KEY` → fail-soft with a warning in the report. Missing `SERPAPI_API_KEY` → `matchType=visual_only_no_external_search` (not an error). Missing supporting images → pack is still produced from product data alone.
+- **Preserve operator-curated content.** The handoff only fills empty fields in `product.content.{commercePack, discoveryPack}` — a curated `metaDescription` is never blind-overwritten.
+- **Audit trail.** Every attempt creates a row in `product-intelligence-reports` even on crash (`status='failed'` + `errorMessage`). Handoff emits a `bot-events` row readable by the existing Mentix auto-fix (D-181) and audit (D-167) paths.
+
+**Trigger surface (Turkish hashtags, operator-chosen):**
+- `#geohazirla <id>` — generate PI report for product id (or reply-to-product message without id).
+- `#seoara <id>` — alias.
+- `#productintel <id>` — alias.
+- `#urunzeka <id>` — alias.
+All four route to the same handler; aliases exist so the operator can pick whichever reads naturally in context.
+
+**Environment variables:**
+- `GEMINI_API_KEY` — REQUIRED (already configured in prod; used by existing geobot runtime).
+- `SERPAPI_API_KEY` — OPTIONAL. If absent, reverse search returns `available: false` and the report is flagged `visual_only_no_external_search`. Not a blocker.
+
+**Why JSON-typed columns:**
+Neon `push:true` has repeatedly drifted silently (feedback_push_true_drift.md, 3 incidents). Using JSON columns for the heavy structured fields (`detectedAttributes`, `seoPack`, `geoPack`, `referenceProducts`, `imagesUsed`, `rawProviderData`, `telegram`, `riskWarnings`) keeps the schema delta minimal: one new table + a handful of scalar columns. On deploy, only the new `product_intelligence_reports` table needs to exist; field-level changes within JSON columns don't require further DDL.
+
+**TypeScript compile:** `tsc --noEmit` run against the full repo after D-220 edits — zero new errors introduced. The 4 remaining errors (`next.config.ts`, `page.tsx` HomepageSections, `route.ts` `geo_activate_auto`, `Products.ts` storyTargets) are pre-existing and unrelated to D-220.
+
+**Blast radius / reversibility:**
+- All new code is additive. No existing lib modified behaviorally.
+- The four `route.ts` splices are additive (new prefix, new regex alternatives, new handler blocks); they don't rewrite existing branches.
+- On Neon, rolling back means dropping `product_intelligence_reports` (table only — no references from other collections except the `product` FK, which is on the PI row, not on products).
+- No new HTTP provider, no new webhook, no schedule/cron surface.
+- If `GEMINI_API_KEY` goes missing, the existing GeoBot path also stops working — so D-220 has the same failure mode as the baseline, not a worse one.
+
+**Does NOT address:**
+- Automatic re-sync of existing products through PI (manual trigger only).
+- Bulk/batch PI generation (single product per hashtag call — consistent with the rest of the operator surface).
+- PI-triggered image regeneration — kept out of scope; PI reads existing images, it doesn't generate new ones.
+- Fixing product #296 content generation failure (D-218) — that's a separate track and `/content 296 retry` is still the correct next step.
+
+**Status:** IMPLEMENTED (local edits + new files). TYPECHECKED. NOT YET DEPLOYED — awaiting commit/push decision.
+**Risk:** low-to-medium. New collection introduces schema delta (one table); behavior is gated behind operator-typed Turkish hashtags, so it cannot auto-trigger on existing flows. SerpAPI key not yet provisioned → first runs will honestly return `visual_only_no_external_search`.
+**Reversible:** yes — single commit, isolated directory (`src/lib/productIntelligence/`) + one new collection file + four small `route.ts` splices + one `payload.config.ts` import.
+
+---
+
+## D-224 — Gemini JSON Parser Hardening (GeoBot discovery + commerce) — PROD-VALIDATED
+
+**Decision:**
+Replace the "strip code fences + JSON.parse" path in `generateCommercePack` and `generateDiscoveryPack` with a layered parser (`parseGeminiJson<T>`) that:
+1. tolerates Gemini wrapping the object in ```` ```json ``` ```` fences or prose preambles,
+2. direct-parses when possible,
+3. falls back to balanced-brace extraction (first `{` → matching `}`), and
+4. on failure, returns a truthful `parseError` with `finishReason` and a 300-char sample — never fabricates fields.
+
+Also:
+- `callGeminiText()` now returns `{ text, finishReason }` so the parser can attach `MAX_TOKENS` vs `STOP` context to error messages.
+- Discovery pack `maxOutputTokens` bumped from 8192 → 16384. Turkish SEO articles were routinely hitting the 8192 ceiling mid-JSON, producing unclosed braces that the old parser silently reported as "content generation failed."
+
+**Reason:**
+Product #296 (and intermittently others) had been landing on `contentStatus = 'failed'` with no usable pack despite Gemini returning well-formed content. Root cause was parser brittleness + token truncation, not model quality. D-224 removes that entire failure class while keeping the "never invent data" guarantee (partial responses surface as clear errors rather than silent `null`).
+
+**Scope:**
+- `src/lib/geobotRuntime.ts` only. Prompt structure, model ID (`gemini-2.5-flash`), and output contract unchanged.
+- 100% backward-compatible — successful 8192-token runs still succeed identically.
+
+**Status:**
+- Merged to `main` at commit `fbeeab2` on 2026-04-24.
+- Production deploy live at `https://uygunayakkabi-store.vercel.app`.
+- **PROD-VALIDATED 2026-04-24:** product #296 (which had been stuck in `contentStatus=failed` since D-218 flagged it) regenerated cleanly — commerce confidence 100%, discovery confidence 100%, article title + meta description populated, `contentStatus=ready` and `workflowStatus=content_ready`.
+
+**Reversible:** yes — single-file change on one commit.
+
+---
+
+## D-225 — PI Bot → GeoBot Automatic Bridge — PROD-VALIDATED
+
+**Decision:**
+Wire Product Intelligence Bot into the automatic content pipeline as a first-class step, not a parallel manual tool.
+
+At the moment `triggerContentGeneration()` builds the Gemini prompt context (just before calling `generateFullContentPack`), a new `resolvePiResearch(payload, productId)` helper:
+1. looks up the freshest PI report for this product in status `ready` / `approved` / `sent_to_geo`,
+2. if none exists and `PI_AUTO_FOR_GEOBOT` is not explicitly `false`/`0`/`off`, auto-invokes `createProductIntelligenceReport(...)` with `triggerSource: 'manual'` (the same pipeline the `#geohazirla` hashtag uses),
+3. on successful auto-run emits a `bot-events` row `eventType = 'pi.auto_triggered_by_geo'` so the auto-trigger is auditable,
+4. translates the stored `PiReport` (detectedAttributes + seoPack + geoPack + top referenceProducts + matchType/confidence + riskWarnings) into a narrow `GeobotPiResearch` shape that is dropped into `productContext.piResearch`,
+5. on any failure — PI crash, no provider, API error, DB issue — returns `null` and GeoBot falls back to the legacy product-only prompt. **PI must never block publishing.**
+
+GeoBot's prompt builders (`buildPiResearchBlock`, plus `hasPi`-conditional rules in both `buildCommercePrompt` and `buildDiscoveryPrompt`) fold the PI signal in as labelled Turkish sections (TESPİT EDİLEN / BENZER BAŞLIKLAR / ÖNERİLEN / UYARILAR) so the model reads them as explicit evidence, not as loose hints.
+
+Manual `#geohazirla` / `#seoara` / `#productintel` / `#urunzeka` hashtag paths remain unchanged — they still create their own PI report and still require operator approval before anything writes to `product.content`. D-225 only adds the auto-research layer for the automatic pipeline.
+
+**Reason:**
+PI Bot's SEO/GEO pack and reverse-image signals were never flowing into the automatic content path — they only attached when an operator manually ran `#geohazirla` and approved the report. The automatic `confirmation → content generation → audit` lane was using the product-only prompt, so the research work PI was doing was wasted for the default flow. The bridge makes PI part of the real pipeline.
+
+**Scope:**
+- `src/lib/contentPack.ts`: new `resolvePiResearch()` helper + one line inserting `piResearch` into `productContext`. Wrapped entirely in try/catch.
+- `src/lib/geobotRuntime.ts`: new `GeobotPiResearch` interface, `buildPiResearchBlock()`, `hasPi`-conditional rule sets.
+- No schema change. No new collection. No change to `#geohazirla` flow or to PI operator-approval gate.
+
+**Status:**
+- Merged to `main` at commit `fbeeab2` on 2026-04-24.
+- **PROD-VALIDATED 2026-04-24** on product #296 via a synthetic `/content 296 retry` to `https://uygunayakkabi-store.vercel.app/api/telegram?bot=geo`:
+  - HTTP 200, full pipeline ran in 83 s.
+  - `bot_events` trail: `content.requested` → `pi.auto_triggered_by_geo` (reportId=4) → `content.commerce_generated` → `content.discovery_generated` → `content.ready`.
+  - `product_intelligence_reports` row #4 auto-created with full SEO + GEO pack (Turkish keywords, FAQ, buyerIntent, comparisonAngles).
+  - Product 296 final state: `contentStatus=ready`, `workflowStatus=content_ready`, commerce confidence 100%, discovery confidence 100%.
+  - Generated IG caption uses `#SporŞıklığı` hashtag and article title "Şehir Hayatının Spor Şıklığı ve Konforu" — both mirror PI's `geoPack.comparisonAngles` ("spor şıklığı") and `aiSearchSummary`, confirming PI signal reached the prompt and shaped output.
+
+**Known orthogonal PI-pipeline issues surfaced by this run** (not regressions from D-225, filed as follow-ups):
+1. `analyzeProduct.ts` Gemini-vision call returned non-JSON (`risk_warnings: "Vision: gemini_non_json_response"`). The D-224 parser-hardening should be reused here.
+2. Google Cloud Vision reverse-search failed with `Unsupported URI protocol specified: /api/media/file/tg-296-…` — the image URL builder is handing Vision a relative path where an absolute `https://` URL is required.
+Both are isolated to PI Bot's input quality; the bridge itself functioned correctly and PI's SEO/GEO pack was produced and consumed even with those two signals missing.
+
+**Reversible:** yes — two-file change on one commit; setting `PI_AUTO_FOR_GEOBOT=false` in Vercel env also disables the auto-run path without a code rollback.
+
+---
+
+## D-226 — PI Bot Quality Bundle (vision parser, absolute media URLs, geo_auto trigger tag) — PROD-VALIDATED
+
+**Decision:**
+Three follow-up fixes on top of D-225 to clear the orthogonal PI-pipeline issues observed during the D-225 validation run on product 296.
+
+1. Reuse the D-224 `parseGeminiJson<T>` helper inside `src/lib/productIntelligence/analyzeProduct.ts`. Lift it into a new shared module `src/lib/util/parseGeminiJson.ts`, import from both call sites. Defends against fenced JSON, prose preambles, and truncated responses.
+2. Absolutize relative `/api/media/file/...` URLs before they reach Gemini vision and Google Cloud Vision. Add `resolveSiteBase()` + `absolutizeUrl()` in `src/lib/productIntelligence/collectImages.ts`, applied at every `resolveMediaUrl()` exit. Reads `NEXT_PUBLIC_SERVER_URL` first, falls back to `VERCEL_URL`. Mirrors the pattern in `src/jobs/imageGenTask.ts`.
+3. Plumb `triggerSource: 'geo_auto'` through `resolvePiResearch` → `createProductIntelligenceReport` so PI reports auto-created by the bridge are stored as `trigger_source='geo_auto'` instead of the historical default `'manual'`. New value added to `PiTriggerSource` type and to the Payload select option list.
+
+Bumped vision `maxOutputTokens` 1024 → 4096 in the same commit (Gemini 2.5-flash thinking-token overhead at 1024 produced finishReason=MAX_TOKENS with only ~76 chars of visible JSON — see `feedback_gemini_token_budget.md` incident #2).
+
+**Reason:**
+The D-225 validation surfaced two production failures that didn't block the bridge but degraded PI evidence: vision returned non-JSON for both 296 and 286 (parser issue), and Google Cloud Vision rejected the relative `/api/media/file/...` URLs (URL builder issue). The third item — `trigger_source` label fidelity — was a low-severity DB hygiene fix so analytics could distinguish bridge-triggered runs from manual operator runs.
+
+**Scope:**
+- `src/lib/util/parseGeminiJson.ts` — new shared helper.
+- `src/lib/productIntelligence/analyzeProduct.ts` — replace inline parsing with `parseGeminiJson`. Token budget bump.
+- `src/lib/productIntelligence/collectImages.ts` — new `absolutizeUrl()` + `resolveSiteBase()`, applied at media-URL exit points.
+- `src/lib/productIntelligence/types.ts` — add `'geo_auto'` to `PiTriggerSource`.
+- `src/collections/ProductIntelligenceReports.ts` — add `'geo_auto'` to the select option list.
+- `src/lib/contentPack.ts` — pass `triggerSource: 'geo_auto'` from `resolvePiResearch` into `createProductIntelligenceReport`.
+
+**Status:** merged to `main` as commits `4dc52ff` (the bundle) + `7de6b21` (token-budget follow-up). Validated by D-227's E2E run on product 304 (vision returned full attributes including `visibleBrand: "Skechers"` and the visualNotes that read "Skechers Air-Cooled Memory Foam" off the insole; Google Vision received absolute https URLs and ran successfully; see also D-227-DDL note about the missing enum value). 2026-04-24.
+
+**Reversible:** yes — three-file working-tree change.
+
+---
+
+## D-227 — PI Signal Strengthening + Observability — PROD-VALIDATED
+
+**Decision:**
+Three targeted fixes after a production observation that final content was still reading generic on real products despite D-225 + D-226 being live.
+
+1. **Observability for silent auto-bridge failures.** `resolvePiResearch` in `src/lib/contentPack.ts` now emits a `pi.auto_trigger_failed` bot-event from its catch block with `{error, failedAt, autoEnabled}` payload, so silent failures (env flag off, cold-start throw, Gemini 429, DB drift) become observable in `bot_events` and the operator can see why PI didn't run.
+2. **Surface `visualNotes` into the GeoBot prompt.** Added `detectedVisualNotes` to `GeobotPiResearch` interface in `src/lib/geobotRuntime.ts`. Rendered in `buildPiResearchBlock` as `Görsel Detaylar (logo/yazı/taban/kumaş): …`. The richest vision signal (e.g. `"Dilde Adidas logosu, yanlarda üç şerit, yan kısımda 'SPEZIAL' yazısı"`) was previously silently dropped at the `resolvePiResearch` translation layer. Now mapped from `attrs.visualNotes` → `detectedVisualNotes`.
+3. **Mandatory PI usage in prompts.** Block header promoted from passive `"TESPİT EDİLEN ÖZELLİKLER"` to mandatory-voiced **`"ÜRÜN KİMLİĞİ — ZORUNLU KULLANIM"`**. `buildCommercePrompt` rules: when PI signals exist, brand/type/color/material/style/visualNotes MUST appear in `websiteDescription`, `instagramCaption`, `shopierCopy`, `facebookCopy`; generic phrases ("kaliteli malzeme", "şık tasarımıyla", "konfor katın") explicitly banned as a fallback. `buildDiscoveryPrompt` rules: ÜRÜN KİMLİĞİ must appear in the article intro plus at least one section body; metaTitle and articleTitle must combine brand + type + color, not echo the operator title.
+
+**Reason:**
+Even with D-225 + D-226 running cleanly, two screenshots from the operator showed final article and IG copy that read like "Skechers SC günlük ayakkabılar ile adımlarınıza konfor ve tarz katın. Yoğun tempolu günlerinizde…" — generic across products. Diagnosis on product 302 confirmed PI never ran (silent bridge failure with no audit trail) and on product 301 found that PI ran with rich data (`visibleBrand=Skechers`, `visualNotes` reading "Air-Cooled Memory Foam") but `visualNotes` wasn't in `GeobotPiResearch` and the prompt rules treated PI as soft hints rather than mandatory content requirements.
+
+**Scope:**
+- `src/lib/geobotRuntime.ts` — `GeobotPiResearch.detectedVisualNotes` field, render in `buildPiResearchBlock`, header text + mandatory-rule strengthening in both prompt builders.
+- `src/lib/contentPack.ts` — map `attrs.visualNotes → detectedVisualNotes` in `resolvePiResearch`, emit `pi.auto_trigger_failed` bot-event in catch block.
+
+**Status:** merged to `main` as commit `0fffd38` on 2026-04-24. **PROD-VALIDATED** on product 304 "Skechers SC" the same day — vision read "Air-Cooled Memory Foam" off the insole and the Skechers 'S' logo off the side; final article body cited every detected signal verbatim. Generic fallback phrasing eliminated.
+
+**DDL follow-up applied directly to Neon (2026-04-24):**
+`ALTER TYPE enum_product_intelligence_reports_trigger_source ADD VALUE IF NOT EXISTS 'geo_auto'`. D-226 had added `'geo_auto'` to the TypeScript type and Payload collection options but Payload `push:true` had silently skipped the PG enum migration. Every auto-bridge attempt from D-226 deploy until the DDL was run failed with `22P02 invalid input value for enum` at the initial draft insert. The new `pi.auto_trigger_failed` bot-event from D-227 caught that silent failure and surfaced the exact query — without it the regression would have stayed invisible. See `feedback_push_true_drift.md` incident #5 and rule 7.
+
+**Reversible:** yes — two-file change on one commit. The DDL is also reversible via `ALTER TYPE … RENAME VALUE` in PG 15+.
+
+---
+
+## D-228 — Idempotent applyConfirmation (duplicate-confirm race protection) — PROD-VALIDATED
+
+**Decision:**
+Add an idempotency guard at the entry of `applyConfirmation` in `src/lib/confirmationWizard.ts`. On entry, re-read `product.workflow.confirmationStatus` and `productConfirmedAt` from the DB. If `confirmationStatus === 'confirmed'` AND `productConfirmedAt` is within the last 5 minutes, short-circuit with `{success: true, variantsCreated: 0}`. The Telegram UI still shows a green check; the duplicate work is skipped. Idempotency check is itself wrapped in try/catch — on a re-read failure, falls through to the normal path.
+
+**Reason:**
+On products 304 and 305 the operator saw every wizard producing duplicate output: 2× `product.confirmed` events, 2× `triggerContentGeneration` calls, 2× GeoBot commerce + discovery Gemini calls, 2× audit, 2× publish_ready. On product 304 the second pipeline pass nulled the first run's commerce pack by reading a stale `product.content` snapshot and writing a `contentUpdate` that didn't include commerce. Root cause: the `wz_confirm` Telegram callback handler had no debouncing — operator double-tap, Telegram webhook replay, or two callbacks arriving in parallel before the first cleared the wizard session all produced two parallel `applyConfirmation` invocations.
+
+**Scope:**
+- `src/lib/confirmationWizard.ts` — 43-line addition at the top of `applyConfirmation`. No schema change. Uses fields the function itself writes on its first run.
+
+**Window rationale:**
+- 5 minutes wide enough to absorb Telegram retries and operator delayed re-taps.
+- Narrow enough that a legitimate re-confirm via wz_edit works naturally once the operator edits any field (the workflow path is different).
+
+**Status:** merged to `main` as commit `20d399e` on 2026-04-25. PROD-VALIDATED on product 306 — exactly one `product.confirmed` event fired (vs the 2× pattern on 304/305). PI bridge spend stayed at 1× because `resolvePiResearch` was already idempotent (reuses existing ready reports).
+
+**Reversible:** yes — single-file diff.
+
+---
+
+## D-229 — PI Output Enrichment (wider vision + deeper pack + sectioned article + text-search fallback) — PROD-VALIDATED
+
+**Decision:**
+Four compounding richness levers shipped in one batch on top of the D-227-validated pipeline.
+
+1. **Wider vision evidence.** Expanded the Gemini vision JSON schema in `src/lib/productIntelligence/analyzeProduct.ts` with six new shoe-anatomy fields: `soleType`, `closureType`, `brandTechnologies[]`, `distinctiveFeatures[]`, `colorAccents[]`, `constructionNotes`. Vision token budget bumped 4096 → 6144. `PiDetectedAttributes` interface grew accordingly.
+2. **Deeper SEO/GEO pack.** `PiSeoPack` gained `brandTechnologyExplainer`, `careAndMaintenance`, `sizingGuidance`, `styleGuide`, `technicalSpecs[]`. `PiGeoPack` gained `useCaseExplainer`, `alternativeSearchQueries[]`. The pack-generation prompt in `src/lib/productIntelligence/generateSeoGeoPack.ts` was extended to surface the new vision evidence and impose mandatory-fill rules (e.g. `brandTechnologyExplainer` required when `brandTechnologies` detected; `technicalSpecs` must include concrete items derived from `soleType`/`closureType`/`distinctiveFeatures`). Pack token budget bumped 4096 → 10240.
+3. **Longer sectioned discovery article.** `GeobotPiResearch` gained `detectedSoleType` / `detectedClosureType` / `detectedBrandTechnologies` / `detectedDistinctiveFeatures` / `detectedColorAccents` / `detectedConstructionNotes` plus seven `suggested*` seed fields from the deeper SEO/GEO pack. `buildPiResearchBlock` renders them all. `buildDiscoveryPrompt`: when PI is available, target is now 1200–2000 words with **8 mandatory `##` sections** (Giriş, Tasarım ve Görünüm, Marka Teknolojisi ve Konfor, Kullanım Senaryoları, Bakım ve Dayanıklılık, Numara ve Kalıp Notları, Stil Rehberi, Benzer Ürünlerle Farkı). FAQ count 3→5, keywordEntities 10→15. Non-PI path unchanged. `buildCommercePrompt`: tightened mandatory-signal rules (≥3 detected attributes per surface, brand-tech mandatory, ≥2 concrete visual details in `websiteDescription`, generic-phrase ban). Discovery `maxOutputTokens` already at 16384 (D-224); commerce stayed at 4096 in D-229 — this caused the D-231 silent failure described below.
+4. **External text-search fallback.** New `src/lib/productIntelligence/providers/dataForSeoText.ts` runs DataForSEO Google Organic Live SERP when image search returns 0 matches AND vision has a strong signal (visibleBrand, productType, or distinctiveFeatures). Builds a query from `brand + title + productType + color + topBrandTech` and pulls up to 8 competitor/retailer snippets, classified `similar_style` (text never inspects pixels). Merged into `search.results` so the SEO/GEO prompt has real-world reference snippets. Feature-flagged via `PI_TEXT_SEARCH_FALLBACK` (default on). Reuses existing `DATAFORSEO_LOGIN`/`DATAFORSEO_PASSWORD` — no new credentials required.
+5. **`resolvePiResearch` mapping.** Maps all 6 new detected fields and all 7 new suggested seed fields from the PI report into the `GeobotPiResearch` shape so they actually reach the prompt.
+
+**Reason:**
+After D-227 made the existing PI signals visible in the prompt, the operator reported the output was now product-specific but still not detailed enough. The user explicitly asked for "richer, more detailed" output and selected all four levers (multi-select) plus "ship all selected in one batch" risk preference. The four levers compound: more vision evidence → more concrete fields in the prompt → more mandatory citations in the article → longer, denser, less generic copy.
+
+**Scope:**
+- `src/lib/productIntelligence/types.ts`
+- `src/lib/productIntelligence/analyzeProduct.ts`
+- `src/lib/productIntelligence/generateSeoGeoPack.ts`
+- `src/lib/productIntelligence/providers/dataForSeoText.ts` (new)
+- `src/lib/productIntelligence/createProductIntelligenceReport.ts`
+- `src/lib/geobotRuntime.ts`
+- `src/lib/contentPack.ts`
+
+**Status:** merged to `main` as commit `89acf4f` on 2026-04-27. **PROD-VALIDATED** on product 305 "Adidas Spezial" the same day:
+- `detectedAttributes` returned `visibleBrand=Adidas`, `productType=Spor Ayakkabı`, `color=Kahverengi`, `materialGuess=Süet`, `style=Günlük`, `soleType=Kauçuk`, `closureType=Bağcıklı`, `distinctiveFeatures=["Üç şeritli tasarım","yan kısımda 'SPEZIAL' yazısı","dokulu kauçuk taban"]`, `colorAccents=["beyaz bağcıklar","beyaz yan şeritler","beyaz topuk detayı","bej iç astar","kahverengi kauçuk taban"]`, `constructionNotes="Dikişli üst kısım ve taban birleşimi"`.
+- `seoPack` returned populated `brandTechnologyExplainer` (correctly empty for Spezial — no brand-tech), `careAndMaintenance` (concrete süet cleaning guidance), `sizingGuidance` (Spezial-specific fit note), `styleGuide` (concrete combin önerileri), `technicalSpecs` (7 concrete items including "İkonik üç şeritli yan tasarım", "Yan kısımda 'SPEZIAL' marka yazısı"), `alternativeSearchQueries` (7 realistic queries).
+- Final article: 1068 words, 7 `##` sections (just shy of the 8 mandatory target — minor gap), copy cited every concrete detail throughout.
+
+**Known follow-ups (deferred, not blocking):**
+- Text-search fallback returned HTTP 403 from DataForSEO — the account has Google Lens enabled but not Organic SERP. Not blocking; the wider vision + deeper pack already produce rich output without competitor snippets. Operator's call whether to enable Organic SERP later.
+- Discovery `metaDescription` occasionally exceeds the 160-char cap with a warning — minor prompt-rule compliance gap.
+
+**Reversible:** yes — additive interface fields are all optional; existing fallback paths preserved.
+
+---
+
+## D-231 — Commerce Token Bump + GeoBot Parallelization — PROD-VALIDATED
+
+**Decision:**
+Two follow-up fixes after D-229's enrichment exposed a silent commerce-pack failure on product 306.
+
+1. **Commerce silent failure.** `generateCommercePack` was still calling `callGeminiText(prompt)` with the 4096-token default after D-229 substantially tightened the commerce prompt rules. With Gemini 2.5-flash's thinking-token overhead, the commerce JSON ran past the cap → `parseGeminiJson` threw on the truncated payload → `generateFullContentPack`'s try/catch left `commercePack=undefined` → no `content.commerce_generated` event → commerce columns in DB stayed null. Product 306 ended up `content_status=discovery_generated` with every commerce_* column null. **Fix:** raise commerce `maxOutputTokens` 4096 → 8192. Same class of fix as D-226 (vision 1024→6144) and D-229 (SEO/GEO 4096→10240).
+2. **Perceived 30 s step latency.** `generateFullContentPack` was running commerce THEN discovery sequentially. Post-D-229 sizes (commerce 8192, discovery 16384, 1200–2000-word article with 8 mandatory sections) pushed total wall time to ~90–100 s on PI-enabled runs and the operator read this as "30 seconds between steps / stopped working". **Fix:** commerce + discovery now run in parallel via `Promise.allSettled`. Wall time drops to `max(commerce, discovery) ≈ 50–60 s`; one pack failing no longer blocks the other from being persisted.
+
+**Reason:**
+D-229 tightened the rules without revisiting commerce's token budget — a textbook recurrence of the `feedback_gemini_token_budget.md` pattern (4 incidents now, this is incident #4). Sequential generation also failed the operator-experience bar after D-229 made each pack longer.
+
+**Scope:**
+- `src/lib/geobotRuntime.ts` — single-file diff. `generateCommercePack` adds `maxOutputTokens: 8192` to the `callGeminiText` call. `generateFullContentPack` rewrites the sequential commerce/discovery section into a `Promise.allSettled` block.
+
+**Status:** merged to `main` as commit `832baf3` on 2026-04-28. Validated by D-230 product 305 + product 312 runs which both produced commerce + discovery cleanly in ~50–60 s.
+
+**Reversible:** yes — single-file diff.
+
+---
+
+## D-230 — Wizard Vision Autofill (category + productType + brand) — PROD-VALIDATED
+
+**Decision:**
+Run one Gemini vision call at wizard initialization to auto-fill the wizard's category + productType + brand+model+color steps. Three confidence bands:
+- **HIGH (≥70%)** — write the value directly into `session.collected`. Wizard `determineNextStep` skips that step.
+- **LOW-MED (40–69%)** — leave `collected` empty but stash the suggestion in `session.autofillPreview`. Prompt builders (`getCategoryPrompt`, `getProductTypePrompt`, `getBrandPrompt`) render a `🤖 PI önerisi: <value> (güven %X)` hint inline above the keyboard / text prompt. Operator can accept (button click or `tamam`/`ok`/`onayla`/`kabul`/`evet` text shortcut for brand) or override.
+- **<40%** — no hint, prompt as before.
+
+Send one `🤖 PI Bot Görsel Tespitleri` summary message at wizard start so the operator can see at a glance what was filled vs suggested. wz_edit (Düzenle button) re-runs the autofill so editing produces the same UX as a fresh start.
+
+**Reason:**
+Operator request after D-229 stabilization: "I want PI bot to autofill these parts. Only bring the prompt when there is really rare product uploaded and vision could not detect it." The category and brand wizard steps are by far the most common typing burden — vision can identify them on every clearly branded photo. The prompt-with-hint mode handles the borderline case without forcing a hard yes/no decision.
+
+**Scope:**
+- `src/lib/confirmationWizard.ts` — new `tryAutofillFromVision`, `applyVisionAutofillToSession`, `formatAutofillReport`. Three prompt builders take an optional suggestion arg. `WizardState` gains `autofillAttempted` + `autofillPreview` fields.
+- `src/app/api/telegram/route.ts` — 4 wizard initialization sites (approveImageGenJob, wz_start callback, /confirm command, /confirm 5188 path) call `applyVisionAutofillToSession` and pass suggestions to the prompt builders. Mid-wizard prompt dispatchers also pass `session.autofillPreview` to the builders. `tamam`-style shortcut accepts the brand suggestion in the text handler. wz_edit handler resets `autofillAttempted=false` and re-runs the autofill so Düzenle behaves like a fresh start.
+
+**Token budget:** 3072 (small 4-field schema). Wall-clock ~2–4 s.
+
+**Feature-flagged:** `WIZARD_BRAND_AUTOFILL=false` opts out without a code rollback.
+
+**Follow-up fixes shipped before stabilization (all in `src/lib/confirmationWizard.ts` and `src/app/api/telegram/route.ts`):**
+1. `4f1321e` — drop `!product.category` and `!product.productType` gating from the autofill check. The wizard's `determineNextStep` always asks for category regardless of `product.category` (D-171b operator-experience rule), so the autofill must mirror that. Brand check kept as-is — wizard correctly skips brand step when `product.brand` is set.
+2. `58256ea` — re-run vision autofill on wz_edit. The "Düzenle" button used to clear `collected` to `{}` but leave `autofillAttempted=true`, so the autofill never re-ran and prompts re-appeared with no hints. Fix: reset `autofillAttempted=false` and `autofillPreview=undefined`, re-run `applyVisionAutofillToSession`, send a fresh autofill report.
+3. `5131417` — surface autofill failures with a one-line `🤖 PI Bot: görsel analiz çalıştı ama kullanılabilir sonuç dönmedi (<reason>)` message; relax category mapping with substring/alias matching (vision often returns "Spor Ayakkabı" or "Sneaker" instead of one of the 6 valid labels).
+4. `f32018a` — fix the `no_image` bug. `products.images` is defined in the schema as a Payload `array` field with a single `image` relationship inside, NOT a flat relationship-hasMany. At depth=2 the resolved shape is `{ image: <media> }` per item, NOT a flat media doc. The strict `pickUrl` was reading `.url` / `.sizes` directly off the wrapper and always returning null. Final fallback added: query the `media` collection by `product` relation. Mirrors the rescue path that the existing PI Bot's `collectImages.ts` uses.
+
+**Status:** merged to `main` as commits `fa3b57d` + `4f1321e` + `58256ea` + `5131417` + `f32018a` on 2026-04-27 / 2026-04-28. PROD-VALIDATED — operator confirmed "it's working perfectly now" after the no_image fix.
+
+**Reversible:** yes — additive helper. `WIZARD_BRAND_AUTOFILL=false` disables it. `WizardState` field additions are optional. Existing prompt-builder signatures are backward compatible (the suggestion arg is optional).
+
+---
+
+## D-LOCK-2026-04-28 — PI/Wizard Stabilization Lock
+
+**Decision:**
+Lock D-227 → D-231 as the **stable production baseline** for the PI Bot → GeoBot bridge, prompt weighting, idempotency, richness, and wizard vision autofill subsystems. Future work in this area must branch from this baseline as a new D-23x or D-24x decision; do not modify locked behaviour without explicit operator authorization.
+
+**Operator confirmation:** "it's working perfectly now" (2026-04-28).
+
+**What is locked (production-validated):**
+- D-227 — PI observability + visualNotes in prompt + mandatory prompt rules
+- D-227 Neon DDL — `geo_auto` enum value
+- D-228 — applyConfirmation idempotency / duplicate-confirm protection
+- D-229 — wider vision evidence, deeper SEO/GEO pack, longer sectioned article, text-search fallback
+- D-230 — wizard vision autofill for category + productType + brand+model+color
+- D-231 — commerce maxOutputTokens 4096→8192, parallel commerce/discovery
+- D-230 follow-up fixes (category gating alignment, wz_edit re-run, diagnostic surface, no_image image-wrapper fix)
+
+**What is intentionally deferred / optional (not blocking the lock):**
+- DataForSEO Organic SERP 403 — wider vision + deeper pack already produce rich output without competitor snippets. Enable later if higher-quality references are wanted.
+- Discovery `metaDescription` occasional 160-char overflow — warning only, not a hard failure.
+- Older open-task investigations: task #10 (product 288 forceRedispatch hook no-op), task #15 (duplicate wizard-apply variants on 297 — D-228 likely covers this), task #29 (D-223 #geohazirla 298 validation), task #9 (D-208b churn root cause). Lower priority backlog.
+- Future enhancements in the wizard / PI / GeoBot space (e.g. mid-confidence button-click suggestions, multi-image vision aggregation, brand-confidence display in summary, finer-grained prompt sections). Not in scope for the current lock; require new D-numbers.
+
+**Lessons recorded in memory:**
+- Enum/select-field option additions on Neon require manual `ALTER TYPE … ADD VALUE`; `push:true` silently skips them. See `feedback_push_true_drift.md` rule 7.
+- When Gemini prompt requirements grow, `maxOutputTokens` MUST be revisited. 2.5-flash thinking-token overhead consumes the budget before visible output. Current floors: vision 6144, commerce 8192, discovery 16384, SEO/GEO pack 10240, wizard brand-autofill 3072. See `feedback_gemini_token_budget.md` (4 incidents).
+- Wizard autofill depends on the actual product image shape — `products.images` is `{ image: <media> }` wrapper, not a flat media array. Always unwrap.
+- Silent failures must surface visible events / diagnostics. Apply this to every step that can quietly drop output (parseGeminiJson, vision call, autofill, commerce-pack generation). Use bot-events or one-line Telegram diagnostics.
+
+**Status:** LOCKED 2026-04-28.
+
+---
+
+## D-234 — Operator Pack v1 (Telegram-first stock/state operations)
+
+**Decision:**
+Make Telegram the practical daily control surface for stock/state ops. Extract a single shared helper module `src/lib/operatorActions.ts` that owns identifier resolution + the 6 operator actions, refactor the 3 previously-duplicated case-switches in `route.ts` to delegate to it, and add 7 slash-command aliases for the existing inline-button surface.
+
+**Surface (after D-234):**
+- Read-only: `/find <sn-or-id>`, `/pipeline <sn-or-id>` (now SN-or-ID, was ID-only), `/stok <sn-or-id>` (now SN-or-ID, was ID-only).
+- State writes: `/soldout`, `/oneleft`, `/twoleft`, `/restock <sn-or-id> <qty>`, `/stopsale`, `/restartsale`. All accept SN or numeric ID.
+- Inline buttons: 🔴 Tükendi · ⚠️ Son 1 Adet · ⚠️ Son 2 Adet · ⏸️ Durdur · ▶️ Aç · 📦 Stok — every button now goes through the same `applyOperatorAction()` helper as the slash commands.
+
+**Behaviour rules (variant-aware, smallest correct):**
+- `soldout`: variants → zero every variant.stock then status='soldout'. Non-variant → stockQuantity=0 + status='soldout'. Idempotent if already soldout AND effective stock 0.
+- `oneleft`/`twoleft`: REFUSED on variant products (per-size truth requires per-size update via `/sn ... stok N` or admin). Non-variant → stockQuantity=1/2 + status='active' + sellable=true.
+- `stopsale`: workflow.sellable=false; PRESERVES status (does not clobber soldout → draft, which the previous handler did).
+- `restartsale`: REFUSED if effective stock <= 0 (operator told to `/restock` first). Otherwise status='active' + sellable=true.
+- `restock <qty>`: REFUSED on variant products. Non-variant → stockQuantity=qty (>=1) + status='active' + sellable=true.
+- All actions cascade through `reactToStockChange` (single shared path). Idempotency is checked BEFORE the update — if every write target already holds the would-be value, the helper short-circuits with `idempotent:true` and skips both the update and the bot-event emit. Repeated button presses do not corrupt state and do not spam events.
+
+**Identifier resolution rules:**
+- `SN0186` → exact `stockNumber` match.
+- `186` → padded to `SN0186`, retried as numeric ID if SN miss.
+- All operator commands accept either form. The shared `resolveProductIdentifier()` is the single source.
+
+**Scope:**
+- New file: `src/lib/operatorActions.ts` (~440 LOC). Exports: `resolveProductIdentifier`, `applyOperatorAction`, `formatOperatorCard`, `operatorButtonsKeyboard`, `formatIdentifierMissingMessage`, types.
+- `src/app/api/telegram/route.ts`: refactored 3 duplicated paths (sn_* button callback, /sn sub-actions, /stok and /pipeline ID-only inputs) to use the shared helper. Added 7 new slash commands. Registered them in SHARED_CMDS so they pass the bot-ownership filter on both Uygunops and GeoBot.
+- No schema change. No new collection. No new env var.
+
+**Status:** Shipped to `main` 2026-04-28. PROD soak validation pending — operator to send a small set of touch-tests against SN0032 (or any current SN) covering /find, /pipeline, /stok, all six button presses, and one repeat-press for idempotency.
+
+**Reversible:** yes — single new file + a localized rewrite of 3 handler blocks + 1 shared-cmd-list extension. `git revert` is clean.
+
+**Out of scope:**
+- Per-size variant editing from Telegram (still admin-panel or `/sn ... stok N` for total override). New scope = new D-number.
+- Auto-publish behaviour. External publishing still requires explicit human approval.
+
+---
+
+## D-235 — Per-Channel Redispatch from Telegram (Operator Pack v1.5)
+
+**Decision:**
+Add a Telegram surface that lets the operator re-fire EXACTLY one channel without re-triggering the others. Slash command `/redispatch <channel> <sn-or-id>` and a per-channel button row on every operator card. Supported channels: X / Instagram / Facebook / Shopier. Website explicitly excluded with a one-line explanation; Dolap and Threads not exposed in this scope.
+
+**Why this design (and why we did NOT extend the afterChange hook):**
+D-202 wired `dispatchProductToChannels(..., {onlyChannels})` and the afterChange hook reads `sourceMeta.forceRedispatchChannels` to set that filter. But verifying against Neon's `information_schema.columns` shows that `source_meta_force_redispatch_channels` does NOT exist as a real column — the field was never persisted via Payload's group validation, so `sourceMeta.forceRedispatchChannels` is always `undefined` when read from a freshly-fetched product. The hook's "explicit channels" branch has been silently dead code in production. The fallback branch ("skip already-dispatched non-shopier channels") is what actually ran, and that is exactly why D-212 saw X-only retests on product 294 also re-posting IG+FB.
+
+Two paths to fix it:
+1. Add a real `forceRedispatchChannels` column → Payload schema change + Neon DDL (per Blocker 0).
+2. Bypass the hook from Telegram and call `dispatchProductToChannels(..., {onlyChannels})` directly.
+
+Path 2 is smaller (no DDL, no schema change), reversible in one commit, and reuses the same dispatch code the hook calls. Path 1 stays available later if admin-panel-driven per-channel redispatch becomes a need.
+
+**Implementation:**
+- `src/lib/operatorActions.ts` gained `triggerChannelRedispatch(payload, productId, channelRaw)`. Resolves channel aliases (x/twitter; instagram/ig/insta; facebook/fb; shopier/shop), validates product is `status='active'` (the hook would refuse otherwise), calls `fetchAutomationSettings` + `dispatchProductToChannels(..., {onlyChannels:[ch]})`, persists the per-channel result note into `sourceMeta.dispatchNotes` while preserving notes for other channels, queues the `shopier-sync` job when applicable. The product update uses `context: { isDispatchUpdate: true }` so the afterChange hook stays silent on the sourceMeta write.
+- `src/lib/operatorActions.ts::operatorButtonsKeyboard` gained a third row of 4 redispatch buttons.
+- `src/app/api/telegram/route.ts` got the `/redispatch` command handler and a new `redis_*` callback handler. Both delegate to `triggerChannelRedispatch`. `/redispatch` registered in `SHARED_CMDS`.
+
+**Refusal cases (with operator-facing messages):**
+- Unknown channel alias → "Geçerli: x, instagram, facebook, shopier".
+- `website` → explanation that storefront renders live and Vercel revalidation handles cache invalidation if ever needed.
+- Product not found → standard 404 message.
+- Product not active → "Önce /restartsale veya panel üzerinden aktive edin."
+
+**What this does NOT change:**
+- afterChange hook unchanged. Still reads `sourceMeta.forceRedispatchChannels` (still empty in prod). Still uses the fallback branch for admin-driven redispatches. Future cleanup can either delete the dead branch or actually persist the field.
+- No new Payload field. No Neon DDL.
+- D-LOCK-2026-04-28 PI/wizard scope untouched.
+- v50 image-pipeline LOCK untouched.
+- Publish-approval policy unchanged: every redispatch is explicitly initiated by the operator.
+
+**Risk class:** medium. Single new helper function (~180 LOC) + 3 small route.ts edits. Wraps existing dispatch logic without modifying it. Reversible via single-commit revert.
+
+**Idempotency:**
+Each press fires a fresh dispatch; the Shopier path queues a fresh job. There is no cooldown or dedupe at this layer — that is by design (operator may want to retry). External services have their own idempotency or are tolerant (the same product POST to Shopier becomes an UPDATE; the same X tweet succeeds and returns a fresh tweetId; Instagram/Facebook return new post IDs).
+
+**Test cases (operator-runnable):**
+- `/redispatch x SN<active-product>` → only X fires; IG/FB/Shopier are not touched. `sourceMeta.dispatchNotes` shows the new X note alongside the previous IG/FB notes (those notes are preserved verbatim).
+- `/redispatch instagram <id>` → only IG fires.
+- `/redispatch facebook <id>` → only FB fires.
+- `/redispatch shopier <id>` → Shopier sync job queued; `shopierSyncStatus='queued'` immediately; cron runs the job.
+- `/redispatch website <id>` → refused with explanation; no dispatch happens.
+- `/redispatch x <draft-product>` → refused with "ürün aktif değil".
+- Inline button presses ("𝕏 Tekrar", "📸 IG Tekrar", "📘 FB Tekrar", "🛒 Shopier") → identical behaviour to the slash commands.
+
+**Status:** Shipped to `main`. PROD soak validation pending (operator to run the test cases above against current SNs).
+
+**Reversible:** yes — single new helper export + 3 route.ts edits.
+
+---
+
+## D-236 — Operator Inbox / Queue v1 (read-only Telegram queue surface)
+
+**Decision:**
+Add `/inbox` + 5 sub-commands to Telegram so the operator can see what needs attention right now without opening admin. Read-only; aggregates the existing workflow / state / event signals into 5 actionable buckets.
+
+**Buckets and filters (all use existing fields, no schema change):**
+| Bucket | Filter |
+|---|---|
+| **PENDING — visual approval** | `workflow.visualStatus == 'preview'` |
+| **PENDING — wizard incomplete** | `workflow.visualStatus == 'approved' AND workflow.confirmationStatus != 'confirmed'` |
+| **PUBLISH — publish_ready** | `workflow.workflowStatus == 'publish_ready'` |
+| **PUBLISH — content-ready-not-active** | `workflow.contentStatus == 'ready' AND status != 'active' AND workflow.workflowStatus != 'publish_ready'` |
+| **STOCK — soldout** | `status == 'soldout' OR workflow.stockState == 'sold_out'` |
+| **STOCK — low_stock** | `status == 'active' AND workflow.stockState == 'low_stock'` |
+| **FAILED — content** | `workflow.contentStatus == 'failed'` |
+| **FAILED — audit** | `workflow.auditStatus IN ('failed','needs_revision')` |
+| **FAILED — shopier sync** | `sourceMeta.shopierSyncStatus == 'error'` |
+| **FAILED — last 24h events** | `bot_events.eventType IN [...failure types...] AND createdAt > now-24h` |
+| **TODAY — created** | `createdAt > startOfTodayUTC` |
+| **TODAY — confirmed** | `workflow.confirmationStatus == 'confirmed' AND workflow.productConfirmedAt > startOfTodayUTC` |
+| **TODAY — content ready** | `workflow.contentStatus == 'ready' AND content.lastContentGenerationAt > startOfTodayUTC` |
+| **TODAY — activated** | `status == 'active' AND updatedAt > startOfTodayUTC` |
+| **TODAY — soldout** | `status == 'soldout' AND updatedAt > startOfTodayUTC` |
+| **TODAY — failed events count** | `bot_events.eventType IN [...failure types...] AND createdAt::date == today` |
+
+Failure event types tracked: `content.failed`, `pi.auto_trigger_failed`, `audit.failed`, `audit.needs_revision`, `dispatch.failed`, `shopier.sync.failed`, `shopier.error`. Bot-events query is wrapped in try/catch — missing collection or table is non-fatal, the rest of the inbox still renders.
+
+**Implementation:**
+- New `src/lib/operatorInbox.ts` (~290 LOC). Six paired query+format helpers. Each list capped at `LIST_LIMIT=10` items with overflow `+N daha` hint. Empty buckets render `✅ <label>: yok`. `getInboxOverview` runs the four detail queries in parallel via `Promise.all` so the top-level command is fast.
+- Single command in `route.ts` dispatches sub-commands via switch. Aliases included for Turkish (`stok` → `stock`, `bugun`/`bugün` → `today`, `hata` → `failed`).
+- Registered in `SHARED_CMDS` so both Uygunops and GeoBot accept `/inbox`.
+
+**Out of scope:**
+- Mutations — every operator action stays on the existing `/find /soldout /restock /redispatch` etc. surface.
+- Pagination beyond 10 items per bucket.
+- Archived-product surfacing.
+- Dolap/Threads channels in the failed bucket — intentionally limited to current production channels.
+- Custom event-type subscriptions — failure event types are a fixed allow-list, extendable later.
+
+**Risk class:** low. Read-only helper + one command branch in route.ts. Reusing Payload `find` query patterns. Reversible via single-commit revert.
+
+**Smoke evidence (current Neon, 2026-04-28):**
+| Bucket | Count |
+|---|---|
+| visual approval pending | 2 |
+| wizard incomplete | 3 |
+| publish_ready | 4 |
+| content-ready-not-active | 6 |
+| soldout | 0 |
+| low stock | 2 |
+| content failed | 0 |
+| audit failed | 0 |
+| shopier error | 0 |
+| failures last 24h | 0 |
+
+Inbox truthfully surfaces 17 actionable items for the operator to triage.
+
+**Status:** Shipped to `main`.
+
+**Reversible:** yes — single new helper file + 1 route.ts command branch + 1 SHARED_CMDS entry.
+
+---
+
+## D-237 — Publish Desk / Approval Gate v1
+
+**Decision:**
+Add a Telegram-first publish surface so the operator can see ready items, approve, reject, and activate routine ready products without opening admin. **Hard publish rule preserved** — every action is an explicit operator gesture (slash command or inline button); no auto-publish anywhere.
+
+**Semantic resolution (smallest correct):**
+- `approve ≡ activate` — there is no separate persisted "approved-but-not-activated" state in the schema today and inventing one would introduce a phantom limbo state. `/approvepublish` and `/activate` both flip `status=active` and trigger dispatch via the existing afterChange hook. `/approvepublish` additionally emits a `publish.approved` bot-event so the audit trail clearly shows the operator's explicit intent.
+- `reject = recorded refusal, no state mutation` — `/rejectpublish` emits a `publish.rejected` bot-event only. Product stays in publish_ready limbo. Operator can `/activate` or `/approvepublish` later — the newer affirmative event wins because the publish desk reads "latest publish.* event" for each product.
+
+**Persisted decision state via bot-events.** No schema change. The publish desk derives "current decision" from the latest `publish.approved` or `publish.rejected` event in the last 30 days. This mirrors how `stockState` is derived from stock events. Auditable. Reversible (just emit a newer event).
+
+**Surface:**
+- `/publishready` — lists products where `status != 'active'` AND `evaluatePublishReadiness(product).level === 'ready'` AND no recent `publish.rejected`. Each item rendered as its own card with `🚀 Aktif Et / 🚫 Reddet / 🔍 Bul` inline buttons.
+- `/publishready today` — same filter, additionally requires `content.lastContentGenerationAt` OR `workflow.productConfirmedAt` after `startOfTodayUTC`.
+- `/approvepublish <sn-or-id>` — emits `publish.approved` event, then runs the full activation path. Refuses with concrete blockers if readiness != 6/6.
+- `/rejectpublish <sn-or-id>` — emits `publish.rejected` event. No state mutation. Product disappears from `/publishready` listings for 30 days.
+- `/activate <sn-or-id>` — existing handler patched to accept SN via `resolveProductIdentifier` (D-234 pattern). Guards unchanged: refuses if already active, refuses if readiness != 6/6.
+- Inline buttons: `pdesk_act:<id>` (full activation including `publish.approved` audit event) and `pdesk_rej:<id>` (rejection record).
+
+**Implementation:**
+- New `src/lib/publishDesk.ts` (~250 LOC). Exports `getPublishReadyList`, `recordPublishDecision`, `formatPublishReadyHeader/Entry/Empty`, `publishDeskButtons`. Merges approval+rejection events with newest-wins so an approval after a rejection un-hides the product. Uses existing `evaluatePublishReadiness` to gate "fully ready" — same 6 dimensions the rest of the system uses.
+- `src/app/api/telegram/route.ts`: 3 new slash command branches (`/publishready`, `/approvepublish`, `/rejectpublish`), one `pdesk_*` callback handler, plus a small SN-or-ID patch on the existing `/activate` handler. The activation logic for `/approvepublish` and the `pdesk_act` callback is inlined (small duplication of the existing `/activate` body) because each path is in a different region of route.ts; future cleanup could extract a shared `activateProduct(payload, productId, source)` helper. SHARED_CMDS gets `/publishready /approvepublish /rejectpublish`. `/activate` stays in GEO_CMDS per the D-144 bot-role split.
+
+**Idempotency / safety:**
+- `/approvepublish` and `pdesk_act` refuse already-active products with a clear message.
+- `/approvepublish` refuses if readiness < 6/6 with the exact blockers from `evaluatePublishReadiness`.
+- `/rejectpublish` does not mutate product state — repeated presses just emit additional events. The desk uses the newest event so re-rejecting is harmless.
+- `/activate` keeps its existing not-already-active + readiness-check guards.
+
+**Out of scope:**
+- Auto-publish — forbidden by the hard rule.
+- Per-channel approval gates — operator approves the whole publish + dispatch as a unit; per-channel control is the existing `/redispatch` flow.
+- Multi-stage reviewer workflow.
+- Persisting decision state as a real product field — bot-events are the journal; revisit only if the latest-event pattern proves insufficient.
+
+**Risk class:** low. Read query + bot-event emit + inlined activation reuses existing logic. No schema change. No new env var.
+
+**Smoke evidence (current Neon, 2026-04-28):**
+| Filter step | Count |
+|---|---|
+| Broad pre-filter (status≠active AND (publish_ready OR contentStatus=ready)) | 8 |
+| Fully ready (all 6 dimensions pass) | 6 expected (2 with `audit=pending` fail the audit dimension) |
+| Recent publish-decision events | 0 |
+
+Operator-runnable test cases:
+- `/publishready` → expect ~6 cards each with 3 buttons.
+- `/publishready today` → subset where confirmed/content-ready today.
+- Press `🚫 Reddet` on one card → "publish.rejected" event written; `/publishready` should now show that card filtered out.
+- Press `🚀 Aktif Et` on another card → activation runs end-to-end (status=active + dispatch); product disappears from `/publishready` because `status='active'` is filtered.
+- `/approvepublish <not-ready-sn>` → refused with concrete blockers.
+- `/activate <not-ready-sn>` → same refusal (existing behaviour).
+- Repeated `/rejectpublish` on same product → safe (emits more events; latest still wins).
+
+**Status:** Shipped to `main`. PROD soak validation = operator runs `/publishready` against real ready items, verifies the queue is correct, presses Aktif Et / Reddet on a couple to confirm both paths work and the listing reflects the change.
+
+**Reversible:** yes — new helper file + ~3 route.ts command branches + 1 callback handler + small SN-or-ID patch on `/activate`.
+
+---
+
+## D-238 — State Coherence Sweep + Repair
+
+**Decision:**
+Detect, repair, and prevent product state drift so the Telegram operator surfaces (`/inbox`, `/publishready`, `/find`, `/pipeline`) stay truthful. Real production drift confirmed via raw-SQL scan: 1 product with `workflow=active+status=draft` (SN0032 — exactly the case the operator spotted in the D-237 screenshot) and 3 products with `status=active+publishStatus=not_requested` (SN0013, SN0002, SN0033 — older activations).
+
+**Three layers — detect, repair, prevent.**
+
+**Detect.** Two new rules added to the existing `detectStateIncoherence` in `publishReadiness.ts`:
+- Rule 8 (severity error): `workflow.workflowStatus='active' AND status!='active'` — inverse of rule #1, catches the SN0032 direction.
+- Rule 9 (severity warning): `status='active' AND publishStatus IN ('not_requested','pending')` — catches post-activation drift on legacy products.
+
+The other 7 rules are preserved verbatim — `detectStateIncoherence` is the single canonical source for the operator-facing coherence message displayed by `/pipeline` and now `/repair scan`.
+
+**Repair.** New `src/lib/stateCoherence.ts` (~250 LOC) with two exports:
+
+`normalizeProductState(payload, productId, {dryRun})`. Deterministic. Idempotent.
+- Computes the correct values from ground truth:
+  - `workflowStatus` derived from full pipeline progression — soldout/active take precedence over earlier stages; otherwise step through audit → content → confirmation → visual.
+  - `publishStatus = 'published'` when `status='active'`. Does NOT downgrade existing 'published' on rollback (preserves audit trail).
+  - `sellable = true` when `status='active' AND stockState!='sold_out'`, `false` when soldout, untouched otherwise.
+- Compares against actual values, builds a minimal patch.
+- `dryRun=true` (default): returns the diff as a Telegram-ready preview, writes nothing.
+- `dryRun=false`: applies the patch in a single `payload.update` with `context: { isDispatchUpdate: true }` (suppresses the afterChange dispatch hook — repair is a coherence write, not a publish). Emits `state.repaired` bot-event with the full audit payload.
+- Skips archived products entirely.
+- If everything's already coherent, returns `changed: false` and a "tutarlı — düzeltilmesi gereken alan yok" message. Repeated calls are no-ops.
+
+`scanCoherenceDrift(payload, {limit=200})`. Read-only. Iterates non-archived products, runs `detectStateIncoherence` on each, returns `{totalScanned, drifted: [{id, sn, issues, sample}]}`. `formatScanReport` renders the top 10 + overflow hint.
+
+**Prevent.** Patched `applyOperatorAction` in `operatorActions.ts` so soldout/oneleft/twoleft/restartsale/restock now align `workflow.workflowStatus` alongside `status`:
+- `soldout`: when status flips to soldout, also set `workflowStatus='soldout'`. Previously left at whatever it was (often 'active'), causing post-soldout drift.
+- `oneleft`/`twoleft`/`restartsale`/`restock`: when status flips back to 'active' AND previous workflowStatus was 'soldout', revert workflowStatus to 'active'. For other previous workflow stages (e.g. content_ready, publish_ready) the value is preserved — only the specific soldout↔active transition gets aligned, no broader rewrite.
+
+This closes the most likely future source of drift — the action helpers were the ones leaving workflowStatus stale on status flips. /activate and /approvepublish were already aligning correctly (D-237 verified).
+
+**Surface.** New `/repair` slash command, four modes:
+- `/repair` → help message
+- `/repair scan` → catalog-wide drift report (top 10 + overflow)
+- `/repair <sn-or-id>` → single-product preview (dry-run)
+- `/repair <sn-or-id> confirm` → apply the patch
+Registered in `SHARED_CMDS` so both bots accept it.
+
+**Verification (current Neon, simulated rules against the 4 known-drifted products):**
+| SN | Patches |
+|---|---|
+| SN0002 | workflowStatus content_ready → active; publishStatus not_requested → published |
+| SN0013 | workflowStatus publish_ready → active; publishStatus not_requested → published |
+| SN0032 | workflowStatus active → publish_ready (audit=approved + status=draft → publish_ready is the correct derived value) |
+| SN0033 | workflowStatus publish_ready → active; publishStatus not_requested → published |
+
+All 4 produce sensible, minimal patches. Idempotent — running once fixes the drift; running again on the same product is a no-op.
+
+**Out of scope:**
+- Auto-running normalize on every mutation. Kept explicit/operator-callable so future bugs surface as drift instead of being silently scrubbed.
+- Repair for archived products.
+- PI/wizard/image-pipeline state — D-238 only touches workflow/status/publish/sellable.
+- Mass scripted repair without operator review — every applied repair is `/repair <sn> confirm`.
+
+**Risk class:** low. Read + emit + minimal-diff write. No schema change. Reusing existing helpers (publishReadiness + bot-events). Reversible via single-commit revert.
+
+**Status:** Shipped to `main`. PROD soak validation = operator runs `/repair scan` to confirm the 4-drifted-product report, then `/repair SN0032` (preview) + `/repair SN0032 confirm` (apply), then `/pipeline SN0032` to verify coherence message is now clean.
+
+**Reversible:** yes — new helper file + 1 route.ts command branch + 2 new rules in publishReadiness.ts + 3 small workflowStatus alignment patches in operatorActions.ts.
+
+---
+
+## D-239 — Batch Actions / Bulk Queue Handling v1
+
+**Decision:**
+Add comma-separated multi-target input to the operator command set so bulk queue work doesn't require per-product retyping. Reuse the existing single-item helpers verbatim — no new mutation logic, no parallel state machine. Per-product result reporting; partial failures shown clearly; idempotency preserved end-to-end.
+
+**Surface — commands extended (no new commands):**
+- Approval gate: `/approvepublish <sn1,sn2,sn3>`, `/rejectpublish <sn1,sn2,sn3>`, `/activate <sn1,sn2,sn3>`.
+- State writes: `/soldout`, `/oneleft`, `/twoleft`, `/stopsale`, `/restartsale` accept comma-separated input.
+- Restock: `/restock <sn1,sn2,sn3> <qty>` — qty applies uniformly per item; validated before the per-item loop.
+- `/find` refused in batch mode (one full card per item is too chatty for Telegram).
+
+**New shared layer — `src/lib/operatorBatch.ts` (~210 LOC):**
+- `parseBatchIdentifiers(raw)` — splits on commas, trims, drops empties, dedupes case-insensitively while preserving order. Returns `[]` if nothing usable. Single-token input (no comma) yields a 1-element array → falls through cleanly.
+- `isBatch(idents)` — true when length > 1.
+- `runBatch(payload, command, idents, fn)` — generic per-item executor. Resolves each ident via `resolveProductIdentifier` (D-234, accepts SN/'17'/'SN17'/numeric ID). Catches resolution failures as `notFound`, per-item exceptions as `failed`. Per-item helper return shape: `{ok, badge?, line, detail?}`. Accumulates `{total, succeeded, failed, refused, notFound, entries[]}`. Whole batch never throws.
+- `formatBatchSummary(result)` — Telegram-ready: `🧰 <command> — toplu sonuç (N ürün)` header + filtered stats line + per-entry lines. Capped at 25 lines with `+ N satır daha (kesildi)` overflow.
+
+**Convergence on a single approve-and-activate helper:**
+The legacy inlined `/activate` body (route.ts ~120 LOC) is now factored out into `approveAndActivateProduct(payload, productId, source, triggeredBy)` exported from `src/lib/publishDesk.ts`. Five callers converge on it:
+1. `/approvepublish <sn>` (single)
+2. `/approvepublish <sn1,sn2,...>` (batch)
+3. `/activate <sn>` (single)
+4. `/activate <sn1,sn2,...>` (batch)
+5. Publish Desk inline button `pdesk_act:<id>`
+
+Behaviour identical to the legacy inlined version — refuse-already-active (idempotent=true), emit `publish.approved` audit-trail event, run `evaluatePublishReadiness` (refuse with concrete blockers if !ready), apply activation update (status=active + workflowStatus=active + publishStatus=published + merchandising.publishedAt + newUntil), emit `product.activated` with `triggeredBy` distinguishing the entry point. The helper returns both a single-item `message` (multi-line Telegram message) and a one-line `summary` (used in batch summaries) so callers don't reformat.
+
+**Per-item result mapping (visible to operator):**
+| State | Badge | Counts as |
+|---|---|---|
+| Action succeeded | ✅ / 🚀 / 🚫 (action-specific) | `succeeded` |
+| Already in target state | 🟰 | `succeeded` (idempotent) |
+| Refused by guard (readiness, not active, etc.) | ⚠️ | `refused` |
+| Resolution failed | ❓ | `notFound` |
+| Per-item exception thrown | ❌ | `failed` |
+
+**Idempotency.** Every underlying helper used by the batch path (`applyOperatorAction`, `recordPublishDecision`, `approveAndActivateProduct`) was already idempotent. Running the same batch twice produces `🟰 zaten ...` for items that already reached the target state — no double bot-events, no double dispatches.
+
+**Sequential not parallel.** Items execute sequentially inside `runBatch`. Reasons: (1) failures stay isolated and don't cancel siblings; (2) audit-event ordering per product stays deterministic; (3) no contention on `payload.update` for the same product.
+
+**Out of scope (v1):**
+- Parallelism across batch items (sequential is fine at typical operator bulk sizes; can revisit if a real bottleneck emerges).
+- Cross-channel batch redispatch — `/redispatch` stays single-target (one channel, one product) per D-235.
+- Auto-retries on per-item failures — operator decides to retry only the failed subset.
+- Mixed-action batches (e.g. soldout some + restock others in one call) — keeps the per-item helper signature simple.
+- `/repair` batch (D-238) — repair stays explicit and per-product to avoid silent mass scrubbing.
+
+**Risk class:** low. Additive — new file (`operatorBatch.ts`) + new export (`approveAndActivateProduct`) + thin batch-detection wrapper at the top of each command's existing single-id path. Single-id path unchanged below the wrapper. No schema change. No new state. Reversible via single-commit revert.
+
+**Status:** Shipped to `main`. Soak validation = operator runs a small batch (3 SNs) for `/approvepublish` or `/soldout`, verifies per-product result lines, then runs the same batch again to confirm idempotency badge (`🟰`). Single-item commands continue to work exactly as before.
+
+**Reversible:** yes — new helper file + new helper export + one batch-detection branch per command (3 commands) + the unified D-234 state-write block.
+
+---
+
+## D-240 — Selection-Based Bulk Actions from /publishready
+
+**Decision:**
+Add tap-select bulk actions to the Telegram operator layer so the operator can pick multiple products from `/publishready` and run a single bulk action against the selection without retyping comma lists. Reuse D-239's `runBatch` + the existing per-item helpers — no new mutation logic.
+
+**Selection state model — smallest correct:**
+- In-memory `Map<sessionKey, SelectionState>` in `src/lib/operatorSelection.ts`.
+- `sessionKey = "${chatId}:${userId}"` in groups, `"${chatId}"` in DMs. Mirrors `confirmationWizard` so isolation rules are predictable.
+- 30-minute TTL — abandoned selections expire silently on the next read.
+- Cold-start clears the Map; the operator just re-selects. Acceptable trade — no schema change, no Neon write per click.
+- Insertion-ordered (`Map<productId, SelectionEntry>`) so the bulk summary lists items in the order the operator selected them.
+
+**Telegram surface:**
+- Each `/publishready` card now carries a second-row `☑ Seç` button (callback `selt:<id>`).
+- After all cards, `/publishready` sends a footer control message with a 4-row keyboard:
+  - Row 1: `☑ Tümünü Seç` · `🗑 Temizle`
+  - Row 2: `🚀 Aktif Et (N)` · `🚫 Reddet (N)`
+  - Row 3: `🔴 Tükendi (N)` · `📦 Stop (N)` · `▶ Devam (N)`
+  - Row 4: `📋 Seçimi Göster`
+- Counts in labels are rendered at message-send time; the underlying selection state is consulted **live** when the action runs, so a stale label can't cause a wrong target.
+- New slash commands: `/selection` (shows current list + control keyboard from anywhere), `/clearselection`. Both registered in `SHARED_CMDS`.
+
+**Callback wiring:**
+- `selt:<id>` — toggle one item, answer with `✅ Seçildi · Toplam: N` or `❌ Kaldırıldı · Toplam: N`. SN looked up best-effort so bulk summaries read with SNs not raw IDs.
+- `seladd:pr` — re-fetch the current `/publishready` list and add all visible IDs, deduping. Sends a fresh control message with the new count.
+- `selclr` — clear, answer with `🗑 Seçim temizlendi (N)`.
+- `selshow` — re-render the selection text + control keyboard.
+- `selrun:<action>` — execute against current selection.
+
+**Execution — reuses D-239 unchanged:**
+| Action | Per-item helper |
+|---|---|
+| `act` | `approveAndActivateProduct` (publishDesk.ts) |
+| `rej` | `recordPublishDecision('rejected')` (publishDesk.ts) |
+| `soldout` / `oneleft` / `twoleft` / `stopsale` / `restartsale` | `applyOperatorAction` (operatorActions.ts) |
+
+All wrapped in `runBatch` from D-239 — per-item refusals (`⚠️ engellendi`), idempotency (`🟰 zaten ...`), notFound (`❓`), and exceptions (`❌`) flow through `formatBatchSummary` exactly like the slash-command batch path. Identical UX, identical safety.
+
+**Post-action selection cleanup:**
+- For `act` and `rej`: successfully-actioned items are dropped from the selection so the next bulk press doesn't re-target them. Failed/refused items stay so the operator can investigate without re-selecting.
+- For state-write actions: selection preserved (operator might want to chain — soldout → /find each).
+
+**Graceful eligibility drift:**
+If a selected item became ineligible between selection and execution (e.g. it was activated separately, or its readiness lapsed because someone unconfirmed), the per-item helper refuses cleanly with the concrete reason. `runBatch` collects it as `refused` and the summary line shows the actual blocker. Nothing crashes; nothing else gets blocked.
+
+**Hard publish rule preserved.**
+Every bulk action is one explicit operator gesture (the button press). No auto-publish anywhere. The same `evaluatePublishReadiness` gate refuses ineligible items per-item. Same audit-trail events (`publish.approved`, `publish.rejected`, `product.activated`, `state.repaired`-style coherence patches) are emitted exactly as in single-item flows — `triggeredBy: 'selection_bulk'` distinguishes the entry point in the bot-events payload.
+
+**Verification — selection state machine smoke test:**
+| Case | Result |
+|---|---|
+| toggle add 100 / 200 / 300 → size 3 | ✓ |
+| toggle add then remove 200 → size 2 | ✓ |
+| identifiers fall back to ID when no SN | ✓ (`["SN0100","300"]`) |
+| addMany dedups items already in selection | ✓ |
+| different user same chat → fresh selection | ✓ |
+| DM (no userId) → key falls back to chatId, independent of group | ✓ |
+| clear drops all | ✓ |
+| empty / non-empty format strings | ✓ |
+| control keyboard shape (4 rows, count in labels) | ✓ |
+
+Typecheck: zero new errors. Only the four pre-existing ones remain.
+
+**Out of scope (v1):**
+- `/inbox publish` per-item selection — that surface is text bullet lines, not per-item keyboards. Restructuring would mean N extra messages per `/inbox publish` view. The operator can `/find` an item then use `☑ Seç` from the resulting card, or use `/publishready` which is the priority surface. Defer until proven necessary.
+- Persistent selection across Lambda cold-starts — the in-memory Map is sufficient at the operator's daily scale; cold-start clears act as a natural safety net against forgotten selections.
+- `/restock` bulk via selection — qty disambiguation needs UI (one qty for all? per-item qty?) Operator uses the slash command `/restock SN1,SN2 10` for now (D-239 batch path).
+- Per-channel redispatch via selection — `/redispatch` stays single-target per D-235.
+- `/repair` via selection — repair stays explicit and per-product per D-238 to avoid silent mass scrubbing.
+
+**Risk class:** low. New file (`operatorSelection.ts`) + 1 new button row in `publishDeskButtons` + 2 new slash commands + 1 new callback prefix block. No schema change, no DB writes. Reversible via single-commit revert.
+
+**Status:** Shipped to `main`. Soak validation = run `/publishready` → tap `☑ Seç` on 2 cards → press `🚀 Aktif Et (2)` → confirm both activate via the bulk summary; press `📋 Seçimi Göster` between actions to verify the running count; let selection sit > 30 min and verify it expires silently (next press shows empty).
+
+**Reversible:** yes — new helper file + per-card button row + footer control message + 5 callbacks + 2 slash commands.
+
+---
+
+## D-241 — Lead Desk / Customer Inquiry Pipeline v1
+
+**Decision:**
+Build a Telegram-first Lead Desk on top of the EXISTING `customer-inquiries` collection so the operator can triage website inquiries from Telegram without an admin visit. No new collection. No new architecture. Smallest extension of the existing schema + a new helper module + a small set of slash commands and one inline-button callback prefix.
+
+**Reused, not invented:** the `customer-inquiries` collection, registered in `payload.config.ts`, populated by the existing storefront POST `/api/inquiries` (with `status='new'` defaulted), and already linked from the admin Dashboard. The collection had a 3-status enum (`new | contacted | completed`) — useful but too narrow for a real pipeline.
+
+**Schema extension (additive only):**
+- Status enum: extended from `[new, contacted, completed]` to `[new, contacted, follow_up, closed_won, closed_lost, spam, completed]`. `completed` is intentionally retained as a legacy alias for `closed_won` so pre-D-241 rows render cleanly without a backfill (operator can re-classify with `/won` if needed).
+- New fields: `source` (text, default 'website'), `lastContactedAt` (date), `handledAt` (date), `assignedTo` (relationship → users).
+- All additions are nullable / defaulted — no backfill needed.
+
+**Neon DDL required (per `feedback_push_true_drift.md` lesson — push:true silently skips ALTER TYPE ADD VALUE for select-field options):**
+```
+ALTER TYPE enum_customer_inquiries_status ADD VALUE IF NOT EXISTS 'follow_up';
+ALTER TYPE enum_customer_inquiries_status ADD VALUE IF NOT EXISTS 'closed_won';
+ALTER TYPE enum_customer_inquiries_status ADD VALUE IF NOT EXISTS 'closed_lost';
+ALTER TYPE enum_customer_inquiries_status ADD VALUE IF NOT EXISTS 'spam';
+```
+The DDL is documented inline in `CustomerInquiries.ts` as a comment block above the status field so it can't get lost.
+
+**Defensive code path:** `applyLeadStatus` catches the "invalid input value for enum" PG error and returns a Telegram-friendly refusal that names the exact DDL line the operator needs to run. This means an operator who runs `/contacted` etc. *before* applying the DDL gets a clear, actionable error rather than a silent failure.
+
+**New helper — `src/lib/leadDesk.ts` (~330 LOC):**
+- `getOpenLeads(payload)` — pulls leads whose status is in `{new, contacted, follow_up}`, returns priority-sorted top-10 plus per-status counts. Sort: `new` newest-first, then `follow_up` oldest-contact-first, then `contacted` oldest-contact-first.
+- `getTodayLeads(payload)` — today's snapshot: count of new today + counts of `contacted/closed_won/closed_lost/spam` updated today.
+- `getLeadById(payload, id)`.
+- `applyLeadStatus(payload, leadId, action, source)` — single source of truth for status writes. Action ∈ `{contacted, followup, won, lost, spam}`. Idempotent — if already in target state returns `ok+idempotent` without writing. Stamps `lastContactedAt` on `contacted`/`follow_up`, stamps `handledAt` on `closed_won`/`closed_lost`/`spam`, clears `handledAt` on closed→open reopen. Emits `lead.status_changed` bot-event for audit trail. Treats legacy `completed` as equivalent to `closed_won` for the `/won` short-circuit so legacy rows don't churn.
+- Formatters: `formatOpenLeadsList`, `formatLeadsToday`, `formatLeadCard`, `formatLeadLine`, `statusEmoji`. All HTML-escape user input (verified via smoke test with `<script>` injection).
+- `leadButtonsKeyboard(leadId)` — 2-row inline keyboard: `[📞 Arandı] [🔁 Takip]` / `[🏆 Kazanıldı] [❌ Kaybedildi] [🚮 Spam]`.
+
+**Telegram surface (registered in SHARED_CMDS):**
+| Command | Behaviour |
+|---|---|
+| `/leads` | Open list (capped 10), status counts, priority sort, action hint footer |
+| `/leads today` | Today's snapshot with counts and the day's first 10 created |
+| `/lead <id>` | Detail card + inline 5-button keyboard |
+| `/contacted <id>` | Mark contacted (sets lastContactedAt) |
+| `/followup <id>` | Mark follow_up (sets lastContactedAt) |
+| `/won <id>` | Mark closed_won (sets handledAt) |
+| `/lost <id>` | Mark closed_lost (sets handledAt) |
+| `/spam <id>` | Mark spam (sets handledAt) |
+
+Word-boundary command matching (`firstWord === '/lead'`) — not `startsWith` — so future `/leadassign` / `/leadsearch` don't false-match.
+
+**Inline button callback `ldact:<leadId>:<action>`** routes to the same `applyLeadStatus` helper as the slash commands — slash and button paths are identical, idempotent, and emit the same audit event.
+
+**Audit trail:** `bot-events` rows with `eventType='lead.status_changed'`, `sourceBot='uygunops'`, `payload={leadId, fromStatus, toStatus, action, source, changedAt}`. Reuses the existing journal — no schema change to bot-events. Lead ID lives in the payload JSON since `bot-events.product` is product-only and optional.
+
+**Test evidence (logic-only smoke test, 30 assertions):**
+- statusEmoji map (7 statuses) ✓
+- formatLeadLine includes id/name/phone/SN/size ✓
+- formatOpenLeadsList empty state + non-empty (counts in header) ✓
+- formatLeadsToday counts ✓
+- formatLeadCard includes header/name/message/size/product/source ✓
+- HTML escape safety: `<script>x</script>` in name → `&lt;script&gt;x&lt;/script&gt;` ✓
+- `1<2>3` in message → `1&lt;2&gt;3` ✓
+- leadButtonsKeyboard shape (2 rows, callback_data prefixes correct) ✓
+- Typecheck: zero new errors
+
+**Out of scope (v1):**
+- Bulk lead actions via D-239 `runBatch` — per-lead is fast enough for current volume; can layer on later as `/leads bulk`.
+- `/leadsearch <phone-or-name>` — defer until volume warrants.
+- `/leadassign <id> <operator>` — collection field is there for future use; no UI yet.
+- `/inbox` integration to surface open lead count — defer; `/leads` is the canonical surface.
+- Auto-classifying inbound spam — operator decides per-lead in v1.
+
+**Risk class:** low. Additive schema (4 new optional fields + 4 new enum values) + new helper module + 6 new slash command branches + 1 new callback prefix block. No mutation of existing fields. Existing `/api/inquiries` POST and the admin Dashboard fetch unchanged. Reversible via single-commit revert (the new enum values are harmless even after revert — Postgres doesn't drop enum values).
+
+**Status:** Shipped to `main`. **Next operator step:** apply the 4-line Neon DDL above. Then soak: create a lead via the storefront form (or directly via admin) → `/leads` → `/lead <id>` → press `📞 Arandı` (verify lastContactedAt set + bot-event written) → press it again (verify `🟰 zaten contacted`) → press `🏆 Kazanıldı` (verify handledAt set + status flipped). Repeat for `/lost` and `/spam`.
+
+**Reversible:** yes — additive schema + new helper file + 8 new commands/callbacks. Note: enum values added on Neon stay in the enum even after revert (Postgres doesn't drop enum values), but old code paths simply never write them.
+
+---
+
+## D-242 — Lead Integration into /inbox
+
+**Decision:**
+Surface customer leads inside the existing `/inbox` operator queue so the operator's daily Telegram triage starts in one place. Smallest extension of D-236 + D-241 — no new collection, no new architecture, no schema change, no new bot. Reuse D-241's `getOpenLeads` as the single source of truth so `/inbox` and `/leads` can never diverge.
+
+**Lead bucket rules — chosen for truthfulness, not novelty:**
+- "Open" = `status ∈ {new, contacted, follow_up}`. Same set as `/leads`. Closed states (`closed_won`, `closed_lost`, `spam`, `completed`) are excluded.
+- Priority sort on the cards: `new` newest-first → `follow_up` oldest-contact-first → `contacted` oldest-contact-first.
+- "Stale" lightweight aging signal: `contacted` or `follow_up` leads whose `lastContactedAt` (or `createdAt` if never contacted) is older than **3 days**. Computed in-memory from the same `getOpenLeads` result — no schema change, no extra query.
+
+**Inbox overview extension** (`getInboxOverview` + `formatInboxOverview` in `src/lib/operatorInbox.ts`):
+- New `leads` field returned: `{ totalOpen, newCount, followUpCount, contactedCount, staleCount, staleDays }`.
+- New `📬 Lead` section in the formatter:
+  ```
+  📬 Lead: <total>
+    • Yeni: N
+    • Takip: N
+    • Arandı (açık): N
+    • ⏰ Bayat (3+ gün): N      ← only rendered when staleCount > 0
+  ```
+- Empty short-circuit (`✅ Aksiyon gerektiren bir şey yok. Temiz.`) still fires when ALL buckets are zero, now including leads.
+- Help/detail line updated to advertise `/inbox leads` and `/contacted /won` action paths.
+
+**New sub-command `/inbox leads`** (aliases: `/inbox lead`, `/inbox müşteri`, `/inbox musteri`):
+- Renders the header text via new `formatInboxLeadsHeader`.
+- Streams the priority-sorted top-5 open leads, each as its own message with the full **D-241 `leadButtonsKeyboard`** — the same 5-button row (📞 Arandı / 🔁 Takip / 🏆 Kazanıldı / ❌ Kaybedildi / 🚮 Spam) wired to the `ldact:<leadId>:<action>` callback, all converging on `applyLeadStatus`.
+- Overflow above 5 → single `+ N daha — tüm liste için /leads` hint.
+- Empty state: `📬 Inbox · Lead — ✅ Açık lead yok.` with pointer at `/leads today` and `/lead <id>`.
+
+**Why per-lead cards instead of one big text block:**
+- Operator can act in-place — one tap, no copy/paste, no slash command typing.
+- Same UX pattern already used by `/publishready` (D-237) and `/lead <id>` (D-241), so the operator's mental model carries over.
+- Cap at 5 keeps the surface concise; full list is one tap away via `/leads`.
+
+**Why per-lead buttons in `/inbox leads` but NOT in the `/inbox` overview itself:**
+- Overview is a counts-only summary — adding 5 buttons per bucket would clutter the surface.
+- Counts in overview tell the operator WHAT to look at; `/inbox leads` is one tap deeper for actual triage.
+- Mirrors how `/inbox publish` shows counts but actions live in `/publishready`.
+
+**Convergence with D-241 — no duplicate source of truth:**
+- `getInboxLeads` is a thin wrapper over `getOpenLeads`. Same query, same priority sort, same status set.
+- Action buttons reuse `leadButtonsKeyboard` exactly; callbacks land on the same `applyLeadStatus` helper as the slash commands.
+- Audit trail in `bot-events` continues to work unchanged (one `lead.status_changed` event per action, regardless of entry point).
+
+**Soak evidence:**
+| Check | Result |
+|---|---|
+| Typecheck (zero new errors; same 4 pre-existing) | ✓ |
+| `getInboxLeads` counts match real Neon (3 open, all `new`) | ✓ |
+| `formatInboxLeadsHeader` populated render | ✓ |
+| `formatInboxLeadsHeader` empty render | ✓ |
+| Per-lead card with correct `ldact:<id>:contacted` callback | ✓ |
+| Backdated lead correctly marked stale (`staleCount=1`) | ✓ |
+| `formatInboxOverview` with leads + stale signal | ✓ |
+| `formatInboxOverview` with leads but no stale (stale row hidden) | ✓ |
+| `formatInboxOverview` fully-empty short-circuit (`Temiz`) | ✓ |
+
+Soak harness committed at `scripts/d242-soak.ts` for future re-runs.
+
+**Out of scope (v1):**
+- Per-lead inline action buttons inside the overview itself — kept as concise text. Actions live one tap deeper at `/inbox leads` (mirrors how `/inbox publish` works).
+- SLA/breach alerts beyond the simple 3-day stale count.
+- Lead bulk-selection mirroring D-240 — defer until volume warrants.
+- `/inbox stale` filter view — current `/leads` already does priority sort with stale leads bubbling up via `lastContactedAt asc`.
+- Lead source filter (e.g. `/inbox leads website`) — defer; v1 is read-first integration.
+
+**Risk class:** very low. Additive helpers + 1 new switch case + 1 new section in the overview formatter. No mutations. No schema change. No new collection. Reusable from existing patterns. Reversible via single-commit revert.
+
+**Status:** Shipped to `main`. Soak validation passed at the data layer. Operator validation: `/inbox` → see the new `📬 Lead` row → `/inbox leads` → see the 3 reset test leads with action buttons → tap `📞 Arandı` on any → confirm immediate status update + audit event (same as direct `/contacted` from D-241 since both routes converge on `applyLeadStatus`).
+
+**Reversible:** yes — extends existing helpers + adds 1 switch case + 1 sub-command branch. No schema change.
+
+---
+
+## D-243 — Lead Alerts / Follow-Up Reminder Layer v1
+
+**Decision:**
+Add a three-pronged lightweight reminder layer on top of D-241/D-242:
+1. **Push** — proactive Telegram alert when a new lead arrives via the storefront.
+2. **Pull** — `/leadreminders` slash command surfacing stale-and-open leads with action buttons.
+3. **Snapshot** — `/leads summary` daily digest.
+
+No new collection. No schema change. No scheduler/cron. All three reuse existing helpers + the same `TELEGRAM_CHAT_ID` chat-routing convention as `src/lib/stockReaction.ts`.
+
+**Push: new-lead Telegram alert**
+- Trigger: `POST /api/inquiries` after `payload.create` succeeds.
+- Fire-and-forget via `void (async ()=>{...})()` so a Telegram failure never blocks the storefront response (the lead is already saved).
+- New helper `sendNewLeadAlert(payload, leadId)` in `src/lib/leadDesk.ts` — fetches the lead, formats a concise card via new `formatNewLeadAlert`, posts to `https://api.telegram.org/bot<TOKEN>/sendMessage` with the full 5-button `leadButtonsKeyboard`. Same `TELEGRAM_BOT_TOKEN` + `TELEGRAM_CHAT_ID` env, same fire-and-forget pattern as the stock alerts.
+- Alert content: `🚨 YENİ LEAD · #<id>` + 👤 name + 📱 phone + 🛍️ product (SN tag if linked) + 📐 size + 💬 message preview (200-char cap) + 🌐 source + `Detay: /lead <id>` hint.
+- Audit trail: `lead.new_alert_sent` bot-event with `{leadId, sentAt, chatId}` payload (best-effort; non-fatal on failure).
+- Storefront route extended to also accept `message` and `source` from the body — existing form should already pass these.
+
+**Pull: /leadreminders (aliases: /hatirla, /hatırla)**
+- Reuses D-242's stale rule **exactly** — no parallel definition. Stale = `status ∈ {new, contacted, follow_up}` AND `(lastContactedAt ?? createdAt)` older than 3 days.
+- New helper `getStaleLeads(payload, {staleDays=3, limit=25})` calls `getOpenLeads`, filters by age, sorts oldest-first, splits into `neverTouchedCount` (`status='new'`) vs `needsFollowupCount` (`contacted` / `follow_up`).
+- Header counts: `🆕 hiç dokunulmamış: N · 🔁 takip gecikti: N` so urgency is visible at a glance.
+- Streams top-5 stale leads as cards with the existing `leadButtonsKeyboard` (one tap → action). Overflow above 5 → `+ N bayat lead daha — tüm açık liste için /leads` hint.
+- Empty state: `✅ Bayat lead yok (3 günden eski açık lead bulunamadı)`.
+- Closed leads (`closed_won`/`closed_lost`/`spam`/`completed`) explicitly excluded by reusing `getOpenLeads`.
+- Registered in SHARED_CMDS (`/leadreminders`, `/hatirla`, `/hatırla`).
+
+**Snapshot: /leads summary (alias: özet, ozet)**
+- Concise daily digest — bugün yeni / arandı / kazanıldı / kaybedildi / spam counts + açık total + stale signal in one block.
+- New helper `getDailyLeadSummary(payload)` wraps `getTodayLeads` (D-241) + `getOpenLeads` + `getStaleLeads`. Single source of truth preserved.
+- Footer: `/leads · /leadreminders · /inbox leads` so operator can drill into each lane.
+
+**Convergence — no parallel rules:**
+| Concept | Defined in | Reused by |
+|---|---|---|
+| Open status set | `getOpenLeads` (D-241) | D-242 `getInboxLeads`, D-243 `getStaleLeads`, D-243 `getDailyLeadSummary` |
+| Stale rule (3 days, lastContactedAt ?? createdAt) | D-242 `getInboxLeads` aging signal | D-243 `getStaleLeads` (same threshold) |
+| Action buttons | D-241 `leadButtonsKeyboard` | D-242 `/inbox leads`, D-243 alert + reminders |
+| Status writes | D-241 `applyLeadStatus` | All ldact: callbacks (slash + button paths) |
+| Chat routing | `TELEGRAM_CHAT_ID` env (`stockReaction.ts` precedent) | D-243 alert dispatch |
+
+**Noise / dedup behaviour:**
+- New-lead alert fires **once per successful create**. Storefront POST is a single transactional event — duplicate POSTs would create duplicate rows AND duplicate alerts (same as existing semantics). Not different from stock alerts.
+- `/leadreminders` is operator-pulled — no spam.
+- No proactive cron yet. Defer until operator confirms `/leadreminders` cadence is right; cron can be layered on later with a `lead.stale_reminder_sent` bot-event for per-lead-per-day dedup.
+
+**Test evidence (against live Neon, 9 assertions all pass):**
+| Check | Result |
+|---|---|
+| sendNewLeadAlert captures correct Telegram payload (URL, chat_id, text, keyboard) | ✓ |
+| Audit-event delta = 1 (`lead.new_alert_sent` written) | ✓ |
+| Missing TELEGRAM env → safe noop with warn | ✓ |
+| Missing lead id → safe noop, no throw | ✓ |
+| Empty stale state → `✅ Bayat lead yok` rendered | ✓ |
+| Backdated leads correctly surface (2 stale: 1 never-touched + 1 needs-followup) | ✓ |
+| Oldest-first sort | ✓ |
+| Closed lead correctly excluded from /leadreminders | ✓ |
+| Daily summary counts + format correct | ✓ |
+
+Soak harness committed at `scripts/d243-soak.ts`. Typecheck: zero new errors.
+
+**Out of scope (v1):**
+- Proactive stale-reminder cron — `/leadreminders` is operator-pulled in v1. If/when added, dedup via `lead.stale_reminder_sent` bot-event keyed on (leadId, day).
+- Per-customer mute / snooze.
+- SLA breach alerts beyond stale threshold.
+- Multi-chat dispatch routing — single `TELEGRAM_CHAT_ID` like every other system alert.
+- Rich media in alerts (product image preview).
+- Time-window filters on `/leadreminders` (e.g. "stale 5+ days").
+
+**Risk class:** very low. Additive helpers in `leadDesk.ts` + 1 alert dispatch wired into `/api/inquiries` POST (fire-and-forget, non-blocking) + 2 new slash commands. No schema change. No mutations beyond what `applyLeadStatus` already does (button callbacks). Reversible via single-commit revert.
+
+**Status:** Shipped to `main`. Soak validation passed at the data layer. Operator validation: submit a test inquiry via the storefront form → confirm a `🚨 YENİ LEAD` message arrives with the action buttons. Then `/leadreminders` (with no stale leads, expect empty state) and `/leads summary` (always renders the daily counts).
+
+**Reversible:** yes — additive helpers + 2 new commands + 1 alert dispatch. No schema change.
+
+---
+
+## D-244 — Lead → Sale Conversion Logging v1
+
+**Decision:**
+Add a lightweight conversion-logging layer so a "won" lead becomes a real Order linked back to the originating inquiry. **Reuse the existing Orders collection** (rich schema, existing afterChange hook handles stock + inventory + reaction) — do NOT invent a parallel sales/conversion table. Smallest extension: one additive nullable FK from Orders to customer-inquiries, plus helpers + 3 new Telegram commands. No new architecture, no new bot.
+
+**Reuse vs new — verified decision:**
+- `Orders` collection already exists with truthful semantics: `orderNumber` (auto), `customerName`/`customerPhone`/`customerAddress`, `product`/`size`/`quantity`/`totalPrice`, `status` (new/confirmed/shipped/delivered/cancelled), `source` (website/telegram/phone/instagram/shopier), `paymentMethod`/`isPaid`, `notes`, shipping fields.
+- Orders.afterChange hook already decrements stock, writes inventory log, triggers stock reaction (gated on `source !== 'shopier'` and `!isDispatchUpdate`).
+- The single missing piece was lead provenance — no link from `customer-inquiries` (lead) to `orders` (sale).
+- Conclusion: reuse Orders; add `relatedInquiry` FK; do NOT duplicate stock/inventory writes.
+
+**Schema extension (additive only):**
+- New field `relatedInquiry` on Orders: `relationship` → `customer-inquiries`, optional, sidebar-positioned.
+- Neon DDL applied directly in this session: `ALTER TABLE orders ADD COLUMN IF NOT EXISTS related_inquiry_id integer REFERENCES customer_inquiries(id) ON DELETE SET NULL` (per `feedback_push_true_drift.md` lesson — push:true is unreliable for column adds across cold starts).
+
+**New helpers in `src/lib/leadDesk.ts` (~330 LOC):**
+- `convertLeadToOrder(payload, leadId, opts)` — single source of truth for lead-to-sale.
+  - Pre-fills customer + product + size from the lead (no operator data re-entry).
+  - **Idempotent**: refuses with `already_converted` + returns the existing order if a row with `relatedInquiry=leadId` exists. Repeated `/convert` calls never duplicate.
+  - Optional `totalPrice` (numeric, written if > 0) and `notes` (free-form).
+  - **Default-flips lead to `closed_won`** via `applyLeadStatus(won)` so the desk and the Order stay in sync. Set `flipLeadToWon:false` to skip.
+  - Source set to `'telegram'` so Orders.afterChange runs the proper non-Shopier path (decrement stock + inventory log + stock reaction). Zero duplicate writes.
+  - Emits `lead.converted` bot-event for audit.
+- `getConversionForLead(payload, leadId)` — lookup; returns null if no order linked.
+- `getSalesToday(payload, {topN=5})` — counts today's orders (any source), splits `countFromLeads`, sums `totalRevenue`. Defensive numeric coercion via new `toNumber()` helper handles both Payload-coerced numbers and raw pg `numeric` strings.
+- Formatters: `formatConversionCard` (full Order card or empty-state pointer), `formatSalesTodaySnapshot`.
+- `applyLeadStatus` patched: every `closed_won` transition appends `💰 Satış kaydetmek için: /convert <id> [tutar] [not...]` so `/won`, the inline 🏆 button, and the auto-flip from `convertLeadToOrder` all surface the next step. Resolves the "ambiguous half-state" risk the spec calls out.
+
+**Telegram surface (registered in SHARED_CMDS):**
+| Command | Behaviour |
+|---|---|
+| `/convert <lead-id>` | Smallest path: idempotent, no amount/notes |
+| `/convert <lead-id> 1500` | With amount |
+| `/convert <lead-id> 1500 Kapıda nakit` | With amount + free-form note |
+| `/conversion <lead-id>` | Full Order card or empty-state pointer |
+| `/sales today` (alias: bugun, bugün) | Count + lead-converted split + totalRevenue + last 5 |
+
+Word-boundary matching on `/convert`, `/conversion`, `/sales` so future related commands (`/convertall`, `/conversions`, `/salesweek`, etc.) won't false-match.
+
+**Convergence with prior D-NNs — no parallel rules:**
+| Concept | Defined in | Reused by |
+|---|---|---|
+| Lead status writes | D-241 `applyLeadStatus` | D-244 auto-flip after convert + the `/won` hint |
+| Order create + stock side-effects | Existing Orders.afterChange | D-244 `convertLeadToOrder` |
+| Audit-trail journal | bot-events | D-244 emits `lead.converted` |
+| Operator chat routing | TELEGRAM_CHAT_ID env (D-243) | unchanged — no new alerts |
+
+**Test evidence (against live Neon, 10 assertions all pass):**
+| Check | Result |
+|---|---|
+| Empty-state /conversion render | ✓ |
+| /convert first run: order created, all fields populated, lead flipped to closed_won, audit event written | ✓ |
+| /convert second run: idempotent=true, returns existing order number, no duplicate row | ✓ |
+| Lead status auto-flipped to closed_won post-convert | ✓ |
+| /conversion populated render shows full Order card | ✓ |
+| Missing lead refusal: `lead_not_found` | ✓ |
+| Smallest path (no amount/notes) works | ✓ |
+| /sales today: count=2, fromLeads=2, totalRevenue=1500 (after numeric coercion fix) | ✓ |
+| 2x lead.converted bot-events written | ✓ |
+| `/won` hint includes `/convert <id> [tutar] [not...]` line | ✓ |
+
+Soak harness committed at `scripts/d244-soak.ts`. Typecheck: zero new errors.
+
+**Numeric-coercion bug fix discovered during soak:**
+First soak run reported `fromLeads=0 totalRevenue=0` despite both orders being lead-linked with one priced at 1500. Root cause: pg returns `numeric` columns as strings by default, so `typeof o.totalPrice === 'number'` evaluated false. Fixed by adding `toNumber()` defensive coercion in both `normalizeOrder` and `getSalesToday`. Also extended the relatedInquiry shape detection to accept both `relatedInquiry` (Payload runtime) and `relatedInquiryId` (raw DB) for robustness. Re-soak confirmed correct aggregation.
+
+**Out of scope (v1):**
+- Editing an existing Order's amount via Telegram — operator uses admin if they need to change it. `/convert` is for the initial record; subsequent edits stay in admin.
+- Marking an Order shipped/delivered/cancelled via Telegram — Orders has those statuses but they're admin-driven for v1.
+- Refund / cancellation flow.
+- Multi-product Orders — Order schema already supports one product per row, matching the lead model.
+- `/sales week` / `/sales month` / per-source breakdown — defer until daily volume warrants.
+- Auto-creating Order on `/won` — intentionally separate; operator may not have the price at the moment of /won, and the "convert means $$$ commitment" gesture should stay explicit.
+
+**Risk class:** low. One additive nullable FK + new helpers + 3 new slash commands + 1 line patch to applyLeadStatus message. No mutation of existing Orders fields. No mutation of Orders.afterChange. No schema change beyond the FK. Reusable from existing patterns. Reversible via single-commit revert (FK column stays in Postgres but unused, harmless).
+
+**Status:** Shipped to `main`. Neon DDL applied. Soak passed end-to-end. **Next operator step:** `/convert <some-lead-id>` on a real lead to validate the Telegram-side flow. The Order record will appear in admin with the lead link, stock will decrement via the existing afterChange hook, and `/sales today` should show the running tally.
+
+**Reversible:** yes — additive FK + new helpers + 3 new commands + 1 message-line patch. No schema removal needed if reverted (FK column stays harmless).
+
+---
+
+## D-245 — Order Fulfillment / Post-Sale Status Controls v1
+
+**Decision:**
+Add a Telegram-first fulfillment surface so routine post-sale handling (ship → deliver → cancel) can happen without an admin visit. **Reuse the existing Orders collection AS-IS** — no schema change. The schema was already fulfillment-ready: `status ∈ {new, confirmed, shipped, delivered, cancelled}`, `shippedAt` / `deliveredAt` / `shippingCompany` / `trackingNumber` fields all exist. The only gap was Telegram surface.
+
+**Reused, not invented:**
+- `Orders` collection (D-244-extended with `relatedInquiry` FK; everything else pre-existing).
+- `Orders.afterChange` hook unchanged — it only fires on `operation === 'create'` and handles stock decrement + inventory log + stock reaction. Status updates from D-245 pass `context: { isDispatchUpdate: true }` as a defensive belt-and-suspenders even though the hook wouldn't fire on update anyway.
+- `bot-events` for audit trail (`order.status_changed` event type).
+- `getPayload` from `@/lib/payload` — same singleton everywhere.
+
+**New helper — `src/lib/orderDesk.ts` (~360 LOC):**
+- `getOpenOrders(payload)` — `status ∈ {new, confirmed, shipped}`, capped at 10. Sort: `new` newest-first → `confirmed` newest-first → `shipped` oldest-first (so late-shipping orders bubble up).
+- `getTodayOrders(payload)` — created/shipped/delivered/cancelled today + open total + last 5 created.
+- `getOrderById(payload, id)` — null on miss.
+- `applyOrderStatus(payload, orderId, action, source)` — single source of truth. Idempotent. Stamps `shippedAt`/`deliveredAt`. Refuses pathological transitions (see rules below). Emits `order.status_changed` bot-event.
+- Formatters: `formatOrderLine`, `formatOpenOrdersList`, `formatOrdersToday`, `formatOrderCard`.
+- `orderButtonsKeyboard(o)` — 2-row inline keyboard: Row 1 = `📦 Kargola · 🏠 Teslim · ❌ İptal` (only when not terminal); Row 2 = `🆔 Lead #N · 🔍 Ürün` nav (only when relatedInquiryId/productId present).
+
+**Status state machine — refusal rules:**
+| From → Action | Result |
+|---|---|
+| `cancelled` → ship | refuse `invalid_transition` with "yeni sipariş için /convert" hint |
+| `delivered` → ship | refuse `invalid_transition` |
+| `cancelled` → deliver | refuse `invalid_transition` |
+| `confirmed` / `new` → deliver | **ALLOW** with auto-stamped shippedAt = deliveredAt (same-day local courier case; timeline truthfulness preserved) |
+| `delivered` → cancel | refuse with "İade için admin panelinden işlem yapın" hint |
+| same-status → same | idempotent no-op (`🟰 zaten <status>`) |
+
+**Stock side-effects on cancel — explicit, not faked:**
+The repo has no order-cancel restore-stock path. We do NOT silently restore stock. `/cancelorder` response includes:
+```
+⚠️ Stok otomatik geri eklenmedi.
+Gerekirse: /restock <sn> <qty>
+```
+…using the actual SN from the order's product when available, otherwise the generic placeholder. Operator restores stock explicitly via D-234 if needed. This is a deliberate decision — silent stock restoration would be opaque and error-prone (e.g. wrong size variant); explicit /restock keeps the operator in control and matches the existing operator-pack patterns.
+
+**Telegram surface — registered in SHARED_CMDS:**
+| Command | Behaviour |
+|---|---|
+| `/orders` | Open queue (10 max), priority sort, status counts |
+| `/orders today` | Today's snapshot — counts + last 5 created |
+| `/order <id>` | Detail card + inline action/nav keyboard |
+| `/ship <id>` | Mark shipped (stamps shippedAt) |
+| `/deliver <id>` | Mark delivered (stamps deliveredAt; backfills shippedAt if missing) |
+| `/cancelorder <id>` | Mark cancelled with `/restock` hint |
+
+Word-boundary command matching to avoid false positives.
+
+**Inline-button callbacks:**
+- `oract:<orderId>:<action>` — same code path as the slash commands; both converge on `applyOrderStatus`.
+- `ldcard:<leadId>` — used by Order keyboard's "🆔 Lead #N" jump; renders the D-241 lead card with the full leadButtonsKeyboard.
+
+**Convergence with prior D-NNs — no parallel rules:**
+| Concept | Defined in | Reused by |
+|---|---|---|
+| Order schema + stock-on-create | Existing Orders + afterChange | D-245 — unchanged |
+| `relatedInquiry` link | D-244 | D-245 nav button + lead jump |
+| Audit-trail journal | bot-events | D-245 emits `order.status_changed` |
+| Stock restore | `/restock` (D-234) | D-245 surfaces pointer; doesn't duplicate |
+| Lead card render | D-241 `formatLeadCard` + `leadButtonsKeyboard` | D-245 `ldcard:` callback |
+
+**Test evidence (against live Neon, 17 assertions all pass):**
+| Check | Result |
+|---|---|
+| Open queue with 3 seeded orders, priority sort, counts (new=1, confirmed=2) | ✓ |
+| Detail card shows lead nav + product SN | ✓ |
+| `/ship` first run: status flip + shippedAt stamped | ✓ |
+| `/ship` second run: idempotent no-op | ✓ |
+| `/deliver` after shipped: status flip + deliveredAt stamped (raw row verified) | ✓ |
+| `/deliver` second run: idempotent | ✓ |
+| `/ship` after delivered: refused `invalid_transition` | ✓ |
+| `/cancelorder` after delivered: refused with refund hint | ✓ |
+| `/deliver` from confirmed: ALLOWED + auto-stamps shippedAt (raw row: both timestamps set) | ✓ |
+| `/cancelorder` from confirmed: success + `/restock` pointer | ✓ |
+| `/cancelorder` second run: idempotent | ✓ |
+| `/ship` on cancelled: refused | ✓ |
+| Missing order id: `order_not_found` | ✓ |
+| Empty-state /orders render | ✓ |
+| Today snapshot counts | ✓ |
+| 6 `order.status_changed` bot-events written | ✓ |
+| Cleanup leaves no residue | ✓ |
+
+Soak harness committed at `scripts/d245-soak.ts`. Typecheck: zero new errors.
+
+**Out of scope (v1):**
+- Editing shippingCompany / trackingNumber via Telegram — admin only for v1.
+- Refund / return flow — admin only.
+- Bulk operations across orders (mass-ship, mass-cancel) — defer until volume warrants.
+- Per-cargo-firma routing logic.
+- Auto-stock-restore on cancel — architectural decision, kept explicit.
+- Customer-facing notification on status change.
+
+**Risk class:** very low. New helper file + new switch cases in route.ts + 3 new slash commands + 1 new callback prefix block. No schema change. No mutation of existing Orders fields, schema, or afterChange hook. Reusable from existing patterns. Reversible via single-commit revert.
+
+**Status:** Shipped to `main`. Soak passed end-to-end at the data layer. **Next operator step:** `/orders` to confirm the queue renders → `/order <id>` on a real order → `/ship <id>` → confirm idempotency by pressing again → `/deliver <id>` → confirm timestamps on the order in admin.
+
+**Reversible:** yes — new helper file + 1 callback prefix block + 5 new slash commands. No schema change.
+
+---
+
+## D-246 — Order Integration into /inbox
+
+**Decision:**
+Surface customer orders inside the existing `/inbox` operator queue so daily Telegram triage starts in one place. **Symmetric extension of D-242** (which did the same for leads) — same pattern, no new architecture, no new collection, no schema change. Reuse D-245's `getOpenOrders` as the single source of truth so `/inbox` and `/orders` can never diverge.
+
+**Order bucket rules — no parallel definitions:**
+- "Open" = `status ∈ {new, confirmed, shipped}`. Same set as `/orders`. Closed states (`delivered`, `cancelled`) excluded.
+- Priority sort on the cards: `new` newest-first → `confirmed` newest-first → `shipped` oldest-first (so late-shipping orders bubble up).
+- "Stale shipping" lightweight aging signal: `shipped` orders whose `shippedAt` (or `createdAt` if missing) is older than **3 days**. Late-delivery early warning. Computed in-memory from the same `getOpenOrders` result — no schema change, no extra DB hit.
+
+**Inbox overview extension** (`getInboxOverview` + `formatInboxOverview` in `src/lib/operatorInbox.ts`):
+- New `orders` field returned: `{ totalOpen, newCount, confirmedCount, shippedCount, staleShippedCount, staleDays }`.
+- New `📦 Sipariş` section in the formatter, between `📬 Lead` and `❌ Hatalar`:
+  ```
+  📦 Sipariş: <total>
+    • Yeni: N
+    • Onaylı (kargo bekliyor): N
+    • Kargoda: N
+    • ⏰ Geç teslim (3+ gün kargoda): N    ← only rendered when staleShippedCount > 0
+  ```
+- Empty short-circuit (`✅ Aksiyon gerektiren bir şey yok. Temiz.`) still fires when ALL buckets are zero, now including orders.
+- Detail line updated to advertise `/inbox orders` and `/ship /deliver` action paths.
+
+**New sub-command `/inbox orders`** (aliases: `/inbox order`, `/inbox sipariş`, `/inbox siparis`):
+- Renders the header text via new `formatInboxOrdersHeader`.
+- Streams the priority-sorted top-5 open orders, each as its own message with the full **D-245 `orderButtonsKeyboard`** — Row 1: `📦 Kargola · 🏠 Teslim · ❌ İptal` (`oract:<id>:<action>` callbacks); Row 2: `🆔 Lead #N · 🔍 Ürün` nav (only when applicable).
+- Overflow above 5 → `+ N daha — tüm liste için /orders` hint.
+- Empty state: `📦 Inbox · Sipariş — ✅ Açık sipariş yok.` with pointer at `/orders today` and `/order <id>`.
+
+**Why per-order cards in `/inbox orders` but NOT in the `/inbox` overview itself:**
+Same rationale as D-242 leads — overview is a counts-only summary; clutter from 5 buttons per bucket would overwhelm. Counts in overview tell the operator WHAT to look at; `/inbox orders` is one tap deeper for actual triage. Mirrors how `/inbox publish` shows counts but actions live in `/publishready`.
+
+**Convergence with D-245 — no duplicate source of truth:**
+- `getInboxOrders` is a thin wrapper over `getOpenOrders`. Same query, same priority sort, same status set.
+- Action buttons reuse `orderButtonsKeyboard` exactly; callbacks land on the same `applyOrderStatus` helper as the slash commands.
+- Audit trail in `bot-events` continues to work unchanged (one `order.status_changed` event per action, regardless of entry point).
+
+**Soak evidence:**
+| Check | Result |
+|---|---|
+| Typecheck (zero new errors) | ✓ |
+| `getInboxOrders` counts match real Neon (4 open: 1 new + 1 confirmed + 2 shipped) | ✓ |
+| `staleShippedCount=1` correctly flagged for the 5-day-old backdated order | ✓ |
+| `formatInboxOrdersHeader` populated render — all 4 status counts + stale highlight | ✓ |
+| `formatInboxOrdersHeader` empty render | ✓ |
+| Per-order card with correct `oract:<id>:ship` callback | ✓ |
+| `formatInboxOverview` with leads + orders + stale shipping (all sections render) | ✓ |
+| `formatInboxOverview` with orders but no stale (stale row hidden) | ✓ |
+| `formatInboxOverview` fully-empty short-circuit (`Temiz`) | ✓ |
+
+Soak harness committed at `scripts/d246-soak.ts` for future re-runs.
+
+**Out of scope (v1):**
+- Per-order inline action buttons inside the overview itself — kept as concise text. Actions live one tap deeper at `/inbox orders` (mirrors D-242).
+- SLA/breach alerts beyond the simple 3-day stale-shipping count.
+- Order bulk-selection mirroring D-240 — defer until volume warrants.
+- `/inbox stale-shipping` filter view — current `/orders` already prioritizes shipped oldest-first via `getOpenOrders` sort.
+- Per-customer or per-cargo-firma filter.
+- Customer-facing notification on status change.
+
+**Risk class:** very low. Additive helpers + 1 new switch case + 1 new section in the overview formatter + 1 help-line update. No mutations. No schema change. No new collection. Reusable from existing patterns. Reversible via single-commit revert.
+
+**Status:** Shipped to `main`. Soak validation passed at the data layer. Operator validation: `/inbox` → see the new `📦 Sipariş` row → `/inbox orders` → see the cards with action buttons → tap `📦 Kargola` on any → confirm immediate status update + audit event (same as direct `/ship` from D-245 since both routes converge on `applyOrderStatus`).
+
+**Reversible:** yes — extends existing helpers + adds 1 switch case + 1 sub-command branch. No schema change.
+
+---
+
+## D-247 — Order Alerts / Delivery Reminder Layer v1
+
+**Decision:**
+Add a three-pronged lightweight reminder layer for orders, mirroring D-243 leads exactly:
+1. **Push** — proactive Telegram alert when a new order arrives.
+2. **Pull** — `/orderreminders` slash command surfacing stale-shipped orders with action buttons.
+3. **Snapshot** — `/orders summary` daily digest.
+
+No new collection. No schema change. No scheduler/cron. Same `TELEGRAM_CHAT_ID` chat-routing convention as `stockReaction.ts` and D-243.
+
+**Push: new-order Telegram alert — wired into Orders.afterChange**
+- New parallel hook entry in `Orders.afterChange` (separate from the existing stock-decrement entry — single responsibility per callback).
+- Fires on `operation === 'create'` for **EVERY** source EXCEPT `source === 'telegram'` (operator already saw `/convert` response from D-244 — double-notification would be noise).
+- Skip flags applied: `req.context.isDispatchUpdate` and `source === 'telegram'`.
+- Universal coverage: shopier (webhook), website (storefront form), admin (manual), instagram, phone — every channel where the operator hasn't already seen the order.
+- Implementation: `sendNewOrderAlert(payload, orderId)` in `src/lib/orderDesk.ts`. Fetches the order, formats via new `formatNewOrderAlert`, posts to Telegram with the full D-245 `orderButtonsKeyboard` so operator can ship/deliver/cancel from the alert. Wrapped in `void (async ()=>{...})()` so a Telegram failure never blocks order persistence.
+- Alert content: `🚨 YENİ SİPARİŞ · <orderNumber>` + 👤 customer name + 📱 phone + 🛍️ product SN/title + 📐 size/qty + 💵 totalPrice (with `✅ ödendi` badge if isPaid) + 🌐 source + 🆔 lead link if `relatedInquiry` set + `Detay: /order <id>` hint.
+- Audit trail: `order.new_alert_sent` bot-event with `{orderId, orderNumber, source, sentAt, chatId}` payload (best-effort; non-fatal on failure).
+
+**Pull: /orderreminders (aliases: /orderreminder, /siparishatirla, /sipariş_hatirla, /siparis_hatirla)**
+- Reuses D-246's stale rule **exactly** — no parallel definition. Stale = `status === 'shipped'` AND `(shippedAt ?? createdAt)` older than 3 days.
+- New helper `getStaleShippedOrders(payload, {staleDays=3, limit=25})` calls `getOpenOrders`, filters by status+age, sorts oldest-first.
+- Streams top-5 stale orders as cards with the existing `orderButtonsKeyboard` (one tap → action). Overflow above 5 → `+ N geç teslim daha — tüm açık liste için /orders` hint.
+- Empty state: `✅ Geç teslim olan kargo yok (3 günden eski kargolanmış sipariş bulunamadı)`.
+- Delivered/cancelled excluded by reusing `getOpenOrders` (which only returns open statuses).
+- Registered in SHARED_CMDS.
+
+**Snapshot: /orders summary (alias: özet, ozet)**
+- Concise daily digest — bugün yeni / kargolanan / teslim edilen / iptal counts + açık total + stale signal in one block.
+- New helper `getDailyOrderSummary(payload)` wraps `getTodayOrders` (D-245) + `getOpenOrders` + `getStaleShippedOrders`. Single source of truth preserved.
+
+**Convergence — no parallel rules:**
+| Concept | Defined in | Reused by |
+|---|---|---|
+| Open status set | `getOpenOrders` (D-245) | D-246 inbox bucket, D-247 stale + summary |
+| Stale rule (3 days, shippedAt ?? createdAt) | D-246 inbox aging signal | D-247 `getStaleShippedOrders` |
+| Action buttons | D-245 `orderButtonsKeyboard` | D-246 `/inbox orders`, D-247 alert + reminders |
+| Status writes | D-245 `applyOrderStatus` | All `oract:` callbacks (slash + button paths) |
+| Chat routing | `TELEGRAM_CHAT_ID` env (`stockReaction.ts` precedent) | D-243 lead alerts, D-247 order alerts |
+| Alert dispatch pattern | D-243 `sendNewLeadAlert` | D-247 `sendNewOrderAlert` (mirror exactly) |
+
+**Noise / dedup behaviour:**
+- New-order alert fires **once per successful create**. Single transactional event = single fire-and-forget. Duplicate POSTs would create duplicate rows AND duplicate alerts (same as existing stock-alert / lead-alert semantics; no new dedup risk).
+- `/convert` from D-244 sets `source = 'telegram'` so D-247 alert is correctly suppressed — operator only gets one message per `/convert` (the existing `💰 Satış kaydedildi` from D-244).
+- `/orderreminders` is operator-pulled — no spam.
+- No proactive cron in v1. If/when added, dedup via `order.stale_reminder_sent` bot-event keyed on `(orderId, day)`.
+
+**Test evidence (against live Neon, 9 assertions all pass):**
+| Check | Result |
+|---|---|
+| sendNewOrderAlert captures correct Telegram payload (URL, chat_id, text, keyboard with action+nav rows) | ✓ |
+| `order.new_alert_sent` audit-event delta = 1 | ✓ |
+| Missing TELEGRAM env → safe noop with warn | ✓ |
+| Missing order id → safe noop with warn | ✓ |
+| getStaleShippedOrders correctly finds 1 backdated 5-day-old shipped | ✓ |
+| formatOrderRemindersHeader populated render | ✓ |
+| Delivered orders correctly excluded from reminders after status flip | ✓ |
+| formatOrderRemindersHeader empty render | ✓ |
+| Daily summary counts + format correct | ✓ |
+
+Soak harness committed at `scripts/d247-soak.ts`. Typecheck: zero new errors.
+
+**Captured Telegram payload (sample):**
+```
+🚨 YENİ SİPARİŞ · ORD-D247-003473
+👤 TEST D-247 — Website
+📱 +905550030001
+🛍️ SN0001 — Vakko W Collection
+📐 Beden 42
+💵 Tutar: 1499 ₺
+🌐 website
+Detay: /order 14
+[📦 Kargola] [🏠 Teslim] [❌ İptal]
+[🔍 Ürün]
+```
+
+**Out of scope (v1):**
+- Proactive stale-reminder cron — `/orderreminders` is operator-pulled in v1.
+- Per-order mute / snooze.
+- SLA breach alerts beyond stale threshold.
+- Multi-chat dispatch routing — single `TELEGRAM_CHAT_ID` like every other system alert.
+- Rich media in alerts (product image preview).
+- Customer-facing notifications (admin handles those).
+- Carrier-specific late-shipping rules (uniform 3-day threshold for v1).
+
+**Risk class:** very low. Additive helpers in `orderDesk.ts` + 1 new fire-and-forget alert hook entry in Orders.afterChange (skips when source=telegram or context=dispatch — no behavior change for existing paths) + 2 new slash commands. No schema change. No mutations beyond what `applyOrderStatus` already does (button callbacks). Reversible via single-commit revert.
+
+**Status:** Shipped to `main`. Soak validation passed at the data layer. Operator validation: submit a test order via storefront form OR create one in admin → confirm `🚨 YENİ SİPARİŞ` arrives with action buttons. Then `/orderreminders` (with no stale, expect empty state) and `/orders summary` (always renders the daily counts).
+
+**Reversible:** yes — additive helpers + 1 fire-and-forget hook entry + 2 new commands. No schema change.
+
+---
+
+## D-248 — Business Snapshot / KPI Desk v1
+
+**Decision:**
+Add a one-tap Telegram surface that summarizes the entire daily business state. **Pure composition layer** — zero new queries, no schema change, no new architecture, no new collection. Every metric traces back to an existing helper from prior D-NNs.
+
+**Architecture: composition over re-derivation.**
+Each prior D-NN already exposes a "today summary" or "open count" helper for its domain:
+| Domain | Source | Owns |
+|---|---|---|
+| Leads | `getDailyLeadSummary` (D-243) | new/contacted/won/lost/spam today, open total, stale total |
+| Sales | `getSalesToday` (D-244) | order count today, count from leads, totalRevenue |
+| Orders | `getDailyOrderSummary` (D-247) | created/shipped/delivered/cancelled today, open total, stale shipped |
+| Stock | `getInboxStock` (D-236) | soldout count, low-stock count |
+
+`getBusinessSnapshot(payload)` runs all four in parallel via `Promise.all`. No new SQL, no parallel rules, no risk of metric divergence between `/business` and the underlying domain commands.
+
+**Telegram surface (registered in SHARED_CMDS):**
+| Command | Behaviour |
+|---|---|
+| `/business` | Default — today snapshot |
+| `/business today` | Explicit today snapshot (same render) |
+| `/iş` / `/is` | Turkish aliases |
+
+`/business week` intentionally NOT shipped in v1 — every existing helper is today-scoped, so a week version would need new week-scoped queries. Defer until volume warrants.
+
+**Render — concise grouped, operator-grade:**
+```
+📊 İş Özeti (UTC günü)
+
+📥 Talep (bugün)
+  • Yeni lead: N
+  • İletişim kuruldu: N
+  • Kazanıldı: N
+  • Kaybedildi: N · 🚮 Spam: N      ← spam only when > 0
+  • Açık lead toplam: N
+
+💰 Satış (bugün)
+  • Sipariş: N (M lead'den)          ← M only when > 0
+  • Ciro (kayıtlı): X ₺              ← or "—" when 0
+
+📦 Operasyon
+  • Açık sipariş: N
+  • Kargolanan (bugün): N
+  • Teslim edilen (bugün): N · ❌ İptal: N    ← cancel only when > 0
+
+⚠️ Aciliyet                          ← entire block only when urgency > 0
+  • 📞 bayat lead (3+gün): N
+  • 📦 geç kargo (3+gün): N
+  • 🔴 tükenmiş ürün: N
+  • ⚠️ az stok: N
+
+/leads · /orders · /inbox · /leadreminders · /orderreminders
+```
+
+**Empty-state shortcut:** when ALL 16 signals are zero → single-line `✅ Bugün hiçbir hareket yok ve bekleyen aciliyet yok.` so calm days don't dump a wall of zeros.
+
+**Convergence — no metric divergence risk:**
+- Open lead set: `getOpenLeads` (D-241).
+- Stale lead rule: 3 days against `lastContactedAt ?? createdAt`, defined in D-243 `getStaleLeads`.
+- Open order set: `getOpenOrders` (D-245).
+- Stale shipping rule: 3 days against `shippedAt ?? createdAt`, defined in D-246/D-247 `getStaleShippedOrders`.
+- Today rules: each `getDailyXSummary` already converts to UTC day boundary consistently.
+
+If the operator ever sees a count in `/business` that doesn't match `/leads` or `/orders`, the bug is in the underlying helper — not in D-248. There's only one source of truth per metric.
+
+**Read-only by construction:**
+Every helper called by `getBusinessSnapshot` is read-only (`payload.find` only, no mutations). The composition itself never writes. Verified in soak — the live Neon run produced identical row counts before and after.
+
+**Test evidence (against live Neon, 6 assertions all pass):**
+| Check | Result |
+|---|---|
+| Live composition completes in 1832ms (4 parallel helper calls — under Vercel Lambda budget) | ✓ |
+| Live snapshot renders accurately: 3 open leads, 2 low-stock products surfaced from real data | ✓ |
+| Fully-empty short-circuit (`✅ Temiz`) | ✓ |
+| Busy day with no urgency: urgency block correctly hidden | ✓ |
+| Quiet day with mounting urgency: all 4 urgency lines render | ✓ |
+| Mixed realistic scenario: optional inline bits (🚮 Spam, ❌ İptal, lead-link split) all conditional | ✓ |
+| Typecheck: zero new errors | ✓ |
+
+Soak harness committed at `scripts/d248-soak.ts`.
+
+**Out of scope (v1):**
+- `/business week` — needs new week-scoped queries against existing helpers; defer.
+- Ratio metrics (conversion rate, win rate, AOV) — operator can compute from raw counts; ratio metrics carry interpretation risk on small numbers.
+- Historical charts/graphs — Telegram-only surface; defer.
+- Per-source breakdown (website vs telegram vs shopier) — single helper layer doesn't expose this; defer.
+- KPI threshold alerts — operator can read the snapshot themselves; alert spam risk.
+- Export to CSV / spreadsheet — admin can do this directly.
+- Comparison with yesterday / last week / last month — needs historical-window queries; defer.
+
+**Risk class:** very low. Pure read composition + 1 new file + 1 new switch case + 3 new command aliases. No schema change. No mutations. No new dependencies. Reversible via single-commit revert.
+
+**Status:** Shipped to `main`. Soak validation passed. Operator validation: `/business` from Telegram → see one-screen daily snapshot.
+
+**Reversible:** yes — pure read composition, no schema change.
+
+---
+
+## D-249 — Conversion Funnel / Source Performance Snapshot v1
+
+**Decision:**
+Add a Telegram-first read-only funnel snapshot that groups demand by source and shows how each source flows through stages → conversion → revenue. Pure composition over existing collections. No new collection, no schema change, no new architecture.
+
+**Attribution rule — the one judgement call:**
+The funnel groups by **lead source**, not order source.
+- Reason: `/convert` (D-244) always sets `order.source='telegram'` regardless of where the lead originated. If we grouped by order.source, every funnel-converted order would land in `Telegram`, even if the lead came from Instagram or Website. That would be the opposite of useful.
+- Lead source (`customer-inquiries.source`, added in D-241) IS the truthful answer to "where did demand originate."
+- Orders attribute back to the lead's source via the `relatedInquiry` FK (D-244).
+- Orders WITHOUT a relatedInquiry (direct website/admin/Shopier orders that didn't pass through a lead) get a separate "Doğrudan Sipariş (lead-siz)" group with order count + revenue only — no funnel stages because there's no lead to stage.
+- Edge case: order created today linked to a lead from last week → counted as "direct" for a today-window funnel, since the lead isn't in the window. This keeps per-window stage→order ratios honest. Documented in the helper.
+
+**New helper — `src/lib/funnelDesk.ts` (~270 LOC):**
+- `getFunnelSnapshot(payload, {period})` — `period: 'today' | 'week'` (default today). Runs 2 `payload.find` queries (leads-in-window + orders-in-window), groups in memory by lead source.
+- Per-source row: stage counts (new / contacted / follow_up / closed_won / closed_lost / spam) + ordersConverted + revenue.
+- Totals row aggregates lead-attributed only.
+- Direct-orders bucket separate.
+- Defensive numeric coercion via `toNumber()` (pg returns numeric as string).
+- Source labels mapped to operator-friendly names: website→Website, telegram→Telegram, instagram→Instagram, phone→Telefon, shopier→Shopier, manual_entry→Manuel, bilinmiyor→Bilinmeyen. Unknown sources passed through HTML-escaped.
+- Legacy `completed` status (pre-D-241) rolled into `closed_won` for funnel display.
+
+**Concise render:**
+- Per-source blocks omit zero-stage rows automatically (no `Spam: 0` clutter).
+- Zero-revenue rows omitted.
+- Direct-orders block only renders when count > 0, with explanatory footer.
+- Empty short-circuit: zero leads + zero orders in window → single-line `✅ Bu pencerede lead/sipariş hareketi yok.` with pointer at `/business · /leads summary · /sales today`.
+
+**Telegram surface (registered in SHARED_CMDS):**
+| Command | Behaviour |
+|---|---|
+| `/funnel` | Default — today snapshot |
+| `/funnel today` | Explicit today |
+| `/funnel week` (aliases: hafta, son7) | Trailing 7 UTC days |
+| `/huni` | TR alias |
+
+**Convergence — no parallel rules:**
+| Concept | Defined in | Reused by |
+|---|---|---|
+| Lead.source field | D-241 schema | D-249 funnel grouping |
+| Lead status enum (closed_*) | D-241 schema extension | D-249 stage counts |
+| relatedInquiry FK | D-244 schema | D-249 order→lead attribution |
+| order.totalPrice → revenue | D-244/D-247 | D-249 revenue aggregation |
+| UTC day boundary | D-244 getSalesToday / D-247 getDailyOrderSummary | D-249 today-window cutoff |
+| Defensive numeric coercion | D-244 `toNumber()` pattern | D-249 `toNumber()` (mirror) |
+
+**Read-only by construction.**
+Every helper call is `payload.find` — no mutations. Verified in soak: lead+order row counts identical pre/post (3→3, 3→3).
+
+**Test evidence (against live Neon, 6 assertions all pass):**
+| Check | Result |
+|---|---|
+| Live `/funnel today` composes in 162ms (2 `payload.find` calls) | ✓ |
+| Live `/funnel week` same logic, 7-day window | ✓ |
+| Read-only verified: lead+order row counts unchanged pre/post | ✓ |
+| Fully-empty render → `✅ Bu pencerede lead/sipariş hareketi yok.` | ✓ |
+| Busy-day multi-source render (Website/Telegram/Instagram + Toplam) matches spec example shape exactly | ✓ |
+| Direct-orders bucket renders separately with explanatory footer | ✓ |
+
+Soak harness committed at `scripts/d249-soak.ts`. Typecheck: zero new errors.
+
+**Captured render (busy-day scenario):**
+```
+📈 Funnel Özeti (bugün)
+
+Website
+  • Lead: 12
+  • Arandı: 5
+  • Takip: 2
+  • Kazanıldı: 2
+  • Kaybedildi: 1
+  • Siparişe döndü: 1
+  • Ciro: 1499 ₺
+
+Telegram
+  • Lead: 4
+  • Arandı: 3
+  • Kazanıldı: 1
+  • Siparişe döndü: 1
+  • Ciro: 950 ₺
+
+Instagram
+  • Lead: 3
+  • Arandı: 1
+  • Spam: 1
+
+Toplam (lead-bazlı)
+  • Lead: 19
+  • Arandı: 9
+  • Takip: 2
+  • Kazanıldı: 3
+  • Kaybedildi: 1
+  • Spam: 1
+  • Sipariş: 2
+  • Ciro: 2449 ₺
+```
+
+**Out of scope (v1):**
+- Ratio metrics (conversion rate per source, win rate per source) — small-number interpretation risk.
+- Per-product source attribution — single product can sit in multiple lead sources.
+- Cohort analysis (lead created day X → converted day Y).
+- Per-stage time-to-progression averages.
+- Multi-touch attribution (one lead bouncing between sources).
+- CSV export — admin-only.
+- Comparison with previous period.
+- Per-source breakdown in the `/business` snapshot (would clutter that overview; `/funnel` is the dedicated surface).
+
+**Risk class:** very low. Pure read helper + 1 new switch case + 4 new command aliases. No schema change. No mutations. No new dependencies. Reversible via single-commit revert.
+
+**Status:** Shipped to `main`. Soak validation passed. Operator validation: `/funnel` from Telegram → see one-screen daily funnel; cross-check `Toplam · Lead` against `/leads`'s open/total; cross-check `Toplam · Ciro` against `/sales today`'s revenue.
+
+**Reversible:** yes — pure read composition, no schema change.
+
+---
+
+## D-250 — Source Attribution Hygiene / Capture Hardening (2026-05-06)
+
+**Problem:**
+D-249's funnel snapshot exposed that source attribution data was unreliable in two ways:
+
+1. `convertLeadToOrder()` hardcoded `source: 'telegram'` on every Order created via `/convert`,
+   regardless of where the demand originated. A customer who filled the storefront inquiry form
+   (lead.source='website') would produce an Order with source='telegram' — recording the operational
+   channel (Telegram command), not the demand origin (website). The admin Order view was misleading.
+
+2. `/api/inquiries` accepted any arbitrary string for the `source` field with no validation
+   (`source: source || 'website'`). Future garbage values could silently pollute funnel data.
+
+**Source model chosen:**
+- `orders.source` = **demand origin** (where the customer came from), not the operational channel.
+  The operational channel is implicitly captured by `relatedInquiry` (set = lead desk / /convert).
+- `customer-inquiries.source` = **normalized demand origin** from a known value set.
+- One truthful meaning per field. No overloading.
+
+**funnelDesk.ts attribution rule (unchanged):**
+The funnel still uses `lead.source` for attribution grouping, not `order.source`. This is correct
+even after D-250 because funnel stages are about when the lead *entered* the pipeline
+(lead.createdAt window), not when the order was recorded. Window-correct attribution requires the
+lead's timestamp. The D-249 funnelDesk comment was updated to reflect this reasoning.
+
+**Changes made:**
+
+A) `src/lib/leadDesk.ts`
+- Added `mapLeadSourceToOrderSource()` helper — maps lead.source to a valid `orders.source`
+  enum value; falls back to 'website' for unknown/null.
+- Added `ORDER_SOURCE_VALUES` + `OrderSource` type — single source of truth for valid order sources.
+- In `convertLeadToOrder()`: changed `source: 'telegram'` → `source: mapLeadSourceToOrderSource(lead.source)`.
+  No other logic changed. relatedInquiry is still the indicator that this order was a lead conversion.
+
+B) `src/app/api/inquiries/route.ts`
+- Added `normalizeInquirySource()` helper — validates source against KNOWN_INQUIRY_SOURCES
+  `['website', 'instagram', 'phone', 'telegram', 'whatsapp', 'manual_entry']`.
+  Unknown/empty → 'website'. Prevents future garbage strings.
+- Changed `source: source || 'website'` → `source: normalizeInquirySource(source)`.
+
+C) `src/lib/funnelDesk.ts`
+- Updated attribution comment: corrects the justification for why we use lead.source (it's about
+  window-correct timing, not just because order.source was unreliable). Logic unchanged.
+
+D) `scripts/d250-backfill.ts`
+- One-shot idempotent repair script for existing pre-D-250 orders where
+  `source='telegram' AND relatedInquiry IS NOT NULL`.
+- Reads each linked lead's source, maps it, updates the order.
+- Run: `npx tsx scripts/d250-backfill.ts`
+- Dry-run: `DRY_RUN=1 npx tsx scripts/d250-backfill.ts`
+- Orders where the lead itself has source='telegram' are correctly left unchanged.
+
+**Schema changes:** None. All values written are already valid for existing enum/select definitions.
+No Neon DDL required.
+
+**Backfill:** deterministic + low blast radius. Only touches orders with relatedInquiry set AND
+source='telegram'. If no such orders exist (early adoption), backfill is a no-op.
+
+**What improves:**
+- Future `/convert` calls write the true demand origin on the Order record.
+- Admin order list correctly shows 'Website' for leads that came from the storefront form.
+- `/api/inquiries` now rejects garbage source strings.
+- funnelDesk.ts comment accurately describes the attribution architecture.
+- D-249 funnel correctness is unchanged (still uses lead.source) but the order records
+  are now independently truthful.
+
+**What does NOT change:**
+- funnelDesk.ts logic — still uses lead.source for window-correct funnel attribution.
+- Shopier order path — already writes `source: 'shopier'` correctly.
+- Direct admin-created orders — still default to `source: 'website'` (no worse than before;
+  documented as known ambiguity below).
+
+**Known remaining gap (not fixed in D-250):**
+`orders.source` `defaultValue: 'website'` in Orders.ts means orders manually created in the
+Payload admin panel get `source='website'` by default — even if created by the operator, not
+from a website checkout. There is currently no website checkout path that programmatically
+creates orders (PayTR is integrated for payment but no checkout-to-order flow exists).
+When a website checkout path is added, it should explicitly write `source: 'website'`.
+Until then, any admin-created order without a relatedInquiry appearing as 'website' is a
+known minor ambiguity. This does NOT affect funnel attribution (direct orders are already
+reported separately in the "Doğrudan Sipariş (lead-siz)" bucket).
+
+**Risk class:** very low. Two write-path changes, both narrowing/correcting existing writes.
+No schema change. No new collections. No new dependencies. Reversible via single-commit revert.
+
+**Status:** Shipped to `main`.
+
+---
+
+## D-251 — Source Detail / UTM & Landing Context Capture v1 (2026-05-06)
+
+**Background:**
+D-250 normalized broad source values ('website', 'instagram', etc.). The next bottleneck is
+granularity — broad buckets can't answer which campaign, which referrer, or which acquisition
+context drove a lead.
+
+**Source-detail signals evaluated:**
+
+| Signal | Where available | Decision |
+|---|---|---|
+| utm_source / utm_medium / utm_campaign | `window.location.search` (client) | ✅ Capture |
+| Referrer domain | `document.referrer` (client) | ✅ Capture (domain-only, no PII) |
+| Landing path | Derivable from `product.slug` via existing FK | ❌ Redundant — skip |
+| Full referrer URL | `document.referrer` | ❌ PII risk (search queries) — skip |
+| Session/cookie data | Requires analytics infrastructure | ❌ Out of scope |
+| Multi-touch history | Requires analytics infrastructure | ❌ Out of scope |
+
+**Fields added to `customer-inquiries`:**
+- `utmSource` (text, nullable) — utm_source param (google, instagram, facebook, etc.)
+- `utmMedium` (text, nullable) — utm_medium param (cpc, social, email, etc.)
+- `utmCampaign` (text, nullable) — utm_campaign param (campaign name/id)
+- `referrer` (text, nullable) — referring hostname only (instagram.com, google.com, etc.)
+
+All four fields are nullable. No invented defaults. Unknown = null. ReadOnly in admin panel
+(automatically captured, not operator-editable — prevents manual pollution).
+
+**Neon DDL required (push:true does not run in production — apply manually after deploy):**
+```sql
+ALTER TABLE customer_inquiries ADD COLUMN IF NOT EXISTS utm_source VARCHAR;
+ALTER TABLE customer_inquiries ADD COLUMN IF NOT EXISTS utm_medium VARCHAR;
+ALTER TABLE customer_inquiries ADD COLUMN IF NOT EXISTS utm_campaign VARCHAR;
+ALTER TABLE customer_inquiries ADD COLUMN IF NOT EXISTS referrer VARCHAR;
+```
+
+**Changes made:**
+
+A) `src/collections/CustomerInquiries.ts`
+- Added 4 fields after `source` field, before `lastContactedAt`.
+- DDL comment block included for operator reference.
+
+B) `src/components/ContactForm.tsx`
+- Added `captureUtmParams()` — reads utm_source/utm_medium/utm_campaign from
+  `window.location.search` at submit time. Trims, lowercases, caps at 200 chars.
+- Added `captureReferrer()` — reads `document.referrer`, extracts hostname only,
+  returns null for same-site referrers and direct navigation (no referrer).
+- Updated `handleSubmit` to include these values in the POST body via spread
+  (absent/null values are not sent, preventing empty-string pollution).
+
+C) `src/app/api/inquiries/route.ts`
+- Added `sanitizeDetail()` — trims, lowercases, caps at 200 chars, returns null
+  for empty/non-string input. Null-first: nothing is stored if data is absent.
+- Destructured `{ utmSource, utmMedium, utmCampaign, referrer }` from request body.
+- Write path uses spread-conditional pattern: only writes to Payload when
+  `sanitizeDetail()` returns a non-null value.
+
+**Separation of concerns (D-250 compatibility):**
+- `customer-inquiries.source` = broad demand channel (website, instagram, phone...)
+  Normalized by `normalizeInquirySource()`. Unchanged.
+- `customer-inquiries.utmSource/utmMedium/utmCampaign/referrer` = detail context.
+  Nullable. No overlap with broad source. Different question: "how specifically?"
+
+**funnelDesk.ts:** No changes. Funnel still groups by broad `source`. UTM/referrer
+fields are available as raw material for future drill-down analysis when volume justifies it.
+
+**Backfill:** Not possible. Past requests did not capture UTM/referrer data.
+Attribution quality improves forward-only from this point.
+
+**What does NOT change:**
+- D-241 lead desk pipeline — unchanged
+- D-249 funnel snapshot — unchanged (groups by `source`, not UTM)
+- D-250 source normalization — unchanged
+- Shopier order path — unaffected (Shopier creates Orders, not Inquiries)
+- Telegram operator commands — unaffected
+
+**Risk class:** very low. Additive-only: new nullable columns + optional POST body fields.
+Inquiry creation path is forward-compatible — old requests without UTM/referrer just
+produce null values in the new columns. No breaking change.
+
+**Status:** Shipped to `main`. Neon DDL must be applied manually by operator before
+new fields are populated in production rows.
+
+---
+
+## D-252 — Attribution Detail Visibility / Lead Context Surfacing (2026-05-07)
+
+**Commit:** 910c31a
+
+**Problem:** D-251 added UTM + referrer capture on `customer-inquiries` but those
+fields were invisible to the operator. `/lead <id>` showed only the broad `source`
+field. No way to see where specifically a lead came from without querying the DB.
+
+**Changes — `src/lib/leadDesk.ts` only:**
+
+- `LeadEntry` interface: added `utmSource?`, `utmMedium?`, `utmCampaign?`, `referrer?`
+  (all `string | null`, optional).
+- `normalizeLead()`: maps 4 new fields from Payload doc (`doc.utmSource ?? null` etc.).
+- `formatLeadCard()`: attribution block appended after dates section. Blank-line
+  separator. Three conditional lines, each omitted when null:
+  - `🌐 Kaynak: <source>` — broad channel
+  - `📎 UTM: <utmSource> / <utmMedium> / <utmCampaign>` — only UTM parts that exist,
+    joined by ` / `
+  - `🔗 Ref: <referrer>` — hostname only (as stored by D-251)
+  Zero noise when all attribution fields are null (e.g. direct Telegram inquiries).
+- `formatNewLeadAlert()`: compact `🌐 source · utmSource · referrer` hint line.
+  Built from first available signals. Omitted entirely when all three are null.
+
+**Design rule enforced:** no empty placeholders — attribution block only renders if
+at least one field has a value. Telegram-originated leads (where UTM/referrer will
+always be null) see no extra lines.
+
+**Operator UX after D-252:**
+```
+/lead 412  →
+🟡 Lead #412 — new
+
+👤 Ayşe Kaya
+📱 +90 532 ...
+🛍️ UA-0041 — Nike Air Max 90
+📐 Beden: 38
+
+📅 Oluşturulma: 07.05.2026 14:32
+
+🌐 Kaynak: instagram
+📎 UTM: instagram / social / summer_drop
+🔗 Ref: instagram.com
+```
+
+For a direct/Telegram lead, attribution block is absent entirely.
+
+**What does NOT change:** D-241 lead desk, D-250 source mapping, D-251 capture,
+funnelDesk attribution logic, Shopier path, image pipeline.
+
+**Risk class:** zero. Read-only rendering change — no DB writes, no API changes,
+no Neon DDL required. Fields are already in the doc if Neon DDL from D-251 was applied.
+
+**Status:** Shipped to `main` (910c31a). D-250, D-251, D-252 form a complete
+attribution hygiene chain: capture → normalize → surface.
+
+---
+
+## D-251 + D-252 — Production Closeout (2026-05-07)
+
+**DDL applied:** 4 columns added to `customer_inquiries` on Neon production:
+`utm_source`, `utm_medium`, `utm_campaign`, `referrer` (all VARCHAR, nullable).
+Applied with `IF NOT EXISTS` — idempotent.
+
+**Soak test result (inquiry #4, cleaned post-verification):**
+- POST to `https://www.uygunayakkabi.com/api/inquiries` with
+  `source=instagram`, `utmSource=instagram`, `utmMedium=social`,
+  `utmCampaign=testdrop`, `referrer=instagram.com`, `productId=319`
+- API returned `{"success":true,"id":4}` (HTTP 200)
+- Neon row verified: all 5 attribution fields stored exactly as submitted
+- Row cleaned from production after verification
+
+**Telegram render verified (simulation against D-252 code):**
+- `/lead <id>` with full attribution → shows `🌐 Kaynak` + `📎 UTM` + `🔗 Ref` block
+- `/lead <id>` with no UTM/referrer → attribution block absent, no blank lines
+- New-lead alert with attribution → compact `🌐 source · utmSource · referrer` hint
+- New-lead alert without attribution → hint line absent entirely
+
+**Status:** D-251 + D-252 FULLY CLOSED. Attribution chain is production-ready:
+capture (D-251) → normalize (D-250) → surface (D-252).
+
+---
+
+## D-253 — Attribution Detail Roll-up into Funnel (2026-05-07)
+
+**Commit:** c612b63
+
+**Problem:** D-251 captured UTM/referrer on inquiries. D-252 made it visible per-lead.
+But there was no way to see patterns across leads — which UTM source, campaign, or
+referrer is generating the most demand this period — without querying the DB directly.
+
+**Surface chosen:** `/funnel` attribution footer.
+- `/funnel` already loads all leads in window in-memory (D-249).
+- UTM/referrer are "source detail" — natural extension of what /funnel already does.
+- `/business` is KPI-focused; attribution doesn't belong there.
+- A dedicated `/attribution` command would be overkill for v1 with sparse data.
+
+**Zero extra queries:** `buildAttributionDetail()` runs over the leads array already
+loaded by `getFunnelSnapshot()`. No new Payload or DB calls.
+
+**New exports/types in `funnelDesk.ts`:**
+- `AttributionTopEntry { value: string; count: number }`
+- `AttributionDetailSummary { coveredLeads, topUtmSources[], topUtmCampaigns[], topReferrers[] }`
+- `FunnelSnapshot.attributionDetail: AttributionDetailSummary | null`
+- `topN(leads, field, n)`: counts non-null field values, returns top N by count
+- `buildAttributionDetail(leads)`: returns null when coveredLeads === 0
+
+**Render behavior:**
+- Footer `📎 Trafik Detayı (N lead)` only renders when at least 1 lead has a
+  UTM/referrer value. Absent entirely for Telegram-only windows.
+- Within the footer, each line (UTM Kaynak / Kampanya / Referrer) only renders
+  if that specific field has at least 1 non-null value.
+- Top 3 per field, formatted as `value (count), value (count)`.
+- No percentages — sample sizes too small to be meaningful.
+
+**Sparse-data behavior verified (test cases):**
+1. All-null UTM/referrer → no attribution block, zero noise ✓
+2. Single pattern (1 lead) → shows exactly that pattern ✓
+3. Multiple patterns → top 3 sorted by count desc ✓
+4. Referrer-only (no UTM) → shows only Referrer line, no empty UTM lines ✓
+
+**Files changed:** `src/lib/funnelDesk.ts` only (+67 lines).
+No route change. No schema change. No new collection.
+
+**Status:** COMPLETE. Attribution detail visible above single-lead level in /funnel.
+D-250 → D-251 → D-252 → D-253 attribution chain fully operational.
+
+---
+
+## D-254 — UTM Link Builder / Campaign Naming Guardrail (2026-05-07)
+
+**Commit:** dbf8b3f
+
+**Problem:** Attribution chain is live but human inconsistency (typo-heavy campaign
+names, ad-hoc source/medium values, random URL assembly) would degrade data quality
+over time. Operator needs a fast, consistent, copy-ready way to generate tagged URLs.
+
+**New file: `src/lib/utmBuilder.ts`**
+
+Approved vocabulary (enforced at validation time):
+- Sources (10): instagram, whatsapp, google, facebook, telegram, shopier, website,
+  referral, email, tiktok
+- Mediums (10): social, bio, story, dm, direct, organic, cpc, manual, email, reel
+- Campaign format: lowercase letters, digits, underscores only; 2–50 chars;
+  no leading/trailing underscore
+
+Normalization (applied before validation):
+- source/medium: `.toLowerCase().trim()`
+- campaign: trim + lowercase + spaces→underscore (documented; safe and predictable)
+- Uppercase `Instagram` → `instagram` passes. `SummerDrop` → `summerdrop` passes.
+- `_bad_campaign` → still refused (leading underscore)
+
+`buildProductUtmUrl()` uses `encodeURIComponent()` on all three params.
+
+**Telegram command: `/utm <SN|id> <source> <medium> <campaign>`**
+
+- SN lookup uses same `stockNumber: { equals: normalizedSN }` pattern as `/sn`
+- Bare number (e.g. `34`) auto-padded to `SN0034` (same as `/sn`)
+- Product slug pulled from `p.slug` (runtime truth, not guessed)
+- Missing slug (draft product without slug): refused with clear message
+- Invalid source/medium: refused with full approved-list shown
+- Bad campaign format: refused with format rules and example
+- Both errors: both shown in one response
+- Success: copy-ready `<code>URL</code>` block with breakdown of params used
+- Registered in SHARED_CMDS (available on both bots)
+
+**Usage example:**
+```
+/utm SN0034 instagram social story_drop_01
+→ 🔗 UTM Link
+  SN0034 — New Balance Sneaker Gri
+  source: instagram / medium: social / campaign: story_drop_01
+  https://www.uygunayakkabi.com/products/new-balance-sneaker-gri-tg-…?utm_source=instagram&utm_medium=social&utm_campaign=story_drop_01
+```
+
+**Files changed:** `src/lib/utmBuilder.ts` (new, 108 lines) + `src/app/api/telegram/route.ts` (+95 lines).
+No schema change. No mutation. Read-only.
+
+**Status:** COMPLETE.
+
+---
+
+## D-255 — Campaign Review / Attribution QA Surface v1 (2026-05-07)
+
+**Commit:** dd57db2
+
+**Problem:** Attribution chain is live but there was no way to inspect campaign
+quality, spot messy UTM values, or see which campaigns are actually generating
+demand — without querying the DB directly.
+
+**New file: `src/lib/campaignDesk.ts`**
+
+Aggregates:
+- Per-campaign: leadCount, wonCount (closed_won|completed), distinct sources,
+  distinct mediums. Sorted by leadCount desc.
+- Global top 5: utm_source, utm_medium, referrer.
+- Coverage: coveredLeads (have any UTM/referrer) vs totalLeads.
+
+QA signals (all heuristic, labeled as such):
+- unknownSources: utm_source values not in APPROVED_SOURCES
+- unknownMediums: utm_medium values not in APPROVED_MEDIUMS
+- oddCampaigns: campaign names not matching D-254 CAMPAIGN_PATTERN
+- singletonCount: campaigns with count=1 (only flagged when >= 3 campaigns)
+
+Empty-state variants (3 levels):
+1. No leads in window → "hiç lead yok"
+2. Leads exist but zero UTM/referrer → "UTM verisi yok, /utm kullanın"
+3. Active → full campaign table + QA section
+
+`utmBuilder.ts`: exported CAMPAIGN_PATTERN (was private) for QA reuse.
+
+**Commands:**
+- `/campaigns [today|week]` — campaign snapshot (today default)
+- `/campaign <name> [week]` — per-campaign detail: leadCount, wonCount, sources, mediums
+  - Missing name → usage hint
+  - Not found → clean empty-state
+
+**Test cases verified:**
+1. No leads → clean empty state ✓
+2. Leads but no UTM (current prod state) → explains gap + /utm hint ✓
+3. Multiple clean campaigns → table + QA "all approved ✓" ✓
+4. Dirty values (snapchat/push/"Summer Launch") → all 3 QA signals fired ✓
+5. Singleton flag (4 campaigns, 2 with count=1) → singletonCount=2 ✓
+
+**Files changed:** `src/lib/campaignDesk.ts` (new, 339 lines) +
+`src/lib/utmBuilder.ts` (+1 export) + `src/app/api/telegram/route.ts` (+66 lines).
+No schema change. No mutation.
+
+**Status:** COMPLETE.
+
+---
+
+## D-256 — Product Page Lead Conversion Polish v1 (2026-05-07)
+**Decision:**
+Polish the product page contact form into a proper conversion surface.
+
+**Changes:**
+- `ContactForm.tsx`: full rebuild (248 lines)
+  - Interactive size chips: available variants rendered as clickable buttons; click selects/deselects, fills `size` field; "temizle" clear link; manual text input only shown when no variants available
+  - Soldout amber notice block (conditional on `soldout` prop)
+  - Success state shows product title: "[Product] için talebinizi aldık."
+  - Submit button text: "Talep Oluştur — Beni Arayın", dark color (`bg-gray-900`)
+  - Trust microcopy: "Bilgileriniz yalnızca sipariş desteği için kullanılır."
+  - Error state includes WhatsApp fallback suggestion
+  - D-251 UTM/referrer capture helpers retained intact
+  - New props: `productTitle`, `variants`, `soldout`
+- `page.tsx`: updated to pass new props + structural improvements
+  - ContactForm receives `productTitle={product.title}`, `variants={variants}`, `soldout={isSoldOut}`
+  - Form container gets `id="inquiry-form"` anchor
+  - Heading updated: "Bilgi Al / Sipariş Ver" → "Sipariş Ver"
+  - Subtext updated: "Beden seçin, bilgilerinizi bırakın — sizi arayalım."
+  - Sticky mobile CTA added (`lg:hidden`, `position: fixed`, `href="#inquiry-form"`) — always visible on mobile, scrolls user to form
+
+**Commit:** f76c47d on main. Zero new TS errors.
+
+**Status:** COMPLETE.
+
+---
+
+## D-257 — Homepage / Listing → PDP Clickthrough Polish v1 (2026-05-07)
+**Decision:**
+Polish the customer journey from homepage / listing surfaces into product detail pages (PDPs).
+No redesign — targeted affordance and navigation fixes only.
+
+**Audit findings (VERIFIED):**
+- `Card` component was a `<div onClick={() => onView(p)}>` — not a real anchor. No right-click, no mobile long-press link menu, no browser URL preview, no link semantics.
+- Hover-overlay "İNCELE" CTA was the only clickthrough signal — completely invisible on mobile (touch devices have no hover state). Mobile users saw image → title → price with zero tap affordance.
+- `BestSellersScroll` and `DiscountedSection` horizontal scroll sections had no escape to full catalog — users had no way to discover more products from those contexts.
+- Inline "Popüler Ayakkabılar" homepage grid: same gap — no "see all" path.
+- `BestSellersScroll` and `DiscountedSection` were not receiving `onNav` prop.
+
+**Changes — `src/app/(app)/UygunApp.jsx` only (37 additions, 16 deletions):**
+1. `Card`: outer `<div onClick>` → `<a href="/products/${slug}">` with `display:block; text-decoration:none`. Real link semantics. Carousel `e.stopPropagation()` arrows unaffected.
+2. `Card`: always-visible `İncele →` affordance added to info footer (separator + label + arrow). Present on every card regardless of hover/touch state. Fixes mobile dead zone.
+3. `BestSellersScroll`: added `onNav` prop + "Tümünü Gör →" pill button next to header.
+4. `DiscountedSection`: same — `onNav` prop + "Tümünü Gör →" pill.
+5. Inline "Popüler Ayakkabılar" section: "Tümünü Gör →" pill added.
+6. App: wires `onNav={nav}` into both scroll section calls.
+
+**Commit:** ba40764 on main. Zero new TS errors. No schema change.
+
+**Status:** COMPLETE.
+
+---
+
+## D-258 — Homepage Trust / Order Flow Clarity Polish v1 (2026-05-07)
+**Decision:**
+Improve homepage clarity so first-time visitors understand the store's inquiry model,
+what happens after contact, and why to trust the process — without redesigning the homepage.
+
+**Audit findings (VERIFIED):**
+- Hero description: one 60-word abstract sentence explaining the Aymakoop business model — no action direction for the visitor
+- Hero sub-line "Fiziksel güç + dijital zekâ + doğru fiyat" — internal jargon, not customer value
+- StepsSection: presented 4 parallel payment options (Sepet / WhatsApp / Shopier / Kapıda) as sequential "steps" — misleading. The actual inquiry flow (browse → form → callback) was never described anywhere on the homepage
+- Secondary hero CTA "NEDEN BİZ?" scrolled to brand story section — not actionable for a first visit
+- TrustValueSection opener was defensive: "Çünkü biz rastgele ürün toplayan sıradan bir satıcı değiliz"
+
+**Changes — `src/app/(app)/UygunApp.jsx` only (45 additions, 34 deletions):**
+1. Hero description: shortened to 2 clear sentences, one of which describes the inquiry model
+2. Hero sub-line: replaced jargon with 3-step inline flow hint: "Ürünü İncele → Talep Bırak → Biz Seni Arayalım"
+3. Hero secondary CTA: "NEDEN BİZ?" → "NASIL ÇALIŞIR?" — scrolls to steps section (id="nasil-calisir")
+4. StepsSection label/title/subtitle updated to match clarity framing
+5. STEPS_DATA completely rewritten: 4 parallel payment options → 4 sequential inquiry steps (İncele → Talep Bırak → Seni Arayalım → Teslimat) — honest, matches D-256 product page
+6. TrustValueSection: defensive opener removed, confident framing added, bullet list includes explicit callback/support reassurance items, dual CTA + WhatsApp secondary path added
+
+**Commit:** 41f230c on main. Zero new TS errors. No schema change.
+
+**Status:** COMPLETE.
+
+---
+
+## D-259 — Catalog Browse Clarity Polish (2026-05-07)
+
+**Problem:** Catalog had static heading "Ayakkabılar" regardless of active filter, no sort controls, result count only shown when filtered, size filter showed all sizes across all categories (not just the active one), minimal empty state.
+
+**Changes — `src/app/(app)/UygunApp.jsx` (Catalog function):**
+- Dynamic `catHeading` — updates per active filter: "Tüm Ürünler" / "Spor Ayakkabıları" / "Cüzdanlar" / etc.
+- Always-visible result count in subtitle: "**X** ürün" + "· Beden N" when size active
+- Sort state (`"default" | "price-asc" | "price-desc" | "discount"`) — `<select>` on right side of controls row, custom arrow styling
+- Category filter now resets size filter + sort on change
+- Size filter scoped to current category's available sizes only (was showing all sizes across all products)
+- `resetFilters()` helper clears category, size, sort, pagination in one click
+- "Tüm Ürünleri Göster" + "✕ Filtreleri Temizle" both call resetFilters
+- Empty state: added 🔍 icon, added subtext hint, warmer messaging
+- "Daha Fazla" count now based on `sorted.length` (correct when sort is active)
+
+**Preserved:** D-257 card links, D-256 PDP flow, attribution capture untouched.
+**Commit:** 60c53e8
+
+---
+
+## D-260 — Mobile Catalog Filter Drawer (2026-05-07)
+
+**Problem:** On mobile, 8 category chips + size chips + sort row consumed ~300px before first product. No access to controls after scrolling. Active filter state invisible while browsing.
+
+**Changes — `src/app/(app)/UygunApp.jsx`:**
+- Added `drawerOpen` state + `useEffect` body scroll lock (prevents page scroll when drawer open)
+- Desktop controls wrapped in `.catalog-desktop-controls` div — hidden on mobile via CSS
+- Mobile compact sticky bar (`.catalog-mobile-bar`) — shown only on mobile:
+  - `position: sticky; top: 68px` — stays visible while scrolling
+  - Left: result count + active filter pills (category name, size no, sort indicator)
+  - Right: "Filtrele" button with red badge showing active filter count
+- Bottom sheet drawer (fixed, zIndex 201, `animation: slideUp`):
+  - Backdrop (tap to close)
+  - Drag handle indicator
+  - Category section: same chip style, tap to filter
+  - Size section: 48×48px circles (larger touch targets than desktop 40px)
+  - Sort section: full-width buttons with checkmark on active
+  - CTA row: "Temizle" (red, shown when active) + "X Ürünü Gör →" (closes drawer)
+- `@keyframes slideUp` added to GlobalStyles
+- `.catalog-section` padding reduced to `16px` on mobile (was 40px)
+- `SORT_OPTIONS` array shared between desktop `<select>` and drawer buttons
+
+**Preserved:** D-259 desktop layout unchanged. D-257 card links intact. D-256 PDP flow intact.
+**Commit:** 2d54f16
+
+---
+
+## D-261 — PDP Trust / Delivery / FAQ Clarity Polish (2026-05-07)
+
+**Problem:** PDP inquiry form had weak trust signals, vague "Nasıl Çalışır?" subtext with no visual hierarchy, FAQ only appeared when product had explicit FAQ data (empty on most products), and the form success state showed only a single confirmation line with no next-steps context.
+
+**Changes — `src/app/(app)/products/[slug]/page.tsx`:**
+- `DEFAULT_PROCESS_FAQ` constant (4 items): always-on fallback FAQ covering process flow, size help, delivery, and payment — renders even when product has no DB FAQ data
+- Trust strip redesigned from 2-item horizontal row to 4-item 2×2 grid: 📞 Hızlı Geri Dönüş, 📦 Hızlı Teslimat, 💬 Beden Desteği, 🔒 Güvenli İletişim
+- 3-step process strip added inside inquiry card (above ContactForm): Formu Doldurun → Sizi Arayalım → Ürün Elinizde
+- FAQ section now always renders: `validFaq.length > 0 ? validFaq : DEFAULT_PROCESS_FAQ`
+
+**Changes — `src/components/ContactForm.tsx`:**
+- Success state now shows next-steps checklist (3 lines: call, clarify details, ship)
+- Trust line updated: "🔒 Bilgileriniz yalnızca sipariş desteği için kullanılır. Üçüncü taraflarla paylaşılmaz."
+
+**Changes — `src/components/ProductFAQ.tsx`:**
+- Full inline-style restyle matching beige PDP theme (removed Tailwind classes)
+- New heading: "SIKÇA SORULAN SORULAR" label + "Merak Ettikleriniz" in Playfair serif
+- Toggle button: dark filled circle (26×26px) with +/− indicator
+- Item background: warm beige tint when open (`rgba(238,232,222,0.55)`)
+
+**Preserved:** D-256 ContactForm UTM capture + size chips untouched. AttributionCapture logic intact. All PDP SSR data fetching unchanged.
+**Commit:** 3e79f09

@@ -28,55 +28,19 @@ function shoe(bg, sole, body, acc, lace, rot = 0) {
   return `data:image/svg+xml,${encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 800"><rect width="800" height="800" fill="${bg}"/><g transform="translate(400,400) rotate(${rot}) scale(1.15)"><path d="M-220,80Q-220,110-180,120L200,120Q240,120,250,95L260,60Q260,45,240,40L-180,40Q-220,45-220,80Z" fill="${sole}"/><path d="M-200,48Q-210,68-190,78L230,78Q250,73,255,53L250,33Q245,23,230,23L-175,23Q-200,28-200,48Z" fill="white" opacity="0.88"/><path d="M-180,28Q-200,8-195,-42Q-185,-102-140,-132Q-80,-172,20,-177Q120,-180,180,-152Q230,-127,245,-72Q255,-27,245,13L240,23L-175,23Z" fill="${body}"/><path d="M-150,-45Q-70,-92,50,-87Q145,-82,210,-38" fill="none" stroke="${acc}" stroke-width="14" stroke-linecap="round" opacity="0.75"/><line x1="-78" y1="-132" x2="-18" y2="-147" stroke="${lace}" stroke-width="4.5" stroke-linecap="round"/><line x1="-58" y1="-112" x2="2" y2="-132" stroke="${lace}" stroke-width="4.5" stroke-linecap="round"/><line x1="-38" y1="-92" x2="22" y2="-117" stroke="${lace}" stroke-width="4.5" stroke-linecap="round"/></g></svg>`)}`;
 }
 
-function wallet(bg, leather, accent, stitch) {
-  return `data:image/svg+xml,${encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 800"><rect width="800" height="800" fill="${bg}"/><g transform="translate(400,400)"><rect x="-200" y="-140" width="400" height="280" rx="24" fill="${leather}"/><rect x="-200" y="-140" width="400" height="280" rx="24" fill="none" stroke="${stitch}" stroke-width="3" stroke-dasharray="8,6" opacity="0.4"/><rect x="100" y="-80" width="90" height="60" rx="12" fill="${accent}"/><circle cx="145" cy="-50" r="10" fill="${bg}" opacity="0.3"/></g></svg>`)}`;
-}
-
-const heroImg = shoe("#ebe5da", "#d4c4b0", "#c8102e", "#fff", "#fff", -8);
-const WALLET_PHOTOS = [
-  "https://images.unsplash.com/photo-1627123424574-724758594e93?w=600&h=600&fit=crop&q=80",
-  "https://images.unsplash.com/photo-1624996379697-f01d168b1a52?w=600&h=600&fit=crop&q=80",
-  "https://images.unsplash.com/photo-1559526324-593bc073d938?w=600&h=600&fit=crop&q=80",
-];
-const PHOTO = [
-  "https://images.unsplash.com/photo-1542291026-7eec264c27ff?w=600&h=600&fit=crop&q=80",
-  "https://images.unsplash.com/photo-1606107557195-0e29a4b5b4aa?w=600&h=600&fit=crop&q=80",
-  "https://images.unsplash.com/photo-1600185365926-3a2ce3cdb9eb?w=600&h=600&fit=crop&q=80",
-  "https://images.unsplash.com/photo-1549298916-b41d501d3772?w=600&h=600&fit=crop&q=80",
-  "https://images.unsplash.com/photo-1560769629-975ec94e6a86?w=600&h=600&fit=crop&q=80",
-];
-const ph = (i) => PHOTO[i % PHOTO.length];
-
-// ============================================
-// STATIC PRODUCT DATA
-// ============================================
-const STATIC_PRODUCTS = [
-  { id: 1, slug: "nike-air-max-270", name: "Nike Air Max 270", price: 2499, originalPrice: 3299, description: "Gün boyu konfor sunan Air Max 270, büyük Air ünitesiyle her adımda maksimum yastıklama sağlar.", image: ph(0), images: [ph(0),ph(1)], sizes:[38,39,40,41,42,43,44], stock:3, category:"Spor", badge:"İndirim" },
-  { id: 2, slug: "adidas-ultraboost-23", name: "Adidas Ultraboost 23", price: 2899, originalPrice: null, description: "Efsanevi Boost teknolojisiyle enerji iade eden taban yapısı.", image: ph(1), images: [ph(1),ph(2)], sizes:[39,40,41,42,43], stock:8, category:"Spor", badge:"Yeni" },
-  { id: 3, slug: "new-balance-574", name: "New Balance 574", price: 1899, originalPrice: 2499, description: "Zamansız tasarım ve ENCAP yastıklama sistemiyle hem şık hem rahat bir klasik.", image: ph(2), images: [ph(2),ph(3)], sizes:[38,39,40,41,42], stock:2, category:"Günlük", badge:"İndirim" },
-  { id: 4, slug: "puma-rs-x", name: "Puma RS-X", price: 1699, originalPrice: null, description: "Retro koşu estetiği ile modern teknolojiyi buluşturan cesur sneaker.", image: ph(3), images: [ph(3),ph(4)], sizes:[40,41,42,43,44,45], stock:5, category:"Spor", badge:null },
-  { id: 5, slug: "converse-chuck-70", name: "Converse Chuck 70", price: 1299, originalPrice: 1599, description: "Premium materyaller ile ikonik Chuck Taylor'ın üst seviye versiyonu.", image: ph(4), images: [ph(4),ph(0)], sizes:[36,37,38,39,40,41,42], stock:12, category:"Günlük", badge:"İndirim" },
-  { id: 6, slug: "nike-dunk-low", name: "Nike Dunk Low Retro", price: 2199, originalPrice: null, description: "Basketbol kökenli bu ikon, sokak modasının vazgeçilmezi.", image: ph(0), images: [ph(0),ph(2)], sizes:[39,40,41,42,43], stock:0, category:"Günlük", badge:"Tükendi" },
-  { id: 7, slug: "nike-air-force-1", name: "Nike Air Force 1 '07", price: 2299, originalPrice: 2799, description: "Efsanevi Air Force 1, zamansız bir ikon.", image: ph(1), images: [ph(1),ph(3)], sizes:[38,39,40,41,42,43,44,45], stock:15, category:"Günlük", badge:"İndirim" },
-  { id: 8, slug: "adidas-samba-og", name: "Adidas Samba OG", price: 1999, originalPrice: null, description: "Futsal efsanesi Samba, retro tarzıyla sokağın vazgeçilmezi.", image: ph(2), images: [ph(2),ph(4)], sizes:[38,39,40,41,42,43], stock:7, category:"Günlük", badge:"Yeni" },
-  { id: 9, slug: "nike-vapormax-plus", name: "Nike Air VaporMax Plus", price: 3499, originalPrice: 3999, description: "VaporMax hava yastığı ile yere basmadan yürüme hissi.", image: ph(3), images: [ph(3),ph(0)], sizes:[40,41,42,43,44], stock:4, category:"Spor", badge:"İndirim" },
-  { id: 10, slug: "reebok-classic-leather", name: "Reebok Classic Leather", price: 1399, originalPrice: null, description: "80'lerden bugüne ulaşan sade tasarım ve yumuşak deri.", image: ph(4), images: [ph(4),ph(1)], sizes:[38,39,40,41,42,43], stock:10, category:"Günlük", badge:null },
-  { id: 11, slug: "adidas-stan-smith", name: "Adidas Stan Smith", price: 1799, originalPrice: 2199, description: "Dünyanın en çok satan sneaker'ı.", image: ph(0), images: [ph(0),ph(3)], sizes:[36,37,38,39,40,41,42,43], stock:9, category:"Günlük", badge:"İndirim" },
-  { id: 12, slug: "nike-pegasus-41", name: "Nike Pegasus 41", price: 2699, originalPrice: null, description: "Her gün koşmak isteyenler için React köpük yastıklama.", image: ph(1), images: [ph(1),ph(4)], sizes:[39,40,41,42,43,44,45], stock:6, category:"Spor", badge:"Yeni" },
-  { id: 37, slug: "klasik-deri-cuzdan", name: "Klasik Deri Cüzdan", price: 599, originalPrice: 799, description: "Hakiki dana derisinden, 8 kart bölmeli, RFID korumalı.", image: WALLET_PHOTOS[0], images: [WALLET_PHOTOS[0],WALLET_PHOTOS[1]], sizes:[], stock:18, category:"Cüzdan", badge:"İndirim" },
-  { id: 38, slug: "slim-kartvizitlik", name: "Slim Kartlık Cüzdan", price: 399, originalPrice: null, description: "Ultra ince, 6 kart bölmeli minimalist cüzdan.", image: WALLET_PHOTOS[1], images: [WALLET_PHOTOS[1],WALLET_PHOTOS[2]], sizes:[], stock:25, category:"Cüzdan", badge:"Yeni" },
-];
+// D-193: wallet(), heroImg, WALLET_PHOTOS, PHOTO, ph(), STATIC_PRODUCTS removed
+// — all demo/placeholder products purged, only real DB products shown
 
 // ============================================
 // CATEGORY DATA
 // ============================================
+// D-177: Removed Erkek Ayakkabı & Krampon
 const CAT_DATA = [
   { name: "Spor", desc: "Koşu & Fitness", icon: "⚡" },
   { name: "Günlük", desc: "Her Güne Uygun", icon: "👟" },
   { name: "Klasik", desc: "Ofis & Şıklık", icon: "✦" },
   { name: "Bot", desc: "Kış & Dağ", icon: "🏔" },
   { name: "Terlik", desc: "Rahat & Hafif", icon: "🩴" },
-  { name: "Sandalet", desc: "Yaz Hafifliği", icon: "☀" },
   { name: "Cüzdan", desc: "Deri & Kartlık", icon: "◆" },
 ];
 
@@ -131,6 +95,15 @@ function GlobalStyles() {
       .fade-in { animation: fadeIn 0.6s ease forwards; }
       .no-scrollbar::-webkit-scrollbar { display: none; }
       .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+      @keyframes slideUp { from { transform: translateY(100%); } to { transform: translateY(0); } }
+      /* D-260: catalog mobile/desktop control visibility */
+      .catalog-desktop-controls { display: block; }
+      .catalog-mobile-bar { display: none; }
+      @media(max-width:767px) {
+        .catalog-desktop-controls { display: none !important; }
+        .catalog-mobile-bar { display: flex !important; }
+        .catalog-section { padding: 16px 16px 100px !important; }
+      }
       @media(max-width:768px) {
         .hero-grid { grid-template-columns: 1fr !important; text-align: center; }
         .hero-grid > div:first-child { order: 2; }
@@ -140,10 +113,13 @@ function GlobalStyles() {
         .nav-mobile { display: flex !important; }
         .prod-grid { grid-template-columns: repeat(3,1fr) !important; gap: 12px !important; }
         .footer-grid { grid-template-columns: 1fr 1fr !important; }
+        .why-us-grid { grid-template-columns: 1fr 1fr !important; }
+        .about-grid { grid-template-columns: 1fr !important; gap: 40px !important; }
       }
       @media(max-width:640px) {
         .prod-grid { grid-template-columns: repeat(2,1fr) !important; }
         .footer-grid { grid-template-columns: 1fr !important; }
+        .why-us-grid { grid-template-columns: 1fr !important; }
       }
     `}</style>
   );
@@ -170,7 +146,7 @@ function TopBar({ settings }) {
 // ============================================
 // NAVBAR
 // ============================================
-function Navbar({ onNav, pg, settings }) {
+function Navbar({ onNav, pg, settings, cartCount, onCartToggle }) {
   const waNum = settings?.contact?.whatsappFull || DEFAULT_SETTINGS.contact.whatsappFull;
   const [mo, setMo] = useState(false);
   const [sc, setSc] = useState(false);
@@ -206,6 +182,19 @@ function Navbar({ onNav, pg, settings }) {
               {l.l}
             </span>
           ))}
+          {/* D-194: Cart icon */}
+          <button onClick={onCartToggle} style={{
+            position: "relative", background: "none", border: "none", cursor: "pointer", color: T.text, padding: 4,
+          }}>
+            {I.cart}
+            {cartCount > 0 && (
+              <span style={{
+                position: "absolute", top: -6, right: -8, width: 18, height: 18, borderRadius: "50%",
+                background: T.red, color: "#fff", fontSize: 10, fontWeight: 700,
+                display: "flex", alignItems: "center", justifyContent: "center",
+              }}>{cartCount}</span>
+            )}
+          </button>
           <a href={waLink(waNum)} target="_blank" rel="noreferrer" style={{
             display: "inline-flex", alignItems: "center", gap: 8,
             fontFamily: T.sans, fontSize: 11, fontWeight: 600, letterSpacing: "0.1em", textTransform: "uppercase",
@@ -215,9 +204,17 @@ function Navbar({ onNav, pg, settings }) {
             {I.wa} WHATSAPP
           </a>
         </div>
-        <button className="nav-mobile" onClick={() => setMo(!mo)} style={{ display: "none", background: "none", border: "none", cursor: "pointer", color: T.text, padding: 4 }}>
-          {mo ? I.close : I.menu}
-        </button>
+        <div className="nav-mobile" style={{ display: "none", alignItems: "center", gap: 12 }}>
+          <button onClick={onCartToggle} style={{ position: "relative", background: "none", border: "none", cursor: "pointer", color: T.text, padding: 4 }}>
+            {I.cart}
+            {cartCount > 0 && (
+              <span style={{ position: "absolute", top: -6, right: -8, width: 18, height: 18, borderRadius: "50%", background: T.red, color: "#fff", fontSize: 10, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center" }}>{cartCount}</span>
+            )}
+          </button>
+          <button onClick={() => setMo(!mo)} style={{ background: "none", border: "none", cursor: "pointer", color: T.text, padding: 4 }}>
+            {mo ? I.close : I.menu}
+          </button>
+        </div>
       </div>
       {mo && (
         <div style={{ padding: "16px 32px 32px", background: T.bg, borderTop: "1px solid rgba(28,26,22,0.06)" }}>
@@ -250,15 +247,21 @@ function Navbar({ onNav, pg, settings }) {
 function Card({ p, onView }) {
   const [h, sH] = useState(false);
   const [slideIdx, setSI] = useState(0);
+  // D-174b: Only AI images (generativeGallery), never original intake photos
   const imgSrc = p.dbImage || p.image;
-  const images = Array.isArray(p.images) && p.images.length > 0 ? p.images : [imgSrc];
+  const aiImgs = Array.isArray(p.aiImages) && p.aiImages.length > 0 ? p.aiImages : null;
+  const images = aiImgs || [imgSrc];
   const displayImg = images[slideIdx];
 
+  // D-257: Card is a real <a> link — enables right-click, mobile long-press, semantics
+  const cardHref = `/products/${p.slug || p.id}`;
+
   return (
-    <div
+    <a
+      href={cardHref}
       onMouseEnter={() => sH(true)} onMouseLeave={() => { sH(false); setSI(0); }}
-      onClick={() => onView(p)}
       style={{
+        display: "block", textDecoration: "none",
         cursor: "pointer", borderRadius: T.r.lg, overflow: "hidden",
         background: T.bgCard, border: "1px solid rgba(28,26,22,0.06)",
         transition: "all 0.45s cubic-bezier(.22,1,.36,1)", backdropFilter: "blur(10px)",
@@ -282,6 +285,20 @@ function Card({ p, onView }) {
             color: "#fff", background: p.badge === "İndirim" ? T.red : "#1c1a16",
           }}>
             {p.badge}
+          </span>
+        )}
+        {/* D-192: Low stock banner — "Son X Adet!" when 1-3 items left */}
+        {p.stock > 0 && p.stock <= 3 && (
+          <span style={{
+            position: "absolute", top: 14, right: 14, zIndex: 2,
+            fontFamily: T.sans, fontSize: 9, fontWeight: 700,
+            letterSpacing: "0.08em",
+            padding: "5px 12px", borderRadius: T.r.full,
+            color: "#d97706", background: "rgba(255,255,255,0.92)",
+            border: "1px solid rgba(217,119,6,0.25)",
+            boxShadow: "0 1px 4px rgba(0,0,0,0.08)",
+          }}>
+            Son {p.stock} Adet!
           </span>
         )}
         {/* Arrows and dots on hover */}
@@ -338,8 +355,13 @@ function Card({ p, onView }) {
             </span>
           )}
         </div>
+        {/* D-257: Always-visible tap affordance — critical for mobile (no hover state) */}
+        <div style={{ marginTop: 12, paddingTop: 12, borderTop: "1px solid rgba(28,26,22,0.06)", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+          <span style={{ fontFamily: T.sans, fontSize: 11, fontWeight: 600, letterSpacing: "0.08em", textTransform: "uppercase", color: T.text }}>İncele</span>
+          <span style={{ fontFamily: T.sans, fontSize: 14, color: T.textLighter }}>→</span>
+        </div>
       </div>
-    </div>
+    </a>
   );
 }
 
@@ -385,6 +407,20 @@ function Hero({ onNav, settings, allProducts }) {
           Fiziksel güç + dijital zekâ + doğru fiyat.
         </p>
 
+        {/* D-258: Compact inquiry flow hint — replaces internal jargon line */}
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
+          margin: "0 auto 48px", flexWrap: "wrap" }}>
+          {[["👟", "Ürünü İncele"], ["📋", "Talep Bırak"], ["📞", "Biz Seni Arayalım"]].map(([ic, label], i, arr) => (
+            <span key={i} style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+              <span style={{ display: "flex", alignItems: "center", gap: 6, fontFamily: T.sans,
+                fontSize: 12, fontWeight: 600, color: T.textLight }}>
+                <span style={{ fontSize: 14 }}>{ic}</span> {label}
+              </span>
+              {i < arr.length - 1 && <span style={{ color: "rgba(28,26,22,0.18)", fontSize: 16, fontWeight: 300, marginLeft: 8 }}>→</span>}
+            </span>
+          ))}
+        </div>
+
         {/* Buttons */}
         <div className="hero-btns" style={{ display: "flex", gap: 16, justifyContent: "center", flexWrap: "wrap", marginBottom: 80 }}>
           <button onClick={() => onNav("catalog")} style={{
@@ -419,22 +455,61 @@ function Hero({ onNav, settings, allProducts }) {
 }
 
 // ============================================
+// NEDEN UYGUN AYAKKABI? (Why Us — 6 Cards)
+// ============================================
+const WHY_US_CARDS = [
+  { icon: "📍", title: "Doğrudan Merkezden Erişim", desc: "Türkiye'nin ayakkabı ve deri üretim merkezlerinden biri olan Aymakoop içindeki erişimimiz sayesinde ürünleri kaynağından takip edebiliyoruz." },
+  { icon: "💎", title: "Tekleme ve Özel Ürünler", desc: "Seri dışı kalan, az adetli, tekleme ya da özel kalan kaliteli ürünlere ulaşabiliyoruz." },
+  { icon: "💰", title: "Daha Güçlü Fiyat Avantajı", desc: "Aracı katmanların azalması sayesinde, çoğu zaman piyasadaki değerinden daha uygun fiyatlarla ürün sunabiliyoruz." },
+  { icon: "🤖", title: "Yapay Zekâ Destekli Sistem", desc: "Ürün yönetimi, içerik akışı ve dijital sunum tarafında yapay zekâ destekli otomasyonlardan faydalanıyoruz." },
+  { icon: "🌐", title: "Güçlü Dijital Varlık", desc: "Web sitemiz ve sosyal medya kanallarımız, bu güçlü tedarik yapısını hızlı ve çağdaş bir şekilde yansıtmak için kuruldu." },
+  { icon: "✨", title: "Her Yerde Bulunmayan Ürünler", desc: "Bizdeki birçok ürün, klasik mağaza düzeninde kolayca bulunmayan, sınırlı ve özel ürünlerden oluşur." },
+];
+
+function WhyUsSection() {
+  return (
+    <section id="neden-biz" style={{ padding: "100px 40px", maxWidth: 1440, margin: "0 auto", borderTop: "1px solid rgba(28,26,22,0.06)", position: "relative", zIndex: 1 }}>
+      <div style={{ textAlign: "center", marginBottom: 56 }}>
+        <p style={{ fontFamily: T.sans, fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.18em", color: T.red, marginBottom: 10 }}>FARKIMIZ</p>
+        <h2 style={{ fontFamily: T.serif, fontSize: "clamp(30px, 3.5vw, 48px)", fontWeight: 700, color: T.text, letterSpacing: "-0.02em", marginBottom: 20 }}>Neden Uygun Ayakkabı?</h2>
+        <p style={{ fontFamily: T.sans, fontSize: 15, color: T.textLight, lineHeight: 1.85, maxWidth: 600, margin: "0 auto" }}>
+          Çünkü biz klasik bir satış modeliyle ilerlemiyoruz. Bizim gücümüz, kaliteli ürüne doğrudan erişim ile modern dijital sistemleri bir araya getirmemizden geliyor.
+        </p>
+      </div>
+      <div className="why-us-grid" style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 20 }}>
+        {WHY_US_CARDS.map((c, i) => (
+          <div key={i} style={{
+            background: "rgba(238,232,222,0.5)", border: "1px solid rgba(28,26,22,0.06)", borderRadius: 20,
+            padding: "36px 28px", backdropFilter: "blur(10px)", transition: "all 0.35s",
+          }}>
+            <span style={{ fontSize: 32, display: "block", marginBottom: 18 }}>{c.icon}</span>
+            <p style={{ fontFamily: T.sans, fontSize: 15, fontWeight: 700, color: T.text, marginBottom: 10 }}>{c.title}</p>
+            <p style={{ fontFamily: T.sans, fontSize: 13, color: "rgba(28,26,22,0.5)", lineHeight: 1.75 }}>{c.desc}</p>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+// ============================================
 // SIPARIŞ ADIMLARI (4 Steps)
 // ============================================
+// D-258: Steps reflect actual inquiry flow — browse → request → callback → delivery
 const STEPS_DATA = [
-  { icon: "🛒", num: "ADIM 01", title: "Ürünü Seç", desc: "Beğendiğin ürünü sepete ekle ya da direkt satın al", method: "Sepet veya Shopier", mColor: "#25D366", mBg: "rgba(37,211,102,0.08)", barColor: "#25D366" },
-  { icon: "💬", num: "ADIM 02", title: "WhatsApp'tan Yaz", desc: "Ürün sayfasından bize yaz, biz dönüş yapacağız", method: "Hızlı İletişim", mColor: "#25D366", mBg: "rgba(37,211,102,0.08)", barColor: "#25D366" },
-  { icon: "💳", num: "ADIM 03", title: "Kart ile Öde", desc: "Shopier üzerinden güvenli kart ile ödeme yap", method: "Shopier Güvencesi", mColor: "#3b82f6", mBg: "rgba(59,130,246,0.08)", barColor: "#3b82f6" },
-  { icon: "📦", num: "ADIM 04", title: "Kapıda Ödeme", desc: "Formu doldur, kargo ile kapıda ödeme seçeneğini kullan", method: "Kapıda Nakit/Kart", mColor: "#f59e0b", mBg: "rgba(245,158,11,0.08)", barColor: "#f59e0b" },
+  { icon: "👟", num: "ADIM 01", title: "Ürünü İncele", desc: "Beğendiğin ürünü bul, beden bilgilerini gör, ürün sayfasına git", method: "Ücretsiz Göz At", mColor: T.red, mBg: T.redSoft, barColor: T.red },
+  { icon: "📋", num: "ADIM 02", title: "Talep Bırak", desc: "Adını ve telefon numaranı bırak — ürün sayfasındaki kısa formla 1 dakikada tamamlanır", method: "Hızlı Form", mColor: "#3b82f6", mBg: "rgba(59,130,246,0.08)", barColor: "#3b82f6" },
+  { icon: "📞", num: "ADIM 03", title: "Biz Seni Arayalım", desc: "Ekibimiz seni arar, beden ve sipariş detaylarını birlikte tamamlarız", method: "Kısa Sürede Dönüş", mColor: "#25D366", mBg: "rgba(37,211,102,0.08)", barColor: "#25D366" },
+  { icon: "📦", num: "ADIM 04", title: "Teslimat", desc: "Siparişin onaylanır, kargoya verilir — kapıda ödeme seçeneği mevcuttur", method: "Kargo ile Teslimat", mColor: "#f59e0b", mBg: "rgba(245,158,11,0.08)", barColor: "#f59e0b" },
 ];
 
 function StepsSection() {
   return (
-    <section style={{ padding: "100px 40px", maxWidth: 1440, margin: "0 auto", borderTop: "1px solid rgba(28,26,22,0.06)", position: "relative", zIndex: 1 }}>
+    <section id="nasil-calisir" style={{ padding: "100px 40px", maxWidth: 1440, margin: "0 auto", borderTop: "1px solid rgba(28,26,22,0.06)", position: "relative", zIndex: 1 }}>
       <div style={{ textAlign: "center", marginBottom: 64 }}>
-        <p style={{ fontFamily: T.sans, fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.18em", color: "#25D366", marginBottom: 10 }}>SİPARİŞ SEÇENEKLERİ</p>
-        <h2 style={{ fontFamily: T.serif, fontSize: "clamp(30px, 3.5vw, 48px)", fontWeight: 700, color: T.text, letterSpacing: "-0.02em" }}>4 Kolay Adımda Sipariş</h2>
-        <p style={{ fontFamily: T.sans, fontSize: 14, color: T.textLighter, marginTop: 14, maxWidth: 520, marginLeft: "auto", marginRight: "auto", lineHeight: 1.7 }}>İster online öde, ister kapıda öde — sana en uygun yöntemi seç.</p>
+        <p style={{ fontFamily: T.sans, fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.18em", color: T.red, marginBottom: 10 }}>NASIL ÇALIŞIR?</p>
+        <h2 style={{ fontFamily: T.serif, fontSize: "clamp(30px, 3.5vw, 48px)", fontWeight: 700, color: T.text, letterSpacing: "-0.02em" }}>4 Adımda Sipariş</h2>
+        <p style={{ fontFamily: T.sans, fontSize: 14, color: T.textLighter, marginTop: 14, maxWidth: 520, marginLeft: "auto", marginRight: "auto", lineHeight: 1.7 }}>Talep bırakın, biz sizi arayalım — sipariş sürecinde her adımda yanınızdayız.</p>
       </div>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 16 }}>
         {STEPS_DATA.map((s, i) => (
@@ -460,7 +535,7 @@ function StepsSection() {
 // ============================================
 // BEST SELLERS HORIZONTAL SCROLL
 // ============================================
-function BestSellersScroll({ allProducts, onView }) {
+function BestSellersScroll({ allProducts, onView, onNav }) {
   const scrollRef = useRef(null);
   const scroll = (dir) => { if (scrollRef.current) scrollRef.current.scrollBy({ left: dir * 320, behavior: "smooth" }); };
   return (
@@ -470,9 +545,13 @@ function BestSellersScroll({ allProducts, onView }) {
           <p style={{ fontFamily: T.sans, fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.18em", color: T.red, marginBottom: 10 }}>POPÜLER</p>
           <h2 style={{ fontFamily: T.serif, fontSize: "clamp(30px, 3.5vw, 48px)", fontWeight: 700, color: T.text, letterSpacing: "-0.02em" }}>Çok Satanlar</h2>
         </div>
-        <div style={{ display: "flex", gap: 8 }}>
-          <button onClick={() => scroll(-1)} style={{ width: 40, height: 40, borderRadius: "50%", border: "1px solid rgba(28,26,22,0.1)", background: "rgba(238,232,222,0.5)", cursor: "pointer", fontSize: 16, display: "flex", alignItems: "center", justifyContent: "center" }}>←</button>
-          <button onClick={() => scroll(1)} style={{ width: 40, height: 40, borderRadius: "50%", border: "1px solid rgba(28,26,22,0.1)", background: "rgba(238,232,222,0.5)", cursor: "pointer", fontSize: 16, display: "flex", alignItems: "center", justifyContent: "center" }}>→</button>
+        <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
+          {/* D-257: Tümünü Gör link */}
+          {onNav && <button onClick={() => onNav("catalog")} style={{ fontFamily: T.sans, fontSize: 12, fontWeight: 600, letterSpacing: "0.06em", color: T.text, background: "none", border: "1px solid rgba(28,26,22,0.15)", padding: "8px 20px", borderRadius: T.r.full, cursor: "pointer", whiteSpace: "nowrap" }}>Tümünü Gör →</button>}
+          <div style={{ display: "flex", gap: 8 }}>
+            <button onClick={() => scroll(-1)} style={{ width: 40, height: 40, borderRadius: "50%", border: "1px solid rgba(28,26,22,0.1)", background: "rgba(238,232,222,0.5)", cursor: "pointer", fontSize: 16, display: "flex", alignItems: "center", justifyContent: "center" }}>←</button>
+            <button onClick={() => scroll(1)} style={{ width: 40, height: 40, borderRadius: "50%", border: "1px solid rgba(28,26,22,0.1)", background: "rgba(238,232,222,0.5)", cursor: "pointer", fontSize: 16, display: "flex", alignItems: "center", justifyContent: "center" }}>→</button>
+          </div>
         </div>
       </div>
       <div ref={scrollRef} style={{ display: "flex", gap: 16, overflowX: "auto", scrollSnapType: "x mandatory", paddingLeft: 40, paddingRight: 40, scrollbarWidth: "none", msOverflowStyle: "none" }}>
@@ -700,7 +779,7 @@ function CategoryOverlay({ onNav }) {
 // ============================================
 // İNDİRİMLİ ÜRÜNLER (Discounted Horizontal Scroll)
 // ============================================
-function DiscountedSection({ allProducts, onView }) {
+function DiscountedSection({ allProducts, onView, onNav }) {
   const scrollRef = useRef(null);
   const scroll = (dir) => { if (scrollRef.current) scrollRef.current.scrollBy({ left: dir * 320, behavior: "smooth" }); };
   const discounted = allProducts.filter(p => p.originalPrice && p.originalPrice > p.price);
@@ -712,9 +791,13 @@ function DiscountedSection({ allProducts, onView }) {
           <p style={{ fontFamily: T.sans, fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.18em", color: T.red, marginBottom: 10 }}>FIRSATLAR</p>
           <h2 style={{ fontFamily: T.serif, fontSize: "clamp(30px, 3.5vw, 48px)", fontWeight: 700, color: T.text, letterSpacing: "-0.02em" }}>İndirimli Ürünler</h2>
         </div>
-        <div style={{ display: "flex", gap: 8 }}>
-          <button onClick={() => scroll(-1)} style={{ width: 40, height: 40, borderRadius: "50%", border: "1px solid rgba(28,26,22,0.1)", background: "rgba(238,232,222,0.5)", cursor: "pointer", fontSize: 16, display: "flex", alignItems: "center", justifyContent: "center" }}>←</button>
-          <button onClick={() => scroll(1)} style={{ width: 40, height: 40, borderRadius: "50%", border: "1px solid rgba(28,26,22,0.1)", background: "rgba(238,232,222,0.5)", cursor: "pointer", fontSize: 16, display: "flex", alignItems: "center", justifyContent: "center" }}>→</button>
+        <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
+          {/* D-257: Tümünü Gör link */}
+          {onNav && <button onClick={() => onNav("catalog")} style={{ fontFamily: T.sans, fontSize: 12, fontWeight: 600, letterSpacing: "0.06em", color: T.text, background: "none", border: "1px solid rgba(28,26,22,0.15)", padding: "8px 20px", borderRadius: T.r.full, cursor: "pointer", whiteSpace: "nowrap" }}>Tümünü Gör →</button>}
+          <div style={{ display: "flex", gap: 8 }}>
+            <button onClick={() => scroll(-1)} style={{ width: 40, height: 40, borderRadius: "50%", border: "1px solid rgba(28,26,22,0.1)", background: "rgba(238,232,222,0.5)", cursor: "pointer", fontSize: 16, display: "flex", alignItems: "center", justifyContent: "center" }}>←</button>
+            <button onClick={() => scroll(1)} style={{ width: 40, height: 40, borderRadius: "50%", border: "1px solid rgba(28,26,22,0.1)", background: "rgba(238,232,222,0.5)", cursor: "pointer", fontSize: 16, display: "flex", alignItems: "center", justifyContent: "center" }}>→</button>
+          </div>
         </div>
       </div>
       <div ref={scrollRef} style={{ display: "flex", gap: 16, overflowX: "auto", scrollSnapType: "x mandatory", paddingLeft: 40, paddingRight: 40, scrollbarWidth: "none", msOverflowStyle: "none" }}>
@@ -731,8 +814,6 @@ function DiscountedSection({ allProducts, onView }) {
 // ============================================
 // TOP-LEVEL APP COMPONENT
 // ============================================
-const ENABLE_STATIC_FALLBACK = true; // TODO: revert to false when DB serial issue is fixed
-
 export default function App({ dbProducts = [], siteSettings = null, banners = [], sections = null }) {
   const S = siteSettings || DEFAULT_SETTINGS;
   const [pg, sPg] = useState("home");
@@ -744,54 +825,160 @@ export default function App({ dbProducts = [], siteSettings = null, banners = []
 
   const allProducts = (() => {
     const dbMapped = (dbProducts || []).map(p => {
-      const firstImg = Array.isArray(p.images) && p.images[0] ? p.images[0] : null;
+      // D-174b: Only use AI-generated images, never original intake photos
+      const aiImgs = Array.isArray(p.aiImages) && p.aiImages.length > 0 ? p.aiImages : [];
+      const firstImg = aiImgs[0] || null;
       return {
         ...p,
         image: firstImg || shoe("#ebe5da","#d4c4b0","#c8102e","#fff","#fff",0),
         dbImage: firstImg,
+        aiImages: aiImgs,
       };
     });
-    if (ENABLE_STATIC_FALLBACK) {
-      const staticMapped = STATIC_PRODUCTS.map(p => ({ ...p, dbImage: null }));
-      if (dbMapped.length === 0) return staticMapped;
-      // Merge: DB products first, then static to fill out catalog
-      const dbIds = new Set(dbMapped.map(p => p.slug || p.id));
-      const extra = staticMapped.filter(p => !dbIds.has(p.slug) && !dbIds.has(p.id));
-      return [...dbMapped, ...extra];
-    }
     return dbMapped;
   })();
 
+  // D-194: URL sync — pushState so browser URL reflects current page
   const nav = (p, cat) => {
     if (cat) sInitCat(cat);
     else if (p === "catalog") sInitCat("Tümü");
     sPg(p);
     if (p !== "detail") sSel(null);
+    // Update browser URL
+    const url = p === "home" ? "/" : p === "catalog" ? "/ayakkabilar" : null;
+    if (url) window.history.pushState({ pg: p }, "", url);
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
 
-  const view = p => { sSel(p); sPg("detail"); window.scrollTo({ top: 0, behavior: "smooth" }); };
+  const view = p => {
+    // D-198: Navigate to enhanced SSR product page instead of SPA detail
+    const slug = p.slug || p.id;
+    window.location.href = `/products/${slug}`;
+  };
 
-  const addToCart = (product) => {
-    setCart([...cart, product]);
+  // D-194: Handle browser back/forward buttons
+  useEffect(() => {
+    const onPop = (e) => {
+      const state = e.state;
+      if (!state) { sPg("home"); sSel(null); return; }
+      if (state.pg === "detail" && state.slug) {
+        const found = allProducts.find(p => (p.slug || p.id) === state.slug);
+        if (found) { sSel(found); sPg("detail"); return; }
+      }
+      sPg(state.pg || "home");
+      if (state.pg !== "detail") sSel(null);
+    };
+    window.addEventListener("popstate", onPop);
+    // On mount, check if URL already indicates a sub-page
+    const path = window.location.pathname;
+    if (path === "/ayakkabilar") { sPg("catalog"); }
+    else if (path.startsWith("/urun/")) {
+      const slug = path.replace("/urun/", "");
+      const found = allProducts.find(p => (p.slug || String(p.id)) === slug);
+      if (found) { sSel(found); sPg("detail"); }
+      else { sPg("catalog"); }
+    }
+    return () => window.removeEventListener("popstate", onPop);
+  }, [allProducts]);
+
+  // D-194: Cart — add product with selected size
+  const addToCart = (product, selectedSize) => {
+    const existing = cart.find(c => c.id === product.id && c.size === selectedSize);
+    if (existing) {
+      setCart(cart.map(c => c.id === product.id && c.size === selectedSize ? { ...c, qty: c.qty + 1 } : c));
+    } else {
+      setCart([...cart, { ...product, size: selectedSize, qty: 1 }]);
+    }
     setToastMsg("Ürün sepete eklendi!");
     setTimeout(() => setToastMsg(""), 2000);
   };
+
+  const removeFromCart = (idx) => {
+    setCart(cart.filter((_, i) => i !== idx));
+  };
+
+  const cartTotal = cart.reduce((sum, c) => sum + c.price * (c.qty || 1), 0);
+  const cartCount = cart.reduce((sum, c) => sum + (c.qty || 1), 0);
 
   return (
     <div style={{ minHeight: "100vh", background: T.bg }}>
       <GlobalStyles />
       <TopBar settings={S} />
-      <Navbar onNav={nav} pg={pg} settings={S} />
+      <Navbar onNav={nav} pg={pg} settings={S} cartCount={cartCount} onCartToggle={() => setCartOpen(!cartOpen)} />
+
+      {/* D-194: Cart Drawer */}
+      {cartOpen && (
+        <>
+          <div onClick={() => setCartOpen(false)} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.35)", zIndex: 200 }} />
+          <div style={{
+            position: "fixed", top: 0, right: 0, bottom: 0, width: "min(420px, 90vw)", zIndex: 201,
+            background: T.bg, boxShadow: "-8px 0 40px rgba(0,0,0,0.12)", display: "flex", flexDirection: "column",
+          }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "20px 24px", borderBottom: "1px solid rgba(28,26,22,0.08)" }}>
+              <h3 style={{ fontFamily: T.serif, fontSize: 20, fontWeight: 700, color: T.text, margin: 0 }}>Sepet ({cartCount})</h3>
+              <button onClick={() => setCartOpen(false)} style={{ background: "none", border: "none", cursor: "pointer", color: T.text, fontSize: 18 }}>✕</button>
+            </div>
+            <div style={{ flex: 1, overflowY: "auto", padding: "16px 24px" }}>
+              {cart.length === 0 ? (
+                <div style={{ textAlign: "center", padding: "60px 0", color: T.textLight }}>
+                  <p style={{ fontSize: 48, marginBottom: 16 }}>🛒</p>
+                  <p style={{ fontFamily: T.sans, fontSize: 14 }}>Sepetiniz boş</p>
+                </div>
+              ) : (
+                cart.map((c, idx) => (
+                  <div key={idx} style={{ display: "flex", gap: 14, padding: "14px 0", borderBottom: "1px solid rgba(28,26,22,0.06)" }}>
+                    <div style={{ width: 64, height: 64, borderRadius: 12, overflow: "hidden", background: "#ebe5da", flexShrink: 0 }}>
+                      <img src={c.dbImage || c.image} alt={c.name || c.title} style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+                    </div>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <p style={{ fontFamily: T.sans, fontSize: 13, fontWeight: 600, color: T.text, margin: "0 0 4px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                        {c.name || c.title}
+                      </p>
+                      {c.size && <p style={{ fontFamily: T.sans, fontSize: 11, color: T.textLight, margin: "0 0 4px" }}>Beden: {c.size} · Adet: {c.qty || 1}</p>}
+                      <p style={{ fontFamily: T.sans, fontSize: 14, fontWeight: 700, color: T.text, margin: 0 }}>₺{(c.price * (c.qty || 1)).toLocaleString('tr-TR')}</p>
+                    </div>
+                    <button onClick={() => removeFromCart(idx)} style={{ background: "none", border: "none", cursor: "pointer", color: T.textLight, fontSize: 16, alignSelf: "center" }}>✕</button>
+                  </div>
+                ))
+              )}
+            </div>
+            {cart.length > 0 && (
+              <div style={{ padding: "20px 24px", borderTop: "1px solid rgba(28,26,22,0.08)" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 16 }}>
+                  <span style={{ fontFamily: T.sans, fontSize: 14, fontWeight: 600, color: T.text }}>Toplam</span>
+                  <span style={{ fontFamily: T.sans, fontSize: 18, fontWeight: 800, color: T.text }}>₺{cartTotal.toLocaleString('tr-TR')}</span>
+                </div>
+                <a href={`https://wa.me/${S.contact?.whatsappFull || '905331524843'}?text=${encodeURIComponent(
+                  `Merhaba! Sipariş vermek istiyorum:\n\n${cart.map(c => `• ${c.name || c.title}${c.size ? ` (${c.size})` : ''} x${c.qty || 1} — ₺${(c.price * (c.qty || 1)).toLocaleString('tr-TR')}`).join('\n')}\n\nToplam: ₺${cartTotal.toLocaleString('tr-TR')}`
+                )}`} target="_blank" rel="noreferrer" style={{
+                  display: "flex", alignItems: "center", justifyContent: "center", gap: 10, width: "100%",
+                  padding: "16px", background: T.green, color: "#fff", border: "none", borderRadius: T.r.full,
+                  fontFamily: T.sans, fontSize: 13, fontWeight: 700, textDecoration: "none", cursor: "pointer",
+                }}>
+                  {I.wa} WHATSAPP İLE SİPARİŞ VER
+                </a>
+              </div>
+            )}
+          </div>
+        </>
+      )}
 
       {pg === "home" && (
         <div>
           <Hero onNav={nav} settings={S} allProducts={allProducts} />
-          {/* Products Grid Section */}
+
+          {/* Neden Uygun Ayakkabı — 6 advantage cards */}
+          <WhyUsSection />
+
+          {/* Popüler Ürünler Grid */}
           <section style={{ padding: "100px 40px", maxWidth: 1440, margin: "0 auto", borderTop: "1px solid rgba(28,26,22,0.06)", position: "relative", zIndex: 1 }}>
-            <div style={{ marginBottom: 48 }}>
-              <p style={{ fontFamily: T.sans, fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.18em", color: T.red, marginBottom: 10 }}>POPÜLER</p>
-              <h2 style={{ fontFamily: T.serif, fontSize: "clamp(30px, 3.5vw, 48px)", fontWeight: 700, color: T.text, letterSpacing: "-0.02em" }}>Popüler Ayakkabılar</h2>
+            <div style={{ marginBottom: 48, display: "flex", justifyContent: "space-between", alignItems: "flex-end", flexWrap: "wrap", gap: 16 }}>
+              <div>
+                <p style={{ fontFamily: T.sans, fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.18em", color: T.red, marginBottom: 10 }}>POPÜLER</p>
+                <h2 style={{ fontFamily: T.serif, fontSize: "clamp(30px, 3.5vw, 48px)", fontWeight: 700, color: T.text, letterSpacing: "-0.02em" }}>Popüler Ayakkabılar</h2>
+              </div>
+              {/* D-257: escape to catalog */}
+              <button onClick={() => nav("catalog")} style={{ fontFamily: T.sans, fontSize: 12, fontWeight: 600, letterSpacing: "0.06em", color: T.text, background: "none", border: "1px solid rgba(28,26,22,0.15)", padding: "8px 20px", borderRadius: T.r.full, cursor: "pointer", whiteSpace: "nowrap" }}>Tümünü Gör →</button>
             </div>
             <div className="prod-grid" style={{ display: "grid", gridTemplateColumns: "repeat(6, 1fr)", gap: 16 }}>
               {allProducts.slice(0, 6).map(p => <Card key={p.id || p.slug} p={p} onView={view} />)}
@@ -805,17 +992,17 @@ export default function App({ dbProducts = [], siteSettings = null, banners = []
           <StepsSection />
 
           {/* Çok Satanlar — horizontal scroll */}
-          <BestSellersScroll allProducts={allProducts} onView={view} />
+          <BestSellersScroll allProducts={allProducts} onView={view} onNav={nav} />
 
           {/* Biz Kimiz — About */}
           <AboutSection settings={S} />
 
-          {/* Neden Bizden Almalısınız — Trust / Value */}
-          <TrustValueSection />
+          {/* Neden Bizden Almalısınız — Trust/Value */}
+          <TrustValueSection onNav={nav} settings={S} />
 
           {/* Kategori Overlay + İndirimli Ürünler */}
           <CategoryOverlay onNav={nav} />
-          <DiscountedSection allProducts={allProducts} onView={view} />
+          <DiscountedSection allProducts={allProducts} onView={view} onNav={nav} />
 
           <Footer onNav={nav} settings={S} />
         </div>
@@ -826,7 +1013,7 @@ export default function App({ dbProducts = [], siteSettings = null, banners = []
       )}
 
       {pg === "detail" && sel && (
-        <Detail product={sel} onBack={() => nav("catalog")} settings={S} onNav={nav} />
+        <Detail product={sel} onBack={() => nav("catalog")} settings={S} onNav={nav} onAddToCart={addToCart} />
       )}
 
       {toastMsg && (
@@ -845,41 +1032,204 @@ const ALL_CATEGORIES = ["Tümü", "Spor", "Günlük", "Klasik", "Bot", "Sandalet
 
 function Catalog({ onView, allProducts, initCat, onNav, settings }) {
   const [fl, sFl] = useState(initCat);
+  const [szFilter, setSzFilter] = useState(null);
+  const [sort, setSort] = useState("default");
   const [vis, sVis] = useState(12);
-  const flt = fl === "Tümü" ? allProducts : allProducts.filter(p => p.category === fl);
-  const shown = flt.slice(0, vis);
-  const hasMore = vis < flt.length;
+  const [drawerOpen, setDrawerOpen] = useState(false); // D-260: mobile filter drawer
+
+  // D-260: lock body scroll when drawer open
+  useEffect(() => {
+    if (drawerOpen) document.body.style.overflow = "hidden";
+    else document.body.style.overflow = "";
+    return () => { document.body.style.overflow = ""; };
+  }, [drawerOpen]);
+
+  // D-259: dynamic heading
+  const catHeading = fl === "Tümü" ? "Tüm Ürünler"
+    : fl === "Cüzdan" ? "Cüzdanlar"
+    : fl === "Bot" ? "Bot & Kışlık"
+    : fl === "Terlik" ? "Terlikler"
+    : fl === "Sandalet" ? "Sandaletler"
+    : `${fl} Ayakkabıları`;
+
+  const catFiltered = fl === "Tümü" ? allProducts : allProducts.filter(p => p.category === fl);
+  const allSizes = [...new Set(catFiltered.flatMap(p => p.sizes || []))].sort((a, b) => Number(a) - Number(b));
+
+  const flt = catFiltered.filter(p =>
+    !szFilter || (p.sizes && p.sizes.includes(szFilter))
+  );
+
+  const sorted = sort === "price-asc"  ? [...flt].sort((a, b) => (a.price || 0) - (b.price || 0))
+               : sort === "price-desc" ? [...flt].sort((a, b) => (b.price || 0) - (a.price || 0))
+               : sort === "discount"   ? [...flt].sort((a, b) => {
+                   const dA = a.originalPrice && a.originalPrice > a.price ? a.originalPrice - a.price : 0;
+                   const dB = b.originalPrice && b.originalPrice > b.price ? b.originalPrice - b.price : 0;
+                   return dB - dA;
+                 })
+               : flt;
+
+  const shown = sorted.slice(0, vis);
+  const hasMore = vis < sorted.length;
+  const hasActiveFilter = fl !== "Tümü" || szFilter;
+  const activeCount = (fl !== "Tümü" ? 1 : 0) + (szFilter ? 1 : 0) + (sort !== "default" ? 1 : 0); // D-260
+
+  const resetFilters = () => { sFl("Tümü"); setSzFilter(null); setSort("default"); sVis(12); };
+  const resetAndClose = () => { resetFilters(); setDrawerOpen(false); };
+
+  // D-260: sort options shared between desktop select and mobile drawer
+  const SORT_OPTIONS = [
+    { v: "default",    l: "Varsayılan" },
+    { v: "price-asc",  l: "Fiyat: Düşük → Yüksek" },
+    { v: "price-desc", l: "Fiyat: Yüksek → Düşük" },
+    { v: "discount",   l: "İndirimli Önce" },
+  ];
 
   return (
     <div style={{ paddingTop: 80, background: T.bg, minHeight: "100vh", position: "relative", zIndex: 1 }}>
-      <section style={{ maxWidth: 1440, margin: "0 auto", padding: "60px 40px 100px" }}>
-        {/* Hero */}
-        <div style={{ textAlign: "center", marginBottom: 48 }}>
-          <h1 style={{ fontFamily: T.serif, fontSize: "clamp(36px, 4vw, 56px)", fontWeight: 700, color: T.text, marginBottom: 16 }}>Ayakkabılar</h1>
-          <p style={{ fontFamily: T.sans, fontSize: 16, color: T.textLight, maxWidth: 480, margin: "0 auto" }}>Tüm kategorilerde en iyi seçkiler</p>
+      <section className="catalog-section" style={{ maxWidth: 1440, margin: "0 auto", padding: "60px 40px 100px" }}>
+
+        {/* Heading + count — always visible */}
+        <div style={{ textAlign: "center", marginBottom: 40 }}>
+          <h1 style={{ fontFamily: T.serif, fontSize: "clamp(36px, 4vw, 56px)", fontWeight: 700, color: T.text, marginBottom: 10 }}>{catHeading}</h1>
+          <p style={{ fontFamily: T.sans, fontSize: 14, color: T.textLight }}>
+            <span style={{ fontWeight: 600, color: T.text }}>{flt.length}</span> ürün
+            {szFilter && <span style={{ color: T.textLighter }}> · Beden {szFilter}</span>}
+          </p>
         </div>
 
-        {/* Filter */}
-        <div style={{ display: "flex", gap: 10, justifyContent: "center", flexWrap: "wrap", marginBottom: 40 }}>
-          {ALL_CATEGORIES.map(c => (
-            <button key={c} onClick={() => { sFl(c); sVis(12); }} style={{
-              fontFamily: T.sans, fontSize: 11, fontWeight: 600, letterSpacing: "0.08em",
-              padding: "10px 24px", borderRadius: T.r.full, cursor: "pointer", textTransform: "uppercase",
-              border: fl === c ? "1px solid #1c1a16" : "1px solid rgba(28,26,22,0.1)",
-              background: fl === c ? T.text : "rgba(238,232,222,0.6)",
-              color: fl === c ? "#fff" : T.textLight, transition: "all 0.3s", backdropFilter: "blur(8px)",
-            }}>
-              {c}
-            </button>
-          ))}
+        {/* ── DESKTOP CONTROLS (hidden on mobile via CSS) ── */}
+        <div className="catalog-desktop-controls">
+          {/* Category chips */}
+          <div style={{ display: "flex", gap: 10, justifyContent: "center", flexWrap: "wrap", marginBottom: 12 }}>
+            {ALL_CATEGORIES.map(c => (
+              <button key={c} onClick={() => { sFl(c); setSzFilter(null); setSort("default"); sVis(12); }} style={{
+                fontFamily: T.sans, fontSize: 11, fontWeight: 600, letterSpacing: "0.08em",
+                padding: "10px 24px", borderRadius: T.r.full, cursor: "pointer", textTransform: "uppercase",
+                border: fl === c ? "1px solid #1c1a16" : "1px solid rgba(28,26,22,0.1)",
+                background: fl === c ? T.text : "rgba(238,232,222,0.6)",
+                color: fl === c ? "#fff" : T.textLight, transition: "all 0.3s", backdropFilter: "blur(8px)",
+              }}>
+                {c}
+              </button>
+            ))}
+          </div>
+          {/* Size chips */}
+          {allSizes.length > 0 && (
+            <div style={{ display: "flex", gap: 8, justifyContent: "center", flexWrap: "wrap", marginBottom: 12, alignItems: "center" }}>
+              <span style={{ fontFamily: T.sans, fontSize: 10, fontWeight: 700, letterSpacing: "0.1em", textTransform: "uppercase", color: T.textLighter, marginRight: 4 }}>Beden:</span>
+              {allSizes.map(s => (
+                <button key={s} onClick={() => { setSzFilter(szFilter === s ? null : s); sVis(12); }} style={{
+                  fontFamily: T.sans, fontSize: 12, fontWeight: 600,
+                  width: 40, height: 40, borderRadius: "50%", cursor: "pointer",
+                  display: "flex", alignItems: "center", justifyContent: "center",
+                  border: szFilter === s ? "2px solid #1c1a16" : "1px solid rgba(28,26,22,0.12)",
+                  background: szFilter === s ? T.text : "rgba(238,232,222,0.6)",
+                  color: szFilter === s ? "#fff" : T.textLight, transition: "all 0.3s",
+                }}>
+                  {s}
+                </button>
+              ))}
+            </div>
+          )}
+          {/* Sort + clear row */}
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 12, marginBottom: 32, marginTop: 8 }}>
+            <div style={{ minWidth: 140 }}>
+              {hasActiveFilter && (
+                <button onClick={resetFilters} style={{
+                  fontFamily: T.sans, fontSize: 11, fontWeight: 600, letterSpacing: "0.06em",
+                  padding: "8px 18px", borderRadius: T.r.full, cursor: "pointer",
+                  border: "1px solid rgba(200,16,46,0.3)", background: "rgba(200,16,46,0.06)",
+                  color: T.red, transition: "all 0.3s",
+                }}>
+                  ✕ Filtreleri Temizle
+                </button>
+              )}
+            </div>
+            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+              <span style={{ fontFamily: T.sans, fontSize: 11, fontWeight: 600, letterSpacing: "0.08em", textTransform: "uppercase", color: T.textLighter, whiteSpace: "nowrap" }}>Sırala:</span>
+              <select value={sort} onChange={e => { setSort(e.target.value); sVis(12); }} style={{
+                fontFamily: T.sans, fontSize: 12, fontWeight: 600, color: T.text,
+                background: "rgba(238,232,222,0.8)", border: "1px solid rgba(28,26,22,0.12)",
+                borderRadius: T.r.full, padding: "8px 36px 8px 16px", cursor: "pointer",
+                appearance: "none", WebkitAppearance: "none",
+                backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%231c1a16' stroke-width='2.5'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E")`,
+                backgroundRepeat: "no-repeat", backgroundPosition: "right 12px center", outline: "none",
+              }}>
+                {SORT_OPTIONS.map(o => <option key={o.v} value={o.v}>{o.l}</option>)}
+              </select>
+            </div>
+          </div>
+        </div>
+
+        {/* ── D-260: MOBILE COMPACT BAR (shown only on mobile via CSS) ── */}
+        <div className="catalog-mobile-bar" style={{
+          position: "sticky", top: 68, zIndex: 50,
+          background: "rgba(244,239,230,0.96)", backdropFilter: "blur(20px)",
+          border: "1px solid rgba(28,26,22,0.08)", borderRadius: T.r.md,
+          padding: "10px 14px", marginBottom: 20,
+          alignItems: "center", justifyContent: "space-between", gap: 8,
+        }}>
+          {/* Left: count + active pills */}
+          <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap", flex: 1, minWidth: 0 }}>
+            <span style={{ fontFamily: T.sans, fontSize: 13, fontWeight: 700, color: T.text, whiteSpace: "nowrap" }}>
+              {flt.length} ürün
+            </span>
+            {fl !== "Tümü" && (
+              <span style={{ fontFamily: T.sans, fontSize: 11, fontWeight: 600, padding: "3px 10px", borderRadius: 999, background: T.text, color: "#fff", whiteSpace: "nowrap" }}>
+                {fl}
+              </span>
+            )}
+            {szFilter && (
+              <span style={{ fontFamily: T.sans, fontSize: 11, fontWeight: 600, padding: "3px 10px", borderRadius: 999, background: T.text, color: "#fff", whiteSpace: "nowrap" }}>
+                {szFilter} no
+              </span>
+            )}
+            {sort !== "default" && (
+              <span style={{ fontFamily: T.sans, fontSize: 11, fontWeight: 600, padding: "3px 10px", borderRadius: 999, background: "rgba(28,26,22,0.08)", color: T.text, whiteSpace: "nowrap" }}>
+                ↕ {sort === "price-asc" ? "Fiyat ↑" : sort === "price-desc" ? "Fiyat ↓" : "İndirim"}
+              </span>
+            )}
+          </div>
+          {/* Right: filter trigger button */}
+          <button onClick={() => setDrawerOpen(true)} style={{
+            fontFamily: T.sans, fontSize: 12, fontWeight: 700, letterSpacing: "0.04em",
+            padding: "10px 16px", borderRadius: T.r.full, cursor: "pointer", flexShrink: 0,
+            border: activeCount > 0 ? "1.5px solid #1c1a16" : "1px solid rgba(28,26,22,0.15)",
+            background: activeCount > 0 ? T.text : "rgba(238,232,222,0.9)",
+            color: activeCount > 0 ? "#fff" : T.text,
+            display: "flex", alignItems: "center", gap: 7, transition: "all 0.2s",
+          }}>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+              <line x1="4" y1="6" x2="20" y2="6"/><line x1="8" y1="12" x2="16" y2="12"/><line x1="11" y1="18" x2="13" y2="18"/>
+            </svg>
+            Filtrele
+            {activeCount > 0 && (
+              <span style={{ width: 18, height: 18, borderRadius: "50%", background: T.red, color: "#fff", fontSize: 10, fontWeight: 800, display: "flex", alignItems: "center", justifyContent: "center", marginLeft: 2 }}>
+                {activeCount}
+              </span>
+            )}
+          </button>
         </div>
 
         {/* Grid */}
         {flt.length === 0 ? (
           <div style={{ textAlign: "center", padding: "80px 24px" }}>
+            <div style={{ fontSize: 48, marginBottom: 20 }}>🔍</div>
             <p style={{ fontFamily: T.sans, fontSize: 18, fontWeight: 600, color: T.text, marginBottom: 8 }}>
-              {fl === "Tümü" ? "Henüz ürün eklenmedi" : `${fl} kategorisinde ürün yok`}
+              {!hasActiveFilter ? "Henüz ürün eklenmedi" : "Bu filtrelere uygun ürün bulunamadı"}
             </p>
+            <p style={{ fontFamily: T.sans, fontSize: 14, color: T.textLighter, marginBottom: 24, lineHeight: 1.6 }}>
+              {hasActiveFilter ? "Filtreleri temizleyerek tüm ürünlere göz atabilirsin." : "Yakında yeni ürünler eklenecek."}
+            </p>
+            {hasActiveFilter && (
+              <button onClick={resetFilters} style={{
+                fontFamily: T.sans, fontSize: 13, fontWeight: 600,
+                padding: "12px 32px", borderRadius: T.r.full, cursor: "pointer",
+                border: "none", background: T.text, color: "#fff", transition: "all 0.3s",
+              }}>
+                Tüm Ürünleri Göster
+              </button>
+            )}
           </div>
         ) : (
           <div className="prod-grid" style={{ display: "grid", gridTemplateColumns: "repeat(6, 1fr)", gap: 16 }}>
@@ -893,11 +1243,123 @@ function Catalog({ onView, allProducts, initCat, onNav, settings }) {
               color: T.text, background: "transparent", border: "1px solid rgba(28,26,22,0.1)",
               padding: "14px 48px", borderRadius: T.r.full, cursor: "pointer",
             }}>
-              DAHA FAZLA ({Math.max(0, flt.length - vis)})
+              DAHA FAZLA ({Math.max(0, sorted.length - vis)})
             </button>
           </div>
         )}
       </section>
+
+      {/* ── D-260: MOBILE FILTER DRAWER ── */}
+      {drawerOpen && (
+        <>
+          {/* Backdrop */}
+          <div onClick={() => setDrawerOpen(false)} style={{
+            position: "fixed", inset: 0, background: "rgba(0,0,0,0.45)", zIndex: 200,
+            animation: "fadeIn 0.2s ease",
+          }} />
+          {/* Sheet */}
+          <div style={{
+            position: "fixed", bottom: 0, left: 0, right: 0, zIndex: 201,
+            background: T.bg, borderRadius: "20px 20px 0 0",
+            maxHeight: "82vh", overflowY: "auto",
+            boxShadow: "0 -8px 48px rgba(0,0,0,0.14)",
+            animation: "slideUp 0.32s cubic-bezier(.22,1,.36,1)",
+          }}>
+            {/* Handle */}
+            <div style={{ textAlign: "center", paddingTop: 14, paddingBottom: 4 }}>
+              <div style={{ width: 40, height: 4, borderRadius: 2, background: "rgba(28,26,22,0.15)", margin: "0 auto" }} />
+            </div>
+            <div style={{ padding: "0 20px 32px" }}>
+              {/* Header */}
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", paddingTop: 12, paddingBottom: 18, borderBottom: "1px solid rgba(28,26,22,0.07)" }}>
+                <span style={{ fontFamily: T.sans, fontSize: 15, fontWeight: 700, color: T.text }}>Filtrele & Sırala</span>
+                <button onClick={() => setDrawerOpen(false)} style={{ background: "rgba(28,26,22,0.06)", border: "none", width: 32, height: 32, borderRadius: "50%", cursor: "pointer", fontSize: 14, color: T.text, display: "flex", alignItems: "center", justifyContent: "center" }}>✕</button>
+              </div>
+
+              {/* Category section */}
+              <div style={{ paddingTop: 22, paddingBottom: 20, borderBottom: "1px solid rgba(28,26,22,0.07)" }}>
+                <p style={{ fontFamily: T.sans, fontSize: 10, fontWeight: 700, letterSpacing: "0.14em", textTransform: "uppercase", color: T.textLighter, marginBottom: 14 }}>KATEGORİ</p>
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+                  {ALL_CATEGORIES.map(c => (
+                    <button key={c} onClick={() => { sFl(c); setSzFilter(null); sVis(12); }} style={{
+                      fontFamily: T.sans, fontSize: 12, fontWeight: 600, letterSpacing: "0.06em",
+                      padding: "10px 18px", borderRadius: T.r.full, cursor: "pointer", textTransform: "uppercase",
+                      border: fl === c ? "1.5px solid #1c1a16" : "1px solid rgba(28,26,22,0.1)",
+                      background: fl === c ? T.text : "rgba(238,232,222,0.7)",
+                      color: fl === c ? "#fff" : T.textLight, transition: "all 0.2s",
+                    }}>
+                      {c}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Size section */}
+              {allSizes.length > 0 && (
+                <div style={{ paddingTop: 22, paddingBottom: 20, borderBottom: "1px solid rgba(28,26,22,0.07)" }}>
+                  <p style={{ fontFamily: T.sans, fontSize: 10, fontWeight: 700, letterSpacing: "0.14em", textTransform: "uppercase", color: T.textLighter, marginBottom: 14 }}>BEDEN</p>
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+                    {allSizes.map(s => (
+                      <button key={s} onClick={() => { setSzFilter(szFilter === s ? null : s); sVis(12); }} style={{
+                        fontFamily: T.sans, fontSize: 13, fontWeight: 600,
+                        width: 48, height: 48, borderRadius: "50%", cursor: "pointer",
+                        display: "flex", alignItems: "center", justifyContent: "center",
+                        border: szFilter === s ? "2px solid #1c1a16" : "1px solid rgba(28,26,22,0.12)",
+                        background: szFilter === s ? T.text : "rgba(238,232,222,0.7)",
+                        color: szFilter === s ? "#fff" : T.textLight, transition: "all 0.2s",
+                      }}>
+                        {s}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Sort section */}
+              <div style={{ paddingTop: 22, paddingBottom: 20 }}>
+                <p style={{ fontFamily: T.sans, fontSize: 10, fontWeight: 700, letterSpacing: "0.14em", textTransform: "uppercase", color: T.textLighter, marginBottom: 14 }}>SIRALA</p>
+                <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                  {SORT_OPTIONS.map(({ v, l }) => (
+                    <button key={v} onClick={() => { setSort(v); sVis(12); }} style={{
+                      fontFamily: T.sans, fontSize: 14, fontWeight: sort === v ? 700 : 500,
+                      padding: "14px 18px", borderRadius: T.r.md, cursor: "pointer", textAlign: "left",
+                      border: sort === v ? "1.5px solid #1c1a16" : "1px solid rgba(28,26,22,0.1)",
+                      background: sort === v ? T.text : "rgba(238,232,222,0.4)",
+                      color: sort === v ? "#fff" : T.text, transition: "all 0.2s",
+                      display: "flex", justifyContent: "space-between", alignItems: "center",
+                    }}>
+                      {l}
+                      {sort === v && <span style={{ fontSize: 15 }}>✓</span>}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* CTA row */}
+              <div style={{ display: "flex", gap: 10, paddingTop: 8 }}>
+                {(hasActiveFilter || sort !== "default") && (
+                  <button onClick={resetAndClose} style={{
+                    fontFamily: T.sans, fontSize: 13, fontWeight: 600, flexShrink: 0,
+                    padding: "14px 18px", borderRadius: T.r.full, cursor: "pointer",
+                    border: "1px solid rgba(200,16,46,0.3)", background: "rgba(200,16,46,0.06)",
+                    color: T.red,
+                  }}>
+                    Temizle
+                  </button>
+                )}
+                <button onClick={() => setDrawerOpen(false)} style={{
+                  fontFamily: T.sans, fontSize: 14, fontWeight: 700, flex: 1,
+                  padding: "14px 20px", borderRadius: T.r.full, cursor: "pointer",
+                  border: "none", background: T.text, color: "#fff",
+                }}>
+                  {flt.length} Ürünü Gör →
+                </button>
+              </div>
+            </div>
+          </div>
+        </>
+      )}
+
       <Footer onNav={onNav || (() => {})} settings={settings} />
     </div>
   );
@@ -906,17 +1368,19 @@ function Catalog({ onView, allProducts, initCat, onNav, settings }) {
 // ============================================
 // DETAIL PAGE
 // ============================================
-function Detail({ product: p, onBack, settings, onNav }) {
+function Detail({ product: p, onBack, settings, onNav, onAddToCart }) {
   const ct = settings?.contact || DEFAULT_SETTINGS.contact;
   const [sz, sSz] = useState(null);
   const [im, sIm] = useState(0);
-  const isSoldOut = p.stock === 0;
+  // D-194b: soldout only when explicitly marked or stock is confirmed zero
+  const isSoldOut = p.badge === "Tükendi" || p.status === "soldout" || (p.stock != null && p.stock === 0);
   const sl = isSoldOut
     ? { t: "Stokta Yok", c: T.red, bg: T.redSoft }
     : p.stock && p.stock <= 3
     ? { t: `Son ${p.stock} adet!`, c: "#d97706", bg: "rgba(217,119,6,0.1)" }
     : { t: "Stokta", c: "#22c55e", bg: "rgba(34,197,94,0.1)" };
-  const allImages = p.images?.length ? p.images : [p.dbImage || p.image];
+  // D-174b: Only AI images, never original intake photos
+  const allImages = (p.aiImages?.length ? p.aiImages : p.images?.length ? p.images : null) || [p.dbImage || p.image];
 
   return (
     <div style={{ paddingTop: 80, background: T.bg, minHeight: "100vh", position: "relative", zIndex: 1 }}>
@@ -986,7 +1450,7 @@ function Detail({ product: p, onBack, settings, onNav }) {
 
             {/* Actions */}
             <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-              <button style={{
+              <button onClick={() => { if (!isSoldOut && onAddToCart) onAddToCart(p, sz); }} style={{
                 width: "100%", padding: "17px",
                 background: !isSoldOut ? T.text : "rgba(28,26,22,0.3)",
                 color: "#fff", border: "none", borderRadius: T.r.full, fontFamily: T.sans, fontSize: 12, fontWeight: 700,
@@ -1010,10 +1474,10 @@ function Detail({ product: p, onBack, settings, onNav }) {
             {/* Trust Badges */}
             <div style={{ display: "flex", gap: 24, marginTop: 20, paddingTop: 20, borderTop: "1px solid rgba(28,26,22,0.06)" }}>
               <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 11, color: T.textLighter }}>
-                <span style={{ fontSize: 16 }}>✓</span> 100% Orijinal
+                <span style={{ fontSize: 16 }}>✓</span> Ücretsiz Kargo
               </div>
               <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 11, color: T.textLighter }}>
-                <span style={{ fontSize: 16 }}>✓</span> Ücretsiz Kargo
+                <span style={{ fontSize: 16 }}>✓</span> Hızlı Teslimat
               </div>
             </div>
           </div>

@@ -208,6 +208,28 @@ function buildFaqJsonLd(faq: FAQItem[]) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// D-261: Static default process FAQ — shown when product has no DB FAQ data
+// ─────────────────────────────────────────────────────────────────────────────
+const DEFAULT_PROCESS_FAQ: FAQItem[] = [
+  {
+    q: 'Talep bıraktıktan sonra ne olur?',
+    a: 'Ekibimiz en kısa sürede sizi telefonla arar. Ürün, beden ve teslimat detaylarını birlikte netleştiririz.',
+  },
+  {
+    q: 'Beden konusunda yardım alabilir miyim?',
+    a: 'Evet. Sizi aradığımızda hangi bedeni almanız gerektiği konusunda destek sağlıyoruz. Tereddüt etmeden bilgi bırakabilirsiniz.',
+  },
+  {
+    q: 'Teslimat süreci nasıl işliyor?',
+    a: 'Siparişiniz onaylandıktan sonra kargoya verilir ve adresinize teslim edilir. Kargo takip numarası paylaşılır.',
+  },
+  {
+    q: 'Ödeme nasıl yapılır?',
+    a: 'Shopier üzerinden güvenli kart ödemesi yapabilir ya da kapıda ödeme seçeneğini tercih edebilirsiniz.',
+  },
+]
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Product Page — Merged: SPA beige theme + SSR enhancements
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -653,34 +675,35 @@ export default async function ProductPage({ params }: Props) {
                   </a>
                 </div>
 
-                {/* Trust Badges */}
+                {/* D-261: Trust strip — stronger, credible, 4-item 2×2 grid */}
                 <div style={{
-                  display: 'flex',
-                  gap: 24,
-                  marginTop: 20,
-                  paddingTop: 20,
+                  display: 'grid',
+                  gridTemplateColumns: '1fr 1fr',
+                  gap: 10,
+                  marginTop: 24,
+                  paddingTop: 24,
                   borderTop: '1px solid rgba(28,26,22,0.06)',
                 }}>
-                  <div style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 6,
-                    fontFamily: "'Inter', sans-serif",
-                    fontSize: 11,
-                    color: 'rgba(28,26,22,0.3)',
-                  }}>
-                    <span style={{ fontSize: 16 }}>✓</span> Ücretsiz Kargo
-                  </div>
-                  <div style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 6,
-                    fontFamily: "'Inter', sans-serif",
-                    fontSize: 11,
-                    color: 'rgba(28,26,22,0.3)',
-                  }}>
-                    <span style={{ fontSize: 16 }}>✓</span> Hızlı Teslimat
-                  </div>
+                  {[
+                    { icon: '📞', title: 'Hızlı Geri Dönüş', desc: 'Talebinizden sonra sizi arıyoruz' },
+                    { icon: '📦', title: 'Hızlı Teslimat', desc: 'Onay sonrası kargoya verilir' },
+                    { icon: '💬', title: 'Beden Desteği', desc: 'Beden konusunda yönlendiriyoruz' },
+                    { icon: '🔒', title: 'Güvenli İletişim', desc: 'Bilgiler yalnızca sipariş için' },
+                  ].map((item, i) => (
+                    <div key={i} style={{
+                      display: 'flex', alignItems: 'flex-start', gap: 10,
+                      padding: '12px 14px',
+                      background: 'rgba(238,232,222,0.5)',
+                      borderRadius: 12,
+                      border: '1px solid rgba(28,26,22,0.05)',
+                    }}>
+                      <span style={{ fontSize: 18, flexShrink: 0 }}>{item.icon}</span>
+                      <div>
+                        <p style={{ fontFamily: "'Inter', sans-serif", fontSize: 11, fontWeight: 700, color: '#1c1a16', marginBottom: 2 }}>{item.title}</p>
+                        <p style={{ fontFamily: "'Inter', sans-serif", fontSize: 10, color: 'rgba(28,26,22,0.4)', lineHeight: 1.4 }}>{item.desc}</p>
+                      </div>
+                    </div>
+                  ))}
                 </div>
 
                 {/* D-256: Contact Form — id anchor for sticky CTA */}
@@ -696,18 +719,36 @@ export default async function ProductPage({ params }: Props) {
                     fontSize: 16,
                     fontWeight: 700,
                     color: '#1c1a16',
-                    marginBottom: 4,
+                    marginBottom: 16,
                   }}>
                     Sipariş Ver
                   </h3>
-                  <p style={{
-                    fontFamily: "'Inter', sans-serif",
-                    fontSize: 12,
-                    color: 'rgba(28,26,22,0.3)',
-                    marginBottom: 20,
-                  }}>
-                    Beden seçin, bilgilerinizi bırakın — sizi arayalım.
-                  </p>
+                  {/* D-261: 3-step process strip — explains what happens after form submit */}
+                  <div style={{ display: 'flex', alignItems: 'flex-start', gap: 0, marginBottom: 20 }}>
+                    {[
+                      { num: '1', label: 'Formu Doldurun' },
+                      { num: '2', label: 'Sizi Arayalım' },
+                      { num: '3', label: 'Ürün Elinizde' },
+                    ].map(({ num, label }, i, arr) => (
+                      <div key={i} style={{ display: 'flex', alignItems: 'center', flex: i < arr.length - 1 ? 1 : undefined }}>
+                        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 5, minWidth: 60 }}>
+                          <div style={{
+                            width: 28, height: 28, borderRadius: '50%',
+                            background: '#1c1a16', color: '#fff',
+                            display: 'flex', alignItems: 'center', justifyContent: 'center',
+                            fontFamily: "'Inter', sans-serif", fontSize: 11, fontWeight: 700,
+                          }}>{num}</div>
+                          <span style={{
+                            fontFamily: "'Inter', sans-serif", fontSize: 9, fontWeight: 600,
+                            color: 'rgba(28,26,22,0.4)', textAlign: 'center', lineHeight: 1.3,
+                          }}>{label}</span>
+                        </div>
+                        {i < arr.length - 1 && (
+                          <div style={{ flex: 1, height: 1, background: 'rgba(28,26,22,0.1)', margin: '0 4px', marginBottom: 18 }} />
+                        )}
+                      </div>
+                    ))}
+                  </div>
                   <ContactForm
                     productId={String(product.id)}
                     productTitle={product.title}
@@ -734,12 +775,10 @@ export default async function ProductPage({ params }: Props) {
               </div>
             )}
 
-            {/* FAQ Section */}
-            {validFaq.length > 0 && (
-              <div style={{ marginTop: 48 }}>
-                <ProductFAQ faq={validFaq} />
-              </div>
-            )}
+            {/* D-261: FAQ — show DB FAQ when available, else static default process FAQ */}
+            <div style={{ marginTop: 48 }}>
+              <ProductFAQ faq={validFaq.length > 0 ? validFaq : DEFAULT_PROCESS_FAQ} />
+            </div>
           </section>
         </main>
 

@@ -722,3 +722,18 @@ Any modification to `src/lib/imageProviders.ts` or `src/jobs/imageGenTask.ts` th
 - Phase C depends on channel integrations being live
 - Phase D is future enhancement
 
+
+---
+
+## Storefront UX Polish (D-257 → D-261) — COMPLETED 2026-05-07
+
+- [x] D-257: Homepage/listing → PDP clickthrough polish
+- [x] D-258: Homepage trust / order flow clarity, brand copy
+- [x] D-259: Catalog browse clarity — dynamic heading, sort, count, scoped size filter
+- [x] D-260: Mobile catalog filter drawer — sticky bar + bottom sheet
+- [x] D-261: PDP trust/delivery/FAQ clarity — trust grid, process steps, always-on FAQ, success state
+
+## Production Data Cleanup — COMPLETED 2026-05-07
+- [x] 38 test products + 164 variants + 161 media + 20 PI reports deleted (scripts/production-cleanup.mjs)
+- [ ] Manual cleanup pending: Shopier panel, Meta Business Suite, X test tweets, Payload Admin media
+

@@ -820,9 +820,15 @@ Product page now renders Geobot content with safe fallbacks:
 | D-254 | `/utm` Telegram command — UTM link builder with source/medium/campaign guardrails, SN lookup | `src/lib/utmBuilder.ts`, `src/app/api/telegram/route.ts` |
 | D-255 | `/campaigns` + `/campaign <name>` — campaign QA surface, heuristic signals for untagged/singleton traffic | `src/lib/campaignDesk.ts`, `src/app/api/telegram/route.ts` |
 | D-256 | Product page lead conversion polish — interactive size chips in ContactForm, success state with product title, sticky mobile CTA, `id="inquiry-form"` anchor | `src/components/ContactForm.tsx`, `src/app/(app)/products/[slug]/page.tsx` |
+| D-257 | Homepage/listing → PDP clickthrough polish — sticky CTA on mobile, product card detail button, category chips on homepage | `src/app/(app)/UygunApp.jsx` |
+| D-258 | Homepage trust / order flow clarity — 3-step inquiry flow strip, brand copy applied | `src/app/(app)/UygunApp.jsx` |
+| D-259 | Catalog browse clarity polish — dynamic heading per filter, always-visible count, sort controls, category-scoped size filter | `src/app/(app)/UygunApp.jsx` |
+| D-260 | Mobile catalog filter drawer — sticky compact bar + bottom sheet, active filter pills, body scroll lock | `src/app/(app)/UygunApp.jsx` |
+| D-261 | PDP trust/delivery/FAQ clarity — 4-item trust strip grid, 3-step process strip, always-on FAQ fallback, success state next-steps, ProductFAQ restyle | `src/app/(app)/products/[slug]/page.tsx`, `src/components/ContactForm.tsx`, `src/components/ProductFAQ.tsx` |
 
 **Schema changes (Neon DDL applied manually — push:true skips silently):**
 - D-251: `ALTER TABLE customer_inquiries ADD COLUMN utm_source / utm_medium / utm_campaign / referrer VARCHAR(255)`
 
 **Telegram commands added:** `/utm`, `/campaigns`, `/campaign`
 
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     

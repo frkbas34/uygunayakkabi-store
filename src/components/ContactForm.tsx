@@ -106,6 +106,7 @@ export function ContactForm({ productId, productTitle, variants, soldout }: Prop
   }
 
   // ── Success state ───────────────────────────────────────────────────────────
+  // D-261: Success state — clearer next-steps context
   if (status === 'success') {
     return (
       <div className="text-center py-6 px-4">
@@ -119,9 +120,23 @@ export function ContactForm({ productId, productTitle, variants, soldout }: Prop
             talebinizi aldık.
           </p>
         )}
-        <p className="text-sm text-gray-600">
+        <p className="text-sm text-gray-700 font-medium mb-3">
           Sizi en kısa sürede arıyoruz.
         </p>
+        <div className="text-left bg-white border border-gray-100 rounded-xl px-4 py-3 space-y-2 text-xs text-gray-500">
+          <div className="flex items-center gap-2">
+            <span className="text-green-500 font-bold">✓</span>
+            <span>Ekibimiz sizi telefonla arayacak</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="font-bold text-gray-300">→</span>
+            <span>Beden ve teslimat detaylarını netleştireceğiz</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="font-bold text-gray-300">→</span>
+            <span>Siparişiniz onaylanacak ve kargoya verilecek</span>
+          </div>
+        </div>
       </div>
     )
   }
@@ -234,9 +249,9 @@ export function ContactForm({ productId, productTitle, variants, soldout }: Prop
         {status === 'loading' ? 'Gönderiliyor…' : 'Talep Oluştur — Beni Arayın'}
       </button>
 
-      {/* Trust line */}
+      {/* D-261: Trust line — slightly stronger */}
       <p className="text-xs text-center text-gray-400">
-        Bilgileriniz yalnızca sipariş desteği için kullanılır.
+        🔒 Bilgileriniz yalnızca sipariş desteği için kullanılır. Üçüncü taraflarla paylaşılmaz.
       </p>
 
       {/* Error */}

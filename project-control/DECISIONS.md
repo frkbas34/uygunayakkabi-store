@@ -6555,3 +6555,27 @@ what happens after contact, and why to trust the process — without redesigning
 
 **Preserved:** D-259 desktop layout unchanged. D-257 card links intact. D-256 PDP flow intact.
 **Commit:** 2d54f16
+
+---
+
+## D-261 — PDP Trust / Delivery / FAQ Clarity Polish (2026-05-07)
+
+**Problem:** PDP inquiry form had weak trust signals, vague subtext with no visual hierarchy, FAQ only appeared when product had explicit FAQ data (empty on most products), and the form success state showed only a single confirmation line with no next-steps context.
+
+**Changes — `src/app/(app)/products/[slug]/page.tsx`:**
+- `DEFAULT_PROCESS_FAQ` constant (4 items): always-on fallback FAQ covering process flow, size help, delivery, and payment
+- Trust strip redesigned from 2-item horizontal row to 4-item 2×2 grid: 📞 Hızlı Geri Dönüş, 📦 Hızlı Teslimat, 💬 Beden Desteği, 🔒 Güvenli İletişim
+- 3-step process strip inside inquiry card: Formu Doldurun → Sizi Arayalım → Ürün Elinizde
+- FAQ section now always renders: `validFaq.length > 0 ? validFaq : DEFAULT_PROCESS_FAQ`
+
+**Changes — `src/components/ContactForm.tsx`:**
+- Success state now shows next-steps checklist (3 lines: call, clarify details, ship)
+- Trust line: "🔒 Bilgileriniz yalnızca sipariş desteği için kullanılır. Üçüncü taraflarla paylaşılmaz."
+
+**Changes — `src/components/ProductFAQ.tsx`:**
+- Full inline-style restyle matching beige PDP theme (removed Tailwind classes)
+- New heading: "SIKÇA SORULAN SORULAR" label + "Merak Ettikleriniz" in Playfair serif
+- Toggle button: dark filled circle (26×26px) with +/− indicator
+
+**Preserved:** D-256 ContactForm UTM capture + size chips untouched. All PDP SSR data fetching unchanged.
+**Commit:** (pending)

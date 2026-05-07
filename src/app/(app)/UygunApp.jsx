@@ -1183,6 +1183,19 @@ function Catalog({ onView, allProducts, initCat, onNav, settings }) {
             </button>
           </div>
         )}
+
+        {/* ── D-262: Catalog contact nudge ── */}
+        <div style={{ textAlign: "center", marginTop: 40, paddingTop: 32, borderTop: "1px solid rgba(28,26,22,0.06)" }}>
+          <p style={{ fontFamily: T.sans, fontSize: 13, color: T.textLighter, margin: "0 0 10px" }}>
+            Aradığınız modeli veya bedeni bulamıyor musunuz?
+          </p>
+          <a href={waLink()} target="_blank" rel="noreferrer" style={{
+            fontFamily: T.sans, fontSize: 13, fontWeight: 700, color: T.text,
+            textDecoration: "underline", letterSpacing: "0.04em",
+          }}>
+            WhatsApp&apos;tan yardım alın →
+          </a>
+        </div>
       </section>
 
       {/* ── D-260: MOBILE FILTER DRAWER ── */}
@@ -1395,7 +1408,7 @@ function Detail({ product: p, onBack, settings, onNav, onAddToCart }) {
               }}>
                 {!isSoldOut ? "SEPETE EKLE" : "STOKTA YOK"}
               </button>
-              <a href={`https://wa.me/${ct.whatsappFull}?text=Merhaba!%20${encodeURIComponent((p.name || p.title || "Ürün"))}%20hakkında%20bilgi%20almak%20istiyorum.`}
+              <a href={`https://wa.me/${ct.whatsappFull}?text=Merhaba!%20${encodeURIComponent((p.name || p.title || "Ürün"))}%20hakkında%20${sz ? encodeURIComponent(`Beden: ${sz} — `) : ''}bilgi%20almak%20istiyorum.`}
                 target="_blank" rel="noreferrer" style={{
                   width: "100%", padding: "17px", boxSizing: "border-box",
                   background: T.green, color: "#fff", border: "none",
@@ -1403,7 +1416,7 @@ function Detail({ product: p, onBack, settings, onNav, onAddToCart }) {
                   textDecoration: "none", textAlign: "center", display: "flex", alignItems: "center", justifyContent: "center", gap: 10,
                   transition: "all 0.3s", cursor: "pointer",
                 }}>
-                {I.wa} WHATSAPP İLE SİPARİŞ VER
+                {I.wa} WhatsApp&apos;tan Bilgi Al
               </a>
             </div>
 

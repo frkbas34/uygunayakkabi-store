@@ -758,3 +758,12 @@ Any modification to `src/lib/imageProviders.ts` or `src/jobs/imageGenTask.ts` th
 - [x] 38 test products + 164 variants + 161 media + 20 PI reports deleted (scripts/production-cleanup.mjs)
 - [ ] Manual cleanup pending: Shopier panel, Meta Business Suite, X test tweets, Payload Admin media
 
+
+## OOS Size Auto-Prefill / Recovery UX Polish (D-265) — COMPLETED 2026-05-08
+
+- [x] D-265: New `OOSChip.tsx` client component — fires `CustomEvent('oosChipClicked')` + smooth-scrolls to `#inquiry-form`
+- [x] D-265: ContactForm `useEffect` listener → auto-prefills `size` state + sets `oosContext` when OOS chip tapped
+- [x] D-265: Amber contextual banner in ContactForm — "{size} numara şu an stokta görünmüyor. Talep bırakın..."
+- [x] D-265: Amber input border when `oosContext` active; clears on manual edit or success reset
+- [x] D-265: page.tsx OOS `<a href="#inquiry-form">` chips replaced with `<OOSChip size={variant.size} />`
+- [x] D-265: Commit `e8ea373` pushed to main

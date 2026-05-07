@@ -6679,3 +6679,40 @@ what happens after contact, and why to trust the process — without redesigning
 
 **Preserved:** D-256 UTM capture, D-261 trust strip/FAQ, D-262 WA fast-path, D-263 form heading/process steps — all untouched.
 **Commit:** `cd2369d` — `D-264: Out-of-stock size recovery / alternative inquiry path V1`
+
+---
+
+## D-265 — OOS Size Auto-Prefill / Recovery UX Polish V1
+**Status:** IMPLEMENTED — commit `e8ea373`, pushed to `main` 2026-05-08
+
+**Problem:**
+- After D-264, tapping an OOS chip scrolled user to the inquiry form (good), but the recovery input was empty — no indication of which size was tapped. The connection between chip and form was invisible to the user.
+
+**Decision:**
+Replace the static `<a href="#inquiry-form">` OOS chips with a `OOSChip` client component that fires a custom browser event, and have `ContactForm` listen for it to auto-prefill the tapped size with contextual amber UI.
+
+**Architecture — cross-component communication via CustomEvent:**
+- OOS chips are rendered inside `page.tsx` (a Next.js SSR server component). `ContactForm` is a separate client component. The clicked size is not known at server render time so it cannot be passed as a prop.
+- Selected approach: new `OOSChip.tsx` ('use client') fires `window.dispatchEvent(new CustomEvent('oosChipClicked', { detail: { size } }))` on click, then smooth-scrolls to `#inquiry-form`. No URL changes, no sessionStorage, no Next.js router involvement.
+- `ContactForm` registers `window.addEventListener('oosChipClicked', handler)` in a `useEffect` → prefills `size` state + sets `oosContext` state (the tapped size string).
+
+**Changes — `src/components/OOSChip.tsx` (new file):**
+- Client component rendering same visual style as D-264 OOS chips (dashed border, line-through, faded colour)
+- `onClick`: fires `oosChipClicked` CustomEvent with `{ detail: { size } }`, then `requestAnimationFrame` smooth-scrolls to `#inquiry-form`
+- Keyboard accessible: `role="button"`, `tabIndex={0}`, `onKeyDown` Enter/Space handler
+
+**Changes — `src/components/ContactForm.tsx`:**
+- Added `oosContext: string | null` state (null = no prefill context)
+- `useEffect` listener: on `oosChipClicked` → `setSize(detail.size)`, `setOosContext(detail.size)`, `setChipSelected(false)`
+- Success reset: `setOosContext(null)` added alongside existing state clears
+- When `!chipSelected` and `oosContext` set: amber banner "X numara şu an stokta görünmüyor. Talep bırakın, alternatif stok durumunu sizi arayarak bildiririz."
+- When `!chipSelected` and no `oosContext`: original "Stokta olmayan beden mi arıyorsunuz?" label
+- Input border: amber (`border-amber-300 focus:ring-amber-400`) when `oosContext` set, grey otherwise
+- Input `onChange`: clears `oosContext` when user manually edits the prefilled value (amber UI dismissed)
+
+**Changes — `src/app/(app)/products/[slug]/page.tsx`:**
+- Added `import { OOSChip } from '@/components/OOSChip'`
+- OOS chip render: `<a key={variant.id} href="#inquiry-form" ...>` → `<OOSChip key={variant.id} size={variant.size} />`
+
+**Preserved:** All D-262/263/264 functionality — WA fast-path, sticky CTA, form heading, chipSelected logic, UTM capture — all untouched.
+**Commit:** `e8ea373` — `D-265: OOS size auto-prefill + recovery UX polish V1`

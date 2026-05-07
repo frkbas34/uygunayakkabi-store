@@ -95,6 +95,15 @@ function GlobalStyles() {
       .fade-in { animation: fadeIn 0.6s ease forwards; }
       .no-scrollbar::-webkit-scrollbar { display: none; }
       .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+      @keyframes slideUp { from { transform: translateY(100%); } to { transform: translateY(0); } }
+      /* D-260: catalog mobile/desktop control visibility */
+      .catalog-desktop-controls { display: block; }
+      .catalog-mobile-bar { display: none; }
+      @media(max-width:767px) {
+        .catalog-desktop-controls { display: none !important; }
+        .catalog-mobile-bar { display: flex !important; }
+        .catalog-section { padding: 16px 16px 100px !important; }
+      }
       @media(max-width:768px) {
         .hero-grid { grid-template-columns: 1fr !important; text-align: center; }
         .hero-grid > div:first-child { order: 2; }
@@ -962,8 +971,16 @@ function Catalog({ onView, allProducts, initCat, onNav, settings }) {
   const [szFilter, setSzFilter] = useState(null);
   const [sort, setSort] = useState("default");
   const [vis, sVis] = useState(12);
+  const [drawerOpen, setDrawerOpen] = useState(false); // D-260: mobile filter drawer
 
-  // D-259: dynamic heading based on active category
+  // D-260: lock body scroll when drawer open
+  useEffect(() => {
+    if (drawerOpen) document.body.style.overflow = "hidden";
+    else document.body.style.overflow = "";
+    return () => { document.body.style.overflow = ""; };
+  }, [drawerOpen]);
+
+  // D-259: dynamic heading
   const catHeading = fl === "Tümü" ? "Tüm Ürünler"
     : fl === "Cüzdan" ? "Cüzdanlar"
     : fl === "Bot" ? "Bot & Kışlık"
@@ -971,16 +988,13 @@ function Catalog({ onView, allProducts, initCat, onNav, settings }) {
     : fl === "Sandalet" ? "Sandaletler"
     : `${fl} Ayakkabıları`;
 
-  // Extract all unique sizes sorted numerically — only from category-filtered products
   const catFiltered = fl === "Tümü" ? allProducts : allProducts.filter(p => p.category === fl);
   const allSizes = [...new Set(catFiltered.flatMap(p => p.sizes || []))].sort((a, b) => Number(a) - Number(b));
 
-  // Combined filter: category + size
   const flt = catFiltered.filter(p =>
     !szFilter || (p.sizes && p.sizes.includes(szFilter))
   );
 
-  // D-259: sort
   const sorted = sort === "price-asc"  ? [...flt].sort((a, b) => (a.price || 0) - (b.price || 0))
                : sort === "price-desc" ? [...flt].sort((a, b) => (b.price || 0) - (a.price || 0))
                : sort === "discount"   ? [...flt].sort((a, b) => {
@@ -993,14 +1007,24 @@ function Catalog({ onView, allProducts, initCat, onNav, settings }) {
   const shown = sorted.slice(0, vis);
   const hasMore = vis < sorted.length;
   const hasActiveFilter = fl !== "Tümü" || szFilter;
+  const activeCount = (fl !== "Tümü" ? 1 : 0) + (szFilter ? 1 : 0) + (sort !== "default" ? 1 : 0); // D-260
 
   const resetFilters = () => { sFl("Tümü"); setSzFilter(null); setSort("default"); sVis(12); };
+  const resetAndClose = () => { resetFilters(); setDrawerOpen(false); };
+
+  // D-260: sort options shared between desktop select and mobile drawer
+  const SORT_OPTIONS = [
+    { v: "default",    l: "Varsayılan" },
+    { v: "price-asc",  l: "Fiyat: Düşük → Yüksek" },
+    { v: "price-desc", l: "Fiyat: Yüksek → Düşük" },
+    { v: "discount",   l: "İndirimli Önce" },
+  ];
 
   return (
     <div style={{ paddingTop: 80, background: T.bg, minHeight: "100vh", position: "relative", zIndex: 1 }}>
-      <section style={{ maxWidth: 1440, margin: "0 auto", padding: "60px 40px 100px" }}>
+      <section className="catalog-section" style={{ maxWidth: 1440, margin: "0 auto", padding: "60px 40px 100px" }}>
 
-        {/* D-259: Dynamic heading */}
+        {/* Heading + count — always visible */}
         <div style={{ textAlign: "center", marginBottom: 40 }}>
           <h1 style={{ fontFamily: T.serif, fontSize: "clamp(36px, 4vw, 56px)", fontWeight: 700, color: T.text, marginBottom: 10 }}>{catHeading}</h1>
           <p style={{ fontFamily: T.sans, fontSize: 14, color: T.textLight }}>
@@ -1009,77 +1033,118 @@ function Catalog({ onView, allProducts, initCat, onNav, settings }) {
           </p>
         </div>
 
-        {/* Category Filter */}
-        <div style={{ display: "flex", gap: 10, justifyContent: "center", flexWrap: "wrap", marginBottom: 12 }}>
-          {ALL_CATEGORIES.map(c => (
-            <button key={c} onClick={() => { sFl(c); setSzFilter(null); setSort("default"); sVis(12); }} style={{
-              fontFamily: T.sans, fontSize: 11, fontWeight: 600, letterSpacing: "0.08em",
-              padding: "10px 24px", borderRadius: T.r.full, cursor: "pointer", textTransform: "uppercase",
-              border: fl === c ? "1px solid #1c1a16" : "1px solid rgba(28,26,22,0.1)",
-              background: fl === c ? T.text : "rgba(238,232,222,0.6)",
-              color: fl === c ? "#fff" : T.textLight, transition: "all 0.3s", backdropFilter: "blur(8px)",
-            }}>
-              {c}
-            </button>
-          ))}
-        </div>
-
-        {/* D-259: Size filter — only shows sizes available in current category */}
-        {allSizes.length > 0 && (
-          <div style={{ display: "flex", gap: 8, justifyContent: "center", flexWrap: "wrap", marginBottom: 12, alignItems: "center" }}>
-            <span style={{ fontFamily: T.sans, fontSize: 10, fontWeight: 700, letterSpacing: "0.1em", textTransform: "uppercase", color: T.textLighter, marginRight: 4 }}>Beden:</span>
-            {allSizes.map(s => (
-              <button key={s} onClick={() => { setSzFilter(szFilter === s ? null : s); sVis(12); }} style={{
-                fontFamily: T.sans, fontSize: 12, fontWeight: 600,
-                width: 40, height: 40, borderRadius: "50%", cursor: "pointer",
-                display: "flex", alignItems: "center", justifyContent: "center",
-                border: szFilter === s ? "2px solid #1c1a16" : "1px solid rgba(28,26,22,0.12)",
-                background: szFilter === s ? T.text : "rgba(238,232,222,0.6)",
-                color: szFilter === s ? "#fff" : T.textLight, transition: "all 0.3s",
+        {/* ── DESKTOP CONTROLS (hidden on mobile via CSS) ── */}
+        <div className="catalog-desktop-controls">
+          {/* Category chips */}
+          <div style={{ display: "flex", gap: 10, justifyContent: "center", flexWrap: "wrap", marginBottom: 12 }}>
+            {ALL_CATEGORIES.map(c => (
+              <button key={c} onClick={() => { sFl(c); setSzFilter(null); setSort("default"); sVis(12); }} style={{
+                fontFamily: T.sans, fontSize: 11, fontWeight: 600, letterSpacing: "0.08em",
+                padding: "10px 24px", borderRadius: T.r.full, cursor: "pointer", textTransform: "uppercase",
+                border: fl === c ? "1px solid #1c1a16" : "1px solid rgba(28,26,22,0.1)",
+                background: fl === c ? T.text : "rgba(238,232,222,0.6)",
+                color: fl === c ? "#fff" : T.textLight, transition: "all 0.3s", backdropFilter: "blur(8px)",
               }}>
-                {s}
+                {c}
               </button>
             ))}
           </div>
-        )}
-
-        {/* D-259: Sort + clear row */}
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 12, marginBottom: 32, marginTop: 8 }}>
-          {/* Left: clear filters */}
-          <div style={{ minWidth: 140 }}>
-            {hasActiveFilter && (
-              <button onClick={resetFilters} style={{
-                fontFamily: T.sans, fontSize: 11, fontWeight: 600, letterSpacing: "0.06em",
-                padding: "8px 18px", borderRadius: T.r.full, cursor: "pointer",
-                border: "1px solid rgba(200,16,46,0.3)", background: "rgba(200,16,46,0.06)",
-                color: T.red, transition: "all 0.3s",
-              }}>
-                ✕ Filtreleri Temizle
-              </button>
-            )}
-          </div>
-          {/* Right: sort select */}
-          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-            <span style={{ fontFamily: T.sans, fontSize: 11, fontWeight: 600, letterSpacing: "0.08em", textTransform: "uppercase", color: T.textLighter, whiteSpace: "nowrap" }}>Sırala:</span>
-            <select
-              value={sort}
-              onChange={e => { setSort(e.target.value); sVis(12); }}
-              style={{
+          {/* Size chips */}
+          {allSizes.length > 0 && (
+            <div style={{ display: "flex", gap: 8, justifyContent: "center", flexWrap: "wrap", marginBottom: 12, alignItems: "center" }}>
+              <span style={{ fontFamily: T.sans, fontSize: 10, fontWeight: 700, letterSpacing: "0.1em", textTransform: "uppercase", color: T.textLighter, marginRight: 4 }}>Beden:</span>
+              {allSizes.map(s => (
+                <button key={s} onClick={() => { setSzFilter(szFilter === s ? null : s); sVis(12); }} style={{
+                  fontFamily: T.sans, fontSize: 12, fontWeight: 600,
+                  width: 40, height: 40, borderRadius: "50%", cursor: "pointer",
+                  display: "flex", alignItems: "center", justifyContent: "center",
+                  border: szFilter === s ? "2px solid #1c1a16" : "1px solid rgba(28,26,22,0.12)",
+                  background: szFilter === s ? T.text : "rgba(238,232,222,0.6)",
+                  color: szFilter === s ? "#fff" : T.textLight, transition: "all 0.3s",
+                }}>
+                  {s}
+                </button>
+              ))}
+            </div>
+          )}
+          {/* Sort + clear row */}
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 12, marginBottom: 32, marginTop: 8 }}>
+            <div style={{ minWidth: 140 }}>
+              {hasActiveFilter && (
+                <button onClick={resetFilters} style={{
+                  fontFamily: T.sans, fontSize: 11, fontWeight: 600, letterSpacing: "0.06em",
+                  padding: "8px 18px", borderRadius: T.r.full, cursor: "pointer",
+                  border: "1px solid rgba(200,16,46,0.3)", background: "rgba(200,16,46,0.06)",
+                  color: T.red, transition: "all 0.3s",
+                }}>
+                  ✕ Filtreleri Temizle
+                </button>
+              )}
+            </div>
+            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+              <span style={{ fontFamily: T.sans, fontSize: 11, fontWeight: 600, letterSpacing: "0.08em", textTransform: "uppercase", color: T.textLighter, whiteSpace: "nowrap" }}>Sırala:</span>
+              <select value={sort} onChange={e => { setSort(e.target.value); sVis(12); }} style={{
                 fontFamily: T.sans, fontSize: 12, fontWeight: 600, color: T.text,
                 background: "rgba(238,232,222,0.8)", border: "1px solid rgba(28,26,22,0.12)",
                 borderRadius: T.r.full, padding: "8px 36px 8px 16px", cursor: "pointer",
                 appearance: "none", WebkitAppearance: "none",
                 backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%231c1a16' stroke-width='2.5'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E")`,
-                backgroundRepeat: "no-repeat", backgroundPosition: "right 12px center",
-                outline: "none",
-              }}
-            >
-              <option value="default">Varsayılan</option>
-              <option value="price-asc">Fiyat: Düşük → Yüksek</option>
-              <option value="price-desc">Fiyat: Yüksek → Düşük</option>
-              <option value="discount">İndirimli Önce</option>
-            </select>
+                backgroundRepeat: "no-repeat", backgroundPosition: "right 12px center", outline: "none",
+              }}>
+                {SORT_OPTIONS.map(o => <option key={o.v} value={o.v}>{o.l}</option>)}
+              </select>
+            </div>
           </div>
+        </div>
+
+        {/* ── D-260: MOBILE COMPACT BAR (shown only on mobile via CSS) ── */}
+        <div className="catalog-mobile-bar" style={{
+          position: "sticky", top: 68, zIndex: 50,
+          background: "rgba(244,239,230,0.96)", backdropFilter: "blur(20px)",
+          border: "1px solid rgba(28,26,22,0.08)", borderRadius: T.r.md,
+          padding: "10px 14px", marginBottom: 20,
+          alignItems: "center", justifyContent: "space-between", gap: 8,
+        }}>
+          {/* Left: count + active pills */}
+          <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap", flex: 1, minWidth: 0 }}>
+            <span style={{ fontFamily: T.sans, fontSize: 13, fontWeight: 700, color: T.text, whiteSpace: "nowrap" }}>
+              {flt.length} ürün
+            </span>
+            {fl !== "Tümü" && (
+              <span style={{ fontFamily: T.sans, fontSize: 11, fontWeight: 600, padding: "3px 10px", borderRadius: 999, background: T.text, color: "#fff", whiteSpace: "nowrap" }}>
+                {fl}
+              </span>
+            )}
+            {szFilter && (
+              <span style={{ fontFamily: T.sans, fontSize: 11, fontWeight: 600, padding: "3px 10px", borderRadius: 999, background: T.text, color: "#fff", whiteSpace: "nowrap" }}>
+                {szFilter} no
+              </span>
+            )}
+            {sort !== "default" && (
+              <span style={{ fontFamily: T.sans, fontSize: 11, fontWeight: 600, padding: "3px 10px", borderRadius: 999, background: "rgba(28,26,22,0.08)", color: T.text, whiteSpace: "nowrap" }}>
+                ↕ {sort === "price-asc" ? "Fiyat ↑" : sort === "price-desc" ? "Fiyat ↓" : "İndirim"}
+              </span>
+            )}
+          </div>
+          {/* Right: filter trigger button */}
+          <button onClick={() => setDrawerOpen(true)} style={{
+            fontFamily: T.sans, fontSize: 12, fontWeight: 700, letterSpacing: "0.04em",
+            padding: "10px 16px", borderRadius: T.r.full, cursor: "pointer", flexShrink: 0,
+            border: activeCount > 0 ? "1.5px solid #1c1a16" : "1px solid rgba(28,26,22,0.15)",
+            background: activeCount > 0 ? T.text : "rgba(238,232,222,0.9)",
+            color: activeCount > 0 ? "#fff" : T.text,
+            display: "flex", alignItems: "center", gap: 7, transition: "all 0.2s",
+          }}>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+              <line x1="4" y1="6" x2="20" y2="6"/><line x1="8" y1="12" x2="16" y2="12"/><line x1="11" y1="18" x2="13" y2="18"/>
+            </svg>
+            Filtrele
+            {activeCount > 0 && (
+              <span style={{ width: 18, height: 18, borderRadius: "50%", background: T.red, color: "#fff", fontSize: 10, fontWeight: 800, display: "flex", alignItems: "center", justifyContent: "center", marginLeft: 2 }}>
+                {activeCount}
+              </span>
+            )}
+          </button>
         </div>
 
         {/* Grid */}
@@ -1119,6 +1184,118 @@ function Catalog({ onView, allProducts, initCat, onNav, settings }) {
           </div>
         )}
       </section>
+
+      {/* ── D-260: MOBILE FILTER DRAWER ── */}
+      {drawerOpen && (
+        <>
+          {/* Backdrop */}
+          <div onClick={() => setDrawerOpen(false)} style={{
+            position: "fixed", inset: 0, background: "rgba(0,0,0,0.45)", zIndex: 200,
+            animation: "fadeIn 0.2s ease",
+          }} />
+          {/* Sheet */}
+          <div style={{
+            position: "fixed", bottom: 0, left: 0, right: 0, zIndex: 201,
+            background: T.bg, borderRadius: "20px 20px 0 0",
+            maxHeight: "82vh", overflowY: "auto",
+            boxShadow: "0 -8px 48px rgba(0,0,0,0.14)",
+            animation: "slideUp 0.32s cubic-bezier(.22,1,.36,1)",
+          }}>
+            {/* Handle */}
+            <div style={{ textAlign: "center", paddingTop: 14, paddingBottom: 4 }}>
+              <div style={{ width: 40, height: 4, borderRadius: 2, background: "rgba(28,26,22,0.15)", margin: "0 auto" }} />
+            </div>
+            <div style={{ padding: "0 20px 32px" }}>
+              {/* Header */}
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", paddingTop: 12, paddingBottom: 18, borderBottom: "1px solid rgba(28,26,22,0.07)" }}>
+                <span style={{ fontFamily: T.sans, fontSize: 15, fontWeight: 700, color: T.text }}>Filtrele & Sırala</span>
+                <button onClick={() => setDrawerOpen(false)} style={{ background: "rgba(28,26,22,0.06)", border: "none", width: 32, height: 32, borderRadius: "50%", cursor: "pointer", fontSize: 14, color: T.text, display: "flex", alignItems: "center", justifyContent: "center" }}>✕</button>
+              </div>
+
+              {/* Category section */}
+              <div style={{ paddingTop: 22, paddingBottom: 20, borderBottom: "1px solid rgba(28,26,22,0.07)" }}>
+                <p style={{ fontFamily: T.sans, fontSize: 10, fontWeight: 700, letterSpacing: "0.14em", textTransform: "uppercase", color: T.textLighter, marginBottom: 14 }}>KATEGORİ</p>
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+                  {ALL_CATEGORIES.map(c => (
+                    <button key={c} onClick={() => { sFl(c); setSzFilter(null); sVis(12); }} style={{
+                      fontFamily: T.sans, fontSize: 12, fontWeight: 600, letterSpacing: "0.06em",
+                      padding: "10px 18px", borderRadius: T.r.full, cursor: "pointer", textTransform: "uppercase",
+                      border: fl === c ? "1.5px solid #1c1a16" : "1px solid rgba(28,26,22,0.1)",
+                      background: fl === c ? T.text : "rgba(238,232,222,0.7)",
+                      color: fl === c ? "#fff" : T.textLight, transition: "all 0.2s",
+                    }}>
+                      {c}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Size section */}
+              {allSizes.length > 0 && (
+                <div style={{ paddingTop: 22, paddingBottom: 20, borderBottom: "1px solid rgba(28,26,22,0.07)" }}>
+                  <p style={{ fontFamily: T.sans, fontSize: 10, fontWeight: 700, letterSpacing: "0.14em", textTransform: "uppercase", color: T.textLighter, marginBottom: 14 }}>BEDEN</p>
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+                    {allSizes.map(s => (
+                      <button key={s} onClick={() => { setSzFilter(szFilter === s ? null : s); sVis(12); }} style={{
+                        fontFamily: T.sans, fontSize: 13, fontWeight: 600,
+                        width: 48, height: 48, borderRadius: "50%", cursor: "pointer",
+                        display: "flex", alignItems: "center", justifyContent: "center",
+                        border: szFilter === s ? "2px solid #1c1a16" : "1px solid rgba(28,26,22,0.12)",
+                        background: szFilter === s ? T.text : "rgba(238,232,222,0.7)",
+                        color: szFilter === s ? "#fff" : T.textLight, transition: "all 0.2s",
+                      }}>
+                        {s}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Sort section */}
+              <div style={{ paddingTop: 22, paddingBottom: 20 }}>
+                <p style={{ fontFamily: T.sans, fontSize: 10, fontWeight: 700, letterSpacing: "0.14em", textTransform: "uppercase", color: T.textLighter, marginBottom: 14 }}>SIRALA</p>
+                <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                  {SORT_OPTIONS.map(({ v, l }) => (
+                    <button key={v} onClick={() => { setSort(v); sVis(12); }} style={{
+                      fontFamily: T.sans, fontSize: 14, fontWeight: sort === v ? 700 : 500,
+                      padding: "14px 18px", borderRadius: T.r.md, cursor: "pointer", textAlign: "left",
+                      border: sort === v ? "1.5px solid #1c1a16" : "1px solid rgba(28,26,22,0.1)",
+                      background: sort === v ? T.text : "rgba(238,232,222,0.4)",
+                      color: sort === v ? "#fff" : T.text, transition: "all 0.2s",
+                      display: "flex", justifyContent: "space-between", alignItems: "center",
+                    }}>
+                      {l}
+                      {sort === v && <span style={{ fontSize: 15 }}>✓</span>}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* CTA row */}
+              <div style={{ display: "flex", gap: 10, paddingTop: 8 }}>
+                {(hasActiveFilter || sort !== "default") && (
+                  <button onClick={resetAndClose} style={{
+                    fontFamily: T.sans, fontSize: 13, fontWeight: 600, flexShrink: 0,
+                    padding: "14px 18px", borderRadius: T.r.full, cursor: "pointer",
+                    border: "1px solid rgba(200,16,46,0.3)", background: "rgba(200,16,46,0.06)",
+                    color: T.red,
+                  }}>
+                    Temizle
+                  </button>
+                )}
+                <button onClick={() => setDrawerOpen(false)} style={{
+                  fontFamily: T.sans, fontSize: 14, fontWeight: 700, flex: 1,
+                  padding: "14px 20px", borderRadius: T.r.full, cursor: "pointer",
+                  border: "none", background: T.text, color: "#fff",
+                }}>
+                  {flt.length} Ürünü Gör →
+                </button>
+              </div>
+            </div>
+          </div>
+        </>
+      )}
+
       <Footer onNav={onNav || (() => {})} settings={settings} />
     </div>
   );

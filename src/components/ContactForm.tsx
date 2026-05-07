@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 
 // ── D-251: Source-detail capture helpers ─────────────────────────────────────
 
@@ -62,9 +62,22 @@ export function ContactForm({ productId, productTitle, variants, soldout }: Prop
   const [name, setName]         = useState('')
   const [phone, setPhone]       = useState('')
   const [size, setSize]         = useState('')
-  const [chipSelected, setChipSelected] = useState(false)  // D-264: tracks chip vs typed size
+  const [chipSelected, setChipSelected] = useState(false)   // D-264: tracks chip vs typed size
+  const [oosContext, setOosContext] = useState<string | null>(null) // D-265: OOS size prefill context
   const [status, setStatus]     = useState<'idle' | 'loading' | 'success' | 'error'>('idle')
   const [errMsg, setErrMsg]     = useState('')
+
+  // D-265: listen for OOS chip clicks from page.tsx (cross-component via CustomEvent)
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const ce = e as CustomEvent<{ size: string }>
+      setSize(ce.detail.size)
+      setOosContext(ce.detail.size)
+      setChipSelected(false)
+    }
+    window.addEventListener('oosChipClicked', handler)
+    return () => window.removeEventListener('oosChipClicked', handler)
+  }, [])
 
   const availableVariants = (variants ?? []).filter((v) => v.stock > 0)
   const hasVariants = availableVariants.length > 0
@@ -98,6 +111,7 @@ export function ContactForm({ productId, productTitle, variants, soldout }: Prop
         setPhone('')
         setSize('')
         setChipSelected(false)
+        setOosContext(null) // D-265: clear OOS context on success
       } else {
         throw new Error('Request failed')
       }
@@ -197,18 +211,32 @@ export function ContactForm({ productId, productTitle, variants, soldout }: Prop
               </button>
             </p>
           ) : (
-            /* D-264: OOS size recovery input (replaces D-263 passive hint) */
+            /* D-264/D-265: OOS size recovery input with amber context when prefilled */
             <div className="mt-1.5 space-y-1.5">
-              <div>
+              {oosContext ? (
+                /* D-265: contextual amber banner when OOS chip was tapped */
+                <div className="bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+                  <p className="text-xs text-amber-800 font-medium mb-0.5">
+                    {oosContext} numara şu an stokta görünmüyor.
+                  </p>
+                  <p className="text-xs text-amber-700">
+                    Talep bırakın, alternatif stok durumunu sizi arayarak bildiririz.
+                  </p>
+                </div>
+              ) : (
                 <p className="text-xs text-gray-500 mb-1">Stokta olmayan beden mi arıyorsunuz?</p>
-                <input
-                  type="text"
-                  value={size}
-                  onChange={(e) => setSize(e.target.value)}
-                  placeholder="Beden numaranızı yazın (Örn: 43)"
-                  className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-gray-400 text-gray-700 bg-white"
-                />
-              </div>
+              )}
+              <input
+                type="text"
+                value={size}
+                onChange={(e) => { setSize(e.target.value); if (oosContext && e.target.value !== oosContext) setOosContext(null) }}
+                placeholder="Beden numaranızı yazın (Örn: 43)"
+                className={`w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 text-gray-700 bg-white ${
+                  oosContext
+                    ? 'border-amber-300 focus:ring-amber-400'
+                    : 'border-gray-200 focus:ring-gray-400'
+                }`}
+              />
               <p className="text-xs text-gray-400">
                 Beden seçmek zorunda değilsiniz — talep bırakın, yardımcı oluruz.
               </p>

@@ -59,11 +59,12 @@ type Props = {
 // ── Component ─────────────────────────────────────────────────────────────────
 
 export function ContactForm({ productId, productTitle, variants, soldout }: Props) {
-  const [name, setName]       = useState('')
-  const [phone, setPhone]     = useState('')
-  const [size, setSize]       = useState('')
-  const [status, setStatus]   = useState<'idle' | 'loading' | 'success' | 'error'>('idle')
-  const [errMsg, setErrMsg]   = useState('')
+  const [name, setName]         = useState('')
+  const [phone, setPhone]       = useState('')
+  const [size, setSize]         = useState('')
+  const [chipSelected, setChipSelected] = useState(false)  // D-264: tracks chip vs typed size
+  const [status, setStatus]     = useState<'idle' | 'loading' | 'success' | 'error'>('idle')
+  const [errMsg, setErrMsg]     = useState('')
 
   const availableVariants = (variants ?? []).filter((v) => v.stock > 0)
   const hasVariants = availableVariants.length > 0
@@ -96,6 +97,7 @@ export function ContactForm({ productId, productTitle, variants, soldout }: Prop
         setName('')
         setPhone('')
         setSize('')
+        setChipSelected(false)
       } else {
         throw new Error('Request failed')
       }
@@ -161,12 +163,16 @@ export function ContactForm({ productId, productTitle, variants, soldout }: Prop
           </p>
           <div className="flex flex-wrap gap-2 mb-1">
             {availableVariants.map((v) => {
-              const selected = size === v.size
+              const selected = chipSelected && size === v.size
               return (
                 <button
                   key={v.id}
                   type="button"
-                  onClick={() => setSize(selected ? '' : v.size)}
+                  onClick={() => {
+                    // D-264: use chipSelected to distinguish chip from typed size
+                    if (selected) { setChipSelected(false); setSize('') }
+                    else { setChipSelected(true); setSize(v.size) }
+                  }}
                   className={`px-4 py-2 rounded-lg text-sm font-medium border transition-all ${
                     selected
                       ? 'bg-gray-900 text-white border-gray-900 shadow-sm'
@@ -178,23 +184,35 @@ export function ContactForm({ productId, productTitle, variants, soldout }: Prop
               )
             })}
           </div>
-          {size ? (
+          {chipSelected ? (
             <p className="text-xs text-gray-400">
               Seçili beden: <span className="font-medium text-gray-700">{size}</span>
               {' '}·{' '}
               <button
                 type="button"
-                onClick={() => setSize('')}
+                onClick={() => { setSize(''); setChipSelected(false) }}
                 className="text-gray-400 underline hover:text-gray-600"
               >
                 temizle
               </button>
             </p>
           ) : (
-            /* D-263: "Proceed without size" reassurance */
-            <p className="text-xs text-gray-400 mt-0.5">
-              Beden emin değilseniz seçmeden devam edebilirsiniz — sizi arayarak netleştiririz.
-            </p>
+            /* D-264: OOS size recovery input (replaces D-263 passive hint) */
+            <div className="mt-1.5 space-y-1.5">
+              <div>
+                <p className="text-xs text-gray-500 mb-1">Stokta olmayan beden mi arıyorsunuz?</p>
+                <input
+                  type="text"
+                  value={size}
+                  onChange={(e) => setSize(e.target.value)}
+                  placeholder="Beden numaranızı yazın (Örn: 43)"
+                  className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-gray-400 text-gray-700 bg-white"
+                />
+              </div>
+              <p className="text-xs text-gray-400">
+                Beden seçmek zorunda değilsiniz — talep bırakın, yardımcı oluruz.
+              </p>
+            </div>
           )}
         </div>
       )}

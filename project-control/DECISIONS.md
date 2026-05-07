@@ -6280,3 +6280,49 @@ Applied with `IF NOT EXISTS` — idempotent.
 
 **Status:** D-251 + D-252 FULLY CLOSED. Attribution chain is production-ready:
 capture (D-251) → normalize (D-250) → surface (D-252).
+
+---
+
+## D-253 — Attribution Detail Roll-up into Funnel (2026-05-07)
+
+**Commit:** c612b63
+
+**Problem:** D-251 captured UTM/referrer on inquiries. D-252 made it visible per-lead.
+But there was no way to see patterns across leads — which UTM source, campaign, or
+referrer is generating the most demand this period — without querying the DB directly.
+
+**Surface chosen:** `/funnel` attribution footer.
+- `/funnel` already loads all leads in window in-memory (D-249).
+- UTM/referrer are "source detail" — natural extension of what /funnel already does.
+- `/business` is KPI-focused; attribution doesn't belong there.
+- A dedicated `/attribution` command would be overkill for v1 with sparse data.
+
+**Zero extra queries:** `buildAttributionDetail()` runs over the leads array already
+loaded by `getFunnelSnapshot()`. No new Payload or DB calls.
+
+**New exports/types in `funnelDesk.ts`:**
+- `AttributionTopEntry { value: string; count: number }`
+- `AttributionDetailSummary { coveredLeads, topUtmSources[], topUtmCampaigns[], topReferrers[] }`
+- `FunnelSnapshot.attributionDetail: AttributionDetailSummary | null`
+- `topN(leads, field, n)`: counts non-null field values, returns top N by count
+- `buildAttributionDetail(leads)`: returns null when coveredLeads === 0
+
+**Render behavior:**
+- Footer `📎 Trafik Detayı (N lead)` only renders when at least 1 lead has a
+  UTM/referrer value. Absent entirely for Telegram-only windows.
+- Within the footer, each line (UTM Kaynak / Kampanya / Referrer) only renders
+  if that specific field has at least 1 non-null value.
+- Top 3 per field, formatted as `value (count), value (count)`.
+- No percentages — sample sizes too small to be meaningful.
+
+**Sparse-data behavior verified (test cases):**
+1. All-null UTM/referrer → no attribution block, zero noise ✓
+2. Single pattern (1 lead) → shows exactly that pattern ✓
+3. Multiple patterns → top 3 sorted by count desc ✓
+4. Referrer-only (no UTM) → shows only Referrer line, no empty UTM lines ✓
+
+**Files changed:** `src/lib/funnelDesk.ts` only (+67 lines).
+No route change. No schema change. No new collection.
+
+**Status:** COMPLETE. Attribution detail visible above single-lead level in /funnel.
+D-250 → D-251 → D-252 → D-253 attribution chain fully operational.

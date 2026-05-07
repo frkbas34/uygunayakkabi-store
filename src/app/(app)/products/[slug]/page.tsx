@@ -683,8 +683,8 @@ export default async function ProductPage({ params }: Props) {
                   </div>
                 </div>
 
-                {/* NEW: Contact Form */}
-                <div style={{
+                {/* D-256: Contact Form — id anchor for sticky CTA */}
+                <div id="inquiry-form" style={{
                   marginTop: 32,
                   padding: 24,
                   background: 'rgba(238,232,222,0.65)',
@@ -698,7 +698,7 @@ export default async function ProductPage({ params }: Props) {
                     color: '#1c1a16',
                     marginBottom: 4,
                   }}>
-                    Bilgi Al / Sipariş Ver
+                    Sipariş Ver
                   </h3>
                   <p style={{
                     fontFamily: "'Inter', sans-serif",
@@ -706,9 +706,14 @@ export default async function ProductPage({ params }: Props) {
                     color: 'rgba(28,26,22,0.3)',
                     marginBottom: 20,
                   }}>
-                    Adınızı ve telefon numaranızı bırakın, sizi arayalım.
+                    Beden seçin, bilgilerinizi bırakın — sizi arayalım.
                   </p>
-                  <ContactForm productId={String(product.id)} />
+                  <ContactForm
+                    productId={String(product.id)}
+                    productTitle={product.title}
+                    variants={variants}
+                    soldout={isSoldOut}
+                  />
                 </div>
               </div>
             </div>
@@ -750,6 +755,33 @@ export default async function ProductPage({ params }: Props) {
           }
         }
       `}</style>
+
+      {/* D-256: Sticky mobile CTA — hidden on lg+ (handled by inline form in sidebar) */}
+      {!isSoldOut && (
+        <a
+          href="#inquiry-form"
+          style={{
+            display: 'block',
+            position: 'fixed',
+            bottom: 0,
+            left: 0,
+            right: 0,
+            zIndex: 50,
+            background: '#1c1a16',
+            color: '#fff',
+            textAlign: 'center',
+            fontFamily: "'Inter', sans-serif",
+            fontWeight: 700,
+            fontSize: 15,
+            letterSpacing: '0.01em',
+            padding: '16px 24px',
+            textDecoration: 'none',
+          }}
+          className="lg:hidden"
+        >
+          Sipariş Ver — Beni Arayın
+        </a>
+      )}
     </>
   )
 }

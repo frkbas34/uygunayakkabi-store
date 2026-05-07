@@ -6508,3 +6508,23 @@ what happens after contact, and why to trust the process — without redesigning
 **Commit:** 41f230c on main. Zero new TS errors. No schema change.
 
 **Status:** COMPLETE.
+
+---
+
+## D-259 — Catalog Browse Clarity Polish (2026-05-07)
+
+**Problem:** Catalog had static heading "Ayakkabılar" regardless of active filter, no sort controls, result count only shown when filtered, size filter showed all sizes across all categories (not just the active one), minimal empty state.
+
+**Changes — `src/app/(app)/UygunApp.jsx` (Catalog function):**
+- Dynamic `catHeading` — updates per active filter: "Tüm Ürünler" / "Spor Ayakkabıları" / "Cüzdanlar" / etc.
+- Always-visible result count in subtitle: "**X** ürün" + "· Beden N" when size active
+- Sort state (`"default" | "price-asc" | "price-desc" | "discount"`) — `<select>` on right side of controls row, custom arrow styling
+- Category filter now resets size filter + sort on change
+- Size filter scoped to current category's available sizes only (was showing all sizes across all products)
+- `resetFilters()` helper clears category, size, sort, pagination in one click
+- "Tüm Ürünleri Göster" + "✕ Filtreleri Temizle" both call resetFilters
+- Empty state: added 🔍 icon, added subtext hint, warmer messaging
+- "Daha Fazla" count now based on `sorted.length` (correct when sort is active)
+
+**Preserved:** D-257 card links, D-256 PDP flow, attribution capture untouched.
+**Commit:** 60c53e8

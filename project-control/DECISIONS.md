@@ -6528,3 +6528,30 @@ what happens after contact, and why to trust the process — without redesigning
 
 **Preserved:** D-257 card links, D-256 PDP flow, attribution capture untouched.
 **Commit:** 60c53e8
+
+---
+
+## D-260 — Mobile Catalog Filter Drawer (2026-05-07)
+
+**Problem:** On mobile, 8 category chips + size chips + sort row consumed ~300px before first product. No access to controls after scrolling. Active filter state invisible while browsing.
+
+**Changes — `src/app/(app)/UygunApp.jsx`:**
+- Added `drawerOpen` state + `useEffect` body scroll lock (prevents page scroll when drawer open)
+- Desktop controls wrapped in `.catalog-desktop-controls` div — hidden on mobile via CSS
+- Mobile compact sticky bar (`.catalog-mobile-bar`) — shown only on mobile:
+  - `position: sticky; top: 68px` — stays visible while scrolling
+  - Left: result count + active filter pills (category name, size no, sort indicator)
+  - Right: "Filtrele" button with red badge showing active filter count
+- Bottom sheet drawer (fixed, zIndex 201, `animation: slideUp`):
+  - Backdrop (tap to close)
+  - Drag handle indicator
+  - Category section: same chip style, tap to filter
+  - Size section: 48×48px circles (larger touch targets than desktop 40px)
+  - Sort section: full-width buttons with checkmark on active
+  - CTA row: "Temizle" (red, shown when active) + "X Ürünü Gör →" (closes drawer)
+- `@keyframes slideUp` added to GlobalStyles
+- `.catalog-section` padding reduced to `16px` on mobile (was 40px)
+- `SORT_OPTIONS` array shared between desktop `<select>` and drawer buttons
+
+**Preserved:** D-259 desktop layout unchanged. D-257 card links intact. D-256 PDP flow intact.
+**Commit:** 2d54f16

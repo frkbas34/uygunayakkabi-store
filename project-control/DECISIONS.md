@@ -6326,3 +6326,56 @@ No route change. No schema change. No new collection.
 
 **Status:** COMPLETE. Attribution detail visible above single-lead level in /funnel.
 D-250 → D-251 → D-252 → D-253 attribution chain fully operational.
+
+---
+
+## D-254 — UTM Link Builder / Campaign Naming Guardrail (2026-05-07)
+
+**Commit:** dbf8b3f
+
+**Problem:** Attribution chain is live but human inconsistency (typo-heavy campaign
+names, ad-hoc source/medium values, random URL assembly) would degrade data quality
+over time. Operator needs a fast, consistent, copy-ready way to generate tagged URLs.
+
+**New file: `src/lib/utmBuilder.ts`**
+
+Approved vocabulary (enforced at validation time):
+- Sources (10): instagram, whatsapp, google, facebook, telegram, shopier, website,
+  referral, email, tiktok
+- Mediums (10): social, bio, story, dm, direct, organic, cpc, manual, email, reel
+- Campaign format: lowercase letters, digits, underscores only; 2–50 chars;
+  no leading/trailing underscore
+
+Normalization (applied before validation):
+- source/medium: `.toLowerCase().trim()`
+- campaign: trim + lowercase + spaces→underscore (documented; safe and predictable)
+- Uppercase `Instagram` → `instagram` passes. `SummerDrop` → `summerdrop` passes.
+- `_bad_campaign` → still refused (leading underscore)
+
+`buildProductUtmUrl()` uses `encodeURIComponent()` on all three params.
+
+**Telegram command: `/utm <SN|id> <source> <medium> <campaign>`**
+
+- SN lookup uses same `stockNumber: { equals: normalizedSN }` pattern as `/sn`
+- Bare number (e.g. `34`) auto-padded to `SN0034` (same as `/sn`)
+- Product slug pulled from `p.slug` (runtime truth, not guessed)
+- Missing slug (draft product without slug): refused with clear message
+- Invalid source/medium: refused with full approved-list shown
+- Bad campaign format: refused with format rules and example
+- Both errors: both shown in one response
+- Success: copy-ready `<code>URL</code>` block with breakdown of params used
+- Registered in SHARED_CMDS (available on both bots)
+
+**Usage example:**
+```
+/utm SN0034 instagram social story_drop_01
+→ 🔗 UTM Link
+  SN0034 — New Balance Sneaker Gri
+  source: instagram / medium: social / campaign: story_drop_01
+  https://www.uygunayakkabi.com/products/new-balance-sneaker-gri-tg-…?utm_source=instagram&utm_medium=social&utm_campaign=story_drop_01
+```
+
+**Files changed:** `src/lib/utmBuilder.ts` (new, 108 lines) + `src/app/api/telegram/route.ts` (+95 lines).
+No schema change. No mutation. Read-only.
+
+**Status:** COMPLETE.

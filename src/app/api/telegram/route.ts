@@ -2921,6 +2921,8 @@ export async function POST(req: NextRequest) {
         '/funnel', '/huni',
         // D-254 UTM link builder
         '/utm',
+        // D-255 campaign review / attribution QA
+        '/campaigns', '/campaign',
       ]
       // D-220: PI Bot hashtags owned by Uygunops (operator approval is required before GeoBot handoff).
       const OPS_HASHTAGS = ['#gorsel', '#geminipro', '#geohazirla', '#seoara', '#productintel', '#urunzeka']
@@ -5595,6 +5597,70 @@ Format: <code>SN0034</code> veya sadece numara (ör: <code>34</code>)`,
           const m = err instanceof Error ? err.message : String(err)
           console.error(`[telegram/utm D-254] error:`, m)
           await sendTelegramMessage(chatId, `❌ UTM hatası: ${m}`)
+        }
+        return NextResponse.json({ ok: true })
+      }
+    }
+
+    // ── D-255: /campaigns + /campaign <name> — attribution QA surface ──────────
+    // Read-only. Loads leads in window, aggregates by campaign + UTM fields,
+    // surfaces QA signals (unknown source/medium, odd names) as heuristics.
+    {
+      const firstWordCamp = text.trim().split(/\s+/)[0].replace(/@\w+$/, '').toLowerCase()
+      if (firstWordCamp === '/campaigns') {
+        try {
+          const parts = text.trim().split(/\s+/)
+          const sub = (parts[1] ?? '').toLowerCase()
+          const period: 'today' | 'week' =
+            (sub === 'week' || sub === 'hafta' || sub === 'son7') ? 'week' : 'today'
+          const { getCampaignSnapshot, formatCampaignSnapshot } = await import('@/lib/campaignDesk')
+          const snap = await getCampaignSnapshot(payload, { period })
+          await sendTelegramMessage(chatId, formatCampaignSnapshot(snap))
+        } catch (err) {
+          const m = err instanceof Error ? err.message : String(err)
+          console.error(`[telegram/campaigns D-255] error:`, m)
+          await sendTelegramMessage(chatId, `❌ Kampanya hatası: ${m}`)
+        }
+        return NextResponse.json({ ok: true })
+      }
+    }
+
+    {
+      const firstWordCampD = text.trim().split(/\s+/)[0].replace(/@\w+$/, '').toLowerCase()
+      if (firstWordCampD === '/campaign') {
+        try {
+          const parts = text.trim().split(/\s+/)
+          const campaignName = parts[1] ?? ''
+          if (!campaignName) {
+            await sendTelegramMessage(
+              chatId,
+              `📣 <b>Kampanya Detayı</b>
+
+Kullanım: <code>/campaign story_drop_01</code>
+
+Tüm kampanyalar için: <code>/campaigns</code>`,
+            )
+            return NextResponse.json({ ok: true })
+          }
+          const sub = (parts[2] ?? '').toLowerCase()
+          const period: 'today' | 'week' =
+            (sub === 'week' || sub === 'hafta') ? 'week' : 'today'
+          const { getCampaignDetail, formatCampaignDetail } = await import('@/lib/campaignDesk')
+          const result = await getCampaignDetail(payload, campaignName, { period })
+          if (!result) {
+            await sendTelegramMessage(
+              chatId,
+              `🔍 <code>${campaignName}</code> kampanyasında bu pencerede lead yok.
+
+<i>/campaigns · /campaigns week</i>`,
+            )
+          } else {
+            await sendTelegramMessage(chatId, formatCampaignDetail(result.entry, result.windowLabel))
+          }
+        } catch (err) {
+          const m = err instanceof Error ? err.message : String(err)
+          console.error(`[telegram/campaign D-255] error:`, m)
+          await sendTelegramMessage(chatId, `❌ Kampanya detay hatası: ${m}`)
         }
         return NextResponse.json({ ok: true })
       }

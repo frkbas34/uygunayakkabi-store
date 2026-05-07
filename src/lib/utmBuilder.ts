@@ -24,7 +24,7 @@ export const APPROVED_MEDIUMS = new Set([
 ])
 
 /** Minimum 2 chars, maximum 50. Lowercase letters, digits, underscores only. */
-const CAMPAIGN_PATTERN = /^[a-z0-9][a-z0-9_]{0,48}[a-z0-9]$|^[a-z0-9]{1,2}$/
+export const CAMPAIGN_PATTERN = /^[a-z0-9][a-z0-9_]{0,48}[a-z0-9]$|^[a-z0-9]{1,2}$/
 
 function escHtml(s: string): string {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')

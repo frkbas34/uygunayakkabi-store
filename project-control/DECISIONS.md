@@ -6482,3 +6482,29 @@ No redesign — targeted affordance and navigation fixes only.
 **Commit:** ba40764 on main. Zero new TS errors. No schema change.
 
 **Status:** COMPLETE.
+
+---
+
+## D-258 — Homepage Trust / Order Flow Clarity Polish v1 (2026-05-07)
+**Decision:**
+Improve homepage clarity so first-time visitors understand the store's inquiry model,
+what happens after contact, and why to trust the process — without redesigning the homepage.
+
+**Audit findings (VERIFIED):**
+- Hero description: one 60-word abstract sentence explaining the Aymakoop business model — no action direction for the visitor
+- Hero sub-line "Fiziksel güç + dijital zekâ + doğru fiyat" — internal jargon, not customer value
+- StepsSection: presented 4 parallel payment options (Sepet / WhatsApp / Shopier / Kapıda) as sequential "steps" — misleading. The actual inquiry flow (browse → form → callback) was never described anywhere on the homepage
+- Secondary hero CTA "NEDEN BİZ?" scrolled to brand story section — not actionable for a first visit
+- TrustValueSection opener was defensive: "Çünkü biz rastgele ürün toplayan sıradan bir satıcı değiliz"
+
+**Changes — `src/app/(app)/UygunApp.jsx` only (45 additions, 34 deletions):**
+1. Hero description: shortened to 2 clear sentences, one of which describes the inquiry model
+2. Hero sub-line: replaced jargon with 3-step inline flow hint: "Ürünü İncele → Talep Bırak → Biz Seni Arayalım"
+3. Hero secondary CTA: "NEDEN BİZ?" → "NASIL ÇALIŞIR?" — scrolls to steps section (id="nasil-calisir")
+4. StepsSection label/title/subtitle updated to match clarity framing
+5. STEPS_DATA completely rewritten: 4 parallel payment options → 4 sequential inquiry steps (İncele → Talep Bırak → Seni Arayalım → Teslimat) — honest, matches D-256 product page
+6. TrustValueSection: defensive opener removed, confident framing added, bullet list includes explicit callback/support reassurance items, dual CTA + WhatsApp secondary path added
+
+**Commit:** 41f230c on main. Zero new TS errors. No schema change.
+
+**Status:** COMPLETE.

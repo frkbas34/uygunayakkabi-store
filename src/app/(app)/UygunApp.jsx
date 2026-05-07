@@ -389,15 +389,24 @@ function Hero({ onNav, settings, allProducts }) {
 
         {/* Description */}
         <p style={{ fontFamily: T.sans, fontSize: 16, color: T.textLight, lineHeight: 1.9,
-          margin: "0 auto 20px", maxWidth: 640 }}>
-          UygunAyakkabi.com, Türkiye'de ayakkabı ve deri sektörünün merkezlerinden biri olan Aymakoop Sanayi Sitesi içindeki doğrudan erişimini, yapay zekâ destekli otomasyon sistemleriyle birleştirerek; tekleme, az adetli ve özel kalan kaliteli ayakkabıları daha ulaşılabilir fiyatlarla sunar.
+          margin: "0 auto 16px", maxWidth: 600 }}>
+          Aymakoop merkezinden seçilmiş kaliteli ayakkabıları uygun fiyatlarla sunuyoruz.
+          Beğendiğiniz ürünü inceleyin, talep bırakın — ekibimiz kısa sürede sizi arıyor.
         </p>
 
-        {/* Support line */}
-        <p style={{ fontFamily: T.sans, fontSize: 13, fontWeight: 600, color: T.red, letterSpacing: "0.04em",
-          margin: "0 auto 48px" }}>
-          Fiziksel güç + dijital zekâ + doğru fiyat.
-        </p>
+        {/* D-258: Compact inquiry flow hint — replaces internal jargon line */}
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
+          margin: "0 auto 48px", flexWrap: "wrap" }}>
+          {[["👟", "Ürünü İncele"], ["📋", "Talep Bırak"], ["📞", "Biz Seni Arayalım"]].map(([ic, label], i, arr) => (
+            <span key={i} style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+              <span style={{ display: "flex", alignItems: "center", gap: 6, fontFamily: T.sans,
+                fontSize: 12, fontWeight: 600, color: T.textLight }}>
+                <span style={{ fontSize: 14 }}>{ic}</span> {label}
+              </span>
+              {i < arr.length - 1 && <span style={{ color: "rgba(28,26,22,0.18)", fontSize: 16, fontWeight: 300, marginLeft: 8 }}>→</span>}
+            </span>
+          ))}
+        </div>
 
         {/* Buttons */}
         <div className="hero-btns" style={{ display: "flex", gap: 16, justifyContent: "center", flexWrap: "wrap", marginBottom: 80 }}>
@@ -410,8 +419,9 @@ function Hero({ onNav, settings, allProducts }) {
           }}>
             ÜRÜNLERİ KEŞFET {I.arrow}
           </button>
+          {/* D-258: Scroll to StepsSection (inquiry flow) — more actionable than "NEDEN BİZ?" */}
           <button onClick={() => {
-            const el = document.getElementById("neden-biz");
+            const el = document.getElementById("nasil-calisir");
             if (el) el.scrollIntoView({ behavior: "smooth" });
           }} style={{
             fontFamily: T.sans, fontSize: 12, fontWeight: 600, letterSpacing: "0.12em",
@@ -420,7 +430,7 @@ function Hero({ onNav, settings, allProducts }) {
             cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 10,
             transition: "all 0.3s",
           }}>
-            NEDEN BİZ?
+            NASIL ÇALIŞIR?
           </button>
         </div>
 
@@ -476,20 +486,21 @@ function WhyUsSection() {
 // ============================================
 // SIPARIŞ ADIMLARI (4 Steps)
 // ============================================
+// D-258: Steps reflect actual inquiry flow — browse → request → callback → delivery
 const STEPS_DATA = [
-  { icon: "🛒", num: "ADIM 01", title: "Ürünü Seç", desc: "Beğendiğin ürünü sepete ekle ya da direkt satın al", method: "Sepet veya Shopier", mColor: "#25D366", mBg: "rgba(37,211,102,0.08)", barColor: "#25D366" },
-  { icon: "💬", num: "ADIM 02", title: "WhatsApp'tan Yaz", desc: "Ürün sayfasından bize yaz, biz dönüş yapacağız", method: "Hızlı İletişim", mColor: "#25D366", mBg: "rgba(37,211,102,0.08)", barColor: "#25D366" },
-  { icon: "💳", num: "ADIM 03", title: "Kart ile Öde", desc: "Shopier üzerinden güvenli kart ile ödeme yap", method: "Shopier Güvencesi", mColor: "#3b82f6", mBg: "rgba(59,130,246,0.08)", barColor: "#3b82f6" },
-  { icon: "📦", num: "ADIM 04", title: "Kapıda Ödeme", desc: "Formu doldur, kargo ile kapıda ödeme seçeneğini kullan", method: "Kapıda Nakit/Kart", mColor: "#f59e0b", mBg: "rgba(245,158,11,0.08)", barColor: "#f59e0b" },
+  { icon: "👟", num: "ADIM 01", title: "Ürünü İncele", desc: "Beğendiğin ürünü bul, beden bilgilerini gör, ürün sayfasına git", method: "Ücretsiz Göz At", mColor: T.red, mBg: T.redSoft, barColor: T.red },
+  { icon: "📋", num: "ADIM 02", title: "Talep Bırak", desc: "Adını ve telefon numaranı bırak — ürün sayfasındaki kısa formla 1 dakikada tamamlanır", method: "Hızlı Form", mColor: "#3b82f6", mBg: "rgba(59,130,246,0.08)", barColor: "#3b82f6" },
+  { icon: "📞", num: "ADIM 03", title: "Biz Seni Arayalım", desc: "Ekibimiz seni arar, beden ve sipariş detaylarını birlikte tamamlarız", method: "Kısa Sürede Dönüş", mColor: "#25D366", mBg: "rgba(37,211,102,0.08)", barColor: "#25D366" },
+  { icon: "📦", num: "ADIM 04", title: "Teslimat", desc: "Siparişin onaylanır, kargoya verilir — kapıda ödeme seçeneği mevcuttur", method: "Kargo ile Teslimat", mColor: "#f59e0b", mBg: "rgba(245,158,11,0.08)", barColor: "#f59e0b" },
 ];
 
 function StepsSection() {
   return (
-    <section style={{ padding: "100px 40px", maxWidth: 1440, margin: "0 auto", borderTop: "1px solid rgba(28,26,22,0.06)", position: "relative", zIndex: 1 }}>
+    <section id="nasil-calisir" style={{ padding: "100px 40px", maxWidth: 1440, margin: "0 auto", borderTop: "1px solid rgba(28,26,22,0.06)", position: "relative", zIndex: 1 }}>
       <div style={{ textAlign: "center", marginBottom: 64 }}>
-        <p style={{ fontFamily: T.sans, fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.18em", color: "#25D366", marginBottom: 10 }}>SİPARİŞ SEÇENEKLERİ</p>
-        <h2 style={{ fontFamily: T.serif, fontSize: "clamp(30px, 3.5vw, 48px)", fontWeight: 700, color: T.text, letterSpacing: "-0.02em" }}>4 Kolay Adımda Sipariş</h2>
-        <p style={{ fontFamily: T.sans, fontSize: 14, color: T.textLighter, marginTop: 14, maxWidth: 520, marginLeft: "auto", marginRight: "auto", lineHeight: 1.7 }}>İster online öde, ister kapıda öde — sana en uygun yöntemi seç.</p>
+        <p style={{ fontFamily: T.sans, fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.18em", color: T.red, marginBottom: 10 }}>NASIL ÇALIŞIR?</p>
+        <h2 style={{ fontFamily: T.serif, fontSize: "clamp(30px, 3.5vw, 48px)", fontWeight: 700, color: T.text, letterSpacing: "-0.02em" }}>4 Adımda Sipariş</h2>
+        <p style={{ fontFamily: T.sans, fontSize: 14, color: T.textLighter, marginTop: 14, maxWidth: 520, marginLeft: "auto", marginRight: "auto", lineHeight: 1.7 }}>Talep bırakın, biz sizi arayalım — sipariş sürecinde her adımda yanınızdayız.</p>
       </div>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 16 }}>
         {STEPS_DATA.map((s, i) => (
@@ -607,27 +618,26 @@ function AboutSection({ settings }) {
 // ============================================
 // NEDEN BİZDEN ALMALISINIZ? (Trust / Value Proposition)
 // ============================================
-function TrustValueSection({ onNav }) {
+function TrustValueSection({ onNav, settings }) {
   return (
     <section style={{ padding: "100px 40px", maxWidth: 1440, margin: "0 auto", borderTop: "1px solid rgba(28,26,22,0.06)", position: "relative", zIndex: 1 }}>
       <div style={{ maxWidth: 720, margin: "0 auto", textAlign: "center" }}>
         <p style={{ fontFamily: T.sans, fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.18em", color: T.red, marginBottom: 10 }}>GÜVEN</p>
         <h2 style={{ fontFamily: T.serif, fontSize: "clamp(30px, 3.5vw, 48px)", fontWeight: 700, color: T.text, letterSpacing: "-0.02em", marginBottom: 28 }}>Neden Bizden Almalısınız?</h2>
 
+        {/* D-258: Confident opener + inquiry reassurance added */}
         <div style={{ fontFamily: T.sans, fontSize: 15, color: T.textLight, lineHeight: 1.9, textAlign: "left" }}>
-          <p style={{ marginBottom: 20 }}>Çünkü biz rastgele ürün toplayan sıradan bir satıcı değiliz.</p>
+          <p style={{ marginBottom: 20 }}>Biz, Türkiye'nin ayakkabı üretim merkezlerinden biri olan Aymakoop'taki doğrudan erişim avantajını, modern bir dijital satış sistemiyle birleştiren bir platformuz.</p>
 
-          <p style={{ marginBottom: 20 }}>Biz, ayakkabı ve deri sektörünün merkezindeki doğrudan erişim avantajını; yapay zekâ destekli dijital sistemler, güçlü ürün seçimi ve modern satış kanallarıyla birleştiren bir yapı kurduk.</p>
-
-          <p style={{ marginBottom: 16 }}>Bu sayede müşterilerimize:</p>
+          <p style={{ marginBottom: 16 }}>Müşterilerimize sunabildiğimiz değerler:</p>
 
           <div style={{ paddingLeft: 20, marginBottom: 24 }}>
             {[
-              "daha seçilmiş ürünler",
-              "daha ulaşılabilir fiyatlar",
-              "sınırlı ve özel stoklara erişim",
-              "daha güçlü dijital sunum",
-              "daha güven veren bir alışveriş deneyimi",
+              "Kaynağından seçilmiş, kalite odaklı ürünler",
+              "Piyasadaki değerinden genellikle daha uygun fiyatlar",
+              "Sınırlı stoklu ve özel kalan ürünlere erişim",
+              "Talep bırakın — ekibimiz sizi kısa sürede arasın",
+              "Sipariş sürecinde baştan sona destek",
             ].map((item, i) => (
               <div key={i} style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10 }}>
                 <span style={{ width: 6, height: 6, borderRadius: "50%", background: T.red, flexShrink: 0 }} />
@@ -636,13 +646,11 @@ function TrustValueSection({ onNav }) {
             ))}
           </div>
 
-          <p style={{ marginBottom: 8 }}>sunabiliyoruz.</p>
-
-          <p style={{ fontWeight: 600, color: T.text, marginBottom: 8 }}>Bizim farkımız sadece fiyat değil.</p>
-          <p style={{ fontWeight: 700, color: T.red, fontSize: 16 }}>Bizim farkımız; erişim, sistem ve ürün zekâsıdır.</p>
+          <p style={{ fontWeight: 600, color: T.text, marginBottom: 8 }}>Ürünü beğendiniz mi?</p>
+          <p style={{ fontWeight: 700, color: T.red, fontSize: 16 }}>Talep bırakın, biz sizi arayalım — adım adım yardımcı olalım.</p>
         </div>
 
-        {/* CTA */}
+        {/* D-258: Dual CTA — browse OR contact directly */}
         <div style={{ marginTop: 48, display: "flex", gap: 16, justifyContent: "center", flexWrap: "wrap" }}>
           <button onClick={() => onNav("catalog")} style={{
             fontFamily: T.sans, fontSize: 12, fontWeight: 700, letterSpacing: "0.12em",
@@ -650,8 +658,11 @@ function TrustValueSection({ onNav }) {
             border: "none", padding: "17px 44px", borderRadius: T.r.full, cursor: "pointer",
             display: "inline-flex", alignItems: "center", gap: 10, transition: "all 0.3s",
           }}>
-            ÜRÜNLERİ KEŞFET {I.arrow}
+            ÜRÜNLERİ İNCELE {I.arrow}
           </button>
+          <p style={{ width: "100%", fontFamily: T.sans, fontSize: 12, color: T.textLighter, textAlign: "center", margin: 0 }}>
+            Sorunuz mu var? <a href={waLink(settings?.contact?.whatsappFull || "905331524843")} target="_blank" rel="noreferrer" style={{ color: T.text, fontWeight: 600, textDecoration: "underline" }}>WhatsApp'tan yazın →</a>
+          </p>
         </div>
       </div>
     </section>
@@ -914,7 +925,7 @@ export default function App({ dbProducts = [], siteSettings = null, banners = []
           <AboutSection settings={S} />
 
           {/* Neden Bizden Almalısınız — Trust/Value */}
-          <TrustValueSection onNav={nav} />
+          <TrustValueSection onNav={nav} settings={S} />
 
           {/* Kategori Overlay + İndirimli Ürünler */}
           <CategoryOverlay onNav={nav} />

@@ -6456,3 +6456,29 @@ Polish the product page contact form into a proper conversion surface.
 **Commit:** f76c47d on main. Zero new TS errors.
 
 **Status:** COMPLETE.
+
+---
+
+## D-257 — Homepage / Listing → PDP Clickthrough Polish v1 (2026-05-07)
+**Decision:**
+Polish the customer journey from homepage / listing surfaces into product detail pages (PDPs).
+No redesign — targeted affordance and navigation fixes only.
+
+**Audit findings (VERIFIED):**
+- `Card` component was a `<div onClick={() => onView(p)}>` — not a real anchor. No right-click, no mobile long-press link menu, no browser URL preview, no link semantics.
+- Hover-overlay "İNCELE" CTA was the only clickthrough signal — completely invisible on mobile (touch devices have no hover state). Mobile users saw image → title → price with zero tap affordance.
+- `BestSellersScroll` and `DiscountedSection` horizontal scroll sections had no escape to full catalog — users had no way to discover more products from those contexts.
+- Inline "Popüler Ayakkabılar" homepage grid: same gap — no "see all" path.
+- `BestSellersScroll` and `DiscountedSection` were not receiving `onNav` prop.
+
+**Changes — `src/app/(app)/UygunApp.jsx` only (37 additions, 16 deletions):**
+1. `Card`: outer `<div onClick>` → `<a href="/products/${slug}">` with `display:block; text-decoration:none`. Real link semantics. Carousel `e.stopPropagation()` arrows unaffected.
+2. `Card`: always-visible `İncele →` affordance added to info footer (separator + label + arrow). Present on every card regardless of hover/touch state. Fixes mobile dead zone.
+3. `BestSellersScroll`: added `onNav` prop + "Tümünü Gör →" pill button next to header.
+4. `DiscountedSection`: same — `onNav` prop + "Tümünü Gör →" pill.
+5. Inline "Popüler Ayakkabılar" section: "Tümünü Gör →" pill added.
+6. App: wires `onNav={nav}` into both scroll section calls.
+
+**Commit:** ba40764 on main. Zero new TS errors. No schema change.
+
+**Status:** COMPLETE.

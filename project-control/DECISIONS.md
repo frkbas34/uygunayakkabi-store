@@ -6579,3 +6579,34 @@ what happens after contact, and why to trust the process — without redesigning
 
 **Preserved:** D-256 ContactForm UTM capture + size chips untouched. All PDP SSR data fetching unchanged.
 **Commit:** (pending)
+
+---
+
+## D-262 — Sitewide Contact / WhatsApp Fast-Path Polish V1
+
+**Date:** 2026-05-08
+**Status:** IMPLEMENTED — commit `6541adc`, pushed to `main`
+
+**Problem:**
+- Catalog section (lines 969–1305 of UygunApp.jsx) had zero contact/WA CTAs — visitors filtering by size had no fast escape to help
+- WA button label "WHATSAPP İLE SİPARİŞ VER" ("Place Order via WhatsApp") overpromised — most taps are info-seeking, not orders
+- Mobile sticky CTA was inquiry-form-only, WA path buried one scroll above it
+- WA messages pre-filled with generic "bilgi almak istiyorum" — no product context beyond name; no selected size
+
+**Decision:** Apply targeted fast-path improvements across 2 files without redesigning existing attribution/browse/form flows.
+
+**Changes — `src/app/(app)/UygunApp.jsx`:**
+1. Catalog contact nudge strip inserted after product grid (before `</section>`):
+   - "Aradığınız modeli veya bedeni bulamıyor musunuz?" + underlined "WhatsApp'tan yardım alın →" link via `waLink()`
+2. ProductDetail WA button label: "WHATSAPP İLE SİPARİŞ VER" → "WhatsApp'tan Bilgi Al"
+3. ProductDetail WA message now includes selected size when chosen: `Beden: ${sz} — bilgi almak istiyorum`
+
+**Changes — `src/app/(app)/products/[slug]/page.tsx`:**
+4. PDP WA button label: "WHATSAPP İLE SİPARİŞ VER" → "WhatsApp'tan Bilgi Al"
+5. PDP WA pre-filled message updated to "beden ve stok bilgisi almak istiyorum" (clearer intent)
+6. Mobile sticky CTA split into 2-column bar:
+   - 40% green: WA "Bilgi Al" → deep-links to `wa.me` with product context
+   - 60% dark: "Sipariş Ver — Beni Arayın" → scrolls to `#inquiry-form` (unchanged from D-256)
+
+**Preserved:** D-256 UTM capture, D-256 ContactForm size chips, D-260 mobile drawer, D-261 trust strip/FAQ — all untouched.
+**Commit:** `6541adc` — `D-262: Sitewide contact/WhatsApp fast-path polish V1`

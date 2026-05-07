@@ -733,6 +733,13 @@ Any modification to `src/lib/imageProviders.ts` or `src/jobs/imageGenTask.ts` th
 - [x] D-260: Mobile catalog filter drawer — sticky bar + bottom sheet
 - [x] D-261: PDP trust/delivery/FAQ clarity — trust grid, process steps, always-on FAQ, success state
 
+## Sitewide Contact / WhatsApp Fast-Path Polish (D-262) — COMPLETED 2026-05-08
+
+- [x] D-262: Catalog contact nudge strip below product grid
+- [x] D-262: ProductDetail WA label → "WhatsApp'tan Bilgi Al" + sz in message
+- [x] D-262: PDP WA label + message intent clarified
+- [x] D-262: Mobile sticky CTA split — 40% WA / 60% inquiry form
+
 ## Production Data Cleanup — COMPLETED 2026-05-07
 - [x] 38 test products + 164 variants + 161 media + 20 PI reports deleted (scripts/production-cleanup.mjs)
 - [ ] Manual cleanup pending: Shopier panel, Meta Business Suite, X test tweets, Payload Admin media

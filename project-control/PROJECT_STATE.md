@@ -825,6 +825,7 @@ Product page now renders Geobot content with safe fallbacks:
 | D-259 | Catalog browse clarity polish — dynamic heading per filter, always-visible count, sort controls, category-scoped size filter | `src/app/(app)/UygunApp.jsx` |
 | D-260 | Mobile catalog filter drawer — sticky compact bar + bottom sheet, active filter pills, body scroll lock | `src/app/(app)/UygunApp.jsx` |
 | D-261 | PDP trust/delivery/FAQ clarity — 4-item trust strip grid, 3-step process strip, always-on FAQ fallback, success state next-steps, ProductFAQ restyle | `src/app/(app)/products/[slug]/page.tsx`, `src/components/ContactForm.tsx`, `src/components/ProductFAQ.tsx` |
+| D-262 | Sitewide contact/WhatsApp fast-path polish V1 — catalog contact nudge strip below grid, WA label "WhatsApp'tan Bilgi Al" on PDP+ProductDetail, sz-prefilled WA message in ProductDetail, PDP WA message clearer intent, mobile sticky CTA split 40% WA + 60% inquiry | `src/app/(app)/UygunApp.jsx`, `src/app/(app)/products/[slug]/page.tsx` |
 
 **Schema changes (Neon DDL applied manually — push:true skips silently):**
 - D-251: `ALTER TABLE customer_inquiries ADD COLUMN utm_source / utm_medium / utm_campaign / referrer VARCHAR(255)`

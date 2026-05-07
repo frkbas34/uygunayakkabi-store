@@ -733,6 +733,13 @@ Any modification to `src/lib/imageProviders.ts` or `src/jobs/imageGenTask.ts` th
 - [x] D-260: Mobile catalog filter drawer — sticky bar + bottom sheet
 - [x] D-261: PDP trust/delivery/FAQ clarity — trust grid, process steps, always-on FAQ, success state
 
+## Size Guidance / Fit Confidence Polish (D-263) — COMPLETED 2026-05-08
+
+- [x] D-263: Size-help reassurance note below size display chips (page.tsx)
+- [x] D-263: Inquiry form heading → "Sipariş Ver veya Beden Sor" + subtitle (page.tsx)
+- [x] D-263: Process step 2 → "Beden & Teslimat Netleşir" (page.tsx)
+- [x] D-263: ContactForm size chip label "(opsiyonel)" + "proceed without size" hint (ContactForm.tsx)
+
 ## Sitewide Contact / WhatsApp Fast-Path Polish (D-262) — COMPLETED 2026-05-08
 
 - [x] D-262: Catalog contact nudge strip below product grid

@@ -6610,3 +6610,35 @@ what happens after contact, and why to trust the process — without redesigning
 
 **Preserved:** D-256 UTM capture, D-256 ContactForm size chips, D-260 mobile drawer, D-261 trust strip/FAQ — all untouched.
 **Commit:** `6541adc` — `D-262: Sitewide contact/WhatsApp fast-path polish V1`
+
+---
+
+## D-263 — Size Guidance / Fit Confidence Polish V1
+
+**Date:** 2026-05-08
+**Status:** IMPLEMENTED — commit `27c7dba`, pushed to `main`
+
+**Problem:**
+- PDP size display block had zero "unsure about size" guidance — visitors with size doubt had no signal to proceed
+- ContactForm chip label "Beden seçin" implied size was required (no optional signal)
+- Inquiry form heading "Sipariş Ver" signalled "order-ready only" — size-uncertain visitors felt excluded
+- Process step 2 "Sizi Arayalım" gave no indication that size gets resolved in the call-back
+- Out-of-stock sizes crossed out with no alternative action prompt
+
+**Decision:** Add size-help microcopy at the 3 highest-friction moments — size display, form chips, and form heading — without adding new UI components or changing the lead-capture flow.
+
+**Changes — `src/app/(app)/products/[slug]/page.tsx`:**
+1. Size-help reassurance note inserted at bottom of size display block:
+   - Normal stock: "Beden konusunda emin değilseniz talep formumuzu doldurun — sizi arayarak netleştiririz."
+   - Soldout: "Farklı beden veya alternatif ürün için talep bırakabilirsiniz — sizi arayarak yardımcı oluruz."
+2. Inquiry section heading: "Sipariş Ver" → "Sipariş Ver veya Beden Sor"
+   - Added subtitle: "Beden seçmek zorunda değilsiniz — sizi arayarak yardımcı oluruz."
+3. Process strip step 2: "Sizi Arayalım" → "Beden & Teslimat Netleşir" (same font size, compact, meaningful)
+
+**Changes — `src/components/ContactForm.tsx`:**
+4. Size chip label: "Beden seçin" → "Beden seçin (opsiyonel)"
+5. When no size is selected: shows "Beden emin değilseniz seçmeden devam edebilirsiniz — sizi arayarak netleştiririz."
+   When a size IS selected: shows existing "Seçili beden: X · temizle" (unchanged)
+
+**Preserved:** D-256 UTM capture, size chip interaction, D-261 trust strip/FAQ, D-262 WA fast-path — all untouched.
+**Commit:** `27c7dba` — `D-263: Size guidance / fit confidence polish V1`

@@ -6881,3 +6881,35 @@ Apply the standard native-browser loading hint pattern across all image location
 - `backdropFilter: blur()` usages — kept; they are functional UI, not pure decoration; removing would degrade visual quality
 
 **Commit:** `38d5f0d` — `feat: D-271 add loading=lazy on below-fold imgs, fetchPriority=high on hero imgs`
+
+---
+
+## D-272 — Cart / Checkout Expectation Clarity V1
+**Status:** IMPLEMENTED — commit `50785a9`, pushed to `main` 2026-05-08
+
+**Problem:**
+Three verified expectation mismatches in cart/checkout surfaces:
+1. Cart drawer WA button said "WHATSAPP İLE SİPARİŞ VER" — "SİPARİŞ VER" implies the order is complete. In reality it opens a WhatsApp chat; the order is completed manually by the team.
+2. Cart drawer had zero process explanation between the total row and the WA button — visitors had no idea what happens next.
+3. The `page.tsx` PDP "SEPETE EKLE" primary CTA was a `<button>` with no `onClick` handler — it did nothing when tapped/clicked. Visitors selected a product, tapped the primary CTA, and nothing happened. The real conversion paths (WA button, ContactForm below) were lower on the page.
+
+**Decisions:**
+
+*Cart drawer:*
+- Added a compact process note between the total row and the WA button: "Talebiniz WhatsApp'tan ekibimize iletilir — ekibimiz sizi arar ve siparişi birlikte tamamlar."
+- Renamed WA button: "WHATSAPP İLE SİPARİŞ VER" → "WHATSAPP İLE TALEBİNİZİ İLETİN" — honest framing (send request, not place order).
+
+*ProductDetail (UygunApp inline modal):*
+- Added process hint below trust badges: "Sepete ekleyip WhatsApp'tan sipariş talebinizi iletebilirsiniz — ekibimiz sizi arar ve süreci tamamlar."
+
+*PDP page.tsx primary CTA:*
+- Replaced the non-functional `<button disabled={isSoldOut}>SEPETE EKLE</button>` (had no onClick, did nothing in stock) with `<a href="#inquiry-form">TALEBİNİZİ OLUŞTURUN</a>` — now functional, scrolls to the inquiry form, and reflects the real business model. STOKTA YOK disabled state preserved as a button.
+
+**What was NOT changed:**
+- The inquiry form, ContactForm, OOSChip, sticky mobile CTA — all preserved exactly as D-256/D-262/D-265 left them.
+- WhatsApp fast-path (secondary WA button on PDP) — unchanged.
+- Cart drawer overall structure — unchanged.
+- No schema change.
+
+**Files changed:** `src/app/(app)/UygunApp.jsx`, `src/app/(app)/products/[slug]/page.tsx`
+**Commit:** `50785a9` — `feat: D-272 cart/checkout expectation clarity`

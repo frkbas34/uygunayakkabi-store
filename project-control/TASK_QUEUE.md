@@ -822,3 +822,12 @@ Any modification to `src/lib/imageProviders.ts` or `src/jobs/imageGenTask.ts` th
 - [x] D-271: `page.tsx` — similar products section `<img>`: `loading="lazy"` (below-fold)
 - [x] D-271: `UygunApp.jsx` — card product images: `loading="lazy"`; hero Unsplash image: `fetchpriority="high"`; cart drawer thumbnails: `loading="lazy"`; ProductDetail thumbnails: `loading="lazy"`; ProductDetail main image: `fetchPriority="high"` + `loading="eager"`
 - [x] D-271: Commit `38d5f0d` pushed to main
+
+## Cart / Checkout Expectation Clarity (D-272) — COMPLETED 2026-05-08
+
+- [x] D-272: Audit — VERIFIED `page.tsx` "SEPETE EKLE" button had no `onClick` (dead-end); cart drawer had no process explanation; WA button said "SİPARİŞ VER" (implies instant order); ProductDetail had no process note
+- [x] D-272: `UygunApp.jsx` cart drawer — added process note between total and WA button: "Talebiniz WhatsApp'tan ekibimize iletilir — ekibimiz sizi arar ve siparişi birlikte tamamlar."
+- [x] D-272: `UygunApp.jsx` cart CTA — "WHATSAPP İLE SİPARİŞ VER" → "WHATSAPP İLE TALEBİNİZİ İLETİN" (honest: it's a request, not a completed order)
+- [x] D-272: `UygunApp.jsx` ProductDetail trust badges — added process hint: "Sepete ekleyip WhatsApp'tan sipariş talebinizi iletebilirsiniz — ekibimiz sizi arar ve süreci tamamlar."
+- [x] D-272: `page.tsx` — replaced non-functional "SEPETE EKLE" `<button>` (no onClick) with `<a href="#inquiry-form">` labeled "TALEBİNİZİ OLUŞTURUN"; STOKTA YOK disabled state preserved
+- [x] D-272: Commit `50785a9` pushed to main

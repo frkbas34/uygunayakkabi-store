@@ -6954,3 +6954,45 @@ Five verified weak points in ContactForm:
 
 **File changed:** `src/components/ContactForm.tsx`
 **Commit:** `ea870d8` — `feat: D-273 ContactForm validation polish`
+
+---
+
+## D-274 — Header / Navigation / Sitewide Entry Clarity V1
+**Status:** IMPLEMENTED — commit `9e5a087`, pushed to `main` 2026-05-08
+
+**Problem:**
+Four verified weak points in navigation:
+1. Desktop nav had no active-page visual indicator — current page was only slightly darker text, indistinguishable on a beige background.
+2. Mobile menu items were all the same color (T.text) regardless of active state — no way to see which page you're on.
+3. Mobile menu had a bare WhatsApp button with no section label — the browse rows and the contact action were visually identical in hierarchy.
+4. Footer "Sipariş" column heading was misleading — the column only contains a single WhatsApp link, not order management.
+
+**Decisions:**
+
+*Desktop nav active indicator:*
+- Added `borderBottom: pg === l.k ? "1.5px solid " + T.text : "1.5px solid transparent"` + `paddingBottom: 4` on each nav link span.
+- Transparent border when inactive so the layout doesn't shift; solid when active.
+- Transition covers both `color` and `border-color` for a smooth page-switch feel.
+
+*Mobile menu active state + hierarchy:*
+- Inactive items: `color: "rgba(28,26,22,0.52)"` (visually muted, clearly secondary).
+- Active item: `color: T.text` + same 1.5px underline as desktop — consistent cross-breakpoint language.
+- Added `›` chevron on the right of each row to communicate "this is a navigation path", not just a label.
+- Flex layout (space-between) for label + chevron alignment.
+
+*Mobile menu section label:*
+- Added a muted "Yardım & İletişim" section header (9px uppercase, `rgba(28,26,22,0.28)`) above the WhatsApp button — makes the browse / contact hierarchy explicit.
+- WA button text "WhatsApp ile Yaz" → "WhatsApp ile İletişim Kur" (more descriptive action label).
+- Removed `marginTop: 16` from the button (section label provides spacing instead).
+
+*Footer column rename:*
+- "Sipariş" → "Yardım" — honest label for a column that only offers a contact link, not order management.
+
+**What was NOT changed:**
+- Nav link labels ("ANA SAYFA", "AYAKKABILAR") — accurate, no need to change.
+- TopBar (promo strip) — purely informational; navigation value would require a larger rethink.
+- Desktop WHATSAPP button styling — already visually distinct (green filled pill); hierarchy is adequate.
+- Footer "Sayfalar" column or link list — correct as-is.
+
+**File changed:** `src/app/(app)/UygunApp.jsx`
+**Commit:** `9e5a087` — `D-274: nav active state mobile menu hierarchy footer label`

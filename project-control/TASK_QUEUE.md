@@ -845,3 +845,12 @@ Any modification to `src/lib/imageProviders.ts` or `src/jobs/imageGenTask.ts` th
 - [x] D-273: Field borders turn red on error; cleared automatically when user edits
 - [x] D-273: All D-251 attribution, D-265 OOS flow, D-264 chip flow — fully preserved
 - [x] D-273: Commit `ea870d8` pushed to main
+
+## Header / Navigation / Sitewide Entry Clarity (D-274) — COMPLETED 2026-05-08
+
+- [x] D-274: Audit — VERIFIED desktop nav had no active-state visual indicator; mobile menu items were all same color (no active highlight); mobile menu had bare WA button with no section label; footer "Sipariş" column name was misleading (just a WA link)
+- [x] D-274: Desktop nav links — added `borderBottom: 1.5px solid` indicator (transparent when inactive, `T.text` when active page); `paddingBottom: 4` for clean underline spacing
+- [x] D-274: Mobile menu items — `color: pg === l.k ? T.text : "rgba(28,26,22,0.52)"` (inactive items visually muted); active item underline mirrors desktop; `›` chevron added on right for visual path hint; flex layout for label + chevron
+- [x] D-274: Mobile menu — "Yardım & İletişim" section label added above WA button; WA button text "WhatsApp ile Yaz" → "WhatsApp ile İletişim Kur"
+- [x] D-274: Footer "Sipariş" column heading → "Yardım" (honest label for what is actually a WA contact link)
+- [x] D-274: Commit `9e5a087` pushed to main

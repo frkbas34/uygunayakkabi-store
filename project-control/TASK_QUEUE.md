@@ -794,3 +794,13 @@ Any modification to `src/lib/imageProviders.ts` or `src/jobs/imageGenTask.ts` th
 - [x] D-268: PDP stock badge: "Stokta" → "Stokta · N beden" with available size count
 - [x] D-268: PDP BEDEN section label: "BEDEN — N stokta" count when sizes available
 - [x] D-268: Commit `fc21ecd` pushed to main
+
+## PDP Product Image / Gallery Usability Polish (D-269) — COMPLETED 2026-05-08
+
+- [x] D-269: Audit PDP gallery — confirmed 5 weak points (swipe, opacity, overflow, ring, transition)
+- [x] D-269: Mobile touch swipe (onTouchStart/End, 50px delta, left=next, right=prev)
+- [x] D-269: Image fade-in on change (key={activeIndex} + @keyframes pdpImgFadeIn 0.22s)
+- [x] D-269: Thumbnail row overflowX auto + scrollbar hidden (no clip on narrow screens)
+- [x] D-269: Active thumbnail outer glow ring (boxShadow 0 0 0 3px)
+- [x] D-269: Inactive thumbnail opacity 0.5→0.65, border transparent→rgba(0.12)
+- [x] D-269: Commit `420e60d` pushed to main

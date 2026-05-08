@@ -6794,3 +6794,24 @@ Price hierarchy was readable but discount context was missing. `%20` alone on a 
 
 **Preserved:** D-264/265 OOS chip/prefill flow, D-262 WA fast-path, D-267 similar products — all untouched. No pricing logic changed. No schema changes.
 **Commit:** `fc21ecd` — `feat: D-268 price/discount/stock/availability clarity polish`
+
+---
+
+## D-269 — PDP Product Image / Gallery Usability Polish V1
+**Status:** IMPLEMENTED — commit `420e60d`, pushed to `main` 2026-05-08
+
+**Problem:**
+PDP gallery had no mobile swipe support (users had to tap small arrows). Inactive thumbnails at 0.5 opacity looked broken/faded. Thumbnail row had no overflow scroll (clipped on narrow screens). Image changes were instant (jarring snap). Active thumbnail state relied solely on a 2px border with transparent inactive ring.
+
+**Decision:**
+5 targeted improvements to `ProductImages.tsx` only. No architecture change, no new component, no schema change.
+
+**Changes — `src/components/ProductImages.tsx`:**
+1. **Mobile swipe**: `useRef` touchStartX + `onTouchStart`/`onTouchEnd` handlers on main image container — swipe left = next, swipe right = prev (min 50px delta). No external library.
+2. **Image fade-in**: `key={activeIndex}` on `<img>` + CSS `@keyframes pdpImgFadeIn` (opacity 0.55 → 1, 0.22s ease) — smooth transition on every image change.
+3. **Thumbnail row scroll**: `overflowX: 'auto'`, `scrollbarWidth: 'none'`, `::-webkit-scrollbar { display: none }` — thumbnails scroll horizontally on narrow screens instead of clipping.
+4. **Active thumbnail ring**: `boxShadow: '0 0 0 3px rgba(28,26,22,0.15)'` — outer glow ring alongside the existing dark border for clearer active state.
+5. **Inactive thumbnail**: opacity 0.5 → 0.65 (less aggressive fade), border `2px solid transparent` → `2px solid rgba(28,26,22,0.12)` (subtle visible ring, not invisible).
+
+**Preserved:** All PDP downstream flow — D-256 inquiry form, D-262 WA fast-path, D-263/264/265 size recovery, D-267 similar products, D-268 price clarity — completely untouched.
+**Commit:** `420e60d` — `feat: D-269 PDP gallery usability polish`

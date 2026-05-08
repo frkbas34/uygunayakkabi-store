@@ -874,3 +874,10 @@ Any modification to `src/lib/imageProviders.ts` or `src/jobs/imageGenTask.ts` th
 - [x] D-276: `AboutSection` — removed AI/digital-ops pivot paragraphs; replaced with buyer support copy ("Talep bıraktığınızda ekibimiz sizi kısa sürede arar..."); closing "daha akıllı bir modelle" → "kişisel destekle"; brand badge "akıllıca sunulmuş" → "kişisel destek"
 - [x] D-276: `TrustValueSection` — opening "modern bir dijital satış sistemiyle" → "kişisel destek ve anlaşılır bir alışveriş deneyimiyle"; last bullet "Sipariş sürecinde baştan sona destek" → "Beden seçiminden teslikata kadar adım adım destek"
 - [x] D-276: Commit `a37e808` pushed to main
+
+## Homepage Category / Intent Entry Polish V1 (D-277) — COMPLETED 2026-05-09
+
+- [x] D-277: Audit — VERIFIED `CategoryOverlay` was at homepage position 8 (after Hero, WhyUs, Popular, Steps, BestSellers, About, Trust) — most visitors never reached it; no heading or intent framing; chips had tiny padding (9px 20px); no "Tüm Ürünler" fallback for undecided visitors
+- [x] D-277: `CategoryOverlay` upgraded — proper section with `KATEGORİ` eyebrow + `Ne Arıyorsunuz?` heading + subtext; chip padding 9px→13px; chip icons 15→18px; `Tüm Ürünler →` dark button added as fallback CTA
+- [x] D-277: `CategoryOverlay` moved from position 8 → position 3 (right after `WhyUsSection`, before Popular grid) — category entry is now 3rd thing a visitor sees, not 8th
+- [x] D-277: Commit `9050542` pushed to main

@@ -854,3 +854,14 @@ Any modification to `src/lib/imageProviders.ts` or `src/jobs/imageGenTask.ts` th
 - [x] D-274: Mobile menu — "Yardım & İletişim" section label added above WA button; WA button text "WhatsApp ile Yaz" → "WhatsApp ile İletişim Kur"
 - [x] D-274: Footer "Sipariş" column heading → "Yardım" (honest label for what is actually a WA contact link)
 - [x] D-274: Commit `9e5a087` pushed to main
+
+## Help / FAQ / Contact Destination Polish V1 (D-275) — COMPLETED 2026-05-09
+
+- [x] D-275: Audit — VERIFIED no standalone help/contact destination in SPA; footer "Yardım" column = lone WA button; mobile menu = lone WA button; no grouped help topics outside PDP; `ProductFAQ` and `ContactForm` exist only on PDP
+- [x] D-275: New `HelpContactPage` component (`pg === "contact"` SPA view) — header "Yardım Merkezi / Sıkça Sorulan Sorular"; compact 4-step process summary (reuses `STEPS_DATA`); 3 FAQ groups (Ürün & Beden, Sipariş & Ödeme, Teslimat & Süreç) with accordion items; CTA block — primary "Ürünleri İncele" → catalog, secondary WA fast-help; `Footer` included
+- [x] D-275: `HelpFAQItem` accordion component — `+`/`−` expand toggle, beige card style consistent with `ProductFAQ`
+- [x] D-275: Nav `links` array — added `{ k: "contact", l: "YARDIM" }` (desktop active-underline + mobile active-state patterns from D-274 applied automatically)
+- [x] D-275: Mobile menu "Yardım & İletişim" section — added navigable "YARDIM MERKEZİ" entry with D-274 active-state style + `›` chevron; WA button preserved below
+- [x] D-275: Footer "Yardım" column — added `S.S.S. & Yardım Merkezi` nav link above WA button
+- [x] D-275: URL sync — `nav("contact")` → `/yardim`; mount path detection `path === "/yardim"` → `sPg("contact")`
+- [x] D-275: Commit `7a1915e` pushed to main

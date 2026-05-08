@@ -6771,3 +6771,26 @@ Add a server-side "Benzer Modeller" section to the PDP, showing up to 6 products
 
 **Preserved:** All D-265 OOSChip prefill, D-264 OOS recovery, D-263 size guidance, D-262 WA fast-path, D-261 FAQ/trust — untouched.
 **Commit:** `b87a5ef` — `feat: D-267 PDP similar products section (Benzer Modeller)`
+
+---
+
+## D-268 — PDP & Card Price / Stock / Discount Clarity Polish V1
+**Status:** IMPLEMENTED — commit `fc21ecd`, pushed to `main` 2026-05-08
+
+**Problem:**
+Price hierarchy was readable but discount context was missing. `%20` alone on a badge is ambiguous — "percent off" needs the word "indirim" to be immediately clear in Turkish. Original price text was faint (0.3 opacity). Stock badge said "Stokta" with no size context. BEDEN section gave no count upfront.
+
+**Changes — `src/app/(app)/UygunApp.jsx`:**
+1. Card `originalPrice`: 12px → 13px, color `T.textLighter` (0.3) → `rgba(28,26,22,0.4)` — more readable, still clearly secondary
+2. Card discount badge: `%{N}` → `%{N} indirim` — clarifies percent-off meaning
+3. ProductDetail `originalPrice` color: same 0.3 → 0.4 improvement
+4. ProductDetail discount badge: same `%{N}` → `%{N} indirim`
+
+**Changes — `src/app/(app)/products/[slug]/page.tsx`:**
+1. PDP `originalPrice` color: `rgba(28,26,22,0.3)` → `rgba(28,26,22,0.4)` — slightly more readable
+2. PDP discount badge: `%{N}` → `%{N} indirim`
+3. PDP stock badge "Stokta" → `Stokta · {availableSizes.length} beden` when variants present — contextualizes availability
+4. PDP BEDEN section label → `BEDEN — {N} stokta` when sizes available, plain `BEDEN` when soldout or no variants
+
+**Preserved:** D-264/265 OOS chip/prefill flow, D-262 WA fast-path, D-267 similar products — all untouched. No pricing logic changed. No schema changes.
+**Commit:** `fc21ecd` — `feat: D-268 price/discount/stock/availability clarity polish`

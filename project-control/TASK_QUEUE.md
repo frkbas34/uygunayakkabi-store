@@ -785,3 +785,12 @@ Any modification to `src/lib/imageProviders.ts` or `src/jobs/imageGenTask.ts` th
 - [x] D-267: Server-side Payload query in page.tsx — same category, exclude current, exclude drafts, max 6, sort -createdAt
 - [x] D-267: "Benzer Modeller" JSX section — responsive auto-fill grid, image+title+price cards, zero-state safe
 - [x] D-267: Commit `b87a5ef` pushed to main
+
+## PDP & Card Price / Stock / Discount Clarity Polish (D-268) — COMPLETED 2026-05-08
+
+- [x] D-268: Audit card + PDP price/discount/stock display — identified 4 weak points
+- [x] D-268: Card originalPrice readability (size 12→13px, color 0.3→0.4 opacity)
+- [x] D-268: Discount badge everywhere: `%{N}` → `%{N} indirim` (cards + ProductDetail + PDP)
+- [x] D-268: PDP stock badge: "Stokta" → "Stokta · N beden" with available size count
+- [x] D-268: PDP BEDEN section label: "BEDEN — N stokta" count when sizes available
+- [x] D-268: Commit `fc21ecd` pushed to main

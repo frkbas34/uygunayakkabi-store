@@ -177,7 +177,9 @@ function Navbar({ onNav, pg, settings, cartCount, onCartToggle }) {
             <span key={l.k} onClick={() => onNav(l.k)} style={{
               cursor: "pointer", fontFamily: T.sans, fontSize: 11, fontWeight: 500,
               color: pg === l.k ? T.text : T.textLighter,
-              letterSpacing: "0.16em", transition: "color 0.3s", textTransform: "uppercase",
+              letterSpacing: "0.16em", transition: "color 0.3s, border-color 0.3s", textTransform: "uppercase",
+              paddingBottom: 4,
+              borderBottom: pg === l.k ? "1.5px solid " + T.text : "1.5px solid transparent",
             }}>
               {l.l}
             </span>
@@ -221,19 +223,24 @@ function Navbar({ onNav, pg, settings, cartCount, onCartToggle }) {
           {links.map(l => (
             <div key={l.k} onClick={() => { onNav(l.k); setMo(false); }} style={{
               cursor: "pointer", fontFamily: T.sans, fontSize: 14, fontWeight: 500,
-              color: T.text, padding: "16px 0", letterSpacing: "0.1em",
-              borderBottom: "1px solid rgba(28,26,22,0.06)",
+              color: pg === l.k ? T.text : "rgba(28,26,22,0.52)", padding: "16px 0",
+              letterSpacing: "0.1em", borderBottom: "1px solid rgba(28,26,22,0.06)",
+              display: "flex", alignItems: "center", justifyContent: "space-between",
             }}>
-              {l.l}
+              <span style={{ borderBottom: pg === l.k ? "1.5px solid " + T.text : "1.5px solid transparent", paddingBottom: 1 }}>{l.l}</span>
+              <span style={{ fontSize: 16, color: "rgba(28,26,22,0.22)", lineHeight: 1 }}>›</span>
             </div>
           ))}
+          <div style={{ marginTop: 20, marginBottom: 12, fontFamily: T.sans, fontSize: 9, fontWeight: 600, letterSpacing: "0.18em", textTransform: "uppercase", color: "rgba(28,26,22,0.28)" }}>
+            Yardım &amp; İletişim
+          </div>
           <a href={waLink(waNum)} target="_blank" rel="noreferrer" style={{
             display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
-            marginTop: 16, fontFamily: T.sans, fontSize: 12, fontWeight: 600,
+            fontFamily: T.sans, fontSize: 12, fontWeight: 600,
             color: "#fff", background: T.green, padding: "14px 24px",
             borderRadius: T.r.full, textDecoration: "none",
           }}>
-            {I.wa} WhatsApp ile Yaz
+            {I.wa} WhatsApp ile İletişim Kur
           </a>
         </div>
       )}
@@ -1546,7 +1553,7 @@ function Footer({ onNav, settings }) {
           </p>
         </div>
         <div>
-          <h5 style={{ fontFamily: T.sans, fontSize: 10, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.16em", color: "rgba(240,236,228,0.28)", marginBottom: 22 }}>Sipariş</h5>
+          <h5 style={{ fontFamily: T.sans, fontSize: 10, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.16em", color: "rgba(240,236,228,0.28)", marginBottom: 22 }}>Yardım</h5>
           <a href={waLink(ct.whatsappFull)} target="_blank" rel="noreferrer" style={{
             display: "inline-flex", alignItems: "center", gap: 8,
             fontFamily: T.sans, fontSize: 12, fontWeight: 600, letterSpacing: "0.06em",

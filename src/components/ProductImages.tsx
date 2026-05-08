@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useRef } from 'react'
 
 type Props = {
   images: string[]
@@ -9,33 +9,63 @@ type Props = {
 
 export function ProductImages({ images, title }: Props) {
   const [activeIndex, setActiveIndex] = useState(0)
+  // D-269: touch refs for mobile swipe
+  const touchStartX = useRef<number | null>(null)
 
   const goNext = () => setActiveIndex((i) => (i + 1) % images.length)
   const goPrev = () => setActiveIndex((i) => (i - 1 + images.length) % images.length)
 
+  // D-269: swipe left = next, swipe right = prev (min 50px delta)
+  const handleTouchStart = (e: React.TouchEvent) => {
+    touchStartX.current = e.touches[0].clientX
+  }
+  const handleTouchEnd = (e: React.TouchEvent) => {
+    if (touchStartX.current === null) return
+    const delta = touchStartX.current - e.changedTouches[0].clientX
+    if (Math.abs(delta) > 50) delta > 0 ? goNext() : goPrev()
+    touchStartX.current = null
+  }
+
   if (images.length === 0) {
     return (
       <div style={{ aspectRatio: '1/1', background: 'rgba(238,232,222,0.65)', borderRadius: 20, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-        <span style={{ fontSize: 80 }}>👟</span>
+        <span style={{ fontSize: 80 }}>\U0001F45F</span>
       </div>
     )
   }
 
   return (
     <div>
-      <div style={{
-        position: 'relative',
-        aspectRatio: '1/1',
-        background: 'rgba(238,232,222,0.65)',
-        borderRadius: 20,
-        overflow: 'hidden',
-        marginBottom: 14,
-        border: '1px solid rgba(28,26,22,0.06)',
-      }}>
+      {/* D-269: fade-in animation on image change; hide thumbnail scrollbar */}
+      <style>{`
+        @keyframes pdpImgFadeIn {
+          from { opacity: 0.55; }
+          to   { opacity: 1; }
+        }
+        .pdp-main-img { animation: pdpImgFadeIn 0.22s ease; }
+        .pdp-thumb-row::-webkit-scrollbar { display: none; }
+      `}</style>
+
+      {/* Main image */}
+      <div
+        style={{
+          position: 'relative',
+          aspectRatio: '1/1',
+          background: 'rgba(238,232,222,0.65)',
+          borderRadius: 20,
+          overflow: 'hidden',
+          marginBottom: 14,
+          border: '1px solid rgba(28,26,22,0.06)',
+        }}
+        onTouchStart={handleTouchStart}
+        onTouchEnd={handleTouchEnd}
+      >
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img
+          key={activeIndex}
           src={images[activeIndex]}
           alt={title}
+          className="pdp-main-img"
           style={{
             position: 'absolute',
             inset: 0,
@@ -50,7 +80,7 @@ export function ProductImages({ images, title }: Props) {
           <>
             <button
               onClick={goPrev}
-              aria-label="Önceki fotoğraf"
+              aria-label="\u00d6nceki foto\u011fraf"
               style={{
                 position: 'absolute',
                 left: 12,
@@ -76,7 +106,7 @@ export function ProductImages({ images, title }: Props) {
             </button>
             <button
               onClick={goNext}
-              aria-label="Sonraki fotoğraf"
+              aria-label="Sonraki foto\u011fraf"
               style={{
                 position: 'absolute',
                 right: 12,
@@ -123,25 +153,40 @@ export function ProductImages({ images, title }: Props) {
         )}
       </div>
 
-      {/* Thumbnails */}
+      {/* Thumbnails - D-269: scrollable row, stronger active ring, softer inactive */}
       {images.length > 1 && (
-        <div style={{ display: 'flex', gap: 10 }}>
+        <div
+          className="pdp-thumb-row"
+          style={{
+            display: 'flex',
+            gap: 10,
+            overflowX: 'auto',
+            scrollbarWidth: 'none',
+            paddingBottom: 4,
+          }}
+        >
           {images.map((img, idx) => (
             <button
               key={idx}
               onClick={() => setActiveIndex(idx)}
+              aria-label={`Foto\u011fraf ${idx + 1}`}
               style={{
                 width: 72,
                 height: 72,
                 borderRadius: 12,
                 overflow: 'hidden',
-                border: idx === activeIndex ? '2px solid #1c1a16' : '2px solid transparent',
+                border: idx === activeIndex
+                  ? '2px solid #1c1a16'
+                  : '2px solid rgba(28,26,22,0.12)',
                 cursor: 'pointer',
                 background: 'rgba(238,232,222,0.65)',
-                opacity: idx === activeIndex ? 1 : 0.5,
+                opacity: idx === activeIndex ? 1 : 0.65,
                 transition: 'all 0.2s',
                 padding: 0,
                 flexShrink: 0,
+                boxShadow: idx === activeIndex
+                  ? '0 0 0 3px rgba(28,26,22,0.15)'
+                  : 'none',
               }}
             >
               {/* eslint-disable-next-line @next/next/no-img-element */}

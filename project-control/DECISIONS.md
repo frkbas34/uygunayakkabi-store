@@ -6913,3 +6913,44 @@ Three verified expectation mismatches in cart/checkout surfaces:
 
 **Files changed:** `src/app/(app)/UygunApp.jsx`, `src/app/(app)/products/[slug]/page.tsx`
 **Commit:** `50785a9` — `feat: D-272 cart/checkout expectation clarity`
+
+---
+
+## D-273 — Contact Form Validation / Submission Confidence V1
+**Status:** IMPLEMENTED — commit `ea870d8`, pushed to `main` 2026-05-08
+
+**Problem:**
+Five verified weak points in ContactForm:
+1. No client-side validation — phone format errors only discovered after server round-trip, shown as generic "Bir hata oluştu" with no actionable guidance.
+2. API error body was thrown away — the server returns `{ error: 'Invalid phone number' }` on 400, but the client caught all non-ok responses as a generic error.
+3. No "(zorunlu)" indicator on required fields (Name, Phone) — the "(opsiyonel)" label on Beden was unmatched, leaving required fields unlabelled.
+4. Error message rendered below the submit button — invisible on mobile after scrolling to tap submit.
+5. No phone helper text — unlike the size section which has extensive guidance.
+
+**Decisions:**
+
+*Client-side validation (before fetch):*
+- `phoneRegex` constant (`/^[0-9+\-\s()]{7,20}$/`) mirrors the server-side rule exactly — no double-standard.
+- Name: must be ≥ 2 non-empty chars → "Adınızı eksiksiz girin."
+- Phone: must match regex → "Lütfen geçerli bir telefon numarası girin (Örn: 0533 123 45 67)."
+- Validation runs before `setStatus('loading')` — no network round-trip wasted on invalid input.
+
+*API error handling:*
+- On 400 with body containing "phone" → set `phoneError` (field-level, not generic); reset status to idle so user can correct and resubmit.
+- On other 400/5xx → "Talebiniz gönderilemedi. Lütfen tekrar deneyin veya WhatsApp'tan ulaşın."
+- On fetch failure (network) → "İnternet bağlantınızı kontrol edin..." — distinguishes connectivity vs server issue.
+
+*Field labels:*
+- Name and Phone: `(zorunlu)` suffix in red-400 — matches the `(opsiyonel)` pattern on Beden.
+- Fields: error border → `border-red-400 focus:ring-red-400`; auto-cleared when user edits.
+
+*Phone helper text:* "Sizi arayabilmemiz için güncel numaranızı girin." — below the phone field when no error.
+
+*Error position:* Error box moved above submit button; styled `bg-red-50 border border-red-200` (compact, not alarming).
+
+*Loading text:* "Gönderiliyor…" → "Talebiniz gönderiliyor…" (product-specific framing).
+
+**Preserved:** D-251 attribution capture, D-264 chip flow, D-265 OOS prefill/amber banner, D-261 success state, D-261 trust line — all unchanged.
+
+**File changed:** `src/components/ContactForm.tsx`
+**Commit:** `ea870d8` — `feat: D-273 ContactForm validation polish`

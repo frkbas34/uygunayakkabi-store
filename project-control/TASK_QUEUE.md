@@ -831,3 +831,17 @@ Any modification to `src/lib/imageProviders.ts` or `src/jobs/imageGenTask.ts` th
 - [x] D-272: `UygunApp.jsx` ProductDetail trust badges — added process hint: "Sepete ekleyip WhatsApp'tan sipariş talebinizi iletebilirsiniz — ekibimiz sizi arar ve süreci tamamlar."
 - [x] D-272: `page.tsx` — replaced non-functional "SEPETE EKLE" `<button>` (no onClick) with `<a href="#inquiry-form">` labeled "TALEBİNİZİ OLUŞTURUN"; STOKTA YOK disabled state preserved
 - [x] D-272: Commit `50785a9` pushed to main
+
+## Contact Form Validation / Submission Confidence (D-273) — COMPLETED 2026-05-08
+
+- [x] D-273: Audit — VERIFIED no client-side validation; API error body discarded; no "(zorunlu)" on required fields; error message rendered below submit (invisible on mobile); generic error regardless of cause
+- [x] D-273: Added `phoneError` + `nameError` state; `phoneRegex` constant mirrors server-side rule
+- [x] D-273: Client-side validation before fetch — name ≥2 chars → "Adınızı eksiksiz girin."; phone regex fail → "Lütfen geçerli bir telefon numarası girin (Örn: 0533 123 45 67)."
+- [x] D-273: API 400 phone error now read from response body and shown as field-level error; status reset to idle so user can fix and resubmit
+- [x] D-273: Added "(zorunlu)" label suffix on Name + Phone fields (matches existing "(opsiyonel)" on Beden)
+- [x] D-273: Phone helper text: "Sizi arayabilmemiz için güncel numaranızı girin."
+- [x] D-273: Error box moved above submit button; styled with bg-red-50 border; distinguishes network vs server errors
+- [x] D-273: Loading text: "Gönderiliyor…" → "Talebiniz gönderiliyor…"
+- [x] D-273: Field borders turn red on error; cleared automatically when user edits
+- [x] D-273: All D-251 attribution, D-265 OOS flow, D-264 chip flow — fully preserved
+- [x] D-273: Commit `ea870d8` pushed to main

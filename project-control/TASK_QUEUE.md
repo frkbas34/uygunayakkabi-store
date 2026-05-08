@@ -804,3 +804,13 @@ Any modification to `src/lib/imageProviders.ts` or `src/jobs/imageGenTask.ts` th
 - [x] D-269: Active thumbnail outer glow ring (boxShadow 0 0 0 3px)
 - [x] D-269: Inactive thumbnail opacity 0.5→0.65, border transparent→rgba(0.12)
 - [x] D-269: Commit `420e60d` pushed to main
+
+## PDP Zoom / Fullscreen Image Inspection (D-270) — COMPLETED 2026-05-08
+
+- [x] D-270: Audit D-269 gallery — confirmed no tap-to-fullscreen path existed
+- [x] D-270: isFullscreen state + useEffect (Escape key + body scroll lock)
+- [x] D-270: Fullscreen overlay — fixed, dark backdrop, fade-in animation, tap to close
+- [x] D-270: Fullscreen prev/next arrows + swipe reused from D-269
+- [x] D-270: Close: X button (44px), tap backdrop, Escape key
+- [x] D-270: Inline: cursor zoom-in, Büyüt hint, arrow stopPropagation
+- [x] D-270: Commit `c01b3ec` pushed to main

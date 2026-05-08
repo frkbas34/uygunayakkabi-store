@@ -6815,3 +6815,36 @@ PDP gallery had no mobile swipe support (users had to tap small arrows). Inactiv
 
 **Preserved:** All PDP downstream flow — D-256 inquiry form, D-262 WA fast-path, D-263/264/265 size recovery, D-267 similar products, D-268 price clarity — completely untouched.
 **Commit:** `420e60d` — `feat: D-269 PDP gallery usability polish`
+
+---
+
+## D-270 — PDP Zoom / Fullscreen Image Inspection V1
+**Status:** IMPLEMENTED — commit `c01b3ec`, pushed to `main` 2026-05-08
+
+**Problem:**
+After D-269 gallery polish, mobile swipe and thumbnail clarity improved but there was still no way to inspect product images closely. Tapping the main image did nothing. No close-up / fullscreen path existed.
+
+**Decision:**
+Implement a tap-to-fullscreen lightbox directly inside `ProductImages.tsx`. No new component, no external library. Reuse existing D-269 swipe handlers and goNext/goPrev for fullscreen navigation.
+
+**Architecture:**
+- `isFullscreen` boolean state added to `ProductImages`
+- `useEffect` registers Escape key listener + `document.body.style.overflow = 'hidden'` when open; cleanup restores on close
+- Fullscreen overlay: `position: fixed`, `inset: 0`, `z-index: 9999`, dark backdrop `rgba(0,0,0,0.93)`, fade-in via `@keyframes pdpOverlayIn 0.18s`
+- Image: `maxWidth: 92vw`, `maxHeight: 88vh`, `objectFit: contain`, re-uses `pdpImgFadeIn` animation
+- Close paths: ✕ button (top-right, 44px), tap backdrop, Escape key
+- Nav: prev/next arrows (48px, ghost style), swipe reused from D-269, counter bottom-center
+- Inline gallery: `cursor: zoom-in` on main image + "Büyüt" affordance hint (top-right, `pointerEvents: none`)
+- Inline arrows get `e.stopPropagation()` so tapping them doesn't trigger fullscreen
+
+**Changes — `src/components/ProductImages.tsx`:**
+- Added `useEffect` import alongside `useState`, `useRef`
+- Added `isFullscreen` state
+- Added `useEffect` hook for Escape + body scroll lock
+- Added fullscreen overlay JSX (conditional render when `isFullscreen`)
+- Main image container: `cursor: zoom-in`, `onClick={() => setIsFullscreen(true)}`
+- Inline nav arrows: `e.stopPropagation()` added to onClick
+- "Büyüt" hint badge added top-right of main image
+
+**Preserved:** All D-269 improvements (swipe, fade, thumbnail scroll, active ring) — fully intact and reused.
+**Commit:** `c01b3ec` — `feat: D-270 PDP fullscreen image inspection lightbox`

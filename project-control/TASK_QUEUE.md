@@ -778,3 +778,10 @@ Any modification to `src/lib/imageProviders.ts` or `src/jobs/imageGenTask.ts` th
 - [x] D-266: Search-aware empty state — custom heading/body/CTA when query is active; "Aramayı Temizle" CTA
 - [x] D-266: `resetFilters` now also clears `query`
 - [x] D-266: Commit `6e796c2` pushed to main
+
+## PDP Alternative Product / Similar Model Recovery Path (D-267) — COMPLETED 2026-05-08
+
+- [x] D-267: Audit PDP layout — confirmed zero alternative-product path existed
+- [x] D-267: Server-side Payload query in page.tsx — same category, exclude current, exclude drafts, max 6, sort -createdAt
+- [x] D-267: "Benzer Modeller" JSX section — responsive auto-fill grid, image+title+price cards, zero-state safe
+- [x] D-267: Commit `b87a5ef` pushed to main

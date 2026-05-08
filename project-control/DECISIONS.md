@@ -6746,3 +6746,28 @@ Search is applied first; category/size/sort narrow within search results. Consis
 
 **Preserved:** D-259 browse clarity, D-260 mobile drawer + sticky bar, D-257 card `<a>` clickthrough, D-262 WA nudge — all untouched.
 **Commit:** `6e796c2` — `D-266: Catalog / site search and quick-find polish V1`
+
+---
+
+## D-267 — PDP Alternative Product / Similar Model Recovery Path V1
+**Status:** IMPLEMENTED — commit `b87a5ef`, pushed to `main` 2026-05-08
+
+**Problem:**
+When a user lands on a PDP for a product that is OOS or not the right fit, there is no recovery path — no similar or alternative product is shown. Bounce is the only option if the product doesn't match.
+
+**Decision:**
+Add a server-side "Benzer Modeller" section to the PDP, showing up to 6 products from the same category (excluding the current product and drafts), sorted by recency. Rendered server-side via Payload `payload.find()` — no client-side fetch, no new API route.
+
+**Architecture:**
+- Pure SSR — `similarResult` fetched in `page.tsx` async server component alongside existing Payload queries
+- `where` clause: `category equals product.category` AND `id not_equals product.id` AND `status not_equals draft`
+- `depth: 2` to resolve image media, `limit: 6`, `sort: -createdAt`
+- When no similar products exist (empty category or new product), the section is hidden (zero-state safe)
+- Image source: `extractUrls(generativeGallery)` first, then `extractUrls(images)` fallback — consistent with main PDP gallery logic
+
+**Changes — `src/app/(app)/products/[slug]/page.tsx`:**
+1. After `isSoldOut` computation: `similarResult` Payload query + `similarProducts` typed as `ProductDoc[]`
+2. After `</section>` (closing FAQ section), before `</main>`: "Benzer Modeller" `<section>` — responsive auto-fill grid (minmax 200px, auto-fill), each card is an `<a href="/products/slug">` with 1:1 aspect-ratio image, title, and price in tr-TR locale
+
+**Preserved:** All D-265 OOSChip prefill, D-264 OOS recovery, D-263 size guidance, D-262 WA fast-path, D-261 FAQ/trust — untouched.
+**Commit:** `b87a5ef` — `feat: D-267 PDP similar products section (Benzer Modeller)`

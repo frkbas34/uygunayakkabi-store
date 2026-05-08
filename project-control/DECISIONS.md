@@ -6716,3 +6716,33 @@ Replace the static `<a href="#inquiry-form">` OOS chips with a `OOSChip` client 
 
 **Preserved:** All D-262/263/264 functionality — WA fast-path, sticky CTA, form heading, chipSelected logic, UTM capture — all untouched.
 **Commit:** `e8ea373` — `D-265: OOS size auto-prefill + recovery UX polish V1`
+
+---
+
+## D-266 — Catalog / Site Search & Quick-Find Polish V1
+**Status:** IMPLEMENTED — commit `6e796c2`, pushed to `main` 2026-05-08
+
+**Problem:**
+Users must manually browse or use category/size filters to find a product. No keyword search existed. If a user already knows brand, model name, or approximate product type, they have no fast-path to it.
+
+**Decision:**
+Add lightweight client-side keyword search to the catalog. No backend search infra — all product data is already loaded client-side. Match against product name/title and stockNumber. Layer search as the outermost filter so category/size/sort still work within search results.
+
+**Filter pipeline (D-266):**
+`searchFiltered → catFiltered (category) → flt (size) → sorted → shown`
+Search is applied first; category/size/sort narrow within search results. Consistent and predictable.
+
+**Changes — `src/app/(app)/UygunApp.jsx`:**
+1. `query` state added to `Catalog` component
+2. `q = query.trim().toLowerCase()` — normalized search term
+3. `searchFiltered`: when `q` set, filters `allProducts` by `p.name || p.title` and `p.stockNumber` (both case-insensitive substring match); when empty, passes through all products
+4. `catFiltered` now runs on `searchFiltered` instead of `allProducts` — category chips still narrow within search results
+5. `hasActiveFilter` — now also true when `!!q` (search active)
+6. `resetFilters` — now also calls `setQuery("")` (clears search on "Tüm Ürünleri Göster")
+7. **Search bar JSX** between heading and desktop controls: full-width on mobile (480px max on desktop), pill-shaped, search icon left, ✕ clear button right, focus ring on interaction. Always visible (not inside `catalog-desktop-controls` hidden on mobile).
+8. **Result count** — shows `· "query"` suffix when search active (desktop heading subtitle)
+9. **Mobile sticky bar** — search active pill `🔍 "query" ✕` appears in the pills row; tapping clears search. Separate from the filter drawer badge count.
+10. **Empty state** — search-aware: `"X için ürün bulunamadı"` heading, `"Farklı bir kelime deneyin..."` body, `"Aramayı Temizle"` CTA when query active. Falls back to original filter-empty messaging otherwise.
+
+**Preserved:** D-259 browse clarity, D-260 mobile drawer + sticky bar, D-257 card `<a>` clickthrough, D-262 WA nudge — all untouched.
+**Commit:** `6e796c2` — `D-266: Catalog / site search and quick-find polish V1`

@@ -767,3 +767,14 @@ Any modification to `src/lib/imageProviders.ts` or `src/jobs/imageGenTask.ts` th
 - [x] D-265: Amber input border when `oosContext` active; clears on manual edit or success reset
 - [x] D-265: page.tsx OOS `<a href="#inquiry-form">` chips replaced with `<OOSChip size={variant.size} />`
 - [x] D-265: Commit `e8ea373` pushed to main
+
+## Catalog / Site Search & Quick-Find (D-266) — COMPLETED 2026-05-08
+
+- [x] D-266: Audit catalog discovery flow — confirmed zero search existed, all product data loaded client-side
+- [x] D-266: Add `query` state + `searchFiltered` pipeline to `Catalog` component
+- [x] D-266: Search bar JSX — pill-shaped, search icon, ✕ clear, always visible above desktop controls (also on mobile)
+- [x] D-266: Result count shows `· "query"` when search active
+- [x] D-266: Mobile sticky bar — search active pill `🔍 "query" ✕` appears in pills row; tap to clear
+- [x] D-266: Search-aware empty state — custom heading/body/CTA when query is active; "Aramayı Temizle" CTA
+- [x] D-266: `resetFilters` now also clears `query`
+- [x] D-266: Commit `6e796c2` pushed to main

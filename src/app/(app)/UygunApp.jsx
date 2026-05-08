@@ -271,7 +271,7 @@ function Card({ p, onView }) {
     >
       {/* Image with swipe */}
       <div style={{ position: "relative", paddingTop: "115%", overflow: "hidden", background: "#ebe5da" }}>
-        <img src={displayImg} alt={p.name} style={{
+        <img src={displayImg} alt={p.name} loading="lazy" style={{
           position: "absolute", top: 0, left: 0, width: "100%", height: "100%",
           objectFit: "cover", transition: "all 0.4s cubic-bezier(.22,1,.36,1)",
         }} />
@@ -598,7 +598,7 @@ function AboutSection({ settings }) {
         {/* Right — image + stats overlay */}
         <div style={{ position: "sticky", top: 120 }}>
           <div style={{ borderRadius: 24, overflow: "hidden", aspectRatio: "4/3", background: "#ebe5da", border: "1px solid rgba(28,26,22,0.06)", position: "relative" }}>
-            <img src="https://images.unsplash.com/photo-1556906781-9a412961c28c?w=800&h=600&fit=crop&q=80" alt="UygunAyakkabı" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+            <img src="https://images.unsplash.com/photo-1556906781-9a412961c28c?w=800&h=600&fit=crop&q=80" alt="UygunAyakkabı" fetchpriority="high" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
             <div style={{ position: "absolute", bottom: 0, left: 0, right: 0, padding: 32, background: "linear-gradient(transparent, rgba(0,0,0,0.55))" }}>
               <div style={{ display: "flex", gap: 40 }}>
                 {[
@@ -867,7 +867,7 @@ export default function App({ dbProducts = [], siteSettings = null, banners = []
                 cart.map((c, idx) => (
                   <div key={idx} style={{ display: "flex", gap: 14, padding: "14px 0", borderBottom: "1px solid rgba(28,26,22,0.06)" }}>
                     <div style={{ width: 64, height: 64, borderRadius: 12, overflow: "hidden", background: "#ebe5da", flexShrink: 0 }}>
-                      <img src={c.dbImage || c.image} alt={c.name || c.title} style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+                      <img src={c.dbImage || c.image} alt={c.name || c.title} loading="lazy" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
                     </div>
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <p style={{ fontFamily: T.sans, fontSize: 13, fontWeight: 600, color: T.text, margin: "0 0 4px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
@@ -1417,13 +1417,13 @@ function Detail({ product: p, onBack, settings, onNav, onAddToCart }) {
           {/* Gallery */}
           <div>
             <div style={{ borderRadius: T.r.lg, overflow: "hidden", aspectRatio: "1/1", background: T.bgCard, border: "1px solid rgba(28,26,22,0.06)", marginBottom: 14 }}>
-              <img src={allImages[im]} alt={p.name} style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+              <img src={allImages[im]} alt={p.name} fetchPriority="high" loading="eager" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
             </div>
             {allImages.length > 1 && (
               <div style={{ display: "flex", gap: 10 }}>
                 {allImages.map((x, i) => (
                   <div key={i} onClick={() => sIm(i)} style={{ width: 72, height: 72, borderRadius: T.r.sm, overflow: "hidden", border: `2px solid ${im === i ? T.text : "transparent"}`, cursor: "pointer", background: T.bgCard, opacity: im === i ? 1 : 0.5, transition: "all 0.2s" }}>
-                    <img src={x} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+                    <img src={x} alt="" loading="lazy" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
                   </div>
                 ))}
               </div>

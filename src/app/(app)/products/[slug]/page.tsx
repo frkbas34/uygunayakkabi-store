@@ -848,7 +848,7 @@ export default async function ProductPage({ params }: Props) {
                       border: '1px solid rgba(28,26,22,0.06)', transition: 'transform 0.2s' }}>
                     {spImg && (
                       <div style={{ paddingTop: '100%', position: 'relative', background: '#ebe5da' }}>
-                        <img src={spImg} alt={(sp as any).title} style={{ position: 'absolute', inset: 0,
+                        <img src={spImg} alt={(sp as any).title} loading="lazy" style={{ position: 'absolute', inset: 0,
                           width: '100%', height: '100%', objectFit: 'cover' }} />
                       </div>
                     )}

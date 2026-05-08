@@ -216,6 +216,8 @@ export function ProductImages({ images, title }: Props) {
           src={images[activeIndex]}
           alt={title}
           className="pdp-main-img"
+          fetchPriority="high"
+          loading="eager"
           style={{
             position: 'absolute',
             inset: 0,
@@ -366,6 +368,7 @@ export function ProductImages({ images, title }: Props) {
               <img
                 src={img}
                 alt={`${title} - ${idx + 1}`}
+                loading="lazy"
                 style={{
                   width: '100%',
                   height: '100%',

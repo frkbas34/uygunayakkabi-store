@@ -6848,3 +6848,36 @@ Implement a tap-to-fullscreen lightbox directly inside `ProductImages.tsx`. No n
 
 **Preserved:** All D-269 improvements (swipe, fade, thumbnail scroll, active ring) — fully intact and reused.
 **Commit:** `c01b3ec` — `feat: D-270 PDP fullscreen image inspection lightbox`
+
+---
+
+## D-271 — Mobile Image Loading Performance V1
+**Status:** IMPLEMENTED — commit `38d5f0d`, pushed to `main` 2026-05-08
+
+**Problem:**
+Every `<img>` tag across the storefront was missing `loading` attributes, causing all images — including those far below the fold — to load eagerly on page load. On mobile this means the catalog's full card grid, all gallery thumbnails, the similar-products section, and the cart drawer all fire image requests simultaneously. No critical above-fold image had `fetchPriority="high"` to signal the browser's preload scanner.
+
+**Decision:**
+Apply the standard native-browser loading hint pattern across all image locations. No library, no lazy-load JavaScript — pure HTML attributes. The browser's built-in preload scanner and lazy-load implementation handles the rest.
+
+**Changes:**
+
+`src/components/ProductImages.tsx`:
+- PDP hero `<img>`: added `fetchPriority="high"` + `loading="eager"` (critical above-fold image)
+- Thumbnail `<img>`: added `loading="lazy"` (below main image, often off-screen on mobile)
+
+`src/app/(app)/products/[slug]/page.tsx`:
+- Similar products section `<img>`: added `loading="lazy"` (below-fold section after FAQ)
+
+`src/app/(app)/UygunApp.jsx`:
+- Catalog card `<img src={displayImg}>`: added `loading="lazy"` (most cards are below fold)
+- Hero Unsplash `<img>`: added `fetchpriority="high"` (above-fold landing image)
+- Cart drawer thumbnail `<img>`: added `loading="lazy"` (drawer is off-screen until opened)
+- ProductDetail main `<img src={allImages[im]}>`: added `fetchPriority="high"` + `loading="eager"` (critical above-fold in desktop modal)
+- ProductDetail thumbnail `<img src={x}>`: added `loading="lazy"`
+
+**What was NOT changed:**
+- Fullscreen lightbox `<img>` in `ProductImages.tsx` — opened only on user interaction; eager is correct
+- `backdropFilter: blur()` usages — kept; they are functional UI, not pure decoration; removing would degrade visual quality
+
+**Commit:** `38d5f0d` — `feat: D-271 add loading=lazy on below-fold imgs, fetchPriority=high on hero imgs`

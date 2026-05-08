@@ -814,3 +814,11 @@ Any modification to `src/lib/imageProviders.ts` or `src/jobs/imageGenTask.ts` th
 - [x] D-270: Close: X button (44px), tap backdrop, Escape key
 - [x] D-270: Inline: cursor zoom-in, Büyüt hint, arrow stopPropagation
 - [x] D-270: Commit `c01b3ec` pushed to main
+
+## Mobile Image Loading Performance (D-271) — COMPLETED 2026-05-08
+
+- [x] D-271: Audit — confirmed no `loading` attributes on any storefront `<img>` tags; no `fetchPriority` on critical above-fold images
+- [x] D-271: `ProductImages.tsx` — PDP hero image: `fetchPriority="high"` + `loading="eager"`; thumbnails: `loading="lazy"`
+- [x] D-271: `page.tsx` — similar products section `<img>`: `loading="lazy"` (below-fold)
+- [x] D-271: `UygunApp.jsx` — card product images: `loading="lazy"`; hero Unsplash image: `fetchpriority="high"`; cart drawer thumbnails: `loading="lazy"`; ProductDetail thumbnails: `loading="lazy"`; ProductDetail main image: `fetchPriority="high"` + `loading="eager"`
+- [x] D-271: Commit `38d5f0d` pushed to main

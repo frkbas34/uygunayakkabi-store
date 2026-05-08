@@ -66,6 +66,8 @@ export function ContactForm({ productId, productTitle, variants, soldout }: Prop
   const [oosContext, setOosContext] = useState<string | null>(null) // D-265: OOS size prefill context
   const [status, setStatus]     = useState<'idle' | 'loading' | 'success' | 'error'>('idle')
   const [errMsg, setErrMsg]     = useState('')
+  const [phoneError, setPhoneError] = useState<string | null>(null)  // D-273
+  const [nameError, setNameError]   = useState<string | null>(null)   // D-273
 
   // D-265: listen for OOS chip clicks from page.tsx (cross-component via CustomEvent)
   useEffect(() => {
@@ -82,10 +84,29 @@ export function ContactForm({ productId, productTitle, variants, soldout }: Prop
   const availableVariants = (variants ?? []).filter((v) => v.stock > 0)
   const hasVariants = availableVariants.length > 0
 
+  // D-273: phone regex matches server-side rule in /api/inquiries/route.ts
+  const phoneRegex = /^[0-9+\-\s()]{7,20}$/
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
-    setStatus('loading')
+
+    // D-273: client-side validation before fetch — gives specific field errors
+    let valid = true
+    setNameError(null)
+    setPhoneError(null)
     setErrMsg('')
+
+    if (!name.trim() || name.trim().length < 2) {
+      setNameError('Adınızı eksiksiz girin.')
+      valid = false
+    }
+    if (!phone.trim() || !phoneRegex.test(phone.trim())) {
+      setPhoneError('Lütfen geçerli bir telefon numarası girin (Örn: 0533 123 45 67).')
+      valid = false
+    }
+    if (!valid) return
+
+    setStatus('loading')
 
     // D-251: capture attribution context at submit time (no effect on render)
     const { utmSource, utmMedium, utmCampaign } = captureUtmParams()
@@ -113,11 +134,20 @@ export function ContactForm({ productId, productTitle, variants, soldout }: Prop
         setChipSelected(false)
         setOosContext(null) // D-265: clear OOS context on success
       } else {
-        throw new Error('Request failed')
+        // D-273: read server error body — give specific message when possible
+        let serverErr = ''
+        try { serverErr = (await res.json()).error ?? '' } catch {}
+        if (res.status === 400 && serverErr.toLowerCase().includes('phone')) {
+          setPhoneError('Lütfen geçerli bir telefon numarası girin.')
+          setStatus('idle')
+        } else {
+          setStatus('error')
+          setErrMsg('Talebiniz gönderilemedi. Lütfen tekrar deneyin veya WhatsApp\'tan ulaşın.')
+        }
       }
     } catch {
       setStatus('error')
-      setErrMsg('Bir hata oluştu. Lütfen tekrar deneyin veya WhatsApp\'tan ulaşın.')
+      setErrMsg('İnternet bağlantınızı kontrol edin ve tekrar deneyin, ya da WhatsApp\'tan ulaşın.')
     }
   }
 
@@ -248,33 +278,36 @@ export function ContactForm({ productId, productTitle, variants, soldout }: Prop
       {/* Name */}
       <div>
         <label htmlFor="name" className="block text-sm font-medium text-gray-700 mb-1">
-          Adınız
+          Adınız <span className="text-red-400 font-normal text-xs">(zorunlu)</span>
         </label>
         <input
           id="name"
           type="text"
           value={name}
-          onChange={(e) => setName(e.target.value)}
-          required
+          onChange={(e) => { setName(e.target.value); if (nameError) setNameError(null) }}
           placeholder="Adınız Soyadınız"
-          className="w-full border border-gray-300 rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900 focus:border-transparent"
+          className={`w-full border rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:border-transparent ${nameError ? 'border-red-400 focus:ring-red-400' : 'border-gray-300 focus:ring-gray-900'}`}
         />
+        {nameError && <p className="text-xs text-red-500 mt-1">{nameError}</p>}
       </div>
 
       {/* Phone */}
       <div>
         <label htmlFor="phone" className="block text-sm font-medium text-gray-700 mb-1">
-          Telefon
+          Telefon <span className="text-red-400 font-normal text-xs">(zorunlu)</span>
         </label>
         <input
           id="phone"
           type="tel"
           value={phone}
-          onChange={(e) => setPhone(e.target.value)}
-          required
+          onChange={(e) => { setPhone(e.target.value); if (phoneError) setPhoneError(null) }}
           placeholder="0(5XX) XXX XX XX"
-          className="w-full border border-gray-300 rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900 focus:border-transparent"
+          className={`w-full border rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:border-transparent ${phoneError ? 'border-red-400 focus:ring-red-400' : 'border-gray-300 focus:ring-gray-900'}`}
         />
+        {phoneError
+          ? <p className="text-xs text-red-500 mt-1">{phoneError}</p>
+          : <p className="text-xs text-gray-400 mt-1">Sizi arayabilmemiz için güncel numaranızı girin.</p>
+        }
       </div>
 
       {/* Manual size input — only when no interactive chips */}
@@ -294,24 +327,26 @@ export function ContactForm({ productId, productTitle, variants, soldout }: Prop
         </div>
       )}
 
+      {/* D-273: Error above submit so it's visible without extra scroll */}
+      {status === 'error' && errMsg && (
+        <div className="bg-red-50 border border-red-200 rounded-lg px-3 py-2.5 text-sm text-red-700">
+          {errMsg}
+        </div>
+      )}
+
       {/* Submit */}
       <button
         type="submit"
         disabled={status === 'loading'}
         className="w-full bg-gray-900 text-white font-bold py-3.5 px-6 rounded-xl hover:bg-gray-700 active:scale-[0.98] transition-all shadow-sm hover:shadow-md disabled:opacity-50 disabled:cursor-not-allowed"
       >
-        {status === 'loading' ? 'Gönderiliyor…' : 'Talep Oluştur — Beni Arayın'}
+        {status === 'loading' ? 'Talebiniz gönderiliyor…' : 'Talep Oluştur — Beni Arayın'}
       </button>
 
       {/* D-261: Trust line — slightly stronger */}
       <p className="text-xs text-center text-gray-400">
         🔒 Bilgileriniz yalnızca sipariş desteği için kullanılır. Üçüncü taraflarla paylaşılmaz.
       </p>
-
-      {/* Error */}
-      {status === 'error' && errMsg && (
-        <p className="text-sm text-center text-red-500">{errMsg}</p>
-      )}
     </form>
   )
 }

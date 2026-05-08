@@ -704,28 +704,37 @@ const CAT_CHIPS = [
   { icon: "🩴", name: "Terlik" },
 ];
 
+// D-277: CategoryOverlay upgraded — proper section heading + larger chips + Tüm Ürünler fallback
 function CategoryOverlay({ onNav }) {
   return (
-    <div style={{ position: "relative", zIndex: 2, maxWidth: 1440, margin: "0 auto", padding: "0 40px" }}>
-      <div style={{
-        background: "rgba(238,232,222,0.75)", backdropFilter: "blur(24px) saturate(1.4)",
-        border: "1px solid rgba(28,26,22,0.08)", borderRadius: 20,
-        padding: "24px 32px", display: "flex", alignItems: "center", gap: 14, flexWrap: "wrap", justifyContent: "center",
-        boxShadow: "0 16px 48px rgba(0,0,0,0.04)",
-      }}>
-        <span style={{ fontFamily: T.sans, fontSize: 10, fontWeight: 700, color: "rgba(28,26,22,0.3)", letterSpacing: "0.14em", textTransform: "uppercase", marginRight: 4 }}>Türler:</span>
+    <section style={{ padding: "72px 40px", maxWidth: 1440, margin: "0 auto", borderTop: "1px solid rgba(28,26,22,0.06)", position: "relative", zIndex: 1 }}>
+      <div style={{ textAlign: "center", marginBottom: 36 }}>
+        <p style={{ fontFamily: T.sans, fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.18em", color: T.red, marginBottom: 10 }}>KATEGORİ</p>
+        <h2 style={{ fontFamily: T.serif, fontSize: "clamp(26px, 3vw, 40px)", fontWeight: 700, color: T.text, letterSpacing: "-0.02em", marginBottom: 10 }}>Ne Arıyorsunuz?</h2>
+        <p style={{ fontFamily: T.sans, fontSize: 13, color: T.textLighter, lineHeight: 1.6 }}>Bir kategori seçin — doğrudan o koleksiyona gidin</p>
+      </div>
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 12, justifyContent: "center" }}>
         {CAT_CHIPS.map((c, i) => (
           <button key={i} onClick={() => onNav("catalog", c.name)} style={{
-            display: "flex", alignItems: "center", gap: 8, padding: "9px 20px", borderRadius: 999,
-            background: "rgba(28,26,22,0.04)", border: "1px solid rgba(28,26,22,0.06)",
+            display: "flex", alignItems: "center", gap: 10, padding: "13px 26px", borderRadius: 999,
+            background: "rgba(238,232,222,0.8)", border: "1px solid rgba(28,26,22,0.1)",
             cursor: "pointer", transition: "all 0.3s", fontFamily: T.sans,
+            boxShadow: "0 2px 8px rgba(0,0,0,0.04)",
           }}>
-            <span style={{ fontSize: 15 }}>{c.icon}</span>
-            <span style={{ fontSize: 12, fontWeight: 600, color: T.text }}>{c.name}</span>
+            <span style={{ fontSize: 18 }}>{c.icon}</span>
+            <span style={{ fontSize: 13, fontWeight: 600, color: T.text }}>{c.name}</span>
           </button>
         ))}
+        <button onClick={() => onNav("catalog")} style={{
+          display: "flex", alignItems: "center", gap: 8, padding: "13px 26px", borderRadius: 999,
+          background: T.text, border: "1px solid transparent",
+          cursor: "pointer", transition: "all 0.3s", fontFamily: T.sans,
+          boxShadow: "0 4px 12px rgba(0,0,0,0.1)",
+        }}>
+          <span style={{ fontSize: 13, fontWeight: 600, color: "#fff" }}>Tüm Ürünler →</span>
+        </button>
       </div>
-    </div>
+    </section>
   );
 }
 
@@ -927,6 +936,9 @@ export default function App({ dbProducts = [], siteSettings = null, banners = []
           {/* Neden Uygun Ayakkabı — 6 advantage cards */}
           <WhyUsSection />
 
+          {/* D-277: Kategori / Intent Entry — before popular grid for faster collection entry */}
+          <CategoryOverlay onNav={nav} />
+
           {/* Popüler Ürünler Grid */}
           <section style={{ padding: "100px 40px", maxWidth: 1440, margin: "0 auto", borderTop: "1px solid rgba(28,26,22,0.06)", position: "relative", zIndex: 1 }}>
             <div style={{ marginBottom: 48, display: "flex", justifyContent: "space-between", alignItems: "flex-end", flexWrap: "wrap", gap: 16 }}>
@@ -954,8 +966,7 @@ export default function App({ dbProducts = [], siteSettings = null, banners = []
           {/* Neden Bizden Almalısınız — Trust/Value */}
           <TrustValueSection onNav={nav} settings={S} />
 
-          {/* Kategori Overlay + İndirimli Ürünler */}
-          <CategoryOverlay onNav={nav} />
+          {/* İndirimli Ürünler */}
           <DiscountedSection allProducts={allProducts} onView={view} onNav={nav} />
 
           <Footer onNav={nav} settings={S} />

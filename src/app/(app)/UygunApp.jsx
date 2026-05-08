@@ -887,6 +887,9 @@ export default function App({ dbProducts = [], siteSettings = null, banners = []
                   <span style={{ fontFamily: T.sans, fontSize: 14, fontWeight: 600, color: T.text }}>Toplam</span>
                   <span style={{ fontFamily: T.sans, fontSize: 18, fontWeight: 800, color: T.text }}>₺{cartTotal.toLocaleString('tr-TR')}</span>
                 </div>
+                <p style={{ fontFamily: T.sans, fontSize: 11, color: T.textLighter, textAlign: "center", margin: "0 0 14px", lineHeight: 1.6 }}>
+                  Talebiniz WhatsApp’tan ekibimize iletilir — ekibimiz sizi arar ve siparişi birlikte tamamlar.
+                </p>
                 <a href={`https://wa.me/${S.contact?.whatsappFull || '905331524843'}?text=${encodeURIComponent(
                   `Merhaba! Sipariş vermek istiyorum:\n\n${cart.map(c => `• ${c.name || c.title}${c.size ? ` (${c.size})` : ''} x${c.qty || 1} — ₺${(c.price * (c.qty || 1)).toLocaleString('tr-TR')}`).join('\n')}\n\nToplam: ₺${cartTotal.toLocaleString('tr-TR')}`
                 )}`} target="_blank" rel="noreferrer" style={{
@@ -894,7 +897,7 @@ export default function App({ dbProducts = [], siteSettings = null, banners = []
                   padding: "16px", background: T.green, color: "#fff", border: "none", borderRadius: T.r.full,
                   fontFamily: T.sans, fontSize: 13, fontWeight: 700, textDecoration: "none", cursor: "pointer",
                 }}>
-                  {I.wa} WHATSAPP İLE SİPARİŞ VER
+                  {I.wa} WHATSAPP İLE TALEBİNİZİ İLETİN
                 </a>
               </div>
             )}
@@ -1500,6 +1503,9 @@ function Detail({ product: p, onBack, settings, onNav, onAddToCart }) {
                 <span style={{ fontSize: 16 }}>✓</span> Hızlı Teslimat
               </div>
             </div>
+            <p style={{ fontFamily: T.sans, fontSize: 11, color: T.textLighter, marginTop: 14, lineHeight: 1.65 }}>
+              Sepete ekleyip WhatsApp’tan sipariş talebinizi iletebilirsiniz — ekibimiz sizi arar ve süreci tamamlar.
+            </p>
           </div>
         </div>
       </section>

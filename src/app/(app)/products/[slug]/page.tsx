@@ -623,27 +623,53 @@ export default async function ProductPage({ params }: Props) {
 
                 {/* Action Buttons */}
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-                  {/* SEPETE EKLE */}
-                  <button
-                    disabled={isSoldOut}
-                    style={{
-                      width: '100%',
-                      padding: 17,
-                      background: !isSoldOut ? '#1c1a16' : 'rgba(28,26,22,0.3)',
-                      color: '#fff',
-                      border: 'none',
-                      borderRadius: 999,
-                      fontFamily: "'Inter', sans-serif",
-                      fontSize: 12,
-                      fontWeight: 700,
-                      cursor: !isSoldOut ? 'pointer' : 'not-allowed',
-                      letterSpacing: '0.1em',
-                      textTransform: 'uppercase',
-                      transition: 'all 0.3s',
-                    }}
-                  >
-                    {!isSoldOut ? 'SEPETE EKLE' : 'STOKTA YOK'}
-                  </button>
+                  {/* D-272: Primary CTA — anchors to inquiry form (former SEPETE EKLE had no onClick) */}
+                  {!isSoldOut ? (
+                    <a
+                      href="#inquiry-form"
+                      style={{
+                        display: 'block',
+                        width: '100%',
+                        padding: 17,
+                        boxSizing: 'border-box',
+                        background: '#1c1a16',
+                        color: '#fff',
+                        border: 'none',
+                        borderRadius: 999,
+                        fontFamily: "'Inter', sans-serif",
+                        fontSize: 12,
+                        fontWeight: 700,
+                        cursor: 'pointer',
+                        letterSpacing: '0.1em',
+                        textTransform: 'uppercase',
+                        transition: 'all 0.3s',
+                        textDecoration: 'none',
+                        textAlign: 'center',
+                      }}
+                    >
+                      TALEBİNİZİ OLUŞTURUN
+                    </a>
+                  ) : (
+                    <button
+                      disabled
+                      style={{
+                        width: '100%',
+                        padding: 17,
+                        background: 'rgba(28,26,22,0.3)',
+                        color: '#fff',
+                        border: 'none',
+                        borderRadius: 999,
+                        fontFamily: "'Inter', sans-serif",
+                        fontSize: 12,
+                        fontWeight: 700,
+                        cursor: 'not-allowed',
+                        letterSpacing: '0.1em',
+                        textTransform: 'uppercase',
+                      }}
+                    >
+                      STOKTA YOK
+                    </button>
+                  )}
 
                   {/* D-207: Shopier ile Öde — direct to product's Shopier page */}
                   {product.sourceMeta?.shopierProductUrl && !isSoldOut && (
@@ -938,6 +964,3 @@ export default async function ProductPage({ params }: Props) {
           </a>
         </div>
       )}
-    </>
-  )
-}

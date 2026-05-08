@@ -315,7 +315,7 @@ export default async function ProductPage({ params }: Props) {
     ? { text: 'Stokta Yok', color: '#c8102e', bg: 'rgba(200,16,46,0.06)' }
     : totalStock <= 6
       ? { text: `Son ${totalStock} adet!`, color: '#d97706', bg: 'rgba(217,119,6,0.1)' }
-      : { text: 'Stokta', color: '#22c55e', bg: 'rgba(34,197,94,0.1)' }
+      : { text: variants.length > 0 ? `Stokta · ${availableSizes.length} beden` : 'Stokta', color: '#22c55e', bg: 'rgba(34,197,94,0.1)' }
 
   return (
     <>
@@ -413,7 +413,7 @@ export default async function ProductPage({ params }: Props) {
                   </span>
                   {product.originalPrice && product.originalPrice > product.price && (
                     <>
-                      <span style={{ fontFamily: "'Inter', sans-serif", fontSize: 16, color: 'rgba(28,26,22,0.3)', textDecoration: 'line-through' }}>
+                      <span style={{ fontFamily: "'Inter', sans-serif", fontSize: 16, color: 'rgba(28,26,22,0.4)', textDecoration: 'line-through' }}>
                         ₺{product.originalPrice.toLocaleString('tr-TR')}
                       </span>
                       <span style={{
@@ -425,7 +425,7 @@ export default async function ProductPage({ params }: Props) {
                         padding: '4px 14px',
                         borderRadius: 999,
                       }}>
-                        %{Math.round(100 - (product.price / product.originalPrice) * 100)}
+                        %{Math.round(100 - (product.price / product.originalPrice) * 100)} indirim
                       </span>
                     </>
                   )}
@@ -517,7 +517,7 @@ export default async function ProductPage({ params }: Props) {
                       color: 'rgba(28,26,22,0.3)',
                       marginBottom: 12,
                     }}>
-                      BEDEN
+                      {!isSoldOut && availableSizes.length > 0 ? `BEDEN — ${availableSizes.length} stokta` : 'BEDEN'}
                     </p>
                     <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
                       {variants.map((variant) => {

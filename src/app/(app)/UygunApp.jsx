@@ -348,10 +348,10 @@ function Card({ p, onView }) {
         <h3 style={{ fontFamily: T.sans, fontSize: 14, fontWeight: 600, color: T.text, marginBottom: 12, lineHeight: 1.35 }}>{p.name || p.title}</h3>
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
           <span style={{ fontFamily: T.sans, fontSize: 18, fontWeight: 800, color: T.text }}>₺{(p.price || 0).toLocaleString("tr-TR")}</span>
-          {p.originalPrice && <span style={{ fontFamily: T.sans, fontSize: 12, color: T.textLighter, textDecoration: "line-through" }}>₺{p.originalPrice.toLocaleString("tr-TR")}</span>}
+          {p.originalPrice && <span style={{ fontFamily: T.sans, fontSize: 13, color: "rgba(28,26,22,0.4)", textDecoration: "line-through" }}>₺{p.originalPrice.toLocaleString("tr-TR")}</span>}
           {p.originalPrice && p.price < p.originalPrice && (
             <span style={{ fontFamily: T.sans, fontSize: 10, fontWeight: 700, color: T.red, background: T.redSoft, padding: "2px 10px", borderRadius: T.r.full }}>
-              %{Math.round((1 - p.price / p.originalPrice) * 100)}
+              %{Math.round((1 - p.price / p.originalPrice) * 100)} indirim
             </span>
           )}
         </div>
@@ -1436,8 +1436,8 @@ function Detail({ product: p, onBack, settings, onNav, onAddToCart }) {
             <h1 style={{ fontFamily: T.serif, fontSize: "clamp(28px, 3vw, 38px)", fontWeight: 700, color: T.text, marginBottom: 16, letterSpacing: "-0.02em" }}>{p.name || p.title}</h1>
             <div style={{ display: "flex", alignItems: "baseline", gap: 12, marginBottom: 8 }}>
               <span style={{ fontFamily: T.sans, fontSize: 30, fontWeight: 800, color: T.text }}>₺{(p.price || 0).toLocaleString("tr-TR")}</span>
-              {p.originalPrice && <span style={{ fontFamily: T.sans, fontSize: 16, color: T.textLighter, textDecoration: "line-through" }}>₺{p.originalPrice.toLocaleString("tr-TR")}</span>}
-              {p.originalPrice && p.price < p.originalPrice && <span style={{ fontFamily: T.sans, fontSize: 11, fontWeight: 700, color: T.red, background: T.redSoft, padding: "4px 14px", borderRadius: T.r.full }}>%{Math.round((1 - p.price / p.originalPrice) * 100)}</span>}
+              {p.originalPrice && <span style={{ fontFamily: T.sans, fontSize: 16, color: "rgba(28,26,22,0.4)", textDecoration: "line-through" }}>₺{p.originalPrice.toLocaleString("tr-TR")}</span>}
+              {p.originalPrice && p.price < p.originalPrice && <span style={{ fontFamily: T.sans, fontSize: 11, fontWeight: 700, color: T.red, background: T.redSoft, padding: "4px 14px", borderRadius: T.r.full }}>%{Math.round((1 - p.price / p.originalPrice) * 100)} indirim</span>}
             </div>
             {p.description && <p style={{ fontFamily: T.sans, fontSize: 15, color: T.textLight, lineHeight: 1.7, marginBottom: 24, maxWidth: 480 }}>{p.description}</p>}
 

@@ -157,7 +157,7 @@ function Navbar({ onNav, pg, settings, cartCount, onCartToggle }) {
     return () => window.removeEventListener("scroll", fn);
   }, []);
 
-  const links = [{ k: "home", l: "ANA SAYFA" }, { k: "catalog", l: "AYAKKABILAR" }];
+  const links = [{ k: "home", l: "ANA SAYFA" }, { k: "catalog", l: "AYAKKABILAR" }, { k: "contact", l: "YARDIM" }];
 
   return (
     <nav style={{
@@ -233,6 +233,15 @@ function Navbar({ onNav, pg, settings, cartCount, onCartToggle }) {
           ))}
           <div style={{ marginTop: 20, marginBottom: 12, fontFamily: T.sans, fontSize: 9, fontWeight: 600, letterSpacing: "0.18em", textTransform: "uppercase", color: "rgba(28,26,22,0.28)" }}>
             Yardım &amp; İletişim
+          </div>
+          <div onClick={() => { onNav("contact"); setMo(false); }} style={{
+            cursor: "pointer", fontFamily: T.sans, fontSize: 14, fontWeight: 500,
+            color: pg === "contact" ? T.text : "rgba(28,26,22,0.52)", padding: "14px 0",
+            letterSpacing: "0.1em", borderBottom: "1px solid rgba(28,26,22,0.06)",
+            display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12,
+          }}>
+            <span style={{ borderBottom: pg === "contact" ? "1.5px solid " + T.text : "1.5px solid transparent", paddingBottom: 1 }}>YARDIM MERKEZİ</span>
+            <span style={{ fontSize: 16, color: "rgba(28,26,22,0.22)", lineHeight: 1 }}>›</span>
           </div>
           <a href={waLink(waNum)} target="_blank" rel="noreferrer" style={{
             display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
@@ -791,7 +800,7 @@ export default function App({ dbProducts = [], siteSettings = null, banners = []
     sPg(p);
     if (p !== "detail") sSel(null);
     // Update browser URL
-    const url = p === "home" ? "/" : p === "catalog" ? "/ayakkabilar" : null;
+    const url = p === "home" ? "/" : p === "catalog" ? "/ayakkabilar" : p === "contact" ? "/yardim" : null;
     if (url) window.history.pushState({ pg: p }, "", url);
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
@@ -818,6 +827,7 @@ export default function App({ dbProducts = [], siteSettings = null, banners = []
     // On mount, check if URL already indicates a sub-page
     const path = window.location.pathname;
     if (path === "/ayakkabilar") { sPg("catalog"); }
+    else if (path === "/yardim") { sPg("contact"); }
     else if (path.startsWith("/urun/")) {
       const slug = path.replace("/urun/", "");
       const found = allProducts.find(p => (p.slug || String(p.id)) === slug);
@@ -960,6 +970,10 @@ export default function App({ dbProducts = [], siteSettings = null, banners = []
 
       {pg === "detail" && sel && (
         <Detail product={sel} onBack={() => nav("catalog")} settings={S} onNav={nav} onAddToCart={addToCart} />
+      )}
+
+      {pg === "contact" && (
+        <HelpContactPage onNav={nav} settings={S} />
       )}
 
       {toastMsg && (
@@ -1522,6 +1536,143 @@ function Detail({ product: p, onBack, settings, onNav, onAddToCart }) {
 }
 
 // ============================================
+// HELP FAQ ITEM — accordion (D-275)
+// ============================================
+function HelpFAQItem({ q, a }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div style={{ background: "rgba(238,232,222,0.5)", border: "1px solid rgba(28,26,22,0.06)", borderRadius: 14, overflow: "hidden" }}>
+      <button onClick={() => setOpen(!open)} style={{
+        width: "100%", padding: "16px 20px", background: "none", border: "none", cursor: "pointer",
+        display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12,
+        fontFamily: T.sans, fontSize: 14, fontWeight: 600, color: T.text, textAlign: "left",
+      }}>
+        <span>{q}</span>
+        <span style={{ fontSize: 20, flexShrink: 0, color: T.textLighter, lineHeight: 1 }}>{open ? "−" : "+"}</span>
+      </button>
+      {open && (
+        <div style={{ padding: "0 20px 16px", fontFamily: T.sans, fontSize: 13, color: T.textLight, lineHeight: 1.75 }}>
+          {a}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ============================================
+// YARDIM & İLETİŞİM PAGE — D-275
+// ============================================
+const HELP_FAQ_GROUPS = [
+  {
+    group: "Ürün & Beden Bilgisi",
+    icon: "👟",
+    items: [
+      { q: "Hangi bedeni almalıyım?", a: "Ekibimiz sizi aradığında ölçünüzü sorar ve en uygun bedeni önerir. Beden konusunda tam destek sağlıyoruz — endişelenmeyin." },
+      { q: "Ürünlerin kalitesi nasıl?", a: "Ürünlerimiz Aymakoop kaynaklıdır — Türkiye'nin en güçlü ayakkabı üretim merkezlerinden biri. Tüm ürünler ekibimizce incelenir." },
+      { q: "Bir ürün hakkında daha fazla bilgi alabilir miyim?", a: "Evet — ürün sayfasından talep bırakın ya da WhatsApp'tan doğrudan yazın. Ekibimiz kısa sürede geri döner." },
+    ],
+  },
+  {
+    group: "Sipariş & Ödeme",
+    icon: "📋",
+    items: [
+      { q: "Nasıl sipariş verebilirim?", a: "Ürün sayfasından adınızı ve telefon numaranızı bırakın. Ekibimiz kısa sürede arar, beden ve sipariş detaylarını birlikte tamamlarız." },
+      { q: "Ödeme seçenekleri neler?", a: "Shopier üzerinden güvenli kart ödemesi veya kapıda ödeme seçeneği mevcuttur." },
+      { q: "Talep bıraktıktan sonra ne zaman aranacağım?", a: "Mesai saatleri içinde genellikle aynı gün, en geç ertesi gün dönüş yapıyoruz." },
+    ],
+  },
+  {
+    group: "Teslimat & Süreç",
+    icon: "📦",
+    items: [
+      { q: "Kargo süresi ne kadar?", a: "Sipariş onaylandıktan sonra kargoya verilir. Teslimat genellikle 1–3 iş günü sürer." },
+      { q: "3.000₺ üzeri kargo bedava mı?", a: "Evet — 3.000₺ ve üzeri siparişlerde kargo ücretsizdir." },
+      { q: "Siparişimi takip edebilir miyim?", a: "Evet — kargoya verildiğinde takip numaranızı sizinle paylaşıyoruz." },
+    ],
+  },
+];
+
+function HelpContactPage({ onNav, settings }) {
+  const waNum = settings?.contact?.whatsappFull || DEFAULT_SETTINGS.contact.whatsappFull;
+  return (
+    <div style={{ paddingTop: 88, minHeight: "100vh" }}>
+      {/* Header */}
+      <section style={{ padding: "64px 40px 40px", maxWidth: 760, margin: "0 auto", textAlign: "center" }}>
+        <p style={{ fontFamily: T.sans, fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.18em", color: T.red, marginBottom: 10 }}>YARDIM MERKEZİ</p>
+        <h1 style={{ fontFamily: T.serif, fontSize: "clamp(32px, 4vw, 52px)", fontWeight: 700, color: T.text, letterSpacing: "-0.02em", marginBottom: 16 }}>Sıkça Sorulan Sorular</h1>
+        <p style={{ fontFamily: T.sans, fontSize: 15, color: T.textLight, lineHeight: 1.8, maxWidth: 520, margin: "0 auto" }}>
+          Sipariş süreci, beden seçimi veya teslimat hakkında merak ettikleriniz için buradayız.
+        </p>
+      </section>
+
+      {/* Process summary — 4 compact steps */}
+      <section style={{ padding: "0 40px 60px", maxWidth: 1100, margin: "0 auto" }}>
+        <p style={{ fontFamily: T.sans, fontSize: 10, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.18em", color: T.textLighter, textAlign: "center", marginBottom: 24 }}>NASIL ÇALIŞIR?</p>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 12 }}>
+          {STEPS_DATA.map((s, i) => (
+            <div key={i} style={{
+              background: "rgba(238,232,222,0.5)", border: "1px solid rgba(28,26,22,0.06)", borderRadius: 16,
+              padding: "24px 16px", textAlign: "center", position: "relative", overflow: "hidden",
+            }}>
+              <div style={{ position: "absolute", top: 0, left: "50%", transform: "translateX(-50%)", width: 40, height: 3, borderRadius: "0 0 3px 3px", background: s.barColor }} />
+              <span style={{ fontSize: 22, display: "block", marginBottom: 8 }}>{s.icon}</span>
+              <p style={{ fontFamily: T.sans, fontSize: 12, fontWeight: 700, color: T.text, marginBottom: 4 }}>{s.title}</p>
+              <p style={{ fontFamily: T.sans, fontSize: 10, color: T.textLighter, lineHeight: 1.6 }}>{s.desc}</p>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      {/* FAQ Groups */}
+      <section style={{ padding: "0 40px 80px", maxWidth: 900, margin: "0 auto" }}>
+        {HELP_FAQ_GROUPS.map((group, gi) => (
+          <div key={gi} style={{ marginBottom: 48 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 16 }}>
+              <span style={{ fontSize: 20 }}>{group.icon}</span>
+              <h3 style={{ fontFamily: T.sans, fontSize: 12, fontWeight: 700, color: T.text, letterSpacing: "0.08em", textTransform: "uppercase" }}>{group.group}</h3>
+            </div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+              {group.items.map((item, ii) => (
+                <HelpFAQItem key={ii} q={item.q} a={item.a} />
+              ))}
+            </div>
+          </div>
+        ))}
+      </section>
+
+      {/* CTA block */}
+      <section style={{ padding: "0 40px 80px", maxWidth: 680, margin: "0 auto", textAlign: "center" }}>
+        <div style={{ background: "rgba(238,232,222,0.7)", border: "1px solid rgba(28,26,22,0.08)", borderRadius: 24, padding: "48px 40px" }}>
+          <p style={{ fontFamily: T.serif, fontSize: "clamp(22px, 2.5vw, 30px)", fontWeight: 700, color: T.text, marginBottom: 12 }}>Sorunuzu bulamadınız mı?</p>
+          <p style={{ fontFamily: T.sans, fontSize: 14, color: T.textLight, lineHeight: 1.8, marginBottom: 32 }}>
+            WhatsApp&apos;tan doğrudan yazın — ekibimiz size yardımcı olsun.
+          </p>
+          <div style={{ display: "flex", gap: 12, justifyContent: "center", flexWrap: "wrap" }}>
+            <button onClick={() => onNav("catalog")} style={{
+              fontFamily: T.sans, fontSize: 12, fontWeight: 700, letterSpacing: "0.1em", textTransform: "uppercase",
+              color: "#fff", background: T.text, border: "none", padding: "15px 36px", borderRadius: T.r.full, cursor: "pointer",
+              display: "inline-flex", alignItems: "center", gap: 10,
+            }}>
+              ÜRÜNLERİ İNCELE {I.arrow}
+            </button>
+            <a href={waLink(waNum)} target="_blank" rel="noreferrer" style={{
+              display: "inline-flex", alignItems: "center", gap: 8,
+              fontFamily: T.sans, fontSize: 12, fontWeight: 700, letterSpacing: "0.06em",
+              color: "#fff", background: T.green, padding: "15px 28px",
+              borderRadius: T.r.full, textDecoration: "none",
+            }}>
+              {I.wa} WhatsApp
+            </a>
+          </div>
+        </div>
+      </section>
+
+      <Footer onNav={onNav} settings={settings} />
+    </div>
+  );
+}
+
+// ============================================
 // FOOTER
 // ============================================
 function Footer({ onNav, settings }) {
@@ -1554,6 +1705,7 @@ function Footer({ onNav, settings }) {
         </div>
         <div>
           <h5 style={{ fontFamily: T.sans, fontSize: 10, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.16em", color: "rgba(240,236,228,0.28)", marginBottom: 22 }}>Yardım</h5>
+          <p onClick={() => onNav("contact")} style={{ fontFamily: T.sans, fontSize: 13, color: "rgba(240,236,228,0.45)", marginBottom: 14, cursor: "pointer", transition: "color 0.2s" }}>S.S.S. &amp; Yardım Merkezi</p>
           <a href={waLink(ct.whatsappFull)} target="_blank" rel="noreferrer" style={{
             display: "inline-flex", alignItems: "center", gap: 8,
             fontFamily: T.sans, fontSize: 12, fontWeight: 600, letterSpacing: "0.06em",

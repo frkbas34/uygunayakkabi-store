@@ -865,3 +865,12 @@ Any modification to `src/lib/imageProviders.ts` or `src/jobs/imageGenTask.ts` th
 - [x] D-275: Footer "Yardım" column — added `S.S.S. & Yardım Merkezi` nav link above WA button
 - [x] D-275: URL sync — `nav("contact")` → `/yardim`; mount path detection `path === "/yardim"` → `sPg("contact")`
 - [x] D-275: Commit `7a1915e` pushed to main
+
+## Store Credibility / About / Why-Us Polish V1 (D-276) — COMPLETED 2026-05-09
+
+- [x] D-276: Audit — VERIFIED WHY_US_CARDS 4+5 were internal-ops language (AI system, digital presence) with zero buyer relevance; AboutSection had 2 AI/digital-ops paragraphs; TrustValueSection opening had "modern dijital satış sistemi" jargon; last trust bullet was vague
+- [x] D-276: `WHY_US_CARDS` — card 4 (🤖 "Yapay Zekâ Destekli Sistem") → (🤝 "Kişisel Alışveriş Desteği") with personal callback support copy; card 5 (🌐 "Güçlü Dijital Varlık") → (📦 "Anlaşılır Sipariş Süreci") with step-by-step process copy
+- [x] D-276: `WhyUsSection` subtitle — "modern dijital sistemleri bir araya getirmemizden" → "kaynağından seçilmiş ürünleri, kişisel destek ve anlaşılır bir süreçle buluşturuyoruz"
+- [x] D-276: `AboutSection` — removed AI/digital-ops pivot paragraphs; replaced with buyer support copy ("Talep bıraktığınızda ekibimiz sizi kısa sürede arar..."); closing "daha akıllı bir modelle" → "kişisel destekle"; brand badge "akıllıca sunulmuş" → "kişisel destek"
+- [x] D-276: `TrustValueSection` — opening "modern bir dijital satış sistemiyle" → "kişisel destek ve anlaşılır bir alışveriş deneyimiyle"; last bullet "Sipariş sürecinde baştan sona destek" → "Beden seçiminden teslikata kadar adım adım destek"
+- [x] D-276: Commit `a37e808` pushed to main

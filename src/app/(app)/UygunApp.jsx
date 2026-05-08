@@ -477,8 +477,8 @@ const WHY_US_CARDS = [
   { icon: "📍", title: "Doğrudan Merkezden Erişim", desc: "Türkiye'nin ayakkabı ve deri üretim merkezlerinden biri olan Aymakoop içindeki erişimimiz sayesinde ürünleri kaynağından takip edebiliyoruz." },
   { icon: "💎", title: "Tekleme ve Özel Ürünler", desc: "Seri dışı kalan, az adetli, tekleme ya da özel kalan kaliteli ürünlere ulaşabiliyoruz." },
   { icon: "💰", title: "Daha Güçlü Fiyat Avantajı", desc: "Aracı katmanların azalması sayesinde, çoğu zaman piyasadaki değerinden daha uygun fiyatlarla ürün sunabiliyoruz." },
-  { icon: "🤖", title: "Yapay Zekâ Destekli Sistem", desc: "Ürün yönetimi, içerik akışı ve dijital sunum tarafında yapay zekâ destekli otomasyonlardan faydalanıyoruz." },
-  { icon: "🌐", title: "Güçlü Dijital Varlık", desc: "Web sitemiz ve sosyal medya kanallarımız, bu güçlü tedarik yapısını hızlı ve çağdaş bir şekilde yansıtmak için kuruldu." },
+  { icon: "🤝", title: "Kişisel Alışveriş Desteği", desc: "Talep bıraktığınızda ekibimiz kısa sürede arar — beden seçiminden siparişe kadar her adımda yardımcı oluruz." },
+  { icon: "📦", title: "Anlaşılır Sipariş Süreci", desc: "Talep bırak, seni arayalım, birlikte tamamlayalım. Şeffaf ve adım adım ilerleyen bir alışveriş deneyimi." },
   { icon: "✨", title: "Her Yerde Bulunmayan Ürünler", desc: "Bizdeki birçok ürün, klasik mağaza düzeninde kolayca bulunmayan, sınırlı ve özel ürünlerden oluşur." },
 ];
 
@@ -489,7 +489,7 @@ function WhyUsSection() {
         <p style={{ fontFamily: T.sans, fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.18em", color: T.red, marginBottom: 10 }}>FARKIMIZ</p>
         <h2 style={{ fontFamily: T.serif, fontSize: "clamp(30px, 3.5vw, 48px)", fontWeight: 700, color: T.text, letterSpacing: "-0.02em", marginBottom: 20 }}>Neden Uygun Ayakkabı?</h2>
         <p style={{ fontFamily: T.sans, fontSize: 15, color: T.textLight, lineHeight: 1.85, maxWidth: 600, margin: "0 auto" }}>
-          Çünkü biz klasik bir satış modeliyle ilerlemiyoruz. Bizim gücümüz, kaliteli ürüne doğrudan erişim ile modern dijital sistemleri bir araya getirmemizden geliyor.
+          Çünkü biz yalnızca ürün satmıyoruz — kaynağından seçilmiş ürünleri, kişisel destek ve anlaşılır bir süreçle buluşturuyoruz.
         </p>
       </div>
       <div className="why-us-grid" style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 20 }}>
@@ -603,12 +603,10 @@ function AboutSection({ settings }) {
 
             <p style={{ fontWeight: 600, color: T.text, marginBottom: 20 }}>Ancak bizi farklı yapan yalnızca ürün erişimi değil.</p>
 
-            <p style={{ marginBottom: 20 }}>Bu fiziksel avantajı, yapay zekâ destekli otomasyon sistemleri, dijital içerik yapısı ve modern satış kanallarıyla birleştiriyoruz.</p>
-
-            <p style={{ marginBottom: 20 }}>Web sitemiz, sosyal medya hesaplarımız ve dijital operasyonlarımız; doğrudan erişim + akıllı sistem + doğru fiyat anlayışıyla şekilleniyor.</p>
+            <p style={{ marginBottom: 20 }}>Talep bıraktığınızda ekibimiz sizi kısa sürede arar, beden ve sipariş detaylarını birlikte tamamlarız. Kaynak avantajını sade ve destekli bir alışveriş deneyimiyle buluşturuyoruz.</p>
 
             <p style={{ fontWeight: 600, color: T.text, marginBottom: 8 }}>Bizim amacımız yalnızca ayakkabı satmak değil;</p>
-            <p style={{ fontWeight: 600, color: T.red }}>kaliteli ürünü daha akıllı bir modelle insanlara ulaştırmak.</p>
+            <p style={{ fontWeight: 600, color: T.red }}>kaliteli ürünü, kişisel destekle insanlara ulaştırmak.</p>
           </div>
         </div>
         {/* Right — image + stats overlay */}
@@ -632,7 +630,7 @@ function AboutSection({ settings }) {
           </div>
           {/* Brand microcopy badge */}
           <div style={{ marginTop: 20, textAlign: "center" }}>
-            <p style={{ fontFamily: T.sans, fontSize: 12, fontWeight: 600, color: T.textLight, letterSpacing: "0.06em" }}>Kaynağından seçilmiş, akıllıca sunulmuş</p>
+            <p style={{ fontFamily: T.sans, fontSize: 12, fontWeight: 600, color: T.textLight, letterSpacing: "0.06em" }}>Seçili ürünler — kişisel destek</p>
           </div>
         </div>
       </div>
@@ -652,7 +650,7 @@ function TrustValueSection({ onNav, settings }) {
 
         {/* D-258: Confident opener + inquiry reassurance added */}
         <div style={{ fontFamily: T.sans, fontSize: 15, color: T.textLight, lineHeight: 1.9, textAlign: "left" }}>
-          <p style={{ marginBottom: 20 }}>Biz, Türkiye'nin ayakkabı üretim merkezlerinden biri olan Aymakoop'taki doğrudan erişim avantajını, modern bir dijital satış sistemiyle birleştiren bir platformuz.</p>
+          <p style={{ marginBottom: 20 }}>Biz, Türkiye'nin ayakkabı üretim merkezlerinden biri olan Aymakoop'taki doğrudan erişim avantajını, kişisel destek ve anlaşılır bir alışveriş deneyimiyle buluşturan bir platformuz.</p>
 
           <p style={{ marginBottom: 16 }}>Müşterilerimize sunabildiğimiz değerler:</p>
 
@@ -662,7 +660,7 @@ function TrustValueSection({ onNav, settings }) {
               "Piyasadaki değerinden genellikle daha uygun fiyatlar",
               "Sınırlı stoklu ve özel kalan ürünlere erişim",
               "Talep bırakın — ekibimiz sizi kısa sürede arasın",
-              "Sipariş sürecinde baştan sona destek",
+              "Beden seçiminden teslikata kadar adım adım destek",
             ].map((item, i) => (
               <div key={i} style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10 }}>
                 <span style={{ width: 6, height: 6, borderRadius: "50%", background: T.red, flexShrink: 0 }} />

@@ -259,6 +259,24 @@ export default async function ProductPage({ params }: Props) {
   const totalStock = availableSizes.reduce((sum, v) => sum + v.stock, 0)
   const isSoldOut = product.status === 'soldout' || totalStock === 0
 
+  // D-267: similar products — same category, exclude current, max 6
+  const similarResult = product.category
+    ? await payload.find({
+        collection: 'products',
+        where: {
+          and: [
+            { category: { equals: product.category } },
+            { id: { not_equals: product.id } },
+            { status: { not_equals: 'draft' } },
+          ],
+        },
+        depth: 2,
+        limit: 6,
+        sort: '-createdAt',
+      })
+    : { docs: [] }
+  const similarProducts = (similarResult as any).docs as ProductDoc[]
+
   const serverUrl = process.env.NEXT_PUBLIC_SERVER_URL || ''
   const extractUrls = (entries: ImageEntry[]): string[] =>
     entries
@@ -811,6 +829,41 @@ export default async function ProductPage({ params }: Props) {
               <ProductFAQ faq={validFaq.length > 0 ? validFaq : DEFAULT_PROCESS_FAQ} />
             </div>
           </section>
+
+        {/* D-267: Similar products — same category, exclude current */}
+        {similarProducts.length > 0 && (
+          <section style={{ maxWidth: 1440, margin: '0 auto', padding: '48px 40px 60px',
+            borderTop: '1px solid rgba(28,26,22,0.08)' }}>
+            <h2 style={{ fontFamily: "'Inter', sans-serif", fontSize: 13, fontWeight: 700,
+              letterSpacing: '0.12em', textTransform: 'uppercase', color: 'rgba(28,26,22,0.4)',
+              marginBottom: 24 }}>Benzer Modeller</h2>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: 16 }}>
+              {similarProducts.map((sp: ProductDoc) => {
+                const spImg = extractUrls((sp as any).generativeGallery ?? [])[0]
+                  || extractUrls((sp as any).images ?? [])[0] || null
+                return (
+                  <a key={sp.id} href={`/products/${(sp as any).slug}`}
+                    style={{ display: 'block', textDecoration: 'none', borderRadius: 16,
+                      overflow: 'hidden', background: 'rgba(238,232,222,0.65)',
+                      border: '1px solid rgba(28,26,22,0.06)', transition: 'transform 0.2s' }}>
+                    {spImg && (
+                      <div style={{ paddingTop: '100%', position: 'relative', background: '#ebe5da' }}>
+                        <img src={spImg} alt={(sp as any).title} style={{ position: 'absolute', inset: 0,
+                          width: '100%', height: '100%', objectFit: 'cover' }} />
+                      </div>
+                    )}
+                    <div style={{ padding: '14px 16px 18px' }}>
+                      <p style={{ fontFamily: "'Inter', sans-serif", fontSize: 13, fontWeight: 600,
+                        color: '#1c1a16', marginBottom: 6, lineHeight: 1.3 }}>{(sp as any).title}</p>
+                      <p style={{ fontFamily: "'Inter', sans-serif", fontSize: 15, fontWeight: 800,
+                        color: '#1c1a16' }}>₺{((sp as any).price || 0).toLocaleString('tr-TR')}</p>
+                    </div>
+                  </a>
+                )
+              })}
+            </div>
+          </section>
+        )}
         </main>
 
         <StorefrontFooter />

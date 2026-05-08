@@ -972,6 +972,7 @@ function Catalog({ onView, allProducts, initCat, onNav, settings }) {
   const [sort, setSort] = useState("default");
   const [vis, sVis] = useState(12);
   const [drawerOpen, setDrawerOpen] = useState(false); // D-260: mobile filter drawer
+  const [query, setQuery] = useState("");              // D-266: search query
 
   // D-260: lock body scroll when drawer open
   useEffect(() => {
@@ -988,7 +989,17 @@ function Catalog({ onView, allProducts, initCat, onNav, settings }) {
     : fl === "Sandalet" ? "Sandaletler"
     : `${fl} Ayakkabıları`;
 
-  const catFiltered = fl === "Tümü" ? allProducts : allProducts.filter(p => p.category === fl);
+  // D-266: search filter — applied first, then category/size/sort layer on top
+  const q = query.trim().toLowerCase();
+  const searchFiltered = q
+    ? allProducts.filter(p => {
+        const name = (p.name || p.title || "").toLowerCase();
+        const sn   = (p.stockNumber || "").toLowerCase();
+        return name.includes(q) || sn.includes(q);
+      })
+    : allProducts;
+
+  const catFiltered = fl === "Tümü" ? searchFiltered : searchFiltered.filter(p => p.category === fl);
   const allSizes = [...new Set(catFiltered.flatMap(p => p.sizes || []))].sort((a, b) => Number(a) - Number(b));
 
   const flt = catFiltered.filter(p =>
@@ -1006,10 +1017,10 @@ function Catalog({ onView, allProducts, initCat, onNav, settings }) {
 
   const shown = sorted.slice(0, vis);
   const hasMore = vis < sorted.length;
-  const hasActiveFilter = fl !== "Tümü" || szFilter;
-  const activeCount = (fl !== "Tümü" ? 1 : 0) + (szFilter ? 1 : 0) + (sort !== "default" ? 1 : 0); // D-260
+  const hasActiveFilter = fl !== "Tümü" || szFilter || !!q;
+  const activeCount = (fl !== "Tümü" ? 1 : 0) + (szFilter ? 1 : 0) + (sort !== "default" ? 1 : 0); // D-260 drawer badge
 
-  const resetFilters = () => { sFl("Tümü"); setSzFilter(null); setSort("default"); sVis(12); };
+  const resetFilters = () => { sFl("Tümü"); setSzFilter(null); setSort("default"); sVis(12); setQuery(""); }; // D-266: clears search too
   const resetAndClose = () => { resetFilters(); setDrawerOpen(false); };
 
   // D-260: sort options shared between desktop select and mobile drawer
@@ -1025,12 +1036,53 @@ function Catalog({ onView, allProducts, initCat, onNav, settings }) {
       <section className="catalog-section" style={{ maxWidth: 1440, margin: "0 auto", padding: "60px 40px 100px" }}>
 
         {/* Heading + count — always visible */}
-        <div style={{ textAlign: "center", marginBottom: 40 }}>
+        <div style={{ textAlign: "center", marginBottom: 28 }}>
           <h1 style={{ fontFamily: T.serif, fontSize: "clamp(36px, 4vw, 56px)", fontWeight: 700, color: T.text, marginBottom: 10 }}>{catHeading}</h1>
           <p style={{ fontFamily: T.sans, fontSize: 14, color: T.textLight }}>
             <span style={{ fontWeight: 600, color: T.text }}>{flt.length}</span> ürün
             {szFilter && <span style={{ color: T.textLighter }}> · Beden {szFilter}</span>}
+            {q && <span style={{ color: T.textLighter }}> · &ldquo;{q}&rdquo;</span>}
           </p>
+        </div>
+
+        {/* ── D-266: Search bar — always visible (desktop + mobile) ── */}
+        <div style={{ maxWidth: 480, margin: "0 auto 24px", position: "relative" }}>
+          <svg
+            width="16" height="16" viewBox="0 0 24 24" fill="none"
+            stroke="rgba(28,26,22,0.35)" strokeWidth="2.2"
+            style={{ position: "absolute", left: 14, top: "50%", transform: "translateY(-50%)", pointerEvents: "none" }}
+          >
+            <circle cx="11" cy="11" r="7"/><path d="M21 21l-4.35-4.35"/>
+          </svg>
+          <input
+            type="text"
+            value={query}
+            onChange={e => { setQuery(e.target.value); sVis(12); }}
+            placeholder="Ürün ara… (örn. Nike, Bot, 43)"
+            style={{
+              width: "100%", boxSizing: "border-box",
+              fontFamily: T.sans, fontSize: 14, color: T.text,
+              background: "rgba(238,232,222,0.7)", border: "1px solid rgba(28,26,22,0.12)",
+              borderRadius: T.r.full, padding: "11px 40px 11px 40px",
+              outline: "none", transition: "border-color 0.2s, box-shadow 0.2s",
+            }}
+            onFocus={e => { e.target.style.borderColor = "rgba(28,26,22,0.4)"; e.target.style.boxShadow = "0 0 0 3px rgba(28,26,22,0.06)"; }}
+            onBlur={e => { e.target.style.borderColor = "rgba(28,26,22,0.12)"; e.target.style.boxShadow = "none"; }}
+          />
+          {query && (
+            <button
+              onClick={() => { setQuery(""); sVis(12); }}
+              style={{
+                position: "absolute", right: 12, top: "50%", transform: "translateY(-50%)",
+                background: "rgba(28,26,22,0.1)", border: "none", borderRadius: "50%",
+                width: 22, height: 22, cursor: "pointer", fontSize: 11, color: T.text,
+                display: "flex", alignItems: "center", justifyContent: "center",
+              }}
+              aria-label="Aramayı temizle"
+            >
+              ✕
+            </button>
+          )}
         </div>
 
         {/* ── DESKTOP CONTROLS (hidden on mobile via CSS) ── */}
@@ -1125,6 +1177,15 @@ function Catalog({ onView, allProducts, initCat, onNav, settings }) {
                 ↕ {sort === "price-asc" ? "Fiyat ↑" : sort === "price-desc" ? "Fiyat ↓" : "İndirim"}
               </span>
             )}
+            {/* D-266: search active pill — tap to clear */}
+            {q && (
+              <button
+                onClick={() => { setQuery(""); sVis(12); }}
+                style={{ fontFamily: T.sans, fontSize: 11, fontWeight: 600, padding: "3px 10px", borderRadius: 999, background: "rgba(200,16,46,0.08)", color: T.red, border: "1px solid rgba(200,16,46,0.18)", whiteSpace: "nowrap", cursor: "pointer" }}
+              >
+                🔍 &ldquo;{q}&rdquo; ✕
+              </button>
+            )}
           </div>
           {/* Right: filter trigger button */}
           <button onClick={() => setDrawerOpen(true)} style={{
@@ -1147,15 +1208,25 @@ function Catalog({ onView, allProducts, initCat, onNav, settings }) {
           </button>
         </div>
 
-        {/* Grid */}
+        {/* Grid — D-266: empty state aware of search vs filter */}
         {flt.length === 0 ? (
           <div style={{ textAlign: "center", padding: "80px 24px" }}>
             <div style={{ fontSize: 48, marginBottom: 20 }}>🔍</div>
             <p style={{ fontFamily: T.sans, fontSize: 18, fontWeight: 600, color: T.text, marginBottom: 8 }}>
-              {!hasActiveFilter ? "Henüz ürün eklenmedi" : "Bu filtrelere uygun ürün bulunamadı"}
+              {q
+                ? `"${q}" için ürün bulunamadı`
+                : !hasActiveFilter
+                  ? "Henüz ürün eklenmedi"
+                  : "Bu filtrelere uygun ürün bulunamadı"
+              }
             </p>
             <p style={{ fontFamily: T.sans, fontSize: 14, color: T.textLighter, marginBottom: 24, lineHeight: 1.6 }}>
-              {hasActiveFilter ? "Filtreleri temizleyerek tüm ürünlere göz atabilirsin." : "Yakında yeni ürünler eklenecek."}
+              {q
+                ? "Farklı bir kelime deneyin veya aramayı temizleyerek kategorilere göz atın."
+                : hasActiveFilter
+                  ? "Filtreleri temizleyerek tüm ürünlere göz atabilirsin."
+                  : "Yakında yeni ürünler eklenecek."
+              }
             </p>
             {hasActiveFilter && (
               <button onClick={resetFilters} style={{
@@ -1163,7 +1234,7 @@ function Catalog({ onView, allProducts, initCat, onNav, settings }) {
                 padding: "12px 32px", borderRadius: T.r.full, cursor: "pointer",
                 border: "none", background: T.text, color: "#fff", transition: "all 0.3s",
               }}>
-                Tüm Ürünleri Göster
+                {q ? "Aramayı Temizle" : "Tüm Ürünleri Göster"}
               </button>
             )}
           </div>

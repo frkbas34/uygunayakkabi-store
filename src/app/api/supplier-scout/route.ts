@@ -123,10 +123,14 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     return NextResponse.json({ ok: true })
   }
 
-  // Fire-and-forget processing to stay within Vercel response window
-  processUpdate(body).catch(err => {
+  // Await processing — fire-and-forget was killing the async chain on Vercel
+  // (serverless function terminates on response; void pattern abandoned work).
+  // Main /api/telegram uses the same await pattern successfully.
+  try {
+    await processUpdate(body)
+  } catch (err) {
     console.error('[SupplierScout] processUpdate error:', err)
-  })
+  }
 
   return NextResponse.json({ ok: true })
 }

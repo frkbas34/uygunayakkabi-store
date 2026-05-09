@@ -916,3 +916,13 @@ Any modification to `src/lib/imageProviders.ts` or `src/jobs/imageGenTask.ts` th
 - [ ] Add bot to supplier groups as admin
 - [ ] Add Vercel Cron (30 20 * * * for 23:30 Istanbul)
 - [ ] Monitor for 2-3 days before enabling autoCreateEnabled=true per group
+
+## Homepage Quick-Start Search Shortcut (D-279) — COMPLETED 2026-05-09
+
+- [x] D-279: Audit — VERIFIED no search input anywhere on homepage; D-266 catalog search lives only in `Catalog` component's local `query` state (inaccessible from homepage); `CategoryOverlay` (D-277) had category chips + "Tüm Ürünler →" but no text search
+- [x] D-279: `initQuery` state added to App (`useState("")`) — seeds Catalog search query on navigation from homepage
+- [x] D-279: `nav()` extended with `q` third param — `if (q !== undefined) sInitQuery(q); else sInitQuery("")` — clears query cleanly on bare `nav("catalog")` calls
+- [x] D-279: `Catalog` render call updated — `initQuery={initQuery}` prop added
+- [x] D-279: `Catalog` component signature updated — accepts `initQuery` prop; `query` state seeded from `useState(initQuery || "")`
+- [x] D-279: `CategoryOverlay` upgraded with search form — `searchVal` local state, `handleSearch` form submit, `<form>` with red Ara button; on submit with non-empty val calls `onNav("catalog", null, q)`; CategoryOverlay subtext updated to "Bir kategori seçin veya model ara"
+- [x] D-279: Commit `2fa6084` — push pending (GitHub unreachable at time of commit; push when network recovers)

@@ -22,9 +22,20 @@ import { ImageGenerationJobs } from "./src/collections/ImageGenerationJobs";
 import { BotEvents } from "./src/collections/BotEvents";
 import { StoryJobs } from "./src/collections/StoryJobs";
 import { ProductIntelligenceReports } from "./src/collections/ProductIntelligenceReports";
+// ── SupplierScout collections (D-278) ────────────────────────────────────────
+import { SupplierGroups } from "./src/collections/supplier/SupplierGroups";
+import { WholesaleOpportunities } from "./src/collections/supplier/WholesaleOpportunities";
+import { SupplierActionsLog } from "./src/collections/supplier/SupplierActionsLog";
+import { SupplierDailyReports } from "./src/collections/supplier/SupplierDailyReports";
+import { SupplierTrustScores } from "./src/collections/supplier/SupplierTrustScores";
+import { SupplierGroupMemory } from "./src/collections/supplier/SupplierGroupMemory";
+import { SupplierSellerMemory } from "./src/collections/supplier/SupplierSellerMemory";
+import { SupplierLanguageMemory } from "./src/collections/supplier/SupplierLanguageMemory";
+import { SupplierCorrectionMemory } from "./src/collections/supplier/SupplierCorrectionMemory";
 import { SiteSettings } from "./src/globals/SiteSettings";
 import { AutomationSettings } from "./src/globals/AutomationSettings";
 import { HomepageMerchandisingSettings } from "./src/globals/HomepageMerchandisingSettings";
+import { SupplierScoutSettings } from "./src/globals/SupplierScoutSettings";
 import { shopierSyncTask } from "./src/jobs/shopierSyncTask";
 import { imageGenTask } from "./src/jobs/imageGenTask";
 import { lumaGenTask } from "./src/jobs/lumaGenTask";
@@ -74,8 +85,23 @@ export default buildConfig({
     BotEvents,
     StoryJobs,
     ProductIntelligenceReports,
+    // ── SupplierScout (D-278) ────────────────────────────────────────────────
+    SupplierGroups,
+    WholesaleOpportunities,
+    SupplierActionsLog,
+    SupplierDailyReports,
+    SupplierTrustScores,
+    SupplierGroupMemory,
+    SupplierSellerMemory,
+    SupplierLanguageMemory,
+    SupplierCorrectionMemory,
   ],
-  globals: [SiteSettings, AutomationSettings, HomepageMerchandisingSettings],
+  globals: [
+    SiteSettings,
+    AutomationSettings,
+    HomepageMerchandisingSettings,
+    SupplierScoutSettings, // D-278
+  ],
 
   // ── Step 20: Shopier Jobs Queue ──────────────────────────────────────────────
   //
@@ -100,48 +126,4 @@ export default buildConfig({
 
     // Protect the GET /api/payload-jobs/run endpoint.
     // Pattern from Payload docs: check Authorization: Bearer <CRON_SECRET>.
-    // Vercel Cron automatically attaches this header when CRON_SECRET is set
-    // in the project's environment variables.
-    access: {
-      run: ({ req }) => {
-        const secret = process.env.CRON_SECRET
-        // If CRON_SECRET is not set (local dev), allow all requests.
-        if (!secret) return true
-        const auth = req.headers.get('authorization')
-        return auth === `Bearer ${secret}`
-      },
-    },
-
-    // autoRun is intentionally NOT used:
-    //   - Serverless (Vercel) Lambda functions are ephemeral — setInterval-based
-    //     autoRun fires once per cold start and then dies. Unreliable.
-    //   - Use GET /api/payload-jobs/run via external cron instead.
-  },
-
-  db: postgresAdapter({
-    pool: {
-      connectionString: process.env.DATABASE_URI!,
-      // SSL handled here instead of sslmode= in connection string
-      // to avoid pg-connection-string deprecation warning
-      ssl: process.env.DATABASE_URI?.includes('neon.tech') ? { rejectUnauthorized: false } : undefined,
-    },
-    // Şema değişikliklerini otomatik uygular (dev için ideal)
-    push: true,
-  }),
-  editor: lexicalEditor(),
-  secret: process.env.PAYLOAD_SECRET!,
-  sharp,
-  // Global upload size limit: 10 MB
-  upload: {
-    limits: {
-      fileSize: 10_000_000,
-    },
-  },
-  // CORS — production'da gerçek URL'yi .env'e yazın
-  cors: [
-    process.env.NEXT_PUBLIC_SERVER_URL || "http://localhost:3000",
-  ],
-  typescript: {
-    outputFile: path.resolve(dirname, "src/payload-types.ts"),
-  },
-});
+    // Vercel Cron automatically attache

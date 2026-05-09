@@ -582,6 +582,110 @@ export const Products: CollectionConfig = {
         return true
       },
     },
+    // ── SupplierScout Meta ────────────────────────────────────
+    // Added D-278. Only populated when source === 'supplier_scout'.
+    {
+      name: 'supplierMeta',
+      type: 'group',
+      label: '🏭 Tedarikçi Bilgileri',
+      admin: {
+        description: 'SupplierScout tarafından oluşturulan ürünler için tedarik bilgileri',
+        condition: (data: any) => data?.source === 'supplier_scout',
+      },
+      fields: [
+        {
+          name: 'stockMode',
+          type: 'select',
+          label: 'Stok Modu',
+          defaultValue: 'exact',
+          options: [
+            { label: '✅ Kesin Stok', value: 'exact' },
+            { label: '🏭 Tedarikçi Sanal Stok', value: 'supplier_virtual_stock' },
+          ],
+          admin: {
+            description: 'supplier_virtual_stock: gerçek stok bilinmiyor, 10 varsayılan kullanılıyor',
+          },
+        },
+        {
+          name: 'exactStockKnown',
+          type: 'checkbox',
+          label: 'Kesin Stok Biliniyor',
+          defaultValue: false,
+        },
+        {
+          name: 'supplierAvailabilityBased',
+          type: 'checkbox',
+          label: 'Tedarikçi Mevcudiyetine Dayalı',
+          defaultValue: true,
+          admin: {
+            description: 'Stok, tedarikçinin ürünü hâlâ sattığı varsayımına dayanıyor',
+          },
+        },
+        {
+          name: 'wholesalePrice',
+          type: 'number',
+          label: 'Toptan Fiyat',
+        },
+        {
+          name: 'wholesaleCurrency',
+          type: 'select',
+          label: 'Toptan Para Birimi',
+          defaultValue: 'USD',
+          options: [
+            { label: 'USD', value: 'USD' },
+            { label: 'TRY', value: 'TRY' },
+            { label: 'EUR', value: 'EUR' },
+          ],
+        },
+        {
+          name: 'marginApplied',
+          type: 'number',
+          label: 'Uygulanan Marj (USD)',
+        },
+        {
+          name: 'supplierGroupId',
+          type: 'text',
+          label: 'Tedarikçi Grup ID',
+          admin: { readOnly: true },
+        },
+        {
+          name: 'supplierGroupName',
+          type: 'text',
+          label: 'Tedarikçi Grup Adı',
+          admin: { readOnly: true },
+        },
+        {
+          name: 'supplierSellerId',
+          type: 'text',
+          label: 'Satıcı Telegram ID',
+          admin: { readOnly: true },
+        },
+        {
+          name: 'supplierSellerName',
+          type: 'text',
+          label: 'Satıcı Adı',
+          admin: { readOnly: true },
+        },
+        {
+          name: 'wholesaleOpportunityId',
+          type: 'text',
+          label: 'Toptan Fırsat Kaydı ID',
+          admin: { readOnly: true },
+        },
+        {
+          name: 'autoCreatedAt',
+          type: 'date',
+          label: 'Otomatik Oluşturma Zamanı',
+          admin: { readOnly: true },
+        },
+        {
+          name: 'autoCreateConfidence',
+          type: 'number',
+          label: 'Oluşturma Güven Skoru',
+          admin: { readOnly: true },
+        },
+      ],
+    },
     // ── Tanımlayıcılar ───────────────────────────────────────
     {
       name: 'slug',
@@ -797,6 +901,7 @@ export const Products: CollectionConfig = {
         { label: '⚙️ n8n Otomasyon', value: 'n8n' },
         { label: '🔌 API', value: 'api' },
         { label: '📥 İçe Aktarım', value: 'import' },
+        { label: '🤖 SupplierScout', value: 'supplier_scout' },
       ],
       admin: {
         position: 'sidebar',

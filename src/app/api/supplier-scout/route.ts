@@ -591,7 +591,8 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
   if (cronSecret && authHeader !== `Bearer ${cronSecret}`) {
     // Also accept SUPPLIER_SCOUT_ADMIN_SECRET for manual triggers
     const adminSecret = process.env.SUPPLIER_SCOUT_ADMIN_SECRET
-    if (!adminSecret || req.headers.get('x-admin-secret') !== adminSecret) {
+    const providedSecret = req.headers.get('x-admin-secret') ?? req.nextUrl.searchParams.get('secret')
+    if (!adminSecret || providedSecret !== adminSecret) {
       return NextResponse.json({ ok: false, error: 'Unauthorized' }, { status: 401 })
     }
   }
@@ -601,7 +602,9 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
   }
 
   if (action === 'register_webhook') {
-    const webhookUrl = `${process.env.NEXT_PUBLIC_SERVER_URL ?? ''}/api/supplier-scout`
+    // Use www prefix to avoid redirect — bare domain 307-redirects to www
+    const baseUrl = (process.env.NEXT_PUBLIC_SERVER_URL ?? '').replace('https://uygunayakkabi.com', 'https://www.uygunayakkabi.com')
+    const webhookUrl = `${baseUrl}/api/supplier-scout`
     const payload = await getPayload()
     void payload // satisfy linter
     const ok = await registerScoutWebhook(webhookUrl)

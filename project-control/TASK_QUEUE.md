@@ -838,4 +838,81 @@ Any modification to `src/lib/imageProviders.ts` or `src/jobs/imageGenTask.ts` th
 - [x] D-273: Added `phoneError` + `nameError` state; `phoneRegex` constant mirrors server-side rule
 - [x] D-273: Client-side validation before fetch — name ≥2 chars → "Adınızı eksiksiz girin."; phone regex fail → "Lütfen geçerli bir telefon numarası girin (Örn: 0533 123 45 67)."
 - [x] D-273: API 400 phone error now read from response body and shown as field-level error; status reset to idle so user can fix and resubmit
-- [x] D-273: Added "(zorunlu)" label suffix on Name + Phone
+- [x] D-273: Added "(zorunlu)" label suffix on Name + Phone fields (matches existing "(opsiyonel)" on Beden)
+- [x] D-273: Phone helper text: "Sizi arayabilmemiz için güncel numaranızı girin."
+- [x] D-273: Error box moved above submit button; styled with bg-red-50 border; distinguishes network vs server errors
+- [x] D-273: Loading text: "Gönderiliyor…" → "Talebiniz gönderiliyor…"
+- [x] D-273: Field borders turn red on error; cleared automatically when user edits
+- [x] D-273: All D-251 attribution, D-265 OOS flow, D-264 chip flow — fully preserved
+- [x] D-273: Commit `ea870d8` pushed to main
+
+## Header / Navigation / Sitewide Entry Clarity (D-274) — COMPLETED 2026-05-08
+
+- [x] D-274: Audit — VERIFIED desktop nav had no active-state visual indicator; mobile menu items were all same color (no active highlight); mobile menu had bare WA button with no section label; footer "Sipariş" column name was misleading (just a WA link)
+- [x] D-274: Desktop nav links — added `borderBottom: 1.5px solid` indicator (transparent when inactive, `T.text` when active page); `paddingBottom: 4` for clean underline spacing
+- [x] D-274: Mobile menu items — `color: pg === l.k ? T.text : "rgba(28,26,22,0.52)"` (inactive items visually muted); active item underline mirrors desktop; `›` chevron added on right for visual path hint; flex layout for label + chevron
+- [x] D-274: Mobile menu — "Yardım & İletişim" section label added above WA button; WA button text "WhatsApp ile Yaz" → "WhatsApp ile İletişim Kur"
+- [x] D-274: Footer "Sipariş" column heading → "Yardım" (honest label for what is actually a WA contact link)
+- [x] D-274: Commit `9e5a087` pushed to main
+
+## Help / FAQ / Contact Destination Polish V1 (D-275) — COMPLETED 2026-05-09
+
+- [x] D-275: Audit — VERIFIED no standalone help/contact destination in SPA; footer "Yardım" column = lone WA button; mobile menu = lone WA button; no grouped help topics outside PDP; `ProductFAQ` and `ContactForm` exist only on PDP
+- [x] D-275: New `HelpContactPage` component (`pg === "contact"` SPA view) — header "Yardım Merkezi / Sıkça Sorulan Sorular"; compact 4-step process summary (reuses `STEPS_DATA`); 3 FAQ groups (Ürün & Beden, Sipariş & Ödeme, Teslimat & Süreç) with accordion items; CTA block — primary "Ürünleri İncele" → catalog, secondary WA fast-help; `Footer` included
+- [x] D-275: `HelpFAQItem` accordion component — `+`/`−` expand toggle, beige card style consistent with `ProductFAQ`
+- [x] D-275: Nav `links` array — added `{ k: "contact", l: "YARDIM" }` (desktop active-underline + mobile active-state patterns from D-274 applied automatically)
+- [x] D-275: Mobile menu "Yardım & İletişim" section — added navigable "YARDIM MERKEZİ" entry with D-274 active-state style + `›` chevron; WA button preserved below
+- [x] D-275: Footer "Yardım" column — added `S.S.S. & Yardım Merkezi` nav link above WA button
+- [x] D-275: URL sync — `nav("contact")` → `/yardim`; mount path detection `path === "/yardim"` → `sPg("contact")`
+- [x] D-275: Commit `7a1915e` pushed to main
+
+## Store Credibility / About / Why-Us Polish V1 (D-276) — COMPLETED 2026-05-09
+
+- [x] D-276: Audit — VERIFIED WHY_US_CARDS 4+5 were internal-ops language (AI system, digital presence) with zero buyer relevance; AboutSection had 2 AI/digital-ops paragraphs; TrustValueSection opening had "modern dijital satış sistemi" jargon; last trust bullet was vague
+- [x] D-276: `WHY_US_CARDS` — card 4 (🤖 "Yapay Zekâ Destekli Sistem") → (🤝 "Kişisel Alışveriş Desteği") with personal callback support copy; card 5 (🌐 "Güçlü Dijital Varlık") → (📦 "Anlaşılır Sipariş Süreci") with step-by-step process copy
+- [x] D-276: `WhyUsSection` subtitle — "modern dijital sistemleri bir araya getirmemizden" → "kaynağından seçilmiş ürünleri, kişisel destek ve anlaşılır bir süreçle buluşturuyoruz"
+- [x] D-276: `AboutSection` — removed AI/digital-ops pivot paragraphs; replaced with buyer support copy ("Talep bıraktığınızda ekibimiz sizi kısa sürede arar..."); closing "daha akıllı bir modelle" → "kişisel destekle"; brand badge "akıllıca sunulmuş" → "kişisel destek"
+- [x] D-276: `TrustValueSection` — opening "modern bir dijital satış sistemiyle" → "kişisel destek ve anlaşılır bir alışveriş deneyimiyle"; last bullet "Sipariş sürecinde baştan sona destek" → "Beden seçiminden teslikata kadar adım adım destek"
+- [x] D-276: Commit `a37e808` pushed to main
+
+## Homepage Category / Intent Entry Polish V1 (D-277) — COMPLETED 2026-05-09
+
+- [x] D-277: Audit — VERIFIED `CategoryOverlay` was at homepage position 8 (after Hero, WhyUs, Popular, Steps, BestSellers, About, Trust) — most visitors never reached it; no heading or intent framing; chips had tiny padding (9px 20px); no "Tüm Ürünler" fallback for undecided visitors
+- [x] D-277: `CategoryOverlay` upgraded — proper section with `KATEGORİ` eyebrow + `Ne Arıyorsunuz?` heading + subtext; chip padding 9px→13px; chip icons 15→18px; `Tüm Ürünler →` dark button added as fallback CTA
+- [x] D-277: `CategoryOverlay` moved from position 8 → position 3 (right after `WhyUsSection`, before Popular grid) — category entry is now 3rd thing a visitor sees, not 8th
+- [x] D-277: Commit `9050542` pushed to main
+
+## SupplierScout Autonomous Supplier Bot (D-278) — IMPLEMENTED 2026-05-09
+
+### Code Complete — Awaiting Neon DDL + Env Vars + Deploy
+
+- [x] D-278: types.ts — all SupplierScout TypeScript types (MessageClass, ParsedProductOffer, SoldOutMatchResult, AutoCreateGateResult, etc.)
+- [x] D-278: 9 Payload collections created in src/collections/supplier/
+  - SupplierGroups, WholesaleOpportunities, SupplierActionsLog, SupplierDailyReports, SupplierTrustScores
+  - SupplierGroupMemory, SupplierSellerMemory, SupplierLanguageMemory, SupplierCorrectionMemory
+- [x] D-278: SupplierScoutSettings global created (frankChatId, margin, thresholds, pause toggle)
+- [x] D-278: Products.ts extended — supplier_scout source + supplierMeta group (stockMode, wholesalePrice, etc.)
+- [x] D-278: classifier.ts — Gemini 2.5 Flash NLP, 11 message classes, Turkish slang seed, heuristic fallback
+- [x] D-278: parser.ts — price/size/name extraction, computeWebsitePrice, parseSoldOutSignal
+- [x] D-278: soldoutMatcher.ts — 6-signal scored matching, applySoldOut, threshold routing
+- [x] D-278: productCreator.ts — 9-condition auto-create gate, buildSizeList, autoCreateProduct
+- [x] D-278: memory.ts — language/seller/correction CRUD, trust score, action logger
+- [x] D-278: reportGenerator.ts — buildDailyReport, formatDailyReport (9 sections), saveDailyReport
+- [x] D-278: commands.ts — 14 DM commands including /teach, /memory, /seller, /corrections, /learning_today
+- [x] D-278: telegram.ts — scoutSendMessage, scoutAnswerCallback, scoutGetFileUrl, scoutDownloadPhoto, registerScoutWebhook
+- [x] D-278: /api/supplier-scout/route.ts — full webhook + cron + health endpoint
+- [x] D-278: payload.config.ts updated — all 9 collections + SupplierScoutSettings global registered
+- [x] D-278: project-control/SUPPLIER_SCOUT.md — architecture, design decisions, Neon DDL, env vars
+- [x] D-278: project-control/SUPPLIER_SCOUT_RUNBOOK.md — operator runbook, setup steps, commands, troubleshooting
+
+### Remaining Before Activation (BLOCKER)
+
+- [ ] Apply Neon DDL from SUPPLIER_SCOUT.md (all 9 tables)
+- [ ] Add 3 env vars in Vercel: SUPPLIER_SCOUT_BOT_TOKEN, SUPPLIER_SCOUT_WEBHOOK_SECRET, SUPPLIER_SCOUT_ADMIN_SECRET
+- [ ] Deploy to production
+- [ ] Register webhook: GET /api/supplier-scout?action=register_webhook&secret=...
+- [ ] Send /start to bot (registers frankChatId)
+- [ ] Add first supplier group in admin with autoCreateEnabled=false
+- [ ] Add bot to supplier groups as admin
+- [ ] Add Vercel Cron (30 20 * * * for 23:30 Istanbul)
+- [ ] Monitor for 2-3 days before enabling autoCreateEnabled=true per group

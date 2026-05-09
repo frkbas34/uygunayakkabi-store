@@ -5,4 +5,9 @@
       "schedule": "*/10 * * * *"
     },
     {
-      "path": "/api/supplier-scout?action=daily_re
+      "path": "/api/supplier-scout?action=daily_report&secret=9933299921a1142b973de7a973c0a856fb3ccb45eef19cd7d3bcbbb78402e41d",
+      "schedule": "30 20 * * *"
+    }
+  ],
+  "ignoreCommand": "bash scripts/should-build.sh"
+}

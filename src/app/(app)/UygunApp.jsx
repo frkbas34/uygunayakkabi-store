@@ -706,13 +706,43 @@ const CAT_CHIPS = [
 
 // D-277: CategoryOverlay upgraded — proper section heading + larger chips + Tüm Ürünler fallback
 function CategoryOverlay({ onNav }) {
+  const [searchVal, setSearchVal] = useState("");  // D-278: homepage search input
+  const handleSearch = (e) => {
+    e.preventDefault();
+    const q = searchVal.trim();
+    if (q) onNav("catalog", null, q);
+    else onNav("catalog");
+  };
   return (
     <section style={{ padding: "72px 40px", maxWidth: 1440, margin: "0 auto", borderTop: "1px solid rgba(28,26,22,0.06)", position: "relative", zIndex: 1 }}>
       <div style={{ textAlign: "center", marginBottom: 36 }}>
         <p style={{ fontFamily: T.sans, fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.18em", color: T.red, marginBottom: 10 }}>KATEGORİ</p>
         <h2 style={{ fontFamily: T.serif, fontSize: "clamp(26px, 3vw, 40px)", fontWeight: 700, color: T.text, letterSpacing: "-0.02em", marginBottom: 10 }}>Ne Arıyorsunuz?</h2>
-        <p style={{ fontFamily: T.sans, fontSize: 13, color: T.textLighter, lineHeight: 1.6 }}>Bir kategori seçin — doğrudan o koleksiyona gidin</p>
+        <p style={{ fontFamily: T.sans, fontSize: 13, color: T.textLighter, lineHeight: 1.6 }}>Bir kategori seçin veya model ara — doğrudan o koleksiyona gidin</p>
       </div>
+      {/* D-278: Homepage quick-start search */}
+      <form onSubmit={handleSearch} style={{ maxWidth: 480, margin: "0 auto 32px", display: "flex", gap: 8 }}>
+        <input
+          type="text"
+          value={searchVal}
+          onChange={e => setSearchVal(e.target.value)}
+          placeholder="Model veya beden ara..."
+          style={{
+            flex: 1, padding: "13px 20px", borderRadius: T.r.full,
+            border: "1px solid rgba(28,26,22,0.12)", background: "rgba(255,255,255,0.7)",
+            fontFamily: T.sans, fontSize: 14, color: T.text, outline: "none",
+            boxShadow: "0 2px 8px rgba(0,0,0,0.04)",
+          }}
+        />
+        <button type="submit" style={{
+          padding: "13px 22px", borderRadius: T.r.full, background: T.red,
+          border: "none", cursor: "pointer", color: "#fff",
+          fontFamily: T.sans, fontSize: 12, fontWeight: 700,
+          boxShadow: "0 4px 12px rgba(177,41,41,0.25)",
+        }}>
+          Ara
+        </button>
+      </form>
       <div style={{ display: "flex", flexWrap: "wrap", gap: 12, justifyContent: "center" }}>
         {CAT_CHIPS.map((c, i) => (
           <button key={i} onClick={() => onNav("catalog", c.name)} style={{
@@ -781,6 +811,7 @@ export default function App({ dbProducts = [], siteSettings = null, banners = []
   const [pg, sPg] = useState("home");
   const [sel, sSel] = useState(null);
   const [initCat, sInitCat] = useState("Tümü");
+  const [initQuery, sInitQuery] = useState("");  // D-278: seed catalog search from homepage
   const [cart, setCart] = useState([]);
   const [cartOpen, setCartOpen] = useState(false);
   const [toastMsg, setToastMsg] = useState("");
@@ -801,9 +832,11 @@ export default function App({ dbProducts = [], siteSettings = null, banners = []
   })();
 
   // D-194: URL sync — pushState so browser URL reflects current page
-  const nav = (p, cat) => {
+  const nav = (p, cat, q) => {
     if (cat) sInitCat(cat);
     else if (p === "catalog") sInitCat("Tümü");
+    if (q !== undefined) sInitQuery(q);
+    else sInitQuery("");
     sPg(p);
     if (p !== "detail") sSel(null);
     // Update browser URL
@@ -974,7 +1007,7 @@ export default function App({ dbProducts = [], siteSettings = null, banners = []
       )}
 
       {pg === "catalog" && (
-        <Catalog initCat={initCat} onView={view} allProducts={allProducts} onNav={nav} settings={S} />
+        <Catalog initCat={initCat} initQuery={initQuery} onView={view} allProducts={allProducts} onNav={nav} settings={S} />
       )}
 
       {pg === "detail" && sel && (
@@ -999,13 +1032,13 @@ export default function App({ dbProducts = [], siteSettings = null, banners = []
 // ============================================
 const ALL_CATEGORIES = ["Tümü", "Spor", "Günlük", "Klasik", "Bot", "Sandalet", "Terlik", "Cüzdan"];
 
-function Catalog({ onView, allProducts, initCat, onNav, settings }) {
+function Catalog({ onView, allProducts, initCat, initQuery, onNav, settings }) {
   const [fl, sFl] = useState(initCat);
   const [szFilter, setSzFilter] = useState(null);
   const [sort, setSort] = useState("default");
   const [vis, sVis] = useState(12);
   const [drawerOpen, setDrawerOpen] = useState(false); // D-260: mobile filter drawer
-  const [query, setQuery] = useState("");              // D-266: search query
+  const [query, setQuery] = useState(initQuery || "");  // D-266+D-278: search query, seeded from homepage
 
   // D-260: lock body scroll when drawer open
   useEffect(() => {

@@ -236,7 +236,7 @@ export async function classifySupplierMessage(
           contents: [{ parts: [{ text: prompt }] }],
           generationConfig: {
             temperature: 0.1,
-            maxOutputTokens: 512,
+            maxOutputTokens: 1024,
             responseMimeType: 'application/json',
           },
         }),
@@ -248,10 +248,21 @@ export async function classifySupplierMessage(
     }
 
     const data = await response.json()
-    const rawText = data?.candidates?.[0]?.content?.parts?.[0]?.text ?? ''
+
+    // Gemini 2.5 Flash may return thinking tokens in parts[]; find the actual text part
+    const parts: Array<{ text?: string; thought?: boolean }> = data?.candidates?.[0]?.content?.parts ?? []
+    const textPart = parts.find(p => p.text && !p.thought) ?? parts[0]
+    const rawText = textPart?.text ?? ''
+
+    if (!rawText) {
+      throw new Error(`Gemini boş yanıt döndürdü — finish_reason: ${data?.candidates?.[0]?.finishReason ?? 'unknown'}`)
+    }
+
+    // Strip markdown code fences if model wraps JSON
+    const jsonStr = rawText.replace(/^```(?:json)?\s*/m, '').replace(/```\s*$/m, '').trim()
 
     // Parse JSON from response
-    const parsed = JSON.parse(rawText.trim())
+    const parsed = JSON.parse(jsonStr)
 
     // Validate required fields
     const validClasses: MessageClass[] = [
@@ -275,19 +286,4 @@ export async function classifySupplierMessage(
       reasoning: typeof parsed.reasoning === 'string' ? parsed.reasoning.substring(0, 300) : '',
       detectedLanguageTerms: Array.isArray(parsed.detectedLanguageTerms) ? parsed.detectedLanguageTerms : [],
       isActionable: Boolean(parsed.isActionable),
-      requiresReview: Boolean(parsed.requiresReview),
-    }
-  } catch (err) {
-    console.error('[SupplierScout/classifier] Gemini error, falling back:', err)
-    const fallback = heuristicClassify(text)
-    return {
-      messageClass: fallback.messageClass ?? 'conversation_noise',
-      confidence: 'low',
-      confidenceScore: fallback.confidenceScore ?? 25,
-      reasoning: `Gemini hatası — heuristik: ${(err as Error).message?.substring(0, 80)}`,
-      detectedLanguageTerms: [],
-      isActionable: false,
-      requiresReview: true,
-    }
-  }
-}
+      requiresReview: Boolean

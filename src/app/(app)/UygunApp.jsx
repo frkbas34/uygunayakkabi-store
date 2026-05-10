@@ -970,12 +970,9 @@ export default function App({ dbProducts = [], siteSettings = null, banners = []
           {/* D-280: Discovery zone first — search + category immediately after Hero */}
           <CategoryOverlay onNav={nav} />
 
-          {/* Neden Uygun Ayakkabı — 6 advantage cards (credibility after discovery) */}
-          <WhyUsSection />
-
-          {/* Popüler Ürünler Grid */}
-          <section style={{ padding: "100px 40px", maxWidth: 1440, margin: "0 auto", borderTop: "1px solid rgba(28,26,22,0.06)", position: "relative", zIndex: 1 }}>
-            <div style={{ marginBottom: 48, display: "flex", justifyContent: "space-between", alignItems: "flex-end", flexWrap: "wrap", gap: 16 }}>
+          {/* D-281: Popular Products before WhyUs — visitors reach real products faster */}
+          <section style={{ padding: "60px 40px 100px", maxWidth: 1440, margin: "0 auto", borderTop: "1px solid rgba(28,26,22,0.06)", position: "relative", zIndex: 1 }}>
+            <div style={{ marginBottom: 40, display: "flex", justifyContent: "space-between", alignItems: "flex-end", flexWrap: "wrap", gap: 16 }}>
               <div>
                 <p style={{ fontFamily: T.sans, fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.18em", color: T.red, marginBottom: 10 }}>POPÜLER</p>
                 <h2 style={{ fontFamily: T.serif, fontSize: "clamp(30px, 3.5vw, 48px)", fontWeight: 700, color: T.text, letterSpacing: "-0.02em" }}>Popüler Ayakkabılar</h2>
@@ -987,6 +984,9 @@ export default function App({ dbProducts = [], siteSettings = null, banners = []
               {allProducts.slice(0, 6).map(p => <Card key={p.id || p.slug} p={p} onView={view} />)}
             </div>
           </section>
+
+          {/* Neden Uygun Ayakkabı — credibility after visitor has seen real products */}
+          <WhyUsSection />
 
           {/* Sipariş Adımları */}
           <StepsSection />

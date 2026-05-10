@@ -936,3 +936,13 @@ Any modification to `src/lib/imageProviders.ts` or `src/jobs/imageGenTask.ts` th
 - [x] D-280: Helper copy updated: "Model veya beden arayın, bir kategori seçin ya da tüm koleksiyona göz atın" — all 3 entry modes named explicitly
 - [x] D-280: "Tüm Ürünler →" demoted from heavy dark equal-weight chip to subtle muted text link below the chip row — reduces CTA noise near Hero
 - [x] D-280: Commit `1bcc10ef` pushed to main (GitHub REST API; also includes classifier.ts D-278 isActionable fix + PROJECT_STATE.md updates)
+
+
+## Homepage Product-First Scroll Path Polish (D-281) — COMPLETED 2026-05-10
+
+- [x] D-281: Audit — VERIFIED mobile scroll depth to first product was ~3020px (~3.5 viewport heights). Order was: Hero → CategoryOverlay → WhyUsSection (6 stacked mobile cards ~1576px) → Popular Products. WhyUsSection was the main blocker on mobile. Desktop ~720px of credibility before first product.
+- [x] D-281: Popular Products moved from position 4 → position 3 (after CategoryOverlay, before WhyUsSection). Mobile scroll to first product: ~3020px → ~1404px (~1.7 viewport heights). Visitors see real products before credibility content.
+- [x] D-281: Popular Products top padding reduced: `100px 40px` → `60px 40px 100px` — section now adjacent to CategoryOverlay (72px section), tighter transition.
+- [x] D-281: WhyUsSection becomes credibility reinforcement *after* visitor has seen real products — trust supports discovery, no longer delays it.
+- [x] D-281: New homepage order: Hero → CategoryOverlay → Popular Products → WhyUsSection → Steps → BestSellers → About → Trust → Discounted → Footer
+- [x] D-281: Commit `0e6222ff` pushed to main

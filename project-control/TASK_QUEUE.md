@@ -946,3 +946,14 @@ Any modification to `src/lib/imageProviders.ts` or `src/jobs/imageGenTask.ts` th
 - [x] D-281: WhyUsSection becomes credibility reinforcement *after* visitor has seen real products — trust supports discovery, no longer delays it.
 - [x] D-281: New homepage order: Hero → CategoryOverlay → Popular Products → WhyUsSection → Steps → BestSellers → About → Trust → Discounted → Footer
 - [x] D-281: Commit `0e6222ff` pushed to main
+
+
+## Homepage Product-Section Hierarchy/Redundancy Polish (D-282) — COMPLETED 2026-05-10
+
+- [x] D-282: Audit — VERIFIED: Popular Products and BestSellersScroll both used "POPÜLER" eyebrow. BestSellersScroll data was `slice(0,10)` — first 6 products identical to Popular grid. "Çok Satanlar" (Bestsellers) label not backed by actual sales data (risky authenticity). DiscountedSection already well-differentiated.
+- [x] D-282: BestSellersScroll eyebrow: `POPÜLER` → `KOLEKSİYON` — eliminates duplicate-eyebrow confusion
+- [x] D-282: BestSellersScroll title: `Çok Satanlar` → `Daha Fazlasını Keşfet` — honest discovery framing; removes unverified bestseller claim
+- [x] D-282: BestSellersScroll data: `slice(0,10)` → `slice(6,18)` — shows products 7–18, zero overlap with Popular grid's first 6
+- [x] D-282: BestSellersScroll empty guard added: `if (moreProducts.length === 0) return null` — consistent with DiscountedSection
+- [x] D-282: Product section roles are now clearly distinct: Popular (top picks) → Koleksiyon/Daha Fazlası (discover more) → Fırsatlar (deals)
+- [x] D-282: Commits `1fb915ea` (main change) + `e1d06c17` (comment fix) pushed to main

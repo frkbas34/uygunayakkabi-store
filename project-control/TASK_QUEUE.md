@@ -926,3 +926,13 @@ Any modification to `src/lib/imageProviders.ts` or `src/jobs/imageGenTask.ts` th
 - [x] D-279: `Catalog` component signature updated — accepts `initQuery` prop; `query` state seeded from `useState(initQuery || "")`
 - [x] D-279: `CategoryOverlay` upgraded with search form — `searchVal` local state, `handleSearch` form submit, `<form>` with red Ara button; on submit with non-empty val calls `onNav("catalog", null, q)`; CategoryOverlay subtext updated to "Bir kategori seçin veya model ara"
 - [x] D-279: Commit `2fa6084` — push pending (GitHub unreachable at time of commit; push when network recovers)
+
+
+## Homepage Discovery Hierarchy Polish (D-280) — COMPLETED 2026-05-10
+
+- [x] D-280: Audit — VERIFIED homepage order was: Hero → WhyUsSection (6 credibility cards) → CategoryOverlay (search + chips) → Popular. WhyUs was blocking access to search/category on mobile (6 stacked cards = significant scroll). CategoryOverlay eyebrow was "KATEGORİ" (too narrow — section has search too). "Tüm Ürünler →" was a heavy dark chip competing with Hero's primary CTA. 3 catalog CTAs near each other (Hero + CategoryOverlay chip + Popular's Tümünü Gör).
+- [x] D-280: `CategoryOverlay` moved immediately after Hero (before `WhyUsSection`) — discovery zone now comes before credibility. New homepage order: Hero → CategoryOverlay → WhyUs → Popular.
+- [x] D-280: Eyebrow label: `KATEGORİ` → `KEŞFET` — signals both search AND category entry, not just categories
+- [x] D-280: Helper copy updated: "Model veya beden arayın, bir kategori seçin ya da tüm koleksiyona göz atın" — all 3 entry modes named explicitly
+- [x] D-280: "Tüm Ürünler →" demoted from heavy dark equal-weight chip to subtle muted text link below the chip row — reduces CTA noise near Hero
+- [x] D-280: Commit `1bcc10ef` pushed to main (GitHub REST API; also includes classifier.ts D-278 isActionable fix + PROJECT_STATE.md updates)

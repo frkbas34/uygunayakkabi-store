@@ -716,9 +716,9 @@ function CategoryOverlay({ onNav }) {
   return (
     <section style={{ padding: "72px 40px", maxWidth: 1440, margin: "0 auto", borderTop: "1px solid rgba(28,26,22,0.06)", position: "relative", zIndex: 1 }}>
       <div style={{ textAlign: "center", marginBottom: 36 }}>
-        <p style={{ fontFamily: T.sans, fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.18em", color: T.red, marginBottom: 10 }}>KATEGORİ</p>
+        <p style={{ fontFamily: T.sans, fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.18em", color: T.red, marginBottom: 10 }}>KEŞFET</p>
         <h2 style={{ fontFamily: T.serif, fontSize: "clamp(26px, 3vw, 40px)", fontWeight: 700, color: T.text, letterSpacing: "-0.02em", marginBottom: 10 }}>Ne Arıyorsunuz?</h2>
-        <p style={{ fontFamily: T.sans, fontSize: 13, color: T.textLighter, lineHeight: 1.6 }}>Bir kategori seçin veya model ara — doğrudan o koleksiyona gidin</p>
+        <p style={{ fontFamily: T.sans, fontSize: 13, color: T.textLighter, lineHeight: 1.6 }}>Model veya beden arayın, bir kategori seçin ya da tüm koleksiyona göz atın</p>
       </div>
       {/* D-278: Homepage quick-start search */}
       <form onSubmit={handleSearch} style={{ maxWidth: 480, margin: "0 auto 32px", display: "flex", gap: 8 }}>
@@ -755,13 +755,14 @@ function CategoryOverlay({ onNav }) {
             <span style={{ fontSize: 13, fontWeight: 600, color: T.text }}>{c.name}</span>
           </button>
         ))}
+      </div>
+      <div style={{ textAlign: "center", marginTop: 24 }}>
         <button onClick={() => onNav("catalog")} style={{
-          display: "flex", alignItems: "center", gap: 8, padding: "13px 26px", borderRadius: 999,
-          background: T.text, border: "1px solid transparent",
-          cursor: "pointer", transition: "all 0.3s", fontFamily: T.sans,
-          boxShadow: "0 4px 12px rgba(0,0,0,0.1)",
+          fontFamily: T.sans, fontSize: 12, fontWeight: 600,
+          color: "rgba(28,26,22,0.4)", background: "none", border: "none",
+          cursor: "pointer", letterSpacing: "0.04em",
         }}>
-          <span style={{ fontSize: 13, fontWeight: 600, color: "#fff" }}>Tüm Ürünler →</span>
+          veya tüm ürünlere göz at →
         </button>
       </div>
     </section>
@@ -966,11 +967,11 @@ export default function App({ dbProducts = [], siteSettings = null, banners = []
         <div>
           <Hero onNav={nav} settings={S} allProducts={allProducts} />
 
-          {/* Neden Uygun Ayakkabı — 6 advantage cards */}
-          <WhyUsSection />
-
-          {/* D-277: Kategori / Intent Entry — before popular grid for faster collection entry */}
+          {/* D-280: Discovery zone first — search + category immediately after Hero */}
           <CategoryOverlay onNav={nav} />
+
+          {/* Neden Uygun Ayakkabı — 6 advantage cards (credibility after discovery) */}
+          <WhyUsSection />
 
           {/* Popüler Ürünler Grid */}
           <section style={{ padding: "100px 40px", maxWidth: 1440, margin: "0 auto", borderTop: "1px solid rgba(28,26,22,0.06)", position: "relative", zIndex: 1 }}>

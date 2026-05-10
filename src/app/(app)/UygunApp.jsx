@@ -554,12 +554,14 @@ function StepsSection() {
 function BestSellersScroll({ allProducts, onView, onNav }) {
   const scrollRef = useRef(null);
   const scroll = (dir) => { if (scrollRef.current) scrollRef.current.scrollBy({ left: dir * 320, behavior: "smooth" }); };
+  const moreProducts = allProducts.slice(6, 18);
+  if (moreProducts.length === 0) return null;
   return (
     <section style={{ padding: "80px 0", borderTop: "1px solid rgba(28,26,22,0.06)", position: "relative", zIndex: 1 }}>
       <div style={{ maxWidth: 1440, margin: "0 auto", padding: "0 40px", display: "flex", justifyContent: "space-between", alignItems: "flex-end", marginBottom: 32 }}>
         <div>
-          <p style={{ fontFamily: T.sans, fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.18em", color: T.red, marginBottom: 10 }}>POPÜLER</p>
-          <h2 style={{ fontFamily: T.serif, fontSize: "clamp(30px, 3.5vw, 48px)", fontWeight: 700, color: T.text, letterSpacing: "-0.02em" }}>Çok Satanlar</h2>
+          <p style={{ fontFamily: T.sans, fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.18em", color: T.red, marginBottom: 10 }}>KOLEKSİYON</p>
+          <h2 style={{ fontFamily: T.serif, fontSize: "clamp(30px, 3.5vw, 48px)", fontWeight: 700, color: T.text, letterSpacing: "-0.02em" }}>Daha Fazlasını Keşfet</h2>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
           {/* D-257: Tümünü Gör link */}
@@ -571,7 +573,7 @@ function BestSellersScroll({ allProducts, onView, onNav }) {
         </div>
       </div>
       <div ref={scrollRef} style={{ display: "flex", gap: 16, overflowX: "auto", scrollSnapType: "x mandatory", paddingLeft: 40, paddingRight: 40, scrollbarWidth: "none", msOverflowStyle: "none" }}>
-        {allProducts.slice(0, 10).map(p => (
+        {moreProducts.map(p => (
           <div key={p.id || p.slug} style={{ flex: "0 0 280px", scrollSnapAlign: "start" }}>
             <Card p={p} onView={onView} />
           </div>

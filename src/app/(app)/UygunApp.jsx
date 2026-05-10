@@ -993,7 +993,7 @@ export default function App({ dbProducts = [], siteSettings = null, banners = []
           {/* Sipariş Adımları */}
           <StepsSection />
 
-          {/* Çok Satanlar — horizontal scroll */}
+          {/* D-282: Daha Fazlasını Keşfet — horizontal scroll, products 7-18 */}
           <BestSellersScroll allProducts={allProducts} onView={view} onNav={nav} />
 
           {/* Biz Kimiz */}

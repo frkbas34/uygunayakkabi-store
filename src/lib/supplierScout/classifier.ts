@@ -286,4 +286,21 @@ export async function classifySupplierMessage(
       reasoning: typeof parsed.reasoning === 'string' ? parsed.reasoning.substring(0, 300) : '',
       detectedLanguageTerms: Array.isArray(parsed.detectedLanguageTerms) ? parsed.detectedLanguageTerms : [],
       isActionable: Boolean(parsed.isActionable),
-      requiresReview: Boolean
+      requiresReview: Boolean(parsed.requiresReview),
+    }
+  } catch (err) {
+    console.error('[SupplierScout/classifier] Gemini error, falling back:', err)
+    const fallback = heuristicClassify(text)
+    const fallbackClass = fallback.messageClass ?? 'conversation_noise'
+    return {
+      messageClass: fallbackClass,
+      confidence: 'low',
+      confidenceScore: fallback.confidenceScore ?? 25,
+      reasoning: `Gemini hatası — heuristik: ${(err as Error).message?.substring(0, 80)}`,
+      detectedLanguageTerms: [],
+      // Mirror the no-API-key path: actionable if heuristic says new_product or sold_out
+      isActionable: fallbackClass === 'new_product' || fallbackClass === 'sold_out',
+      requiresReview: true,
+    }
+  }
+}

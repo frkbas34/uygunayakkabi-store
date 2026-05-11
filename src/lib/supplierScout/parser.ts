@@ -107,6 +107,49 @@ function extractSizes(text: string): { min?: number; max?: number; sizes?: numbe
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Shorthand Normalization
+// Pre-processes text before Gemini extraction to expand known brand
+// abbreviations and Turkish size terms. Used for Gemini prompt only —
+// never overwrites rawText stored in WholesaleOpportunities.
+// ─────────────────────────────────────────────────────────────────────────────
+
+// Ordered so more-specific patterns (AF1, AJ1) run before shorter ones (AJ).
+const BRAND_ABBREVIATIONS: Array<[RegExp, string]> = [
+  [/\bAF\s?1\b/gi,  'Air Force 1'],
+  [/\bAM\s?90\b/gi, 'Air Max 90'],
+  [/\bAM\s?95\b/gi, 'Air Max 95'],
+  [/\bAM\s?97\b/gi, 'Air Max 97'],
+  [/\bAJ\s?1\b/gi,  'Air Jordan 1'],
+  [/\bAJ\b/gi,      'Air Jordan'],
+  [/\bNB\b/gi,      'New Balance'],
+  [/\bTN\b/gi,      'Air Max TN'],
+  [/\bSB\b/gi,      'SB Dunk'],
+  [/\bYZY\b/gi,     'Yeezy'],
+]
+
+const TURKISH_NORMALIZATIONS: Array<[RegExp, string]> = [
+  [/\bbdn\b/gi, 'beden'],
+  [/\bnum\b/gi, 'numara'],
+  [/\bno\b/gi,  'numara'],
+]
+
+/**
+ * Expand known sneaker brand abbreviations and Turkish shorthand terms.
+ * Returns a normalized copy of the text for use in the Gemini extraction prompt.
+ * The original message text (rawText) is NEVER modified.
+ */
+export function normalizeShorthand(text: string): string {
+  let result = text
+  for (const [pattern, replacement] of BRAND_ABBREVIATIONS) {
+    result = result.replace(pattern, replacement)
+  }
+  for (const [pattern, replacement] of TURKISH_NORMALIZATIONS) {
+    result = result.replace(pattern, replacement)
+  }
+  return result
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Gemini Product Extraction Prompt
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -226,7 +269,10 @@ export async function parseProductOffer(
 
   // Gemini extraction
   try {
-    const prompt = buildProductExtractionPrompt(text, hasPhoto, groupConfig, customTerms)
+    // Expand brand abbreviations and Turkish shorthand before sending to Gemini.
+    // normalizedText is used for the prompt only — rawText in base stays as-is.
+    const normalizedText = normalizeShorthand(text)
+    const prompt = buildProductExtractionPrompt(normalizedText, hasPhoto, groupConfig, customTerms)
     const response = await fetch(
       `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`,
       {
@@ -245,7 +291,13 @@ export async function parseProductOffer(
 
     if (!response.ok) throw new Error(`Gemini HTTP ${response.status}`)
     const data = await response.json()
-    const rawText = data?.candidates?.[0]?.content?.parts?.[0]?.text ?? '{}'
+
+    // Gemini 2.5 Flash returns thinking tokens in parts[]; find the actual JSON part.
+    // Same pattern as classifier.ts — avoids parsing prose/thinking text as JSON.
+    const parts: Array<{ text?: string; thought?: boolean }> = data?.candidates?.[0]?.content?.parts ?? []
+    const textPart = parts.find(p => p.text && !p.thought) ?? parts[0]
+    const rawText = textPart?.text ?? '{}'
+
     const g = JSON.parse(rawText.trim())
 
     // Merge Gemini + regex (regex wins on price/size if Gemini missed them)

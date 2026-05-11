@@ -836,6 +836,49 @@ function DiscountedSection({ allProducts, onView, onNav }) {
 }
 
 // ============================================
+// PRE-FOOTER CTA (D-284 — exit recovery)
+// ============================================
+function PreFooterCTA({ onNav, settings }) {
+  return (
+    <section style={{
+      padding: "80px 40px",
+      background: "rgba(238,232,222,0.35)",
+      borderTop: "1px solid rgba(28,26,22,0.06)",
+      position: "relative", zIndex: 1,
+    }}>
+      <div style={{ maxWidth: 560, margin: "0 auto", textAlign: "center" }}>
+        <p style={{ fontFamily: T.sans, fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.18em", color: T.red, marginBottom: 12 }}>KOLEKSİYON</p>
+        <h2 style={{ fontFamily: T.serif, fontSize: "clamp(26px, 3vw, 38px)", fontWeight: 700, color: T.text, letterSpacing: "-0.02em", marginBottom: 16 }}>Beğendiğiniz Bir Şey Buldunuz mu?</h2>
+        <p style={{ fontFamily: T.sans, fontSize: 14, color: T.textLight, lineHeight: 1.75, marginBottom: 40 }}>
+          Tüm modelleri inceleyin, beden seçin, talep bırakın — ekibimiz kısa sürede geri döner.
+        </p>
+        <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 16 }}>
+          <button onClick={() => onNav("catalog")} style={{
+            fontFamily: T.sans, fontSize: 13, fontWeight: 700, letterSpacing: "0.1em",
+            textTransform: "uppercase", color: "#fff", background: T.text,
+            border: "none", padding: "18px 52px", borderRadius: T.r.full, cursor: "pointer",
+            display: "inline-flex", alignItems: "center", gap: 10, transition: "all 0.3s",
+            boxShadow: "0 4px 20px rgba(28,26,22,0.18)",
+          }}>
+            Tüm Ürünlere Göz At {I.arrow}
+          </button>
+          <p style={{ fontFamily: T.sans, fontSize: 12, color: T.textLighter, margin: 0 }}>
+            Aklınızda soru mu var?{" "}
+            <button onClick={() => onNav("contact")} style={{
+              fontFamily: T.sans, fontSize: 12, fontWeight: 600,
+              color: T.text, background: "none", border: "none",
+              cursor: "pointer", textDecoration: "underline", padding: 0,
+            }}>
+              Yardım Merkezi →
+            </button>
+          </p>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+// ============================================
 // TOP-LEVEL APP COMPONENT
 // ============================================
 export default function App({ dbProducts = [], siteSettings = null, banners = [], sections = null }) {
@@ -1033,6 +1076,9 @@ export default function App({ dbProducts = [], siteSettings = null, banners = []
 
           {/* İndirimli Ürünler */}
           <DiscountedSection allProducts={allProducts} onView={view} onNav={nav} />
+
+          {/* D-284: Final exit recovery CTA before footer */}
+          <PreFooterCTA onNav={nav} settings={S} />
 
           <Footer onNav={nav} settings={S} />
         </div>

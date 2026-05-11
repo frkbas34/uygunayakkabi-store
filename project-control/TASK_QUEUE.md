@@ -948,6 +948,18 @@ Any modification to `src/lib/imageProviders.ts` or `src/jobs/imageGenTask.ts` th
 - [x] D-281: Commit `0e6222ff` pushed to main
 
 
+## Homepage End-of-Page Exit Recovery (D-284) — COMPLETED 2026-05-11
+
+- [x] D-284: Audit — VERIFIED: DiscountedSection ends cold (no bottom CTA — "Tümünü Gör →" is in header, not footer of section). Footer "Ayakkabılar" link is rgba(240,236,228,0.45) — near-invisible. If discounted=0, DiscountedSection returns null; visitor jumps TrustValueSection → Footer with CTAs already scrolled past.
+- [x] D-284: PreFooterCTA component added (new function, ~40 lines) — compact centered strip between DiscountedSection and Footer
+- [x] D-284: Renders unconditionally — catches both the discounted-products path and the null-discounted path
+- [x] D-284: Primary CTA: "Tüm Ürünlere Göz At →" filled dark button → catalog
+- [x] D-284: Secondary: "Yardım Merkezi →" text link → contact/help page
+- [x] D-284: Eyebrow "KOLEKSİYON", heading "Beğendiğiniz Bir Şey Buldunuz mu?", warm tinted background
+- [x] D-284: PreFooterCTA wired into homepage render with `onNav={nav}` and `settings={S}`
+- [x] D-284: Browse hierarchy preserved: catalog primary, help secondary, WhatsApp in footer tertiary
+- [x] D-284: Commit `de41f625` pushed to main
+
 ## Homepage Mid-Page Conversion Bridge (D-283) — COMPLETED 2026-05-11
 
 - [x] D-283: Audit — VERIFIED: WhyUsSection and StepsSection were passive dead ends. WhyUsSection ends after 6 credibility cards with no forward path. StepsSection describes the 4-step order process starting with "browse products" but provided no link back to the catalog. Both sections explained well but left visitors stranded mid-page.

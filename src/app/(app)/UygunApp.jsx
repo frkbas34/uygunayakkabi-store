@@ -482,7 +482,7 @@ const WHY_US_CARDS = [
   { icon: "✨", title: "Her Yerde Bulunmayan Ürünler", desc: "Bizdeki birçok ürün, klasik mağaza düzeninde kolayca bulunmayan, sınırlı ve özel ürünlerden oluşur." },
 ];
 
-function WhyUsSection() {
+function WhyUsSection({ onNav }) {
   return (
     <section id="neden-biz" style={{ padding: "100px 40px", maxWidth: 1440, margin: "0 auto", borderTop: "1px solid rgba(28,26,22,0.06)", position: "relative", zIndex: 1 }}>
       <div style={{ textAlign: "center", marginBottom: 56 }}>
@@ -504,6 +504,19 @@ function WhyUsSection() {
           </div>
         ))}
       </div>
+      {/* D-283: Conversion bridge — credibility section → product browsing */}
+      {onNav && (
+        <div style={{ textAlign: "center", marginTop: 48 }}>
+          <button onClick={() => onNav("catalog")} style={{
+            fontFamily: T.sans, fontSize: 12, fontWeight: 600, letterSpacing: "0.1em",
+            textTransform: "uppercase", color: T.text, background: "transparent",
+            border: "1px solid rgba(28,26,22,0.18)", padding: "14px 36px",
+            borderRadius: T.r.full, cursor: "pointer", transition: "all 0.3s",
+          }}>
+            Koleksiyonu Keşfet →
+          </button>
+        </div>
+      )}
     </section>
   );
 }
@@ -519,7 +532,7 @@ const STEPS_DATA = [
   { icon: "📦", num: "ADIM 04", title: "Teslimat", desc: "Siparişin onaylanır, kargoya verilir — kapıda ödeme seçeneği mevcuttur", method: "Kargo ile Teslimat", mColor: "#f59e0b", mBg: "rgba(245,158,11,0.08)", barColor: "#f59e0b" },
 ];
 
-function StepsSection() {
+function StepsSection({ onNav }) {
   return (
     <section id="nasil-calisir" style={{ padding: "100px 40px", maxWidth: 1440, margin: "0 auto", borderTop: "1px solid rgba(28,26,22,0.06)", position: "relative", zIndex: 1 }}>
       <div style={{ textAlign: "center", marginBottom: 64 }}>
@@ -544,6 +557,22 @@ function StepsSection() {
           </div>
         ))}
       </div>
+      {/* D-283: Action bridge — visitors are primed for Step 1 after reading the process */}
+      {onNav && (
+        <div style={{ textAlign: "center", marginTop: 56 }}>
+          <button onClick={() => onNav("catalog")} style={{
+            fontFamily: T.sans, fontSize: 12, fontWeight: 700, letterSpacing: "0.12em",
+            textTransform: "uppercase", color: "#fff", background: T.text,
+            border: "none", padding: "17px 44px", borderRadius: T.r.full, cursor: "pointer",
+            display: "inline-flex", alignItems: "center", gap: 10, transition: "all 0.3s",
+          }}>
+            Ürünleri Keşfet {I.arrow}
+          </button>
+          <p style={{ fontFamily: T.sans, fontSize: 12, color: T.textLighter, marginTop: 12 }}>
+            Adım 1'den başlayın — göz atmak ücretsiz
+          </p>
+        </div>
+      )}
     </section>
   );
 }
@@ -988,10 +1017,10 @@ export default function App({ dbProducts = [], siteSettings = null, banners = []
           </section>
 
           {/* Neden Uygun Ayakkabı — credibility after visitor has seen real products */}
-          <WhyUsSection />
+          <WhyUsSection onNav={nav} />
 
           {/* Sipariş Adımları */}
-          <StepsSection />
+          <StepsSection onNav={nav} />
 
           {/* D-282: Daha Fazlasını Keşfet — horizontal scroll, products 7-18 */}
           <BestSellersScroll allProducts={allProducts} onView={view} onNav={nav} />

@@ -948,6 +948,19 @@ Any modification to `src/lib/imageProviders.ts` or `src/jobs/imageGenTask.ts` th
 - [x] D-281: Commit `0e6222ff` pushed to main
 
 
+## Homepage Mid-Page Conversion Bridge (D-283) — COMPLETED 2026-05-11
+
+- [x] D-283: Audit — VERIFIED: WhyUsSection and StepsSection were passive dead ends. WhyUsSection ends after 6 credibility cards with no forward path. StepsSection describes the 4-step order process starting with "browse products" but provided no link back to the catalog. Both sections explained well but left visitors stranded mid-page.
+- [x] D-283: WhyUsSection: add `onNav` prop to function signature
+- [x] D-283: WhyUsSection: add outline "Koleksiyonu Keşfet →" bridge button below credibility cards (guarded with `onNav &&`)
+- [x] D-283: StepsSection: add `onNav` prop to function signature
+- [x] D-283: StepsSection: add filled "Ürünleri Keşfet" primary button + helper text "Adım 1'den başlayın — göz atmak ücretsiz" below step cards (guarded with `onNav &&`)
+- [x] D-283: WhyUsSection render call updated to pass `onNav={nav}` — bridge now active
+- [x] D-283: StepsSection render call updated to pass `onNav={nav}` — bridge now active
+- [x] D-283: Browse hierarchy preserved: product browsing primary, inquiry secondary, WhatsApp tertiary — no CTA conflict introduced
+- [x] D-283: Both bridges guarded — zero risk if prop absent or section used outside homepage context
+- [x] D-283: Commit `9ac8174` pushed to main
+
 ## Homepage Product-Section Hierarchy/Redundancy Polish (D-282) — COMPLETED 2026-05-10
 
 - [x] D-282: Audit — VERIFIED: Popular Products and BestSellersScroll both used "POPÜLER" eyebrow. BestSellersScroll data was `slice(0,10)` — first 6 products identical to Popular grid. "Çok Satanlar" (Bestsellers) label not backed by actual sales data (risky authenticity). DiscountedSection already well-differentiated.

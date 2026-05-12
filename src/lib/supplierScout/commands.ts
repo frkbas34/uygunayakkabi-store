@@ -32,6 +32,7 @@ import {
   teachSellerNote,
   logAction,
 } from './memory'
+import { previewManualDraft, executeManualDraft } from './productCreator'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Helpers
@@ -90,8 +91,10 @@ export async function handleDMCommand(
       return handleCorrections(payload)
     case '/learning_today':
       return handleLearningToday(payload)
+    case '/create_draft':
+      return handleCreateDraft(args, payload)
     default:
-      return `❓ Bilinmeyen komut: ${cmd}\n\nKullanılabilir komutlar:\n/today /pending /suppliers /soldout_today /profit_today\n/pause_auto /resume_auto\n/teach /memory /seller /group_logic /corrections /learning_today`
+      return `❓ Bilinmeyen komut: ${cmd}\n\nKullanılabilir komutlar:\n/today /pending /suppliers /soldout_today /profit_today\n/pause_auto /resume_auto\n/create_draft\n/teach /memory /seller /group_logic /corrections /learning_today`
   }
 }
 
@@ -518,4 +521,124 @@ async function handleLearningToday(payload: Payload): Promise<string> {
   } catch (err) {
     return `❌ Hata: ${(err as Error).message}`
   }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// /create_draft  (Phase 3A — manual operator-triggered draft creation)
+//
+// Two-step flow:
+//   Step 1 — preview:  /create_draft <wo_id>
+//   Step 2 — execute:  /create_draft <wo_id> confirm
+//
+// Currency ambiguity detected at preview → requires "confirm" suffix.
+// autoPauseActive and autoCreateEnabled gates are bypassed (explicit action).
+// Products are always created as status='draft'. No publishing occurs.
+// ─────────────────────────────────────────────────────────────────────────────
+
+async function handleCreateDraft(args: string[], payload: Payload): Promise<string> {
+  // ── Usage guard ──────────────────────────────────────────────────────────
+  if (args.length === 0) {
+    return (
+      '❓ <b>/create_draft kullanımı:</b>\n\n' +
+      '1. Önizleme:  <code>/create_draft &lt;WO_id&gt;</code>\n' +
+      '2. Oluştur:   <code>/create_draft &lt;WO_id&gt; confirm</code>\n\n' +
+      'WO ID listesi için /pending komutunu kullanın.'
+    )
+  }
+
+  const opportunityId = parseInt(args[0], 10)
+  if (isNaN(opportunityId)) {
+    return `❌ Geçersiz WO ID: <code>${args[0]}</code> — sayısal bir değer giriniz.`
+  }
+
+  const isConfirm = args[1]?.toLowerCase() === 'confirm'
+
+  // ── Step 1: Preview (no side effects) ───────────────────────────────────
+  if (!isConfirm) {
+    const preview = await previewManualDraft(opportunityId, payload)
+
+    // Hard error from loader/validator
+    if ('error' in preview) {
+      return `❌ ${preview.error}`
+    }
+
+    // Duplicate — hard block
+    if (preview.isDuplicate) {
+      const pid = preview.duplicateProductId
+      return (
+        `🔁 <b>Duplicate Tespit Edildi</b>\n\n` +
+        `WO #${opportunityId} için ürün zaten mevcut${pid ? ` (Ürün ID: ${pid})` : ''}.\n` +
+        `Taslak oluşturulmaz.`
+      )
+    }
+
+    // Format preview card
+    const lines: string[] = [
+      `📦 <b>Taslak Önizleme — WO #${opportunityId}</b>\n`,
+      `Ürün:    <b>${preview.productName ?? '—'}</b>`,
+    ]
+    if (preview.brand) lines.push(`Marka:   ${preview.brand}`)
+    if (preview.model) lines.push(`Model:   ${preview.model}`)
+    if (preview.color) lines.push(`Renk:    ${preview.color}`)
+    lines.push(`Beden:   ${preview.sizeSummary}`)
+
+    const priceStr =
+      preview.wholesalePrice
+        ? `$${preview.wholesalePrice}${preview.wholesaleCurrency ? ` (${preview.wholesaleCurrency})` : ' (belirsiz döviz)'}`
+        : '? (fiyat yok)'
+    const sitePriceStr = preview.websitePrice ? ` → ₺${preview.websitePrice}` : ''
+    lines.push(`Fiyat:   ${priceStr}${sitePriceStr}`)
+    lines.push(`Güven:   ${preview.parseScore}/100`)
+    lines.push(`Grup:    ${preview.groupName}`)
+
+    if (preview.missingFields.length > 0) {
+      lines.push(`\n⚠️ Eksik alanlar: ${preview.missingFields.join(', ')}`)
+    }
+
+    if (preview.warnings.length > 0) {
+      lines.push('')
+      for (const w of preview.warnings) {
+        lines.push(`⚠️ ${w}`)
+      }
+    }
+
+    lines.push(`\nDurum sonrası: <b>Taslak</b> — yayınlanmaz, otonom oluşturma bypass edilmez`)
+    lines.push(`\nOnaylamak için:`)
+    lines.push(`<code>/create_draft ${opportunityId} confirm</code>`)
+
+    return lines.join('\n')
+  }
+
+  // ── Step 2: Execute (creates draft product) ──────────────────────────────
+  const result = await executeManualDraft(opportunityId, payload)
+
+  if (!result.success) {
+    return `❌ <b>Taslak oluşturulamadı:</b> ${result.error ?? 'Bilinmeyen hata'}`
+  }
+
+  // Log the manual creation action
+  await logAction(
+    {
+      actionType: 'product_created',
+      confidence: 'high',
+      productId: result.productId ? String(result.productId) : undefined,
+      productTitle: result.productTitle,
+      details: `[MANUEL] WO #${opportunityId} → Taslak: ${result.productTitle ?? '?'}`,
+      isReversible: true,
+      opportunityRef: opportunityId,
+    },
+    payload,
+  )
+
+  const adminPath = result.productId
+    ? `\n\n🔗 Payload Admin: /admin/collections/products/${result.productId}`
+    : ''
+
+  return (
+    `✅ <b>Taslak oluşturuldu!</b>\n\n` +
+    `Ürün:        <b>${result.productTitle ?? '?'}</b>\n` +
+    `Site Fiyatı: ₺${result.websitePrice ?? '?'}\n` +
+    `Durum:       Taslak (yayınlanmadı)` +
+    adminPath
+  )
 }

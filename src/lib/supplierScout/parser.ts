@@ -77,30 +77,57 @@ export function computeWebsitePrice(
 // ─────────────────────────────────────────────────────────────────────────────
 
 function extractSizes(text: string): { min?: number; max?: number; sizes?: number[] } {
-  // Range: 36-45, 36–45, 36/45, numara 36-45
-  const rangeMatch = text.match(/\b(3[5-9]|4[0-6])\s*[-–/]\s*(3[5-9]|4[0-6])\b/)
+  // ── 1. Dash range: 40-44, 40–44 → expand to full array ───────────────────────
+  // Slash is NOT treated as a range separator here — slash lists are handled below.
+  const rangeMatch = text.match(/\b(3[5-9]|4[0-6])\s*[-–]\s*(3[5-9]|4[0-6])\b/)
   if (rangeMatch) {
     const min = parseInt(rangeMatch[1])
     const max = parseInt(rangeMatch[2])
+    if (min <= max) {
+      const sizes: number[] = []
+      for (let i = min; i <= max; i++) sizes.push(i)
+      return { min, max, sizes }
+    }
     return { min, max }
   }
 
-  // Explicit list: 36, 37, 38, 40
-  const listMatches = text.match(/\b(3[5-9]|4[0-6])(?:\s*[,/]\s*(3[5-9]|4[0-6]))+\b/g)
-  if (listMatches) {
-    const sizes = listMatches[0].split(/\s*[,/]\s*/).map(s => parseInt(s)).filter(n => n >= 35 && n <= 46)
-    if (sizes.length > 0) {
+  // ── 2. Slash-separated explicit list: 40/41/42, 40/41/42/43 ────────────────
+  const slashMatch = text.match(/\b(3[5-9]|4[0-6])(?:\s*\/\s*(3[5-9]|4[0-6]))+/)
+  if (slashMatch) {
+    const sizes = slashMatch[0].split(/\s*\/\s*/).map(s => parseInt(s)).filter(n => n >= 35 && n <= 46)
+    if (sizes.length > 1) {
       return { min: Math.min(...sizes), max: Math.max(...sizes), sizes }
     }
   }
 
-  // Tam seri → 36–45
-  if (/tam\s*seri/i.test(text)) {
-    return { min: 36, max: 45 }
+  // ── 3. Comma-separated explicit list: 40, 41, 42 ─────────────────────
+  const commaMatch = text.match(/\b(3[5-9]|4[0-6])(?:\s*,\s*(3[5-9]|4[0-6]))+/)
+  if (commaMatch) {
+    const sizes = commaMatch[0].split(/\s*,\s*/).map(s => parseInt(s)).filter(n => n >= 35 && n <= 46)
+    if (sizes.length > 1) {
+      return { min: Math.min(...sizes), max: Math.max(...sizes), sizes }
+    }
   }
-  // Seri without explicit range → infer 36-45
+
+  // ── 4. Space-separated list: 39 40 41 (≥3 consecutive size numbers) ──────
+  // Requires 3+ numbers to avoid false positives with two-number sequences.
+  const spaceMatch = text.match(/\b(3[5-9]|4[0-6])(?:\s+(3[5-9]|4[0-6])){2,}/)
+  if (spaceMatch) {
+    const sizes = spaceMatch[0].split(/\s+/).map(s => parseInt(s)).filter(n => n >= 35 && n <= 46)
+    if (sizes.length >= 3) {
+      return { min: Math.min(...sizes), max: Math.max(...sizes), sizes }
+    }
+  }
+
+  // ── 5. Tam seri → full run 36–45 ───────────────────────────────────────────
+  if (/tam\s*seri/i.test(text)) {
+    const sizes: number[] = Array.from({ length: 10 }, (_, i) => 36 + i)
+    return { min: 36, max: 45, sizes }
+  }
+  // Seri without explicit range → infer 36–45
   if (/\bseri\b/i.test(text) && !/\d/.test(text)) {
-    return { min: 36, max: 45 }
+    const sizes: number[] = Array.from({ length: 10 }, (_, i) => 36 + i)
+    return { min: 36, max: 45, sizes }
   }
 
   return {}
@@ -165,18 +192,64 @@ function buildProductExtractionPrompt(
     : ''
 
   return `Sen Türkçe toptan tedarikçi Telegram mesajlarından ürün bilgisi çıkaran bir uzman sistemsin.
-Mesajın para birimi: ${currency}
+Mesajın varsayılan para birimi: ${currency}
 Fotoğraf var: ${hasPhoto ? 'EVET' : 'HAYIR'}
 ${customTermsStr}
+MARKA BİLGİSİ — kısaltma veya kısmi ad görüldüğünde tam marka/model ata:
+- "Samba" (markasız) = Adidas Samba
+- "Air Force 1" veya kısaltması = Nike Air Force 1
+- "Air Max 90" veya kısaltması = Nike Air Max 90
+- "Air Max 95" = Nike Air Max 95
+- "Air Max 97" = Nike Air Max 97
+- "Air Jordan 1" = Nike Air Jordan 1
+- "Jordan" = Jordan (Nike)
+- "New Balance" + model numarası = New Balance [model]
+- "Yeezy 350" = Adidas Yeezy Boost 350
+- "SB Dunk" veya "Dunk" = Nike SB Dunk
+- "Puma Suede" = Puma Suede Classic
 
-MESAJ:
+BEDEN KURALLARI — availableSizes her zaman tam dizi olmalı:
+- "40-44" veya "40–44" → sizeMin:40, sizeMax:44, availableSizes:[40,41,42,43,44]
+- "37-42" → sizeMin:37, sizeMax:42, availableSizes:[37,38,39,40,41,42]
+- "40/41/42" → sizeMin:40, sizeMax:42, availableSizes:[40,41,42]
+- "39 40 41" → sizeMin:39, sizeMax:41, availableSizes:[39,40,41]
+- "tam seri" veya "full size" → sizeMin:36, sizeMax:45, availableSizes:[36,37,38,39,40,41,42,43,44,45]
+
+FİYAT / PARA BİRİMİ KURALLARI:
+- "1500 TL", "1500TL", "1500₺" → wholesalePrice:1500, wholesaleCurrency:"TRY"
+- "55 dolar", "55$", "$55" → wholesalePrice:55, wholesaleCurrency:"USD"
+- Sadece sayı → varsayılan: ${currency}
+
+PUAN KURALLARI:
+- Bilinen marka + fiyat → en az 80
+- Bilinen marka + fiyat + beden → en az 90
+- Marka belirsiz ama fiyat ve beden var → 60-75
+- Sadece beden veya fiyat, marka yok → 40-55
+- Anlamsız / sadece beden numaraları → 30 veya altı
+
+ÖRNEKLER:
+
+Mesaj: "Air Force 1 beyaz 40/41/42 1500"
+{"productName":"Nike Air Force 1 Beyaz","brand":"Nike","model":"Air Force 1","color":"beyaz","material":null,"category":"Spor","gender":"unisex","sizeMin":40,"sizeMax":42,"availableSizes":[40,41,42],"wholesalePrice":1500,"wholesaleCurrency":"TRY","parseConfidence":"high","parseScore":88,"missingFields":[],"parseWarnings":[]}
+
+Mesaj: "Samba beden 36-40 fiyat 1450"
+{"productName":"Adidas Samba","brand":"Adidas","model":"Samba","color":null,"material":null,"category":"Spor","gender":"unisex","sizeMin":36,"sizeMax":40,"availableSizes":[36,37,38,39,40],"wholesalePrice":1450,"wholesaleCurrency":"TRY","parseConfidence":"high","parseScore":85,"missingFields":["color"],"parseWarnings":[]}
+
+Mesaj: "Air Max 90 beyaz 40-44 150TL"
+{"productName":"Nike Air Max 90 Beyaz","brand":"Nike","model":"Air Max 90","color":"beyaz","material":null,"category":"Spor","gender":"unisex","sizeMin":40,"sizeMax":44,"availableSizes":[40,41,42,43,44],"wholesalePrice":150,"wholesaleCurrency":"TRY","parseConfidence":"high","parseScore":88,"missingFields":[],"parseWarnings":[]}
+
+Mesaj: "New Balance 9060 rain cloud 39 40 41 fiyat 55 dolar"
+{"productName":"New Balance 9060 Rain Cloud","brand":"New Balance","model":"9060","color":"rain cloud","material":null,"category":"Spor","gender":"unisex","sizeMin":39,"sizeMax":41,"availableSizes":[39,40,41],"wholesalePrice":55,"wholesaleCurrency":"USD","parseConfidence":"high","parseScore":92,"missingFields":[],"parseWarnings":[]}
+
+Mesaj: "Puma Suede Classic bej 37-42 tam seri 800 TL"
+{"productName":"Puma Suede Classic Bej","brand":"Puma","model":"Suede Classic","color":"bej","material":null,"category":"Spor","gender":"unisex","sizeMin":37,"sizeMax":42,"availableSizes":[37,38,39,40,41,42],"wholesalePrice":800,"wholesaleCurrency":"TRY","parseConfidence":"high","parseScore":92,"missingFields":[],"parseWarnings":[]}
+
+ŞİMDİ BU MESAJI İŞLE:
 """
 ${text.substring(0, 1500)}
 """
 
-Aşağıdaki JSON formatında ürün bilgilerini çıkar. Bilgi yoksa null bırak.
-Sadece mesajda gerçekten yazan bilgileri çıkar — tahmin etme.
-
+JSON çıktısı (sadece JSON, başka metin yok):
 {
   "productName": "<tam ürün adı veya null>",
   "brand": "<marka veya null>",
@@ -282,7 +355,7 @@ export async function parseProductOffer(
           contents: [{ parts: [{ text: prompt }] }],
           generationConfig: {
             temperature: 0.1,
-            maxOutputTokens: 1024,
+            maxOutputTokens: 2048,
             responseMimeType: 'application/json',
           },
         }),

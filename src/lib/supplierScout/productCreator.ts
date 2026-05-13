@@ -217,43 +217,55 @@ export async function autoCreateProduct(
     const productData: Record<string, unknown> = {
       title,
       price: websitePrice,
-      originalPrice: offer.wholesalePrice && offer.wholesaleCurrency === 'TRY'
-        ? undefined
-        : undefined, // don't set originalPrice for supplier products
       status: 'draft', // Always draft — operator must manually activate
       source: 'supplier_scout',
       category: offer.category ?? groupConfig?.defaultCategory ?? 'Günlük',
       brand: offer.brand,
-
-      // Stock
       stockQuantity: stockPerSize,
 
-      // Supplier meta (stored in supplierMeta group)
-      'supplierMeta.stockMode': 'supplier_virtual_stock',
-      'supplierMeta.exactStockKnown': false,
-      'supplierMeta.supplierAvailabilityBased': true,
-      'supplierMeta.wholesalePrice': offer.wholesalePrice,
-      'supplierMeta.wholesaleCurrency': offer.wholesaleCurrency ?? 'USD',
-      'supplierMeta.marginApplied': groupConfig?.marginUSD ?? 15,
-      'supplierMeta.supplierGroupId': String(groupConfig?.id ?? ''),
-      'supplierMeta.supplierGroupName': groupConfig?.groupName ?? '',
-      'supplierMeta.supplierSellerId': String(offer.sellerUserId ?? ''),
-      'supplierMeta.supplierSellerName': offer.sellerName ?? offer.sellerUsername ?? '',
-      'supplierMeta.wholesaleOpportunityId': String(opportunityId),
-      'supplierMeta.autoCreatedAt': new Date().toISOString(),
-      'supplierMeta.autoCreateConfidence': offer.parseScore,
+      // Supplier meta — nested group object (Payload v3 requires nested, not dot-notation)
+      supplierMeta: {
+        stockMode: 'supplier_virtual_stock',
+        exactStockKnown: false,
+        supplierAvailabilityBased: true,
+        wholesalePrice: offer.wholesalePrice,
+        wholesaleCurrency: offer.wholesaleCurrency ?? 'USD',
+        marginApplied: groupConfig?.marginUSD ?? 15,
+        supplierGroupId: String(groupConfig?.id ?? ''),
+        supplierGroupName: groupConfig?.groupName ?? '',
+        supplierSellerId: String(offer.sellerUserId ?? ''),
+        supplierSellerName: offer.sellerName ?? offer.sellerUsername ?? '',
+        wholesaleOpportunityId: String(opportunityId),
+        autoCreatedAt: new Date().toISOString(),
+        autoCreateConfidence: offer.parseScore,
+      },
 
-      // Automation meta
-      'automationMeta.telegramMessageId': String(offer.telegramMessageId ?? ''),
-      'automationMeta.telegramChatId': String(offer.supplierGroupTelegramId ?? ''),
+      // Automation meta — nested group object
+      automationMeta: {
+        telegramMessageId: String(offer.telegramMessageId ?? ''),
+        telegramChatId: String(offer.supplierGroupTelegramId ?? ''),
+      },
 
-      // Workflow defaults
-      'workflow.visualStatus': 'pending',
-      'workflow.confirmationStatus': 'pending',
-      'workflow.contentStatus': 'not_started',
-      'workflow.auditStatus': 'pending',
-      'workflow.workflowStatus': 'intake',
-      'workflow.stockState': 'in_stock',
+      // Workflow defaults — nested group object
+      workflow: {
+        workflowStatus: 'intake',
+        visualStatus: 'pending',
+        confirmationStatus: 'pending',
+        contentStatus: 'not_started',
+        auditStatus: 'pending',
+        stockState: 'in_stock',
+      },
+
+      // Channels — all false for supplier_scout drafts (publishWebsite defaults true, force off)
+      channels: {
+        publishWebsite: false,
+        publishInstagram: false,
+        publishShopier: false,
+        publishDolap: false,
+        publishX: false,
+        publishFacebook: false,
+        publishThreads: false,
+      },
     }
 
     const created = await payload.create({
@@ -272,8 +284,8 @@ export async function autoCreateProduct(
             data: {
               product: productId,
               size: String(size),
-              stockQuantity: stockPerSize,
-              sku: `SS-${title.substring(0, 6).toUpperCase().replace(/\s/g, '')}-${size}`,
+              stock: stockPerSize,
+              variantSku: `SS-${title.substring(0, 6).toUpperCase().replace(/\s/g, '')}-${size}`,
             } as any,
           })
         } catch (variantErr) {
@@ -418,8 +430,8 @@ export async function previewManualDraft(
   const minimalOffer = {
     productName: (wo.productName as string) ?? undefined,
     sellerUserId: wo.sellerTelegramId ? Number(wo.sellerTelegramId) : undefined,
-    telegramMessageId: (wo.telegramMessageId as string) ?? undefined,
-  } as ParsedProductOffer
+    telegramMessageId: wo.telegramMessageId ? Number(wo.telegramMessageId) : undefined,
+  } as unknown as ParsedProductOffer
   const dupResult = await checkDuplicate(minimalOffer, payload)
 
   return {
@@ -438,7 +450,7 @@ export async function previewManualDraft(
     missingFields,
     warnings,
     isDuplicate: dupResult.isDuplicate,
-    duplicateProductId: dupResult.existingProductId,
+    duplicateProductId: dupResult.existingId,
     canProceed: !dupResult.isDuplicate,
     requiresConfirm: currencyAmbiguous,
   }
@@ -528,9 +540,9 @@ export async function executeManualDraft(
     category: (wo.category as string) ?? undefined,
     sizeMin: wo.sizeMin != null ? Number(wo.sizeMin) : undefined,
     sizeMax: wo.sizeMax != null ? Number(wo.sizeMax) : undefined,
-    availableSizes,
+    availableSizes: availableSizes.map(Number),
     wholesalePrice: (wo.wholesalePrice as number) ?? undefined,
-    wholesaleCurrency,
+    wholesaleCurrency: wholesaleCurrency as 'USD' | 'TRY' | 'EUR' | undefined,
     computedWebsitePrice: computedWebsitePrice ?? undefined,
     hasPhoto: (wo.hasPhoto as boolean) ?? false,
     telegramFileIds,
@@ -540,7 +552,7 @@ export async function executeManualDraft(
     sellerUserId: wo.sellerTelegramId ? Number(wo.sellerTelegramId) : undefined,
     sellerUsername: (wo.sellerUsername as string) ?? undefined,
     sellerName: (wo.sellerDisplayName as string) ?? undefined,
-    telegramMessageId: (wo.telegramMessageId as string) ?? undefined,
+    telegramMessageId: wo.telegramMessageId ? Number(wo.telegramMessageId) : undefined,
     telegramMediaGroupId: (wo.telegramMediaGroupId as string) ?? undefined,
     supplierGroupTelegramId: groupConfig.telegramGroupId,
     rawText: (wo.rawText as string) ?? '',
@@ -552,7 +564,7 @@ export async function executeManualDraft(
   if (dupResult.isDuplicate) {
     return {
       success: false,
-      error: `Duplicate tespit edildi -- urun zaten mevcut (ID: ${dupResult.existingProductId ?? '?'}).`,
+      error: `Duplicate tespit edildi -- urun zaten mevcut (ID: ${dupResult.existingId ?? '?'}).`,
     }
   }
 

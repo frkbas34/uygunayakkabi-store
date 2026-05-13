@@ -33,6 +33,7 @@ export const SupplierActionsLog: CollectionConfig = {
         { label: '⏸️ Otomatik Durduruldu', value: 'auto_paused' },
         { label: '▶️ Otomatik Devam Edildi', value: 'auto_resumed' },
         { label: '📊 Rapor Gönderildi', value: 'report_sent' },
+        { label: '📤 Ops Grubuna İletildi', value: 'ops_forwarded' },
         { label: '❌ Hata', value: 'error' },
       ],
     },

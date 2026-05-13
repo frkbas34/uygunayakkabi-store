@@ -94,6 +94,132 @@ export async function scoutDownloadPhoto(fileId: string): Promise<ArrayBuffer | 
   }
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Ops Group Card (Phase 3B)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Build and send a WholesaleOpportunity product card to the main ops group.
+ *
+ * Safety rules enforced:
+ * - Never shows raw Telegram chat IDs or numeric user IDs
+ * - Only shows sellerUsername (@handle) or sellerDisplayName — never sellerTelegramId
+ * - Never shows group Telegram chat ID — only groupName label
+ * - Returns the Telegram message_id so caller can store it for future card edits
+ *
+ * Called by /forward_wo <WO_id> in commands.ts.
+ */
+export async function sendOpsCard(
+  wo: Record<string, unknown>,
+  opsGroupChatId: number,
+): Promise<{ messageId: number | null }> {
+  // ── Confidence badge ────────────────────────────────────────────────────
+  const score = (wo.confidenceScore as number | undefined) ?? 0
+  const badge = score >= 80 ? '🟢' : score >= 60 ? '🟡' : '🔴'
+
+  // ── Resolve supplier group name (may be populated relationship or raw text) ──
+  const groupName: string =
+    (wo.supplierGroup && typeof wo.supplierGroup === 'object'
+      ? (wo.supplierGroup as Record<string, unknown>).groupName
+      : wo.supplierGroupName) as string ?? '?'
+
+  // ── Sizes ───────────────────────────────────────────────────────────────
+  let sizesStr = '—'
+  const rawSizes = wo.availableSizes
+  if (Array.isArray(rawSizes) && rawSizes.length > 0) {
+    sizesStr = rawSizes.join(', ')
+  } else if (wo.sizeMin != null && wo.sizeMax != null) {
+    sizesStr = `${wo.sizeMin}–${wo.sizeMax}`
+  }
+
+  // ── Pricing ─────────────────────────────────────────────────────────────
+  const wholesalePrice = wo.wholesalePrice as number | undefined
+  const wholesaleCurrency = (wo.wholesaleCurrency as string | undefined) ?? 'USD'
+  const websitePrice = wo.websitePrice as number | undefined
+
+  const formatPrice = (n: number, currency: string): string => {
+    if (currency === 'TRY') return `${n.toLocaleString('tr-TR')} ₺`
+    if (currency === 'EUR') return `€${n}`
+    return `$${n}` // USD
+  }
+
+  const wholesaleStr = wholesalePrice != null
+    ? formatPrice(wholesalePrice, wholesaleCurrency)
+    : '—'
+  const websiteStr = websitePrice != null
+    ? `~${formatPrice(websitePrice, 'TRY')}`
+    : '—'
+
+  // ── Seller display (no numeric IDs) ─────────────────────────────────────
+  const sellerUsername = wo.sellerUsername as string | undefined
+  const sellerDisplayName = wo.sellerDisplayName as string | undefined
+  const sellerStr = sellerUsername
+    ? `@${sellerUsername}`
+    : sellerDisplayName
+      ? sellerDisplayName
+      : null
+
+  // ── Created product status ───────────────────────────────────────────────
+  const createdProduct = wo.createdProduct
+  const hasCreatedProduct = createdProduct != null && createdProduct !== ''
+  const createdProductId = hasCreatedProduct
+    ? (typeof createdProduct === 'object'
+        ? (createdProduct as Record<string, unknown>).id
+        : createdProduct)
+    : null
+
+  const statusLine = hasCreatedProduct
+    ? `✅ Taslak mevcut — Ürün #${createdProductId}`
+    : `👁 Gözlemlendi — henüz ürün oluşturulmadı`
+
+  // ── Warnings ────────────────────────────────────────────────────────────
+  const warnings: string[] = []
+  if (!wholesalePrice) warnings.push('⚠️ Fiyat eksik — manuel doğrula')
+  if (!wo.productName) warnings.push('⚠️ Ürün adı eksik — parser tahmini kullanıldı')
+  if (!wo.hasPhoto) warnings.push('⚠️ Fotoğraf yok')
+  if (score < 75) warnings.push(`⚠️ Güven düşük (${score}/100) — skoru kontrol et`)
+  if (wo.status === 'skipped_duplicate') warnings.push('⚠️ Olası duplicate — benzer kayıt var')
+
+  // ── Assemble card ────────────────────────────────────────────────────────
+  const woId = wo.id as number | string
+  const lines: string[] = [
+    `📦 <b>SupplierScout Fırsatı</b>`,
+    `WO #${woId}`,
+    ``,
+    `<b>Ürün:</b> ${(wo.productName as string | undefined) ?? '—'}`,
+  ]
+
+  if (wo.brand || wo.model) {
+    const bm = [wo.brand, wo.model].filter(Boolean).join(' / ')
+    lines.push(`<b>Marka / Model:</b> ${bm}`)
+  }
+  if (wo.color) lines.push(`<b>Renk:</b> ${wo.color}`)
+
+  lines.push(`<b>Bedenler:</b> ${sizesStr}`)
+  lines.push(`<b>Toptan:</b> ${wholesaleStr}`)
+  lines.push(`<b>Site fiyatı:</b> ${websiteStr}`)
+  lines.push(`<b>Güven:</b> ${score}/100 ${badge}`)
+  lines.push(`<b>Kaynak:</b> ${groupName}`)
+  if (sellerStr) lines.push(`<b>Satıcı:</b> ${sellerStr}`)
+
+  lines.push(``)
+  lines.push(`<b>Durum:</b> ${statusLine}`)
+
+  if (warnings.length > 0) {
+    lines.push(``)
+    lines.push(warnings.join('\n'))
+  }
+
+  if (!hasCreatedProduct) {
+    lines.push(``)
+    lines.push(`DM komutu: <code>/create_draft ${woId} confirm</code>`)
+  }
+
+  const text = lines.join('\n')
+  const messageId = await scoutSendMessage(opsGroupChatId, text)
+  return { messageId }
+}
+
 /** Register webhook for SupplierScout bot. */
 export async function registerScoutWebhook(webhookUrl: string): Promise<boolean> {
   const token = SCOUT_TOKEN()

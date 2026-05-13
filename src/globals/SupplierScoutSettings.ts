@@ -103,6 +103,26 @@ export const SupplierScoutSettings: GlobalConfig = {
       },
     },
 
+    // ── Ops Group Config (Phase 3B) ──────────────────────────────────────────
+    // Main Mentix/Uygunops operations group chat ID.
+    // Frank sets this once via admin panel after adding @SupplierScout_bot to the group.
+    // Used by /forward_wo command to send product cards to the ops group.
+    // Never shown in card text — only used as send target.
+    {
+      name: 'opsGroupChatId',
+      type: 'number',
+      label: 'Ops Grubu Chat ID',
+      admin: {
+        description: "Ana Mentix/Uygunops operasyon grubunun Telegram Chat ID'si. /forward_wo komutu bu gruba kart gönderir. @SupplierScout_bot gruba eklendikten sonra ayarla.",
+      },
+    },
+    {
+      name: 'opsGroupChatIdSetAt',
+      type: 'date',
+      label: 'Ops Grubu ID Ayar Zamanı',
+      admin: { readOnly: true },
+    },
+
     // ── Daily Report Schedule ────────────────────────────────────────────────
     {
       name: 'dailyReportHour',

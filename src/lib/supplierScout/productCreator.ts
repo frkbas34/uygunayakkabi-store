@@ -248,10 +248,10 @@ export async function autoCreateProduct(
 
       // Workflow defaults — nested group object
       workflow: {
-        workflowStatus: 'intake',
+        workflowStatus: 'draft',
         visualStatus: 'pending',
         confirmationStatus: 'pending',
-        contentStatus: 'not_started',
+        contentStatus: 'pending',
         auditStatus: 'pending',
         stockState: 'in_stock',
       },

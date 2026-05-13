@@ -103,7 +103,17 @@ export const SupplierScoutSettings: GlobalConfig = {
       },
     },
 
-    // ── Ops Group Config (Phase 3B) ──────────────────────────────────────────
+    {
+      name: 'autoForwardMinScore',
+      type: 'number',
+      label: 'Oto-İletme Minimum Skoru (0–100)',
+      defaultValue: 85,
+      admin: {
+        description: 'Bu skoru geçen yeni ürün fırsatları otomatik olarak ops grubuna iletilir (fotoğraf şartıyla). Manuel /forward_wo her zaman kullanılabilir.',
+      },
+    },
+
+    // ── Ops Group Config (Phase 3B) ──────────────────────────────────────────────
     // Main Mentix/Uygunops operations group chat ID.
     // Frank sets this once via admin panel after adding @SupplierScout_bot to the group.
     // Used by /forward_wo command to send product cards to the ops group.

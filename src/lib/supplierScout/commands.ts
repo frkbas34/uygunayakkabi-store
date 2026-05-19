@@ -107,14 +107,41 @@ export async function handleDMCommand(
 
 async function handleStart(ctx: CommandContext, payload: Payload): Promise<string> {
   try {
-    await payload.updateGlobal({
-      slug: 'supplier-scout-settings',
-      data: {
-        frankChatId: ctx.chatId,
-        frankChatIdRegisteredAt: new Date().toISOString(),
-      } as any,
-    })
-    return `✅ <b>SupplierScout aktif!</b>\n\nChat ID'n kaydedildi: <code>${ctx.chatId}</code>\n\nArtık günlük raporlar sana özel DM olarak gelecek (23:30 Istanbul).\n\nHızlı başlangıç:\n• /suppliers — izlenen grupları gör\n• /today — bugünün özetini gör\n• /teach RC = Rain Cloud for New Balance — terim öğret`
+    const settings = await payload.findGlobal({ slug: 'supplier-scout-settings' }) as any
+    const existingFrankId = settings?.frankChatId as number | undefined
+    const existingPartnerId = settings?.partnerChatId as number | undefined
+
+    const isFrank = existingFrankId && ctx.chatId === existingFrankId
+    const isPartner = existingPartnerId && ctx.chatId === existingPartnerId
+    const frankSlotEmpty = !existingFrankId
+    const partnerSlotEmpty = !existingPartnerId
+    const isUnknown = !isFrank && !isPartner && !frankSlotEmpty && !partnerSlotEmpty
+
+    if (isUnknown) {
+      return `⛔ Bu bot özel kullanım içindir. İki operatör slotu dolu.`
+    }
+
+    if (isFrank || frankSlotEmpty) {
+      // Re-register Frank or first registration ever
+      await payload.updateGlobal({
+        slug: 'supplier-scout-settings',
+        data: {
+          frankChatId: ctx.chatId,
+          frankChatIdRegisteredAt: new Date().toISOString(),
+        } as any,
+      })
+      return `✅ <b>SupplierScout aktif!</b>\n\nChat ID'n kaydedildi: <code>${ctx.chatId}</code>\n\nArtık günlük raporlar sana özel DM olarak gelecek (23:30 Istanbul).\n\nHızlı başlangıç:\n• /suppliers — izlenen grupları gör\n• /today — bugünün özetini gör\n• /teach RC = Rain Cloud for New Balance — terim öğret`
+    } else {
+      // Register as partner (second slot)
+      await payload.updateGlobal({
+        slug: 'supplier-scout-settings',
+        data: {
+          partnerChatId: ctx.chatId,
+          partnerChatIdRegisteredAt: new Date().toISOString(),
+        } as any,
+      })
+      return `✅ <b>SupplierScout — Ortak Operatör Aktif!</b>\n\nChat ID'n kaydedildi: <code>${ctx.chatId}</code>\n\nTüm komutlara erişimin var:\n• /suppliers — izlenen grupları gör\n• /today — bugünün özetini gör\n• /forward_wo <WO_id> — ops grubuna ilet\n• /create_draft <WO_id> — taslak oluştur`
+    }
   } catch (err) {
     return `❌ Kayıt hatası: ${(err as Error).message}`
   }

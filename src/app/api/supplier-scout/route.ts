@@ -186,11 +186,13 @@ async function handlePrivateMessage(msg: TgMessage, payload: any): Promise<void>
   const parts = text.split(/\s+/)
   const command = parts[0].toLowerCase().split('@')[0] // strip @botname suffix
 
-  // Check if Frank (any DM user can /start, but other commands are Frank-only)
+  // Check if authorized operator (Frank or partner — any DM user can /start)
   const settings = await payload.findGlobal({ slug: 'supplier-scout-settings' }) as any
-  const frankChatId = settings?.frankChatId
+  const frankChatId = settings?.frankChatId as number | undefined
+  const partnerChatId = settings?.partnerChatId as number | undefined
 
-  if (command !== '/start' && frankChatId && chatId !== frankChatId) {
+  const isAuthorized = chatId === frankChatId || chatId === partnerChatId
+  if (command !== '/start' && !isAuthorized) {
     await scoutSendMessage(chatId, '⛔ Bu bot özel kullanım içindir.')
     return
   }

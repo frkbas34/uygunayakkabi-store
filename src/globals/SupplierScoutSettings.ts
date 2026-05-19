@@ -113,6 +113,24 @@ export const SupplierScoutSettings: GlobalConfig = {
       },
     },
 
+    // ── Partner Operator (Phase 3C) ─────────────────────────────────────────────
+    // Second authorized operator — same full access as Frank.
+    // Registers automatically when the partner sends /start to @SupplierScout_bot.
+    {
+      name: 'partnerChatId',
+      type: 'number',
+      label: 'Ortak Operatör Telegram Chat ID',
+      admin: {
+        description: 'İkinci yetkili operatör. /start gönderince otomatik kaydedilir. Frank kaydedilmemişse ilk /start Frank\'ı kaydeder; Frank kayıtlıysa sonraki /start ortağı kaydeder.',
+      },
+    },
+    {
+      name: 'partnerChatIdRegisteredAt',
+      type: 'date',
+      label: 'Ortak Kayıt Zamanı',
+      admin: { readOnly: true },
+    },
+
     // ── Ops Group Config (Phase 3B) ──────────────────────────────────────────────
     // Main Mentix/Uygunops operations group chat ID.
     // Frank sets this once via admin panel after adding @SupplierScout_bot to the group.

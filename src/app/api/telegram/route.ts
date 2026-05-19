@@ -4986,10 +4986,21 @@ export async function POST(req: NextRequest) {
           return NextResponse.json({ ok: true })
         }
 
+        // sil / delete — hard delete the product
+        if (subAction === 'sil' || subAction === 'delete' || subAction === 'kaldir' || subAction === 'kaldır') {
+          const title = p.title || 'İsimsiz'
+          await payload.delete({ collection: 'products', id: pId })
+          await sendTelegramMessage(
+            chatId,
+            `🗑️ <b>${sn} silindi</b>\n\n<code>${title}</code> (ID: ${pId}) kalıcı olarak kaldırıldı.`,
+          )
+          return NextResponse.json({ ok: true })
+        }
+
         await sendTelegramMessage(
           chatId,
           `❌ Bilinmeyen işlem: <b>${subAction}</b>\n\n` +
-            `Kullanılabilir: tükendi, 1kaldı, 2kaldı, durdur, aç, stok &lt;N&gt;`,
+            `Kullanılabilir: tükendi, 1kaldı, 2kaldı, durdur, aç, stok &lt;N&gt;, sil`,
         )
         return NextResponse.json({ ok: true })
       } catch (err) {

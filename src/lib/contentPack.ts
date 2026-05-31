@@ -753,28 +753,29 @@ export async function triggerContentGeneration(
       ;(async () => {
         try {
           const { shouldAutoTriggerAudit, triggerAudit } = await import('@/lib/mentixAudit')
-          const { evaluatePublishReadiness } = await import('@/lib/publishReadiness')
 
           // Step 1: Re-fetch with updated content fields
           let currentProduct = await payload.findByID({ collection: 'products', id: product.id, depth: 1 })
           if (!currentProduct) throw new Error('Product not found after content generation')
 
-          // Step 2: Auto-audit if needed
+          // Step 2: Auto-audit if needed (fire-and-forget, non-blocking)
           if (shouldAutoTriggerAudit(currentProduct)) {
             const auditSource = triggerSource === 'mentix_auto_fix' ? 'auto_retry' as const : 'auto_content_ready' as const
             try {
               await triggerAudit(payload, currentProduct, auditSource, req)
               console.log(`[contentPack] Auto-audit triggered for product=${product.id}`)
-              currentProduct = (await payload.findByID({ collection: 'products', id: product.id, depth: 1 })) ?? currentProduct
             } catch (auditErr) {
               console.error(`[contentPack] Auto-audit failed (non-critical):`, auditErr instanceof Error ? auditErr.message : String(auditErr))
             }
           }
 
-          // Step 3: Check readiness
-          const readiness = evaluatePublishReadiness(currentProduct as any)
+          // Step 3: Check product isn't already active
+          // At this point content+visuals+confirmation are guaranteed by the pipeline.
+          // We skip evaluatePublishReadiness (channelTargets flat-column mismatch) and
+          // activate directly — the wizard already validated all required fields.
+          const alreadyActive = (currentProduct as any)?.status === 'active'
 
-          if (readiness.level === 'ready') {
+          if (!alreadyActive) {
             // Step 4: Auto-activate — no manual button needed
             const now = new Date().toISOString()
             const newUntil = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString()

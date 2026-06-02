@@ -749,8 +749,8 @@ export async function triggerContentGeneration(
         : ''
       const statusLabel = finalContentStatus === 'ready' ? 'İçerik hazır!' : 'İçerik hazır (blog beklemede)'
 
-      // Auto-publish pipeline: audit → readiness → activate (non-blocking overall)
-      ;(async () => {
+      // Auto-publish pipeline: audit → activate (awaited so Vercel doesn't kill it before completion)
+      await (async () => {
         try {
           const { shouldAutoTriggerAudit, triggerAudit } = await import('@/lib/mentixAudit')
 

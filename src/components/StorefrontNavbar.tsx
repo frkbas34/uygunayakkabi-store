@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react'
 import Link from 'next/link'
 
-const WA_NUMBER = '905331524843'
+const WA_NUMBER = process.env.NEXT_PUBLIC_WHATSAPP_NUMBER || '905331524843'
 
 export function StorefrontNavbar() {
   const [scrolled, setScrolled] = useState(false)

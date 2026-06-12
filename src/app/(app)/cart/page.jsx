@@ -188,7 +188,7 @@ export default function CartPage() {
   const handleWhatsApp = () => {
     const msg = buildWAMessage();
     window.open(
-      `https://wa.me/905551234567?text=${encodeURIComponent(msg)}`,
+      `https://wa.me/905331524843?text=${encodeURIComponent(msg)}`,
       "_blank",
       "noreferrer"
     );

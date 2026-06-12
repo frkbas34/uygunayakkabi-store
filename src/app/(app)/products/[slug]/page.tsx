@@ -710,7 +710,7 @@ export default async function ProductPage({ params }: Props) {
 
                   {/* WhatsApp */}
                   <a
-                    href={`https://wa.me/${waNumber}?text=Merhaba!%20${encodeURIComponent(product.title)}%20hakkında%20beden%20ve%20stok%20bilgisi%20almak%20istiyorum.`}
+                    href={`https://wa.me/${waNumber}?text=${encodeURIComponent(`Merhaba! "${product.title}" ürünüyle ilgileniyorum. Uygun beden ve stok durumunu, ödeme ve teslimat detaylarını birlikte netleştirebilir miyiz?`)}`}
                     target="_blank"
                     rel="noopener noreferrer"
                     style={{
@@ -935,7 +935,7 @@ export default async function ProductPage({ params }: Props) {
           }}
         >
           <a
-            href={`https://wa.me/${waNumber}?text=Merhaba!%20${encodeURIComponent(product.title)}%20hakkında%20beden%20ve%20stok%20bilgisi%20almak%20istiyorum.`}
+            href={`https://wa.me/${waNumber}?text=${encodeURIComponent(`Merhaba! "${product.title}" ürünüyle ilgileniyorum. Uygun beden ve stok durumunu, ödeme ve teslimat detaylarını birlikte netleştirebilir miyiz?`)}`}
             target="_blank"
             rel="noopener noreferrer"
             style={{

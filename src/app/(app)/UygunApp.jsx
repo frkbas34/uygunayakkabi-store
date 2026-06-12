@@ -361,7 +361,7 @@ function Card({ p, onView }) {
       {/* Info */}
       <div style={{ padding: "18px 20px 22px" }}>
         <p style={{ fontFamily: T.sans, fontSize: 9, fontWeight: 600, color: T.textLighter, textTransform: "uppercase", letterSpacing: "0.14em", marginBottom: 7 }}>{p.category}</p>
-        <h3 style={{ fontFamily: T.sans, fontSize: 14, fontWeight: 600, color: T.text, marginBottom: 12, lineHeight: 1.35 }}>{p.name || p.title}</h3>
+        <h3 style={{ fontFamily: T.sans, fontSize: 14, fontWeight: 600, color: T.text, marginBottom: 12, lineHeight: 1.35, display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden", minHeight: "38px" }}>{p.name || p.title}</h3>
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
           <span style={{ fontFamily: T.sans, fontSize: 18, fontWeight: 800, color: T.text }}>₺{(p.price || 0).toLocaleString("tr-TR")}</span>
           {p.originalPrice && <span style={{ fontFamily: T.sans, fontSize: 13, color: "rgba(28,26,22,0.4)", textDecoration: "line-through" }}>₺{p.originalPrice.toLocaleString("tr-TR")}</span>}

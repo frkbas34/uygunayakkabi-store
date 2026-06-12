@@ -181,7 +181,7 @@ export default function CartPage() {
       "",
       `GENEL TOPLAM: ₺${totalPrice.toLocaleString("tr-TR")}`,
       "",
-      "Ödeme ve kargo detayları için beni bilgilendirin.",
+      "Lütfen beden ve stok uygunluğunu teyit edip ödeme ve teslimat detaylarını benimle paylaşır mısınız?",
     ].join("\n");
   };
 
@@ -271,7 +271,7 @@ export default function CartPage() {
               )}
 
               <p className="font-sans text-[10px] text-gray-400 text-center mt-3 leading-relaxed">
-                Tüm sipariş detayları WhatsApp üzerinden iletilecektir.
+                Bu sayfada online ödeme alınmaz — WhatsApp sohbetine yönlendirilirsiniz. Beden, stok, ödeme ve teslimat detaylarını ekibimiz sizinle birlikte netleştirir.
               </p>
 
               {/* Trust badges */}

@@ -268,6 +268,8 @@ function Card({ p, onView }) {
   const aiImgs = Array.isArray(p.aiImages) && p.aiImages.length > 0 ? p.aiImages : null;
   const images = aiImgs || [imgSrc];
   const displayImg = images[slideIdx];
+  // D-299: clearer sold-out signal on cards (catalog + homepage share this Card)
+  const soldOut = p.status === "soldout" || p.badge === "Tükendi";
 
   // D-257: Card is a real <a> link — enables right-click, mobile long-press, semantics
   const cardHref = `/products/${p.slug || p.id}`;
@@ -290,6 +292,7 @@ function Card({ p, onView }) {
         <img src={displayImg} alt={p.name} loading="lazy" style={{
           position: "absolute", top: 0, left: 0, width: "100%", height: "100%",
           objectFit: "cover", transition: "all 0.4s cubic-bezier(.22,1,.36,1)",
+          opacity: soldOut ? 0.5 : 1,
         }} />
         {/* Badge */}
         {p.badge && (

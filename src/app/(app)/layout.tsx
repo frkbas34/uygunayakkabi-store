@@ -3,6 +3,8 @@ import "../globals.css";
 import { Providers } from "./providers";
 
 export const metadata: Metadata = {
+  // D-294: base for resolving relative canonical/OG URLs across all (app) routes.
+  metadataBase: new URL("https://uygunayakkabi.com"),
   title: "UygunAyakkabı — Kaliteli Ayakkabılar, Uygun Fiyatlar",
   description:
     "Popüler markaların öne çıkan modelleri, uygun fiyatlarla. Şık, modern ve günlük kullanıma uygun ayakkabı seçenekleri.",

@@ -18,7 +18,7 @@ export const metadata: Metadata = {
   title: "UygunAyakkabı — Kaliteli Ayakkabılar, Uygun Fiyatlarla",
   description:
     "Spor, günlük, klasik ve bot modelleri uygun fiyatlarla UygunAyakkabı'da. Beğendiğiniz modeli seçin; adınızı ve telefonunuzu bırakın ya da WhatsApp'tan yazın, ekibimiz sizi arasın.",
-  alternates: { canonical: SITE_URL },
+  alternates: { canonical: "/" },
   openGraph: {
     title: "UygunAyakkabı — Kaliteli Ayakkabılar, Uygun Fiyatlarla",
     description:

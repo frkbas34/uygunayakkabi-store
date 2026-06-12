@@ -5,6 +5,7 @@ import type { Metadata } from 'next'
 export const dynamic = 'force-dynamic'
 
 export const metadata: Metadata = {
+  alternates: { canonical: '/blog' },
   title: 'Blog — UygunAyakkabı',
   description:
     'Ayakkabı trendleri, stil rehberleri ve ürün incelemeleri. UygunAyakkabı blog sayfası.',

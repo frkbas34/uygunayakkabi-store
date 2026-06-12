@@ -602,6 +602,20 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
   }
 
   if (action === 'daily_report') {
+    // D-287: the daily-report cron must fail closed. Require CRON_SECRET to be
+    // configured AND an exactly-matching Bearer token. If the secret is unset we
+    // refuse rather than fall open, so a misconfigured deploy can never expose
+    // the report. (The shared admin-secret / ?secret= fallback above stays for
+    // the documented manual register_webhook flow ÔÇö cron itself is Bearer-only.)
+    if (!cronSecret) {
+      return NextResponse.json(
+        { ok: false, error: 'Misconfigured: CRON_SECRET not set' },
+        { status: 500 },
+      )
+    }
+    if (authHeader !== `Bearer ${cronSecret}`) {
+      return NextResponse.json({ ok: false, error: 'Unauthorized' }, { status: 401 })
+    }
     return handleDailyReportCron()
   }
 

@@ -76,3 +76,9 @@ vercel-deploy.log
 /cd
 /npx
 /11.14.0
+
+# credentials / secret documents (never commit)
+UygunAyakkabi-API-Credentials.docx
+*credential*.docx
+*credentials*.docx
+*-secrets.*

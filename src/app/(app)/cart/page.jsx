@@ -171,17 +171,17 @@ export default function CartPage() {
   const buildWAMessage = () => {
     const lines = items.map(
       (item, i) =>
-        `${i + 1}. ${item.product.name}\n   Beden: ${item.size} | Adet: ${item.qty} | ₺${(item.product.price * item.qty).toLocaleString("tr-TR")}`
+        `${i + 1}. ${item.product.name}\n   Beden: ${item.size} · Adet: ${item.qty} · Birim: ₺${item.product.price.toLocaleString("tr-TR")} · Ara toplam: ₺${(item.product.price * item.qty).toLocaleString("tr-TR")}`
     );
     return [
       "Merhaba! UygunAyakkabı'dan sipariş vermek istiyorum.",
       "",
-      "Sipariş Listesi:",
+      `Sipariş Listesi (${totalItems} ürün):`,
       ...lines,
       "",
       `GENEL TOPLAM: ₺${totalPrice.toLocaleString("tr-TR")}`,
       "",
-      "Lütfen beden ve stok uygunluğunu teyit edip ödeme ve teslimat detaylarını benimle paylaşır mısınız?",
+      "Bu sayfada online ödeme yapmadım. Lütfen beden ve stok uygunluğunu teyit edip ödeme ve teslimat detaylarını benimle paylaşır mısınız?",
     ].join("\n");
   };
 

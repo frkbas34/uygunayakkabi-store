@@ -249,7 +249,7 @@ function Navbar({ onNav, pg, settings, cartCount, onCartToggle }) {
             color: "#fff", background: T.green, padding: "14px 24px",
             borderRadius: T.r.full, textDecoration: "none",
           }}>
-            {I.wa} WhatsApp ile İletişim Kur
+            {I.wa} WhatsApp&apos;tan Bilgi Al
           </a>
         </div>
       )}
@@ -1781,7 +1781,7 @@ function HelpContactPage({ onNav, settings }) {
               color: "#fff", background: T.green, padding: "15px 28px",
               borderRadius: T.r.full, textDecoration: "none",
             }}>
-              {I.wa} WhatsApp
+              {I.wa} WhatsApp&apos;tan Bilgi Al
             </a>
           </div>
         </div>

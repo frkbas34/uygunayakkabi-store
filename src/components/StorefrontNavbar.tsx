@@ -179,7 +179,7 @@ export function StorefrontNavbar() {
               textDecoration: 'none',
             }}
           >
-            WhatsApp ile Yaz
+            WhatsApp&apos;tan Bilgi Al
           </a>
         </div>
       )}

@@ -57,3 +57,22 @@ payload.db
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# editor / notes vaults (Obsidian)
+.obsidian/
+Uygunayakkabi/
+
+# local backups, temp & session/build artifacts
+backups/
+tmp/
+sessions/
+.next-push/
+
+# logs
+*.log
+vercel-deploy.log
+
+# accidental shell-output files committed at repo root
+/cd
+/npx
+/11.14.0

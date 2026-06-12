@@ -905,6 +905,18 @@ export default async function ProductPage({ params }: Props) {
         }
       `}</style>
 
+      {/* D-288: in-flow spacer so the fixed mobile CTA never overlaps the
+          inquiry form, size rows, or footer on small screens (≈360–430px).
+          Gated on the same !isSoldOut condition as the bar, and sized to the
+          bar height plus the iOS home-indicator safe area. */}
+      {!isSoldOut && (
+        <div
+          className="lg:hidden"
+          aria-hidden="true"
+          style={{ height: 'calc(60px + env(safe-area-inset-bottom))' }}
+        />
+      )}
+
       {/* D-262: Sticky mobile CTA — split WA (secondary) + inquiry form (primary) */}
       {!isSoldOut && (
         <div
@@ -917,6 +929,8 @@ export default async function ProductPage({ params }: Props) {
             zIndex: 50,
             display: 'flex',
             gap: 0,
+            background: '#1c1a16',
+            paddingBottom: 'env(safe-area-inset-bottom)',
           }}
         >
           <a

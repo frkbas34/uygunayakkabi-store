@@ -1,4 +1,5 @@
 import App from "./UygunApp";
+import type { Metadata } from "next";
 import type { DbProduct, DbBanner, SiteSettings } from "./UygunApp";
 import { getPayload } from "@/lib/payload";
 import { resolveHomepageSections, isHomepageEligible } from "@/lib/merchandising";
@@ -7,6 +8,27 @@ import type { MerchandisableProduct, MerchandisingSettings } from "@/lib/merchan
 // Force server-side rendering on every request so admin changes reflect immediately.
 // Without this, Next.js statically caches the page at build time and DB products never update.
 export const dynamic = 'force-dynamic';
+
+// D-291: homepage-specific SEO/OG metadata. The layout provides only generic
+// site-wide defaults; this gives the top entry page its own canonical + Open
+// Graph so search/social previews are accurate. Static (no data fetch).
+const SITE_URL = "https://uygunayakkabi.com";
+
+export const metadata: Metadata = {
+  title: "UygunAyakkabı — Kaliteli Ayakkabılar, Uygun Fiyatlarla",
+  description:
+    "Spor, günlük, klasik ve bot modelleri uygun fiyatlarla UygunAyakkabı'da. Beğendiğiniz modeli seçin; adınızı ve telefonunuzu bırakın ya da WhatsApp'tan yazın, ekibimiz sizi arasın.",
+  alternates: { canonical: SITE_URL },
+  openGraph: {
+    title: "UygunAyakkabı — Kaliteli Ayakkabılar, Uygun Fiyatlarla",
+    description:
+      "Spor, günlük, klasik ve bot modelleri uygun fiyatlarla. Talebinizi bırakın, ekibimiz sizi arasın.",
+    type: "website",
+    url: SITE_URL,
+    siteName: "UygunAyakkabı",
+    locale: "tr_TR",
+  },
+};
 
 // SVG ayakkabı renkleri — kategoriye göre
 const CATEGORY_COLORS: Record<string, [string, string, string, string, string]> = {

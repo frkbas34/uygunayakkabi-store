@@ -121,6 +121,9 @@ function GlobalStyles() {
         .footer-grid { grid-template-columns: 1fr !important; }
         .why-us-grid { grid-template-columns: 1fr !important; }
       }
+      /* D-306: mobile sticky WhatsApp CTA — visible only on small screens */
+      .uy-sticky-wa { display: none; }
+      @media(max-width:768px) { .uy-sticky-wa { display: flex !important; } }
     `}</style>
   );
 }
@@ -291,7 +294,8 @@ function Card({ p, onView }) {
       <div style={{ position: "relative", paddingTop: "115%", overflow: "hidden", background: "var(--product-image-bg, #f4efe6)" }}>
         <img src={displayImg} alt={p.name} loading="lazy" style={{
           position: "absolute", top: 0, left: 0, width: "100%", height: "100%",
-          objectFit: "contain", transition: "all 0.4s cubic-bezier(.22,1,.36,1)",
+          objectFit: "contain", transition: "transform 0.5s cubic-bezier(.22,1,.36,1), opacity 0.4s",
+          transform: h ? "scale(1.06)" : "scale(1)",
           opacity: soldOut ? 0.5 : 1,
         }} />
         {/* Badge */}
@@ -304,6 +308,18 @@ function Card({ p, onView }) {
             color: "#fff", background: p.badge === "İndirim" ? T.red : "#1c1a16",
           }}>
             {p.badge}
+          </span>
+        )}
+        {/* D-304: "Yeni" badge — only when in new-arrivals set and not already badged */}
+        {p.isNew && !soldOut && !p.badge && (
+          <span style={{
+            position: "absolute", top: 14, left: 14, zIndex: 2,
+            fontFamily: T.sans, fontSize: 9, fontWeight: 700,
+            letterSpacing: "0.12em", textTransform: "uppercase",
+            padding: "5px 14px", borderRadius: T.r.full,
+            color: "#fff", background: T.green,
+          }}>
+            Yeni
           </span>
         )}
         {/* D-192: Low stock banner — "Son X Adet!" when 1-3 items left */}
@@ -360,6 +376,25 @@ function Card({ p, onView }) {
             İNCELE
           </span>
         </div>
+        {/* D-304: WhatsApp quick-ask — direct contact without leaving the card */}
+        {!soldOut && (
+          <span role="button" aria-label="WhatsApp'tan sor"
+            onClick={(e) => {
+              e.preventDefault(); e.stopPropagation();
+              const msg = `Merhaba! "${p.name || p.title || 'ürün'}" hakkında bilgi almak istiyorum.`;
+              window.open(`https://wa.me/905331524843?text=${encodeURIComponent(msg)}`, "_blank", "noopener");
+            }}
+            style={{
+              position: "absolute", bottom: 12, right: 12, zIndex: 4,
+              width: 40, height: 40, borderRadius: "50%", background: T.green,
+              display: "flex", alignItems: "center", justifyContent: "center",
+              boxShadow: "0 4px 14px rgba(37,211,102,0.4)", cursor: "pointer",
+              color: "#fff", transition: "transform 0.2s",
+              transform: h ? "scale(1.08)" : "scale(1)",
+            }}>
+            {I.wa}
+          </span>
+        )}
       </div>
       {/* Info */}
       <div style={{ padding: "18px 20px 22px" }}>
@@ -412,26 +447,26 @@ function Hero({ onNav, settings, allProducts }) {
         {/* Title */}
         <h1 style={{ fontFamily: T.serif, fontSize: "clamp(40px, 5.5vw, 72px)", fontWeight: 800, color: T.text,
           lineHeight: 1.1, letterSpacing: "-0.02em", marginBottom: 28 }}>
-          Kaliteli ayakkabıya<br />merkezinden, daha akıllı erişim
+          Kaliteli ayakkabı,<br />merkezinden uygun fiyata.
         </h1>
 
         {/* Description */}
         <p style={{ fontFamily: T.sans, fontSize: 16, color: T.textLight, lineHeight: 1.9,
           margin: "0 auto 16px", maxWidth: 600 }}>
-          Aymakoop merkezinden seçilmiş kaliteli ayakkabıları uygun fiyatlarla sunuyoruz.
-          Beğendiğiniz ürünü inceleyin, talep bırakın — ekibimiz kısa sürede sizi arıyor.
+          Aymakoop merkezinden seçilmiş kaliteli modeller, uygun fiyatlarla.
+          Beğen, WhatsApp&apos;tan yaz — ekibimiz kısa sürede dönüş yapsın.
         </p>
 
         {/* D-258: Compact inquiry flow hint — replaces internal jargon line */}
         <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
           margin: "0 auto 48px", flexWrap: "wrap" }}>
-          {[["👟", "Ürünü İncele"], ["📋", "Talep Bırak"], ["📞", "Biz Seni Arayalım"]].map(([ic, label], i, arr) => (
+          {[["⚡", "Hızlı dönüş"], ["🔄", "Güncel stok"], ["💎", "Sınırlı & özel ürünler"]].map(([ic, label], i, arr) => (
             <span key={i} style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
               <span style={{ display: "flex", alignItems: "center", gap: 6, fontFamily: T.sans,
                 fontSize: 12, fontWeight: 600, color: T.textLight }}>
                 <span style={{ fontSize: 14 }}>{ic}</span> {label}
               </span>
-              {i < arr.length - 1 && <span style={{ color: "rgba(28,26,22,0.18)", fontSize: 16, fontWeight: 300, marginLeft: 8 }}>→</span>}
+              {i < arr.length - 1 && <span style={{ color: "rgba(28,26,22,0.18)", fontSize: 10, marginLeft: 8 }}>●</span>}
             </span>
           ))}
         </div>
@@ -445,21 +480,18 @@ function Hero({ onNav, settings, allProducts }) {
             display: "inline-flex", alignItems: "center", gap: 10,
             transition: "all 0.3s",
           }}>
-            ÜRÜNLERİ KEŞFET {I.arrow}
+            YENİ GELENLERİ GÖR {I.arrow}
           </button>
-          {/* D-258: Scroll to StepsSection (inquiry flow) — more actionable than "NEDEN BİZ?" */}
-          <button onClick={() => {
-            const el = document.getElementById("nasil-calisir");
-            if (el) el.scrollIntoView({ behavior: "smooth" });
-          }} style={{
-            fontFamily: T.sans, fontSize: 12, fontWeight: 600, letterSpacing: "0.12em",
-            textTransform: "uppercase", color: T.text, background: "transparent",
-            border: "1px solid rgba(28,26,22,0.15)", padding: "17px 40px", borderRadius: T.r.full,
+          {/* D-305: Direct WhatsApp contact CTA */}
+          <a href={waLink(contact?.whatsappFull)} target="_blank" rel="noreferrer" style={{
+            fontFamily: T.sans, fontSize: 12, fontWeight: 700, letterSpacing: "0.12em",
+            textTransform: "uppercase", color: "#fff", background: T.green,
+            border: "none", padding: "17px 40px", borderRadius: T.r.full,
             cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 10,
-            transition: "all 0.3s",
+            textDecoration: "none", transition: "all 0.3s",
           }}>
-            NASIL ÇALIŞIR?
-          </button>
+            {I.wa} WHATSAPP&apos;TAN YAZ
+          </a>
         </div>
 
         {/* Scroll CTA */}
@@ -529,10 +561,10 @@ function WhyUsSection({ onNav }) {
 // ============================================
 // D-258: Steps reflect actual inquiry flow — browse → request → callback → delivery
 const STEPS_DATA = [
-  { icon: "👟", num: "ADIM 01", title: "Ürünü İncele", desc: "Beğendiğin ürünü bul, beden bilgilerini gör, ürün sayfasına git", method: "Ücretsiz Göz At", mColor: T.red, mBg: T.redSoft, barColor: T.red },
-  { icon: "📋", num: "ADIM 02", title: "Talep Bırak", desc: "Adını ve telefon numaranı bırak — ürün sayfasındaki kısa formla 1 dakikada tamamlanır", method: "Hızlı Form", mColor: "#3b82f6", mBg: "rgba(59,130,246,0.08)", barColor: "#3b82f6" },
-  { icon: "📞", num: "ADIM 03", title: "Biz Seni Arayalım", desc: "Ekibimiz seni arar, beden ve sipariş detaylarını birlikte tamamlarız", method: "Kısa Sürede Dönüş", mColor: "#25D366", mBg: "rgba(37,211,102,0.08)", barColor: "#25D366" },
-  { icon: "📦", num: "ADIM 04", title: "Teslimat", desc: "Siparişin onaylanır, kargoya verilir — kapıda ödeme seçeneği mevcuttur", method: "Kargo ile Teslimat", mColor: "#f59e0b", mBg: "rgba(245,158,11,0.08)", barColor: "#f59e0b" },
+  { icon: "👟", num: "ADIM 01", title: "Ürünü Seç", desc: "Beğendiğin modeli bul, beden ve stok bilgisini ürün sayfasında gör", method: "Ücretsiz Göz At", mColor: T.red, mBg: T.redSoft, barColor: T.red },
+  { icon: "📱", num: "ADIM 02", title: "Numaranı Kontrol Et", desc: "Sana kolayca dönebilmemiz için WhatsApp numaranın açık olduğundan emin ol", method: "30 Saniye", mColor: "#3b82f6", mBg: "rgba(59,130,246,0.08)", barColor: "#3b82f6" },
+  { icon: "💬", num: "ADIM 03", title: "WhatsApp'tan Yaz", desc: "Ürün sayfasındaki WhatsApp butonuna bas — beden ve detayları bize ilet", method: "Tek Tıkla", mColor: "#25D366", mBg: "rgba(37,211,102,0.08)", barColor: "#25D366" },
+  { icon: "📦", num: "ADIM 04", title: "Siparişini Tamamla", desc: "Ekibimiz seninle siparişi netleştirir, kargoya verilir — kapıda ödeme seçeneği mevcuttur", method: "Kargo ile Teslimat", mColor: "#f59e0b", mBg: "rgba(245,158,11,0.08)", barColor: "#f59e0b" },
 ];
 
 function StepsSection({ onNav }) {
@@ -540,7 +572,7 @@ function StepsSection({ onNav }) {
     <section id="nasil-calisir" style={{ padding: "100px 40px", maxWidth: 1440, margin: "0 auto", borderTop: "1px solid rgba(28,26,22,0.06)", position: "relative", zIndex: 1 }}>
       <div style={{ textAlign: "center", marginBottom: 64 }}>
         <p style={{ fontFamily: T.sans, fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.18em", color: T.red, marginBottom: 10 }}>NASIL ÇALIŞIR?</p>
-        <h2 style={{ fontFamily: T.serif, fontSize: "clamp(30px, 3.5vw, 48px)", fontWeight: 700, color: T.text, letterSpacing: "-0.02em" }}>4 Adımda Sipariş</h2>
+        <h2 style={{ fontFamily: T.serif, fontSize: "clamp(30px, 3.5vw, 48px)", fontWeight: 700, color: T.text, letterSpacing: "-0.02em" }}>Nasıl Sipariş Verilir?</h2>
         <p style={{ fontFamily: T.sans, fontSize: 14, color: T.textLighter, marginTop: 14, maxWidth: 520, marginLeft: "auto", marginRight: "auto", lineHeight: 1.7 }}>Talep bırakın, biz sizi arayalım — sipariş sürecinde her adımda yanınızdayız.</p>
       </div>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 16 }}>
@@ -884,6 +916,32 @@ function PreFooterCTA({ onNav, settings }) {
 // ============================================
 // TOP-LEVEL APP COMPONENT
 // ============================================
+// ============================================
+// D-307: Generic product rail (horizontal scroll) for liveliness sections
+// Zero-state safe: renders nothing when fewer than 2 products.
+// ============================================
+function ProductRail({ tag, title, products, onView, onNav, accent }) {
+  if (!products || products.length < 2) return null;
+  return (
+    <section style={{ padding: "70px 40px", maxWidth: 1440, margin: "0 auto", borderTop: "1px solid rgba(28,26,22,0.06)", position: "relative", zIndex: 1 }}>
+      <div style={{ marginBottom: 32, display: "flex", justifyContent: "space-between", alignItems: "flex-end", flexWrap: "wrap", gap: 16 }}>
+        <div>
+          <p style={{ fontFamily: T.sans, fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.18em", color: accent || T.red, marginBottom: 10 }}>{tag}</p>
+          <h2 style={{ fontFamily: T.serif, fontSize: "clamp(26px, 3vw, 40px)", fontWeight: 700, color: T.text, letterSpacing: "-0.02em" }}>{title}</h2>
+        </div>
+        <button onClick={() => onNav && onNav("catalog")} style={{ fontFamily: T.sans, fontSize: 12, fontWeight: 600, letterSpacing: "0.06em", color: T.text, background: "none", border: "1px solid rgba(28,26,22,0.15)", padding: "8px 20px", borderRadius: T.r.full, cursor: "pointer", whiteSpace: "nowrap" }}>Tümünü Gör →</button>
+      </div>
+      <div className="no-scrollbar" style={{ display: "flex", gap: 16, overflowX: "auto", scrollSnapType: "x mandatory", paddingBottom: 8 }}>
+        {products.map(p => (
+          <div key={p.id || p.slug} style={{ flex: "0 0 auto", width: 230, scrollSnapAlign: "start" }}>
+            <Card p={p} onView={onView} />
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
 export default function App({ dbProducts = [], siteSettings = null, banners = [], sections = null }) {
   const S = siteSettings || DEFAULT_SETTINGS;
   const [pg, sPg] = useState("home");
@@ -908,6 +966,25 @@ export default function App({ dbProducts = [], siteSettings = null, banners = []
     });
     return dbMapped;
   })();
+
+  // D-307: Homepage liveliness sections — prefer merchandising IDs (sections prop),
+  // fall back to safe signals derivable from existing data (no DB schema change).
+  const byId = new Map(allProducts.map(p => [String(p.id), p]));
+  const pickIds = (ids) => (ids || []).map(id => byId.get(String(id))).filter(Boolean);
+  const yeniList = (() => {
+    const s = pickIds(sections?.yeni);
+    if (s.length >= 2) return s;
+    return [...allProducts].sort((a, b) => (Number(b.id) || 0) - (Number(a.id) || 0)).slice(0, 8);
+  })();
+  const yeniIds = new Set(yeniList.map(p => String(p.id)));
+  allProducts.forEach(p => { p.isNew = yeniIds.has(String(p.id)); });
+  const cokSorulanList = (() => {
+    const merged = [...pickIds(sections?.popular), ...pickIds(sections?.bestSellers)];
+    const uniq = [...new Map(merged.map(p => [String(p.id), p])).values()];
+    if (uniq.length >= 2) return uniq.slice(0, 12);
+    return allProducts.slice(6, 18);
+  })();
+  const tukenmedenList = allProducts.filter(p => p.status !== "soldout" && p.stock > 0 && p.stock <= 3).slice(0, 12);
 
   // D-194: URL sync — pushState so browser URL reflects current page
   const nav = (p, cat, q) => {
@@ -1062,11 +1139,17 @@ export default function App({ dbProducts = [], siteSettings = null, banners = []
             </div>
           </section>
 
+          {/* D-307: Bugün Yeni Gelenler */}
+          <ProductRail tag="BUGÜN YENİ" title="Bugün Yeni Gelenler" products={yeniList} onView={view} onNav={nav} accent={T.green} />
+
           {/* Neden Uygun Ayakkabı — credibility after visitor has seen real products */}
           <WhyUsSection onNav={nav} />
 
           {/* Sipariş Adımları */}
           <StepsSection onNav={nav} />
+
+          {/* D-307: Çok Sorulan Modeller */}
+          <ProductRail tag="POPÜLER TALEP" title="Çok Sorulan Modeller" products={cokSorulanList} onView={view} onNav={nav} accent={T.red} />
 
           {/* D-282: Daha Fazlasını Keşfet — horizontal scroll, products 7-18 */}
           <BestSellersScroll allProducts={allProducts} onView={view} onNav={nav} />
@@ -1076,6 +1159,9 @@ export default function App({ dbProducts = [], siteSettings = null, banners = []
 
           {/* Neden Bizden Almalısınız — Trust/Value */}
           <TrustValueSection onNav={nav} settings={S} />
+
+          {/* D-307: Tükenmeden Yakala — low-stock urgency */}
+          <ProductRail tag="SON FIRSAT" title="Tükenmeden Yakala" products={tukenmedenList} onView={view} onNav={nav} accent="#d97706" />
 
           {/* İndirimli Ürünler */}
           <DiscountedSection allProducts={allProducts} onView={view} onNav={nav} />
@@ -1097,6 +1183,20 @@ export default function App({ dbProducts = [], siteSettings = null, banners = []
 
       {pg === "contact" && (
         <HelpContactPage onNav={nav} settings={S} />
+      )}
+
+      {/* D-306: mobile sticky WhatsApp CTA — homepage/catalog only (SSR PDP has its own) */}
+      {pg !== "detail" && (
+        <a className="uy-sticky-wa" href={waLink(S.contact?.whatsappFull)} target="_blank" rel="noreferrer"
+          style={{
+            position: "fixed", left: 16, right: 16, bottom: 16, zIndex: 350,
+            alignItems: "center", justifyContent: "center", gap: 10,
+            background: T.green, color: "#fff", textDecoration: "none",
+            padding: "15px 20px", borderRadius: T.r.full, fontFamily: T.sans,
+            fontSize: 14, fontWeight: 700, boxShadow: "0 8px 28px rgba(37,211,102,0.45)",
+          }}>
+          {I.wa} WhatsApp&apos;tan Yaz
+        </a>
       )}
 
       {toastMsg && (

@@ -376,25 +376,6 @@ function Card({ p, onView }) {
             İNCELE
           </span>
         </div>
-        {/* D-304: WhatsApp quick-ask — direct contact without leaving the card */}
-        {!soldOut && (
-          <span role="button" aria-label="WhatsApp'tan sor"
-            onClick={(e) => {
-              e.preventDefault(); e.stopPropagation();
-              const msg = `Merhaba! "${p.name || p.title || 'ürün'}" hakkında bilgi almak istiyorum.`;
-              window.open(`https://wa.me/905331524843?text=${encodeURIComponent(msg)}`, "_blank", "noopener");
-            }}
-            style={{
-              position: "absolute", bottom: 12, right: 12, zIndex: 4,
-              width: 40, height: 40, borderRadius: "50%", background: T.green,
-              display: "flex", alignItems: "center", justifyContent: "center",
-              boxShadow: "0 4px 14px rgba(37,211,102,0.4)", cursor: "pointer",
-              color: "#fff", transition: "transform 0.2s",
-              transform: h ? "scale(1.08)" : "scale(1)",
-            }}>
-            {I.wa}
-          </span>
-        )}
       </div>
       {/* Info */}
       <div style={{ padding: "18px 20px 22px" }}>

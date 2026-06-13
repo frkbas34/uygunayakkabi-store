@@ -495,56 +495,9 @@ function Hero({ onNav, settings, allProducts }) {
   );
 }
 
-// ============================================
-// NEDEN UYGUN AYAKKABI? (Why Us — 6 Cards)
-// ============================================
-const WHY_US_CARDS = [
-  { icon: "📍", title: "Doğrudan Merkezden Erişim", desc: "Türkiye'nin ayakkabı ve deri üretim merkezlerinden biri olan Aymakoop içindeki erişimimiz sayesinde ürünleri kaynağından takip edebiliyoruz." },
-  { icon: "💎", title: "Tekleme ve Özel Ürünler", desc: "Seri dışı kalan, az adetli, tekleme ya da özel kalan kaliteli ürünlere ulaşabiliyoruz." },
-  { icon: "💰", title: "Daha Güçlü Fiyat Avantajı", desc: "Aracı katmanların azalması sayesinde, çoğu zaman piyasadaki değerinden daha uygun fiyatlarla ürün sunabiliyoruz." },
-  { icon: "🤝", title: "Kişisel Alışveriş Desteği", desc: "Talep bıraktığınızda ekibimiz kısa sürede arar — beden seçiminden siparişe kadar her adımda yardımcı oluruz." },
-  { icon: "📦", title: "Anlaşılır Sipariş Süreci", desc: "Talep bırak, seni arayalım, birlikte tamamlayalım. Şeffaf ve adım adım ilerleyen bir alışveriş deneyimi." },
-  { icon: "✨", title: "Her Yerde Bulunmayan Ürünler", desc: "Bizdeki birçok ürün, klasik mağaza düzeninde kolayca bulunmayan, sınırlı ve özel ürünlerden oluşur." },
-];
-
-function WhyUsSection({ onNav }) {
-  return (
-    <section id="neden-biz" style={{ padding: "100px 40px", maxWidth: 1440, margin: "0 auto", borderTop: "1px solid rgba(28,26,22,0.06)", position: "relative", zIndex: 1 }}>
-      <div style={{ textAlign: "center", marginBottom: 56 }}>
-        <p style={{ fontFamily: T.sans, fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.18em", color: T.red, marginBottom: 10 }}>FARKIMIZ</p>
-        <h2 style={{ fontFamily: T.serif, fontSize: "clamp(30px, 3.5vw, 48px)", fontWeight: 700, color: T.text, letterSpacing: "-0.02em", marginBottom: 20 }}>Neden Uygun Ayakkabı?</h2>
-        <p style={{ fontFamily: T.sans, fontSize: 15, color: T.textLight, lineHeight: 1.85, maxWidth: 600, margin: "0 auto" }}>
-          Çünkü biz yalnızca ürün satmıyoruz — kaynağından seçilmiş ürünleri, kişisel destek ve anlaşılır bir süreçle buluşturuyoruz.
-        </p>
-      </div>
-      <div className="why-us-grid" style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 20 }}>
-        {WHY_US_CARDS.map((c, i) => (
-          <div key={i} style={{
-            background: "rgba(238,232,222,0.5)", border: "1px solid rgba(28,26,22,0.06)", borderRadius: 20,
-            padding: "36px 28px", backdropFilter: "blur(10px)", transition: "all 0.35s",
-          }}>
-            <span style={{ fontSize: 32, display: "block", marginBottom: 18 }}>{c.icon}</span>
-            <p style={{ fontFamily: T.sans, fontSize: 15, fontWeight: 700, color: T.text, marginBottom: 10 }}>{c.title}</p>
-            <p style={{ fontFamily: T.sans, fontSize: 13, color: "rgba(28,26,22,0.5)", lineHeight: 1.75 }}>{c.desc}</p>
-          </div>
-        ))}
-      </div>
-      {/* D-283: Conversion bridge — credibility section → product browsing */}
-      {onNav && (
-        <div style={{ textAlign: "center", marginTop: 48 }}>
-          <button onClick={() => onNav("catalog")} style={{
-            fontFamily: T.sans, fontSize: 12, fontWeight: 600, letterSpacing: "0.1em",
-            textTransform: "uppercase", color: T.text, background: "transparent",
-            border: "1px solid rgba(28,26,22,0.18)", padding: "14px 36px",
-            borderRadius: T.r.full, cursor: "pointer", transition: "all 0.3s",
-          }}>
-            Koleksiyonu Keşfet →
-          </button>
-        </div>
-      )}
-    </section>
-  );
-}
+// D-314b: WHY_US_CARDS + WhyUsSection removed — the section was no longer rendered
+// after D-314 (it duplicated TrustValue/About messaging). Restore from git history
+// if a separate "Farkımız" section is ever needed again.
 
 // ============================================
 // SIPARIŞ ADIMLARI (4 Steps)
@@ -1092,8 +1045,6 @@ export default function App({ dbProducts = [], siteSettings = null, banners = []
     return allProducts.slice(0, 12);
   })();
   const tukenmedenList = allProducts.filter(p => p.status !== "soldout" && p.stock > 0 && p.stock <= 3).slice(0, 12);
-  // D-310: editorial background image — first product with a real AI image (fallback gradient handled in component)
-  const editorialImg = (allProducts.find(p => p.dbImage) || {}).dbImage || null;
 
   // D-194: URL sync — pushState so browser URL reflects current page
   const nav = (p, cat, q) => {
@@ -1238,9 +1189,8 @@ export default function App({ dbProducts = [], siteSettings = null, banners = []
           <ProductRail tag="POPÜLER TALEP" title="Çok Sorulan Modeller" products={cokSorulanList} onView={view} onNav={nav} accent={T.red} />
           <ProductRail tag="SON FIRSAT" title="Tükenmeden Yakala" products={tukenmedenList} onView={view} onNav={nav} accent="#d97706" />
 
-          {/* D-310: full-width editorial section. D-314: use warm premium gradient
-              (full-bleed studio-shoe image looked artificial). editorialImg stays
-              computed for easy revert / future CMS editorial image. */}
+          {/* D-310/D-314: full-width editorial section — warm premium gradient
+              (full-bleed studio-shoe image looked artificial). */}
           <EditorialImageSection bgImage={null} onNav={nav} />
 
           {/* D-311: social proof / reviews (demo-flagged) */}
@@ -1256,9 +1206,9 @@ export default function App({ dbProducts = [], siteSettings = null, banners = []
           <CategoryOverlay onNav={nav} />
           <DiscountedSection allProducts={allProducts} onView={view} onNav={nav} />
 
-          {/* Lower: brand story + extra discovery. D-314: WhyUsSection removed from
-              render (duplicated TrustValue/About "Aymakoop/merkez" messaging). Component
-              still defined for easy revert. */}
+          {/* Lower: brand story + extra discovery. D-314/D-314b: WhyUsSection removed
+              entirely (duplicated TrustValue/About "Aymakoop/merkez" messaging) —
+              restore from git history if ever needed again. */}
           <AboutSection settings={S} />
           <BestSellersScroll allProducts={allProducts} onView={view} onNav={nav} />
 

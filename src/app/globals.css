@@ -3,6 +3,9 @@
 :root {
   --font-outfit: 'Outfit';
   --font-playfair: 'Playfair Display';
+  /* D-302: single source for the product-card image background. Keep in sync
+     with the image-generation studio background (imageProviders.ts). */
+  --product-image-bg: #f4efe6;
 }
 
 @theme {

@@ -288,10 +288,10 @@ function Card({ p, onView }) {
       }}
     >
       {/* Image with swipe */}
-      <div style={{ position: "relative", paddingTop: "115%", overflow: "hidden", background: "#ebe5da" }}>
+      <div style={{ position: "relative", paddingTop: "115%", overflow: "hidden", background: "var(--product-image-bg, #f4efe6)" }}>
         <img src={displayImg} alt={p.name} loading="lazy" style={{
           position: "absolute", top: 0, left: 0, width: "100%", height: "100%",
-          objectFit: "cover", transition: "all 0.4s cubic-bezier(.22,1,.36,1)",
+          objectFit: "contain", transition: "all 0.4s cubic-bezier(.22,1,.36,1)",
           opacity: soldOut ? 0.5 : 1,
         }} />
         {/* Badge */}

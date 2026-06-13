@@ -1014,7 +1014,10 @@ function EditorialImageSection({ bgImage, onNav }) {
 // DEMO REVIEW DATA — replace with real approved customer feedback before
 // production use. Set DEMO_REVIEWS_ENABLED to false to hide the demo cards.
 // ============================================
-const DEMO_REVIEWS_ENABLED = true;
+// D-313: demo reviews OFF for production (ad-readiness gate). The soft summary
+// card stays (honest "yorumlar onaylı şekilde yayınlanacak"); demo cards hidden.
+// Flip back to true ONLY for a preview branch, never for production with fake cards.
+const DEMO_REVIEWS_ENABLED = false;
 const DEMO_REVIEWS = [
   { name: "Mehmet A.", text: "Model fotoğraftaki gibi duruyor, numara için hızlı dönüş aldım." },
   { name: "Elif K.", text: "Loafer seçenekleri sade ve şık. Sipariş süreci WhatsApp üzerinden kolay ilerledi." },

@@ -1,5 +1,6 @@
 "use client";
 import { useState, useEffect, useRef } from "react";
+import { captureFirstTouch } from "@/lib/attribution";
 
 // ============================================
 // DESIGN TOKENS — Light Beige, Playfair + Inter
@@ -473,7 +474,7 @@ function Hero({ onNav, settings, allProducts }) {
             YENİ GELENLERİ GÖR {I.arrow}
           </button>
           {/* D-305: Direct WhatsApp contact CTA */}
-          <a href={waLink(contact?.whatsappFull)} target="_blank" rel="noreferrer" style={{
+          <a href={`${waLink(contact?.whatsappFull)}?text=${encodeURIComponent("Merhaba, uygunayakkabi.com'daki modeller hakkında bilgi almak istiyorum.")}`} target="_blank" rel="noreferrer" style={{
             fontFamily: T.sans, fontSize: 12, fontWeight: 700, letterSpacing: "0.12em",
             textTransform: "uppercase", color: "#fff", background: T.green,
             border: "none", padding: "17px 40px", borderRadius: T.r.full,
@@ -1066,6 +1067,10 @@ export default function App({ dbProducts = [], siteSettings = null, banners = []
     window.location.href = `/products/${slug}`;
   };
 
+  // D-315: capture first-touch attribution (UTM/referrer) on homepage landing so it
+  // survives navigation to the product detail page where the lead form is submitted.
+  useEffect(() => { captureFirstTouch() }, [])
+
   // D-194: Handle browser back/forward buttons
   useEffect(() => {
     const onPop = (e) => {
@@ -1236,7 +1241,7 @@ export default function App({ dbProducts = [], siteSettings = null, banners = []
 
       {/* D-306: mobile sticky WhatsApp CTA — homepage/catalog only (SSR PDP has its own) */}
       {pg !== "detail" && (
-        <a className="uy-sticky-wa" href={waLink(S.contact?.whatsappFull)} target="_blank" rel="noreferrer"
+        <a className="uy-sticky-wa" href={`${waLink(S.contact?.whatsappFull)}?text=${encodeURIComponent("Merhaba, uygunayakkabi.com'daki modeller hakkında bilgi almak istiyorum.")}`} target="_blank" rel="noreferrer"
           style={{
             position: "fixed", left: 16, right: 16, bottom: 16, zIndex: 350,
             alignItems: "center", justifyContent: "center", gap: 10,

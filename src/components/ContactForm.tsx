@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import { captureFirstTouch, getStoredAttribution } from '@/lib/attribution'
 
 // ── D-251: Source-detail capture helpers ─────────────────────────────────────
 
@@ -69,6 +70,10 @@ export function ContactForm({ productId, productTitle, variants, soldout }: Prop
   const [phoneError, setPhoneError] = useState<string | null>(null)  // D-273
   const [nameError, setNameError]   = useState<string | null>(null)   // D-273
 
+  // D-315: capture first-touch attribution (UTM/referrer) on mount so a homepage
+  // landing's UTM survives navigation to this product page (query string is dropped).
+  useEffect(() => { captureFirstTouch() }, [])
+
   // D-265: listen for OOS chip clicks from page.tsx (cross-component via CustomEvent)
   useEffect(() => {
     const handler = (e: Event) => {
@@ -108,9 +113,14 @@ export function ContactForm({ productId, productTitle, variants, soldout }: Prop
 
     setStatus('loading')
 
-    // D-251: capture attribution context at submit time (no effect on render)
-    const { utmSource, utmMedium, utmCampaign } = captureUtmParams()
-    const referrer = captureReferrer()
+    // D-251/D-315: attribution at submit — prefer the current URL, fall back to the
+    // first-touch values stored at landing (homepage→PDP navigation drops the query).
+    const urlUtm = captureUtmParams()
+    const stored = getStoredAttribution()
+    const utmSource   = urlUtm.utmSource   ?? stored.utmSource   ?? null
+    const utmMedium   = urlUtm.utmMedium   ?? stored.utmMedium   ?? null
+    const utmCampaign = urlUtm.utmCampaign ?? stored.utmCampaign ?? null
+    const referrer    = captureReferrer()  ?? stored.referrer    ?? null
 
     try {
       const res = await fetch('/api/inquiries', {

@@ -127,6 +127,13 @@ function GlobalStyles() {
       /* D-308: in-flow spacer so the mobile sticky CTA never covers footer/content */
       .uy-sticky-spacer { display: none; }
       @media(max-width:768px) { .uy-sticky-spacer { display: block; height: 76px; } }
+      /* D-310/D-311: editorial + category tiles + reviews responsive */
+      @media(max-width:768px) {
+        .cat-tiles { grid-template-columns: repeat(3,1fr) !important; }
+        .editorial-inner { padding: 0 24px !important; }
+        .review-row > div { width: 80vw !important; }
+      }
+      @media(max-width:480px) { .cat-tiles { grid-template-columns: repeat(2,1fr) !important; } }
     `}</style>
   );
 }
@@ -903,10 +910,10 @@ function PreFooterCTA({ onNav, settings }) {
 // D-307: Generic product rail (horizontal scroll) for liveliness sections
 // Zero-state safe: renders nothing when fewer than 2 products.
 // ============================================
-function ProductRail({ tag, title, products, onView, onNav, accent }) {
+function ProductRail({ tag, title, products, onView, onNav, accent, id }) {
   if (!products || products.length < 2) return null;
   return (
-    <section style={{ padding: "70px 40px", maxWidth: 1440, margin: "0 auto", borderTop: "1px solid rgba(28,26,22,0.06)", position: "relative", zIndex: 1 }}>
+    <section id={id} style={{ padding: "70px 40px", maxWidth: 1440, margin: "0 auto", borderTop: "1px solid rgba(28,26,22,0.06)", position: "relative", zIndex: 1 }}>
       <div style={{ marginBottom: 32, display: "flex", justifyContent: "space-between", alignItems: "flex-end", flexWrap: "wrap", gap: 16 }}>
         <div>
           <p style={{ fontFamily: T.sans, fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.18em", color: accent || T.red, marginBottom: 10 }}>{tag}</p>
@@ -918,6 +925,121 @@ function ProductRail({ tag, title, products, onView, onNav, accent }) {
         {products.map(p => (
           <div key={p.id || p.slug} style={{ flex: "0 0 auto", width: 230, scrollSnapAlign: "start" }}>
             <Card p={p} onView={onView} />
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+// ============================================
+// D-310: Visual category tiles — "Tarzına Göre Seç"
+// Tile backgrounds reuse existing product images; clicks use the existing
+// catalog category/search state (no new routes). Warm gradient fallback.
+// ============================================
+function CategoryTiles({ allProducts, onNav }) {
+  const imgAt = (i) => {
+    const p = (allProducts || [])[i];
+    return p && p.dbImage ? p.dbImage : null;
+  };
+  const tiles = [
+    { label: "Loafer",        go: () => onNav("catalog", undefined, "loafer"),  img: imgAt(0) },
+    { label: "Sneaker",       go: () => onNav("catalog", undefined, "sneaker"), img: imgAt(1) },
+    { label: "Klasik",        go: () => onNav("catalog", "Klasik"),             img: imgAt(2) },
+    { label: "Kadın",         go: () => onNav("catalog", undefined, "kadın"),   img: imgAt(3) },
+    { label: "Erkek",         go: () => onNav("catalog", undefined, "erkek"),   img: imgAt(4) },
+    { label: "Yeni Gelenler", go: () => { const el = document.getElementById("rail-yeni"); if (el) el.scrollIntoView({ behavior: "smooth" }); else onNav("catalog"); }, img: imgAt(5) },
+  ];
+  return (
+    <section style={{ padding: "60px 40px 20px", maxWidth: 1440, margin: "0 auto", position: "relative", zIndex: 1 }}>
+      <div style={{ textAlign: "center", marginBottom: 32 }}>
+        <p style={{ fontFamily: T.sans, fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.18em", color: T.red, marginBottom: 10 }}>KEŞFET</p>
+        <h2 style={{ fontFamily: T.serif, fontSize: "clamp(26px, 3vw, 40px)", fontWeight: 700, color: T.text, letterSpacing: "-0.02em" }}>Tarzına Göre Seç</h2>
+      </div>
+      <div className="cat-tiles" style={{ display: "grid", gridTemplateColumns: "repeat(6, 1fr)", gap: 14 }}>
+        {tiles.map((t, i) => (
+          <button key={i} onClick={t.go} aria-label={t.label} style={{
+            position: "relative", border: "none", cursor: "pointer", padding: 0,
+            borderRadius: 18, overflow: "hidden", aspectRatio: "3 / 4",
+            background: t.img ? "#ebe5da" : "linear-gradient(160deg, #efe7da, #e3d8c6)",
+            boxShadow: "0 8px 24px rgba(0,0,0,0.06)",
+          }}>
+            {t.img && <img src={t.img} alt="" aria-hidden="true" loading="lazy" style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover" }} />}
+            <span style={{ position: "absolute", inset: 0, background: "linear-gradient(to top, rgba(28,26,22,0.62) 0%, rgba(28,26,22,0.04) 58%)" }} />
+            <span style={{ position: "absolute", left: 0, right: 0, bottom: 14, color: "#fff", fontFamily: T.sans, fontSize: 14, fontWeight: 700, letterSpacing: "0.03em", textShadow: "0 1px 6px rgba(0,0,0,0.45)" }}>{t.label}</span>
+          </button>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+// ============================================
+// D-310: Full-width editorial background-image section.
+// Uses an existing product image as a cover background with a warm gradient
+// overlay for readability; falls back to a warm gradient when no image exists.
+// TODO: swap bgImage for a CMS-controlled editorial image once a Payload media
+// field is added (kept frontend-only — no schema change in this task).
+// ============================================
+function EditorialImageSection({ bgImage, onNav }) {
+  return (
+    <section style={{
+      position: "relative", width: "100%", overflow: "hidden",
+      minHeight: "clamp(420px, 58vh, 600px)", display: "flex", alignItems: "center",
+      background: bgImage ? "#1c1a16" : "linear-gradient(120deg, #2b241c 0%, #5c4a36 60%, #c8a26a 130%)",
+    }}>
+      {bgImage && <img src={bgImage} alt="" aria-hidden="true" loading="lazy" style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover", opacity: 0.92 }} />}
+      <div style={{ position: "absolute", inset: 0, background: "linear-gradient(90deg, rgba(28,26,22,0.8) 0%, rgba(28,26,22,0.5) 48%, rgba(28,26,22,0.12) 100%)" }} />
+      <div className="editorial-inner" style={{ position: "relative", zIndex: 1, maxWidth: 1440, width: "100%", margin: "0 auto", padding: "0 48px", textAlign: "left" }}>
+        <div style={{ maxWidth: 560 }}>
+          <p style={{ fontFamily: T.sans, fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.2em", color: "rgba(255,255,255,0.7)", marginBottom: 16 }}>YENİ SEZON</p>
+          <h2 style={{ fontFamily: T.serif, fontSize: "clamp(32px, 4.5vw, 56px)", fontWeight: 800, color: "#fff", lineHeight: 1.08, letterSpacing: "-0.02em", marginBottom: 18 }}>Adımını Tarzınla At</h2>
+          <p style={{ fontFamily: T.sans, fontSize: 16, color: "rgba(255,255,255,0.82)", lineHeight: 1.7, marginBottom: 28, maxWidth: 460 }}>Yeni gelen modelleri keşfet, numaranı sor, sipariş sürecini hızlıca tamamla.</p>
+          <button onClick={() => onNav("catalog")} style={{
+            fontFamily: T.sans, fontSize: 12, fontWeight: 700, letterSpacing: "0.12em", textTransform: "uppercase",
+            color: T.text, background: "#fff", border: "none", padding: "16px 40px", borderRadius: T.r.full,
+            cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 10,
+          }}>Modelleri Keşfet {I.arrow}</button>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+// ============================================
+// D-311: Social proof / reviews section.
+// IMPORTANT: No real customer-review data exists in the repo or Payload yet.
+// The summary card uses an honest soft message (NO fake average / count), and
+// the cards below are DEMO placeholders.
+// DEMO REVIEW DATA — replace with real approved customer feedback before
+// production use. Set DEMO_REVIEWS_ENABLED to false to hide the demo cards.
+// ============================================
+const DEMO_REVIEWS_ENABLED = true;
+const DEMO_REVIEWS = [
+  { name: "Mehmet A.", text: "Model fotoğraftaki gibi duruyor, numara için hızlı dönüş aldım." },
+  { name: "Elif K.", text: "Loafer seçenekleri sade ve şık. Sipariş süreci WhatsApp üzerinden kolay ilerledi." },
+  { name: "Burak T.", text: "Beğendiğim model için numara durumunu hızlıca sordum." },
+];
+function SocialProofReviews({ onNav }) {
+  return (
+    <section style={{ padding: "80px 40px", maxWidth: 1440, margin: "0 auto", borderTop: "1px solid rgba(28,26,22,0.06)", position: "relative", zIndex: 1 }}>
+      <div style={{ textAlign: "center", marginBottom: 40 }}>
+        <p style={{ fontFamily: T.sans, fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.18em", color: T.red, marginBottom: 10 }}>DENEYİMLER</p>
+        <h2 style={{ fontFamily: T.serif, fontSize: "clamp(28px, 3.2vw, 44px)", fontWeight: 700, color: T.text, letterSpacing: "-0.02em", marginBottom: 12 }}>Müşteriler Ne Diyor?</h2>
+        <p style={{ fontFamily: T.sans, fontSize: 15, color: T.textLight, lineHeight: 1.7, maxWidth: 640, margin: "0 auto" }}>Beğenilen modeller, hızlı iletişim ve kolay sipariş süreciyle alışverişi daha pratik hale getiriyoruz.</p>
+      </div>
+      <div className="review-row no-scrollbar" style={{ display: "flex", gap: 18, overflowX: "auto", paddingBottom: 8, scrollSnapType: "x mandatory" }}>
+        {/* Soft, honest trust summary card — NO fake rating average or review count */}
+        <div style={{ flex: "0 0 auto", width: 300, scrollSnapAlign: "start", background: "rgba(238,232,222,0.72)", border: "1px solid rgba(28,26,22,0.06)", borderRadius: 20, padding: "28px 26px", display: "flex", flexDirection: "column", justifyContent: "center" }}>
+          <h3 style={{ fontFamily: T.serif, fontSize: 22, fontWeight: 700, color: T.text, marginBottom: 10 }}>Müşteri Deneyimleri</h3>
+          <p style={{ fontFamily: T.sans, fontSize: 13, color: T.textLight, lineHeight: 1.7, marginBottom: 20 }}>Gerçek müşteri yorumları onaylı şekilde burada yayınlanacak.</p>
+          <button onClick={() => onNav("catalog")} style={{ alignSelf: "flex-start", fontFamily: T.sans, fontSize: 12, fontWeight: 700, letterSpacing: "0.1em", textTransform: "uppercase", color: "#fff", background: T.text, border: "none", padding: "13px 28px", borderRadius: T.r.full, cursor: "pointer" }}>Ürünleri İncele</button>
+        </div>
+        {DEMO_REVIEWS_ENABLED && DEMO_REVIEWS.map((r, i) => (
+          <div key={i} style={{ flex: "0 0 auto", width: 300, scrollSnapAlign: "start", background: "#fff", border: "1px solid rgba(28,26,22,0.06)", borderRadius: 20, padding: "26px 24px", boxShadow: "0 6px 22px rgba(0,0,0,0.04)" }}>
+            <span style={{ color: "#e0a900", fontSize: 14, letterSpacing: 1 }}>★★★★★</span>
+            <p style={{ fontFamily: T.sans, fontSize: 14, color: T.text, lineHeight: 1.65, margin: "14px 0 18px" }}>“{r.text}”</p>
+            <p style={{ fontFamily: T.sans, fontSize: 12, fontWeight: 600, color: T.textLight }}>{r.name}</p>
           </div>
         ))}
       </div>
@@ -968,6 +1090,8 @@ export default function App({ dbProducts = [], siteSettings = null, banners = []
     return allProducts.slice(0, 12);
   })();
   const tukenmedenList = allProducts.filter(p => p.status !== "soldout" && p.stock > 0 && p.stock <= 3).slice(0, 12);
+  // D-310: editorial background image — first product with a real AI image (fallback gradient handled in component)
+  const editorialImg = (allProducts.find(p => p.dbImage) || {}).dbImage || null;
 
   // D-194: URL sync — pushState so browser URL reflects current page
   const nav = (p, cat, q) => {
@@ -1104,23 +1228,27 @@ export default function App({ dbProducts = [], siteSettings = null, banners = []
         <div>
           <Hero onNav={nav} settings={S} allProducts={allProducts} />
 
-          {/* D-308: product-first / action-first flow for ad traffic */}
-          {/* 1) Yeni Gelenler */}
-          <ProductRail tag="YENİ SEZON" title="Yeni Gelenler" products={yeniList} onView={view} onNav={nav} accent={T.green} />
+          {/* D-310: visual category tiles */}
+          <CategoryTiles allProducts={allProducts} onNav={nav} />
 
-          {/* 2) Çok Sorulan Modeller */}
+          {/* Product-first rails */}
+          <ProductRail id="rail-yeni" tag="YENİ SEZON" title="Yeni Gelenler" products={yeniList} onView={view} onNav={nav} accent={T.green} />
           <ProductRail tag="POPÜLER TALEP" title="Çok Sorulan Modeller" products={cokSorulanList} onView={view} onNav={nav} accent={T.red} />
-
-          {/* 3) Tükenmeden Yakala */}
           <ProductRail tag="SON FIRSAT" title="Tükenmeden Yakala" products={tukenmedenList} onView={view} onNav={nav} accent="#d97706" />
 
-          {/* 4) Nasıl Sipariş Verilir? */}
-          <StepsSection onNav={nav} />
+          {/* D-310: full-width editorial background image section */}
+          <EditorialImageSection bgImage={editorialImg} onNav={nav} />
 
-          {/* 5) Trust / support / delivery */}
+          {/* D-311: social proof / reviews (demo-flagged) */}
+          <SocialProofReviews onNav={nav} />
+
+          {/* Trust / support / delivery */}
           <TrustValueSection onNav={nav} settings={S} />
 
-          {/* 6) Catalog transition — search + categories, then deals */}
+          {/* Nasıl Sipariş Verilir? */}
+          <StepsSection onNav={nav} />
+
+          {/* Catalog transition — search + categories, then deals */}
           <CategoryOverlay onNav={nav} />
           <DiscountedSection allProducts={allProducts} onView={view} onNav={nav} />
 
@@ -1867,14 +1995,20 @@ function HelpContactPage({ onNav, settings }) {
 function Footer({ onNav, settings }) {
   const ct = settings?.contact || DEFAULT_SETTINGS.contact;
   return (
-    <footer style={{ background: T.text, color: "#f0ece4", border: "none", padding: "72px 40px 0", position: "relative", zIndex: 1 }}>
+    <footer style={{ background: "#241f1a", color: "#f0ece4", border: "none", padding: "64px 40px 0", position: "relative", zIndex: 1 }}>
+      {/* D-312: trust badges — honest, no payment logos (sales flow is inquiry/WhatsApp) */}
+      <div style={{ maxWidth: 1440, margin: "0 auto 44px", display: "flex", flexWrap: "wrap", gap: 12, justifyContent: "center", paddingBottom: 36, borderBottom: "1px solid rgba(240,236,228,0.08)" }}>
+        {["Güncel stok kontrolü", "WhatsApp destek", "Kolay sipariş süreci", "Seçilmiş modeller"].map((b, i) => (
+          <span key={i} style={{ fontFamily: T.sans, fontSize: 12, fontWeight: 600, color: "rgba(240,236,228,0.6)", background: "rgba(240,236,228,0.06)", border: "1px solid rgba(240,236,228,0.1)", padding: "9px 18px", borderRadius: 999 }}>{b}</span>
+        ))}
+      </div>
       <div className="footer-grid" style={{ maxWidth: 1440, margin: "0 auto", display: "grid", gridTemplateColumns: "2fr 1fr 1fr 1fr", gap: 56, marginBottom: 52 }}>
         <div>
           <div style={{ display: "flex", alignItems: "center", gap: 3, marginBottom: 16 }}>
             <span style={{ fontFamily: T.serif, fontSize: 16, fontWeight: 800, color: "#f0ece4", letterSpacing: "0.12em" }}>UYGUN</span>
             <span style={{ fontFamily: T.serif, fontSize: 16, fontWeight: 300, color: T.red }}>AYAKKABI</span>
           </div>
-          <p style={{ fontFamily: T.sans, fontSize: 13, color: "rgba(240,236,228,0.35)", lineHeight: 1.85, maxWidth: 300 }}>Kaliteli ayakkabıya daha akıllı erişim. Sanayiden dijitale uzanan güçlü satış modeli.</p>
+          <p style={{ fontFamily: T.sans, fontSize: 13, color: "rgba(240,236,228,0.35)", lineHeight: 1.85, maxWidth: 300 }}>Günlük kullanım, şık kombinler ve yeni sezon modeller için seçilmiş ayakkabıları pratik bir alışveriş deneyimiyle sunuyoruz.</p>
         </div>
         <div>
           <h5 style={{ fontFamily: T.sans, fontSize: 10, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.16em", color: "rgba(240,236,228,0.28)", marginBottom: 22 }}>Sayfalar</h5>
@@ -1891,22 +2025,27 @@ function Footer({ onNav, settings }) {
             {ct.email || 'info@uygunayakkabi.com'}<br/>
             İstanbul, Türkiye
           </p>
+          {ct.instagram && (
+            <a href={`https://instagram.com/${String(ct.instagram).replace(/^@/, '')}`} target="_blank" rel="noreferrer" style={{ display: "inline-block", marginTop: 12, fontFamily: T.sans, fontSize: 13, fontWeight: 600, color: "rgba(240,236,228,0.6)", textDecoration: "none" }}>
+              Instagram →
+            </a>
+          )}
         </div>
         <div>
           <h5 style={{ fontFamily: T.sans, fontSize: 10, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.16em", color: "rgba(240,236,228,0.28)", marginBottom: 22 }}>Yardım</h5>
           <p onClick={() => onNav("contact")} style={{ fontFamily: T.sans, fontSize: 13, color: "rgba(240,236,228,0.45)", marginBottom: 14, cursor: "pointer", transition: "color 0.2s" }}>S.S.S. &amp; Yardım Merkezi</p>
-          <a href={waLink(ct.whatsappFull)} target="_blank" rel="noreferrer" style={{
+          <a href={`${waLink(ct.whatsappFull)}?text=${encodeURIComponent("Merhaba, uygunayakkabi.com üzerinden ürünler hakkında bilgi almak istiyorum.")}`} target="_blank" rel="noreferrer" style={{
             display: "inline-flex", alignItems: "center", gap: 8,
             fontFamily: T.sans, fontSize: 12, fontWeight: 600, letterSpacing: "0.06em",
             color: "#f0ece4", border: "1px solid rgba(240,236,228,0.2)", padding: "10px 20px",
             borderRadius: T.r.full, textDecoration: "none", transition: "all 0.3s", cursor: "pointer",
           }}>
-            {I.wa} WHATSAPP
+            {I.wa} WhatsApp&apos;tan Yaz
           </a>
         </div>
       </div>
       <div style={{ maxWidth: 1440, margin: "0 auto", padding: "20px 0", borderTop: "1px solid rgba(240,236,228,0.08)", display: "flex", justifyContent: "space-between", flexWrap: "wrap", gap: 8 }}>
-        <p style={{ fontFamily: T.sans, fontSize: 11, color: "rgba(240,236,228,0.22)" }}>© 2025 UygunAyakkabı — Tüm hakları saklıdır.</p>
+        <p style={{ fontFamily: T.sans, fontSize: 11, color: "rgba(240,236,228,0.22)" }}>© {new Date().getFullYear()} UygunAyakkabı — Tüm hakları saklıdır.</p>
         <p style={{ fontFamily: T.sans, fontSize: 11, color: "rgba(240,236,228,0.22)" }}>uygunayakkabi.com</p>
       </div>
     </footer>

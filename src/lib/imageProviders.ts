@@ -100,6 +100,35 @@ const TASK_FRAMING_BLOCK =
   `• No harsh reflections, no dramatic lighting — realistic commercial look.\n` +
   `═══════════════════════════\n\n`
 
+// ─────────────────────────────────────────────────
+// D-303: Studio standard — uniform background, scale, camera & negatives.
+// Appended to every slot prompt so all product images share one look.
+// ─────────────────────────────────────────────────
+const STUDIO_STANDARD_BLOCK =
+  `\n\n═══ STUDIO STANDARD (MANDATORY — ALL SLOTS) ═══\n` +
+  `BACKGROUND: matte warm ivory/beige seamless studio background — no gradient, no colored tint, no texture, no hard shadow. Identical across every product.\n` +
+  `SCALE: the shoe occupies approximately 74–80% of the canvas width, centered horizontally, full shoe visible, no crop.\n` +
+  `BASELINE: the outsole rests on a consistent horizontal baseline, aligned the same way across all products.\n` +
+  `CAMERA: clean side/profile product photography, consistent lens, no dramatic perspective distortion.\n` +
+  `NEGATIVE (must NOT appear): no watermark, no logo hallucination, no text, no extra shoe, no deformed sole, no warped toe, no melted leather, no inconsistent background.\n` +
+  `═══════════════════════════\n`
+
+// D-303: Suede/nubuck-specific material directives. Returns '' for non-suede
+// products. Detected from the identity-lock material + visual notes so suede
+// shoes stop rendering as glossy patent leather.
+function materialDirectives(material?: string | null, notes?: string | null): string {
+  const hay = `${material || ''} ${notes || ''}`.toLowerCase()
+  const isSuede = ['suede', 'süet', 'suet', 'nubuk', 'nubuck'].some((k) => hay.includes(k))
+  if (!isSuede) return ''
+  return (
+    `\n\n═══ MATERIAL: SUEDE / NUBUCK (MANDATORY) ═══\n` +
+    `POSITIVE: realistic matte suede leather, fine short nap texture, subtle directional fibers, soft non-reflective surface, crisp stitching, clean edges, premium loafer material, natural suede grain.\n` +
+    `NEGATIVE: no shiny patent leather, no plastic surface, no velvet fabric, no fur, no hairy blobs, no fuzzy deformation, no melted texture, no dirty stains, no over-smoothed leather, no glossy reflections, no distorted tassels, no warped seams.\n` +
+    `The surface MUST read as matte suede — NOT glossy patent/rugan leather.\n` +
+    `═══════════════════════════\n`
+  )
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Premium Background Selection Engine
 // ─────────────────────────────────────────────────────────────────────────────
@@ -240,13 +269,13 @@ function renderBg(v: BgVariant): string {
 }
 
 function getBackgroundForColor(mainColor: string, productId?: string | number): string {
-  const c = mainColor.toLowerCase()
-  // v43 invariant preserved: ONE exact background per (shoe color × product) combo;
-  // every slot in a batch uses the same string. D-233 adds per-product variation
-  // ACROSS products — the deterministic hash means slot-to-slot drift within a
-  // batch is still impossible.
-  const family = BG_PALETTE[pickFamily(c)] ?? BG_PALETTE.default
-  return renderBg(pickVariant(family, productId))
+  // D-303: Unified studio background for ALL products (operator rule — every
+  // product-card image must share the SAME premium neutral background). This
+  // supersedes the per-color/per-product variation (D-233 / v43). The hex is
+  // kept in sync with the storefront --product-image-bg CSS variable.
+  // Reversible: restore the BG_PALETTE pick (pickFamily/pickVariant) to revert.
+  void mainColor; void productId
+  return 'matte warm ivory/beige (#F4EFE6). Seamless studio background — no gradient, no colored tint, no texture, no hard shadow. Solid, uniform tone. Use this EXACT color for ALL slots in this batch.'
 }
 
 /**
@@ -1511,7 +1540,7 @@ export async function generateByEditing(
       //   3. zoneBlock — protected brand zones
       //   4. sceneText — camera angle, framing, background, lighting
       //   5. CANONICAL_PROHIBITIONS_BLOCK — 11 canonical prohibitions from productPreservation.ts
-      const fullPrompt = LOCK_REMINDER_BLOCK + TASK_FRAMING_BLOCK + identityLock.promptBlock + zoneBlock + sceneText + CANONICAL_PROHIBITIONS_BLOCK + ANTI_FRAME_FINAL_BLOCK
+      const fullPrompt = LOCK_REMINDER_BLOCK + TASK_FRAMING_BLOCK + identityLock.promptBlock + zoneBlock + sceneText + STUDIO_STANDARD_BLOCK + materialDirectives(identityLock.material, identityLock.visualNotes) + CANONICAL_PROHIBITIONS_BLOCK + ANTI_FRAME_FINAL_BLOCK
 
       const slotLog: SlotLog = {
         slot: scene.name,
@@ -1901,7 +1930,7 @@ export async function generateByGeminiPro(
         .replace(/\{BACKGROUND\}/g, premiumBackground)
 
       // Same 5-block prompt structure as generateByEditing
-      const fullPrompt = LOCK_REMINDER_BLOCK + TASK_FRAMING_BLOCK + identityLock.promptBlock + zoneBlock + sceneText + CANONICAL_PROHIBITIONS_BLOCK + ANTI_FRAME_FINAL_BLOCK
+      const fullPrompt = LOCK_REMINDER_BLOCK + TASK_FRAMING_BLOCK + identityLock.promptBlock + zoneBlock + sceneText + STUDIO_STANDARD_BLOCK + materialDirectives(identityLock.material, identityLock.visualNotes) + CANONICAL_PROHIBITIONS_BLOCK + ANTI_FRAME_FINAL_BLOCK
 
       const slotLog: SlotLog = {
         slot: scene.name,

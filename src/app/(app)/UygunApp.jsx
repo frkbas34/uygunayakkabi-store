@@ -653,12 +653,6 @@ function AboutSection({ settings }) {
           <div style={{ fontFamily: T.sans, fontSize: 15, color: T.textLight, lineHeight: 1.9 }}>
             <p style={{ marginBottom: 20 }}>UygunAyakkabi.com, kaliteli ayakkabıya daha ulaşılabilir şekilde erişmek isteyen insanlar için kurulmuş yeni nesil bir platformdur.</p>
 
-            <p style={{ marginBottom: 20 }}>Bizim çıkış noktamız çok net: Türkiye'de ayakkabı ve deri sektörünün en güçlü merkezlerinden biri olan Aymakoop Sanayi Sitesi içindeki doğrudan erişimimizi, insanların gerçekten avantajlı ürünlere ulaşabileceği bir sisteme dönüştürmek.</p>
-
-            <p style={{ marginBottom: 20 }}>Bu sayede; tekleme, az adetli, seri devamı olmayan ama kalite açısından güçlü ürünlere doğrudan ulaşabiliyoruz. Bu ürünler çoğu zaman piyasada daha yüksek fiyatlarla yer bulurken, biz onları daha ulaşılabilir seviyelerde sunabiliyoruz.</p>
-
-            <p style={{ fontWeight: 600, color: T.text, marginBottom: 20 }}>Ancak bizi farklı yapan yalnızca ürün erişimi değil.</p>
-
             <p style={{ marginBottom: 20 }}>Talep bıraktığınızda ekibimiz sizi kısa sürede arar, beden ve sipariş detaylarını birlikte tamamlarız. Kaynak avantajını sade ve destekli bir alışveriş deneyimiyle buluşturuyoruz.</p>
 
             <p style={{ fontWeight: 600, color: T.text, marginBottom: 8 }}>Bizim amacımız yalnızca ayakkabı satmak değil;</p>
@@ -668,7 +662,9 @@ function AboutSection({ settings }) {
         {/* Right — image + stats overlay */}
         <div style={{ position: "sticky", top: 120 }}>
           <div style={{ borderRadius: 24, overflow: "hidden", aspectRatio: "4/3", background: "#ebe5da", border: "1px solid rgba(28,26,22,0.06)", position: "relative" }}>
-            <img src="https://images.unsplash.com/photo-1556906781-9a412961c28c?w=800&h=600&fit=crop&q=80" alt="UygunAyakkabı" fetchpriority="high" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+            {/* D-314: external Unsplash image removed (no external/copyrighted assets before ads).
+                TODO: replace with a CMS-controlled approved brand/editorial image. */}
+            <div style={{ width: "100%", height: "100%", background: "linear-gradient(135deg, #efe7da 0%, #d9c7ad 55%, #b8966a 100%)" }} />
             <div style={{ position: "absolute", bottom: 0, left: 0, right: 0, padding: 32, background: "linear-gradient(transparent, rgba(0,0,0,0.55))" }}>
               <div style={{ display: "flex", gap: 40 }}>
                 {[
@@ -716,7 +712,7 @@ function TrustValueSection({ onNav, settings }) {
               "Piyasadaki değerinden genellikle daha uygun fiyatlar",
               "Sınırlı stoklu ve özel kalan ürünlere erişim",
               "Talep bırakın — ekibimiz sizi kısa sürede arasın",
-              "Beden seçiminden teslikata kadar adım adım destek",
+              "Beden seçiminden teslimata kadar adım adım destek",
             ].map((item, i) => (
               <div key={i} style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10 }}>
                 <span style={{ width: 6, height: 6, borderRadius: "50%", background: T.red, flexShrink: 0 }} />
@@ -942,12 +938,15 @@ function CategoryTiles({ allProducts, onNav }) {
     const p = (allProducts || [])[i];
     return p && p.dbImage ? p.dbImage : null;
   };
+  // D-314: predictable behavior for ad traffic — tiles without a reliable category
+  // filter just open the full catalog (no empty-search states). "Klasik" maps to a
+  // real category; "Yeni Gelenler" scrolls to the Yeni Gelenler rail.
   const tiles = [
-    { label: "Loafer",        go: () => onNav("catalog", undefined, "loafer"),  img: imgAt(0) },
-    { label: "Sneaker",       go: () => onNav("catalog", undefined, "sneaker"), img: imgAt(1) },
-    { label: "Klasik",        go: () => onNav("catalog", "Klasik"),             img: imgAt(2) },
-    { label: "Kadın",         go: () => onNav("catalog", undefined, "kadın"),   img: imgAt(3) },
-    { label: "Erkek",         go: () => onNav("catalog", undefined, "erkek"),   img: imgAt(4) },
+    { label: "Loafer",        go: () => onNav("catalog"),          img: imgAt(0) },
+    { label: "Sneaker",       go: () => onNav("catalog"),          img: imgAt(1) },
+    { label: "Klasik",        go: () => onNav("catalog", "Klasik"), img: imgAt(2) },
+    { label: "Kadın",         go: () => onNav("catalog"),          img: imgAt(3) },
+    { label: "Erkek",         go: () => onNav("catalog"),          img: imgAt(4) },
     { label: "Yeni Gelenler", go: () => { const el = document.getElementById("rail-yeni"); if (el) el.scrollIntoView({ behavior: "smooth" }); else onNav("catalog"); }, img: imgAt(5) },
   ];
   return (
@@ -1239,8 +1238,10 @@ export default function App({ dbProducts = [], siteSettings = null, banners = []
           <ProductRail tag="POPÜLER TALEP" title="Çok Sorulan Modeller" products={cokSorulanList} onView={view} onNav={nav} accent={T.red} />
           <ProductRail tag="SON FIRSAT" title="Tükenmeden Yakala" products={tukenmedenList} onView={view} onNav={nav} accent="#d97706" />
 
-          {/* D-310: full-width editorial background image section */}
-          <EditorialImageSection bgImage={editorialImg} onNav={nav} />
+          {/* D-310: full-width editorial section. D-314: use warm premium gradient
+              (full-bleed studio-shoe image looked artificial). editorialImg stays
+              computed for easy revert / future CMS editorial image. */}
+          <EditorialImageSection bgImage={null} onNav={nav} />
 
           {/* D-311: social proof / reviews (demo-flagged) */}
           <SocialProofReviews onNav={nav} />
@@ -1255,8 +1256,9 @@ export default function App({ dbProducts = [], siteSettings = null, banners = []
           <CategoryOverlay onNav={nav} />
           <DiscountedSection allProducts={allProducts} onView={view} onNav={nav} />
 
-          {/* Lower: brand story + extra discovery (text-heavy moved down) */}
-          <WhyUsSection onNav={nav} />
+          {/* Lower: brand story + extra discovery. D-314: WhyUsSection removed from
+              render (duplicated TrustValue/About "Aymakoop/merkez" messaging). Component
+              still defined for easy revert. */}
           <AboutSection settings={S} />
           <BestSellersScroll allProducts={allProducts} onView={view} onNav={nav} />
 

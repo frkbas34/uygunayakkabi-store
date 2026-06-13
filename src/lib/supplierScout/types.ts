@@ -387,6 +387,8 @@ export interface ActionLogEntry {
     | 'auto_paused'
     | 'auto_resumed'
     | 'report_sent'
+    | 'ops_forwarded'
+    | 'auto_ops_forwarded'
     | 'error'
   confidence: ConfidenceLevel
   productId?: number | string

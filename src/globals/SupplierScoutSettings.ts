@@ -103,6 +103,54 @@ export const SupplierScoutSettings: GlobalConfig = {
       },
     },
 
+    {
+      name: 'autoForwardMinScore',
+      type: 'number',
+      label: 'Oto-İletme Minimum Skoru (0–100)',
+      defaultValue: 85,
+      admin: {
+        description: 'Bu skoru geçen yeni ürün fırsatları otomatik olarak ops grubuna iletilir (fotoğraf şartıyla). Manuel /forward_wo her zaman kullanılabilir.',
+      },
+    },
+
+    // ── Partner Operator (Phase 3C) ─────────────────────────────────────────────
+    // Second authorized operator — same full access as Frank.
+    // Registers automatically when the partner sends /start to @SupplierScout_bot.
+    {
+      name: 'partnerChatId',
+      type: 'number',
+      label: 'Ortak Operatör Telegram Chat ID',
+      admin: {
+        description: 'İkinci yetkili operatör. /start gönderince otomatik kaydedilir. Frank kaydedilmemişse ilk /start Frank\'ı kaydeder; Frank kayıtlıysa sonraki /start ortağı kaydeder.',
+      },
+    },
+    {
+      name: 'partnerChatIdRegisteredAt',
+      type: 'date',
+      label: 'Ortak Kayıt Zamanı',
+      admin: { readOnly: true },
+    },
+
+    // ── Ops Group Config (Phase 3B) ──────────────────────────────────────────────
+    // Main Mentix/Uygunops operations group chat ID.
+    // Frank sets this once via admin panel after adding @SupplierScout_bot to the group.
+    // Used by /forward_wo command to send product cards to the ops group.
+    // Never shown in card text — only used as send target.
+    {
+      name: 'opsGroupChatId',
+      type: 'number',
+      label: 'Ops Grubu Chat ID',
+      admin: {
+        description: "Ana Mentix/Uygunops operasyon grubunun Telegram Chat ID'si. /forward_wo komutu bu gruba kart gönderir. @SupplierScout_bot gruba eklendikten sonra ayarla.",
+      },
+    },
+    {
+      name: 'opsGroupChatIdSetAt',
+      type: 'date',
+      label: 'Ops Grubu ID Ayar Zamanı',
+      admin: { readOnly: true },
+    },
+
     // ── Daily Report Schedule ────────────────────────────────────────────────
     {
       name: 'dailyReportHour',

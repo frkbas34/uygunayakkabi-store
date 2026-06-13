@@ -54,6 +54,7 @@ import {
 import {
   scoutSendMessage,
   registerScoutWebhook,
+  sendOpsCard,
 } from '@/lib/supplierScout/telegram'
 import {
   handleDMCommand,
@@ -185,11 +186,13 @@ async function handlePrivateMessage(msg: TgMessage, payload: any): Promise<void>
   const parts = text.split(/\s+/)
   const command = parts[0].toLowerCase().split('@')[0] // strip @botname suffix
 
-  // Check if Frank (any DM user can /start, but other commands are Frank-only)
+  // Check if authorized operator (Frank or partner — any DM user can /start)
   const settings = await payload.findGlobal({ slug: 'supplier-scout-settings' }) as any
-  const frankChatId = settings?.frankChatId
+  const frankChatId = settings?.frankChatId as number | undefined
+  const partnerChatId = settings?.partnerChatId as number | undefined
 
-  if (command !== '/start' && frankChatId && chatId !== frankChatId) {
+  const isAuthorized = chatId === frankChatId || chatId === partnerChatId
+  if (command !== '/start' && !isAuthorized) {
     await scoutSendMessage(chatId, '⛔ Bu bot özel kullanım içindir.')
     return
   }
@@ -246,6 +249,8 @@ async function handleGroupMessage(msg: TgMessage, payload: any): Promise<void> {
   const defaultStockQuantity = settings?.defaultStockQuantity ?? 10
   const usdToTryRate = settings?.usdToTryRate ?? 32
   const frankChatId = settings?.frankChatId
+  const autoForwardMinScore = settings?.autoForwardMinScore ?? 85
+  const opsGroupChatId = settings?.opsGroupChatId as number | undefined
 
   // ── 1. Classify message ─────────────────────────────────────────────────
   const classification = await classifySupplierMessage(
@@ -286,6 +291,8 @@ async function handleGroupMessage(msg: TgMessage, payload: any): Promise<void> {
       frankChatId,
       customTerms: customTerms.map(t => ({ term: t.term, meaning: t.meaning })),
       marginUSD: groupConfig.marginUSD,
+      autoForwardMinScore,
+      opsGroupChatId,
     })
     return
   }
@@ -318,6 +325,8 @@ async function handleProductOffer(
     frankChatId?: number
     customTerms: Array<{ term: string; meaning: string }>
     marginUSD: number
+    autoForwardMinScore: number
+    opsGroupChatId?: number
   },
 ): Promise<void> {
   // Parse offer
@@ -367,6 +376,55 @@ async function handleProductOffer(
     opportunityId = (opp as any).id
   } catch (err) {
     console.error('[SupplierScout] Failed to create WholesaleOpportunity:', err)
+  }
+
+  // ── Auto-forward gate (Phase 3B-auto) ────────────────────────────────────
+  // Independent of auto-create — fires even when autoPauseActive or autoCreateEnabled=false.
+  // Fails silently — WO is always preserved regardless of forwarding outcome.
+  if (
+    opportunityId &&
+    opts.opsGroupChatId &&
+    offer.parseScore >= opts.autoForwardMinScore &&
+    offer.hasPhoto &&
+    offer.productName &&
+    offer.availableSizes && offer.availableSizes.length > 0 &&
+    offer.wholesalePrice &&
+    groupConfig.isActive
+  ) {
+    try {
+      const savedWo = await payload.findByID({
+        collection: 'wholesale-opportunities',
+        id: opportunityId as number,
+        depth: 1,
+      }) as Record<string, unknown>
+      const { messageId } = await sendOpsCard(savedWo, opts.opsGroupChatId)
+      if (messageId != null) {
+        await payload.update({
+          collection: 'wholesale-opportunities',
+          id: opportunityId as number,
+          data: {
+            opsForwardStatus: 'forwarded',
+            forwardedToOpsAt: new Date().toISOString(),
+            forwardedToOpsMessageId: messageId,
+          } as any,
+        })
+        await logAction({
+          actionType: 'auto_ops_forwarded',
+          confidence: offer.parseConfidence,
+          supplierGroupId: String(groupConfig.id),
+          supplierGroupName: groupConfig.groupName,
+          sellerUserId: offer.sellerUserId,
+          sellerUsername: offer.sellerUsername,
+          telegramMessageId: offer.telegramMessageId,
+          wholesalePrice: offer.wholesalePrice,
+          details: `[AUTO] WO #${opportunityId} ops grubuna iletildi — mesaj ID: ${messageId} — skor: ${offer.parseScore}`,
+          isReversible: false,
+          opportunityRef: opportunityId,
+        }, payload)
+      }
+    } catch (autoFwdErr) {
+      console.warn('[SupplierScout] Auto-forward failed (non-critical):', autoFwdErr)
+    }
   }
 
   // ── Auto-create gate ──────────────────────────────────────────────────

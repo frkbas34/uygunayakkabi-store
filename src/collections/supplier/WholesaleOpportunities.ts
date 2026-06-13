@@ -219,5 +219,38 @@ export const WholesaleOpportunities: CollectionConfig = {
       type: 'date',
       label: 'İşlenme Zamanı',
     },
+
+    // ── Ops Group Forwarding (Phase 3B) ─────────────────────────────────────
+    // Tracks whether this WO has been forwarded to the main Mentix/Uygunops group.
+    // Used for deduplication — /forward_wo refuses if opsForwardStatus === 'forwarded'.
+    // forwardedToOpsMessageId stored for potential future card-edit on status change.
+    {
+      name: 'opsForwardStatus',
+      type: 'select',
+      label: 'Ops İletim Durumu',
+      options: [
+        { label: '📤 İletildi', value: 'forwarded' },
+        { label: '🙈 Görmezden Gelindi', value: 'ignored' },
+        { label: '⚠️ Riskli İşaretlendi', value: 'risky' },
+      ],
+      admin: {
+        description: 'Ops grubuna iletim durumu. Null = henüz iletilmedi.',
+      },
+    },
+    {
+      name: 'forwardedToOpsAt',
+      type: 'date',
+      label: 'Ops Grubuna İletilme Zamanı',
+      admin: { readOnly: true },
+    },
+    {
+      name: 'forwardedToOpsMessageId',
+      type: 'number',
+      label: 'Ops Grubu Mesaj ID',
+      admin: {
+        readOnly: true,
+        description: "İletilen kartın Telegram message_id'si — gelecekte kart düzenleme için saklanır.",
+      },
+    },
   ],
 }

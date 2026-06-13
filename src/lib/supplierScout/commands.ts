@@ -32,6 +32,8 @@ import {
   teachSellerNote,
   logAction,
 } from './memory'
+import { previewManualDraft, executeManualDraft } from './productCreator'
+import { sendOpsCard } from './telegram'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Helpers
@@ -90,8 +92,12 @@ export async function handleDMCommand(
       return handleCorrections(payload)
     case '/learning_today':
       return handleLearningToday(payload)
+    case '/create_draft':
+      return handleCreateDraft(args, payload)
+    case '/forward_wo':
+      return handleForwardWo(args, payload)
     default:
-      return `❓ Bilinmeyen komut: ${cmd}\n\nKullanılabilir komutlar:\n/today /pending /suppliers /soldout_today /profit_today\n/pause_auto /resume_auto\n/teach /memory /seller /group_logic /corrections /learning_today`
+      return `❓ Bilinmeyen komut: ${cmd}\n\nKullanılabilir komutlar:\n/today /pending /suppliers /soldout_today /profit_today\n/pause_auto /resume_auto\n/create_draft /forward_wo\n/teach /memory /seller /group_logic /corrections /learning_today`
   }
 }
 
@@ -101,14 +107,41 @@ export async function handleDMCommand(
 
 async function handleStart(ctx: CommandContext, payload: Payload): Promise<string> {
   try {
-    await payload.updateGlobal({
-      slug: 'supplier-scout-settings',
-      data: {
-        frankChatId: ctx.chatId,
-        frankChatIdRegisteredAt: new Date().toISOString(),
-      } as any,
-    })
-    return `✅ <b>SupplierScout aktif!</b>\n\nChat ID'n kaydedildi: <code>${ctx.chatId}</code>\n\nArtık günlük raporlar sana özel DM olarak gelecek (23:30 Istanbul).\n\nHızlı başlangıç:\n• /suppliers — izlenen grupları gör\n• /today — bugünün özetini gör\n• /teach RC = Rain Cloud for New Balance — terim öğret`
+    const settings = await payload.findGlobal({ slug: 'supplier-scout-settings' }) as any
+    const existingFrankId = settings?.frankChatId as number | undefined
+    const existingPartnerId = settings?.partnerChatId as number | undefined
+
+    const isFrank = existingFrankId && ctx.chatId === existingFrankId
+    const isPartner = existingPartnerId && ctx.chatId === existingPartnerId
+    const frankSlotEmpty = !existingFrankId
+    const partnerSlotEmpty = !existingPartnerId
+    const isUnknown = !isFrank && !isPartner && !frankSlotEmpty && !partnerSlotEmpty
+
+    if (isUnknown) {
+      return `⛔ Bu bot özel kullanım içindir. İki operatör slotu dolu.`
+    }
+
+    if (isFrank || frankSlotEmpty) {
+      // Re-register Frank or first registration ever
+      await payload.updateGlobal({
+        slug: 'supplier-scout-settings',
+        data: {
+          frankChatId: ctx.chatId,
+          frankChatIdRegisteredAt: new Date().toISOString(),
+        } as any,
+      })
+      return `✅ <b>SupplierScout aktif!</b>\n\nChat ID'n kaydedildi: <code>${ctx.chatId}</code>\n\nArtık günlük raporlar sana özel DM olarak gelecek (23:30 Istanbul).\n\nHızlı başlangıç:\n• /suppliers — izlenen grupları gör\n• /today — bugünün özetini gör\n• /teach RC = Rain Cloud for New Balance — terim öğret`
+    } else {
+      // Register as partner (second slot)
+      await payload.updateGlobal({
+        slug: 'supplier-scout-settings',
+        data: {
+          partnerChatId: ctx.chatId,
+          partnerChatIdRegisteredAt: new Date().toISOString(),
+        } as any,
+      })
+      return `✅ <b>SupplierScout — Ortak Operatör Aktif!</b>\n\nChat ID'n kaydedildi: <code>${ctx.chatId}</code>\n\nTüm komutlara erişimin var:\n• /suppliers — izlenen grupları gör\n• /today — bugünün özetini gör\n• /forward_wo <WO_id> — ops grubuna ilet\n• /create_draft <WO_id> — taslak oluştur`
+    }
   } catch (err) {
     return `❌ Kayıt hatası: ${(err as Error).message}`
   }
@@ -518,4 +551,270 @@ async function handleLearningToday(payload: Payload): Promise<string> {
   } catch (err) {
     return `❌ Hata: ${(err as Error).message}`
   }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// /create_draft  (Phase 3A — manual operator-triggered draft creation)
+//
+// Two-step flow:
+//   Step 1 — preview:  /create_draft <wo_id>
+//   Step 2 — execute:  /create_draft <wo_id> confirm
+//
+// Currency ambiguity detected at preview → requires "confirm" suffix.
+// autoPauseActive and autoCreateEnabled gates are bypassed (explicit action).
+// Products are always created as status='draft'. No publishing occurs.
+// ─────────────────────────────────────────────────────────────────────────────
+
+async function handleCreateDraft(args: string[], payload: Payload): Promise<string> {
+  // ── Usage guard ──────────────────────────────────────────────────────────
+  if (args.length === 0) {
+    return (
+      '❓ <b>/create_draft kullanımı:</b>\n\n' +
+      '1. Önizleme:  <code>/create_draft &lt;WO_id&gt;</code>\n' +
+      '2. Oluştur:   <code>/create_draft &lt;WO_id&gt; confirm</code>\n\n' +
+      'WO ID listesi için /pending komutunu kullanın.'
+    )
+  }
+
+  const opportunityId = parseInt(args[0], 10)
+  if (isNaN(opportunityId)) {
+    return `❌ Geçersiz WO ID: <code>${args[0]}</code> — sayısal bir değer giriniz.`
+  }
+
+  const isConfirm = args[1]?.toLowerCase() === 'confirm'
+
+  // ── Step 1: Preview (no side effects) ───────────────────────────────────
+  if (!isConfirm) {
+    const preview = await previewManualDraft(opportunityId, payload)
+
+    // Hard error from loader/validator
+    if ('error' in preview) {
+      return `❌ ${preview.error}`
+    }
+
+    // Duplicate — hard block
+    if (preview.isDuplicate) {
+      const pid = preview.duplicateProductId
+      return (
+        `🔁 <b>Duplicate Tespit Edildi</b>\n\n` +
+        `WO #${opportunityId} için ürün zaten mevcut${pid ? ` (Ürün ID: ${pid})` : ''}.\n` +
+        `Taslak oluşturulmaz.`
+      )
+    }
+
+    // Format preview card
+    const lines: string[] = [
+      `📦 <b>Taslak Önizleme — WO #${opportunityId}</b>\n`,
+      `Ürün:    <b>${preview.productName ?? '—'}</b>`,
+    ]
+    if (preview.brand) lines.push(`Marka:   ${preview.brand}`)
+    if (preview.model) lines.push(`Model:   ${preview.model}`)
+    if (preview.color) lines.push(`Renk:    ${preview.color}`)
+    lines.push(`Beden:   ${preview.sizeSummary}`)
+
+    const priceStr =
+      preview.wholesalePrice
+        ? `$${preview.wholesalePrice}${preview.wholesaleCurrency ? ` (${preview.wholesaleCurrency})` : ' (belirsiz döviz)'}`
+        : '? (fiyat yok)'
+    const sitePriceStr = preview.websitePrice ? ` → ₺${preview.websitePrice}` : ''
+    lines.push(`Fiyat:   ${priceStr}${sitePriceStr}`)
+    lines.push(`Güven:   ${preview.parseScore}/100`)
+    lines.push(`Grup:    ${preview.groupName}`)
+
+    if (preview.missingFields.length > 0) {
+      lines.push(`\n⚠️ Eksik alanlar: ${preview.missingFields.join(', ')}`)
+    }
+
+    if (preview.warnings.length > 0) {
+      lines.push('')
+      for (const w of preview.warnings) {
+        lines.push(`⚠️ ${w}`)
+      }
+    }
+
+    lines.push(`\nDurum sonrası: <b>Taslak</b> — yayınlanmaz, otonom oluşturma bypass edilmez`)
+    lines.push(`\nOnaylamak için:`)
+    lines.push(`<code>/create_draft ${opportunityId} confirm</code>`)
+
+    return lines.join('\n')
+  }
+
+  // ── Step 2: Execute (creates draft product) ──────────────────────────────
+  const result = await executeManualDraft(opportunityId, payload)
+
+  if (!result.success) {
+    return `❌ <b>Taslak oluşturulamadı:</b> ${result.error ?? 'Bilinmeyen hata'}`
+  }
+
+  // Log the manual creation action
+  await logAction(
+    {
+      actionType: 'product_created',
+      confidence: 'high',
+      productId: result.productId ? String(result.productId) : undefined,
+      productTitle: result.productTitle,
+      details: `[MANUEL] WO #${opportunityId} → Taslak: ${result.productTitle ?? '?'}`,
+      isReversible: true,
+      opportunityRef: opportunityId,
+    },
+    payload,
+  )
+
+  const adminPath = result.productId
+    ? `\n\n🔗 Payload Admin: /admin/collections/products/${result.productId}`
+    : ''
+
+  return (
+    `✅ <b>Taslak oluşturuldu!</b>\n\n` +
+    `Ürün:        <b>${result.productTitle ?? '?'}</b>\n` +
+    `Site Fiyatı: ₺${result.websitePrice ?? '?'}\n` +
+    `Durum:       Taslak (yayınlanmadı)` +
+    adminPath
+  )
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// /forward_wo  (Phase 3B — manual ops group forwarding)
+//
+// Sends a WholesaleOpportunity product card to the main Mentix/Uygunops group.
+//
+// Usage:        /forward_wo <WO_id>
+//
+// Safety rules:
+//   - No product is created (read-only on Products collection)
+//   - No publishing, no stock changes, no channel triggers
+//   - Refuses to forward the same WO twice (dedup via opsForwardStatus)
+//   - opsGroupChatId must be set in SupplierScoutSettings
+//   - Card contains no raw Telegram IDs or secrets
+// ─────────────────────────────────────────────────────────────────────────────
+
+async function handleForwardWo(args: string[], payload: Payload): Promise<string> {
+  // ── Usage guard ──────────────────────────────────────────────────────────
+  if (args.length === 0) {
+    return (
+      '❓ <b>/forward_wo kullanımı:</b>\n\n' +
+      '<code>/forward_wo &lt;WO_id&gt;</code>\n\n' +
+      "Seçilen WholesaleOpportunity'yi ops grubuna kart olarak iletir.\n" +
+      'WO ID listesi için /pending kullanın.'
+    )
+  }
+
+  const woId = parseInt(args[0], 10)
+  if (isNaN(woId)) {
+    return `❌ Geçersiz WO ID: <code>${args[0]}</code> — sayısal bir değer giriniz.`
+  }
+
+  // ── Load settings — need opsGroupChatId ─────────────────────────────────
+  let opsGroupChatId: number | undefined
+  try {
+    const settings = await payload.findGlobal({ slug: 'supplier-scout-settings' }) as any
+    opsGroupChatId = settings?.opsGroupChatId
+  } catch (err) {
+    return `❌ Ayarlar yüklenemedi: ${(err as Error).message}`
+  }
+
+  if (!opsGroupChatId) {
+    return (
+      `⛔ <b>Ops grubu yapılandırılmamış</b>\n\n` +
+      `SupplierScoutSettings → Ops Grubu Chat ID'si doldurulmalı.\n` +
+      `Önce @SupplierScout_bot'u ops grubuna ekle, sonra admin panelinden Chat ID'yi ayarla.`
+    )
+  }
+
+  // ── Load WO ──────────────────────────────────────────────────────────────
+  let wo: Record<string, any>
+  try {
+    wo = await payload.findByID({
+      collection: 'wholesale-opportunities',
+      id: woId,
+      depth: 1, // populate supplierGroup relationship
+    }) as Record<string, any>
+  } catch {
+    return `❌ WO #${woId} bulunamadı. ID'yi kontrol et.`
+  }
+
+  // ── Deduplication guard ──────────────────────────────────────────────────
+  if (wo.opsForwardStatus === 'forwarded') {
+    const forwardedAt = wo.forwardedToOpsAt
+      ? new Date(wo.forwardedToOpsAt as string).toLocaleString('tr-TR', { timeZone: 'Europe/Istanbul' })
+      : '?'
+    return (
+      `🔁 <b>Zaten İletildi</b>\n\n` +
+      `WO #${woId} daha önce ops grubuna iletildi (${forwardedAt}).\n` +
+      `Tekrar iletmek için önce opsForwardStatus'ü admin panelinden sıfırla.`
+    )
+  }
+
+  // ── Soft warnings (don't block, just inform) ─────────────────────────────
+  const softWarnings: string[] = []
+  if (!wo.productName) softWarnings.push('ürün adı eksik')
+  if (!wo.wholesalePrice) softWarnings.push('fiyat eksik')
+  if (!wo.availableSizes || (Array.isArray(wo.availableSizes) && wo.availableSizes.length === 0)) {
+    softWarnings.push('beden listesi boş')
+  }
+
+  // ── Send card to ops group ────────────────────────────────────────────────
+  let messageId: number | null = null
+  try {
+    const result = await sendOpsCard(wo, opsGroupChatId)
+    messageId = result.messageId
+  } catch (err) {
+    return `❌ Kart gönderilemedi: ${(err as Error).message}`
+  }
+
+  if (messageId === null) {
+    return (
+      `❌ <b>Gönderim Başarısız</b>\n\n` +
+      `Kart ops grubuna gönderilemedi. Olası nedenler:\n` +
+      `• @SupplierScout_bot gruba eklenmemiş\n` +
+      `• Ops grubu Chat ID hatalı\n` +
+      `• SUPPLIER_SCOUT_BOT_TOKEN geçersiz\n\n` +
+      `Vercel loglarını kontrol et.`
+    )
+  }
+
+  // ── Update WO forwarding status ───────────────────────────────────────────
+  try {
+    await payload.update({
+      collection: 'wholesale-opportunities',
+      id: woId,
+      data: {
+        opsForwardStatus: 'forwarded',
+        forwardedToOpsAt: new Date().toISOString(),
+        forwardedToOpsMessageId: messageId,
+      } as any,
+    })
+  } catch (err) {
+    // Non-fatal: card was sent successfully, just log the update failure
+    console.error('[SupplierScout/forward_wo] WO forward-status update failed (non-fatal):', err)
+  }
+
+  // ── Log action ────────────────────────────────────────────────────────────
+  try {
+    await logAction(
+      {
+        actionType: 'ops_forwarded',
+        confidence: wo.confidence ?? 'none',
+        details: `[MANUEL] WO #${woId} ops grubuna iletildi — mesaj ID: ${messageId}`,
+        isReversible: false,
+        opportunityRef: woId,
+      },
+      payload,
+    )
+  } catch { /* non-critical */ }
+
+  // ── Response to Frank ─────────────────────────────────────────────────────
+  const productName = (wo.productName as string | undefined) ?? '?'
+  let reply =
+    `✅ <b>Ops grubuna iletildi!</b>\n\n` +
+    `WO #${woId} — ${productName}\n` +
+    `Mesaj ID: ${messageId}`
+
+  if (softWarnings.length > 0) {
+    reply += `\n\n⚠️ Uyarı: ${softWarnings.join(', ')} — kart yine de gönderildi`
+  }
+
+  reply += `\n\nTaslak için: <code>/create_draft ${woId} confirm</code>`
+
+  return reply
 }

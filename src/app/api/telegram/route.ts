@@ -3128,15 +3128,42 @@ export async function POST(req: NextRequest) {
               await sendTelegramMessage(chatId, '⚠️ En az 2 karakter girin. Örnek: <code>Nike Air Max 90</code>')
               return NextResponse.json({ ok: true })
             }
-            // First word = brand, full text = title (if multi-word)
-            const parts = brandText.split(/\s+/)
-            const brand = parts[0]
+            // Multi-word brand list — these must be matched as a whole, not split at first word.
+            // Add new brands here when needed (case-insensitive prefix match).
+            const MULTI_WORD_BRANDS = [
+              'loro piana', 'new balance', 'hugo boss', 'tommy hilfiger', 'ralph lauren',
+              'the north face', 'pierre cardin', 'stone island', 'golden goose', 'off white',
+              'off-white', 'air jordan', 'fear of god', 'common projects', 'filling pieces',
+              'miu miu', 'rick owens', 'palm angels', 'maison margiela', 'saint laurent',
+              'jack wolfskin', 'under armour', 'columbia sportswear', 'sergio tacchini',
+              'le coq sportif', 'paul smith', 'vivienne westwood', 'marc jacobs',
+              'alexander mcqueen', 'bottega veneta', "tod's", 'hogan', 'valentino garavani',
+            ]
+            const lowerBrand = brandText.toLowerCase()
+            const matchedMultiWordBrand = MULTI_WORD_BRANDS.find(b => lowerBrand.startsWith(b))
+
+            let brand: string
+            let modelPart: string
+            if (matchedMultiWordBrand) {
+              brand = brandText.slice(0, matchedMultiWordBrand.length)
+              modelPart = brandText.slice(matchedMultiWordBrand.length).trim()
+            } else {
+              const parts = brandText.split(/\s+/)
+              brand = parts[0]
+              modelPart = parts.slice(1).join(' ')
+            }
+
             wizSession.collected.brand = brand
-            // If operator wrote more than just the brand, use full text as product title
-            if (parts.length > 1) {
+            // If there's additional model/color/detail beyond the brand, set as title
+            if (modelPart.length > 0) {
               wizSession.collected.title = brandText
               await sendTelegramMessage(chatId, `✅ Marka: <b>${brand}</b>\n✅ Ürün adı: <b>${brandText}</b>`)
             } else {
+              // Brand-only input (could be single or multi-word brand like "Loro Piana")
+              if (brand !== brandText.split(/\s+/)[0]) {
+                // Multi-word brand, no model — set title = full brand too
+                wizSession.collected.title = brandText
+              }
               await sendTelegramMessage(chatId, `✅ Marka: <b>${brand}</b>`)
             }
 
@@ -4959,10 +4986,21 @@ export async function POST(req: NextRequest) {
           return NextResponse.json({ ok: true })
         }
 
+        // sil / delete — hard delete the product
+        if (subAction === 'sil' || subAction === 'delete' || subAction === 'kaldir' || subAction === 'kaldır') {
+          const title = p.title || 'İsimsiz'
+          await payload.delete({ collection: 'products', id: pId })
+          await sendTelegramMessage(
+            chatId,
+            `🗑️ <b>${sn} silindi</b>\n\n<code>${title}</code> (ID: ${pId}) kalıcı olarak kaldırıldı.`,
+          )
+          return NextResponse.json({ ok: true })
+        }
+
         await sendTelegramMessage(
           chatId,
           `❌ Bilinmeyen işlem: <b>${subAction}</b>\n\n` +
-            `Kullanılabilir: tükendi, 1kaldı, 2kaldı, durdur, aç, stok &lt;N&gt;`,
+            `Kullanılabilir: tükendi, 1kaldı, 2kaldı, durdur, aç, stok &lt;N&gt;, sil`,
         )
         return NextResponse.json({ ok: true })
       } catch (err) {

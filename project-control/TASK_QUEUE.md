@@ -896,6 +896,13 @@ Any modification to `src/lib/imageProviders.ts` or `src/jobs/imageGenTask.ts` th
 - [x] D-278: parser.ts — price/size/name extraction, computeWebsitePrice, parseSoldOutSignal
 - [x] D-278: soldoutMatcher.ts — 6-signal scored matching, applySoldOut, threshold routing
 - [x] D-278: productCreator.ts — 9-condition auto-create gate, buildSizeList, autoCreateProduct
+- [x] D-278 Phase 3A Fix 1 — autoCreateProduct() 5-bug fix VERIFIED 2026-05-13 (commits 0950a579 + ed3a95e9):
+  - Nested group fields: all supplierMeta/automationMeta/workflow/channels were dot-notation flat keys (Payload v3 silently drops) → now proper nested objects
+  - Variant field names: stockQuantity→stock, sku→variantSku (per Variants.ts schema)
+  - channels.publishWebsite: forced false (Products.ts defaultValue=true would publish drafts to website)
+  - workflowStatus: 'intake'→'draft' (invalid Payload select value → ValidationError on create)
+  - contentStatus: 'not_started'→'pending' (invalid Payload select value → ValidationError on create)
+  - Controlled test: WO#31 → Product #330, 20/20 verification conditions passed, RolvoDropIthal untouched
 - [x] D-278: memory.ts — language/seller/correction CRUD, trust score, action logger
 - [x] D-278: reportGenerator.ts — buildDailyReport, formatDailyReport (9 sections), saveDailyReport
 - [x] D-278: commands.ts — 14 DM commands including /teach, /memory, /seller, /corrections, /learning_today

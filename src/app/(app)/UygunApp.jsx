@@ -124,6 +124,9 @@ function GlobalStyles() {
       /* D-306: mobile sticky WhatsApp CTA — visible only on small screens */
       .uy-sticky-wa { display: none; }
       @media(max-width:768px) { .uy-sticky-wa { display: flex !important; } }
+      /* D-308: in-flow spacer so the mobile sticky CTA never covers footer/content */
+      .uy-sticky-spacer { display: none; }
+      @media(max-width:768px) { .uy-sticky-spacer { display: block; height: 76px; } }
     `}</style>
   );
 }
@@ -409,7 +412,7 @@ function Hero({ onNav, settings, allProducts }) {
 
   return (
     <section style={{
-      minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center",
+      minHeight: "auto", display: "flex", alignItems: "center", justifyContent: "center",
       position: "relative", overflow: "hidden", textAlign: "center",
     }}>
       {/* Grid background */}
@@ -417,25 +420,24 @@ function Hero({ onNav, settings, allProducts }) {
       {/* AI Glow */}
       <div style={{ position: "fixed", top: "-20%", right: "-10%", width: 800, height: 800, background: "radial-gradient(circle, rgba(200,16,46,0.04) 0%, transparent 65%)", pointerEvents: "none", filter: "blur(80px)", zIndex: 0 }} />
 
-      <div style={{ position: "relative", zIndex: 1, maxWidth: 860, margin: "0 auto", padding: "160px 40px 80px", width: "100%" }}>
+      <div style={{ position: "relative", zIndex: 1, maxWidth: 860, margin: "0 auto", padding: "120px 24px 56px", width: "100%" }}>
         {/* Tag */}
         <div style={{ display: "inline-flex", alignItems: "center", gap: 10, fontFamily: T.sans, fontSize: 11, fontWeight: 600, textTransform: "uppercase",
           letterSpacing: "0.22em", color: T.red, marginBottom: 32, background: T.redSoft, padding: "8px 24px", borderRadius: T.r.full, border: "1px solid rgba(200,16,46,0.1)" }}>
           <span style={{ width: 8, height: 8, borderRadius: "50%", background: T.red }} />
-          MERKEZDEN ERİŞİM
+          YENİ SEZON
         </div>
 
         {/* Title */}
         <h1 style={{ fontFamily: T.serif, fontSize: "clamp(40px, 5.5vw, 72px)", fontWeight: 800, color: T.text,
           lineHeight: 1.1, letterSpacing: "-0.02em", marginBottom: 28 }}>
-          Kaliteli ayakkabı,<br />merkezinden uygun fiyata.
+          Yeni Sezon Ayakkabılar<br />Uygun Fiyatlarla
         </h1>
 
         {/* Description */}
         <p style={{ fontFamily: T.sans, fontSize: 16, color: T.textLight, lineHeight: 1.9,
           margin: "0 auto 16px", maxWidth: 600 }}>
-          Aymakoop merkezinden seçilmiş kaliteli modeller, uygun fiyatlarla.
-          Beğen, WhatsApp&apos;tan yaz — ekibimiz kısa sürede dönüş yapsın.
+          Loafer, sneaker ve günlük modeller. Numaranı seç, talep bırak — hızlıca dönüş yapalım.
         </p>
 
         {/* D-258: Compact inquiry flow hint — replaces internal jargon line */}
@@ -471,7 +473,7 @@ function Hero({ onNav, settings, allProducts }) {
             cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 10,
             textDecoration: "none", transition: "all 0.3s",
           }}>
-            {I.wa} WHATSAPP&apos;TAN YAZ
+            {I.wa} NUMARAMI SOR
           </a>
         </div>
 
@@ -963,7 +965,7 @@ export default function App({ dbProducts = [], siteSettings = null, banners = []
     const merged = [...pickIds(sections?.popular), ...pickIds(sections?.bestSellers)];
     const uniq = [...new Map(merged.map(p => [String(p.id), p])).values()];
     if (uniq.length >= 2) return uniq.slice(0, 12);
-    return allProducts.slice(6, 18);
+    return allProducts.slice(0, 12);
   })();
   const tukenmedenList = allProducts.filter(p => p.status !== "soldout" && p.stock > 0 && p.stock <= 3).slice(0, 12);
 
@@ -1102,53 +1104,36 @@ export default function App({ dbProducts = [], siteSettings = null, banners = []
         <div>
           <Hero onNav={nav} settings={S} allProducts={allProducts} />
 
-          {/* D-280: Discovery zone first — search + category immediately after Hero */}
-          <CategoryOverlay onNav={nav} />
+          {/* D-308: product-first / action-first flow for ad traffic */}
+          {/* 1) Yeni Gelenler */}
+          <ProductRail tag="YENİ SEZON" title="Yeni Gelenler" products={yeniList} onView={view} onNav={nav} accent={T.green} />
 
-          {/* D-281: Popular Products before WhyUs — visitors reach real products faster */}
-          <section style={{ padding: "60px 40px 100px", maxWidth: 1440, margin: "0 auto", borderTop: "1px solid rgba(28,26,22,0.06)", position: "relative", zIndex: 1 }}>
-            <div style={{ marginBottom: 40, display: "flex", justifyContent: "space-between", alignItems: "flex-end", flexWrap: "wrap", gap: 16 }}>
-              <div>
-                <p style={{ fontFamily: T.sans, fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.18em", color: T.red, marginBottom: 10 }}>POPÜLER</p>
-                <h2 style={{ fontFamily: T.serif, fontSize: "clamp(30px, 3.5vw, 48px)", fontWeight: 700, color: T.text, letterSpacing: "-0.02em" }}>Popüler Ayakkabılar</h2>
-              </div>
-              {/* D-257: escape to catalog */}
-              <button onClick={() => nav("catalog")} style={{ fontFamily: T.sans, fontSize: 12, fontWeight: 600, letterSpacing: "0.06em", color: T.text, background: "none", border: "1px solid rgba(28,26,22,0.15)", padding: "8px 20px", borderRadius: T.r.full, cursor: "pointer", whiteSpace: "nowrap" }}>Tümünü Gör →</button>
-            </div>
-            <div className="prod-grid" style={{ display: "grid", gridTemplateColumns: "repeat(6, 1fr)", gap: 16 }}>
-              {allProducts.slice(0, 6).map(p => <Card key={p.id || p.slug} p={p} onView={view} />)}
-            </div>
-          </section>
-
-          {/* D-307: Bugün Yeni Gelenler */}
-          <ProductRail tag="BUGÜN YENİ" title="Bugün Yeni Gelenler" products={yeniList} onView={view} onNav={nav} accent={T.green} />
-
-          {/* Neden Uygun Ayakkabı — credibility after visitor has seen real products */}
-          <WhyUsSection onNav={nav} />
-
-          {/* Sipariş Adımları */}
-          <StepsSection onNav={nav} />
-
-          {/* D-307: Çok Sorulan Modeller */}
+          {/* 2) Çok Sorulan Modeller */}
           <ProductRail tag="POPÜLER TALEP" title="Çok Sorulan Modeller" products={cokSorulanList} onView={view} onNav={nav} accent={T.red} />
 
-          {/* D-282: Daha Fazlasını Keşfet — horizontal scroll, products 7-18 */}
-          <BestSellersScroll allProducts={allProducts} onView={view} onNav={nav} />
-
-          {/* Biz Kimiz */}
-          <AboutSection settings={S} />
-
-          {/* Neden Bizden Almalısınız — Trust/Value */}
-          <TrustValueSection onNav={nav} settings={S} />
-
-          {/* D-307: Tükenmeden Yakala — low-stock urgency */}
+          {/* 3) Tükenmeden Yakala */}
           <ProductRail tag="SON FIRSAT" title="Tükenmeden Yakala" products={tukenmedenList} onView={view} onNav={nav} accent="#d97706" />
 
-          {/* İndirimli Ürünler */}
+          {/* 4) Nasıl Sipariş Verilir? */}
+          <StepsSection onNav={nav} />
+
+          {/* 5) Trust / support / delivery */}
+          <TrustValueSection onNav={nav} settings={S} />
+
+          {/* 6) Catalog transition — search + categories, then deals */}
+          <CategoryOverlay onNav={nav} />
           <DiscountedSection allProducts={allProducts} onView={view} onNav={nav} />
 
-          {/* D-284: Final exit recovery CTA before footer */}
+          {/* Lower: brand story + extra discovery (text-heavy moved down) */}
+          <WhyUsSection onNav={nav} />
+          <AboutSection settings={S} />
+          <BestSellersScroll allProducts={allProducts} onView={view} onNav={nav} />
+
+          {/* Final exit recovery CTA before footer */}
           <PreFooterCTA onNav={nav} settings={S} />
+
+          {/* D-308: mobile spacer so sticky WhatsApp CTA never covers footer/content */}
+          <div className="uy-sticky-spacer" aria-hidden="true" />
 
           <Footer onNav={nav} settings={S} />
         </div>

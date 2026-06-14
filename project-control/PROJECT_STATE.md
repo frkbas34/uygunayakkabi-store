@@ -11,7 +11,7 @@ Ad-readiness / conversion sweep + lead-flow fix (Vercel, live):
 - D-313 demo reviews OFF; D-314/D-314b ad-readiness cleanup (external Unsplash removed, duplicate WhyUs removed, About shortened, editorial→gradient, safer tiles, typo); D-315 first-touch UTM attribution survives homepage→PDP; D-316A internal `trackEvent` foundation (no external pixels); D-317/D-318 PDP footer + trust-strip claim cleanup.
 - **D-320 (latest):** fixed product-page lead-form **HTTP 500** — `/api/inquiries` now coerces `productId` string→number for the numeric `product` relationship (fail-soft). Deployed `9a8001b`; live controlled re-test confirmed product-linked submission now succeeds.
 
-**Pending:** admin-verify D-320 stored `product` FK + UTM (needs admin login); delete D319/D320 test leads; D-316B external pixels (awaiting operator approval); IG feed publishing OFF in live AutomationSettings.
+**Pending:** D-320 **verified end-to-end** (D-322: product FK + UTM persisted in DB); D319/D320 test leads (id 10/11) marked `spam` (reversible). D-316B external pixels awaiting operator approval; IG feed publishing OFF in live AutomationSettings.
 
 ---
 

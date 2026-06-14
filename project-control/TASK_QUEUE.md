@@ -8,7 +8,8 @@ _Last updated: 2026-04-28 (LOCK CHECKPOINT — D-227 → D-231 stabilization. PI
 
 - D-302..D-318: image normalization, Phase 1 conversion, editorial/tiles/social-proof/footer, demo-reviews-off, ad-readiness cleanup, UTM attribution, internal `trackEvent`, PDP claim cleanup — all merged to `main` + deployed.
 - **D-320 COMPLETED:** product-linked inquiry HTTP 500 fixed (`productId` coercion in `/api/inquiries`); deployed `9a8001b`; live re-test passed.
-- **NEXT / pending:** admin-verify D-320 stored fields (login needed) + delete D319/D320 test leads; D-316B external pixels (needs operator approval); Products hard-delete-500 still uninvestigated.
+- **D-322 DONE (2026-06-14):** D-320 verified end-to-end (product FK + UTM persisted); D319/D320 test leads (id 10/11) marked `status=spam`.
+- **NEXT / pending:** D-316B external pixels (needs operator approval + KVKK decision); Products hard-delete-500 still uninvestigated; optional operator hard-delete of test-lead ids 10/11.
 
 ---
 

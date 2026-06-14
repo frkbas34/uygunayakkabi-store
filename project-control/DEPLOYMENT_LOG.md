@@ -3,6 +3,7 @@
 _Created 2026-06-14. Newest first. Each deploy = fast-forward git push to `main` → Vercel production build._
 
 ## 2026-06-14
+- _docs-only commits (no runtime/deploy impact):_ `0f46017` D-308→D-321 project-memory sync; D-322 test-lead-cleanup record (this commit).
 - `9a8001b` — **D-320** `/api/inquiries` productId string→number coercion (product-page lead HTTP 500 fix). Deployed; live re-test passed.
 - `fd5fbc1` — **D-318** PDP trust-strip claim cleanup ("Hızlı Geri Dönüş/Teslimat" → "WhatsApp Destek / Kargo Süreci").
 - `0d004b7` — **D-317** PDP footer dynamic year + removed unsupported "hızlı kargo" claim.

@@ -14,8 +14,7 @@ _Created 2026-06-14. Compact handoff for future sessions. See PROJECT_STATE.md /
 - Push workflow: code on a feature branch in worktree `C:\Users\W11\Desktop\uygunayakkabi-website-sweep`; fast-forward push to `main` via `git -c credential.helper=manager`.
 
 ## Open / pending
-- Admin-verify D-320 stored `product` FK + UTM (needs admin login at uygunayakkabi.com/admin).
-- Delete test leads "D319 Test Lead" + "D320 Test Lead".
+- D-322 (2026-06-14): D-320 verified end-to-end (product FK + UTM persisted in DB). D319/D320 test leads (id 10/11) marked `status=spam` (reversible; not hard-deleted per deletion guardrail — operator may hard-delete if wanted).
 - Products hard-delete returns 500 (uninvestigated).
 - D-316B external ad pixels — awaiting operator approval + consent/KVKK decision.
 

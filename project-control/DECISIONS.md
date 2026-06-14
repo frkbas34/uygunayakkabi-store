@@ -1,5 +1,27 @@
 # DECISIONS — Uygunayakkabi
 
+## D-320 — Product-linked inquiry HTTP 500 fix (2026-06-14)
+**Decision:** Coerce `productId` from string to number in `/api/inquiries` before assigning the `product` relationship (fail-soft to `undefined` on a bad/empty id).
+**Reason:** `ContactForm` sends `productId={String(product.id)}` (string); `products` ids are numeric, so passing the string to the numeric `product` relationship made `payload.create` throw → HTTP 500. Every product-page lead was failing.
+**Status:** IMPLEMENTED + DEPLOYED (`9a8001b` → `main`, 2026-06-14). Live controlled re-test: product-linked submission now succeeds. No DB schema / Payload collection change. Admin-side field confirmation pending (login).
+
+## D-308 → D-318 — Ad-Readiness & Conversion Sweep (2026-06-13/14, all DEPLOYED)
+**Decision:** A series of low-risk, reversible storefront polish + trust/honesty cleanups to prepare for paid ads; each shipped to `main` + Vercel (commits in DEPLOYMENT_LOG.md).
+- **D-308:** product-first homepage reorder; hero ad-copy ("Yeni Sezon Ayakkabılar Uygun Fiyatlarla") + CTAs (Yeni Gelenleri Gör / Numaramı Sor); shorter mobile hero; PDP CTA polish.
+- **D-310/D-311/D-312** (D-309 tiles folded into D-310): full-width editorial section ("Adımını Tarzınla At"), "Tarzına Göre Seç" category tiles, social-proof section, premium footer.
+- **D-313:** demo reviews gated OFF in production (`DEMO_REVIEWS_ENABLED=false`); soft summary card only — never present fake reviews/counts.
+- **D-314/D-314b:** removed external Unsplash image, removed duplicate WhyUs section, shortened About, editorial→warm gradient, safer category-tile behavior, "teslikata"→"teslimata" typo, removed now-unused code.
+- **D-315:** first-touch UTM attribution (`src/lib/attribution.ts`, sessionStorage) survives homepage→PDP so leads keep attribution; hero/sticky WhatsApp prefill.
+- **D-316A:** internal `trackEvent` foundation (`src/lib/trackEvent.ts`) — **no external pixels/scripts** (GA4/Meta/TikTok deferred to D-316B pending operator approval + KVKK decision).
+- **D-317/D-318:** PDP footer + trust-strip honesty cleanup — dynamic year, removed unsupported "hızlı kargo" / "Hızlı Teslimat" claims (→ "Kargo Süreci" / "WhatsApp Destek").
+**Status:** ALL IMPLEMENTED + DEPLOYED to `main` (2026-06-13/14). No DB schema / Payload collection changes.
+
+## D-319 — Controlled lead + attribution verification (2026-06-14, diagnostic)
+**Decision:** One controlled production test confirmed UTM attribution persists to the DB and surfaced that product-linked lead submissions were failing → fixed in D-320 (detail in BUGS_AND_FIXES.md).
+**Status:** DIAGNOSTIC COMPLETE; led directly to D-320.
+
+_(Older decisions D-001 … follow below, in chronological order.)_
+
 ## D-001 — Core Storefront Stack
 **Decision:**  
 Use **Next.js** as the main storefront framework.

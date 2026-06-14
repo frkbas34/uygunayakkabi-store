@@ -2,6 +2,19 @@
 
 _Last updated: 2026-04-28 (LOCK CHECKPOINT — D-227 → D-231 stabilization. PI auto-bridge into GeoBot, observability + mandatory prompt rules, idempotent applyConfirmation, richer SEO/GEO pack with mandatory sections, parallel commerce/discovery, wizard category+brand+productType vision autofill — all PROD-VALIDATED. Operator confirmation: "it's working perfectly now". Future work branches from this baseline.)_
 
+## Current status — 2026-06-14 (D-302 → D-320, all deployed to production `main`)
+
+Ad-readiness / conversion sweep + lead-flow fix (Vercel, live):
+- D-302/D-303: product-card image bg + `object-fit:contain`; image-gen unified studio bg, 74–80% scale, suede material branch.
+- D-304→D-308 (Phase 1 conversion): card hover, hero ad-copy + CTAs, homepage mobile sticky WhatsApp, "Nasıl Sipariş Verilir?", product-first reorder; PDP CTA polish.
+- D-310/D-311/D-312: full-width editorial section + "Tarzına Göre Seç" tiles + social-proof section (DEMO reviews; `DEMO_REVIEWS_ENABLED=false` in prod) + premium footer.
+- D-313 demo reviews OFF; D-314/D-314b ad-readiness cleanup (external Unsplash removed, duplicate WhyUs removed, About shortened, editorial→gradient, safer tiles, typo); D-315 first-touch UTM attribution survives homepage→PDP; D-316A internal `trackEvent` foundation (no external pixels); D-317/D-318 PDP footer + trust-strip claim cleanup.
+- **D-320 (latest):** fixed product-page lead-form **HTTP 500** — `/api/inquiries` now coerces `productId` string→number for the numeric `product` relationship (fail-soft). Deployed `9a8001b`; live controlled re-test confirmed product-linked submission now succeeds.
+
+**Pending:** admin-verify D-320 stored `product` FK + UTM (needs admin login); delete D319/D320 test leads; D-316B external pixels (awaiting operator approval); IG feed publishing OFF in live AutomationSettings.
+
+---
+
 ## 🔒 LOCK CHECKPOINT — 2026-04-28 — Production Baseline
 
 **Operator confirmation:** "it's working perfectly now". This checkpoint freezes D-227 → D-231 as the **stable production baseline**. Future sessions must continue from this state, not redesign it.

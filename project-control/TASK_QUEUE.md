@@ -4,6 +4,14 @@ _Last updated: 2026-04-28 (LOCK CHECKPOINT — D-227 → D-231 stabilization. PI
 
 ---
 
+## Recent — 2026-06-14 — D-302 → D-320 COMPLETED & deployed
+
+- D-302..D-318: image normalization, Phase 1 conversion, editorial/tiles/social-proof/footer, demo-reviews-off, ad-readiness cleanup, UTM attribution, internal `trackEvent`, PDP claim cleanup — all merged to `main` + deployed.
+- **D-320 COMPLETED:** product-linked inquiry HTTP 500 fixed (`productId` coercion in `/api/inquiries`); deployed `9a8001b`; live re-test passed.
+- **NEXT / pending:** admin-verify D-320 stored fields (login needed) + delete D319/D320 test leads; D-316B external pixels (needs operator approval); Products hard-delete-500 still uninvestigated.
+
+---
+
 ## 🔒 LOCK CHECKPOINT — 2026-04-28 — Production Baseline
 
 This is a **stabilization checkpoint**. Do not reopen D-227 → D-231 implementation. Future work in the PI / wizard / GeoBot space must come in as a new D-23x or D-24x decision and must not modify the locked behaviour without explicit operator authorization.

@@ -26,7 +26,7 @@ export function StorefrontFooter() {
             </span>
           </div>
           <p style={{ fontFamily: "'Inter', sans-serif", fontSize: 13, color: 'rgba(240,236,228,0.35)', lineHeight: 1.85, maxWidth: 300 }}>
-            Kaliteli ayakkabılar, uygun fiyatlar. Geniş marka yelpazesi, hızlı kargo.
+            Seçilmiş modeller, güncel stok kontrolü ve WhatsApp destekli kolay sipariş süreci.
           </p>
         </div>
         <div>
@@ -82,7 +82,7 @@ export function StorefrontFooter() {
       </div>
       <div style={{ maxWidth: 1440, margin: '0 auto', padding: '20px 0', borderTop: '1px solid rgba(240,236,228,0.08)', display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
         <p style={{ fontFamily: "'Inter', sans-serif", fontSize: 11, color: 'rgba(240,236,228,0.22)' }}>
-          © 2025 UygunAyakkabı — Tüm hakları saklıdır.
+          © {new Date().getFullYear()} UygunAyakkabı — Tüm hakları saklıdır.
         </p>
         <p style={{ fontFamily: "'Inter', sans-serif", fontSize: 11, color: 'rgba(240,236,228,0.22)' }}>
           uygunayakkabi.com

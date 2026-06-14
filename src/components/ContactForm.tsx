@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { captureFirstTouch, getStoredAttribution } from '@/lib/attribution'
+import { trackEvent, TRACK_EVENTS } from '@/lib/trackEvent'
 
 // ── D-251: Source-detail capture helpers ─────────────────────────────────────
 
@@ -72,7 +73,19 @@ export function ContactForm({ productId, productTitle, variants, soldout }: Prop
 
   // D-315: capture first-touch attribution (UTM/referrer) on mount so a homepage
   // landing's UTM survives navigation to this product page (query string is dropped).
-  useEffect(() => { captureFirstTouch() }, [])
+  // D-316A: fire view_product on mount + delegated WhatsApp-click tracking for the
+  // server-rendered wa.me links on this page (no PII — product id/name only).
+  useEffect(() => {
+    captureFirstTouch()
+    trackEvent(TRACK_EVENTS.VIEW_PRODUCT, { productId, productName: productTitle ?? null })
+    const onDocClick = (e: MouseEvent) => {
+      const el = e.target as HTMLElement | null
+      const a = el && el.closest ? el.closest('a[href*="wa.me"]') : null
+      if (a) trackEvent(TRACK_EVENTS.CLICK_WHATSAPP_PRODUCT, { productId, productName: productTitle ?? null, ctaLocation: 'product_detail' })
+    }
+    document.addEventListener('click', onDocClick)
+    return () => document.removeEventListener('click', onDocClick)
+  }, [productId, productTitle])
 
   // D-265: listen for OOS chip clicks from page.tsx (cross-component via CustomEvent)
   useEffect(() => {
@@ -138,6 +151,8 @@ export function ContactForm({ productId, productTitle, variants, soldout }: Prop
 
       if (res.ok) {
         setStatus('success')
+        // D-316A: lead-form success event (no PII — product context only)
+        trackEvent(TRACK_EVENTS.SUBMIT_LEAD_FORM, { productId, productName: productTitle ?? null })
         setName('')
         setPhone('')
         setSize('')

@@ -1,6 +1,7 @@
 "use client";
 import { useState, useEffect, useRef } from "react";
 import { captureFirstTouch } from "@/lib/attribution";
+import { trackEvent, TRACK_EVENTS } from "@/lib/trackEvent";
 
 // ============================================
 // DESIGN TOKENS — Light Beige, Playfair + Inter
@@ -474,7 +475,7 @@ function Hero({ onNav, settings, allProducts }) {
             YENİ GELENLERİ GÖR {I.arrow}
           </button>
           {/* D-305: Direct WhatsApp contact CTA */}
-          <a href={`${waLink(contact?.whatsappFull)}?text=${encodeURIComponent("Merhaba, uygunayakkabi.com'daki modeller hakkında bilgi almak istiyorum.")}`} target="_blank" rel="noreferrer" style={{
+          <a href={`${waLink(contact?.whatsappFull)}?text=${encodeURIComponent("Merhaba, uygunayakkabi.com'daki modeller hakkında bilgi almak istiyorum.")}`} target="_blank" rel="noreferrer" onClick={() => trackEvent(TRACK_EVENTS.CLICK_WHATSAPP_HOME, { ctaLocation: "hero" })} style={{
             fontFamily: T.sans, fontSize: 12, fontWeight: 700, letterSpacing: "0.12em",
             textTransform: "uppercase", color: "#fff", background: T.green,
             border: "none", padding: "17px 40px", borderRadius: T.r.full,
@@ -911,7 +912,7 @@ function CategoryTiles({ allProducts, onNav }) {
       </div>
       <div className="cat-tiles" style={{ display: "grid", gridTemplateColumns: "repeat(6, 1fr)", gap: 14 }}>
         {tiles.map((t, i) => (
-          <button key={i} onClick={t.go} aria-label={t.label} style={{
+          <button key={i} onClick={() => { trackEvent(t.label === "Yeni Gelenler" ? TRACK_EVENTS.CLICK_NEW_ARRIVALS : TRACK_EVENTS.CLICK_CATEGORY_TILE, { category: t.label }); t.go(); }} aria-label={t.label} style={{
             position: "relative", border: "none", cursor: "pointer", padding: 0,
             borderRadius: 18, overflow: "hidden", aspectRatio: "3 / 4",
             background: t.img ? "#ebe5da" : "linear-gradient(160deg, #efe7da, #e3d8c6)",
@@ -948,7 +949,7 @@ function EditorialImageSection({ bgImage, onNav }) {
           <p style={{ fontFamily: T.sans, fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.2em", color: "rgba(255,255,255,0.7)", marginBottom: 16 }}>YENİ SEZON</p>
           <h2 style={{ fontFamily: T.serif, fontSize: "clamp(32px, 4.5vw, 56px)", fontWeight: 800, color: "#fff", lineHeight: 1.08, letterSpacing: "-0.02em", marginBottom: 18 }}>Adımını Tarzınla At</h2>
           <p style={{ fontFamily: T.sans, fontSize: 16, color: "rgba(255,255,255,0.82)", lineHeight: 1.7, marginBottom: 28, maxWidth: 460 }}>Yeni gelen modelleri keşfet, numaranı sor, sipariş sürecini hızlıca tamamla.</p>
-          <button onClick={() => onNav("catalog")} style={{
+          <button onClick={() => { trackEvent(TRACK_EVENTS.CLICK_EDITORIAL_CTA); onNav("catalog"); }} style={{
             fontFamily: T.sans, fontSize: 12, fontWeight: 700, letterSpacing: "0.12em", textTransform: "uppercase",
             color: T.text, background: "#fff", border: "none", padding: "16px 40px", borderRadius: T.r.full,
             cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 10,
@@ -989,7 +990,7 @@ function SocialProofReviews({ onNav }) {
         <div style={{ flex: "0 0 auto", width: 300, scrollSnapAlign: "start", background: "rgba(238,232,222,0.72)", border: "1px solid rgba(28,26,22,0.06)", borderRadius: 20, padding: "28px 26px", display: "flex", flexDirection: "column", justifyContent: "center" }}>
           <h3 style={{ fontFamily: T.serif, fontSize: 22, fontWeight: 700, color: T.text, marginBottom: 10 }}>Müşteri Deneyimleri</h3>
           <p style={{ fontFamily: T.sans, fontSize: 13, color: T.textLight, lineHeight: 1.7, marginBottom: 20 }}>Gerçek müşteri yorumları onaylı şekilde burada yayınlanacak.</p>
-          <button onClick={() => onNav("catalog")} style={{ alignSelf: "flex-start", fontFamily: T.sans, fontSize: 12, fontWeight: 700, letterSpacing: "0.1em", textTransform: "uppercase", color: "#fff", background: T.text, border: "none", padding: "13px 28px", borderRadius: T.r.full, cursor: "pointer" }}>Ürünleri İncele</button>
+          <button onClick={() => { trackEvent(TRACK_EVENTS.CLICK_SOCIAL_PROOF_CTA); onNav("catalog"); }} style={{ alignSelf: "flex-start", fontFamily: T.sans, fontSize: 12, fontWeight: 700, letterSpacing: "0.1em", textTransform: "uppercase", color: "#fff", background: T.text, border: "none", padding: "13px 28px", borderRadius: T.r.full, cursor: "pointer" }}>Ürünleri İncele</button>
         </div>
         {DEMO_REVIEWS_ENABLED && DEMO_REVIEWS.map((r, i) => (
           <div key={i} style={{ flex: "0 0 auto", width: 300, scrollSnapAlign: "start", background: "#fff", border: "1px solid rgba(28,26,22,0.06)", borderRadius: 20, padding: "26px 24px", boxShadow: "0 6px 22px rgba(0,0,0,0.04)" }}>
@@ -1069,7 +1070,7 @@ export default function App({ dbProducts = [], siteSettings = null, banners = []
 
   // D-315: capture first-touch attribution (UTM/referrer) on homepage landing so it
   // survives navigation to the product detail page where the lead form is submitted.
-  useEffect(() => { captureFirstTouch() }, [])
+  useEffect(() => { captureFirstTouch(); trackEvent(TRACK_EVENTS.VIEW_HOME); }, [])
 
   // D-194: Handle browser back/forward buttons
   useEffect(() => {
@@ -1241,7 +1242,7 @@ export default function App({ dbProducts = [], siteSettings = null, banners = []
 
       {/* D-306: mobile sticky WhatsApp CTA — homepage/catalog only (SSR PDP has its own) */}
       {pg !== "detail" && (
-        <a className="uy-sticky-wa" href={`${waLink(S.contact?.whatsappFull)}?text=${encodeURIComponent("Merhaba, uygunayakkabi.com'daki modeller hakkında bilgi almak istiyorum.")}`} target="_blank" rel="noreferrer"
+        <a className="uy-sticky-wa" href={`${waLink(S.contact?.whatsappFull)}?text=${encodeURIComponent("Merhaba, uygunayakkabi.com'daki modeller hakkında bilgi almak istiyorum.")}`} target="_blank" rel="noreferrer" onClick={() => trackEvent(TRACK_EVENTS.CLICK_WHATSAPP_HOME, { ctaLocation: "mobile_sticky" })}
           style={{
             position: "fixed", left: 16, right: 16, bottom: 16, zIndex: 350,
             alignItems: "center", justifyContent: "center", gap: 10,
@@ -1994,7 +1995,7 @@ function Footer({ onNav, settings }) {
         <div>
           <h5 style={{ fontFamily: T.sans, fontSize: 10, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.16em", color: "rgba(240,236,228,0.28)", marginBottom: 22 }}>Yardım</h5>
           <p onClick={() => onNav("contact")} style={{ fontFamily: T.sans, fontSize: 13, color: "rgba(240,236,228,0.45)", marginBottom: 14, cursor: "pointer", transition: "color 0.2s" }}>S.S.S. &amp; Yardım Merkezi</p>
-          <a href={`${waLink(ct.whatsappFull)}?text=${encodeURIComponent("Merhaba, uygunayakkabi.com üzerinden ürünler hakkında bilgi almak istiyorum.")}`} target="_blank" rel="noreferrer" style={{
+          <a href={`${waLink(ct.whatsappFull)}?text=${encodeURIComponent("Merhaba, uygunayakkabi.com üzerinden ürünler hakkında bilgi almak istiyorum.")}`} target="_blank" rel="noreferrer" onClick={() => trackEvent(TRACK_EVENTS.CLICK_WHATSAPP_FOOTER, { ctaLocation: "footer" })} style={{
             display: "inline-flex", alignItems: "center", gap: 8,
             fontFamily: T.sans, fontSize: 12, fontWeight: 600, letterSpacing: "0.06em",
             color: "#f0ece4", border: "1px solid rgba(240,236,228,0.2)", padding: "10px 20px",

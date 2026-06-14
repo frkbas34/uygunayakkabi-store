@@ -752,8 +752,8 @@ export default async function ProductPage({ params }: Props) {
                   borderTop: '1px solid rgba(28,26,22,0.06)',
                 }}>
                   {[
-                    { icon: '📞', title: 'Hızlı Geri Dönüş', desc: 'Talebinizden sonra sizi arıyoruz' },
-                    { icon: '📦', title: 'Hızlı Teslimat', desc: 'Onay sonrası kargoya verilir' },
+                    { icon: '📞', title: 'WhatsApp Destek', desc: 'Beğendiğiniz model için numara ve stok durumunu birlikte netleştiririz.' },
+                    { icon: '📦', title: 'Kargo Süreci', desc: 'Sipariş onayı sonrası kargo ve teslimat bilgileri sizinle paylaşılır.' },
                     { icon: '💬', title: 'Beden Desteği', desc: 'Beden konusunda yönlendiriyoruz' },
                     { icon: '🔒', title: 'Güvenli İletişim', desc: 'Bilgiler yalnızca sipariş için' },
                   ].map((item, i) => (

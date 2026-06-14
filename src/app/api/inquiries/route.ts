@@ -55,6 +55,16 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Invalid phone number' }, { status: 400 })
     }
 
+    // D-320: products use numeric ids, but the storefront form sends productId as a
+    // STRING (String(product.id)). Passing a string to the numeric `product`
+    // relationship made payload.create throw (HTTP 500), so every product-page lead
+    // failed. Coerce to a number; fail-soft to undefined on a bad/empty id so the
+    // lead is still saved (without the product link) instead of erroring out.
+    const numericProductId =
+      productId !== undefined && productId !== null && String(productId).trim() !== '' && !Number.isNaN(Number(productId))
+        ? Number(productId)
+        : undefined
+
     const payload = await getPayload()
 
     const created = await payload.create({
@@ -63,7 +73,7 @@ export async function POST(req: NextRequest) {
         name,
         phone,
         size: size || undefined,
-        product: productId || undefined,
+        product: numericProductId,
         message: message || undefined,
         source: normalizeInquirySource(source),
         status: 'new',

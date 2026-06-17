@@ -2,6 +2,9 @@
 
 _Created 2026-06-14. Newest first. Each deploy = fast-forward git push to `main` → Vercel production build._
 
+## 2026-06-18
+- **D-324** — _production DATA op (no code deploy):_ Admin unpublished placeholder product id 361 `Taslak Ürün 16/06-4184` (`status active → draft`). No git/code change; docs-only commit `docs: record D-324 catalog hygiene`.
+
 ## 2026-06-14
 - _docs-only commits (no runtime/deploy impact):_ `0f46017` D-308→D-321 project-memory sync; D-322 test-lead-cleanup record (this commit).
 - `9a8001b` — **D-320** `/api/inquiries` productId string→number coercion (product-page lead HTTP 500 fix). Deployed; live re-test passed.

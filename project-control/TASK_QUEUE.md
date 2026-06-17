@@ -10,7 +10,8 @@ _Last updated: 2026-04-28 (LOCK CHECKPOINT — D-227 → D-231 stabilization. PI
 - **D-320 COMPLETED:** product-linked inquiry HTTP 500 fixed (`productId` coercion in `/api/inquiries`); deployed `9a8001b`; live re-test passed.
 - **D-322 DONE (2026-06-14):** D-320 verified end-to-end (product FK + UTM persisted); D319/D320 test leads (id 10/11) marked `status=spam`.
 - **D-323 pre-ad audit (2026-06-14): READY WITH WARNINGS** — lead flow/attribution/WhatsApp/no-pixels/no-demo verified live. Flag: placeholder product "Taslak Ürün 16/06-4184" publicly visible (operator should rename/unpublish before ads).
-- **NEXT / pending:** rename/unpublish "Taslak Ürün" draft; D-316B external pixels (needs operator approval + KVKK decision); Products hard-delete-500 still uninvestigated; optional operator hard-delete of test-lead ids 10/11.
+- **D-324 DONE (2026-06-18):** placeholder product `Taslak Ürün 16/06-4184` (id 361) unpublished via Admin (`status active → draft`) — the only active placeholder of 17 `Taslak Ürün …` rows; 6 real products stayed active. Homepage re-verified clean. No rename/delete/code change. Catalog now clean for ad traffic.
+- **NEXT / pending:** thin catalog (~6 products); D-316B external pixels (needs operator approval + KVKK decision); Products hard-delete-500 still uninvestigated; optional operator hard-delete of test-lead ids 10/11.
 
 ---
 

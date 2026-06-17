@@ -1,5 +1,11 @@
 # DECISIONS — Uygunayakkabi
 
+## D-324 — Pre-ad catalog hygiene: unpublish visible placeholder product (2026-06-18)
+**Decision:** Unpublish the single publicly-visible placeholder product `Taslak Ürün 16/06-4184` (id 361) by setting `status: active → draft` via the Payload Admin API. Did NOT rename (no real product name available in trusted data) and did NOT delete.
+**Reason:** D-323 flagged this draft placeholder (₺4.000, "Son 1 Adet!") as publicly visible on the homepage — bad first impression for incoming ad traffic. Merchandising shows `status==='active'`; flipping to `draft` removes it from every rail and makes its PDP `notFound()`.
+**Scope/safety:** Of 17 `Taslak Ürün …` products, id 361 was the ONLY `active` one (other 16 already `draft`); the 6 real products stayed `active` — none hidden. `active → draft` triggers NO external publishing (Products afterChange dispatch fires only on `→ active`). Reversible. Production DATA change only — no code/git change to runtime.
+**Status:** DONE + VERIFIED (2026-06-18). Live homepage re-fetched: placeholder gone from Yeni Gelenler / Çok Sorulan / all rails; 6 real products present. Docs-only commit `docs: record D-324 catalog hygiene`.
+
 ## D-320 — Product-linked inquiry HTTP 500 fix (2026-06-14)
 **Decision:** Coerce `productId` from string to number in `/api/inquiries` before assigning the `product` relationship (fail-soft to `undefined` on a bad/empty id).
 **Reason:** `ContactForm` sends `productId={String(product.id)}` (string); `products` ids are numeric, so passing the string to the numeric `product` relationship made `payload.create` throw → HTTP 500. Every product-page lead was failing.

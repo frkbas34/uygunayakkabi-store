@@ -1,5 +1,11 @@
 # DECISIONS — Uygunayakkabi
 
+## D-326 — First ad copy + UTM URL pack (2026-06-18, ASSET)
+**Decision:** Produced the copy-ready first-test ad pack for Meta/IG/FB. Full deliverable: `project-control/campaigns/D-326-first-ad-copy-pack.md`.
+**Contents:** UTM landing URLs for ad-safe products 359/355/354 (+353 backup) — fixed `utm_source=meta`, `utm_medium=paid_social`, `utm_campaign=first_loafers_test`, unique `utm_content` per product+angle; 3 primary-text variants (value / versatility / limited), 3 headlines, 3 descriptions, 2 WhatsApp CTAs (Send Message → click-to-WhatsApp), 2 lead-form CTAs (Learn More → PDP `#inquiry-form`); creative rank side_angle→commerce_front→detail_closeup with exact image filenames; compliance checklist.
+**Guardrails honored:** price-light (exact price only on PDP); no fake discount/shipping/review; no trademark/brand claim; brand-named products 358 (Louis Vuitton) + 349 (BOSS) EXCLUDED. No code, no pixel, no external publishing.
+**Status:** ASSET READY — operator builds the campaign in Meta Ads Manager. Open operator call: may exact price appear in paid creative (default = price-light). Docs-only commit `docs: record D-326 first ad copy pack`.
+
 ## D-325 — First paid-ad campaign landing plan (2026-06-18, PLAN)
 **Context:** Site is ad-ready (D-323 verdict + D-324/D-324B catalog hygiene). Canonical folder only (`uygunayakkabi-store`, main == origin/main). Catalog = 6 active products (status dist: 6 active / 1 soldout / 32 draft), all men's classic loafers, ₺1.750–2.099, 3 studio images each, sizes 40–44 (2 units/size ≈ 10 units/product). PDP audited (id 359): gallery+zoom, rich copy, sizes w/ stock, lead form + WhatsApp (prefilled) + Shopier checkout, honest trust strip, FAQ, similar-products. Internal UTM attribution + lead capture working. No external pixels.
 **Decisions:**

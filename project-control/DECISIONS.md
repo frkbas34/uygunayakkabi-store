@@ -1,5 +1,11 @@
 # DECISIONS — Uygunayakkabi
 
+## D-324B — Catalog cleanup re-verification (2026-06-18)
+**Decision:** Independent re-verification pass over D-324, run from the canonical folder `uygunayakkabi-store` (main, in sync with origin/main). No product write performed — none was needed.
+**Findings:** Read-only DB query (production `DATABASE_URI`): `Taslak Ürün 16/06-4184` = id 361, **already `status: draft`**. All 17 `Taslak/Draft/Test/Placeholder`-matching titles are `draft`; **0** are public. Catalog status distribution: 6 active / 1 soldout / 32 draft.
+**Live check:** `https://www.uygunayakkabi.com` (HTTP 200) — placeholder string absent (0 occurrences), no `Taslak` text anywhere, "Yeni Gelenler" rail renders, real products present (loafers: erkek-siyah, louis-vuitton-bej, premium-kahve-puskullu, siyah-rugan-puskullu, siyah-tokali-puskullu). Homepage query excludes `draft` (`status: { in: ['active','soldout'] }`), so a draft product cannot surface.
+**Status:** VERIFIED — D-324 holds. No rename, no delete, no status change, no external publishing. Docs-only commit `docs: record D-324B catalog cleanup verification`.
+
 ## D-324 — Pre-ad catalog hygiene: unpublish visible placeholder product (2026-06-18)
 **Decision:** Unpublish the single publicly-visible placeholder product `Taslak Ürün 16/06-4184` (id 361) by setting `status: active → draft` via the Payload Admin API. Did NOT rename (no real product name available in trusted data) and did NOT delete.
 **Reason:** D-323 flagged this draft placeholder (₺4.000, "Son 1 Adet!") as publicly visible on the homepage — bad first impression for incoming ad traffic. Merchandising shows `status==='active'`; flipping to `draft` removes it from every rail and makes its PDP `notFound()`.

@@ -1,5 +1,18 @@
 # DECISIONS — Uygunayakkabi
 
+## D-325 — First paid-ad campaign landing plan (2026-06-18, PLAN)
+**Context:** Site is ad-ready (D-323 verdict + D-324/D-324B catalog hygiene). Canonical folder only (`uygunayakkabi-store`, main == origin/main). Catalog = 6 active products (status dist: 6 active / 1 soldout / 32 draft), all men's classic loafers, ₺1.750–2.099, 3 studio images each, sizes 40–44 (2 units/size ≈ 10 units/product). PDP audited (id 359): gallery+zoom, rich copy, sizes w/ stock, lead form + WhatsApp (prefilled) + Shopier checkout, honest trust strip, FAQ, similar-products. Internal UTM attribution + lead capture working. No external pixels.
+**Decisions:**
+- **Brand-safety (HARD):** Do NOT advertise the two brand-named products — `Louis Vuitton Loafer Bej` (358) and `BOSS Siyah Süet Loafer` (349). Trademark/counterfeit policy on Meta/Google → ad-account ban + legal risk. Ad-safe set = generic-named loafers: Premium Kahve Püsküllü (359), Siyah Rugan Püsküllü (355), Siyah Tokalı Püsküllü (354), Erkek siyah loafer (353).
+- **Products to test first (1–3):** lead with Premium Kahve Püsküllü Loafer (359, most visually distinctive — brown + green-sole accent) + one black loafer (Siyah Rugan 355 or Siyah Tokalı 354, broad appeal). Erkek siyah loafer (353) = backup.
+- **Landing:** primary = the advertised product's PDP (best single-product conversion surface); backup = homepage (`/`) for browse. With an all-loafer catalog, PDP focus beats homepage for a single-product ad.
+- **Primary CTA / conversion path:** WhatsApp (highest-intent, dominant channel in TR), with the lead form as the trackable secondary signal (UTM-attributed in DB). Shopier remains an option for ready buyers.
+- **Tracking:** start UTM-only (campaign tags → attribution.ts → stored on lead submissions, visible in admin). Sufficient for a small manual test. Missing for Meta/GA4 auto-optimization + retargeting + WhatsApp/Shopier conversion visibility = a pixel (D-316B). Do NOT add pixels yet.
+- **Sequencing:** run the first small UTM-only test FIRST (cheap creative/offer validation); implement D-316B (Meta Pixel + Conversions API + KVKK consent) BEFORE any scaling phase — pixel comes after first validation, before scale.
+- **Campaign shape (recommended):** geo TR, Turkish, men ~25–45; broad audience (no pixel → let creative target); ₺150–300/day, 5–7 days; 2–3 angles (value "uygun fiyat", versatile classic style, curated/limited-stock + "WhatsApp'tan numaranı sor"); creative = existing 3 studio images (side_angle hero); price-light copy to respect the standing no-price-on-social rule (operator to confirm whether price may appear in paid creative).
+**Risks:** thin catalog + low stock (~10 units/product) limits scale; no pixel/GA4 = manual attribution only; manual sales workload + WhatsApp response speed are conversion-critical; stock accuracy must be real before paid traffic.
+**Status:** PLAN ONLY — no code/site change. Awaiting operator go-ahead to execute the ad build (outside this repo) and the D-316B decision.
+
 ## D-324B — Catalog cleanup re-verification (2026-06-18)
 **Decision:** Independent re-verification pass over D-324, run from the canonical folder `uygunayakkabi-store` (main, in sync with origin/main). No product write performed — none was needed.
 **Findings:** Read-only DB query (production `DATABASE_URI`): `Taslak Ürün 16/06-4184` = id 361, **already `status: draft`**. All 17 `Taslak/Draft/Test/Placeholder`-matching titles are `draft`; **0** are public. Catalog status distribution: 6 active / 1 soldout / 32 draft.

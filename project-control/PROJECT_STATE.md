@@ -17,6 +17,8 @@ Ad-readiness / conversion sweep + lead-flow fix (Vercel, live):
 
 **D-324 catalog hygiene (2026-06-18): DONE.** Unpublished the single visible placeholder product `Taslak Ürün 16/06-4184` (id 361) via Admin (`status active → draft`). It was the only `active` row of 17 `Taslak Ürün …` products (other 16 already `draft`); the 6 real products stayed `active`. No rename, no delete, no code change, no external publishing (Products afterChange dispatch fires only on `→ active`). Live homepage re-verified clean across all rails. Storefront now shows only real products → catalog clean for ad traffic.
 
+**D-325 first ad campaign plan (2026-06-18): PLAN, no site change.** Verdict: READY for a small, manual, UTM-only first test. Catalog = 6 active loafers (₺1.750–2.099, 3 studio imgs, 40–44 @ 2/size). Ad-safe set excludes brand-named products `Louis Vuitton Loafer Bej` (358) + `BOSS Süet Loafer` (349) — trademark/counterfeit ad-policy risk. Recommend: advertise Premium Kahve Püsküllü (359) + a black loafer (355/354); land on the product PDP (backup homepage); WhatsApp-primary CTA with lead form as the trackable UTM signal; UTM-only tracking now, D-316B pixel/KVKK AFTER first validation + BEFORE scaling. Budget ₺150–300/day, 5–7 days, TR/men ~25–45, broad. Key risks: thin catalog + low stock (~10 units/product), no pixel = manual attribution, manual WhatsApp workload + response speed. Full plan in DECISIONS.md (D-325).
+
 ---
 
 ## 🔒 LOCK CHECKPOINT — 2026-04-28 — Production Baseline

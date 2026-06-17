@@ -2,6 +2,12 @@
 
 _Created 2026-06-14. Newest at top. No secrets/PII._
 
+## D-328 — Brand-name leak on ad landing pages (FIXED, data-only)
+- **Symptom (found D-327):** the "Benzer Modeller" similar-products rail on all 3 ad PDPs (359/355/354) surfaced brand-named product 358 `Louis Vuitton Loafer Bej` (same `Klasik` category) → "Louis Vuitton" text 4× per ad landing page. 349 `BOSS Süet Loafer` (Günlük) was also active. Trademark/counterfeit ad-policy + landing-page review risk.
+- **Fix (operator-approved):** set products 358 + 349 to `status: draft` via Admin API (active→draft). No rename, no delete. `active→draft` fires no publishing hooks. Reversible.
+- **Verified live (cache-busted):** homepage + 359/355/354 PDPs = 0× "Louis Vuitton" / "BOSS"; Benzer Modeller rails render clean. Active set = exactly `[353,354,355,359]`.
+- **Guard:** before ads, keep brand-named products non-`active`. Telegram intake or future edits could re-activate them — re-check active titles for brand names (Louis Vuitton, BOSS, Nike, Adidas, Gucci, etc.) before each campaign.
+
 ## D-320 — Product-linked inquiry submission HTTP 500 (FIXED + DEPLOYED)
 - **Symptom:** Product detail lead form returned "Talebiniz gönderilemedi" (HTTP 500); a diagnostic POST *without* productId succeeded (200); 0 stored leads had a product linked.
 - **Root cause:** `ContactForm` sends `productId={String(product.id)}` (string); `products` ids are numeric; `/api/inquiries` passed the string straight to the numeric `product` relationship → `payload.create` threw → 500.

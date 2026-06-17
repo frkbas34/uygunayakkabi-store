@@ -1,5 +1,12 @@
 # DECISIONS — Uygunayakkabi
 
+## D-328 — Hide brand-named products before ads (2026-06-18, DATA)
+**Decision:** Operator-approved. Unpublished the two brand-named products by setting `status: active → draft` via Admin API: **358 `Louis Vuitton Loafer Bej`** (Klasik) and **349 `BOSS Siyah Süet Loafer Erkek Ayakkab`** (Günlük). No rename, no delete, no other product touched.
+**Reason:** D-327 found product 358 leaking into the "Benzer Modeller" rail on all 3 ad PDPs (trademark/counterfeit ad-policy + landing-page risk); 349 also carried a brand name. Removing both from `active` strips the brand text from the public storefront and from every similar-products rail.
+**Safety:** `active → draft` triggers NO external publishing (Products afterChange dispatch fires only on `→ active`). Reversible. Production DATA change only — no code/DB-schema/collection change, no leads touched, no pixels.
+**Verified live (cache-busted):** homepage = 0× "Louis Vuitton", 0× "BOSS"; ad PDPs 359/355/354 = 0× each in Benzer Modeller (section still renders with other Klasik items). Active set now exactly `[353,354,355,359]` — the 4 ad products (3 primary + backup), all generic loafer names.
+**Status:** DONE + VERIFIED. Docs-only commit `docs: record D-328 brand-risk catalog cleanup`.
+
 ## D-327 — Pre-launch readiness + lead-response runbook (2026-06-18, AUDIT+RUNBOOK)
 **Decision:** Operational readiness pass before the first paid test. Full deliverable: `project-control/campaigns/D-327-pre-launch-runbook.md`. No product/code/DB change.
 **Stock (verified live, Admin depth=2):** 359/355/354 = ₺2.099, sizes 40–44 @ 2 each = **10 units** each; 353 (backup) = ₺1.899, 40–43 @ 1 = **4 units (size 44 missing)**. Thin but OK for a SMALL test; popular sizes sell out after 2 orders.

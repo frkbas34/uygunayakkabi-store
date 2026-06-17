@@ -13,6 +13,8 @@ Ad-readiness / conversion sweep + lead-flow fix (Vercel, live):
 
 **Pending:** D-320 **verified end-to-end** (D-322: product FK + UTM persisted in DB); D319/D320 test leads (id 10/11) marked `spam` (reversible). D-316B external pixels awaiting operator approval; IG feed publishing OFF in live AutomationSettings.
 
+**D-323 pre-ad readiness audit (2026-06-14): READY WITH WARNINGS.** Verified live: homepage (hero/tiles/rails/editorial/footer), PDP (image/title/price/sizes/lead form/WhatsApp/trust strip), lead capture (product FK + UTM persist), WhatsApp flows, no external pixels, no demo reviews, no fast-shipping claims, no card WhatsApp icons. SHOULD-FIX-before-ads: placeholder product "Taslak Ürün 16/06-4184" is publicly visible on the storefront (operator should rename/unpublish — Claude does not modify products); thin catalog (~6 products). OPTIONAL: D-316B pixel for ad-platform conversion tracking (needs approval + KVKK).
+
 ---
 
 ## 🔒 LOCK CHECKPOINT — 2026-04-28 — Production Baseline

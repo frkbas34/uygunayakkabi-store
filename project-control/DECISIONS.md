@@ -1,5 +1,14 @@
 # DECISIONS — Uygunayakkabi
 
+## D-327 — Pre-launch readiness + lead-response runbook (2026-06-18, AUDIT+RUNBOOK)
+**Decision:** Operational readiness pass before the first paid test. Full deliverable: `project-control/campaigns/D-327-pre-launch-runbook.md`. No product/code/DB change.
+**Stock (verified live, Admin depth=2):** 359/355/354 = ₺2.099, sizes 40–44 @ 2 each = **10 units** each; 353 (backup) = ₺1.899, 40–43 @ 1 = **4 units (size 44 missing)**. Thin but OK for a SMALL test; popular sizes sell out after 2 orders.
+**Landing (3 ad PDPs):** HTTP 200, AI images load, WhatsApp + lead form + Shopier all present, no fake claims, no visible placeholder/draft/test text.
+**KEY FINDING — brand leak (SHOULD-FIX-BEFORE-ADS):** the "Benzer Modeller" similar-products rail on all 3 ad PDPs surfaces **"Louis Vuitton Loafer Bej" (358, Klasik category)** — trademarked brand text on our ad landing pages. Recommend operator unpublish/rename 358 (+349 BOSS) before launch; product-data change → needs explicit approval (not done here). BOSS (349, Günlük) does NOT leak onto these Klasik PDPs.
+**Runbook:** WhatsApp <15-min response target; TR message templates (first reply / size avail / payment / size-unavailable / shipping / no-reply follow-up); tracking plan (daily metrics, read leads in Admin→Customer Inquiries by UTM + product relation, manual WhatsApp tally, pause-creative thresholds, min signals = ~5–7 days & ~₺1.000 spend before judging).
+**Verdict:** READY for a small UTM-only test, CONDITIONAL on (1) resolving the Louis Vuitton landing-page leak and (2) fast WhatsApp response.
+**Status:** AUDIT COMPLETE. Docs-only commit `docs: record D-327 pre-launch runbook`.
+
 ## D-326 — First ad copy + UTM URL pack (2026-06-18, ASSET)
 **Decision:** Produced the copy-ready first-test ad pack for Meta/IG/FB. Full deliverable: `project-control/campaigns/D-326-first-ad-copy-pack.md`.
 **Contents:** UTM landing URLs for ad-safe products 359/355/354 (+353 backup) — fixed `utm_source=meta`, `utm_medium=paid_social`, `utm_campaign=first_loafers_test`, unique `utm_content` per product+angle; 3 primary-text variants (value / versatility / limited), 3 headlines, 3 descriptions, 2 WhatsApp CTAs (Send Message → click-to-WhatsApp), 2 lead-form CTAs (Learn More → PDP `#inquiry-form`); creative rank side_angle→commerce_front→detail_closeup with exact image filenames; compliance checklist.

@@ -1,5 +1,15 @@
 # DECISIONS — Uygunayakkabi
 
+## D-329 — Launch-day checklist for first small ad test (2026-06-18, VERIFY)
+**Decision:** Final pre-launch verification. Verdict = **GO WITH WARNING** (technical/landing all GO; warnings are operational only).
+**Verified live (read-only, no lead created):**
+- 4 ad products `active` w/ stock: 359/355/354 = ₺2.099, 40–44 @2 = 10 units; 353 (backup) = ₺1.899, 40–43 @1 = 4 units (no size 44). Active set = exactly `[353,354,355,359]`.
+- All 4 PDPs HTTP 200; AI images load; sizes (BEDEN) visible; WhatsApp + lead form + Shopier present; 0× brand text; 0 visible placeholder/Taslak/Test product text (the `/placeholder/i` match = 3 lead-form `placeholder=` input attrs, benign).
+- Excluded brand products `draft`: 358 Louis Vuitton, 349 BOSS — absent from homepage + all PDP rails.
+- D-326 UTM URLs resolve and **UTM params persist through the `uygunayakkabi.com → www` redirect** (`utm_source=meta` + `utm_campaign=first_loafers_test` + `utm_content` intact on final landing URL).
+**Warnings (operational, not blockers):** (1) WhatsApp must be staffed for <15-min replies during ad hours — operator to confirm; (2) thin stock (10 units/product; backup 353 only 4 & missing size 44) → monitor, pause a product if sizes sell out, restock before scaling; (3) no Meta Pixel/GA4 → UTM-only manual attribution (add D-316B before scaling); (4) open operator call: may exact price appear in paid creative (default price-light).
+**Status:** GO WITH WARNING. Docs-only commit `docs: record D-329 launch-day checklist`. No product/code/DB change.
+
 ## D-328 — Hide brand-named products before ads (2026-06-18, DATA)
 **Decision:** Operator-approved. Unpublished the two brand-named products by setting `status: active → draft` via Admin API: **358 `Louis Vuitton Loafer Bej`** (Klasik) and **349 `BOSS Siyah Süet Loafer Erkek Ayakkab`** (Günlük). No rename, no delete, no other product touched.
 **Reason:** D-327 found product 358 leaking into the "Benzer Modeller" rail on all 3 ad PDPs (trademark/counterfeit ad-policy + landing-page risk); 349 also carried a brand name. Removing both from `active` strips the brand text from the public storefront and from every similar-products rail.

@@ -5,9 +5,11 @@ import { getPayload } from "@/lib/payload";
 import { resolveHomepageSections, isHomepageEligible } from "@/lib/merchandising";
 import type { MerchandisableProduct, MerchandisingSettings } from "@/lib/merchandising";
 
-// Force server-side rendering on every request so admin changes reflect immediately.
-// Without this, Next.js statically caches the page at build time and DB products never update.
-export const dynamic = 'force-dynamic';
+// ISR: serve a cached homepage instantly (no per-request DB query → fast TTFB),
+// and regenerate it in the background at most once per minute. Admin changes show
+// within ~60s instead of forcing a slow DB round-trip on every visitor.
+// (Was `dynamic = 'force-dynamic'`, which made every visit wait on a Neon query — ~2s TTFB.)
+export const revalidate = 60;
 
 // D-291: homepage-specific SEO/OG metadata. The layout provides only generic
 // site-wide defaults; this gives the top entry page its own canonical + Open

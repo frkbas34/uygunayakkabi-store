@@ -1,5 +1,20 @@
 # DECISIONS — Uygunayakkabi
 
+## D-331 — GEO / Product Intelligence re-entry audit (2026-06-18, READ-ONLY AUDIT)
+**Scope:** Re-entered the GEO/PI/GeoBot track. Read-only code audit + safe-run assessment. No code/product/DB change.
+**Subsystem map (all present, `src/lib/productIntelligence/` + orchestration):**
+- `createProductIntelligenceReport.ts` (D-220 single-product orchestrator → persists a `product-intelligence-reports` row), `analyzeProduct.ts` (Gemini vision), `collectImages.ts`, `reverseImageSearch.ts`, `generateSeoGeoPack.ts` (Gemini SEO/GEO pack), `geoBotHandoff.ts`, `telegramReport.ts` (summary + approval keyboard), `types.ts`.
+- Providers: `providers/index.ts` (`selectProvider()` auto → GoogleVision → DataForSeo → SerpApi; all null-if-no-creds, fail-soft) + `googleVision.ts`, `dataForSeo.ts`, `dataForSeoText.ts`, `serpApi.ts`.
+- Orchestration: `src/lib/contentPack.ts` — `resolvePiResearch()` (D-225 PI→GeoBot auto-bridge) + `triggerContentGeneration()`; `src/lib/geobotRuntime.ts` (`buildPiResearchBlock`). Collection: `src/collections/ProductIntelligenceReports.ts` (slug `product-intelligence-reports`).
+- Telegram: `src/app/api/telegram/route.ts` (POST webhook; dual-bot).
+**Telegram triggers (VERIFIED, route.ts:3735):** `/#(geohazirla|seoara|productintel|urunzeka)\b/i` — four aliases for the same PI Bot run. Usage: reply to a product/photo with `#geoHazirla`, or `#geoHazirla <id>`. Owned by Uygunops.
+**Publish boundary (VERIFIED):** PI report generation is INTERNAL — writes a `product-intelligence-reports` row + `bot-events`, calls READ-only external APIs (Gemini Vision / reverse-search provider / DataForSEO). It does NOT modify the product, NOT post to IG/Shopier/X/Facebook/Telegram channels. External publishing happens ONLY on the operator-pressed `pi:sendgeo:{id}` callback → `geoBotHandoff` → GeoBot → `channelDispatch`. So PI report ≠ publish.
+**Env vars referenced (names only, NO secrets):** `DATAFORSEO_LOGIN/PASSWORD/LOCATION_NAME/LANGUAGE_NAME/TEXT_DEPTH/DEPTH/POLL_*`, `GOOGLE_VISION_API_KEY` (+MAX_*), `SERPAPI_API_KEY`, `GEMINI_API_KEY`, `REVERSE_SEARCH_PROVIDER`, `PI_AUTO_FOR_GEOBOT` (default true), `PI_TEXT_SEARCH_FALLBACK`, `TELEGRAM_GEO_BOT_TOKEN`, `TELEGRAM_GEO_WEBHOOK_SECRET`, `X_API_KEY/X_API_SECRET` (publish-side).
+**Status by capability:** reverse/similarity search = IMPLEMENTED (env-gated, fail-soft). PI report generation = IMPLEMENTED (D-220). GeoBot handoff + PI→GeoBot auto-bridge = IMPLEMENTED + LOCKED prod baseline (2026-04-28). DataForSEO = code present but RUNTIME UNKNOWN (depends on Vercel env creds; HISTORICAL: Organic SERP 403 / account had Google Lens not Organic SERP — text fallback gated by `PI_TEXT_SEARCH_FALLBACK`). Whether Vision/DataForSEO/SerpAPI creds are currently set = UNKNOWN from code.
+**Safe controlled test feasibility:** YES — a single-product PI report (`#geohazirla 359` or direct `createProductIntelligenceReport`) generates + persists a report and posts a Telegram summary WITHOUT external publishing (stop before `pi:sendgeo`). Caveat: it is NOT read-only — it writes a report row + bot-event and spends external API credits — so it needs explicit operator approval before running.
+**Note:** main has 2 pre-existing uncommitted working-tree files (`src/app/(app)/UygunApp.jsx`, `src/app/(payload)/admin/importMap.js`) — unrelated to PI, left untouched; HEAD `1a627d1` (advanced from an external commit; DECISIONS.md H1 title appears dropped by that commit).
+**Status:** AUDIT COMPLETE. Docs-only commit `docs: record D-331 geo re-entry audit`.
+
 ## D-329 — Launch-day checklist for first small ad test (2026-06-18, VERIFY)
 **Decision:** Final pre-launch verification. Verdict = **GO WITH WARNING** (technical/landing all GO; warnings are operational only).
 **Verified live (read-only, no lead created):**

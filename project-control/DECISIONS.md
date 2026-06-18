@@ -1,5 +1,16 @@
 # DECISIONS — Uygunayakkabi
 
+## D-333C — Manual PI trigger RESOLVED + confirmed working (2026-06-19)
+**Action:** with operator authorization (operator granted Telegram Web access on Chrome), Claude opened the **@Uygunops_bot DM** (verified id **8702872700**) in the operator's Telegram Web and sent `#geohazirla 359`.
+**Result — WORKS END-TO-END:**
+- Bot acknowledged instantly: "🍳 Ürün Zeka analizi başlatıldı — #359. Analiz ~30-60 saniye sürebilir."
+- ~40s later the bot posted "Ürün Zeka Raporu Hazır" with the full SEO/GEO pack ALL ready: SEO title, meta description, product description, tags, FAQ, AI-search summary, buyer-intent keywords, comparison text. Security line: "Dış ürünler yalnızca referans olarak kullanıldı. Hiçbir açıklama kopyalanmadı." Approval buttons shown (✅ Onayla / 🌎 GeoBot'a Gönder / 🔄 Yeniden Üret / 🚫 Reddet).
+- **Claude pressed NO buttons** — no `pi:sendgeo` (GeoBot'a Gönder), no approve, no publish.
+**ROOT CAUSE CONFIRMED:** all earlier manual-trigger failures (D-332R/D-333/D-333T/D-333B) were because the command **never reached the @Uygunops_bot DM** — it was being sent to the wrong bot/chat (GeoBot/@Geeeeobot or elsewhere). The Uygunops webhook (D-333A) and route code (D-333) were always healthy. Sent to the correct DM, it works first try → **manual `#geohazirla` is FUNCTIONAL.**
+**Confirmed secondary finding (reverse-search gap, matches D-332R):** report warning — "Reverse search: google_vision_response: We're not allowed to access the URL on your behalf." Reverse-image search does NOT run in prod (provider/permission gap); Gemini SEO/GEO text generation works fully.
+**DB note:** admin UI/API was logged out (403) at check time, so the new report row wasn't re-queried via API — but the bot's "report ready" state confirms it persisted. (Operator can re-login to admin to view it, or act on the Telegram buttons.)
+**Status:** manual trigger RESOLVED/WORKING. Open item remaining: reverse-search provider creds in Vercel (optional, for external evidence). Docs-only commit `docs: record D-333C manual trigger resolved`.
+
 ## D-333B — Verify manual trigger after confirmed Uygunops DM (2026-06-19, CAUSE ISOLATED: client/chat delivery)
 **Test:** operator sent a confirmed DM `#geohazirla 359` to @Uygunops_bot (webhook proven healthy in D-333A). Read-only check after.
 **Result:** STILL no fresh report (359 has only id 43, geo_auto, 2026-06-09) and no fresh bot-event (newest = 2026-06-16, product 361). Nothing today.

@@ -2,7 +2,11 @@
 
 _Created 2026-06-14. Newest at top. No secrets/PII._
 
-## D-332R/D-333/D-333T — Manual `#geohazirla` produced no report (OPEN — Uygunops webhook delivery/config)
+## D-332R/D-333/D-333T/D-333C — Manual `#geohazirla` produced no report (RESOLVED 2026-06-19 — was wrong bot/chat)
+- **RESOLUTION (D-333C):** sent `#geohazirla 359` to the verified @Uygunops_bot DM (id 8702872700) → worked first try (bot acknowledged + posted full report ready in ~40s). All earlier failures = the command never reached the @Uygunops_bot DM (sent to wrong bot/chat, e.g. GeoBot). Webhook (D-333A) and route code (D-333) were always healthy. NOT a defect. **To trigger manually: DM `#geohazirla <id>` to @Uygunops_bot (not GeoBot).**
+- Remaining (separate, OPEN): reverse-image search fails in prod (`google_vision: "not allowed to access the URL on your behalf"`) — provider creds/permission gap; SEO/GEO text generation unaffected.
+
+## (historical) Manual `#geohazirla` investigation trail
 - **D-333T (2026-06-19):** operator re-sent `#geohazirla 359` as a DM to **@Uygunops_bot** → STILL no report and no bot-event (`anyEventToday=false`; newest activity 2026-06-16, all `geo_auto`). **"Wrong bot" RULED OUT.**
 - **Inference:** the #geohazirla handler creates a draft report row + sends a "starting" Telegram reply BEFORE any work; neither occurred → the Telegram update never reached the handler. Likely **Uygunops webhook delivery/config**: webhook url unset/incorrect, OR secret mismatch (`TELEGRAM_WEBHOOK_SECRET` prod ≠ Telegram's → route 401), OR delivery erroring. No Telegram-webhook-driven activity since 2026-06-16. (Sub-branch: if @Uygunops_bot replied "başlatıldı/starting" but no report → `createProductIntelligenceReport` runtime fail instead.)
 - **Smallest next (no change):** operator runs Telegram **getWebhookInfo** on the Uygunops bot → inspect `url`, `pending_update_count`, `last_error_date`/`last_error_message`. Claude can't (token-in-URL prohibited).

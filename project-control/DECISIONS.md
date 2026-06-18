@@ -1,5 +1,16 @@
 # DECISIONS — Uygunayakkabi
 
+## D-332 — Controlled GEO/PI dry-run for product 359 (2026-06-19, PREP DONE / EXECUTION PENDING OPERATOR)
+**Goal:** generate ONE internal PI report for product 359 and review quality, WITHOUT external publishing (no `pi:sendgeo`).
+**Read-only prep completed:**
+- Git clean, `main == origin/main` (`342d75d`), single worktree.
+- Provider env presence (LOCAL `.env`/`.env.local`, names only, values never shown): `GEMINI_API_KEY` PRESENT; `TELEGRAM_BOT_TOKEN`/`TELEGRAM_WEBHOOK_SECRET`/`DATABASE_URI` PRESENT; `DATAFORSEO_LOGIN/PASSWORD`, `GOOGLE_VISION_API_KEY`, `SERPAPI_API_KEY`, `REVERSE_SEARCH_PROVIDER`, `PI_AUTO_FOR_GEOBOT`, `PI_TEXT_SEARCH_FALLBACK`, `TELEGRAM_GEO_BOT_TOKEN/SECRET` MISSING locally. **CAVEAT:** the real PI run executes on Vercel PROD whose env is authoritative and UNKNOWN from here — local missing ≠ prod missing. Expectation: Gemini vision + SEO/GEO pack run; reverse search may be a capability gap if prod also lacks provider creds (fail-soft).
+**Trigger-path determination (VERIFIED):** `createProductIntelligenceReport` is called ONLY from `src/app/api/telegram/route.ts` (the `#geohazirla` command path + the approval callback). There is NO standalone HTTP endpoint to run PI on demand. Therefore the ONLY supported trigger is the operator-sent Telegram command `#geohazirla 359` (or `#seoara/#productintel/#urunzeka 359`).
+**Why Claude did not auto-trigger:** (1) no programmatic endpoint; (2) sending the Telegram command requires the operator's account — webhook spoofing rejected (unsafe/impersonation/secret unknown); (3) ad-hoc local harness against prod DB fails the "already supported & safer" bar; (4) Chrome admin window was disconnected this turn (could not read existing reports or review output).
+**Boundary respected:** nothing triggered, no publish, no product/code/DB/collection change.
+**Next:** operator sends `#geohazirla 359` in the GEO/PI bot (do NOT press the send-to-GeoBot button) → Claude reviews the resulting `product-intelligence-reports` row read-only (image analysis, reverse/similarity result, evidence, title/category/keyword suggestions, SEO/GEO text, Telegram summary).
+**Status:** PREP DONE, EXECUTION PENDING OPERATOR. Docs-only commit `docs: record D-332 controlled geo dry-run`.
+
 ## D-331A — Resolve pre-existing source drift before GEO dry-run (2026-06-18, REVERTED)
 **Context:** `main` carried two uncommitted working-tree changes (never committed to any branch/stash/remote — local drift of unknown provenance). Resolved before D-332.
 **Classification + action:**

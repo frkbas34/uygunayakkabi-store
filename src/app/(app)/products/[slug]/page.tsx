@@ -340,7 +340,7 @@ export default async function ProductPage({ params }: Props) {
       <div style={{ background: '#f4efe6', minHeight: '100vh' }}>
         <StorefrontNavbar />
 
-        <main style={{ paddingTop: 80 }}>
+        <main style={{ paddingTop: 104 }}>
           <section style={{ maxWidth: 1440, margin: '0 auto', padding: '40px 40px 60px' }}>
             {/* Breadcrumb */}
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 32 }}>
@@ -373,7 +373,7 @@ export default async function ProductPage({ params }: Props) {
             <div className="detail-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 60, alignItems: 'start' }}>
               {/* Gallery — sticky */}
               <div>
-                <div style={{ position: 'sticky', top: 88 }}>
+                <div style={{ position: 'sticky', top: 112 }}>
                   <ProductImages images={images} title={product.title} />
                 </div>
               </div>

@@ -23,6 +23,14 @@ const T = {
   r: { sm: 12, md: 16, lg: 20, xl: 24, full: 999 },
 };
 
+// Hero background slideshow — crossfades through these in order.
+// Add/remove /hero/*.jpg paths freely; one entry = a static hero, none = no image.
+const HERO_IMAGES = [
+  "/hero/hero-side-loafer.jpg",
+  "/hero/hero-suede-side.jpg",
+  "/hero/hero-side-cognac.jpg",
+];
+
 // ============================================
 // SVG SHOE & WALLET GENERATORS
 // ============================================
@@ -93,6 +101,7 @@ function GlobalStyles() {
       @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
       @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
       @keyframes float { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-10px); } }
+      @keyframes menuItemIn { from { opacity: 0; transform: translateY(28px); } to { opacity: 1; transform: translateY(0); } }
       .fade-up { animation: fadeUp 0.9s cubic-bezier(.22,1,.36,1) forwards; opacity: 0; }
       .fade-in { animation: fadeIn 0.6s ease forwards; }
       .no-scrollbar::-webkit-scrollbar { display: none; }
@@ -159,12 +168,102 @@ function TopBar({ settings }) {
 }
 
 // ============================================
-// NAVBAR
+// NAVBAR — Brunello-style slide-in menu
 // ============================================
+// Large serif menu item — index number + staggered fade-in + hover slide & red arrow
+function MenuLink({ label, index, open, active, onClick }) {
+  const [h, setH] = useState(false);
+  const on = h || active;
+  const num = String(index + 1).padStart(2, "0");
+  return (
+    <div
+      onClick={onClick}
+      onMouseEnter={() => setH(true)}
+      onMouseLeave={() => setH(false)}
+      style={{
+        display: "flex", alignItems: "baseline", gap: 14, cursor: "pointer",
+        animation: open ? "menuItemIn 0.6s cubic-bezier(.22,1,.36,1) both" : "none",
+        animationDelay: open ? `${0.1 + index * 0.05}s` : "0s",
+        opacity: open ? undefined : 0,
+      }}
+    >
+      <span style={{
+        fontFamily: T.sans, fontSize: 11, fontWeight: 600, letterSpacing: "0.08em",
+        color: on ? T.red : "rgba(28,26,22,0.26)", transition: "color 0.35s ease", width: 18, flexShrink: 0,
+      }}>{num}</span>
+      <span style={{
+        display: "inline-flex", alignItems: "center", gap: 16,
+        transform: h ? "translateX(10px)" : "translateX(0)", transition: "transform 0.4s cubic-bezier(.22,1,.36,1)",
+      }}>
+        <span style={{
+          fontFamily: T.serif, fontSize: "clamp(27px, 3.3vw, 44px)", fontWeight: 500, lineHeight: 1.18,
+          color: on ? T.text : "rgba(28,26,22,0.3)", transition: "color 0.35s ease",
+        }}>
+          {label}
+        </span>
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke={T.red} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
+          style={{ opacity: h ? 1 : 0, transform: h ? "translateX(0)" : "translateX(-10px)", transition: "all 0.4s cubic-bezier(.22,1,.36,1)" }}>
+          <path d="M5 12h14M13 6l6 6-6 6" />
+        </svg>
+      </span>
+    </div>
+  );
+}
+
+// Smaller secondary link in the menu footer
+function MenuSub({ label, external, onClick, index, open }) {
+  const [h, setH] = useState(false);
+  return (
+    <span
+      onClick={onClick}
+      onMouseEnter={() => setH(true)}
+      onMouseLeave={() => setH(false)}
+      style={{
+        cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 6,
+        fontFamily: T.sans, fontSize: 13, fontWeight: 500, letterSpacing: "0.04em",
+        color: h ? T.text : "rgba(28,26,22,0.55)",
+        transition: "color 0.3s ease",
+        animation: open ? "menuItemIn 0.5s cubic-bezier(.22,1,.36,1) both" : "none",
+        animationDelay: open ? `${0.42 + index * 0.05}s` : "0s",
+        opacity: open ? undefined : 0,
+      }}
+    >
+      {label}
+      {external && (
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ opacity: 0.6 }}>
+          <path d="M7 17L17 7M17 7H8M17 7v9" />
+        </svg>
+      )}
+    </span>
+  );
+}
+
+// Centered serif link in the second header row (Tanner Krolle style)
+function NavRowLink({ label, active, onClick }) {
+  const [h, setH] = useState(false);
+  return (
+    <span
+      onClick={onClick}
+      onMouseEnter={() => setH(true)}
+      onMouseLeave={() => setH(false)}
+      style={{
+        cursor: "pointer", fontFamily: T.serif, fontSize: 13, fontWeight: 500,
+        letterSpacing: "0.18em", textTransform: "uppercase", whiteSpace: "nowrap",
+        color: (h || active) ? T.red : T.text, transition: "color 0.3s ease",
+      }}
+    >
+      {label}
+    </span>
+  );
+}
+
 function Navbar({ onNav, pg, settings, cartCount, onCartToggle }) {
   const waNum = settings?.contact?.whatsappFull || DEFAULT_SETTINGS.contact.whatsappFull;
+  const waDisplay = settings?.contact?.whatsapp || DEFAULT_SETTINGS.contact.whatsapp;
+  const ig = settings?.contact?.instagram;
   const [mo, setMo] = useState(false);
   const [sc, setSc] = useState(false);
+  const [featHover, setFeatHover] = useState(false);
 
   useEffect(() => {
     const fn = () => setSc(window.scrollY > 40);
@@ -172,9 +271,42 @@ function Navbar({ onNav, pg, settings, cartCount, onCartToggle }) {
     return () => window.removeEventListener("scroll", fn);
   }, []);
 
-  const links = [{ k: "home", l: "ANA SAYFA" }, { k: "catalog", l: "AYAKKABILAR" }, { k: "contact", l: "YARDIM" }];
+  // Lock background scroll + close on Escape while the menu is open
+  useEffect(() => {
+    document.body.style.overflow = mo ? "hidden" : "";
+    const onKey = (e) => { if (e.key === "Escape") setMo(false); };
+    if (mo) window.addEventListener("keydown", onKey);
+    return () => { document.body.style.overflow = ""; window.removeEventListener("keydown", onKey); };
+  }, [mo]);
+
+  const go = (fn) => { fn(); setMo(false); };
+
+  const menuItems = [
+    { l: "Ana Sayfa", k: "home", on: () => onNav("home") },
+    { l: "Tüm Ayakkabılar", k: "catalog", on: () => onNav("catalog") },
+    { l: "Spor", on: () => onNav("catalog", "Spor") },
+    { l: "Günlük", on: () => onNav("catalog", "Günlük") },
+    { l: "Klasik", on: () => onNav("catalog", "Klasik") },
+    { l: "Bot", on: () => onNav("catalog", "Bot") },
+    { l: "Terlik", on: () => onNav("catalog", "Terlik") },
+    { l: "Cüzdan", on: () => onNav("catalog", "Cüzdan") },
+  ];
+
+  const PAD_X = "clamp(28px, 5vw, 64px)";
+
+  // Second-row quick links (Tanner Krolle style)
+  const rowLinks = [
+    { l: "Tüm Ayakkabılar", k: "catalog", on: () => onNav("catalog") },
+    { l: "Spor", on: () => onNav("catalog", "Spor") },
+    { l: "Günlük", on: () => onNav("catalog", "Günlük") },
+    { l: "Klasik", on: () => onNav("catalog", "Klasik") },
+    { l: "Bot", on: () => onNav("catalog", "Bot") },
+    { l: "Terlik", on: () => onNav("catalog", "Terlik") },
+    { l: "Cüzdan", on: () => onNav("catalog", "Cüzdan") },
+  ];
 
   return (
+    <>
     <nav style={{
       position: "fixed", top: 0, left: 0, right: 0, zIndex: 100,
       background: sc ? "rgba(244,239,230,0.92)" : "transparent",
@@ -182,25 +314,28 @@ function Navbar({ onNav, pg, settings, cartCount, onCartToggle }) {
       borderBottom: sc ? "1px solid rgba(28,26,22,0.06)" : "1px solid transparent",
       transition: "all 0.4s cubic-bezier(.22,1,.36,1)",
     }}>
-      <div style={{ maxWidth: 1440, margin: "0 auto", padding: "0 40px", height: 68, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-        <div onClick={() => onNav("home")} style={{ cursor: "pointer", display: "flex", alignItems: "center", gap: 3 }}>
-          <span style={{ fontFamily: T.serif, fontSize: 17, fontWeight: 800, color: T.text, letterSpacing: "0.14em" }}>UYGUN</span>
-          <span style={{ fontFamily: T.serif, fontSize: 17, fontWeight: 300, color: T.red, letterSpacing: "0.08em" }}>AYAKKABI</span>
+      {/* Row 1: menu trigger · centered logo · cart/whatsapp */}
+      <div style={{ position: "relative", maxWidth: 1440, margin: "0 auto", padding: "0 40px", height: 56, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+        {/* Left: Menu trigger */}
+        <button onClick={() => setMo(true)} aria-label="Menüyü aç" style={{
+          display: "inline-flex", alignItems: "center", gap: 10,
+          background: "none", border: "none", cursor: "pointer", color: T.text, padding: "6px 2px",
+        }}>
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round">
+            <line x1="3" y1="7" x2="21" y2="7" /><line x1="3" y1="12" x2="21" y2="12" /><line x1="3" y1="17" x2="14" y2="17" />
+          </svg>
+          <span className="nav-desktop" style={{ fontFamily: T.sans, fontSize: 11, fontWeight: 600, letterSpacing: "0.18em", textTransform: "uppercase" }}>Menü</span>
+        </button>
+
+        {/* Center: Logo */}
+        <div onClick={() => onNav("home")} style={{ position: "absolute", left: "50%", transform: "translateX(-50%)", cursor: "pointer", display: "flex", alignItems: "center", gap: 5 }}>
+          <span style={{ fontFamily: T.serif, fontSize: 24, fontWeight: 700, color: T.text, letterSpacing: "0.18em" }}>UYGUN</span>
+          <span style={{ fontFamily: T.serif, fontSize: 24, fontWeight: 300, color: T.red, letterSpacing: "0.12em" }}>AYAKKABI</span>
         </div>
-        <div className="nav-desktop" style={{ display: "flex", alignItems: "center", gap: 44 }}>
-          {links.map(l => (
-            <span key={l.k} onClick={() => onNav(l.k)} style={{
-              cursor: "pointer", fontFamily: T.sans, fontSize: 11, fontWeight: 500,
-              color: pg === l.k ? T.text : T.textLighter,
-              letterSpacing: "0.16em", transition: "color 0.3s, border-color 0.3s", textTransform: "uppercase",
-              paddingBottom: 4,
-              borderBottom: pg === l.k ? "1.5px solid " + T.text : "1.5px solid transparent",
-            }}>
-              {l.l}
-            </span>
-          ))}
-          {/* D-194: Cart icon */}
-          <button onClick={onCartToggle} style={{
+
+        {/* Right: Cart + WhatsApp */}
+        <div style={{ display: "flex", alignItems: "center", gap: 18 }}>
+          <button onClick={onCartToggle} aria-label="Sepet" style={{
             position: "relative", background: "none", border: "none", cursor: "pointer", color: T.text, padding: 4,
           }}>
             {I.cart}
@@ -212,63 +347,135 @@ function Navbar({ onNav, pg, settings, cartCount, onCartToggle }) {
               }}>{cartCount}</span>
             )}
           </button>
-          <a href={waLink(waNum)} target="_blank" rel="noreferrer" style={{
+          <a href={waLink(waNum)} target="_blank" rel="noreferrer" className="nav-desktop" style={{
             display: "inline-flex", alignItems: "center", gap: 8,
             fontFamily: T.sans, fontSize: 11, fontWeight: 600, letterSpacing: "0.1em", textTransform: "uppercase",
-            color: "#fff", background: T.green, border: "none", padding: "10px 24px",
+            color: "#fff", background: T.green, border: "none", padding: "9px 22px",
             borderRadius: T.r.full, textDecoration: "none", transition: "all 0.3s", cursor: "pointer",
           }}>
             {I.wa} WHATSAPP
           </a>
         </div>
-        <div className="nav-mobile" style={{ display: "none", alignItems: "center", gap: 12 }}>
-          <button onClick={onCartToggle} style={{ position: "relative", background: "none", border: "none", cursor: "pointer", color: T.text, padding: 4 }}>
-            {I.cart}
-            {cartCount > 0 && (
-              <span style={{ position: "absolute", top: -6, right: -8, width: 18, height: 18, borderRadius: "50%", background: T.red, color: "#fff", fontSize: 10, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center" }}>{cartCount}</span>
-            )}
-          </button>
-          <button onClick={() => setMo(!mo)} style={{ background: "none", border: "none", cursor: "pointer", color: T.text, padding: 4 }}>
-            {mo ? I.close : I.menu}
-          </button>
+      </div>
+
+      {/* Row 2: centered serif quick links (desktop) */}
+      <div className="nav-desktop" style={{ borderTop: "1px solid rgba(28,26,22,0.07)" }}>
+        <div style={{ maxWidth: 1440, margin: "0 auto", padding: "0 40px", height: 40, display: "flex", alignItems: "center", justifyContent: "center", gap: 38 }}>
+          {rowLinks.map((r) => (
+            <NavRowLink key={r.l} label={r.l} active={!!r.k && pg === r.k} onClick={r.on} />
+          ))}
         </div>
       </div>
-      {mo && (
-        <div style={{ padding: "16px 32px 32px", background: T.bg, borderTop: "1px solid rgba(28,26,22,0.06)" }}>
-          {links.map(l => (
-            <div key={l.k} onClick={() => { onNav(l.k); setMo(false); }} style={{
-              cursor: "pointer", fontFamily: T.sans, fontSize: 14, fontWeight: 500,
-              color: pg === l.k ? T.text : "rgba(28,26,22,0.52)", padding: "16px 0",
-              letterSpacing: "0.1em", borderBottom: "1px solid rgba(28,26,22,0.06)",
-              display: "flex", alignItems: "center", justifyContent: "space-between",
-            }}>
-              <span style={{ borderBottom: pg === l.k ? "1.5px solid " + T.text : "1.5px solid transparent", paddingBottom: 1 }}>{l.l}</span>
-              <span style={{ fontSize: 16, color: "rgba(28,26,22,0.22)", lineHeight: 1 }}>›</span>
-            </div>
-          ))}
-          <div style={{ marginTop: 20, marginBottom: 12, fontFamily: T.sans, fontSize: 9, fontWeight: 600, letterSpacing: "0.18em", textTransform: "uppercase", color: "rgba(28,26,22,0.28)" }}>
-            Yardım &amp; İletişim
-          </div>
-          <div onClick={() => { onNav("contact"); setMo(false); }} style={{
-            cursor: "pointer", fontFamily: T.sans, fontSize: 14, fontWeight: 500,
-            color: pg === "contact" ? T.text : "rgba(28,26,22,0.52)", padding: "14px 0",
-            letterSpacing: "0.1em", borderBottom: "1px solid rgba(28,26,22,0.06)",
-            display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12,
-          }}>
-            <span style={{ borderBottom: pg === "contact" ? "1.5px solid " + T.text : "1.5px solid transparent", paddingBottom: 1 }}>YARDIM MERKEZİ</span>
-            <span style={{ fontSize: 16, color: "rgba(28,26,22,0.22)", lineHeight: 1 }}>›</span>
-          </div>
-          <a href={waLink(waNum)} target="_blank" rel="noreferrer" style={{
-            display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
-            fontFamily: T.sans, fontSize: 12, fontWeight: 600,
-            color: "#fff", background: T.green, padding: "14px 24px",
-            borderRadius: T.r.full, textDecoration: "none",
-          }}>
-            {I.wa} WhatsApp&apos;tan Bilgi Al
-          </a>
-        </div>
-      )}
+
     </nav>
+
+      {/* Backdrop */}
+      <div onClick={() => setMo(false)} style={{
+        position: "fixed", inset: 0, zIndex: 200,
+        background: mo ? "rgba(20,18,14,0.45)" : "rgba(20,18,14,0)",
+        backdropFilter: mo ? "blur(4px)" : "none",
+        opacity: mo ? 1 : 0, pointerEvents: mo ? "auto" : "none",
+        transition: "opacity 0.5s ease, background 0.5s ease",
+      }} />
+
+      {/* Slide-in panel — two columns: nav list + featured image */}
+      <div style={{
+        position: "fixed", top: 0, left: 0, bottom: 0, zIndex: 210,
+        width: "min(980px, 96vw)",
+        background: "#f8f4ed",
+        boxShadow: mo ? "0 0 90px rgba(0,0,0,0.22)" : "none",
+        transform: mo ? "translateX(0)" : "translateX(-100%)",
+        transition: "transform 0.55s cubic-bezier(.22,1,.36,1)",
+        display: "flex", flexDirection: "row", overflow: "hidden",
+      }}>
+        {/* LEFT: navigation */}
+        <div style={{ flex: "1 1 0", minWidth: 0, display: "flex", flexDirection: "column" }}>
+          {/* Top: close + wordmark */}
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: `20px ${PAD_X} 0` }}>
+            <button onClick={() => setMo(false)} aria-label="Menüyü kapat" style={{
+              width: 42, height: 42, borderRadius: "50%", border: "1px solid rgba(28,26,22,0.14)",
+              background: "none", cursor: "pointer", color: T.text,
+              display: "inline-flex", alignItems: "center", justifyContent: "center",
+            }}>
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round">
+                <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
+              </svg>
+            </button>
+            <div onClick={() => go(() => onNav("home"))} style={{ cursor: "pointer", display: "flex", alignItems: "center", gap: 3 }}>
+              <span style={{ fontFamily: T.serif, fontSize: 15, fontWeight: 800, color: T.text, letterSpacing: "0.14em" }}>UYGUN</span>
+              <span style={{ fontFamily: T.serif, fontSize: 15, fontWeight: 300, color: T.red, letterSpacing: "0.08em" }}>AYAKKABI</span>
+            </div>
+          </div>
+
+          {/* Items */}
+          <div className="no-scrollbar" style={{
+            flex: 1, overflowY: "auto",
+            padding: `clamp(20px, 3.5vh, 40px) ${PAD_X} clamp(14px, 2vh, 24px)`,
+            display: "flex", flexDirection: "column",
+          }}>
+            <div style={{ fontFamily: T.sans, fontSize: 10, fontWeight: 700, letterSpacing: "0.22em", textTransform: "uppercase", color: "rgba(28,26,22,0.34)", marginBottom: 14 }}>Menü</div>
+            <div style={{ display: "flex", flexDirection: "column", gap: "clamp(2px, 0.7vh, 8px)" }}>
+              {menuItems.slice(0, 2).map((m, i) => (
+                <MenuLink key={m.l} label={m.l} index={i} open={mo} active={!!m.k && pg === m.k} onClick={() => go(m.on)} />
+              ))}
+            </div>
+
+            <div style={{ height: 1, background: "rgba(28,26,22,0.09)", margin: "clamp(16px,2.4vh,26px) 0" }} />
+
+            <div style={{ fontFamily: T.sans, fontSize: 10, fontWeight: 700, letterSpacing: "0.22em", textTransform: "uppercase", color: "rgba(28,26,22,0.34)", marginBottom: 14 }}>Kategoriler</div>
+            <div style={{ display: "flex", flexDirection: "column", gap: "clamp(2px, 0.7vh, 8px)" }}>
+              {menuItems.slice(2).map((m, i) => (
+                <MenuLink key={m.l} label={m.l} index={i + 2} open={mo} active={!!m.k && pg === m.k} onClick={() => go(m.on)} />
+              ))}
+            </div>
+          </div>
+
+          {/* Footer — contact block */}
+          <div style={{
+            padding: `clamp(16px, 2.2vh, 24px) ${PAD_X} clamp(20px, 3vh, 30px)`,
+            borderTop: "1px solid rgba(28,26,22,0.08)",
+          }}>
+            <p style={{ fontFamily: T.sans, fontSize: 10, fontWeight: 700, letterSpacing: "0.22em", textTransform: "uppercase", color: "rgba(28,26,22,0.34)", marginBottom: 8 }}>İletişim</p>
+            <a href={waLink(waNum)} target="_blank" rel="noreferrer" style={{ fontFamily: T.serif, fontSize: 22, fontWeight: 600, color: T.text, textDecoration: "none", display: "inline-block", marginBottom: 4 }}>
+              {waDisplay}
+            </a>
+            <p style={{ fontFamily: T.sans, fontSize: 12, color: T.textLighter, lineHeight: 1.6, marginBottom: 16 }}>
+              Hafta içi 09:00–18:00 · WhatsApp ile 7/24 talep bırakın
+            </p>
+            <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: "12px 22px" }}>
+              <MenuSub label="Yardım Merkezi" onClick={() => go(() => onNav("contact"))} index={0} open={mo} />
+              <MenuSub label="WhatsApp" external onClick={() => { window.open(waLink(waNum), "_blank"); setMo(false); }} index={1} open={mo} />
+              {ig && (
+                <MenuSub label="Instagram" external onClick={() => { window.open(ig, "_blank"); setMo(false); }} index={2} open={mo} />
+              )}
+            </div>
+          </div>
+        </div>
+
+        {/* RIGHT: featured image (desktop only) */}
+        <div
+          className="nav-desktop"
+          onClick={() => go(() => onNav("catalog"))}
+          onMouseEnter={() => setFeatHover(true)}
+          onMouseLeave={() => setFeatHover(false)}
+          style={{ width: "clamp(300px, 36%, 400px)", flexShrink: 0, position: "relative", overflow: "hidden", cursor: "pointer" }}
+        >
+          <div style={{
+            position: "absolute", inset: 0,
+            backgroundImage: "url(/hero/hero-monk.jpg)", backgroundSize: "cover", backgroundPosition: "center",
+            transform: featHover ? "scale(1.06)" : "scale(1)", transition: "transform 0.9s cubic-bezier(.22,1,.36,1)",
+          }} />
+          <div style={{ position: "absolute", inset: 0, background: "linear-gradient(180deg, rgba(20,15,11,0.05) 0%, rgba(20,15,11,0.30) 55%, rgba(20,15,11,0.72) 100%)" }} />
+          <div style={{ position: "absolute", left: 30, right: 30, bottom: 32, color: "#fff" }}>
+            <div style={{ fontFamily: T.sans, fontSize: 10, fontWeight: 600, letterSpacing: "0.2em", textTransform: "uppercase", opacity: 0.85, marginBottom: 8 }}>Yeni Sezon</div>
+            <div style={{ fontFamily: T.serif, fontSize: 26, fontWeight: 600, lineHeight: 1.2, marginBottom: 16 }}>Öne Çıkan Modeller</div>
+            <span style={{ display: "inline-flex", alignItems: "center", gap: 8, fontFamily: T.sans, fontSize: 11, fontWeight: 600, letterSpacing: "0.1em", textTransform: "uppercase", borderBottom: "1px solid rgba(255,255,255,0.55)", paddingBottom: 4, transform: featHover ? "translateX(4px)" : "translateX(0)", transition: "transform 0.4s ease" }}>
+              Keşfet →
+            </span>
+          </div>
+        </div>
+      </div>
+    </>
   );
 }
 
@@ -419,33 +626,70 @@ function Hero({ onNav, settings, allProducts }) {
   const trust = settings?.trustBadges || DEFAULT_SETTINGS.trustBadges;
   const contact = settings?.contact || DEFAULT_SETTINGS.contact;
 
+  const onImg = HERO_IMAGES.length > 0;
+  const titleColor = onImg ? "#f7f3ec" : T.text;
+  const descColor = onImg ? "rgba(247,243,236,0.86)" : T.textLight;
+  const hintColor = onImg ? "rgba(247,243,236,0.72)" : T.textLighter;
+
+  // Auto-rotating hero slideshow
+  const [heroIdx, setHeroIdx] = useState(0);
+  useEffect(() => {
+    if (HERO_IMAGES.length <= 1) return;
+    const id = setInterval(() => setHeroIdx((i) => (i + 1) % HERO_IMAGES.length), 5000);
+    return () => clearInterval(id);
+  }, []);
+
   return (
     <section style={{
-      minHeight: "auto", display: "flex", alignItems: "center", justifyContent: "center",
+      minHeight: onImg ? "min(92vh, 820px)" : "auto", display: "flex", alignItems: "center", justifyContent: "center",
       position: "relative", overflow: "hidden", textAlign: "center",
     }}>
-      {/* Grid background */}
-      <div style={{ position: "fixed", inset: 0, pointerEvents: "none", zIndex: 0, backgroundImage: "linear-gradient(rgba(28,26,22,0.04) 1px, transparent 1px), linear-gradient(90deg, rgba(28,26,22,0.04) 1px, transparent 1px)", backgroundSize: "72px 72px" }} />
-      {/* AI Glow */}
-      <div style={{ position: "fixed", top: "-20%", right: "-10%", width: 800, height: 800, background: "radial-gradient(circle, rgba(200,16,46,0.04) 0%, transparent 65%)", pointerEvents: "none", filter: "blur(80px)", zIndex: 0 }} />
+      {onImg ? (
+        <>
+          {/* Full-bleed hero slideshow — crossfade + slow zoom */}
+          {HERO_IMAGES.map((src, i) => (
+            <div key={src} style={{
+              position: "absolute", inset: 0, zIndex: 0,
+              backgroundImage: `url(${src})`, backgroundSize: "cover", backgroundPosition: "center",
+              opacity: i === heroIdx ? 1 : 0,
+              transform: i === heroIdx ? "scale(1.06)" : "scale(1)",
+              transition: "opacity 1.4s ease-in-out, transform 6s ease-out",
+            }} />
+          ))}
+          {/* Warm espresso overlay — readable + on-palette, fades into the cream page */}
+          <div style={{ position: "absolute", inset: 0, zIndex: 0, background: `linear-gradient(180deg, rgba(20,15,11,0.58) 0%, rgba(20,15,11,0.42) 38%, rgba(28,22,16,0.55) 72%, ${T.bg} 100%)` }} />
+        </>
+      ) : (
+        <>
+          {/* Grid background */}
+          <div style={{ position: "fixed", inset: 0, pointerEvents: "none", zIndex: 0, backgroundImage: "linear-gradient(rgba(28,26,22,0.04) 1px, transparent 1px), linear-gradient(90deg, rgba(28,26,22,0.04) 1px, transparent 1px)", backgroundSize: "72px 72px" }} />
+          {/* AI Glow */}
+          <div style={{ position: "fixed", top: "-20%", right: "-10%", width: 800, height: 800, background: "radial-gradient(circle, rgba(200,16,46,0.04) 0%, transparent 65%)", pointerEvents: "none", filter: "blur(80px)", zIndex: 0 }} />
+        </>
+      )}
 
       <div style={{ position: "relative", zIndex: 1, maxWidth: 860, margin: "0 auto", padding: "120px 24px 56px", width: "100%" }}>
         {/* Tag */}
         <div style={{ display: "inline-flex", alignItems: "center", gap: 10, fontFamily: T.sans, fontSize: 11, fontWeight: 600, textTransform: "uppercase",
-          letterSpacing: "0.22em", color: T.red, marginBottom: 32, background: T.redSoft, padding: "8px 24px", borderRadius: T.r.full, border: "1px solid rgba(200,16,46,0.1)" }}>
+          letterSpacing: "0.22em", color: onImg ? "#fff" : T.red, marginBottom: 32,
+          background: onImg ? "rgba(255,255,255,0.12)" : T.redSoft, padding: "8px 24px", borderRadius: T.r.full,
+          border: onImg ? "1px solid rgba(255,255,255,0.25)" : "1px solid rgba(200,16,46,0.1)",
+          backdropFilter: onImg ? "blur(6px)" : "none" }}>
           <span style={{ width: 8, height: 8, borderRadius: "50%", background: T.red }} />
           YENİ SEZON
         </div>
 
         {/* Title */}
-        <h1 style={{ fontFamily: T.serif, fontSize: "clamp(40px, 5.5vw, 72px)", fontWeight: 800, color: T.text,
-          lineHeight: 1.1, letterSpacing: "-0.02em", marginBottom: 28 }}>
+        <h1 style={{ fontFamily: T.serif, fontSize: "clamp(40px, 5.5vw, 72px)", fontWeight: 800, color: titleColor,
+          lineHeight: 1.1, letterSpacing: "-0.02em", marginBottom: 28,
+          textShadow: onImg ? "0 2px 30px rgba(0,0,0,0.35)" : "none" }}>
           Yeni Sezon Ayakkabılar<br />Uygun Fiyatlarla
         </h1>
 
         {/* Description */}
-        <p style={{ fontFamily: T.sans, fontSize: 16, color: T.textLight, lineHeight: 1.9,
-          margin: "0 auto 16px", maxWidth: 600 }}>
+        <p style={{ fontFamily: T.sans, fontSize: 16, color: descColor, lineHeight: 1.9,
+          margin: "0 auto 16px", maxWidth: 600,
+          textShadow: onImg ? "0 1px 16px rgba(0,0,0,0.35)" : "none" }}>
           Loafer, sneaker ve günlük modeller. Numaranı seç, talep bırak — hızlıca dönüş yapalım.
         </p>
 
@@ -455,10 +699,10 @@ function Hero({ onNav, settings, allProducts }) {
           {[["⚡", "Hızlı dönüş"], ["🔄", "Güncel stok"], ["💎", "Sınırlı & özel ürünler"]].map(([ic, label], i, arr) => (
             <span key={i} style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
               <span style={{ display: "flex", alignItems: "center", gap: 6, fontFamily: T.sans,
-                fontSize: 12, fontWeight: 600, color: T.textLight }}>
+                fontSize: 12, fontWeight: 600, color: onImg ? "rgba(247,243,236,0.82)" : T.textLight }}>
                 <span style={{ fontSize: 14 }}>{ic}</span> {label}
               </span>
-              {i < arr.length - 1 && <span style={{ color: "rgba(28,26,22,0.18)", fontSize: 10, marginLeft: 8 }}>●</span>}
+              {i < arr.length - 1 && <span style={{ color: onImg ? "rgba(247,243,236,0.35)" : "rgba(28,26,22,0.18)", fontSize: 10, marginLeft: 8 }}>●</span>}
             </span>
           ))}
         </div>
@@ -467,9 +711,10 @@ function Hero({ onNav, settings, allProducts }) {
         <div className="hero-btns" style={{ display: "flex", gap: 16, justifyContent: "center", flexWrap: "wrap", marginBottom: 80 }}>
           <button onClick={() => onNav("catalog")} style={{
             fontFamily: T.sans, fontSize: 12, fontWeight: 700, letterSpacing: "0.12em",
-            textTransform: "uppercase", color: "#fff", background: T.text,
+            textTransform: "uppercase", color: onImg ? T.text : "#fff", background: onImg ? "#f7f3ec" : T.text,
             border: "none", padding: "17px 44px", borderRadius: T.r.full, cursor: "pointer",
             display: "inline-flex", alignItems: "center", gap: 10,
+            boxShadow: onImg ? "0 8px 30px rgba(0,0,0,0.25)" : "none",
             transition: "all 0.3s",
           }}>
             YENİ GELENLERİ GÖR {I.arrow}
@@ -487,7 +732,7 @@ function Hero({ onNav, settings, allProducts }) {
         </div>
 
         {/* Scroll CTA */}
-        <div style={{ fontFamily: T.sans, fontSize: 10, fontWeight: 600, color: T.textLighter,
+        <div style={{ fontFamily: T.sans, fontSize: 10, fontWeight: 600, color: hintColor,
           letterSpacing: "0.18em", textTransform: "uppercase", cursor: "pointer" }}>
           AŞAĞI KAYDIR
           <span style={{ display: "block", marginTop: 8, fontSize: 18, animation: "float 2s ease-in-out infinite" }}>↓</span>
@@ -595,30 +840,66 @@ function BestSellersScroll({ allProducts, onView, onNav }) {
 // ============================================
 // BIZ KIMIZ (About)
 // ============================================
-function AboutSection({ settings }) {
+// ============================================
+// BİZ KİMİZ + NEDEN BİZDEN? — merged story + trust section
+// ============================================
+function AboutTrustSection({ onNav, settings }) {
   const tb = settings?.trustBadges || DEFAULT_SETTINGS.trustBadges;
+  const values = [
+    "Kaynağından seçilmiş, kalite odaklı ürünler",
+    "Piyasadaki değerinden genellikle daha uygun fiyatlar",
+    "Sınırlı stoklu ve özel kalan ürünlere erişim",
+    "Talep bırakın — ekibimiz sizi kısa sürede arasın",
+    "Beden seçiminden teslimata kadar adım adım destek",
+  ];
   return (
     <section style={{ padding: "100px 40px", maxWidth: 1440, margin: "0 auto", borderTop: "1px solid rgba(28,26,22,0.06)", position: "relative", zIndex: 1 }}>
       <div className="about-grid" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 80, alignItems: "start" }}>
-        {/* Left — text */}
+        {/* Left — who we are + why us + CTA */}
         <div>
-          <p style={{ fontFamily: T.sans, fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.18em", color: T.red, marginBottom: 10 }}>BİZ KİMİZ</p>
-          <h2 style={{ fontFamily: T.serif, fontSize: "clamp(28px, 3vw, 40px)", fontWeight: 700, color: T.text, lineHeight: 1.3, letterSpacing: "-0.02em", marginBottom: 24 }}>Biz Kimiz?</h2>
+          <p style={{ fontFamily: T.sans, fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.18em", color: T.red, marginBottom: 10 }}>BİZ KİMİZ &amp; GÜVEN</p>
+          <h2 style={{ fontFamily: T.serif, fontSize: "clamp(30px, 3.5vw, 48px)", fontWeight: 700, color: T.text, lineHeight: 1.2, letterSpacing: "-0.02em", marginBottom: 24 }}>Neden UygunAyakkabı?</h2>
 
           <div style={{ fontFamily: T.sans, fontSize: 15, color: T.textLight, lineHeight: 1.9 }}>
-            <p style={{ marginBottom: 20 }}>UygunAyakkabi.com, kaliteli ayakkabıya daha ulaşılabilir şekilde erişmek isteyen insanlar için kurulmuş yeni nesil bir platformdur.</p>
+            <p style={{ marginBottom: 18 }}>UygunAyakkabı.com, kaliteli ayakkabıya daha ulaşılabilir şekilde erişmek isteyen insanlar için kurulmuş yeni nesil bir platformdur. Türkiye'nin ayakkabı üretim merkezlerinden biri olan Aymakoop'taki doğrudan erişim avantajını; kişisel destek ve anlaşılır bir alışveriş deneyimiyle buluşturuyoruz.</p>
+            <p style={{ marginBottom: 18 }}>Talep bıraktığınızda ekibimiz sizi kısa sürede arar, beden ve sipariş detaylarını birlikte tamamlar.</p>
+          </div>
 
-            <p style={{ marginBottom: 20 }}>Talep bıraktığınızda ekibimiz sizi kısa sürede arar, beden ve sipariş detaylarını birlikte tamamlarız. Kaynak avantajını sade ve destekli bir alışveriş deneyimiyle buluşturuyoruz.</p>
+          {/* Value list */}
+          <div style={{ margin: "26px 0 28px" }}>
+            <p style={{ fontFamily: T.sans, fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.14em", color: "rgba(28,26,22,0.4)", marginBottom: 14 }}>Size sunduklarımız</p>
+            {values.map((item, i) => (
+              <div key={i} style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 11 }}>
+                <span style={{ width: 18, height: 18, borderRadius: "50%", background: T.redSoft, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                  <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke={T.red} strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><path d="M20 6L9 17l-5-5" /></svg>
+                </span>
+                <span style={{ fontFamily: T.sans, fontSize: 14, color: T.textLight }}>{item}</span>
+              </div>
+            ))}
+          </div>
 
-            <p style={{ fontWeight: 600, color: T.text, marginBottom: 8 }}>Bizim amacımız yalnızca ayakkabı satmak değil;</p>
-            <p style={{ fontWeight: 600, color: T.red }}>kaliteli ürünü, kişisel destekle insanlara ulaştırmak.</p>
+          <p style={{ fontFamily: T.sans, fontSize: 15, fontWeight: 600, color: T.text, marginBottom: 6 }}>Amacımız yalnızca ayakkabı satmak değil;</p>
+          <p style={{ fontFamily: T.sans, fontSize: 16, fontWeight: 700, color: T.red, marginBottom: 32 }}>kaliteli ürünü, kişisel destekle insanlara ulaştırmak.</p>
+
+          {/* CTA */}
+          <div style={{ display: "flex", flexDirection: "column", gap: 14, alignItems: "flex-start" }}>
+            <button onClick={() => onNav("catalog")} style={{
+              fontFamily: T.sans, fontSize: 12, fontWeight: 700, letterSpacing: "0.12em",
+              textTransform: "uppercase", color: "#fff", background: T.text,
+              border: "none", padding: "17px 44px", borderRadius: T.r.full, cursor: "pointer",
+              display: "inline-flex", alignItems: "center", gap: 10, transition: "all 0.3s",
+            }}>
+              ÜRÜNLERİ İNCELE {I.arrow}
+            </button>
+            <p style={{ fontFamily: T.sans, fontSize: 12, color: T.textLighter, margin: 0 }}>
+              Sorunuz mu var? <a href={waLink(settings?.contact?.whatsappFull || "905331524843")} target="_blank" rel="noreferrer" style={{ color: T.text, fontWeight: 600, textDecoration: "underline" }}>WhatsApp'tan yazın →</a>
+            </p>
           </div>
         </div>
-        {/* Right — image + stats overlay */}
+
+        {/* Right — stats card (sticky) */}
         <div style={{ position: "sticky", top: 120 }}>
           <div style={{ borderRadius: 24, overflow: "hidden", aspectRatio: "4/3", background: "#ebe5da", border: "1px solid rgba(28,26,22,0.06)", position: "relative" }}>
-            {/* D-314: external Unsplash image removed (no external/copyrighted assets before ads).
-                TODO: replace with a CMS-controlled approved brand/editorial image. */}
             <div style={{ width: "100%", height: "100%", background: "linear-gradient(135deg, #efe7da 0%, #d9c7ad 55%, #b8966a 100%)" }} />
             <div style={{ position: "absolute", bottom: 0, left: 0, right: 0, padding: 32, background: "linear-gradient(transparent, rgba(0,0,0,0.55))" }}>
               <div style={{ display: "flex", gap: 40 }}>
@@ -635,64 +916,9 @@ function AboutSection({ settings }) {
               </div>
             </div>
           </div>
-          {/* Brand microcopy badge */}
           <div style={{ marginTop: 20, textAlign: "center" }}>
             <p style={{ fontFamily: T.sans, fontSize: 12, fontWeight: 600, color: T.textLight, letterSpacing: "0.06em" }}>Seçili ürünler — kişisel destek</p>
           </div>
-        </div>
-      </div>
-    </section>
-  );
-}
-
-// ============================================
-// NEDEN BİZDEN ALMALISINIZ? (Trust / Value Proposition)
-// ============================================
-function TrustValueSection({ onNav, settings }) {
-  return (
-    <section style={{ padding: "100px 40px", maxWidth: 1440, margin: "0 auto", borderTop: "1px solid rgba(28,26,22,0.06)", position: "relative", zIndex: 1 }}>
-      <div style={{ maxWidth: 720, margin: "0 auto", textAlign: "center" }}>
-        <p style={{ fontFamily: T.sans, fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.18em", color: T.red, marginBottom: 10 }}>GÜVEN</p>
-        <h2 style={{ fontFamily: T.serif, fontSize: "clamp(30px, 3.5vw, 48px)", fontWeight: 700, color: T.text, letterSpacing: "-0.02em", marginBottom: 28 }}>Neden Bizden Almalısınız?</h2>
-
-        {/* D-258: Confident opener + inquiry reassurance added */}
-        <div style={{ fontFamily: T.sans, fontSize: 15, color: T.textLight, lineHeight: 1.9, textAlign: "left" }}>
-          <p style={{ marginBottom: 20 }}>Biz, Türkiye'nin ayakkabı üretim merkezlerinden biri olan Aymakoop'taki doğrudan erişim avantajını, kişisel destek ve anlaşılır bir alışveriş deneyimiyle buluşturan bir platformuz.</p>
-
-          <p style={{ marginBottom: 16 }}>Müşterilerimize sunabildiğimiz değerler:</p>
-
-          <div style={{ paddingLeft: 20, marginBottom: 24 }}>
-            {[
-              "Kaynağından seçilmiş, kalite odaklı ürünler",
-              "Piyasadaki değerinden genellikle daha uygun fiyatlar",
-              "Sınırlı stoklu ve özel kalan ürünlere erişim",
-              "Talep bırakın — ekibimiz sizi kısa sürede arasın",
-              "Beden seçiminden teslimata kadar adım adım destek",
-            ].map((item, i) => (
-              <div key={i} style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10 }}>
-                <span style={{ width: 6, height: 6, borderRadius: "50%", background: T.red, flexShrink: 0 }} />
-                <span style={{ fontFamily: T.sans, fontSize: 14, color: T.textLight }}>{item}</span>
-              </div>
-            ))}
-          </div>
-
-          <p style={{ fontWeight: 600, color: T.text, marginBottom: 8 }}>Ürünü beğendiniz mi?</p>
-          <p style={{ fontWeight: 700, color: T.red, fontSize: 16 }}>Talep bırakın, biz sizi arayalım — adım adım yardımcı olalım.</p>
-        </div>
-
-        {/* D-258: Dual CTA — browse OR contact directly */}
-        <div style={{ marginTop: 48, display: "flex", gap: 16, justifyContent: "center", flexWrap: "wrap" }}>
-          <button onClick={() => onNav("catalog")} style={{
-            fontFamily: T.sans, fontSize: 12, fontWeight: 700, letterSpacing: "0.12em",
-            textTransform: "uppercase", color: "#fff", background: T.text,
-            border: "none", padding: "17px 44px", borderRadius: T.r.full, cursor: "pointer",
-            display: "inline-flex", alignItems: "center", gap: 10, transition: "all 0.3s",
-          }}>
-            ÜRÜNLERİ İNCELE {I.arrow}
-          </button>
-          <p style={{ width: "100%", fontFamily: T.sans, fontSize: 12, color: T.textLighter, textAlign: "center", margin: 0 }}>
-            Sorunuz mu var? <a href={waLink(settings?.contact?.whatsappFull || "905331524843")} target="_blank" rel="noreferrer" style={{ color: T.text, fontWeight: 600, textDecoration: "underline" }}>WhatsApp'tan yazın →</a>
-          </p>
         </div>
       </div>
     </section>
@@ -935,15 +1161,37 @@ function CategoryTiles({ allProducts, onNav }) {
 // TODO: swap bgImage for a CMS-controlled editorial image once a Payload media
 // field is added (kept frontend-only — no schema change in this task).
 // ============================================
+// Editorial section background slideshow — crossfades like the hero
+const EDITORIAL_IMAGES = [
+  "/hero/hero-side-wingtip.jpg",
+  "/hero/hero-pennyloafer.jpg",
+  "/hero/hero-suedegold.jpg",
+];
+
 function EditorialImageSection({ bgImage, onNav }) {
+  const [idx, setIdx] = useState(0);
+  useEffect(() => {
+    if (EDITORIAL_IMAGES.length <= 1) return;
+    const id = setInterval(() => setIdx((i) => (i + 1) % EDITORIAL_IMAGES.length), 6000);
+    return () => clearInterval(id);
+  }, []);
   return (
     <section style={{
       position: "relative", width: "100%", overflow: "hidden",
       minHeight: "clamp(420px, 58vh, 600px)", display: "flex", alignItems: "center",
-      background: bgImage ? "#1c1a16" : "linear-gradient(120deg, #2b241c 0%, #5c4a36 60%, #c8a26a 130%)",
+      background: "#1c1a16",
     }}>
-      {bgImage && <img src={bgImage} alt="" aria-hidden="true" loading="lazy" style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover", opacity: 0.92 }} />}
-      <div style={{ position: "absolute", inset: 0, background: "linear-gradient(90deg, rgba(28,26,22,0.8) 0%, rgba(28,26,22,0.5) 48%, rgba(28,26,22,0.12) 100%)" }} />
+      {/* Crossfading slideshow with slow zoom */}
+      {EDITORIAL_IMAGES.map((src, i) => (
+        <div key={src} style={{
+          position: "absolute", inset: 0,
+          backgroundImage: `url(${src})`, backgroundSize: "cover", backgroundPosition: "center",
+          opacity: i === idx ? 1 : 0,
+          transform: i === idx ? "scale(1.06)" : "scale(1)",
+          transition: "opacity 1.4s ease-in-out, transform 6s ease-out",
+        }} />
+      ))}
+      <div style={{ position: "absolute", inset: 0, background: "linear-gradient(90deg, rgba(28,26,22,0.85) 0%, rgba(28,26,22,0.55) 48%, rgba(28,26,22,0.15) 100%)" }} />
       <div className="editorial-inner" style={{ position: "relative", zIndex: 1, maxWidth: 1440, width: "100%", margin: "0 auto", padding: "0 48px", textAlign: "left" }}>
         <div style={{ maxWidth: 560 }}>
           <p style={{ fontFamily: T.sans, fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.2em", color: "rgba(255,255,255,0.7)", marginBottom: 16 }}>YENİ SEZON</p>
@@ -1087,7 +1335,11 @@ export default function App({ dbProducts = [], siteSettings = null, banners = []
     window.addEventListener("popstate", onPop);
     // On mount, check if URL already indicates a sub-page
     const path = window.location.pathname;
-    if (path === "/ayakkabilar") { sPg("catalog"); }
+    if (path === "/ayakkabilar") {
+      sPg("catalog");
+      const k = new URLSearchParams(window.location.search).get("kategori");
+      if (k) sInitCat(k);
+    }
     else if (path === "/yardim") { sPg("contact"); }
     else if (path.startsWith("/urun/")) {
       const slug = path.replace("/urun/", "");
@@ -1192,7 +1444,6 @@ export default function App({ dbProducts = [], siteSettings = null, banners = []
 
           {/* Product-first rails */}
           <ProductRail id="rail-yeni" tag="YENİ SEZON" title="Yeni Gelenler" products={yeniList} onView={view} onNav={nav} accent={T.green} />
-          <ProductRail tag="POPÜLER TALEP" title="Çok Sorulan Modeller" products={cokSorulanList} onView={view} onNav={nav} accent={T.red} />
           <ProductRail tag="SON FIRSAT" title="Tükenmeden Yakala" products={tukenmedenList} onView={view} onNav={nav} accent="#d97706" />
 
           {/* D-310/D-314: full-width editorial section — warm premium gradient
@@ -1202,20 +1453,16 @@ export default function App({ dbProducts = [], siteSettings = null, banners = []
           {/* D-311: social proof / reviews (demo-flagged) */}
           <SocialProofReviews onNav={nav} />
 
-          {/* Trust / support / delivery */}
-          <TrustValueSection onNav={nav} settings={S} />
+          {/* Who we are + why us (merged) */}
+          <AboutTrustSection onNav={nav} settings={S} />
 
           {/* Nasıl Sipariş Verilir? */}
           <StepsSection onNav={nav} />
 
-          {/* Catalog transition — search + categories, then deals */}
-          <CategoryOverlay onNav={nav} />
+          {/* Deals */}
           <DiscountedSection allProducts={allProducts} onView={view} onNav={nav} />
 
-          {/* Lower: brand story + extra discovery. D-314/D-314b: WhyUsSection removed
-              entirely (duplicated TrustValue/About "Aymakoop/merkez" messaging) —
-              restore from git history if ever needed again. */}
-          <AboutSection settings={S} />
+          {/* Lower: extra discovery */}
           <BestSellersScroll allProducts={allProducts} onView={view} onNav={nav} />
 
           {/* Final exit recovery CTA before footer */}
@@ -1334,7 +1581,7 @@ function Catalog({ onView, allProducts, initCat, initQuery, onNav, settings }) {
   ];
 
   return (
-    <div style={{ paddingTop: 80, background: T.bg, minHeight: "100vh", position: "relative", zIndex: 1 }}>
+    <div style={{ paddingTop: 104, background: T.bg, minHeight: "100vh", position: "relative", zIndex: 1 }}>
       <section className="catalog-section" style={{ maxWidth: 1440, margin: "0 auto", padding: "60px 40px 100px" }}>
 
         {/* Heading + count — always visible */}
@@ -1705,7 +1952,7 @@ function Detail({ product: p, onBack, settings, onNav, onAddToCart }) {
   const allImages = (p.aiImages?.length ? p.aiImages : p.images?.length ? p.images : null) || [p.dbImage || p.image];
 
   return (
-    <div style={{ paddingTop: 80, background: T.bg, minHeight: "100vh", position: "relative", zIndex: 1 }}>
+    <div style={{ paddingTop: 104, background: T.bg, minHeight: "100vh", position: "relative", zIndex: 1 }}>
       <section style={{ maxWidth: 1440, margin: "0 auto", padding: "40px 40px 100px" }}>
         {/* Breadcrumb */}
         <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 32 }}>
@@ -1873,7 +2120,7 @@ const HELP_FAQ_GROUPS = [
 function HelpContactPage({ onNav, settings }) {
   const waNum = settings?.contact?.whatsappFull || DEFAULT_SETTINGS.contact.whatsappFull;
   return (
-    <div style={{ paddingTop: 88, minHeight: "100vh" }}>
+    <div style={{ paddingTop: 104, minHeight: "100vh" }}>
       {/* Header */}
       <section style={{ padding: "64px 40px 40px", maxWidth: 760, margin: "0 auto", textAlign: "center" }}>
         <p style={{ fontFamily: T.sans, fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.18em", color: T.red, marginBottom: 10 }}>YARDIM MERKEZİ</p>

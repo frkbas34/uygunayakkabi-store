@@ -150,8 +150,10 @@ export default buildConfig({
       // to avoid pg-connection-string deprecation warning
       ssl: process.env.DATABASE_URI?.includes('neon.tech') ? { rejectUnauthorized: false } : undefined,
     },
-    // Şema değişikliklerini otomatik uygular (dev için ideal)
-    push: true,
+    // Şema değişikliklerini otomatik uygular (dev için ideal).
+    // Local'de güvenli önizleme için PAYLOAD_DB_PUSH=false ile kapatılabilir;
+    // ayarlanmazsa production'daki davranış aynen korunur (true).
+    push: process.env.PAYLOAD_DB_PUSH !== "false",
   }),
   editor: lexicalEditor(),
   secret: process.env.PAYLOAD_SECRET!,

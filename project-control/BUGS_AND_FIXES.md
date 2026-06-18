@@ -2,7 +2,10 @@
 
 _Created 2026-06-14. Newest at top. No secrets/PII._
 
-## D-332R — Manual `#geohazirla` PI trigger produced no report (OPEN, prod)
+## D-332R/D-333 — Manual `#geohazirla` produced no report (OPEN — most likely wrong bot, UNCONFIRMED)
+- **Status (2026-06-19):** operator is unsure which bot received the command, so root cause is NOT confirmed. Most likely **wrong bot** (sent to GeoBot/@Geeeeobot → PI hashtags redirected to Uygunops, PI never runs). Less likely: Uygunops webhook not delivering in prod.
+- **Definitive test (no code/config):** send `#geohazirla 359` (or reply to the product message) as a **DM to @Uygunops_bot**. If a report appears → it was wrong-bot (resolved, no fix). If still nothing → webhook-delivery issue → check/re-register the Uygunops webhook to `https://<prod-domain>/api/telegram` with the matching secret.
+- Code/logic verified correct (D-333): parser accepts `#geohazirla 359`; group cfg open (groupEnabled=true, allowlist empty); ownership routes PI hashtags to Uygunops. No code fix indicated.
 - **Symptom:** Operator sent `#geohazirla 359` (2026-06-19); no new `product-intelligence-reports` row and no `bot-events` were created. The only 359 report is id 43 (trigger `geo_auto`, 2026-06-09). Across the whole table every PI report is `geo_auto`; no manual-triggered report has ever existed. Newest bot-event of any kind = 2026-06-16 (product 361).
 - **Inference (not yet root-caused):** the manual Telegram PI command isn't reaching/executing the prod pipeline. Candidates: GEO bot token/webhook (`TELEGRAM_GEO_BOT_TOKEN`/`TELEGRAM_GEO_WEBHOOK_SECRET`) not configured or webhook not registered in prod; command sent to a bot/chat not wired to `/api/telegram`; or the PI command path gated/disabled. PI currently runs ONLY via the GeoBot auto-bridge (`resolvePiResearch`).
 - **Impact:** low for now — the auto-bridge already produces reports during content generation; but on-demand `#geohazirla` review of a single product is not available.

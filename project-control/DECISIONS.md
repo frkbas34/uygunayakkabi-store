@@ -1,5 +1,13 @@
 # DECISIONS — Uygunayakkabi
 
+## D-333T — Manual PI trigger confirmation after Uygunops DM (2026-06-19, VERIFIED BROKEN)
+**Test:** operator sent `#geohazirla 359` as a DM to **@Uygunops_bot**; then read-only check.
+**Result:** NO fresh report, NO fresh bot-event. Product 359 still has only report id 43 (geo_auto, 2026-06-09). Newest report anywhere = id 44 (2026-06-16); newest bot-event = 2026-06-16; **`anyEventToday = false`**.
+**Verdict:** manual `#geohazirla` is **VERIFIED BROKEN in prod**. "Wrong bot" is now RULED OUT (this attempt targeted Uygunops). The #geohazirla handler creates a draft report row + sends a "starting" Telegram reply before any work — neither happened → the update never reached the handler. No Telegram-webhook-driven activity since 2026-06-16 (recent activity is all server-side `geo_auto`).
+**Most likely remaining cause:** Uygunops Telegram **webhook delivery / config** — webhook URL not set/incorrect, OR secret mismatch (`TELEGRAM_WEBHOOK_SECRET` in prod ≠ Telegram's configured secret → route returns 401), OR delivery erroring. (Open sub-branch: if the operator received a "başlatıldı/starting" reply but no report, the cause shifts to `createProductIntelligenceReport` failing pre-draft — a runtime issue. Needs the "any reply?" answer to split.)
+**Smallest next fix (NO change yet):** operator runs Telegram **getWebhookInfo** for the Uygunops bot (read-only) and inspects `url`, `pending_update_count`, `last_error_date`/`last_error_message`. Claude cannot run it (token-in-URL = secret-in-URL, prohibited). Then **D-333A** = re-register the Uygunops webhook to `https://<prod-domain>/api/telegram` with the matching secret header (config action, with approval — no code change). No code defect found (D-333 verified handler/parser/gates are correct).
+**Status:** manual trigger VERIFIED BROKEN; cause = webhook delivery/config (inferred); D-333A pending operator getWebhookInfo + approval. Docs-only commit `docs: record D-333 manual trigger confirmation`.
+
 ## D-333 — GEO manual-trigger / webhook wiring audit (2026-06-19, READ-ONLY)
 **Question:** why did manual `#geohazirla 359` create no PI report? Read-only code + config audit.
 **Route logic (VERIFIED, `src/app/api/telegram/route.ts`):**

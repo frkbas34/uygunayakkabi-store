@@ -1,5 +1,17 @@
 # DECISIONS — Uygunayakkabi
 
+## D-332R — Review of PI/GEO report for product 359 (2026-06-19, READ-ONLY REVIEW)
+**Report found:** id **43**, status `ready`, trigger **`geo_auto`**, created **2026-06-09** (the only PI report for 359). Reviewed read-only; did NOT trigger another (rule: one exists) and did NOT touch `pi:sendgeo`.
+**Quality assessment:**
+- **Image analysis — STRONG.** 2 images used (identity from original `tg-359`, AI images supporting). Vision attributes accurate: color Kahverengi, soleType Kaba, closureType Slip-on, distinctiveFeatures [Püsküllü, Mokasen dikişli burun, Kaba taban], colorAccents [Yeşil taban detayı], `visibleBrand: null` (correct), materialGuess "Hakiki Deri".
+- **Reverse/similarity evidence — ABSENT/WEAK.** `referenceProducts = 0`; `rawProviderData` contains only `gemini` (no GoogleVision/DataForSEO/SerpAPI results). Hence `matchType=low_confidence` (40%), `exactProductFound=false`. The external-evidence/exact-match capability did not run (provider gap).
+- **SEO pack — STRONG + already live.** seoTitle "Premium Kahve Püsküllü Loafer | Klasik Şıklık Uygunayakkabı", accurate keyword-rich metaDescription, 11 targeted keywords + long-tail, tags, styleGuide, sizingGuidance, technicalSpecs. Matches the CURRENT live PDP metadata → this report's output was already applied to product 359.
+- **GEO pack — STRONG.** aiSearchSummary, blogDraftIdea, comparisonAngles, useCaseExplainer, buyerIntentKeywords, productComparisonText, alternativeSearchQueries. Claim-safety enforced (riskWarnings: "Hakiki Deri" downgraded to "deri hissiyatı veren"; no authenticity/warranty claims).
+- **GeoBot handoff:** effectively already completed via the June-9 geo_auto bridge (content→audit→`product.activated`); live PDP reflects it.
+**Verdicts:** Usable for product SEO = YES. Usable for AI-search/GEO = YES. Safe to pass to GeoBot = YES (claim-safe, no fake data). Reverse-image evidence = WEAK (0 matches). Provider/env gap blocking quality = YES for the reverse-search/exact-match dimension only; Gemini vision + SEO/GEO generation are high quality.
+**SECONDARY FINDING (see BUGS):** today's manual `#geohazirla 359` produced NO new report and NO bot-event. Every PI report in the table is `geo_auto`; no manual-triggered report has ever existed; bot's last activity = 2026-06-16. The manual Telegram PI trigger appears non-functional / not delivered in prod.
+**Status:** REVIEW COMPLETE. Docs-only commit `docs: record D-332 report review`.
+
 ## D-332 — Controlled GEO/PI dry-run for product 359 (2026-06-19, PREP DONE / EXECUTION PENDING OPERATOR)
 **Goal:** generate ONE internal PI report for product 359 and review quality, WITHOUT external publishing (no `pi:sendgeo`).
 **Read-only prep completed:**

@@ -2,6 +2,18 @@
 
 _Created 2026-06-14. Newest at top. No secrets/PII._
 
+## D-332R — Manual `#geohazirla` PI trigger produced no report (OPEN, prod)
+- **Symptom:** Operator sent `#geohazirla 359` (2026-06-19); no new `product-intelligence-reports` row and no `bot-events` were created. The only 359 report is id 43 (trigger `geo_auto`, 2026-06-09). Across the whole table every PI report is `geo_auto`; no manual-triggered report has ever existed. Newest bot-event of any kind = 2026-06-16 (product 361).
+- **Inference (not yet root-caused):** the manual Telegram PI command isn't reaching/executing the prod pipeline. Candidates: GEO bot token/webhook (`TELEGRAM_GEO_BOT_TOKEN`/`TELEGRAM_GEO_WEBHOOK_SECRET`) not configured or webhook not registered in prod; command sent to a bot/chat not wired to `/api/telegram`; or the PI command path gated/disabled. PI currently runs ONLY via the GeoBot auto-bridge (`resolvePiResearch`).
+- **Impact:** low for now — the auto-bridge already produces reports during content generation; but on-demand `#geohazirla` review of a single product is not available.
+- **Next:** D-333 — verify GEO bot/webhook wiring (read-only first: check webhook registration + which token owns `#geohazirla`).
+
+## D-332R — Reverse-image evidence absent in PI reports (OPEN, env/provider gap)
+- **Symptom:** Report 43 (and the pipeline generally) returns `referenceProducts = 0`; `rawProviderData` has only `gemini`. No GoogleVision/DataForSEO/SerpAPI reverse-search results → `matchType=low_confidence`, `exactProductFound=false`.
+- **Cause (inferred):** reverse-search provider creds not set in Vercel prod (`GOOGLE_VISION_API_KEY` / `DATAFORSEO_LOGIN+PASSWORD` / `SERPAPI_API_KEY`) and/or historical DataForSEO Organic-SERP 403. Pipeline is fail-soft so reports still generate (Gemini vision + SEO/GEO text are strong).
+- **Impact:** SEO/GEO TEXT quality is high; only external market/competitor evidence + exact-match detection is missing.
+- **Next:** D-333 (optional) — enable a reverse-search provider in Vercel if competitor evidence is wanted before scaling GEO.
+
 ## D-328 — Brand-name leak on ad landing pages (FIXED, data-only)
 - **Symptom (found D-327):** the "Benzer Modeller" similar-products rail on all 3 ad PDPs (359/355/354) surfaced brand-named product 358 `Louis Vuitton Loafer Bej` (same `Klasik` category) → "Louis Vuitton" text 4× per ad landing page. 349 `BOSS Süet Loafer` (Günlük) was also active. Trademark/counterfeit ad-policy + landing-page review risk.
 - **Fix (operator-approved):** set products 358 + 349 to `status: draft` via Admin API (active→draft). No rename, no delete. `active→draft` fires no publishing hooks. Reversible.

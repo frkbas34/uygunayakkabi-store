@@ -1,5 +1,19 @@
 # DECISIONS — Uygunayakkabi
 
+## D-333 — GEO manual-trigger / webhook wiring audit (2026-06-19, READ-ONLY)
+**Question:** why did manual `#geohazirla 359` create no PI report? Read-only code + config audit.
+**Route logic (VERIFIED, `src/app/api/telegram/route.ts`):**
+- Dual-bot: webhook resolves token by `?bot=geo` query param → `TELEGRAM_GEO_BOT_TOKEN`, else `TELEGRAM_BOT_TOKEN` (Uygunops). Secret header `X-Telegram-Bot-Api-Secret-Token` checked against `TELEGRAM_GEO_WEBHOOK_SECRET` (geo) or `TELEGRAM_WEBHOOK_SECRET` (ops); skipped if the expected secret is unset.
+- Trigger parser (line ~3735): `/#(geohazirla|seoara|productintel|urunzeka)\b/i`. Product resolved from reply OR `#geohazirla <id>`. So **`#geohazirla 359` is a valid format.** All 4 aliases work.
+- **Ownership (Phase R):** `#geohazirla` ∈ `OPS_HASHTAGS` → owned by **Uygunops** (@Uygunops_bot, id 8702872700). If sent to **GeoBot** (`?bot=geo`, @Geeeeobot), the route REPLIES "📌 …@Uygunops_bot üzerinden çalışır. DM'den deneyin" and returns — **PI never runs**.
+- **Group gate (Phase I):** in group/supergroup, processed only if `telegram.groupEnabled===true` AND (`allowedUserIds` empty OR sender listed); fail-closed on settings error. DM (private) skips these gates → reaches handler directly. No DM-level operator allowlist exists.
+**Live config (read-only, AutomationSettings.telegram):** `groupEnabled = true`; `allowedUserIds = 0 entries` → allowlist is OPEN (code only blocks when list non-empty). So group-mode + allowlist do NOT block the command.
+**Ruled OUT:** command format/parser (valid), group disabled (it's on), allowlist (open), DM auth (none). **Still live candidates:** (a) **wrong bot** — command sent to GeoBot/@Geeeeobot → redirected, no report; (b) **command not reaching backend** — the Uygunops Telegram webhook isn't delivering messages in prod (unregistered/misconfigured URL or secret). Evidence: NO manual-triggered PI report has EVER existed (all are `geo_auto`); the #geohazirla handler creates a draft report row early, yet none dated today exists → the message never reached the handler. Bot's last domain activity = 2026-06-16 (server-side auto-bridge, which does NOT prove webhook delivery).
+**Webhook status check (getWebhookInfo):** NOT performed — it requires the bot token in the `api.telegram.org` URL (secret-in-URL, prohibited) and the local token likely isn't the prod bot. Webhook registration state = UNKNOWN from here; operator can check via BotFather / getWebhookInfo.
+**Env (names only, LOCAL .env): ** `TELEGRAM_BOT_TOKEN`/`TELEGRAM_WEBHOOK_SECRET` PRESENT; `TELEGRAM_GEO_BOT_TOKEN`/`TELEGRAM_GEO_WEBHOOK_SECRET` MISSING locally (prod authoritative, unknown).
+**Smallest safe fix (no code yet):** operator re-sends `#geohazirla 359` as a **DM to @Uygunops_bot** (not GeoBot) and reports the reply. If it works → root cause was wrong-bot (no fix needed). If silent → webhook delivery issue → re-register Uygunops webhook to `https://<prod-domain>/api/telegram` with the matching secret (config action, operator/approval — no code change). No code fix appears required; handler logic is correct. Optional cosmetic: the GeoBot redirect for PI hashtags mislabels them "Görsel üretimi".
+**Status:** AUDIT COMPLETE. D-333A implementation NOT yet needed (pending the 1 disambiguating retry). Docs-only commit `docs: record D-333 geo manual trigger audit`.
+
 ## D-332R — Review of PI/GEO report for product 359 (2026-06-19, READ-ONLY REVIEW)
 **Report found:** id **43**, status `ready`, trigger **`geo_auto`**, created **2026-06-09** (the only PI report for 359). Reviewed read-only; did NOT trigger another (rule: one exists) and did NOT touch `pi:sendgeo`.
 **Quality assessment:**

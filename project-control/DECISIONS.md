@@ -1,5 +1,15 @@
 # DECISIONS — Uygunayakkabi
 
+## D-333B — Verify manual trigger after confirmed Uygunops DM (2026-06-19, CAUSE ISOLATED: client/chat delivery)
+**Test:** operator sent a confirmed DM `#geohazirla 359` to @Uygunops_bot (webhook proven healthy in D-333A). Read-only check after.
+**Result:** STILL no fresh report (359 has only id 43, geo_auto, 2026-06-09) and no fresh bot-event (newest = 2026-06-16, product 361). Nothing today.
+**Decisive reasoning:** in a **DM** to Uygunops there is NO gate that can silently drop `#geohazirla` — group gates (Phase Y/N, Phase I allowlist, mention) are all skipped for private chats; Phase R ownership passes it through (ops hashtag, not `?bot=geo`); the wizard interceptor ignores `#`-prefixed text. So IF the update reached `/api/telegram`, the handler would (a) send a "starting" reply and (b) create a `draft` report row immediately. Neither exists → **the Telegram update never reached the backend route.** Webhook server config is healthy (D-333A: correct URL, matching secret, 0 pending, only a stale June-16 read-timeout).
+**Conclusion → CAUSE = Telegram client/chat delivery** (the message is not being delivered from the operator's Telegram to the bot/route), NOT webhook config and NOT the route code. Likely sub-causes: the bot was never successfully `/start`-ed by this user account; the operator is messaging a different/look-alike bot (token confirmed = @Uygunops_bot, id 8702872700); or a Telegram-side delivery anomaly.
+**Smallest next fix (no webhook change):** operator DMs a simple known-reply command to **@Uygunops_bot** first — e.g. `/pipeline` (shared command, always replies) or `/start`.
+- Gets a reply → the bot IS reachable for this user → the issue is specific to the PI command path (then investigate handler/slow-run as code — D-334).
+- Gets NO reply → the bot is unreachable for this user/DM → press `/start`, confirm the username is exactly `@Uygunops_bot`, ensure the bot isn't blocked, then retry `#geohazirla 359`.
+**Status:** manual trigger still not firing; webhook + route code ruled out; cause isolated to client/chat delivery. Auto-bridge (`geo_auto`) unaffected — PI still generates during normal content gen. Docs-only commit `docs: record D-333B manual trigger verification`.
+
 ## D-333A — Uygunops webhook diagnosis (2026-06-19, WEBHOOK HEALTHY — no repair needed)
 **Method:** read token/secret from local `.env` (never printed); Telegram `getMe` + `getWebhookInfo`, then an idempotent `setWebhook` re-set (operator-authorized).
 **Findings (webhook is correctly configured):**

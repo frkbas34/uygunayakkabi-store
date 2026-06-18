@@ -1,5 +1,14 @@
 # DECISIONS — Uygunayakkabi
 
+## D-331A — Resolve pre-existing source drift before GEO dry-run (2026-06-18, REVERTED)
+**Context:** `main` carried two uncommitted working-tree changes (never committed to any branch/stash/remote — local drift of unknown provenance). Resolved before D-332.
+**Classification + action:**
+- `src/app/(payload)/admin/importMap.js` — **generated/importMap-only drift** (Payload regen by a different local version: even unchanged components got new hashes, plus full lexical-richtext + Vercel-blob client entries added). → **REVERTED** to HEAD.
+- `src/app/(app)/UygunApp.jsx` — **mixed drift, partly policy-violating** → **REVERTED** to HEAD. Contents were: (a) cosmetic `CountUp` component + animated `gradientShift` on the About stats card (harmless); (b) **`DEMO_REVIEWS_ENABLED` flipped `false→true` with 5 fabricated ★★★★★ testimonials (names/cities)** — directly reverses LOCKED **D-313** ("demo reviews OFF for production") and the standing **no-fake-reviews** rule that D-323/D-327/D-329 verified clean for ads; (c) removal of `PreFooterCTA` (reverses D-284).
+**Why reverted (operator said "don't know" → safest call):** must NOT publish fake reviews onto a storefront about to run paid ads. Reverting restored the verified ad-ready, no-fake-review state (PreFooterCTA back, importMap drift gone). The full diff is preserved in the D-331A conversation; the harmless count-up/gradient polish can be re-added later as its own clean D-task if desired.
+**Method note:** `git stash` failed ("Cannot save the current status" — parenthesized `(app)`/`(payload)` paths). Used `git checkout -- .` to discard. Result: working tree clean, `main == origin/main` (`c04e173`), single worktree. No source commit (nothing to commit after revert). Docs-only commit `docs: record D-331A source drift reconciliation`.
+**Status:** RESOLVED. D-332 can proceed.
+
 ## D-331 — GEO / Product Intelligence re-entry audit (2026-06-18, READ-ONLY AUDIT)
 **Scope:** Re-entered the GEO/PI/GeoBot track. Read-only code audit + safe-run assessment. No code/product/DB change.
 **Subsystem map (all present, `src/lib/productIntelligence/` + orchestration):**

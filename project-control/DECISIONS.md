@@ -1,5 +1,19 @@
 # DECISIONS — Uygunayakkabi
 
+## D-333A — Uygunops webhook diagnosis (2026-06-19, WEBHOOK HEALTHY — no repair needed)
+**Method:** read token/secret from local `.env` (never printed); Telegram `getMe` + `getWebhookInfo`, then an idempotent `setWebhook` re-set (operator-authorized).
+**Findings (webhook is correctly configured):**
+- `getMe` → **@Uygunops_bot**, id **8702872700** — local token IS the right prod bot.
+- `getWebhookInfo.url` → **`https://www.uygunayakkabi.com/api/telegram`** — exactly the expected endpoint (NOT GeoBot / NOT `?bot=geo` / NOT localhost / NOT preview / NOT empty).
+- `pending_update_count = 0`; `allowed_updates = [message, callback_query]`.
+- Only flag: `last_error_message = "Read timeout expired"`, `last_error_date = 2026-06-16 15:02 UTC` (~56h old) — coincides with the June-16 product-361 content-gen run (slow request exceeded Telegram's read timeout but completed server-side; report 44 + events exist). **No webhook error from today.**
+- Secret is matching (a mismatch would log `401 Unauthorized`, not a read timeout).
+**setWebhook result:** `ok:true, description:"Webhook is already set"` — confirms it was already correct; re-set changed nothing.
+**Conclusion:** webhook config is HEALTHY — it is NOT the cause of the failed manual trigger. With no new report, no bot-event, no new webhook error, and 0 pending after today's attempt, the most likely cause is that the command **was not actually delivered to @Uygunops_bot today** (not sent, or sent to a different bot/chat — consistent with the earlier "not sure which bot"). 
+**Separate finding (architecture, not today's blocker):** the June-16 "Read timeout expired" shows the webhook handler can exceed Telegram's read timeout during slow operations (content-gen / PI run synchronously in-request). Future improvement (D-334?): ack the webhook fast (200) and run PI/content in the background to avoid read timeouts. The work still completes server-side today, so low urgency.
+**Next:** operator sends `#geohazirla 359` to **@Uygunops_bot** (the bot named "Uygunops") and reports whether ANY reply arrives → Claude verifies a fresh report/event. If a "starting" reply appears but no report → handler/timeout code issue; if no reply at all → the command still isn't landing on Uygunops.
+**Status:** webhook VERIFIED HEALTHY; no repair required (setWebhook was idempotent no-op). Docs-only commit `docs: record D-333A uygunops webhook repair`.
+
 ## D-333T — Manual PI trigger confirmation after Uygunops DM (2026-06-19, VERIFIED BROKEN)
 **Test:** operator sent `#geohazirla 359` as a DM to **@Uygunops_bot**; then read-only check.
 **Result:** NO fresh report, NO fresh bot-event. Product 359 still has only report id 43 (geo_auto, 2026-06-09). Newest report anywhere = id 44 (2026-06-16); newest bot-event = 2026-06-16; **`anyEventToday = false`**.

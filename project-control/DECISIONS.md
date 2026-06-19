@@ -1,5 +1,15 @@
 # DECISIONS — Uygunayakkabi
 
+## D-334 — Reverse-search provider quality audit (2026-06-19, READ-ONLY)
+**Question:** why do PI reports lack reverse-image / competitor evidence (`referenceProducts = 0`)?
+**Architecture (verified):** `reverseImageSearch.ts` is a thin orchestrator → `providers/index.ts` `selectProvider()` picks by env (`REVERSE_SEARCH_PROVIDER` default 'auto' → GoogleVision → DataForSeo → SerpApi; null if no creds = capability gap). Active prod provider = **Google Vision Web Detection** (`providers/googleVision.ts`). `referenceProducts` come from `webDetection.pagesWithMatchingImages`; provider stats stored in `rawProviderData.perImage`.
+**ROOT CAUSE (CONFIRMED) = image input/query issue (code).** `googleVisionSearch()` sends `image: { source: { imageUri: imageUrl } }` — it asks Google to fetch the product image URL (`https://uygunayakkabi.com/api/media/file/…`) itself. Google Vision CANNOT fetch that URL and returns the per-image error: **"We're not allowed to access the URL on your behalf. Please download the content and pass it in."** The orchestrator records the error, so `referenceProducts = 0`, `matchType = low_confidence`. Seen on report 45 (Telegram warning) and report 43 (D-332R).
+**NOT:** env missing (prod HAS `GOOGLE_VISION_API_KEY` — Vision returned a structured response, not a 401/no-key); provider unsupported (Vision ran); provider empty (it errored, didn't return empty); wrong provider; DataForSEO capability (not in use). Local `.env` has no provider keys (dev only); prod runs Vision via 'auto'.
+**Recommended path = A (keep Google Vision) + F (code patch).** In `googleVisionSearch` (`src/lib/productIntelligence/providers/googleVision.ts`), fetch the image bytes server-side and send `image: { content: <base64> }` instead of `image: { source: { imageUri } }`. ~10-line change to ONE function, reversible, low blast radius. Vision Web Detection works with inline base64 content (the ~1200px jpg is well under the 4MB inline limit). Optionally apply the same content-vs-URI fix to the DataForSeo/SerpApi providers if those are ever enabled.
+**Cost/credits:** NONE. Stays within Google Vision's free tier (1,000 Web Detection/mo vs ~300 PI runs/mo); no DataForSEO ($50 min) or SerpAPI needed. base64 vs imageUri does not change cost.
+**Implementation:** NEEDED but NOT done (read-only audit). Proposed follow-up **D-334A** = the base64 code patch, pending operator approval; then re-run `#geohazirla 359` to verify reverse-image evidence populates.
+**Status:** AUDIT COMPLETE. Docs-only commit `docs: record D-334 reverse-search provider audit`.
+
 ## D-333C — Manual PI trigger RESOLVED + confirmed working (2026-06-19)
 **Action:** with operator authorization (operator granted Telegram Web access on Chrome), Claude opened the **@Uygunops_bot DM** (verified id **8702872700**) in the operator's Telegram Web and sent `#geohazirla 359`.
 **Result — WORKS END-TO-END:**

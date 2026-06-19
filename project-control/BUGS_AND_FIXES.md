@@ -4,7 +4,13 @@ _Created 2026-06-14. Newest at top. No secrets/PII._
 
 ## D-332R/D-333/D-333T/D-333C — Manual `#geohazirla` produced no report (RESOLVED 2026-06-19 — was wrong bot/chat)
 - **RESOLUTION (D-333C):** sent `#geohazirla 359` to the verified @Uygunops_bot DM (id 8702872700) → worked first try (bot acknowledged + posted full report ready in ~40s). All earlier failures = the command never reached the @Uygunops_bot DM (sent to wrong bot/chat, e.g. GeoBot). Webhook (D-333A) and route code (D-333) were always healthy. NOT a defect. **To trigger manually: DM `#geohazirla <id>` to @Uygunops_bot (not GeoBot).**
-- Remaining (separate, OPEN): reverse-image search fails in prod (`google_vision: "not allowed to access the URL on your behalf"`) — provider creds/permission gap; SEO/GEO text generation unaffected.
+- Remaining (separate): reverse-image search fails in prod — root-caused in D-334 below.
+
+## D-334 — Reverse-image search returns 0 evidence (OPEN — code fix identified)
+- **Symptom:** PI reports have `referenceProducts = 0`; Telegram warning "Reverse search: google_vision_response: We're not allowed to access the URL on your behalf. Please download the content and pass it in." (reports 43, 45).
+- **Root cause (code):** `src/lib/productIntelligence/providers/googleVision.ts` `googleVisionSearch()` sends `image: { source: { imageUri: <uygunayakkabi.com media URL> } }`. Google Vision can't fetch that URL on the project's behalf → per-image error → orchestrator records error, 0 reference products, matchType=low_confidence. NOT env-missing (prod HAS `GOOGLE_VISION_API_KEY`), NOT provider-unsupported.
+- **Fix (D-334A, pending approval):** download the image bytes server-side and send `image: { content: <base64> }` instead of `imageUri`. ~10-line change to one function; free tier (Google Vision Web Detection 1000/mo); no paid providers/credits. Then re-run `#geohazirla 359` to verify evidence populates.
+- Gemini SEO/GEO text generation is unaffected (already strong).
 
 ## (historical) Manual `#geohazirla` investigation trail
 - **D-333T (2026-06-19):** operator re-sent `#geohazirla 359` as a DM to **@Uygunops_bot** → STILL no report and no bot-event (`anyEventToday=false`; newest activity 2026-06-16, all `geo_auto`). **"Wrong bot" RULED OUT.**

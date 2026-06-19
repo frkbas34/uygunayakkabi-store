@@ -2,6 +2,12 @@
 
 _Created 2026-06-14. Newest at top. No secrets/PII._
 
+## D-335B — Brand-named product #362 published live + to external channels (OPEN — publish risk)
+- **Symptom:** product #362 "New Balance Sneaker Çok Renkli" is `active` and was published to website + Shopier + X + Facebook with pervasive brand wording, 'N' logo emphasis, a specific-model claim ("New Balance 9060"), and an authenticity claim ("…'New Balance' yazısı, özgünlüğünü vurgular"). X copy carries "#NewBalance". Risk = HIGH→CRITICAL (trademark/counterfeit + customer-confusion). Worse than D-328.
+- **Root cause:** NO automated brand-name guard in the intake → GeoBot content-gen → publish pipeline. A brand-named product passed straight through to active + external channels despite the earlier D-328 cleanup.
+- **Containment (recommended, operator-approved):** set #362 to `draft` (hides website only; reversible) → then rename/rewrite generic; external posts (Shopier `shopier.com/48281164`, X tweet, FB post) require manual operator cleanup; IG feed publishing is OFF so likely no IG post.
+- **Prevention (future D-336):** add a brand-name blocklist guard (intake/GeoBot/publish) that flags or blocks titles/descriptions containing known brand names (New Balance, Nike, Adidas, Louis Vuitton, BOSS, Gucci, …) before activation/publish.
+
 ## D-332R/D-333/D-333T/D-333C — Manual `#geohazirla` produced no report (RESOLVED 2026-06-19 — was wrong bot/chat)
 - **RESOLUTION (D-333C):** sent `#geohazirla 359` to the verified @Uygunops_bot DM (id 8702872700) → worked first try (bot acknowledged + posted full report ready in ~40s). All earlier failures = the command never reached the @Uygunops_bot DM (sent to wrong bot/chat, e.g. GeoBot). Webhook (D-333A) and route code (D-333) were always healthy. NOT a defect. **To trigger manually: DM `#geohazirla <id>` to @Uygunops_bot (not GeoBot).**
 - Remaining (separate): reverse-image search fails in prod — root-caused in D-334 below.

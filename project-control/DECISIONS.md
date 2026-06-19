@@ -1,5 +1,24 @@
 # DECISIONS — Uygunayakkabi
 
+## D-335B — Product #362 brand-safety containment audit (2026-06-19, READ-ONLY)
+**Product:** #362 "New Balance Sneaker Çok Renkli", `status: active`, `channelTargets: [website, shopier, x, facebook]`. Live PDP + admin content confirmed.
+**Brand/trademark wording found (pervasive):**
+- Brand name "New Balance" used as the product IDENTITY — title, slug, meta title/description, 14 keywords, highlights, FAQ, all channel copy.
+- Specific-model claim: keyword "New Balance **9060 modeli**".
+- Logo emphasis: description "belirgin yan **'N' logosu**"; highlight "Belirgin 'N' Logo"; "dil kısmındaki **'New Balance' yazısı**".
+- **Authenticity/originality claim (critical):** "...'New Balance' yazısı, **özgünlüğünü vurgular**" (the New Balance text "emphasizes its originality/authenticity").
+- External copy: `commercePack.xPost` = "…New Balance Çok Renkli Sneaker… **#NewBalance** #Sneaker"; `facebookCopy` brand-named. Both targeted (X publishing D-195c is active).
+**Risk classification: HIGH → CRITICAL.** Brand-as-identity + logo emphasis + specific model (9060) + the "özgünlüğünü vurgular" authenticity wording can present a replica as a genuine/official New Balance item (customer-confusion / counterfeit exposure). The originality claim is the critical-tier element. Worse than D-328 (which had brand names but no authenticity claim), and amplified across external channels.
+**Recommended containment:** **A NOW — set #362 to `draft` (hide from storefront)** — immediate, reversible, same pattern as D-328 (operator approval required; not executed here). **Then B — rename/rewrite generic ("Çok Renkli Sneaker")** removing brand name, model number, logo + authenticity wording from title/desc/meta/highlights/FAQ/slug AND channel copy, if the operator wants to keep selling it. **Plus E — operator legal/business decision** (trademark/counterfeit is a legal matter). C (keep active, strip wording) NOT recommended (leaves it live during rewrite).
+**External cleanup NEEDED (setting to draft hides the WEBSITE only — does NOT retract external posts):**
+- **Shopier:** live checkout link on PDP (`shopier.com/48281164`); if a brand-named listing exists, operator must edit/remove it manually.
+- **X (Twitter):** brand-named tweet with #NewBalance likely LIVE (X publish active) → operator delete.
+- **Facebook:** brand-named post may be live → operator check/remove.
+- **Instagram:** IG feed publishing is OFF (`publishInstagram=false`, D-302 era) → likely no IG post; operator can verify.
+- **Telegram preview:** internal operator chat, not public — minimal concern.
+**Recurrence note:** #362 reached active + external channels DESPITE D-328 — there is NO automated brand-name guard in intake/GeoBot/publish. A brand-name blocklist guard is worth a future task.
+**Status:** AUDIT COMPLETE, no product/channel change. Awaiting operator approval to hide #362 (D-335C). Docs-only commit `docs: record D-335B product 362 brand safety audit`.
+
 ## D-335 — Product #362 GEO visibility audit (2026-06-19, READ-ONLY)
 **Product #362:** "New Balance Sneaker Çok Renkli", ₺4.444, Spor, slug `new-balance-sneaker-cok-renkli-tg-1781887306187`, ACTIVE/published (live on homepage; `ai-362-` images confirm id). Live PDP: `https://www.uygunayakkabi.com/products/new-balance-sneaker-cok-renkli-tg-1781887306187`.
 **GEO data model (verified in code):** GeoBot writes content onto the PRODUCT at `product.content.commercePack` (websiteDescription, highlights[], instagram/x/facebook/shopier copy) + `product.content.discoveryPack` (articleTitle, articleBody, metaTitle, metaDescription, faq[], keywordEntities[]). The `product-intelligence-reports` collection is a separate upstream artifact (seoPack/geoPack) that feeds GeoBot — NOT what the PDP reads.

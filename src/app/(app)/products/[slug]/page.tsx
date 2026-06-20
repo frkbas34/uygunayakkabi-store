@@ -894,10 +894,26 @@ export default async function ProductPage({ params }: Props) {
               </h3>
             )}
             <div style={{ maxWidth: 760 }}>
-              {articleParagraphs.map((para, i) => (
-                <p key={i} style={{ fontFamily: "'Inter', sans-serif", fontSize: 15,
-                  color: 'rgba(28,26,22,0.72)', lineHeight: 1.8, marginBottom: 16 }}>{para}</p>
-              ))}
+              {articleParagraphs.map((para, i) => {
+                // Render embedded markdown headings ("## Başlık") as real sub-headings
+                // instead of leaking the literal "##" to customers. Strip stray inline
+                // markdown emphasis markers from body text.
+                const heading = para.match(/^#{1,6}\s+(.+)$/)
+                if (heading) {
+                  return (
+                    <h4 key={i} style={{ fontFamily: "'Inter', sans-serif", fontSize: 16,
+                      fontWeight: 700, color: '#1c1a16', lineHeight: 1.4, margin: '26px 0 10px' }}>
+                      {heading[1].replace(/[*_`#]/g, '').trim()}
+                    </h4>
+                  )
+                }
+                return (
+                  <p key={i} style={{ fontFamily: "'Inter', sans-serif", fontSize: 15,
+                    color: 'rgba(28,26,22,0.72)', lineHeight: 1.8, marginBottom: 16 }}>
+                    {para.replace(/\*\*/g, '').replace(/^[-*]\s+/, '• ')}
+                  </p>
+                )
+              })}
             </div>
             {guideKeywords.length > 0 && (
               <div style={{ marginTop: 24 }}>

@@ -120,14 +120,59 @@ function parseWebDetection(data: any): PiReferenceProduct[] {
   return out
 }
 
+/** Inline base64 image cap. Google Vision accepts large requests, but we keep
+ *  this conservative for serverless memory + request size. The PI product
+ *  images (~1200px jpg) are well under this. */
+const MAX_IMAGE_BYTES = 6 * 1024 * 1024 // 6 MB
+
+/**
+ * D-334A: fetch the image bytes server-side and return base64. Google Vision
+ * cannot fetch our media URL on our behalf (returns "We're not allowed to
+ * access the URL on your behalf"), so we must pass the content inline.
+ * Validates HTTP OK, image/* content-type (when provided), non-empty, size cap.
+ * Never logs the bytes or any secret. Has a hard timeout so it can't hang the
+ * serverless function.
+ */
+async function fetchImageBase64(imageUrl: string): Promise<string> {
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), 15_000)
+  try {
+    const res = await fetch(imageUrl, { signal: controller.signal })
+    if (!res.ok) throw new Error(`HTTP ${res.status}`)
+    const contentType = (res.headers.get('content-type') || '').toLowerCase()
+    if (contentType && !contentType.startsWith('image/')) {
+      throw new Error(`unexpected content-type ${contentType.slice(0, 40)}`)
+    }
+    const buf = Buffer.from(await res.arrayBuffer())
+    if (buf.byteLength === 0) throw new Error('empty body')
+    if (buf.byteLength > MAX_IMAGE_BYTES) throw new Error(`too large (${buf.byteLength}B)`)
+    return buf.toString('base64')
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
 export async function googleVisionSearch(
   imageUrl: string,
   cfg: GoogleVisionConfig,
 ): Promise<ProviderSearchResult> {
+  // D-334A: send inline base64 content instead of asking Vision to fetch the URL.
+  let base64Image: string
+  try {
+    base64Image = await fetchImageBase64(imageUrl)
+  } catch (err) {
+    return {
+      ok: false,
+      results: [],
+      raw: { provider: 'google_vision_web_detection', stage: 'image_fetch' },
+      error: `google_vision_image_fetch_failed: ${err instanceof Error ? err.message : String(err)}`,
+    }
+  }
+
   const body = {
     requests: [
       {
-        image: { source: { imageUri: imageUrl } },
+        image: { content: base64Image },
         features: [{ type: 'WEB_DETECTION', maxResults: cfg.maxResults }],
       },
     ],

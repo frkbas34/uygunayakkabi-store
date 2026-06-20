@@ -80,6 +80,15 @@
 **Recommended fix:** (A) **D-335A (code, approval): add a visible PDP "GEO" section** rendering `discoveryPack.articleBody` (+ optionally an AI-summary/comparison block) so the long-form GEO is surfaced + indexable; (B) update operator runbook to explain WHERE GEO already appears (description/features/FAQ + hidden SEO meta + JSON-LD); (C) separately, brand-safety review of #362. NOT needed: re-run `#geohazirla 362` (content already applied) or re-apply metadata (already applied).
 **Status:** AUDIT COMPLETE, no code change. Docs-only commit `docs: record D-335 product 362 geo visibility audit`.
 
+## D-334A — Fix Google Vision reverse-search image input (2026-06-19, CODE)
+**Operator-approved.** One file: `src/lib/productIntelligence/providers/googleVision.ts`. Fixes the D-334 root cause (Vision couldn't fetch our media URL → `referenceProducts=0`).
+**Change:** `googleVisionSearch` now fetches the image bytes server-side (new `fetchImageBase64` helper) and sends `image: { content: <base64> }` instead of `image: { source: { imageUri } }`. Preserves the `WEB_DETECTION` feature call, the `parseWebDetection` ranking, and fail-soft behavior.
+**Guardrails:** 15s AbortController timeout on the image fetch; validates HTTP OK + `image/*` content-type (when provided) + non-empty + 6 MB cap; on any fetch failure returns `{ ok:false, error:'google_vision_image_fetch_failed: …' }` (fail-soft, never throws); no secret/token/byte logging.
+**Validation:** esbuild TSX/TS parse OK. No paid-provider call during validation.
+**Cost/env:** none — Google Vision free tier; no Vercel env change; no DataForSEO/SerpAPI.
+**Live verification (pending operator):** operator sends `#geohazirla 359` to @Uygunops_bot (no `pi:sendgeo`) → read the new report → confirm the imageUri access error is gone and whether `referenceProducts`/web entities improve. If Vision returns 0 matches but NO error → reclassify as "provider returning empty" (a data/coverage limitation, not an input bug).
+**Status:** IMPLEMENTED + VALIDATED; live verification pending operator trigger. Commit `fix: send google vision image content for reverse search`.
+
 ## D-334 — Reverse-search provider quality audit (2026-06-19, READ-ONLY)
 **Question:** why do PI reports lack reverse-image / competitor evidence (`referenceProducts = 0`)?
 **Architecture (verified):** `reverseImageSearch.ts` is a thin orchestrator → `providers/index.ts` `selectProvider()` picks by env (`REVERSE_SEARCH_PROVIDER` default 'auto' → GoogleVision → DataForSeo → SerpApi; null if no creds = capability gap). Active prod provider = **Google Vision Web Detection** (`providers/googleVision.ts`). `referenceProducts` come from `webDetection.pagesWithMatchingImages`; provider stats stored in `rawProviderData.perImage`.

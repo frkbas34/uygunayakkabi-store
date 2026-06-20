@@ -31,6 +31,14 @@
 **Recommendation:** PROCEED with **D-336A** (brandSafety.ts + audit Layer 1) as the smallest correct first step (best coverage-to-risk, reuses audit + Telegram UX, no schema change), then D-336B. Operator approval required before coding.
 **Status:** PLAN COMPLETE, no code change. Docs-only commit `docs: record D-336 brand-name guard plan`.
 
+## D-335A — Visible "Ürün Rehberi" discovery section on PDP (2026-06-19, CODE)
+**Operator-approved.** Surfaces EXISTING discovery content on the product page; no content generated, no product data changed. One file: `src/app/(app)/products/[slug]/page.tsx`.
+**What renders (server-side, SSR — indexable):** a new `Ürün Rehberi` section showing `discoveryPack.articleTitle` (Playfair h3, if present), `discoveryPack.articleBody` split into paragraphs, and `discoveryPack.keywordEntities` as subtle `Arama Notları` chips (max 12). Placed as a standalone full-width section BETWEEN the product detail section and "Benzer Modeller". The existing FAQ ("Merak Ettikleriniz") is left untouched — no duplicate heading.
+**Gating:** renders only when `articleParagraphs.length > 0` (`showProductGuide`); otherwise hidden entirely. No layout change for products without a discovery article.
+**Guardrails honored:** customer never sees "GEO"/"AI"; Turkish labels; renders only existing fields (no invented material/warranty/authenticity/brand/delivery claims); mobile-first (maxWidth 760 on text, flex-wrap chips, 40px gutters matching existing sections); pure server markup (no client component); plain-text paragraph rendering (no dangerouslySetInnerHTML).
+**Validation:** esbuild TSX syntax parse OK. Live PDP verification post-deploy (active products have `articleBody` because the Mentix audit requires it to pass → they show the section; #362 is draft → PDP 404, unaffected).
+**Status:** IMPLEMENTED. Commit `feat: surface discovery content on product pages`.
+
 ## D-335C — Product #362 brand-safety containment: set to draft (2026-06-19, DONE)
 **Action (operator-approved):** Admin API PATCH `/api/products/362` `status: active → draft`. ONLY status changed — title, slug, price, stock, channelTargets all UNCHANGED (verified). No rename, no rewrite, no delete, no image/stock/price change.
 **Verified live:** #362 status=`draft`; PDP `…/new-balance-sneaker-cok-renkli-tg-1781887306187` returns **HTTP 404** (notFound); homepage + `/ayakkabilar` show **0×** "New Balance" / `ai-362` (ISR cache revalidated); active set = `[353,354,355,359]` (the 4 clean loafers), #362 not active; no other product changed.

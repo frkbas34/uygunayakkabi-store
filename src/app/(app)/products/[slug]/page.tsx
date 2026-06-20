@@ -305,6 +305,27 @@ export default async function ProductPage({ params }: Props) {
     ? faq.filter((f): f is FAQItem => !!f && typeof f.q === 'string' && typeof f.a === 'string')
     : []
 
+  // D-335A: surface the discovery article as a visible, server-rendered
+  // "Ürün Rehberi" section (existing content only — nothing generated here).
+  const dpArticleTitle =
+    typeof product.content?.discoveryPack?.articleTitle === 'string'
+      ? product.content.discoveryPack.articleTitle.trim()
+      : ''
+  const dpArticleBody =
+    typeof product.content?.discoveryPack?.articleBody === 'string'
+      ? product.content.discoveryPack.articleBody.trim()
+      : ''
+  const articleParagraphs = dpArticleBody
+    ? dpArticleBody.split(/\n+/).map((p) => p.trim()).filter((p) => p.length > 0)
+    : []
+  const guideKeywords = Array.isArray(product.content?.discoveryPack?.keywordEntities)
+    ? (product.content.discoveryPack.keywordEntities as unknown[])
+        .filter((k): k is string => typeof k === 'string' && k.trim().length > 0)
+        .map((k) => k.trim())
+        .slice(0, 12)
+    : []
+  const showProductGuide = articleParagraphs.length > 0
+
   const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || 'https://www.uygunayakkabi.com'
   const productUrl = `${siteUrl}/products/${product.slug}`
   const productJsonLd = buildProductJsonLd(product, productUrl)
@@ -856,6 +877,45 @@ export default async function ProductPage({ params }: Props) {
               <ProductFAQ faq={validFaq.length > 0 ? validFaq : DEFAULT_PROCESS_FAQ} />
             </div>
           </section>
+
+        {/* D-335A: Ürün Rehberi — surfaces the existing discovery article + search
+            notes as a visible, server-rendered section (no content generated here).
+            Hidden entirely when no usable article content exists. */}
+        {showProductGuide && (
+          <section style={{ maxWidth: 1440, margin: '0 auto', padding: '48px 40px 8px',
+            borderTop: '1px solid rgba(28,26,22,0.08)' }}>
+            <h2 style={{ fontFamily: "'Inter', sans-serif", fontSize: 13, fontWeight: 700,
+              letterSpacing: '0.12em', textTransform: 'uppercase', color: 'rgba(28,26,22,0.4)',
+              marginBottom: 16 }}>Ürün Rehberi</h2>
+            {dpArticleTitle && (
+              <h3 style={{ fontFamily: "'Playfair Display', serif", fontSize: 26, fontWeight: 700,
+                color: '#1c1a16', lineHeight: 1.25, marginBottom: 20, maxWidth: 760 }}>
+                {dpArticleTitle}
+              </h3>
+            )}
+            <div style={{ maxWidth: 760 }}>
+              {articleParagraphs.map((para, i) => (
+                <p key={i} style={{ fontFamily: "'Inter', sans-serif", fontSize: 15,
+                  color: 'rgba(28,26,22,0.72)', lineHeight: 1.8, marginBottom: 16 }}>{para}</p>
+              ))}
+            </div>
+            {guideKeywords.length > 0 && (
+              <div style={{ marginTop: 24 }}>
+                <p style={{ fontFamily: "'Inter', sans-serif", fontSize: 11, fontWeight: 700,
+                  letterSpacing: '0.1em', textTransform: 'uppercase', color: 'rgba(28,26,22,0.35)',
+                  marginBottom: 12 }}>Arama Notları</p>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+                  {guideKeywords.map((kw, i) => (
+                    <span key={i} style={{ fontFamily: "'Inter', sans-serif", fontSize: 12,
+                      color: 'rgba(28,26,22,0.6)', background: 'rgba(238,232,222,0.7)',
+                      border: '1px solid rgba(28,26,22,0.06)', borderRadius: 999,
+                      padding: '6px 14px' }}>{kw}</span>
+                  ))}
+                </div>
+              </div>
+            )}
+          </section>
+        )}
 
         {/* D-267: Similar products — same category, exclude current */}
         {similarProducts.length > 0 && (

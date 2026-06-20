@@ -1,5 +1,13 @@
 # DECISIONS — Uygunayakkabi
 
+## D-335C — Product #362 brand-safety containment: set to draft (2026-06-19, DONE)
+**Action (operator-approved):** Admin API PATCH `/api/products/362` `status: active → draft`. ONLY status changed — title, slug, price, stock, channelTargets all UNCHANGED (verified). No rename, no rewrite, no delete, no image/stock/price change.
+**Verified live:** #362 status=`draft`; PDP `…/new-balance-sneaker-cok-renkli-tg-1781887306187` returns **HTTP 404** (notFound); homepage + `/ayakkabilar` show **0×** "New Balance" / `ai-362` (ISR cache revalidated); active set = `[353,354,355,359]` (the 4 clean loafers), #362 not active; no other product changed.
+**Reversible:** flip status back to `active` to restore.
+**External cleanup STILL REQUIRED (hiding the website product does NOT retract external posts):** Shopier listing (`shopier.com/48281164`), X tweet (`#NewBalance`), Facebook post — manual operator cleanup. IG feed publishing is OFF (likely no IG post). Telegram preview internal-only.
+**No content rewrite yet** — if the product is to be kept, a generic rename/rewrite (strip brand/model/logo/authenticity wording from title/desc/meta/highlights/FAQ/slug + channel copy) is a separate follow-up.
+**Status:** WEBSITE EXPOSURE CONTAINED. Docs-only commit `docs: record D-335C product 362 containment`.
+
 ## D-335B — Product #362 brand-safety containment audit (2026-06-19, READ-ONLY)
 **Product:** #362 "New Balance Sneaker Çok Renkli", `status: active`, `channelTargets: [website, shopier, x, facebook]`. Live PDP + admin content confirmed.
 **Brand/trademark wording found (pervasive):**

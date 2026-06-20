@@ -9,7 +9,13 @@
  *
  * All audit results are deterministic and truthful.
  * approvedForPublish is NEVER set true unless all dimensions actually pass.
+ *
+ * D-336A: brand-safety guard — a protected brand name in any text field forces
+ * needs_revision (approvedForPublish=false) so branded products never become
+ * publish-ready without an explicit operator rewrite.
  */
+
+import { scanProductBrandSafety, formatBrandSafetyReason, type BrandSafetyResult } from './brandSafety'
 
 // ── Types ─────────────────────────────────────────────────────────────
 
@@ -87,6 +93,8 @@ export interface FullAuditResult {
   approvedForPublish: boolean
   allWarnings: string[]
   revisionNotes: string[]
+  /** D-336A: brand-safety scan result (present on every audit). */
+  brandSafety?: BrandSafetyResult
 }
 
 export interface AuditTriggerResult {
@@ -294,6 +302,21 @@ export function runFullAudit(product: AuditableProduct): FullAuditResult {
     revisionNotes.push('Ürün satışa kapalı (sellable=false)')
   }
 
+  // D-336A: Brand-safety guard. A protected brand name in any text field is a
+  // HARD block — push a revision note so overallResult becomes needs_revision
+  // (approvedForPublish=false). Risky claim terms WITHOUT a brand only warn.
+  const brandSafety = scanProductBrandSafety(product as unknown as Record<string, any>)
+  if (!brandSafety.safe) {
+    revisionNotes.push(
+      `🔴 Marka güvenliği bloğu: korumalı marka tespit edildi — ${formatBrandSafetyReason(brandSafety)} ` +
+        `(Brand-safety block: protected brand detected. Generic olarak yeniden yazılmadan yayına alınamaz.)`,
+    )
+  } else if (brandSafety.riskyClaims.length > 0) {
+    allWarnings.push(
+      `⚠️ Marka iddiası uyarısı (blok değil): ${formatBrandSafetyReason(brandSafety)}`,
+    )
+  }
+
   // Determine overall result
   const dimensions = [visual.result, commerce.result, discovery.result]
   const hasFail = dimensions.includes('fail')
@@ -331,6 +354,7 @@ export function runFullAudit(product: AuditableProduct): FullAuditResult {
     approvedForPublish,
     allWarnings,
     revisionNotes,
+    brandSafety,
   }
 }
 

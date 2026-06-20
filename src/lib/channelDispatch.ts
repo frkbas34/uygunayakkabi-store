@@ -26,6 +26,7 @@
 
 import type { AutomationSettingsSnapshot } from './automationDecision'
 import crypto from 'crypto'
+import { scanProductBrandSafety } from './brandSafety'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -1510,6 +1511,21 @@ export async function dispatchProductToChannels(
   const dryRun = options?.dryRun === true
   const onlyChannels = options?.onlyChannels
   const { eligible, skipped } = evaluateChannelEligibility(product, settings)
+
+  // ── D-336B: Brand-safety guard (defense-in-depth) ──────────────────────────
+  // If a protected brand name is present in the product text, BLOCK all external
+  // dispatch — never call any Shopier/X/Facebook/Instagram publish path. Website
+  // is native (active status = visible) and is not a dispatch target here.
+  const brandScan = scanProductBrandSafety(product as Record<string, any>)
+  if (!brandScan.safe) {
+    const reason = `brand_safety_block: ${brandScan.blockedBrands.join(', ')} (fields: ${brandScan.matchedFields.join(', ')})`
+    for (const ch of eligible) skipped[ch] = reason
+    eligible.length = 0 // empty the list — nothing dispatches
+    console.warn(
+      `[channelDispatch] BRAND-SAFETY BLOCK product=${(product as Record<string, unknown>).id as string} ` +
+        `brands=[${brandScan.blockedBrands.join(',')}] fields=[${brandScan.matchedFields.join(',')}] — all external dispatch skipped`,
+    )
+  }
 
   // Extract Instagram/Facebook tokens from settings snapshot.
   // The same Meta long-lived user token covers both Instagram and Facebook.

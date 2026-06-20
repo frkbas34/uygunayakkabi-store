@@ -2,7 +2,7 @@
   "crons": [
     {
       "path": "/api/payload-jobs/run",
-      "schedule": "*/10 * * * *"
+      "schedule": "*/30 * * * *"
     },
     {
       "path": "/api/supplier-scout?action=daily_report",

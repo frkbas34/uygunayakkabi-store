@@ -1,9 +1,12 @@
 name: Process Payload Jobs
 
 on:
-  schedule:
-    # Every 5 minutes — processes queued Shopier sync jobs
-    - cron: '*/5 * * * *'
+  # Scheduled run disabled (D-: Neon compute fix). The Vercel cron in
+  # vercel.json (*/30) is now the sole scheduler for /api/payload-jobs/run,
+  # so this 5-minute schedule was waking Neon compute 24/7 and is turned off.
+  # schedule:
+  #   # Every 5 minutes — processes queued Shopier sync jobs
+  #   - cron: '*/5 * * * *'
   workflow_dispatch: # allow manual trigger
 
 jobs:

@@ -2,6 +2,17 @@
 
 _Last updated: 2026-04-28 (LOCK CHECKPOINT — D-227 → D-231 stabilization. PI auto-bridge into GeoBot, observability + mandatory prompt rules, idempotent applyConfirmation, richer SEO/GEO pack with mandatory sections, parallel commerce/discovery, wizard category+brand+productType vision autofill — all PROD-VALIDATED. Operator confirmation: "it's working perfectly now". Future work branches from this baseline.)_
 
+## Ad-relaunch readiness — 2026-06-21 (D-338: first ad-test readiness check — GREEN, no blocker)
+
+Read-only confirmation that the first paid ad test can run on the clean loafers. All PASS:
+- 4 products (359/355/354/353) public PDP 200, brand-safe, price + sizes + stock + WhatsApp CTA + lead form + ÜRÜN REHBERİ + single FAQ, no fake reviews.
+- #362 still `draft`, PDP 404, homepage 0× brand/`ai-362`.
+- UTM landing URLs resolve (359 verified 200 w/ query string); D-326 params correct.
+- UTM persistence wired: client `captureFirstTouch()` (D-315) + `/api/inquiries` stores utmSource/Medium/Campaign + product (D-320).
+- Lead form renders on all 4; code path intact (did not submit a new live test lead — D-320/D-322 already verified).
+- **Advisory (not a blocker):** product **354** copy claims "Gerçek/Hakiki deri" — only SKU with an explicit genuine-leather claim; operator should confirm substantiable or soften before advertising it.
+- **Verdict:** ad test MAY START. Caveats: finish #362 external cleanup (Shopier/X/FB); resolve 354 leather claim; lead creatives on 359/355/354, 353 backup, none deep-link #362. Docs commit `docs: record D-338 first ad relaunch readiness`.
+
 ## Closure checkpoint — 2026-06-21 (D-337: GEO + brand-safety + reverse-search closure audit — GREEN, ad test may resume)
 
 Read-only verification before first paid ad test. All checks PASS:

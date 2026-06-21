@@ -1,5 +1,19 @@
 # DECISIONS — Uygunayakkabi
 
+## D-338 — First ad-test relaunch readiness check (2026-06-21, READ-ONLY, GREEN)
+**Scope:** confirm the first paid ad test can run on the clean loafers. No code/status/PI/publish change. Canonical folder `main`, in sync, single worktree (`418e239`).
+**Product readiness — all 4 PASS (public PDP 200, brand-safe, price, sizes, stock, WhatsApp CTA, lead form, ÜRÜN REHBERİ, no fake reviews, single FAQ):**
+- **359** Premium Kahve Püsküllü Loafer — ₺2.099, sizes 40–44 (stock 2 each = 10). UTM landing URL verified 200 with query string intact.
+- **355** Siyah Rugan Püsküllü Loafer — ₺2.099, sizes 40–44 (stock 2 each). Careful "deri görünümlü" wording.
+- **354** Siyah Tokalı Püsküllü Loafer — ₺2.099, sizes 40–44 (stock 2 each). **ADVISORY:** copy asserts "**Gerçek deri / Hakiki deriden üretilen**" (genuine-leather claim) — the only one of the 4 making an explicit material-authenticity claim. Not a brand issue (scanner = safe, claim-only warn); but operator should confirm it is substantiable before running ads on this SKU (ad-policy / consumer-protection), or soften to "deri görünümlü".
+- **353** Erkek siyah loafer (BACKUP) — ₺1.899, sizes 40–43 (stock 1 each = "Son 4 adet!"). Lowest stock — fine as backup, not lead creative.
+**#362 containment — VERIFIED:** still `status:draft`, public PDP HTTP 404, homepage 0× "New Balance"/`ai-362`.
+**Ad URLs / UTM — VERIFIED:** D-326 pack fixed params `utm_source=meta` / `utm_medium=paid_social` / `utm_campaign=first_loafers_test` + per-product `utm_content`; slugs match live PDPs; 359 UTM URL returns 200.
+**UTM persistence — VERIFIED (code path intact):** client `captureFirstTouch()` (D-315, `@/lib/attribution`) on landing; `/api/inquiries` destructures `utmSource/utmMedium/utmCampaign/referrer` + stores `product: numericProductId` (D-320) ⇒ source/medium/campaign + product context all persist per lead.
+**Lead form — renders on all 4 PDPs; code path intact.** Did NOT submit a new live test lead — D-320/D-322 already verified end-to-end days ago, the form is unchanged, and a fresh submit would add DB noise + an operator Telegram ping for no new signal (honors "do not create spam").
+**Blocker:** NONE. **Verdict:** first ad test MAY START. Operator caveats (carried from D-337 + new): (1) finish manual external cleanup of #362 (Shopier `48281164`, X `#NewBalance`, FB post); (2) confirm or soften 354's genuine-leather claim; (3) lead creatives on 359/355/354, keep 353 as backup, none deep-link #362.
+**Status:** READINESS GREEN — confirmation of D-337, plus 354 copy advisory. Docs-only commit `docs: record D-338 first ad relaunch readiness`.
+
 ## D-337 — Post-GEO + brand-safety closure audit before first ad test (2026-06-21, READ-ONLY, VERIFIED)
 **Scope:** one final read-only verification of GEO / brand-safety / reverse-search state before resuming first paid ad testing. No code, no status, no PI trigger, no external publish. Canonical folder `C:\Users\W11\Desktop\uygunayakkabi-store`, branch `main`, in sync with origin, single worktree.
 **Commits present (verified):** D-335A `1c2476d`+`c0714fa` (visible PDP discovery), D-336A+B `204c897` (brand-safety guard), D-334A `51ef749` (Google Vision base64 fix), D-334A verify docs `907e5cb`.

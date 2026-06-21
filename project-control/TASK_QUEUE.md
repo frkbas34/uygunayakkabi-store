@@ -4,6 +4,18 @@ _Last updated: 2026-04-28 (LOCK CHECKPOINT — D-227 → D-231 stabilization. PI
 
 ---
 
+## Readiness — 2026-06-21 — D-338 first ad-test relaunch readiness check COMPLETE (read-only, GREEN)
+
+- [x] D-338: canonical folder + `main` in sync + single worktree (`418e239`).
+- [x] D-338: 359/355/354/353 — public PDP 200, brand-safe, price + sizes + stock + WhatsApp CTA + lead form + ÜRÜN REHBERİ + single FAQ, no fake reviews.
+- [x] D-338: #362 still `draft`, PDP 404, homepage 0× brand/`ai-362`.
+- [x] D-338: UTM landing URLs resolve (359 verified 200 w/ query string); D-326 params correct.
+- [x] D-338: UTM persistence wired — client `captureFirstTouch()` (D-315) + `/api/inquiries` stores utmSource/Medium/Campaign + product (D-320).
+- [x] D-338: lead form renders on all 4; code path intact (did NOT submit a new live test lead — already verified D-320/D-322).
+- [ ] D-338 ADVISORY (operator): product **354** copy claims "Gerçek/Hakiki deri" — confirm substantiable or soften to "deri görünümlü" before advertising that SKU.
+- [ ] D-338 (operator manual, carried from D-337): external cleanup — Shopier `48281164`, X `#NewBalance`, FB post.
+- [x] D-338: verdict GREEN, no blocker — ad test may start (creatives on 359/355/354, 353 backup, none deep-link #362). Docs commit `docs: record D-338 first ad relaunch readiness`.
+
 ## Closure — 2026-06-21 — D-337 GEO + brand-safety closure audit COMPLETE (read-only, GREEN)
 
 - [x] D-337: canonical folder + `main` in sync + single worktree confirmed.

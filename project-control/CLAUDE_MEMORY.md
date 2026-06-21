@@ -2,6 +2,16 @@
 
 _Created 2026-06-14. Compact handoff for future sessions. See PROJECT_STATE.md / DECISIONS.md / DEPLOYMENT_LOG.md / BUGS_AND_FIXES.md for detail. No secrets/PII._
 
+## Ad-relaunch readiness (2026-06-21) — D-338 first ad-test readiness check, GREEN (no blocker)
+- Read-only confirmation before first paid ad test. ALL PASS:
+  - 359/355/354/353: public PDP 200, brand-safe title/desc/meta, price + sizes + stock + WhatsApp CTA + lead form + ÜRÜN REHBERİ + single FAQ, no fake reviews. Prices: 359/355/354 = ₺2.099; 353 = ₺1.899 (stock "Son 4 adet!", backup only).
+  - #362 still `draft`, PDP 404, homepage 0× brand/`ai-362`.
+  - UTM: D-326 pack params (`utm_source=meta`/`utm_medium=paid_social`/`utm_campaign=first_loafers_test` + per-product `utm_content`); 359 UTM URL returns 200; slugs match live PDPs.
+  - UTM persistence wired: client `captureFirstTouch()` (D-315, `@/lib/attribution`) + `/api/inquiries` stores utmSource/utmMedium/utmCampaign/referrer + `product:numericProductId` (D-320).
+  - Lead form renders on all 4; code path intact. Did NOT submit a new live test lead (D-320/D-322 already verified end-to-end; avoids DB noise + operator Telegram ping).
+  - **ADVISORY (operator, not a blocker):** product **354** copy asserts "Gerçek deri / Hakiki deriden üretilen" — the only one of the 4 making an explicit genuine-leather claim (359/355/353 use "deri görünümlü/hissiyatı"). Scanner = safe (claim-only warn, no brand). Operator should confirm substantiable or soften before advertising 354.
+  - Verdict: GREEN, no blocker — ad test may start; creatives on 359/355/354, 353 backup, none deep-link #362; finish #362 external cleanup. Docs commit `docs: record D-338 first ad relaunch readiness`.
+
 ## Closure checkpoint (2026-06-21) — D-337 GEO + brand-safety closure audit, GREEN
 - **D-337 (read-only, no code/status/PI/publish change).** Final verification before first paid ad test. ALL PASS:
   - Active set = `[353,354,355,359]` (4 clean loafers, `totalDocs:4`); homepage "Yeni Gelenler" rail shows only these; 0× "New Balance"/`ai-362`.

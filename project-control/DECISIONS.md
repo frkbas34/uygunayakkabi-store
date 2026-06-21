@@ -87,7 +87,9 @@
 **Validation:** esbuild TSX/TS parse OK. No paid-provider call during validation.
 **Cost/env:** none — Google Vision free tier; no Vercel env change; no DataForSEO/SerpAPI.
 **Live verification (pending operator):** operator sends `#geohazirla 359` to @Uygunops_bot (no `pi:sendgeo`) → read the new report → confirm the imageUri access error is gone and whether `referenceProducts`/web entities improve. If Vision returns 0 matches but NO error → reclassify as "provider returning empty" (a data/coverage limitation, not an input bug).
-**Status:** IMPLEMENTED + VALIDATED; live verification pending operator trigger. Commit `fix: send google vision image content for reverse search`.
+**Status:** IMPLEMENTED + VALIDATED (`51ef749`, deployed); **live verification PENDING.**
+**Verify attempt (2026-06-19):** read-only check found NO fresh report — newest 359 report is still **id 45 (2026-06-18, pre-fix)** with the old `google_vision_response: …access the URL on your behalf` error. The @Uygunops_bot DM (read via operator Telegram Web) shows the last message is that same Friday id-45 report; **no new `#geohazirla 359` was sent to @Uygunops_bot today** → the trigger didn't land on the right bot (recurring D-333 delivery issue). The fix is deployed but has NOT yet been exercised by a live PI run, so the imageUri error / referenceProducts cannot be confirmed yet. Outcome classification = **E (not yet verifiable — no fresh report)**. Did NOT press "Yeniden Üret"/`pi:sendgeo` (task forbids triggering).
+**To verify:** operator sends `#geohazirla 359` in the chat titled **"Uygunops · bot"** (or taps "Yeniden Üret" on report 45) → Claude reads the new report → expect the imageUri error gone; if Vision then returns 0 matches but NO error → outcome B ("provider returning empty", web-coverage limit on AI studio images).
 
 ## D-334 — Reverse-search provider quality audit (2026-06-19, READ-ONLY)
 **Question:** why do PI reports lack reverse-image / competitor evidence (`referenceProducts = 0`)?

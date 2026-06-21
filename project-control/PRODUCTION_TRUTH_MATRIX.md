@@ -152,9 +152,7 @@ _Last updated: 2026-04-21 (Phase 1 one-product full-pipeline validation CLOSED o
 | Instagram direct publish | **PROD-VALIDATED** | Graph API v21.0, verified live |
 | Facebook page publish | **PROD-VALIDATED** | Page Access Token exchange, verified live |
 | Shopier sync | **PROD-VALIDATED** | Non-blocking jobs queue |
-| Dolap | **SCAFFOLDED** | n8n webhook stub only, no real API |
 | X (Twitter) | **PROD-VALIDATED** | OAuth 1.0a user-context (D-195c) + v2 `/2/media/upload` with `media_category=tweet_image` (D-211). Prod-validated on product 294 2026-04-21: `mediaUploaded=true`, `responseStatus=201`, `tweetId=2046379952245776422` |
-| Threads | **SCAFFOLDED** | n8n webhook stub only |
 | Channel dispatch orchestration | **PROD-VALIDATED** | afterChange hook on Products |
 
 ---
@@ -213,7 +211,7 @@ _Last updated: 2026-04-21 (Phase 1 one-product full-pipeline validation CLOSED o
 | IMPLEMENTED (not prod-validated) | 28 subsystems |
 | PARTIAL | 1 subsystem (merchandising sync cron) |
 | BLOCKED | 2 subsystems (Telegram stories, WhatsApp stories) |
-| SCAFFOLDED | 2 subsystems (Dolap, Threads) |
+| RETIRED | 2 channels (Dolap, Threads) |
 | NOT IMPLEMENTED | 1 subsystem (website checkout) |
 
-**Overall:** Core platform and original channels are production-proven. Phase 1 one-product full-pipeline validation CLOSED on 2026-04-21 (product 294 — D-212): Website + Instagram carousel + Facebook multi-photo + X-with-image all green end-to-end. X channel flipped PROD-VALIDATED via D-195c (OAuth 1.0a) + D-211 (`media_category=tweet_image` for X API v2 media upload). Phases 1-12 autonomous pipeline features remain the operating baseline. Two story targets are officially blocked by platform API limitations. Remaining channel scaffolds: Dolap, Threads.
+**Overall:** Core platform and active channels are production-proven. Phase 1 one-product full-pipeline validation CLOSED on 2026-04-21 (product 294 — D-212): Website + Instagram carousel + Facebook multi-photo + X-with-image all green end-to-end. X channel flipped PROD-VALIDATED via D-195c (OAuth 1.0a) + D-211 (`media_category=tweet_image` for X API v2 media upload). Phases 1-12 autonomous pipeline features remain the operating baseline. Two story targets are officially blocked by platform API limitations. Dolap and Threads were retired from the project on 2026-06-21.

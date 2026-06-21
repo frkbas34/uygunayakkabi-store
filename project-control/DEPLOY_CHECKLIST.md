@@ -100,11 +100,11 @@ _Last updated: 2026-04-04 (D-115 — hardcoded secret fixed, env truth pass)_
 - [ ] BlogPost auto-creation from discovery pack — code works, not validated
 - [ ] State coherence validation — Phase 12, not yet deployed
 
-### Partial / Scaffolded
+### Partial / Retired
 
-- [ ] Dolap channel — n8n webhook stub only, no real API
-- [ ] X/Twitter channel — OAuth scaffold, no posting implementation
-- [ ] Threads channel — n8n webhook stub only
+- [x] Dolap channel — retired from project on 2026-06-21
+- [x] Threads channel — retired from project on 2026-06-21
+- [x] X/Twitter channel — direct posting implemented and prod-validated
 - [ ] Merchandising sync cron — bestSellerScore fields exist, no cron job
 - [ ] Auto-publish flow — publish_ready state exists, no auto-activation
 

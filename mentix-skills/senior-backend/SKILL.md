@@ -46,7 +46,7 @@ Activate when:
 
 ### 3. Integration Guidance
 - Design webhook contracts for new channel integrations
-- Evaluate third-party API compatibility (Instagram Graph, Shopier, Dolap)
+- Evaluate third-party API compatibility for active channels (Instagram/Facebook Graph, X, Shopier)
 - Recommend error handling and retry strategies
 - Design fallback behavior for external service failures
 

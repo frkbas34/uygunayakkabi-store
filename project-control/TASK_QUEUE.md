@@ -547,12 +547,7 @@ Root causes found and fixed:
 
 ## 📋 LATER — Planned but Not Scheduled
 
-### Phase 2B Remaining Channels
-
-**Dolap Integration:**
-- Research Dolap API availability (no public docs found yet)
-- Stub workflow exists: `n8n-workflows/stubs/channel-dolap.json`
-- `publishDolap` toggle already scaffolded
+### Phase 2B Active Channels
 
 **X (Twitter) Integration:** — PROD-VALIDATED (2026-04-21)
 - Status: OAuth 1.0a user-context publishing live (D-195c). Media upload via v2 `/2/media/upload` with `media_category=tweet_image` (D-211).
@@ -561,10 +556,9 @@ Root causes found and fixed:
 - ~~Real integration needs: X API v2 POST /2/tweets + OAuth 2.0 PKCE~~ (superseded by OAuth 1.0a path).
 - Token refresh: access ~2hr, refresh ~6mo
 
-**Threads Integration:**
-- Scaffold complete (same as X)
-- Real integration needs: Threads API /{user_id}/threads
-- Reuses same Meta App as Instagram
+**Retired channels (2026-06-21):**
+- Dolap and Threads are no longer part of the project.
+- Runtime channel types, Payload toggles, parser targets, and n8n stubs were removed.
 
 ### Phase 2C — Content Growth Layer
 
@@ -589,10 +583,6 @@ Root causes found and fixed:
 ---
 
 ## 🚫 BLOCKED — Waiting on External
-
-### Dolap API Research
-- **Blocked on**: finding official API documentation or seller integration
-- Cannot proceed without confirmed API access
 
 ### Mentix Level B Skills Activation
 - **Blocked on**: Level A skills being ops-tested first (see NOW section)
@@ -690,11 +680,11 @@ Infrastructure, collections, schema, storefront — all validated in production.
 </details>
 
 <details>
-<summary>Channel Scaffolds ✅</summary>
+<summary>Active Channel History ✅</summary>
 
-- X (Twitter): scaffold + OAuth callback + n8n stub
-- Facebook Page: scaffold + n8n stub (real integration live via Step 19)
-- Threads: scaffold + n8n stub
+- X (Twitter): direct OAuth 1.0a posting live
+- Facebook Page: real integration live via Step 19
+- Dolap/Threads: retired on 2026-06-21
 </details>
 
 <details>
@@ -950,9 +940,9 @@ Any modification to `src/lib/imageProviders.ts` or `src/jobs/imageGenTask.ts` th
 - [x] D-277: `CategoryOverlay` moved from position 8 → position 3 (right after `WhyUsSection`, before Popular grid) — category entry is now 3rd thing a visitor sees, not 8th
 - [x] D-277: Commit `9050542` pushed to main
 
-## SupplierScout Autonomous Supplier Bot (D-278) — IMPLEMENTED 2026-05-09
+## SupplierScout Autonomous Supplier Bot (D-278) — DORMANT 2026-06-21
 
-### Code Complete — Awaiting Neon DDL + Env Vars + Deploy
+### Code Complete — Parked Because Current Strategy Is Own Products Only
 
 - [x] D-278: types.ts — all SupplierScout TypeScript types (MessageClass, ParsedProductOffer, SoldOutMatchResult, AutoCreateGateResult, etc.)
 - [x] D-278: 9 Payload collections created in src/collections/supplier/
@@ -980,17 +970,12 @@ Any modification to `src/lib/imageProviders.ts` or `src/jobs/imageGenTask.ts` th
 - [x] D-278: project-control/SUPPLIER_SCOUT.md — architecture, design decisions, Neon DDL, env vars
 - [x] D-278: project-control/SUPPLIER_SCOUT_RUNBOOK.md — operator runbook, setup steps, commands, troubleshooting
 
-### Remaining Before Activation (BLOCKER)
+### Dormant State
 
-- [ ] Apply Neon DDL from SUPPLIER_SCOUT.md (all 9 tables)
-- [ ] Add 3 env vars in Vercel: SUPPLIER_SCOUT_BOT_TOKEN, SUPPLIER_SCOUT_WEBHOOK_SECRET, SUPPLIER_SCOUT_ADMIN_SECRET
-- [ ] Deploy to production
-- [ ] Register webhook: GET /api/supplier-scout?action=register_webhook&secret=...
-- [ ] Send /start to bot (registers frankChatId)
-- [ ] Add first supplier group in admin with autoCreateEnabled=false
-- [ ] Add bot to supplier groups as admin
-- [ ] Add Vercel Cron (30 20 * * * for 23:30 Istanbul)
-- [ ] Monitor for 2-3 days before enabling autoCreateEnabled=true per group
+- [x] SupplierScout daily Vercel cron removed.
+- [x] `/api/supplier-scout` now ignores webhook/GET actions unless `SUPPLIER_SCOUT_ENABLED=true`.
+- [x] Collections/settings remain registered so old records and code are not lost.
+- [ ] Reactivation requires a fresh owner decision, env vars, webhook registration, and likely Neon DDL verification.
 
 ## Homepage Quick-Start Search Shortcut (D-279) — COMPLETED 2026-05-09
 

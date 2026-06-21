@@ -45,7 +45,7 @@ Activate when:
        ↓
 [10] Products.ts afterChange hook → channelDispatch.ts
        ↓
-[11] n8n Channel Webhooks (Instagram / Shopier / Dolap)
+[11] Channel dispatch (Instagram / Facebook / X direct, Shopier jobs)
        ↓
 [12] Storefront page.tsx (force-dynamic, DB query)
        ↓
@@ -111,17 +111,17 @@ Check sequence:
 ```
 
 ### Entry Point D: Channel Dispatch Failed
-Product active but not dispatched to Instagram/Shopier/Dolap.
+Product active but not dispatched to Instagram/Facebook/X/Shopier.
 
 Check sequence:
 ```
 1. channelTargets includes channel?      → product intent gate
 2. AutomationSettings.publishX == true? → global capability gate
 3. channels.publishX not false?          → per-product flag gate
-4. N8N_CHANNEL_X_WEBHOOK env var set?   → if missing → scaffold mode only
-5. n8n workflow active?                  → not in test/disabled state?
+4. Direct channel credentials set?       → Meta token/page ID, X OAuth envs, SHOPIER_PAT
+5. Optional fallback n8n workflow active? → only relevant when webhook fallback is configured
 6. dispatchNotes in sourceMeta?          → check per-channel result log
-7. response.ok == true?                  → check n8n responded 200
+7. response.ok == true?                  → check direct API or fallback webhook response
 ```
 
 ### Entry Point E: Telegram Intake Failed

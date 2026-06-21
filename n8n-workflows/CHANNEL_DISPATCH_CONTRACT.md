@@ -26,7 +26,8 @@ Set in Vercel (or `.env.local` for dev):
 |---|---|---|
 | `N8N_CHANNEL_INSTAGRAM_WEBHOOK` | Instagram | `https://flow.uygunayakkabi.com/webhook/channel-instagram` |
 | `N8N_CHANNEL_SHOPIER_WEBHOOK` | Shopier | `https://flow.uygunayakkabi.com/webhook/channel-shopier` |
-| `N8N_CHANNEL_DOLAP_WEBHOOK` | Dolap | `https://flow.uygunayakkabi.com/webhook/channel-dolap` |
+| `N8N_CHANNEL_FACEBOOK_WEBHOOK` | Facebook | `https://flow.uygunayakkabi.com/webhook/channel-facebook` |
+| `N8N_CHANNEL_X_WEBHOOK` | X | `https://flow.uygunayakkabi.com/webhook/channel-x` |
 
 If an env var is absent or empty, the dispatch for that channel is skipped with a `SCAFFOLD —` log entry. No error is thrown. This is safe to deploy before configuring n8n.
 
@@ -37,7 +38,7 @@ If an env var is absent or empty, the dispatch for that channel is skipped with 
 All three gates must pass for a channel to receive a dispatch:
 
 1. **Product intent** — `product.channelTargets` array must include the channel name (e.g. `"instagram"`)
-2. **Product flag** — `product.channels.publishInstagram` (or Shopier/Dolap) must not be `false`
+2. **Product flag** — the matching `product.channels.publishX` flag must not be `false`
 3. **Global capability** — `AutomationSettings.channelPublishing.publishInstagram` must not be `false`
 
 Website (`"website"`) is never dispatched — it is served natively via `status: active`.
@@ -50,7 +51,7 @@ This is the exact JSON body POSTed to each channel webhook.
 
 ```typescript
 type ChannelDispatchPayload = {
-  channel: 'instagram' | 'shopier' | 'dolap'
+  channel: 'instagram' | 'shopier' | 'facebook' | 'x'
   productId: string | number
   sku?: string
   title: string
@@ -111,17 +112,18 @@ type ChannelDispatchPayload = {
 
 ---
 
-## Setting Up the Stub Workflows
+## Setting Up Optional Stub Workflows
 
 ### Step 1: Import to n8n
 
 In n8n at `flow.uygunayakkabi.com`:
 
 1. Go to **Workflows** → **Import from file**
-2. Import each of these three files:
+2. Import any optional fallback stubs you still want to use:
    - `n8n-workflows/stubs/channel-instagram.json`
    - `n8n-workflows/stubs/channel-shopier.json`
-   - `n8n-workflows/stubs/channel-dolap.json`
+   - `n8n-workflows/stubs/channel-facebook.json`
+   - `n8n-workflows/stubs/channel-x.json`
 
 ### Step 2: Activate each workflow
 
@@ -140,7 +142,8 @@ Set in Vercel Dashboard → uygunayakkabi-store → Settings → Environment Var
 ```
 N8N_CHANNEL_INSTAGRAM_WEBHOOK = https://flow.uygunayakkabi.com/webhook/channel-instagram
 N8N_CHANNEL_SHOPIER_WEBHOOK   = https://flow.uygunayakkabi.com/webhook/channel-shopier
-N8N_CHANNEL_DOLAP_WEBHOOK     = https://flow.uygunayakkabi.com/webhook/channel-dolap
+N8N_CHANNEL_FACEBOOK_WEBHOOK  = https://flow.uygunayakkabi.com/webhook/channel-facebook
+N8N_CHANNEL_X_WEBHOOK         = https://flow.uygunayakkabi.com/webhook/channel-x
 ```
 
 Then **redeploy** (or use "Redeploy" button to pick up the new env vars).
@@ -181,14 +184,6 @@ After dispatch, the product's `sourceMeta.dispatchNotes` contains a JSON array:
     "webhookConfigured": false,
     "skippedReason": "not in channelTargets (product declared: [website, instagram])",
     "timestamp": "2026-03-16T10:30:01.124Z"
-  },
-  {
-    "channel": "dolap",
-    "eligible": false,
-    "dispatched": false,
-    "webhookConfigured": false,
-    "skippedReason": "not in channelTargets (product declared: [website, instagram])",
-    "timestamp": "2026-03-16T10:30:01.125Z"
   }
 ]
 ```
@@ -375,7 +370,6 @@ The ReviewPanel admin UI now surfaces `publishResult` with:
 |---|---|---|
 | ~~No real Instagram API call~~ | **RESOLVED in Step 16** | Instagram Graph API v21.0 real workflow |
 | No real Shopier API call | Scaffold only | Phase 2B: Shopier integration research |
-| No real Dolap API call | Scaffold only | Phase 2B: Dolap integration research |
 | Dispatch history: only latest run stored | By design | Future: append history or log to external store |
 | No per-channel retry scheduler | Deferred | Future: n8n retry workflow or manual re-dispatch |
 | `instagramPostId` stored in `publishResult` but not in `externalSyncId` | Deferred | Future: promote to dedicated `sourceMeta.externalSyncId` field |
@@ -392,7 +386,6 @@ The ReviewPanel admin UI now surfaces `publishResult` with:
 - Instagram carousel posts (multiple images — currently publishes first image only)
 - Instagram Reels publishing
 - Real Shopier listing sync (API research needed)
-- Real Dolap listing sync (API research needed)
 - Scheduled retry on dispatch failure
 - `sourceMeta.externalSyncId` promoted from `publishResult.instagramPostId`
 - Webhook signature verification for incoming channel callbacks

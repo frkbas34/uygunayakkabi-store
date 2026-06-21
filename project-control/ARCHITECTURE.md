@@ -1,9 +1,9 @@
 # ARCHITECTURE — Uygunayakkabi
 
-_Last updated: 2026-04-04 (Phase 13 Prep — D-115; Phase 13 D-114; Phase 12 D-113; Phase 11 D-112; Phase 10 D-111; Phases 1-9 complete)_
+_Last updated: 2026-06-21 (Dolap/Threads retired; SupplierScout dormant by default)_
 
 ## High-Level Overview
-Uygunayakkabi is a **Telegram-first, AI-assisted, multi-channel commerce engine** with integrated content generation, visual expansion, and future try-on capabilities. It is not a simple storefront — it is a central product management system that publishes to multiple channels (website, Instagram, Shopier, Dolap) from a single source of truth (Payload CMS).
+Uygunayakkabi is a **Telegram-first, AI-assisted, multi-channel commerce engine** with integrated content generation, visual expansion, and future try-on capabilities. It is not a simple storefront — it is a central product management system that publishes to active channels (website, Instagram, Facebook, X, Shopier) from a single source of truth (Payload CMS). Dolap and Threads were retired from the project on 2026-06-21.
 
 ## Core Stack
 
@@ -135,7 +135,8 @@ n8n-workflows/                   # Steps 14+16: n8n workflow assets (VCS-tracked
 │   └── stubs/
 │       channel-instagram.json   # Stub: Webhook → Log Payload → Respond 200 (reference/fallback only)
 │       channel-shopier.json     # Stub: same pattern for Shopier (scaffold only)
-│       channel-dolap.json       # Stub: same pattern for Dolap (scaffold only)
+│       channel-facebook.json    # Optional fallback stub for Facebook
+│       channel-x.json           # Optional fallback stub for X
     └── admin-dark.css           # GitHub-inspired dark theme (NOT imported — inactive)
 ```
 
@@ -215,7 +216,7 @@ n8n-workflows/                   # Steps 14+16: n8n workflow assets (VCS-tracked
 - **n8n**: workflow engine at `flow.uygunayakkabi.com`, `Mentix Intake Webhook` workflow active (`POST /webhook/mentix-intake`)
 - **Payload automation endpoints**: `POST /api/automation/products` + `POST /api/automation/attach-media` (X-Automation-Secret auth)
 - **Idempotency**: telegramChatId + telegramMessageId dedup — returns `{ status: "duplicate" }` if same message re-submitted
-- **Publish guard**: beforeChange hook blocks activation if price ≤ 0; storefront 404s for draft slugs
+- **Publish guard**: beforeChange hook uses `productActivationGuard.ts` to block active creates and new activation unless price, image, effective stock, active target, and brand safety pass; storefront 404s for draft slugs
 - **Admin review components**: ReviewPanel, SourceBadgeCell, StatusCell all active in importMap
 
 ### Content & Growth Domain (Phase 2C/3)
@@ -223,7 +224,7 @@ n8n-workflows/                   # Steps 14+16: n8n workflow assets (VCS-tracked
 - **AutomationSettings** (global): Centralized toggles for all automation behavior (publish channels, blog generation, visual expansion, group mode)
 
 ### Distribution Domain (Phase 2B — PLANNED)
-- **Channel adapters**: Website (native), Instagram, Shopier, Dolap — each with independent publish toggles
+- **Channel adapters**: Website (native), Instagram, Facebook, X, Shopier — each with independent publish toggles
 - **Per-product override**: `channelTargets` field on Products allows per-product channel control
 
 ### Visual & Experience Domain (Phase 3 — PLANNED)
@@ -250,9 +251,9 @@ n8n-workflows/                   # Steps 14+16: n8n workflow assets (VCS-tracked
 - **Step 11**: Enhanced caption parser (tolerant, Turkish+English, heuristic), publish-readiness evaluator, parser metadata stored in automationMeta (rawCaption, parseWarnings, parseConfidence)
 - **Step 12**: Automation decision layer (automationDecision.ts), AutomationSettings wired into route (status/channel/content decisions), autoDecision+Reason in automationMeta, ReviewPanel decision row
 - **Step 13**: Channel adapter scaffolding (channelDispatch.ts), afterChange hook on Products (status→active triggers dispatch), dispatch tracking in sourceMeta (dispatchedChannels/lastDispatchedAt/dispatchNotes), scaffold mode logs intent when webhook env vars absent
-- **Step 14**: n8n stub workflow JSON files (channel-instagram/shopier/dolap), CHANNEL_DISPATCH_CONTRACT.md, ReviewPanel dispatch status section (per-channel result rows), forceRedispatch checkbox (manual re-dispatch, auto-reset), afterChange hook updated for forceRedispatch trigger
+- **Step 14**: n8n stub workflow JSON files (channel-instagram/shopier/facebook/x), CHANNEL_DISPATCH_CONTRACT.md, ReviewPanel dispatch status section (per-channel result rows), forceRedispatch checkbox (manual re-dispatch, auto-reset), afterChange hook updated for forceRedispatch trigger
 - **Step 15**: Verification pass — env var naming confirmed consistent, `extractMediaUrls()` fixed (relative → absolute URLs using NEXT_PUBLIC_SERVER_URL), `.env.example` updated with all Phase 2 vars, `E2E_TEST_CHECKLIST.md` created (120-line runbook), CHANNEL_DISPATCH_CONTRACT.md extended with media URL behavior + known limitations table
-- **Step 16**: Real Instagram integration — `channel-instagram-real.json` (13-node Graph API v21.0 workflow: bypass → creds check → caption build → create container → wait → publish → structured response), `ChannelDispatchResult.publishResult` field added, `dispatchToChannel()` parses response body, Products.ts write-back includes `publishResult`, ReviewPanel shows post ID + permalink + error states. Shopier/Dolap remain scaffold-only.
+- **Step 16**: Real Instagram integration — `channel-instagram-real.json` (13-node Graph API v21.0 workflow: bypass → creds check → caption build → create container → wait → publish → structured response), `ChannelDispatchResult.publishResult` field added, `dispatchToChannel()` parses response body, Products.ts write-back includes `publishResult`, ReviewPanel shows post ID + permalink + error states.
 - **Step 17**: Instagram OAuth token exchange — `initiate/route.ts` + `callback/route.ts` (src/app/api/auth/instagram/), long-lived token acquisition, NPE bypass protocol, token storage in AutomationSettings global
 - **Step 18**: Instagram direct publish — bypass n8n, `publishInstagramDirectly()` in channelDispatch.ts, 3-step workflow (create container → wait for processing → publish), caption builder mirrors n8n logic
 - **Step 19**: Facebook Page direct publish — `publishFacebookDirectly()` in channelDispatch.ts, Page Access Token exchange, correct page ID discovery via graph.facebook.com/me/accounts
@@ -263,7 +264,7 @@ n8n-workflows/                   # Steps 14+16: n8n workflow assets (VCS-tracked
 - Instagram adapter (Graph API — LIVE, bypasses n8n via publishInstagramDirectly) ✅
 - Facebook Page adapter (LIVE, publishFacebookDirectly) ✅
 - **Shopier adapter (LIVE — Step 20, non-blocking jobs queue, 5-min GitHub Actions cron)** ✅
-- Dolap adapter (listing sync — PLANNED, API research needed)
+- Dolap and Threads retired from the channel model on 2026-06-21
 - Per-channel independent toggles ✅
 
 ### Phase 2C — Content Growth Layer (PLANNED)
@@ -317,9 +318,10 @@ Payload API: create product (status: toggle-controlled active/draft)
     ↓
 Distribution Engine (if active):
     ├─ Website (native — storefront shows active products)
-    ├─ Instagram (Graph API adapter — future)
-    ├─ Shopier (listing sync adapter — future)
-    └─ Dolap (listing sync adapter — future)
+    ├─ Instagram (direct Graph API)
+    ├─ Facebook (direct Graph API)
+    ├─ X (direct API)
+    └─ Shopier (jobs queue sync)
     ↓
 Content Engine (if active + generateBlog):
     └─ AI SEO blog post → BlogPosts collection

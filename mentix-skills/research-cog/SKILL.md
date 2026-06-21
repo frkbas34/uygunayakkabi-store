@@ -43,7 +43,7 @@ Activate when:
 
 ### 4. Operational Research
 - Evaluate tools and services (shipping, payment, analytics)
-- Research API capabilities for integrations (Instagram Graph, Shopier, Dolap)
+- Research API capabilities for active integrations (Instagram/Facebook Graph, X, Shopier)
 - Compare hosting, CDN, or infrastructure options
 - Investigate technical solutions for specific problems
 - **Output:** Technical brief with pros/cons

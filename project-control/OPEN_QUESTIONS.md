@@ -1,6 +1,6 @@
 # OPEN QUESTIONS — Uygunayakkabi
 
-_Last updated: 2026-03-23 (Step 20 consolidated)_
+_Last updated: 2026-06-21 (Dolap/Threads retired; SupplierScout dormant by default)_
 
 ---
 
@@ -27,16 +27,15 @@ _Last updated: 2026-03-23 (Step 20 consolidated)_
 - 4 webhooks registered: order.created, order.fulfilled, refund.requested, refund.updated
 - Shopier PAT expires 2031-03-23 (no rotation needed for 5+ years)
 
-### Q4: Dolap API Availability
-- No public Dolap API documentation found yet
-- Stub workflow JSON exists (`n8n-workflows/stubs/channel-dolap.json`)
-- **Is Dolap integration possible via API?** Research needed before committing to implementation
+### ~~Q4: Dolap API Availability~~ — CLOSED (2026-06-21)
+- Dolap is no longer part of the project.
+- Runtime channel types, Payload toggles, parser targets, and n8n stubs were removed.
 
 ### Q5: Instagram Carousel Posts
 - Currently single-image posts only
 - Multi-image products should use carousel format
 - Graph API supports it (`media_type=CAROUSEL` + children array)
-- **When to implement?** Before or after Shopier/Dolap research?
+- **When to implement?** After current active-channel stability work.
 
 ### Q6: Blog Frontend Routes
 - BlogPosts collection exists (scaffold)
@@ -47,7 +46,6 @@ _Last updated: 2026-03-23 (Step 20 consolidated)_
 - Instagram, Facebook, and Shopier now publish/sync directly from Payload (D-088, D-089, Step 20)
 - n8n still handles product intake (Mentix → n8n webhook → Payload API)
 - Pattern is clear: simple sync = direct from Payload; complex multi-step = n8n
-- **Should Dolap also be direct-from-Payload when implemented?**
 - **Should n8n intake pipeline be simplified/removed in favor of direct OpenClaw → Payload?**
 
 ---

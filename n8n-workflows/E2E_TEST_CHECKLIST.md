@@ -101,8 +101,8 @@ Go to Vercel Dashboard → uygunayakkabi-store → **Logs** (Function Logs):
 **Expected log lines (in order):**
 ```
 [channelDispatch] dispatched — channel=instagram product=<id> httpStatus=200 ok=true
-[channelDispatch] summary — product=<id> eligible=[instagram] dispatched=[instagram] skipped=[shopier,dolap]
-[Products] afterChange dispatch — product=<id> trigger=activation dispatched=[instagram] total=3 channels evaluated
+[channelDispatch] summary — product=<id> eligible=[instagram] dispatched=[instagram] skipped=[shopier,x,facebook]
+[Products] afterChange dispatch — product=<id> trigger=activation dispatched=[instagram] total=4 channels evaluated
 ```
 
 If you see `SCAFFOLD —` instead of `dispatched —`, the env var was not picked up. Redeploy.
@@ -139,14 +139,15 @@ Go back to the product in admin. In the **🔍 Kaynak İzleme** (Source Meta) se
 |---|---|
 | `dispatchedChannels` | `["instagram"]` |
 | `lastDispatchedAt` | recent timestamp |
-| `dispatchNotes` | JSON array with 3 entries (instagram dispatched, shopier/dolap skipped) |
+| `dispatchNotes` | JSON array with 4 entries (instagram dispatched, shopier/x/facebook skipped) |
 
 ### 3.5 Verify ReviewPanel
 
 In the product edit page, the **🤖 Otomasyon Kontrol Paneli** should show the dispatch section with:
 - 📸 Instagram → ✅ uygun → ✅ gönderildi → 🔗 → HTTP 200
 - 🛒 Shopier → ⛔ uygun değil → atlandı → ↳ not in channelTargets
-- 👗 Dolap → ⛔ uygun değil → atlandı → ↳ not in channelTargets
+- 𝕏 X (Twitter) → ⛔ uygun değil → atlandı → ↳ not in channelTargets
+- 📘 Facebook → ⛔ uygun değil → atlandı → ↳ not in channelTargets
 
 ---
 

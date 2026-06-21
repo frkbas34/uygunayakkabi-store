@@ -14,7 +14,7 @@ Activate when:
 - User asks to enhance, upscale, or clean up a product image
 - User asks to remove or improve a product image background
 - A product image quality issue is detected during review
-- User wants to prepare images for channel publishing (Instagram, Shopier, Dolap)
+- User wants to prepare images for channel publishing (Instagram, Facebook, X, Shopier)
 
 ## Initial Focus (Phase 1 — Safe Operations Only)
 - ✅ **Enhance** — Improve brightness, contrast, sharpness

@@ -367,7 +367,7 @@ export function runFullAudit(product: AuditableProduct): FullAuditResult {
 export async function triggerAudit(
   payload: any, // PayloadInstance
   product: AuditableProduct,
-  triggerSource: 'auto_content_ready' | 'telegram_command' | 'admin' | 'retry' | 'auto_retry',
+  triggerSource: 'auto_content_ready' | 'telegram_command' | 'admin' | 'retry' | 'auto_retry' | 'geo_activate_auto',
   req?: any,
 ): Promise<AuditTriggerResult> {
   const updateReq = req

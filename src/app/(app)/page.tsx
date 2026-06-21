@@ -1,6 +1,6 @@
 import App from "./UygunApp";
 import type { Metadata } from "next";
-import type { DbProduct, DbBanner, SiteSettings } from "./UygunApp";
+import type { DbProduct, DbBanner, SiteSettings, HomepageSections } from "./UygunApp";
 import { getPayload } from "@/lib/payload";
 import { resolveHomepageSections, isHomepageEligible } from "@/lib/merchandising";
 import type { MerchandisableProduct, MerchandisingSettings } from "@/lib/merchandising";
@@ -89,7 +89,7 @@ export default async function Page() {
   let dbProducts: DbProduct[] = [];
   let siteSettings: SiteSettings | null = null;
   let banners: DbBanner[] = [];
-  let sectionIds: Record<string, string[]> = { yeni: [], popular: [], bestSellers: [], deals: [], discounted: [] };
+  let sectionIds: HomepageSections = { yeni: [], popular: [], bestSellers: [], deals: [], discounted: [] };
 
   try {
     const payload = await getPayload();
@@ -136,7 +136,7 @@ export default async function Page() {
     );
 
     // Build section membership as product ID arrays for client-side rendering
-    const sectionIds = {
+    sectionIds = {
       yeni: sections.yeni.map((p: any) => `db_${p.id}`),
       popular: sections.popular.map((p: any) => `db_${p.id}`),
       bestSellers: sections.bestSellers.map((p: any) => `db_${p.id}`),

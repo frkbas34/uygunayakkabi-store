@@ -2,6 +2,17 @@
 
 _Last updated: 2026-04-28 (LOCK CHECKPOINT — D-227 → D-231 stabilization. PI auto-bridge into GeoBot, observability + mandatory prompt rules, idempotent applyConfirmation, richer SEO/GEO pack with mandatory sections, parallel commerce/discovery, wizard category+brand+productType vision autofill — all PROD-VALIDATED. Operator confirmation: "it's working perfectly now". Future work branches from this baseline.)_
 
+## Closure checkpoint — 2026-06-21 (D-337: GEO + brand-safety + reverse-search closure audit — GREEN, ad test may resume)
+
+Read-only verification before first paid ad test. All checks PASS:
+- **Active set = `[353,354,355,359]`** (4 clean loafers); homepage rail shows only these; 0× brand / `ai-362`.
+- **#362 contained:** `status:draft`, public PDP → HTTP 404 (only cosmetic `<title>` brand string remains; body is 404).
+- **Visible GEO:** PDP 359 + 355 SSR-render `ÜRÜN REHBERİ` (clean headings, no `##`/`**`, single FAQ, `ARAMA NOTLARI` chips).
+- **Brand-safety guard:** scanner + Layer 1 (mentixAudit) + Layer 2 (channelDispatch) wired; 9/9 tests pass; no Layer 3 (deferred).
+- **Reverse-search:** PI report 47 (product 359) = `similar_style`, confidence 70, **referenceProducts:4**, imageUri error gone, `visibleBrand:null`.
+- **STILL MANUAL (operator-only):** external cleanup of Shopier `48281164`, X `#NewBalance` tweet, Facebook post — website containment does not retract external posts.
+- **Verdict:** first ad test may resume; keep creatives off #362; finish manual external cleanup. Docs-only commit `docs: record D-337 geo brand-safety closure audit`.
+
 ## Current status — 2026-06-14 (D-302 → D-320, all deployed to production `main`)
 
 Ad-readiness / conversion sweep + lead-flow fix (Vercel, live):

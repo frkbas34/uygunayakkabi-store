@@ -4,6 +4,18 @@ _Last updated: 2026-04-28 (LOCK CHECKPOINT — D-227 → D-231 stabilization. PI
 
 ---
 
+## Closure — 2026-06-21 — D-337 GEO + brand-safety closure audit COMPLETE (read-only, GREEN)
+
+- [x] D-337: canonical folder + `main` in sync + single worktree confirmed.
+- [x] D-337: commits present — D-335A `1c2476d`/`c0714fa`, D-336A+B `204c897`, D-334A `51ef749`, verify `907e5cb`.
+- [x] D-337: active set = `[353,354,355,359]` (4 clean loafers); homepage 0× brand/`ai-362`.
+- [x] D-337: #362 `draft` + public PDP HTTP 404 (cosmetic `<title>` brand string only).
+- [x] D-337: visible GEO on PDP 359 + 355 — `ÜRÜN REHBERİ` SSR, clean headings, single FAQ, ARAMA NOTLARI chips.
+- [x] D-337: brand guard verified — scanner + Layer 1 + Layer 2 wired; 9/9 tests pass; no Layer 3 (deferred).
+- [x] D-337: reverse-search report 47 — `similar_style`, conf 70, referenceProducts 4, imageUri error gone, `visibleBrand:null`.
+- [ ] D-337 (operator manual, NOT Claude): external cleanup — Shopier `48281164`, X `#NewBalance` tweet, Facebook post.
+- [x] D-337: verdict GREEN — first ad test may resume (keep creatives off #362). Docs commit `docs: record D-337 geo brand-safety closure audit`.
+
 ## Recent — 2026-06-14 — D-302 → D-320 COMPLETED & deployed
 
 - D-302..D-318: image normalization, Phase 1 conversion, editorial/tiles/social-proof/footer, demo-reviews-off, ad-readiness cleanup, UTM attribution, internal `trackEvent`, PDP claim cleanup — all merged to `main` + deployed.

@@ -2,6 +2,16 @@
 
 _Created 2026-06-14. Compact handoff for future sessions. See PROJECT_STATE.md / DECISIONS.md / DEPLOYMENT_LOG.md / BUGS_AND_FIXES.md for detail. No secrets/PII._
 
+## Closure checkpoint (2026-06-21) — D-337 GEO + brand-safety closure audit, GREEN
+- **D-337 (read-only, no code/status/PI/publish change).** Final verification before first paid ad test. ALL PASS:
+  - Active set = `[353,354,355,359]` (4 clean loafers, `totalDocs:4`); homepage "Yeni Gelenler" rail shows only these; 0× "New Balance"/`ai-362`.
+  - #362 `status:draft`; public PDP `…new-balance-sneaker-cok-renkli-tg-1781887306187` → HTTP 404 (body not-found). Cosmetic: `<title>` tag still emits brand string before `notFound()` — page is 404/non-indexable, no body exposure.
+  - Visible GEO: PDP 359 + 355 SSR-render `ÜRÜN REHBERİ` (full article, clean `<h4>` headings, NO `##`/`**`, single FAQ, `ARAMA NOTLARI` chips, `BENZER MODELLER` clean).
+  - Brand-safety guard: `brandSafety.ts` scanner + Layer 1 (`mentixAudit.ts` block→needs_revision) + Layer 2 (`channelDispatch.ts` eligible→skipped, `eligible.length=0`) wired; `brandSafety.test.ts` 9/9 PASS; `Products.ts` has NO brand ref ⇒ no Layer 3 (deferred, correct).
+  - Reverse-search: PI report **id 47** (product 359) = `similar_style`, conf 70, **referenceProducts:4**, `rawProviderData.search` populated (google_vision_web_detection, onlineMatchesFound 4, `error:null`), `visibleBrand:null`. Nuance: original photo 0 matches; 4 refs from AI-generated detail image (supporting context, flagged in `imagesUsed.detectedConflicts`).
+  - STILL MANUAL (operator, NOT Claude): external cleanup — Shopier `48281164`, X `#NewBalance` tweet, Facebook post. Website containment does not retract external posts.
+  - Verdict: GREEN — first ad test may resume; keep creatives off #362; finish manual external cleanup. Docs-only commit `docs: record D-337 geo brand-safety closure audit`.
+
 ## Where things stand (2026-06-18)
 - D-302 → D-320 are all merged to `main` and deployed (Vercel): an ad-readiness + conversion sweep (cards, hero, editorial section, category tiles, social proof, footer, claim cleanup) plus a lead-flow fix.
 - **D-320 just shipped:** `/api/inquiries` now coerces `productId` string→number — product-page lead submissions (previously 500-ing) work again. Commit `9a8001b`; live re-test passed.

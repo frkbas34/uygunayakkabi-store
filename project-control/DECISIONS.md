@@ -1,5 +1,17 @@
 # DECISIONS — Uygunayakkabi
 
+## D-337 — Post-GEO + brand-safety closure audit before first ad test (2026-06-21, READ-ONLY, VERIFIED)
+**Scope:** one final read-only verification of GEO / brand-safety / reverse-search state before resuming first paid ad testing. No code, no status, no PI trigger, no external publish. Canonical folder `C:\Users\W11\Desktop\uygunayakkabi-store`, branch `main`, in sync with origin, single worktree.
+**Commits present (verified):** D-335A `1c2476d`+`c0714fa` (visible PDP discovery), D-336A+B `204c897` (brand-safety guard), D-334A `51ef749` (Google Vision base64 fix), D-334A verify docs `907e5cb`.
+**Active product set — VERIFIED `[353,354,355,359]`** (exactly 4, all clean loafers, `totalDocs:4`). No brand titles, no sneaker. Homepage "Yeni Gelenler" rail shows only these 4; 0× "New Balance"/`ai-362`.
+**#362 containment — VERIFIED:** `status:draft`; public PDP `…/new-balance-sneaker-cok-renkli-tg-1781887306187` returns **HTTP 404** (body "This page could not be found"). (Note: `<title>` metadata still emits the brand string before `notFound()` runs — cosmetic only, page is 404/non-indexable; no body exposure.)
+**Visible GEO — VERIFIED:** PDP 359 + 355 both SSR-render `ÜRÜN REHBERİ` with full discovery article, clean headings (NO literal `##`/`**`), `ARAMA NOTLARI` chips, single FAQ block (no duplication), `BENZER MODELLER` = clean loafers only.
+**Brand-safety guard — VERIFIED:** `brandSafety.ts` scanner present; Layer 1 wired in `mentixAudit.ts` (block→needs_revision); Layer 2 wired in `channelDispatch.ts` (eligible→skipped, `eligible.length=0`); `brandSafety.test.ts` 9/9 PASS (#362-like BLOCKED+critical, clean set passes); `Products.ts` has NO brand reference ⇒ **no Layer 3 hard gate** (correctly deferred).
+**Reverse-search fix — VERIFIED:** PI report **id 47** (product 359, status ready, trigger telegram) — `matchType:similar_style`, `matchConfidence:70`, **referenceProducts:4**, `rawProviderData.search` populated (provider google_vision_web_detection, onlineMatchesFound 4, `error:null` on both images — old imageUri error gone), `visibleBrand:null`. Nuance: original photo returned 0 web matches; the 4 references came from the AI-generated detail image (used as supporting context — report flags this in `imagesUsed.detectedConflicts`).
+**Remaining MANUAL external cleanup (operator-only, unchanged from D-335C):** Shopier listing `shopier.com/48281164`, X tweet `#NewBalance`, Facebook post — hiding the website product does NOT retract external posts. Claude cannot perform these (no publish/delete on operator's behalf).
+**Verdict:** website + GEO + brand-safety state is GREEN. **First ad test may resume**, provided ad creatives do not deep-link to #362 and the operator completes the manual external cleanup above.
+**Status:** CLOSURE AUDIT COMPLETE — all checks pass. Docs-only commit `docs: record D-337 geo brand-safety closure audit`.
+
 ## D-336A+B — Brand-safety guard IMPLEMENTED in audit + channel dispatch (2026-06-19, CODE)
 **Operator-approved implementation of D-336 Layers 1+2 (no Layer 3).** Direct commit on `main` (canonical folder; no branch/worktree).
 **Files changed:**

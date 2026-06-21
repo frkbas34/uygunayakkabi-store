@@ -6,7 +6,14 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint"
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint .",
+    "test:brand-safety": "tsx src/lib/brandSafety.test.ts",
+    "test:lifecycle": "tsx src/lib/productLifecycle.test.ts",
+    "test:activation-guard": "tsx src/lib/productActivationGuard.test.ts",
+    "test:publish-desk": "tsx src/lib/publishDesk.test.ts",
+    "test:safe": "npm run test:brand-safety && npm run test:lifecycle && npm run test:activation-guard && npm run test:publish-desk",
+    "validate": "npm run typecheck && npm run lint && npm run test:safe"
   },
   "dependencies": {
     "@imgly/background-removal": "^1.5.5",

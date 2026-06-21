@@ -3,7 +3,6 @@ import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
   typescript: { ignoreBuildErrors: true },
-  eslint: { ignoreDuringBuilds: true },
   serverExternalPackages: ["graphql"],
   // D-194: SPA client routes — rewrite to home page so the SPA handles them
   async rewrites() {

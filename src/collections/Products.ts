@@ -1,4 +1,11 @@
 import type { CollectionConfig } from 'payload'
+import {
+  applyActivationWorkflowDefaults,
+  collectActivationBlockers,
+  formatActivationError,
+  mergeActivationProduct,
+  type ProductActivationDocument,
+} from '@/lib/productActivationGuard'
 
 // Turkish slug generator
 function toSlug(text: string): string {
@@ -20,22 +27,27 @@ export const Products: CollectionConfig = {
   },
   hooks: {
     beforeChange: [
-      // ── Publish Guard ─────────────────────────────────────────────────────
-      // Prevents incomplete automation-created products from going live.
-      // Only fires when transitioning an existing product to status: 'active'.
-      // Does NOT block automation draft creation (operation === 'create' is exempt).
-      async ({ data, originalDoc, operation }) => {
-        // Only guard on status transitions, not on initial create
-        if (operation === 'update' && data.status === 'active') {
+      // Activation guard: status='active' makes the product visible on the
+      // storefront and may trigger external dispatch, so incomplete products
+      // are blocked before activation.
+      async ({ data, originalDoc, operation, req }) => {
+        // Guard active creates and status transitions; already-active products can still be edited.
+        if ((operation === 'create' || operation === 'update') && data.status === 'active') {
           const wasAlreadyActive = originalDoc?.status === 'active'
-          if (!wasAlreadyActive) {
-            // Transitioning draft/soldout → active
-            const price = data.price ?? originalDoc?.price
-            if (!price || Number(price) <= 0) {
-              throw new Error(
-                '⚠️ Yayınlamak için geçerli bir fiyat girilmesi zorunludur. Lütfen fiyatı 0\'dan büyük bir değere ayarlayın.',
-              )
+          if (operation === 'create' || !wasAlreadyActive) {
+            const activationProduct = mergeActivationProduct(
+              data as ProductActivationDocument,
+              originalDoc as ProductActivationDocument,
+            )
+            const { getStockSnapshot } = await import('@/lib/stockReaction')
+            const blockers = await collectActivationBlockers(activationProduct, {
+              resolveStockSnapshot: (productId, productLevelStock) =>
+                getStockSnapshot(req.payload, productId, productLevelStock),
+            })
+            if (blockers.length > 0) {
+              throw new Error(formatActivationError(blockers))
             }
+            applyActivationWorkflowDefaults(data as ProductActivationDocument, activationProduct)
           }
         }
         return data
@@ -727,7 +739,7 @@ export const Products: CollectionConfig = {
       name: 'status',
       type: 'select',
       label: 'Durum',
-      defaultValue: 'active', // admin ürünleri aktif başlar; otomasyon 'draft' iletir
+      defaultValue: 'draft',
       options: [
         { label: '🟢 Aktif — Sitede görünür', value: 'active' },
         { label: '🔴 Tükendi — Stok bitti', value: 'soldout' },
@@ -803,12 +815,6 @@ export const Products: CollectionConfig = {
           label: '🛒 Shopier',
           defaultValue: false,
         },
-        {
-          name: 'publishDolap',
-          type: 'checkbox',
-          label: '👗 Dolap',
-          defaultValue: false,
-        },
         // Step 16+: Social media channels
         {
           name: 'publishX',
@@ -820,12 +826,6 @@ export const Products: CollectionConfig = {
           name: 'publishFacebook',
           type: 'checkbox',
           label: '📘 Facebook',
-          defaultValue: false,
-        },
-        {
-          name: 'publishThreads',
-          type: 'checkbox',
-          label: '🧵 Threads',
           defaultValue: false,
         },
       ],
@@ -840,10 +840,8 @@ export const Products: CollectionConfig = {
         { label: 'Website', value: 'website' },
         { label: 'Instagram', value: 'instagram' },
         { label: 'Shopier', value: 'shopier' },
-        { label: 'Dolap', value: 'dolap' },
         { label: 'X (Twitter)', value: 'x' },
         { label: 'Facebook', value: 'facebook' },
-        { label: 'Threads', value: 'threads' },
       ],
       defaultValue: ['website'],
       admin: {
@@ -1070,7 +1068,7 @@ export const Products: CollectionConfig = {
           label: 'Harici Senkron ID',
           admin: {
             readOnly: true,
-            description: 'Shopier/Dolap/Instagram tarafındaki ürün ID\'si',
+            description: 'Shopier/Instagram tarafındaki ürün ID\'si',
           },
         },
         // ── Step 13: Channel Dispatch Tracking ────────────────

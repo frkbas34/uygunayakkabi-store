@@ -1,10 +1,10 @@
 /**
  * channelDispatch.ts — Step 13 (scaffold) + Step 16 (real Instagram integration)
  *
- * Pure dispatch layer for Instagram / Shopier / Dolap channel adapters.
+ * Pure dispatch layer for Instagram / Facebook / X / Shopier channel adapters.
  * Fires n8n webhooks (via N8N_CHANNEL_*_WEBHOOK env vars) that orchestrate
  * real channel publishing.  Instagram is now a real publish workflow (Step 16).
- * Shopier and Dolap remain scaffold-only until their integrations are built.
+ * Shopier sync is queued through Payload jobs; social channels publish directly when configured.
  *
  * Architecture:
  *   Products.ts afterChange hook → dispatchProductToChannels()
@@ -15,7 +15,6 @@
  * Env vars (all optional — absent = scaffold/dry-run mode):
  *   N8N_CHANNEL_INSTAGRAM_WEBHOOK  e.g. https://flow.uygunayakkabi.com/webhook/channel-instagram
  *   N8N_CHANNEL_SHOPIER_WEBHOOK    e.g. https://flow.uygunayakkabi.com/webhook/channel-shopier
- *   N8N_CHANNEL_DOLAP_WEBHOOK      e.g. https://flow.uygunayakkabi.com/webhook/channel-dolap
  *
  * Design constraints:
  *   - Pure functions (no Payload dependency) — testable in isolation
@@ -33,19 +32,15 @@ import { scanProductBrandSafety } from './brandSafety'
 export type SupportedChannel =
   | 'instagram'
   | 'shopier'
-  | 'dolap'
   | 'x'
   | 'facebook'
-  | 'threads'
 
 /** All non-website channels that require external dispatch */
 export const SUPPORTED_CHANNELS: SupportedChannel[] = [
   'instagram',
   'shopier',
-  'dolap',
   'x',
   'facebook',
-  'threads',
 ]
 
 /**
@@ -153,10 +148,8 @@ export function buildChannelWebhookUrl(channel: SupportedChannel): string | unde
   const envMap: Record<SupportedChannel, string | undefined> = {
     instagram: process.env.N8N_CHANNEL_INSTAGRAM_WEBHOOK,
     shopier:   process.env.N8N_CHANNEL_SHOPIER_WEBHOOK,
-    dolap:     process.env.N8N_CHANNEL_DOLAP_WEBHOOK,
     x:         process.env.N8N_CHANNEL_X_WEBHOOK,
     facebook:  process.env.N8N_CHANNEL_FACEBOOK_WEBHOOK,
-    threads:   process.env.N8N_CHANNEL_THREADS_WEBHOOK,
   }
   const url = envMap[channel]
   return url && url.trim().length > 0 ? url.trim() : undefined
@@ -917,7 +910,7 @@ async function publishShopierDirectly(
  *
  * Eligibility requires ALL three gates to pass:
  *  1. Product intent: channelTargets must include the channel
- *  2. Product channel flag: channels.publishInstagram/Shopier/Dolap must be true (or unset)
+ *  2. Product channel flag: channels.publishInstagram/Shopier/X/Facebook must be true (or unset)
  *  3. Global capability: AutomationSettings.channelPublishing.publishX must be true (or unset)
  *
  * Website is always skipped here — it is served natively via active status.
@@ -1472,16 +1465,12 @@ function resolvePreviewCaption(
     return { caption: payload.description ?? payload.title, source: 'description-fallback' }
   }
 
-  if (channel === 'x' || channel === 'threads') {
+  if (channel === 'x') {
     if (payload.geobot?.xPost) {
       return { caption: payload.geobot.xPost, source: 'geobot', geobotField: 'xPost' }
     }
     return { caption: payload.title, source: 'title-fallback' }
   }
-
-
-
-  // Dolap / generic
   if (payload.geobot?.shopierCopy) {
     return { caption: payload.geobot.shopierCopy, source: 'geobot', geobotField: 'shopierCopy' }
   }

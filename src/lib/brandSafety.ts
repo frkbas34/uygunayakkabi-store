@@ -215,6 +215,7 @@ export function collectProductTexts(product: AnyProduct): ScanField[] {
 
   push('title', product.title)
   push('slug', product.slug)
+  push('brand', product.brand)
   push('description', product.description)
 
   const cp = product.content?.commercePack ?? {}

@@ -551,7 +551,7 @@ export function parseStockNumber(text: string): number | null {
 }
 
 export function parseChannelTargets(text: string): string[] | null {
-  const validChannels = ['website', 'instagram', 'shopier', 'facebook', 'dolap', 'x', 'threads']
+  const validChannels = ['website', 'instagram', 'shopier', 'facebook', 'x']
   const parts = text
     .toLowerCase()
     .split(/[,\s]+/)
@@ -1357,10 +1357,8 @@ export async function applyConfirmation(
         publishWebsite:   ct.includes('website'),
         publishInstagram: ct.includes('instagram'),
         publishShopier:   ct.includes('shopier'),
-        publishDolap:     ct.includes('dolap'),
         publishX:         ct.includes('x'),
         publishFacebook:  ct.includes('facebook'),
-        publishThreads:   ct.includes('threads'),
       }
     }
 

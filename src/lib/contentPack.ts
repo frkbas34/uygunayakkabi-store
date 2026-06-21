@@ -764,18 +764,31 @@ export async function triggerContentGeneration(
             try {
               await triggerAudit(payload, currentProduct, auditSource, req)
               console.log(`[contentPack] Auto-audit triggered for product=${product.id}`)
+              currentProduct = await payload.findByID({ collection: 'products', id: product.id, depth: 1 })
             } catch (auditErr) {
               console.error(`[contentPack] Auto-audit failed (non-critical):`, auditErr instanceof Error ? auditErr.message : String(auditErr))
             }
           }
 
-          // Step 3: Check product isn't already active
-          // At this point content+visuals+confirmation are guaranteed by the pipeline.
-          // We skip evaluatePublishReadiness (channelTargets flat-column mismatch) and
-          // activate directly — the wizard already validated all required fields.
+          // Step 3: Check product isn't already active, then require central readiness.
           const alreadyActive = (currentProduct as any)?.status === 'active'
 
           if (!alreadyActive) {
+            const { evaluatePublishReadiness } = await import('@/lib/publishReadiness')
+            const readiness = evaluatePublishReadiness(currentProduct as any)
+            if (readiness.level !== 'ready') {
+              const blockerPreview = readiness.blockers.slice(0, 4).map((b) => `- ${b}`).join('\n')
+              notifyGeoBot(
+                MENTIX_GROUP_ID,
+                `✅ <b>Ürün #${product.id} — ${statusLabel}</b>\n\n` +
+                  `⚠️ Aktivasyon bekliyor: readiness ${readiness.passedCount}/${readiness.totalCount}\n` +
+                  (blockerPreview ? `<pre>${blockerPreview}</pre>` : '') +
+                  igSnippet,
+                [[{ text: '🚀 Yayına Al', callback_data: `geo_activate:${product.id}` }]],
+              ).catch(err => console.error('[contentPack] GeoBot readiness notification failed:', err))
+              return
+            }
+
             // Step 4: Auto-activate — no manual button needed
             const now = new Date().toISOString()
             const newUntil = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString()

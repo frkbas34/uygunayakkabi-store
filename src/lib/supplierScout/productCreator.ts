@@ -261,10 +261,8 @@ export async function autoCreateProduct(
         publishWebsite: false,
         publishInstagram: false,
         publishShopier: false,
-        publishDolap: false,
         publishX: false,
         publishFacebook: false,
-        publishThreads: false,
       },
     }
 

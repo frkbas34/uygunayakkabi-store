@@ -13,9 +13,9 @@ type StatusCellProps = {
  * renders a small "✅ Aktif Yap" button that immediately sets the
  * product to active without opening the edit page.
  *
- * Server-side publish guard (beforeChange hook) may reject the request
- * if the product is incomplete (e.g. price = 0). This component surfaces
- * that error inline below the status label.
+ * Server-side activation guard (beforeChange hook) may reject the request
+ * if the product is incomplete. This component surfaces that error inline
+ * below the status label.
  */
 export const StatusCell: React.FC<StatusCellProps> = ({ cellData, rowData }) => {
   const initial = (cellData ?? (rowData?.status as string) ?? 'draft') as string
@@ -84,7 +84,7 @@ export const StatusCell: React.FC<StatusCellProps> = ({ cellData, rowData }) => 
           <button
             onClick={handleActivate}
             disabled={loading}
-            title="Durumu Aktif olarak değiştir"
+            title="Payload activation guard geçerse Aktif yapar"
             style={{
               padding: '2px 8px',
               fontSize: '11px',

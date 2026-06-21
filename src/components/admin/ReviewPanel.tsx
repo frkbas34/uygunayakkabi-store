@@ -2,6 +2,8 @@
 
 import React from 'react'
 import { useFormFields } from '@payloadcms/ui'
+import { formatBrandSafetyReason, scanBrandSafety } from '@/lib/brandSafety'
+import { PRODUCT_LIFECYCLE_LABELS, deriveProductLifecycle } from '@/lib/productLifecycle'
 
 type CheckItem = {
   label: string
@@ -29,13 +31,14 @@ type DispatchChannelResult = {
 }
 
 const CHANNEL_LABEL: Record<string, string> = {
+  website:   'Website',
   instagram: '📸 Instagram',
   shopier:   '🛒 Shopier',
-  dolap:     '👗 Dolap',
   x:         '𝕏 X (Twitter)',
   facebook:  '📘 Facebook',
-  threads:   '🧵 Threads',
 }
+
+const ACTIVE_TARGETS = ['website', 'instagram', 'shopier', 'x', 'facebook'] as const
 
 /**
  * ReviewPanel — Automation Product Review & Approval Checklist
@@ -56,6 +59,11 @@ export const ReviewPanel: React.FC = () => {
   const price         = useFormFields(([f]) => f['price']?.value) as number | undefined
   const sku           = useFormFields(([f]) => f['sku']?.value) as string | undefined
   const status        = useFormFields(([f]) => f['status']?.value) as string | undefined
+  const workflowStatus = useFormFields(([f]) => f['workflow.workflowStatus']?.value) as string | undefined
+  const confirmationStatus = useFormFields(([f]) => f['workflow.confirmationStatus']?.value) as string | undefined
+  const contentStatus = useFormFields(([f]) => f['workflow.contentStatus']?.value) as string | undefined
+  const auditStatus = useFormFields(([f]) => f['workflow.auditStatus']?.value) as string | undefined
+  const stockState = useFormFields(([f]) => f['workflow.stockState']?.value) as string | undefined
   const source        = useFormFields(([f]) => f['source']?.value) as string | undefined
   const brand         = useFormFields(([f]) => f['brand']?.value) as string | undefined
   const category      = useFormFields(([f]) => f['category']?.value) as string | undefined
@@ -63,6 +71,12 @@ export const ReviewPanel: React.FC = () => {
   // v21: also read generativeGallery — AI-approved images count as valid product visuals
   const generativeGallery = useFormFields(([f]) => f['generativeGallery']?.value) as unknown[] | undefined
   const stockQuantity     = useFormFields(([f]) => f['stockQuantity']?.value) as number | undefined
+  const channelTargets    = useFormFields(([f]) => f['channelTargets']?.value) as string[] | undefined
+  const publishWebsite    = useFormFields(([f]) => f['channels.publishWebsite']?.value) as boolean | undefined
+  const publishInstagram  = useFormFields(([f]) => f['channels.publishInstagram']?.value) as boolean | undefined
+  const publishShopier    = useFormFields(([f]) => f['channels.publishShopier']?.value) as boolean | undefined
+  const publishX          = useFormFields(([f]) => f['channels.publishX']?.value) as boolean | undefined
+  const publishFacebook   = useFormFields(([f]) => f['channels.publishFacebook']?.value) as boolean | undefined
   // Telegram meta
   const chatId        = useFormFields(([f]) => f['automationMeta.telegramChatId']?.value) as string | undefined
   const chatType      = useFormFields(([f]) => f['automationMeta.telegramChatType']?.value) as string | undefined
@@ -94,7 +108,34 @@ export const ReviewPanel: React.FC = () => {
   const priceNum   = typeof price === 'number' ? price : Number(price)
   const hasPrice   = !isNaN(priceNum) && priceNum > 0
   const stockNum   = typeof stockQuantity === 'number' ? stockQuantity : Number(stockQuantity)
-  const hasStock   = !isNaN(stockNum) && stockNum >= 0
+  const hasStock   = !isNaN(stockNum) && stockNum > 0
+  const configuredTargets = new Set<string>()
+  if (Array.isArray(channelTargets)) {
+    for (const target of channelTargets) {
+      if ((ACTIVE_TARGETS as readonly string[]).includes(target)) configuredTargets.add(target)
+    }
+  }
+  const channelFlags: Array<[string, boolean | undefined]> = [
+    ['website', publishWebsite],
+    ['instagram', publishInstagram],
+    ['shopier', publishShopier],
+    ['x', publishX],
+    ['facebook', publishFacebook],
+  ]
+  for (const [target, enabled] of channelFlags) {
+    if (enabled === true) configuredTargets.add(target)
+  }
+  const activeTargets = [...configuredTargets]
+  const hasTargets = activeTargets.length > 0
+  const visibleBrandSafety = scanBrandSafety([
+    { field: 'title', text: title ?? '' },
+    { field: 'brand', text: brand ?? '' },
+  ])
+  const visibleBrandSafetyDetail = visibleBrandSafety.safe
+    ? visibleBrandSafety.severity === 'low'
+      ? 'OK'
+      : `Uyari: ${formatBrandSafetyReason(visibleBrandSafety)}`
+    : formatBrandSafetyReason(visibleBrandSafety)
 
   // Parse warnings from JSON string
   let parseWarnings: string[] = []
@@ -166,9 +207,15 @@ export const ReviewPanel: React.FC = () => {
     },
     {
       label: 'Stok adedi',
-      detail: hasStock ? `${stockNum} adet` : 'Girilmemiş (varsayılan: 1)',
-      ok: true,
-      warn: !hasStock || stockNum === 0,
+      detail: hasStock ? `${stockNum} adet` : '0 veya eksik',
+      ok: hasStock,
+    },
+    {
+      label: 'Yayın hedefi',
+      detail: hasTargets
+        ? activeTargets.map((target) => CHANNEL_LABEL[target] ?? target).join(', ')
+        : 'Aktif hedef yok',
+      ok: hasTargets,
     },
     {
       label: 'SKU / Stok kodu',
@@ -188,6 +235,11 @@ export const ReviewPanel: React.FC = () => {
       ok: true,
       warn: !brand,
     },
+    {
+      label: 'Brand safety',
+      detail: visibleBrandSafetyDetail || 'OK',
+      ok: visibleBrandSafety.safe,
+    },
   ]
 
   const blockers = checks.filter(c => !c.ok && !c.warn)
@@ -195,6 +247,17 @@ export const ReviewPanel: React.FC = () => {
   const readyToPublish = blockers.length === 0
   const isPublished = status === 'active'
   const isLocked = !!lockedVal
+  const lifecycleStage = deriveProductLifecycle({
+    status,
+    workflow: {
+      workflowStatus,
+      confirmationStatus,
+      contentStatus,
+      auditStatus,
+      stockState,
+    },
+  })
+  const lifecycleLabel = PRODUCT_LIFECYCLE_LABELS[lifecycleStage]
 
   const SOURCE_LABEL: Record<string, string> = {
     telegram: '📱 Telegram',
@@ -252,7 +315,7 @@ export const ReviewPanel: React.FC = () => {
       </div>
 
       {/* Telegram + parser meta */}
-      {(chatId || msgId || hasConfidence) && (
+      {(source || chatId || msgId || hasConfidence) && (
         <div
           style={{
             background: '#0f172a',
@@ -268,6 +331,10 @@ export const ReviewPanel: React.FC = () => {
           <span>
             <strong style={{ color: '#cbd5e1' }}>Kaynak:</strong>{' '}
             {SOURCE_LABEL[source!] ?? source}
+          </span>
+          <span>
+            <strong style={{ color: '#cbd5e1' }}>Lifecycle:</strong>{' '}
+            {lifecycleLabel}
           </span>
           {chatType && (
             <span>
@@ -688,9 +755,9 @@ export const ReviewPanel: React.FC = () => {
           >
             {readyToPublish
               ? blockers.length === 0 && warnings.length === 0
-                ? '✅ Tüm alanlar tam. "Aktif Yap" butonunu kullanarak yayına alabilirsiniz.'
-                : `✅ Zorunlu alanlar tamam. ${warnings.length} önerilen alan eksik — yine de yayınlayabilirsiniz.`
-              : `❌ ${blockers.map((b) => b.label).join(', ')} alanları eksik. Yayına alınmadan önce tamamlanmalı.`}
+                ? '✅ Temel aktivasyon alanları tamam. Payload guard fiyat, görsel, stok, hedef kanal ve brand-safety kontrolünü son kez çalıştırır.'
+                : `✅ Temel aktivasyon alanları tamam. ${warnings.length} önerilen alan eksik; Payload guard son kararı verir.`
+              : `❌ ${blockers.map((b) => b.label).join(', ')} eksik veya bloklu. Payload guard yayına almayacak.`}
           </div>
         )}
       </div>

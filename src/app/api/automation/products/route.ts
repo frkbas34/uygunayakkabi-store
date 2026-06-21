@@ -228,13 +228,19 @@ export async function POST(req: NextRequest) {
     }
 
     // ── channels group: sync with effective channel targets ──────────────────
+    const explicitChannels = (body.channels ?? {}) as Record<string, boolean | undefined>
     const channelsGroup = {
       publishWebsite: channelDecision.effectiveTargets.includes('website'),
       publishInstagram: channelDecision.effectiveTargets.includes('instagram'),
       publishShopier: channelDecision.effectiveTargets.includes('shopier'),
-      publishDolap: channelDecision.effectiveTargets.includes('dolap'),
-      // Merge with any explicit channels from body (explicit wins)
-      ...(body.channels ? (body.channels as Record<string, boolean>) : {}),
+      publishX: channelDecision.effectiveTargets.includes('x'),
+      publishFacebook: channelDecision.effectiveTargets.includes('facebook'),
+      // Merge with any explicit active-channel overrides from body (explicit wins)
+      ...(typeof explicitChannels.publishWebsite === 'boolean' ? { publishWebsite: explicitChannels.publishWebsite } : {}),
+      ...(typeof explicitChannels.publishInstagram === 'boolean' ? { publishInstagram: explicitChannels.publishInstagram } : {}),
+      ...(typeof explicitChannels.publishShopier === 'boolean' ? { publishShopier: explicitChannels.publishShopier } : {}),
+      ...(typeof explicitChannels.publishX === 'boolean' ? { publishX: explicitChannels.publishX } : {}),
+      ...(typeof explicitChannels.publishFacebook === 'boolean' ? { publishFacebook: explicitChannels.publishFacebook } : {}),
     }
 
     const product = await payload.create({

@@ -348,6 +348,7 @@ export interface ApproveAndActivateResult {
     | 'product_not_found'
     | 'already_active'
     | 'not_ready'
+    | 'activation_guard_failed'
   /** Telegram-formatted multi-line message (for single-item callers). */
   message: string
   /** One-line summary suitable for batch summary rendering. */
@@ -444,24 +445,46 @@ export async function approveAndActivateProduct(
 
   const { calculateNewWindow } = await import('./merchandising')
   const { publishedAt, newUntil } = calculateNewWindow()
-  await payload.update({
-    collection: 'products',
-    id: productId,
-    data: {
-      status: 'active',
-      workflow: {
-        ...(product.workflow ?? {}),
-        workflowStatus: 'active',
-        publishStatus: 'published',
-        lastHandledByBot: 'uygunops',
+  try {
+    await payload.update({
+      collection: 'products',
+      id: productId,
+      data: {
+        status: 'active',
+        workflow: {
+          ...(product.workflow ?? {}),
+          workflowStatus: 'active',
+          publishStatus: 'published',
+          lastHandledByBot: 'uygunops',
+        },
+        merchandising: {
+          ...(product.merchandising ?? {}),
+          publishedAt,
+          newUntil,
+        },
       },
-      merchandising: {
-        ...(product.merchandising ?? {}),
-        publishedAt,
-        newUntil,
-      },
-    },
-  })
+    })
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err)
+    const blockers = message
+      .split('\n')
+      .map((line) => line.trim())
+      .filter((line) => line.startsWith('- '))
+      .map((line) => line.slice(2))
+    return {
+      ok: false,
+      idempotent: false,
+      productId,
+      sn: product.stockNumber || null,
+      refusalReason: 'activation_guard_failed',
+      blockers: blockers.length > 0 ? blockers : [message],
+      message:
+        `⚠️ <b>Aktivasyon engellendi</b>\n\n` +
+        `${message}\n\n` +
+        `<i>publish.approved kaydedildi ama Payload aktivasyon guard'ı ürünü yayına almadı.</i>`,
+      summary: `<code>${sn}</code> · guard engelledi: ${(blockers[0] ?? message).slice(0, 120)}`,
+    }
+  }
   try {
     await payload.create({
       collection: 'bot-events',

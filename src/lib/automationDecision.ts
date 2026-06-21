@@ -17,6 +17,7 @@
  */
 
 import type { PublishReadinessResult } from './telegram'
+import type { StoryTargetConfig } from './storyTargets'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Type Definitions
@@ -36,10 +37,8 @@ export type AutomationSettingsSnapshot = {
     publishWebsite?: boolean | null
     publishInstagram?: boolean | null
     publishShopier?: boolean | null
-    publishDolap?: boolean | null
     publishX?: boolean | null
     publishFacebook?: boolean | null
-    publishThreads?: boolean | null
   }
   contentGeneration?: {
     autoGenerateBlog?: boolean | null
@@ -63,6 +62,8 @@ export type AutomationSettingsSnapshot = {
     expiresAt?: string | null
     connectedAt?: string | null
   }
+  /** Story target settings from AutomationSettings global */
+  storyTargets?: StoryTargetConfig[] | null
 }
 
 /** Input to the status decision function */
@@ -121,10 +122,8 @@ const SAFE_DEFAULTS = {
   publishWebsite: true,    // website is always on by default
   publishInstagram: true,  // D-185: Instagram direct API live
   publishShopier: false,
-  publishDolap: false,
   publishX: false,
   publishFacebook: true,   // D-185: Facebook direct API live
-  publishThreads: false,
   autoGenerateBlog: false,
   autoPublishBlog: false,
   autoGenerateExtraViews: false,
@@ -252,10 +251,8 @@ export function resolveChannelTargets(
     website:   !!(cp.publishWebsite   ?? SAFE_DEFAULTS.publishWebsite),
     instagram: !!(cp.publishInstagram ?? SAFE_DEFAULTS.publishInstagram),
     shopier:   !!(cp.publishShopier   ?? SAFE_DEFAULTS.publishShopier),
-    dolap:     !!(cp.publishDolap     ?? SAFE_DEFAULTS.publishDolap),
     x:         !!(cp.publishX         ?? SAFE_DEFAULTS.publishX),
     facebook:  !!(cp.publishFacebook  ?? SAFE_DEFAULTS.publishFacebook),
-    threads:   !!(cp.publishThreads   ?? SAFE_DEFAULTS.publishThreads),
   }
 
   // D-187: When no explicit product intent, consider ALL known channels.

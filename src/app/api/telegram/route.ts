@@ -3426,17 +3426,15 @@ export async function POST(req: NextRequest) {
             channelTargets: channelDecision.effectiveTargets as any,
             // D-187: Derive channel flags from effectiveTargets instead of hardcoding false
             // D-189: Set ALL channel flags from effectiveTargets — previously
-            // publishFacebook/publishX/publishThreads were missing, defaulting to
+            // publishFacebook/publishX were missing, defaulting to
             // false in the DB, which caused Gate 2 to block dispatch even when
             // channelTargets included those channels.
             channels: {
               publishWebsite: channelDecision.effectiveTargets.includes('website'),
               publishInstagram: channelDecision.effectiveTargets.includes('instagram'),
               publishShopier: channelDecision.effectiveTargets.includes('shopier'),
-              publishDolap: channelDecision.effectiveTargets.includes('dolap'),
               publishX: channelDecision.effectiveTargets.includes('x'),
               publishFacebook: channelDecision.effectiveTargets.includes('facebook'),
-              publishThreads: channelDecision.effectiveTargets.includes('threads'),
             },
             automationMeta: {
               telegramChatId: tgChatId,
@@ -4494,7 +4492,8 @@ export async function POST(req: NextRequest) {
             '<code>/activate &lt;sn-or-id[,sn,sn]&gt;</code>\n\n' +
             'Tek ürün: <code>/activate SN0186</code> veya <code>/activate 186</code>\n' +
             'Toplu: <code>/activate SN0017,SN0022,SN0023</code>\n\n' +
-            'Koşullar: tüm publish readiness boyutları sağlanmalı (6/6).\n' +
+            'Koşullar: publish readiness 6/6 ve Payload activation guard geçmeli.\n' +
+            'Guard fiyat, görsel, efektif stok, aktif hedef kanal ve brand-safety kontrol eder.\n' +
             'Aktivasyon otomatik olarak:\n' +
             '• status → active\n' +
             '• merchandising.publishedAt ayarlar (Yeni bölümüne girer)\n' +
@@ -5864,7 +5863,7 @@ Tüm kampanyalar için: <code>/campaigns</code>`,
             'Operatörün açık yayın onayını kaydeder ve aktive eder.\n\n' +
             'Tek ürün: <code>/approvepublish SN0186</code>\n' +
             'Toplu: <code>/approvepublish SN0017,SN0022,SN0023</code>\n\n' +
-            '<i>Her ürün için publish.approved bot-event yazılır + readiness=6/6 ise aktive edilir. Hazır olmayanlar engelleyiciyle reddedilir.</i>',
+            '<i>Her ürün için publish.approved bot-event yazılır; readiness 6/6 ve Payload activation guard geçerse aktive edilir. Hazır olmayanlar veya guard tarafından reddedilenler engelleyiciyle döner.</i>',
         )
         return NextResponse.json({ ok: true })
       }

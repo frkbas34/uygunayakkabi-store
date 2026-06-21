@@ -115,17 +115,6 @@ export const AutomationSettings: GlobalConfig = {
               'Jobs Queue üzerinden Shopier API ile senkronize edilir.',
           },
         },
-        {
-          name: 'publishDolap',
-          type: 'checkbox',
-          label: '👗 Dolap Yayını Aktif',
-          defaultValue: false,
-          admin: {
-            description:
-              'Dolap kanalı aktif. Gerçek yayın henüz bağlı değil — ' +
-              'ileride Dolap API entegrasyonu ile devreye alınacak (Step 13+).',
-          },
-        },
         // ── Step 16+: Social Media Channels ──────────────────────
         {
           name: 'publishX',
@@ -147,17 +136,6 @@ export const AutomationSettings: GlobalConfig = {
             description:
               'Facebook Sayfa yayını aktif. Meta Graph API v21 Page Post. ' +
               'Aynı Instagram OAuth token\'ı kullanır, facebookPageId env\'den inject edilir.',
-          },
-        },
-        {
-          name: 'publishThreads',
-          type: 'checkbox',
-          label: '🧵 Threads Yayını Aktif',
-          defaultValue: false,
-          admin: {
-            description:
-              'Threads yayını aktif. Meta Threads API gerekli. ' +
-              'Scaffold — gerçek entegrasyon henüz yapılmadı.',
           },
         },
       ],

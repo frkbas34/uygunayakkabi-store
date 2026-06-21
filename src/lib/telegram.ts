@@ -504,7 +504,6 @@ export function parseTelegramCaption(caption: string): ParsedCaption | null {
     if (rawChannels.includes('website') || rawChannels.includes('site') || rawChannels.includes('web')) targets.push('website')
     if (rawChannels.includes('instagram') || rawChannels.includes('insta') || rawChannels.includes('ig')) targets.push('instagram')
     if (rawChannels.includes('shopier')) targets.push('shopier')
-    if (rawChannels.includes('dolap')) targets.push('dolap')
     if (targets.length > 0) channelTargets = targets
   }
 

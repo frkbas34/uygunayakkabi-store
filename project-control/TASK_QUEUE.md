@@ -4,6 +4,16 @@ _Last updated: 2026-04-28 (LOCK CHECKPOINT — D-227 → D-231 stabilization. PI
 
 ---
 
+## Product copy fix — 2026-06-21 — D-338A #354 leather claim softened COMPLETE (data, ad-safe)
+
+- [x] D-338A: Admin API PATCH `/api/products/354` content-only (status/title/slug/price/stock/images unchanged).
+- [x] D-338A: no external dispatch (no status transition; forceRedispatch not set) — verified status stayed `active`.
+- [x] D-338A: removed all "Gerçek/Hakiki deri", "deri malzeme(si)/materyali", "deriye zarar", "Deri yüzeyi", "deri bakım kremi", `#DeriAyakkabı` across commercePack + discoveryPack (articleBody/metaTitle/metaDescription/faq[0]+faq[2]).
+- [x] D-338A: replaced with "deri görünümlü yüzey / yüzey / ayakkabı bakım kremi / Klasik Siyah Tokalı / Klasik Tokalı Ayakkabı Modelleri / Yüzey Kalitesi / #KlasikLoafer".
+- [x] D-338A: preserved SEO `keywordEntities` + category nav links (search-intent terms, not claims).
+- [x] D-338A: verified — PDP 200, softened copy live, CTA/sizes/price/lead form/Ürün Rehberi intact, 0 leather claims in prose, active set still [353,354,355,359].
+- [x] D-338A: #354 ad-safe on material wording. Docs commit `docs: record D-338A product 354 claim softening`.
+
 ## Readiness — 2026-06-21 — D-338 first ad-test relaunch readiness check COMPLETE (read-only, GREEN)
 
 - [x] D-338: canonical folder + `main` in sync + single worktree (`418e239`).

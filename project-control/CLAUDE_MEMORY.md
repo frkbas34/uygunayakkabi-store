@@ -2,6 +2,15 @@
 
 _Created 2026-06-14. Compact handoff for future sessions. See PROJECT_STATE.md / DECISIONS.md / DEPLOYMENT_LOG.md / BUGS_AND_FIXES.md for detail. No secrets/PII._
 
+## Product copy fix (2026-06-21) — D-338A #354 genuine-leather claim softened, ad-safe
+- Operator-approved DATA-only copy fix on product **#354** (resolves the D-338 advisory). Admin API PATCH `/api/products/354` **content group only** — title/slug/price/stock/images/status (`active`) all unchanged.
+- **No external dispatch:** Products `afterChange` fires only on draft→active transition or `sourceMeta.forceRedispatch` (channelDispatch.ts L133). PATCH sent `content` only ⇒ no transition ⇒ no Shopier/X/FB/IG publish. Confirmed status stayed `active`.
+- Removed ALL genuine-leather/material-certainty claims: "Gerçek deri malzemeden üretilen", "Gerçek deri materyali", "gerçek/hakiki deriden üretilmiştir", "yüksek kaliteli (hakiki) deri", "ana malzemesi/materyali olan deri", "deri malzeme(si)", "deri materyali", "deriye zarar", "deri loafer'ınızın", "Deri yüzeyi", "deri bakım kremi", `#DeriAyakkabı`. Spread across commercePack (website/IG/X/FB/Shopier/highlights[0]) + discoveryPack (articleBody 6 passages, metaTitle, metaDescription, faq[0]+faq[2]).
+- Replaced with safe wording: "deri görünümlü yüzey(e sahip)", "(kaliteli) yüzey/yüzeyi/yüzeyin", "esnek iç yapısı", "ayakkabı bakım kremi", "Klasik Siyah Tokalı Erkek Loafer", "Klasik Tokalı Ayakkabı Modelleri", "Yüzey Kalitesi", "#KlasikLoafer". Now matches 359/355/353 style.
+- **Preserved intentionally** (SEO/nav, not certainty claims): `keywordEntities` "deri loafer modelleri"/"deri loafer bakımı"; `internalLinkTargets` `/kategori/deri-erkek-ayakkabi`.
+- Verified live: PDP 200, softened copy renders, title+slug+price ₺2.099+sizes 40–44 (stock 2)+WhatsApp CTA+lead form+ÜRÜN REHBERİ intact; programmatic scan = 0 leather claims + 0 bare "deri" outside "deri görünümlü"; active set still [353,354,355,359] (totalDocs 4), no other product changed.
+- Reversible (copy-only; GeoBot can regenerate). Pattern for future claim fixes: PATCH content-only, omit status, never set forceRedispatch. Docs commit `docs: record D-338A product 354 claim softening`.
+
 ## Ad-relaunch readiness (2026-06-21) — D-338 first ad-test readiness check, GREEN (no blocker)
 - Read-only confirmation before first paid ad test. ALL PASS:
   - 359/355/354/353: public PDP 200, brand-safe title/desc/meta, price + sizes + stock + WhatsApp CTA + lead form + ÜRÜN REHBERİ + single FAQ, no fake reviews. Prices: 359/355/354 = ₺2.099; 353 = ₺1.899 (stock "Son 4 adet!", backup only).

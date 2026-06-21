@@ -1,5 +1,16 @@
 # DECISIONS — Uygunayakkabi
 
+## D-338A — Product #354 genuine-leather claim softening (2026-06-21, DATA, DONE)
+**Operator-approved product-copy safety update.** Removed unverified genuine-leather/material-certainty claims from #354 ("Siyah Tokalı Püsküllü Loafer") so it can run in ads with safe wording, matching 359/355/353's "deri görünümlü/hissiyatı" style. **DATA-only change via Admin API PATCH `/api/products/354` — `content` group only.** Title, slug, price, stock, images, status (`active`) all UNCHANGED.
+**Why no external dispatch:** Products `afterChange` dispatches only on draft→active transition or explicit `sourceMeta.forceRedispatch` (channelDispatch.ts L133). PATCH sent `content` only (no `status`, no `forceRedispatch`) ⇒ wasActive=true & isNowActive=true ⇒ isStatusTransition=false ⇒ NO Shopier/X/FB/IG publish. Verified status stayed `active` (no transition).
+**Fields changed (content only):** `commercePack.websiteDescription`, `instagramCaption` (+ `#DeriAyakkabı`→`#KlasikLoafer`), `xPost`, `facebookCopy`, `shopierCopy`, `highlights[0]`; `discoveryPack.articleBody` (6 passages incl. "Malzeme Kalitesi"→"Yüzey Kalitesi" bullet), `metaTitle`, `metaDescription`, `faq[0].a` (material Q), `faq[2].a` (cleaning Q).
+**Risky claims removed:** "Gerçek deri malzemeden üretilen", "Gerçek deri materyali", "gerçek deri malzemesi/malzeme", "gerçek deri kullanılarak üretilmiştir", "Hakiki deriden üretilen", "yüksek kaliteli hakiki deriden üretilmiştir", "ana malzemesi/materyali olan deri", "deri malzeme(si)", "deri materyali", "deriye zarar", "deri loafer'ınızın", "Deri yüzeyi", "deri bakım kremi".
+**Safer wording used:** "deri görünümlü yüzey(e sahip)", "(kaliteli) yüzey / yüzeyi / yüzeyin", "esnek iç yapısı", "ayakkabı bakım kremi", "Klasik Siyah Tokalı Erkek Loafer", "Klasik Tokalı Ayakkabı Modelleri" (metaTitle), "Yüzey Kalitesi", "#KlasikLoafer".
+**Intentionally preserved (SEO/nav, not product certainty claims):** `keywordEntities` "deri loafer modelleri"/"deri loafer bakımı"; `internalLinkTargets` `/kategori/deri-erkek-ayakkabi`. These are search-intent/category terms, not assertions that this specific shoe is genuine leather.
+**Verified live:** PDP 200, renders softened copy (websiteDescription/articleBody/Bakım/FAQ all "deri görünümlü"/"yüzey"); title + slug + price ₺2.099 + sizes 40–44 (stock 2 each) + WhatsApp CTA + lead form + ÜRÜN REHBERİ all intact; programmatic scan of all prose fields = **0** genuine-leather claims and **0** bare "deri" outside "deri görünümlü"; active set still `[353,354,355,359]` (totalDocs 4), no other product changed.
+**Reversible:** copy-only; prior text recoverable from PI report content if needed (GeoBot can regenerate).
+**Status:** DONE. #354 now ad-safe on material wording. Docs-only commit `docs: record D-338A product 354 claim softening`.
+
 ## D-338 — First ad-test relaunch readiness check (2026-06-21, READ-ONLY, GREEN)
 **Scope:** confirm the first paid ad test can run on the clean loafers. No code/status/PI/publish change. Canonical folder `main`, in sync, single worktree (`418e239`).
 **Product readiness — all 4 PASS (public PDP 200, brand-safe, price, sizes, stock, WhatsApp CTA, lead form, ÜRÜN REHBERİ, no fake reviews, single FAQ):**

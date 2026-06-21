@@ -2,6 +2,10 @@
 
 _Last updated: 2026-04-28 (LOCK CHECKPOINT — D-227 → D-231 stabilization. PI auto-bridge into GeoBot, observability + mandatory prompt rules, idempotent applyConfirmation, richer SEO/GEO pack with mandatory sections, parallel commerce/discovery, wizard category+brand+productType vision autofill — all PROD-VALIDATED. Operator confirmation: "it's working perfectly now". Future work branches from this baseline.)_
 
+## Product copy fix — 2026-06-21 (D-338A: #354 genuine-leather claim softened — DONE, ad-safe)
+
+Operator-approved DATA-only copy fix on product #354 via Admin API PATCH (`content` group only; title/slug/price/stock/images/status unchanged; no external dispatch — no status transition). Removed all "Gerçek deri / Hakiki deri / deri malzeme(si)" certainty claims across commercePack (website/IG/X/FB/Shopier/highlights) + discoveryPack (articleBody, metaTitle, metaDescription, faq[0]+faq[2]); replaced with "deri görünümlü yüzey / yüzey" wording (matches 359/355/353). SEO `keywordEntities` + category nav links preserved. Verified live: PDP 200, softened copy renders, all CTAs/sizes/price/lead form/Ürün Rehberi intact, 0 leather claims in prose, active set still [353,354,355,359]. #354 now ad-safe on material wording. Docs commit `docs: record D-338A product 354 claim softening`.
+
 ## Ad-relaunch readiness — 2026-06-21 (D-338: first ad-test readiness check — GREEN, no blocker)
 
 Read-only confirmation that the first paid ad test can run on the clean loafers. All PASS:

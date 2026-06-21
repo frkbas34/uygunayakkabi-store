@@ -2,7 +2,9 @@
 
 **Decision:** D-278
 **Audience:** Frank (operator)
-**Last updated:** 2026-05-09
+**Last updated:** 2026-06-21
+
+> Status: dormant. SupplierScout is intentionally asleep because the current business decision is to sell and upload only our own products. Do not follow the setup steps below unless the supplier strategy is explicitly restarted. Reactivation requires `SUPPLIER_SCOUT_ENABLED=true`, env vars, webhook registration, and cron reconfiguration.
 
 ---
 

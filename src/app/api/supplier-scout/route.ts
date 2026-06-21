@@ -26,7 +26,7 @@
  *
  * SAFETY: No modification to main Uygunops/GeoBot flows.
  *
- * STATUS: IMPLEMENTED (D-278)
+ * STATUS: DORMANT by default. Set SUPPLIER_SCOUT_ENABLED=true to reactivate.
  */
 
 import { NextRequest, NextResponse } from 'next/server'
@@ -74,6 +74,10 @@ function verifySecret(req: NextRequest): boolean {
   return incoming === secret
 }
 
+function isSupplierScoutEnabled(): boolean {
+  return process.env.SUPPLIER_SCOUT_ENABLED === 'true'
+}
+
 async function loadGroupConfig(
   telegramGroupId: number,
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -111,6 +115,14 @@ async function loadGroupConfig(
 // ─────────────────────────────────────────────────────────────────────────────
 
 export async function POST(req: NextRequest): Promise<NextResponse> {
+  if (!isSupplierScoutEnabled()) {
+    return NextResponse.json({
+      ok: true,
+      dormant: true,
+      message: 'SupplierScout is disabled; webhook update ignored.',
+    })
+  }
+
   // Always respond 200 immediately to Telegram — processing happens after
   if (!verifySecret(req)) {
     console.warn('[SupplierScout] Invalid webhook secret')
@@ -657,6 +669,16 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     if (!adminSecret || providedSecret !== adminSecret) {
       return NextResponse.json({ ok: false, error: 'Unauthorized' }, { status: 401 })
     }
+  }
+
+  if (!isSupplierScoutEnabled()) {
+    return NextResponse.json({
+      ok: true,
+      dormant: true,
+      enabled: false,
+      action: action ?? 'status',
+      message: 'SupplierScout is sleeping. Set SUPPLIER_SCOUT_ENABLED=true to reactivate.',
+    })
   }
 
   if (action === 'daily_report') {

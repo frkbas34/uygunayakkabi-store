@@ -1,8 +1,10 @@
 # SupplierScout — Architecture & Decision Record
 
 **Decision:** D-278
-**Status:** IMPLEMENTED (code complete, pending Neon DDL + Vercel env vars)
-**Date:** 2026-05-09
+**Status:** DORMANT as of 2026-06-21. Code remains in the repo, but the current strategy is own-products-only.
+**Date:** 2026-05-09; paused 2026-06-21
+
+> Do not activate this bot unless the supplier strategy is explicitly restarted. `/api/supplier-scout` no-ops unless `SUPPLIER_SCOUT_ENABLED=true`, and the Vercel daily-report cron has been removed.
 
 ---
 

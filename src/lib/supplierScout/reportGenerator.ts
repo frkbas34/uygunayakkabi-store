@@ -123,7 +123,7 @@ export async function buildDailyReport(date: string, payload: Payload): Promise<
     .filter(a => a.actionType === 'product_created')
     .map(a => ({
       title: a.productTitle ?? '?',
-      supplier: a.sellerUsername ?? `ID:${a.sellerUserId}` ?? '?',
+      supplier: a.sellerUsername ?? (a.sellerUserId ? `ID:${a.sellerUserId}` : '?'),
       supplierGroup: a.supplierGroupName ?? '?',
       wholesalePrice: a.wholesalePrice ?? 0,
       wholesaleCurrency: 'USD',

@@ -46,6 +46,8 @@ SupplierScout collections remain registered but are dormant.
 
 Top-level product `status` remains the storefront switch: `draft`, `active`, `soldout`. The richer roadmap lifecycle is derived in `src/lib/productLifecycle.ts`: `draft`, `needs_review`, `ready_to_publish`, `active`, `sold_out`. This avoids a schema migration while giving operators and agents a shared vocabulary.
 
+Central publish readiness remains a 6-dimension signal in `src/lib/publishReadiness.ts`, but the dimensions now align more closely with Payload activation: usable media rows, valid price, positive stock or variant stock, active target channels only, and brand safety inside the audit/safety dimension.
+
 ## Publishing Paths
 
 - Website: active products render natively.

@@ -10,9 +10,10 @@
     "lint": "eslint .",
     "test:brand-safety": "tsx src/lib/brandSafety.test.ts",
     "test:lifecycle": "tsx src/lib/productLifecycle.test.ts",
+    "test:publish-readiness": "tsx src/lib/publishReadiness.test.ts",
     "test:activation-guard": "tsx src/lib/productActivationGuard.test.ts",
     "test:publish-desk": "tsx src/lib/publishDesk.test.ts",
-    "test:safe": "npm run test:brand-safety && npm run test:lifecycle && npm run test:activation-guard && npm run test:publish-desk",
+    "test:safe": "npm run test:brand-safety && npm run test:lifecycle && npm run test:publish-readiness && npm run test:activation-guard && npm run test:publish-desk",
     "validate": "npm run typecheck && npm run lint && npm run test:safe"
   },
   "dependencies": {

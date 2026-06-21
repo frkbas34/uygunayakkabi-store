@@ -23,7 +23,7 @@ Website publishing is native. If a product is active and passes storefront filte
 
 Needed:
 
-- Smoke test and refine the new activation gate.
+- Runtime smoke test and refine the new activation gate. Code-path smoke exists in `src/lib/publishDesk.test.ts`.
 - Clear product readiness state.
 - Better PDP conversion.
 
@@ -75,6 +75,8 @@ External dispatch should require:
 3. Global AutomationSettings allows channel.
 4. Product passes brand/safety checks.
 5. Required credentials/media exist.
+
+Central publish readiness resolves active product targets through the same active channel set: Website, Instagram, Facebook, X, Shopier. Dolap/Threads no longer count as valid readiness targets.
 
 ## Safety Direction
 

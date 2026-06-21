@@ -8,12 +8,14 @@
  *  1. Confirmation — product confirmed by operator
  *  2. Visuals — acceptable visual assets exist
  *  3. Content — commerce + discovery packs generated
- *  4. Audit — Mentix audit approved or approved_with_warning
- *  5. Sellable — stock exists and product is sellable
- *  6. Publish targets — at least one channel target configured
+ *  4. Audit/Safety — Mentix audit approved or approved_with_warning, and brand safety passes
+ *  5. Sellable — price and stock exist, and product is sellable
+ *  6. Publish targets — at least one active channel target configured
  *
  * Truthfulness rule: never mark ready if any dimension is not satisfied.
  */
+import { formatBrandSafetyReason, scanProductBrandSafety } from './brandSafety'
+import { resolveConfiguredTargets } from './productActivationGuard'
 
 // ─── Types ───────────────────────────────────────────────────────────
 
@@ -39,10 +41,13 @@ export interface PublishReadinessResult {
 export interface ReadinessProduct {
   id: number | string
   title?: string
+  brand?: string
   status?: string
   price?: number
   images?: any[]
   channelTargets?: string[]
+  channels?: Record<string, unknown>
+  variants?: Array<{ stock?: number | null } | number | string>
   workflow?: {
     workflowStatus?: string
     visualStatus?: string
@@ -89,8 +94,8 @@ function checkConfirmation(product: ReadinessProduct): DimensionCheck {
 
 function checkVisuals(product: ReadinessProduct): DimensionCheck {
   const visualStatus = product.workflow?.visualStatus ?? 'pending'
-  const hasOriginals = Array.isArray(product.images) && product.images.length > 0
-  const hasGenerative = Array.isArray(product.generativeGallery) && product.generativeGallery.length > 0
+  const hasOriginals = hasUsableMediaRow(product.images)
+  const hasGenerative = hasUsableMediaRow(product.generativeGallery)
   const hasAnyImages = hasOriginals || hasGenerative
 
   // Visual is acceptable if: images exist (original or AI) and status is not 'rejected'
@@ -103,6 +108,16 @@ function checkVisuals(product: ReadinessProduct): DimensionCheck {
   else detail = `Images exist (${hasOriginals ? 'original' : 'AI'})${visualStatus === 'pending' ? ' — visual review pending' : ''}`
 
   return { name: 'visuals', passed, status: visualStatus, detail }
+}
+
+function hasUsableMediaRow(rows: unknown): boolean {
+  if (!Array.isArray(rows)) return false
+  return rows.some((row) => {
+    if (!row) return false
+    if (typeof row === 'string' || typeof row === 'number') return true
+    if (typeof row !== 'object' || Array.isArray(row)) return false
+    return Boolean((row as Record<string, unknown>).image ?? (row as Record<string, unknown>).id)
+  })
 }
 
 function checkContent(product: ReadinessProduct): DimensionCheck {
@@ -123,12 +138,16 @@ function checkAudit(product: ReadinessProduct): DimensionCheck {
   const auditStatus = product.workflow?.auditStatus ?? 'not_required'
   const overallResult = product.auditResult?.overallResult ?? 'not_reviewed'
   const approvedForPublish = product.auditResult?.approvedForPublish === true
+  const brandSafety = scanProductBrandSafety(product as any)
 
   // Audit passes if: approved or approved_with_warning (approvedForPublish=true)
   // Also passes if auditStatus='not_required' (legacy products without audit)
-  const passed = approvedForPublish || auditStatus === 'not_required'
+  const auditPassed = approvedForPublish || auditStatus === 'not_required'
+  const passed = auditPassed && brandSafety.safe
   let detail = ''
-  if (approvedForPublish) {
+  if (!brandSafety.safe) {
+    detail = `Brand safety blocked: ${formatBrandSafetyReason(brandSafety) || brandSafety.reasons.join('; ')}`
+  } else if (approvedForPublish) {
     detail = overallResult === 'approved' ? 'Audit passed' : 'Audit passed with warnings'
   } else if (auditStatus === 'not_required') {
     detail = 'Audit not required (legacy)'
@@ -146,27 +165,38 @@ function checkAudit(product: ReadinessProduct): DimensionCheck {
 function checkSellable(product: ReadinessProduct): DimensionCheck {
   const stockState = product.workflow?.stockState ?? 'in_stock'
   const sellable = product.workflow?.sellable
-  const stockQty = product.stockQuantity ?? 0
+  const stockQty = Number(product.stockQuantity ?? 0)
+  const price = Number(product.price ?? 0)
+  const variantStocks = Array.isArray(product.variants)
+    ? product.variants
+        .map((variant) => (variant && typeof variant === 'object' && !Array.isArray(variant) ? Number(variant.stock ?? 0) : null))
+        .filter((stock): stock is number => stock !== null && Number.isFinite(stock))
+    : []
+  const effectiveStock = variantStocks.length > 0
+    ? variantStocks.reduce((sum, stock) => sum + Math.max(0, stock), 0)
+    : stockQty
 
-  // Sellable check: stock exists and sellable flag is not explicitly false
+  // Sellable check: valid price + stock exists and sellable flag is not explicitly false
   // Legacy compat: sellable=null/undefined + status=active is acceptable
   const isSoldOut = stockState === 'sold_out'
   const isSellable = sellable !== false && !isSoldOut
-  const hasStock = stockQty > 0 || stockState === 'in_stock' || stockState === 'low_stock'
+  const hasPrice = Number.isFinite(price) && price > 0
+  const hasStock = Number.isFinite(effectiveStock) && effectiveStock > 0
 
-  const passed = isSellable && hasStock
+  const passed = isSellable && hasStock && hasPrice
   let detail = ''
   if (isSoldOut) detail = 'Product is sold out'
   else if (sellable === false) detail = 'Marked as not sellable'
+  else if (!hasPrice) detail = 'Valid price is required'
   else if (!hasStock) detail = 'No stock available'
-  else detail = `In stock (${stockQty} units, state: ${stockState})`
+  else detail = `Sellable at ₺${price} with ${effectiveStock} unit(s), state: ${stockState}`
 
   return { name: 'sellable', passed, status: stockState, detail }
 }
 
 function checkPublishTargets(product: ReadinessProduct): DimensionCheck {
-  const targets = product.channelTargets
-  const hasTargets = Array.isArray(targets) && targets.length > 0
+  const targets = resolveConfiguredTargets(product as any)
+  const hasTargets = targets.length > 0
   return {
     name: 'publish_targets',
     passed: hasTargets,

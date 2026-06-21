@@ -11,13 +11,15 @@ Current sprint status:
 3. Obsidian control notes added at repo root.
 4. Validation scripts fixed.
 5. Stale generated/session artifacts excluded from validation.
-6. `npm run validate` passes with warnings and now includes brand-safety, product-lifecycle, and activation-guard assertions.
+6. `npm run validate` passes with warnings and now includes brand-safety, product-lifecycle, publish-readiness, activation-guard, and Publish Desk activation assertions.
 7. Product activation guard implemented: active creates and transitions into `status='active'` now require price, image, effective stock, active target, and brand-safety pass.
 8. Code-level activation smoke test added at `src/lib/productActivationGuard.test.ts`, including actual `Products.beforeChange` hook behavior.
 9. Product defaults changed to `draft`; content auto-activation now requires central publish readiness after audit.
 10. Admin ReviewPanel and Telegram activation help now explicitly describe the Payload activation guard instead of implying readiness alone is enough.
 11. Product lifecycle vocabulary is now canonicalized in `src/lib/productLifecycle.ts` and surfaced in ReviewPanel without changing the Payload status schema.
-12. Next: smoke test admin/Telegram product activation at runtime and continue product workflow polish.
+12. Publish Desk activation smoke test added for readiness blocks, Payload guard blocks, idempotent active products, and successful activation events.
+13. Central publish readiness tightened to include usable media, valid price, real stock, active channel targets only, and brand safety.
+14. Next: smoke test admin/Telegram product activation at runtime and continue product workflow polish.
 
 ## Open Questions
 

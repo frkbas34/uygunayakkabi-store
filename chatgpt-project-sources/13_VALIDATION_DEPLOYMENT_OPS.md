@@ -4,7 +4,7 @@ Last updated: 2026-06-21
 
 ## Current Validation Status
 
-As of 2026-06-21, `npm run validate` passes. It runs TypeScript, ESLint, brand-safety assertions, product-lifecycle assertions, and product-activation-guard assertions. Lint warnings remain (81 warnings in the latest run), but lint errors or failed assertions fail the command.
+As of 2026-06-21, `npm run validate` passes. It runs TypeScript, ESLint, brand-safety assertions, product-lifecycle assertions, publish-readiness assertions, product-activation-guard assertions, and Publish Desk activation smoke assertions. Lint warnings remain (81 warnings in the latest run), but lint errors or failed assertions fail the command.
 
 ## Previous Validation Problem
 
@@ -23,7 +23,9 @@ Added reliable scripts:
 - `npm run lint`
 - `npm run test:brand-safety`
 - `npm run test:lifecycle`
+- `npm run test:publish-readiness`
 - `npm run test:activation-guard`
+- `npm run test:publish-desk`
 - `npm run test:safe`
 - `npm run validate`
 

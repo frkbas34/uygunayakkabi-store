@@ -47,13 +47,15 @@ As of 2026-06-21, `src/collections/Products.ts` uses `src/lib/productActivationG
 
 New products now default to `draft`. On successful activation, the hook also normalizes workflow state to `workflowStatus='active'`, `sellable=true`, and non-sold-out stock state so the storefront/homepage do not silently hide the product. The guard does not block edits to products that are already active. It is meant to prevent hidden storefront activation failures while keeping existing live products editable.
 
-Code-level smoke coverage exists in `src/lib/productActivationGuard.test.ts` and runs through `npm run validate`. It covers helper logic plus actual `Products.beforeChange` hook behavior. Runtime admin/Telegram smoke is still a next step.
+Code-level smoke coverage exists in `src/lib/productActivationGuard.test.ts` and `src/lib/publishDesk.test.ts`, and runs through `npm run validate`. It covers helper logic, actual `Products.beforeChange` hook behavior, and the Telegram/Publish Desk activation wrapper for readiness failures, Payload guard failures, idempotent active products, and successful activation events. Runtime admin/Telegram smoke is still a next step.
 
 Operator-facing activation surfaces have been aligned with the guard. The Payload admin ReviewPanel now treats zero/missing stock, missing active channel target, and visible title/brand brand-safety hits as blockers. Its success message says Payload still runs the final guard. Telegram `/activate` and `/approvepublish` help text now says both central publish readiness and the Payload activation guard must pass.
 
 Lifecycle wording is canonicalized by `src/lib/productLifecycle.ts`: current Payload fields map to `draft`, `needs_review`, `ready_to_publish`, `active`, and `sold_out`. ReviewPanel shows this derived lifecycle label while keeping top-level `status` as the storefront visibility switch.
 
 The content-generation pipeline re-fetches after audit and requires central `evaluatePublishReadiness()` before any auto-activation. If readiness is not complete, it sends an operator "Yayına Al" button with blockers instead of activating.
+
+Central publish readiness is still 6 dimensions, but now stricter: visuals require usable media rows, sellable requires valid price plus positive stock or variant stock, publish targets must resolve to active channels only, and brand safety blocks the audit/safety dimension. This reduces cases where `/publishready` looks green but Payload activation later rejects the product.
 
 ## Operator Controls
 

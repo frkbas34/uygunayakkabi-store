@@ -146,8 +146,22 @@ async function main() {
     assert.strictEqual(update.args.data.status, 'active')
     assert.strictEqual(update.args.data.workflow.workflowStatus, 'active')
     assert.strictEqual(update.args.data.workflow.publishStatus, 'published')
+    assert.strictEqual(update.args.data.workflow.lastHandledByBot, 'uygunops')
     const events = fake.calls.filter((c) => c.method === 'create').map((c) => c.args.data.eventType)
     assert.deepStrictEqual(events, ['publish.approved', 'product.activated'])
+  })
+
+  await check('GeoBot activation records GeoBot as the source bot', async () => {
+    const fake = fakePayload(readyProduct())
+    const result = await approveAndActivateProduct(fake.payload, 501, 'telegram_button', 'geo_activate', 'geobot')
+
+    assert.strictEqual(result.ok, true)
+    const sourceBots = fake.calls.filter((c) => c.method === 'create').map((c) => c.args.data.sourceBot)
+    assert.deepStrictEqual(sourceBots, ['geobot', 'geobot'])
+    const update = fake.calls.find((c) => c.method === 'update')
+    assert.strictEqual(update?.args.data.workflow.lastHandledByBot, 'geobot')
+    const approvalEvent = fake.calls.find((c) => c.method === 'create')?.args.data
+    assert.strictEqual(approvalEvent.payload.sourceBot, 'geobot')
   })
 
   console.log(`\npublishDesk: ${passed} checks passed${process.exitCode ? ' - WITH FAILURES' : ' - ALL OK'}`)

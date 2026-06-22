@@ -9,7 +9,7 @@
  *  - Safe fallback to conservative defaults when settings unavailable
  *  - Clear reason strings for auditability (stored in automationMeta)
  *  - Channel decisions respect: global capability AND product-level intent
- *  - Status decisions respect: requireAdminReview > autoActivate > confidence > readiness
+ *  - Status decisions are draft-first; readiness can mark "operator approval needed"
  *
  * Used by:
  *  - src/app/api/automation/products/route.ts (product intake)
@@ -72,12 +72,12 @@ export type StatusDecisionInput = {
   parseConfidence?: number | null
   /** Publish-readiness evaluation from evaluatePublishReadiness() */
   readiness: PublishReadinessResult
-  /** Per-product automationFlags.autoActivate override — takes effect only if global allows */
+  /** Legacy per-product automationFlags.autoActivate override. Activation still requires operator approval. */
   productAutoActivateOverride?: boolean | null
   /**
    * Explicit status sent by n8n in the request body.
    * 'draft' → always kept as draft (n8n intent).
-   * 'active' → treated as "request to activate" but still gated by readiness.
+   * 'active' → treated as "request to activate", but intake still creates a draft.
    * Absent → decision layer takes over.
    */
   explicitStatus?: string | null
@@ -90,7 +90,14 @@ export type StatusDecisionResult = {
   /** Human-readable Turkish reason for the decision — stored in automationMeta */
   reason: string
   /** Machine-readable gate that caused a non-activation */
-  blockedBy?: 'require_admin_review' | 'auto_activate_off' | 'confidence_below_threshold' | 'readiness_failed' | 'explicit_draft' | 'settings_unavailable'
+  blockedBy?:
+    | 'require_admin_review'
+    | 'auto_activate_off'
+    | 'confidence_below_threshold'
+    | 'readiness_failed'
+    | 'explicit_draft'
+    | 'settings_unavailable'
+    | 'operator_approval_required'
 }
 
 /** Effective channel targets after global capability filtering */
@@ -135,7 +142,7 @@ const SAFE_DEFAULTS = {
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
- * resolveProductStatus — Determine whether a product should be 'active' or 'draft'.
+ * resolveProductStatus — Determine automation intake status.
  *
  * Decision precedence (highest → lowest):
  *  1. explicitStatus === 'draft'  → always draft (n8n or automation explicitly requested draft)
@@ -144,11 +151,12 @@ const SAFE_DEFAULTS = {
  *  4. autoActivateProducts === false → draft (auto-activation disabled globally)
  *  5. parseConfidence < minConfidenceToActivate → draft (parser uncertain)
  *  6. readiness.isReady === false  → draft (critical fields missing)
- *  7. All gates passed            → active
+ *  7. All gates passed            → draft, ready for explicit operator approval
  *
- * Per-product override (automationFlags.autoActivate) is respected only when:
- *  - requireAdminReview is false
- *  - It overrides the autoActivateProducts toggle (not the confidence/readiness gates)
+ * The legacy auto-activate settings are still read so old admin settings produce
+ * useful reasons, but automation intake no longer publishes directly. Activation
+ * happens through /activate, /approvepublish, Publish Desk, GeoBot buttons, or
+ * admin status changes, all guarded by Payload beforeChange.
  */
 export function resolveProductStatus(
   input: StatusDecisionInput,
@@ -216,10 +224,11 @@ export function resolveProductStatus(
     }
   }
 
-  // 7. All gates passed — activate
+  // 7. All gates passed — still draft-first; operator approval performs activation.
   return {
-    status: 'active',
-    reason: `Aktif: Tüm koşullar sağlandı (güven: ${confidence}%, zorunlu alanlar tam).`,
+    status: 'draft',
+    reason: `Taslak: Tüm yayın ön koşulları sağlandı (güven: ${confidence}%, zorunlu alanlar tam). Operatör onayı bekliyor.`,
+    blockedBy: 'operator_approval_required',
   }
 }
 

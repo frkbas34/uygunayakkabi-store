@@ -23,7 +23,7 @@ import {
  *
  * Step 12 additions:
  *   - Reads AutomationSettings global via decision layer
- *   - resolveProductStatus: status is now toggle-controlled, not hardcoded
+ *   - resolveProductStatus: intake stays draft-first; activation requires operator approval
  *   - resolveChannelTargets: effective channels respect global capability gates
  *   - resolveContentDecision: returns blog/image generation intent for n8n
  *   - autoDecision + autoDecisionReason stored in automationMeta for admin visibility
@@ -295,7 +295,8 @@ export async function POST(req: NextRequest) {
         } : null,
         parse_confidence: parsedFromCaption?.parseConfidence ?? null,
         parse_warnings: parsedFromCaption?.parseWarnings ?? [],
-        // Step 12: decision info (useful for n8n to log or branch on)
+        // Step 12: decision info (useful for n8n to log or branch on).
+        // Current rule: automation intake is draft-first; activation is an operator action.
         decision: {
           status: statusDecision.status,
           reason: statusDecision.reason,

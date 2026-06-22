@@ -119,6 +119,10 @@ export function applyActivationWorkflowDefaults(
     workflow.stockState = 'in_stock'
   }
 
+  if (!workflow.publishStatus || ['not_requested', 'pending'].includes(String(workflow.publishStatus))) {
+    workflow.publishStatus = 'published'
+  }
+
   data.workflow = workflow
 }
 

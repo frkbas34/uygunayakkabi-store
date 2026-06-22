@@ -4,12 +4,12 @@ import type { GlobalConfig } from 'payload'
  * AutomationSettings — Centralized automation control panel (Global)
  *
  * Step 12: Extended with:
- *  - minConfidenceToActivate: parser confidence threshold for auto-activation
+ *  - minConfidenceToActivate: legacy parser confidence threshold for auto-activation decisions
  *  - enableTryOn: global try-on feature flag
  *  - enriched descriptions aligned with decision layer logic
  *
- * Decision layer precedence (implemented in src/lib/automationDecision.ts):
- *  requireAdminReview > autoActivateProducts > minConfidenceToActivate > readiness
+ * Decision layer behavior (implemented in src/lib/automationDecision.ts):
+ *  automation intake remains draft-first; legacy autoActivate fields only affect reason text.
  *
  * This global is the single source of truth for all automation behavior.
  * Per-product overrides via products.automationFlags take precedence over globals
@@ -27,6 +27,9 @@ export const AutomationSettings: GlobalConfig = {
     {
       name: 'productIntake',
       type: 'group',
+      admin: {
+        description: 'Current rule: automation intake creates drafts. Publishing requires explicit operator approval.',
+      },
       label: '📥 Ürün Alım Ayarları',
       fields: [
         {
@@ -51,7 +54,7 @@ export const AutomationSettings: GlobalConfig = {
               'Kapalı olduğunda autoActivate kararı devreye girer.',
           },
         },
-        // Step 12: threshold for auto-activation based on caption parse quality
+        // Step 12 legacy: threshold kept for decision explanations, not direct activation.
         {
           name: 'minConfidenceToActivate',
           type: 'number',

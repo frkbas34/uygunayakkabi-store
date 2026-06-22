@@ -743,13 +743,13 @@ export async function triggerContentGeneration(
     }
 
     if (hasUsableContent && result.commercePack) {
-      // ── Phase S + X: GeoBot content notification with auto-publish ──
+      // ── Phase S + X: GeoBot content notification with operator approval ──
       const igSnippet = result.commercePack.instagramCaption
         ? `\n\n📸 <b>IG Önizleme:</b>\n<pre>${result.commercePack.instagramCaption.substring(0, 200)}${result.commercePack.instagramCaption.length > 200 ? '…' : ''}</pre>`
         : ''
       const statusLabel = finalContentStatus === 'ready' ? 'İçerik hazır!' : 'İçerik hazır (blog beklemede)'
 
-      // Auto-publish pipeline: audit → activate (awaited so Vercel doesn't kill it before completion)
+      // Operator-approval pipeline: audit can run automatically, but activation waits for a button.
       await (async () => {
         try {
           const { shouldAutoTriggerAudit, triggerAudit } = await import('@/lib/mentixAudit')
@@ -789,42 +789,13 @@ export async function triggerContentGeneration(
               return
             }
 
-            // Step 4: Auto-activate — no manual button needed
-            const now = new Date().toISOString()
-            const newUntil = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString()
-            await payload.update({
-              collection: 'products',
-              id: product.id,
-              data: {
-                status: 'active',
-                merchandising: {
-                  ...((currentProduct as any).merchandising ?? {}),
-                  publishedAt: now,
-                  newUntil,
-                },
-                workflow: {
-                  ...((currentProduct as any).workflow ?? {}),
-                  workflowStatus: 'active',
-                  publishStatus: 'published',
-                  lastHandledByBot: 'geobot',
-                },
-              } as any,
-            })
-            await payload.create({
-              collection: 'bot-events',
-              data: {
-                eventType: 'product.activated',
-                product: product.id,
-                sourceBot: 'geobot',
-                status: 'processed',
-                notes: `Product ${product.id} auto-activated after content ready.`,
-                processedAt: now,
-              } as any,
-            })
             notifyGeoBot(
               MENTIX_GROUP_ID,
-              `🚀 <b>Ürün #${product.id} yayına alındı!</b>` + igSnippet,
-              [],
+              `✅ <b>Ürün #${product.id} — ${statusLabel}</b>\n\n` +
+                `🚦 Publish readiness ${readiness.passedCount}/${readiness.totalCount}. Operatör onayı bekliyor.\n` +
+                `Yayına almak için butonu kullanın.` +
+                igSnippet,
+              [[{ text: '🚀 Yayına Al', callback_data: `geo_activate:${product.id}` }]],
             ).catch(err => console.error('[contentPack] GeoBot activate notification failed:', err))
           } else {
             // Not ready yet — show button as fallback

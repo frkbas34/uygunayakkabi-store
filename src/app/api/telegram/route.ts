@@ -1504,7 +1504,7 @@ export async function POST(req: NextRequest) {
             await sendTelegramMessage(cbChatId, `✅ Ürün #${geoProductId} zaten aktif.`)
             return NextResponse.json({ ok: true })
           }
-          const { evaluatePublishReadiness, formatReadinessMessage } = await import('@/lib/publishReadiness')
+          const { evaluatePublishReadiness } = await import('@/lib/publishReadiness')
           let readiness = evaluatePublishReadiness(product as any)
           let effectiveProduct = product
 
@@ -1527,48 +1527,15 @@ export async function POST(req: NextRequest) {
             }
           }
 
-          if (readiness.level !== 'ready') {
-            await sendTelegramMessage(cbChatId,
-              `⛔ Ürün #${geoProductId} yayına alınamıyor:\n\n` +
-              formatReadinessMessage(effectiveProduct as any, readiness))
-            return NextResponse.json({ ok: true })
-          }
-          // Activate: set status=active, merchandising fields, workflow
-          const now = new Date().toISOString()
-          const newUntil = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString()
-          await payloadInst.update({
-            collection: 'products',
-            id: geoProductId,
-            data: {
-              status: 'active',
-              merchandising: {
-                ...((product as any).merchandising ?? {}),
-                publishedAt: now,
-                newUntil,
-              },
-              workflow: {
-                ...((product as any).workflow ?? {}),
-                workflowStatus: 'active',
-                publishStatus: 'published',
-                lastHandledByBot: 'geobot',
-              },
-            },
-          })
-          await payloadInst.create({
-            collection: 'bot-events',
-            data: {
-              eventType: 'product.activated',
-              product: geoProductId,
-              sourceBot: 'geobot',
-              status: 'processed',
-              notes: `Product ${geoProductId} activated via GeoBot inline button.`,
-              processedAt: now,
-            },
-          })
-          await sendTelegramMessage(cbChatId,
-            `🚀 <b>Ürün #${geoProductId} yayına alındı!</b>\n\n` +
-            `📅 Yeni bölümünde: ${newUntil.substring(0, 10)} tarihine kadar\n` +
-            `🔗 <a href="https://www.uygunayakkabi.com/admin/collections/products/${geoProductId}">Admin'de gör</a>`)
+          const { approveAndActivateProduct } = await import('@/lib/publishDesk')
+          const out = await approveAndActivateProduct(
+            payloadInst,
+            geoProductId,
+            'telegram_button',
+            'geo_activate',
+            'geobot',
+          )
+          await sendTelegramMessage(cbChatId, out.message)
         } catch (err) {
           console.error('[telegram/webhook] geo_activate callback failed:', err)
           await sendTelegramMessage(cbChatId, `❌ Aktivasyon hatası: ${err instanceof Error ? err.message : 'Bilinmeyen hata'}`)
@@ -3478,24 +3445,6 @@ export async function POST(req: NextRequest) {
         })
 
         // 11. Telegram'a başarı bildirimi — eksik alanları açıkça göster
-        const statusEmoji = statusDecision.status === 'active' ? '🟢' : '📋'
-        const statusLabel = statusDecision.status === 'active' ? 'Yayında' : 'Taslak'
-        const visionLabel = visionData ? ' 🤖' : ''
-
-        // Eksik alanları listele (sadece kategori/marka — fiyat admin'den girilebilir)
-        const missing: string[] = []
-        if (!category) missing.push('Kategori')
-        if (!brand) missing.push('Marka')
-
-        const missingBlock = missing.length > 0
-          ? `\n💡 <i>Eksik: ${missing.join(', ')}</i>` +
-            `\n📋 <code>/confirm ${productId}</code> — Onay sihirbazıyla tamamla`
-          : `\n📋 <code>/confirm ${productId}</code> — Ürünü onayla`
-
-        const confidenceBar = parsedCaption?.parseConfidence
-          ? ` (${parsedCaption.parseConfidence}% güven)`
-          : ''
-
         // 12. Görsel tag varsa → otomatik görsel üretim kuyruğa al
         //    v19 Gemini-only: all caption mode/engine tags → Gemini Pro
         const effectiveEngine = autoGenEngine
@@ -3527,10 +3476,6 @@ export async function POST(req: NextRequest) {
           } catch (err) {
             console.error('[telegram/webhook] auto gen queue failed:', err)
           }
-        }
-
-        const modeEmojiMap: Record<string, string> = {
-          hizli: '⚡', dengeli: '⚖️', premium: '💎', karma: '🌈',
         }
 
         // D-206: minimal product summary — title + admin link only
@@ -7088,7 +7033,6 @@ Tüm kampanyalar için: <code>/campaigns</code>`,
     if (message.photo || message.media_group_id) {
       const productData = parseTelegramCaption(text) as (ReturnType<typeof parseTelegramCaption> & {
         description?: string
-        postToInstagram?: boolean
         sizes?: Record<string, number>
       }) | null
 
@@ -7109,6 +7053,8 @@ Tüm kampanyalar için: <code>/campaigns</code>`,
       }
 
       const slug = slugify(productData.title) + '-' + productData.sku.toLowerCase()
+      const automationSettings = await fetchAutomationSettings(payload)
+      const channelDecision = resolveChannelTargets(productData.channelTargets ?? ['website'], automationSettings)
 
       const newProduct = await payload.create({
         collection: 'products',
@@ -7120,7 +7066,34 @@ Tüm kampanyalar için: <code>/campaigns</code>`,
           category: productData.category,
           price: productData.price,
           description: productData.description,
-          status: 'active',
+          status: 'draft',
+          source: 'telegram',
+          channelTargets: channelDecision.effectiveTargets as any,
+          channels: {
+            publishWebsite: channelDecision.effectiveTargets.includes('website'),
+            publishInstagram: channelDecision.effectiveTargets.includes('instagram'),
+            publishShopier: channelDecision.effectiveTargets.includes('shopier'),
+            publishX: channelDecision.effectiveTargets.includes('x'),
+            publishFacebook: channelDecision.effectiveTargets.includes('facebook'),
+          },
+          workflow: {
+            workflowStatus: 'draft',
+            visualStatus: 'pending',
+            confirmationStatus: 'pending',
+            contentStatus: 'pending',
+            auditStatus: 'not_required',
+            publishStatus: 'not_requested',
+            stockState: 'in_stock',
+            sellable: false,
+            lastHandledByBot: 'uygunops',
+          },
+          automationMeta: {
+            rawCaption: text,
+            telegramChatId: String(chatId),
+            telegramMessageId: String(message.message_id ?? ''),
+            telegramFromUserId: String(message.from?.id ?? ''),
+            telegramChatType: message.chat?.type,
+          },
           createdByAutomation: true,
         },
       })
@@ -7151,7 +7124,8 @@ Tüm kampanyalar için: <code>/campaigns</code>`,
       // D-203: compact notification
       await sendTelegramMessage(
         chatId,
-        `✅ <b>${productData.title}</b> · ${productData.price} ₺`,
+        `✅ <b>${productData.title}</b> · ${productData.price} ₺\n\n` +
+          `Taslak oluşturuldu. Yayın için önce onay/aktivasyon akışını kullanın.`,
       )
       return NextResponse.json({ ok: true })
     }

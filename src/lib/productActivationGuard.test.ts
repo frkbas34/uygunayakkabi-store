@@ -148,7 +148,7 @@ async function main() {
     })
 
     assert.strictEqual(data.workflow.workflowStatus, 'active')
-    assert.strictEqual(data.workflow.publishStatus, 'pending')
+    assert.strictEqual(data.workflow.publishStatus, 'published')
     assert.strictEqual(data.workflow.stockState, 'in_stock')
     assert.strictEqual(data.workflow.sellable, true)
   })
@@ -214,6 +214,7 @@ async function main() {
 
     assert.strictEqual(result, data)
     assert.strictEqual(data.workflow.workflowStatus, 'active')
+    assert.strictEqual(data.workflow.publishStatus, 'published')
     assert.strictEqual(data.workflow.sellable, true)
   })
 
@@ -233,6 +234,7 @@ async function main() {
 
     assert.strictEqual(result, data)
     assert.strictEqual(data.workflow.workflowStatus, 'active')
+    assert.strictEqual(data.workflow.publishStatus, 'published')
     assert.strictEqual(data.workflow.sellable, true)
   })
 

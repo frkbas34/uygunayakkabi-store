@@ -184,11 +184,14 @@ export interface PublishDecisionResult {
   message: string
 }
 
+export type PublishDecisionSourceBot = 'uygunops' | 'geobot' | 'mentix' | 'system'
+
 export async function recordPublishDecision(
   payload: any,
   productId: number | string,
   decision: 'approved' | 'rejected',
   source: 'telegram_command' | 'telegram_button' = 'telegram_command',
+  sourceBot: PublishDecisionSourceBot = 'uygunops',
 ): Promise<PublishDecisionResult> {
   let product: any
   try {
@@ -220,11 +223,12 @@ export async function recordPublishDecision(
       data: {
         eventType: decision === 'approved' ? 'publish.approved' : 'publish.rejected',
         product: productId,
-        sourceBot: 'uygunops',
+        sourceBot,
         status: 'processed',
         payload: {
           decision,
           source,
+          sourceBot,
           decidedAt: new Date().toISOString(),
           productStatus: product.status,
           publishStatus: product.workflow?.publishStatus,
@@ -380,6 +384,7 @@ export async function approveAndActivateProduct(
   productId: number | string,
   source: 'telegram_command' | 'telegram_button' = 'telegram_command',
   triggeredBy: string = 'approvepublish',
+  sourceBot: PublishDecisionSourceBot = 'uygunops',
 ): Promise<ApproveAndActivateResult> {
   let product: any
   try {
@@ -421,7 +426,7 @@ export async function approveAndActivateProduct(
   }
 
   // Audit-trail event BEFORE activation
-  await recordPublishDecision(payload, productId, 'approved', source)
+  await recordPublishDecision(payload, productId, 'approved', source, sourceBot)
 
   const { evaluatePublishReadiness } = await import('./publishReadiness')
   const readiness = evaluatePublishReadiness(product as any)
@@ -455,7 +460,7 @@ export async function approveAndActivateProduct(
           ...(product.workflow ?? {}),
           workflowStatus: 'active',
           publishStatus: 'published',
-          lastHandledByBot: 'uygunops',
+          lastHandledByBot: sourceBot,
         },
         merchandising: {
           ...(product.merchandising ?? {}),
@@ -491,7 +496,7 @@ export async function approveAndActivateProduct(
       data: {
         eventType: 'product.activated',
         product: productId,
-        sourceBot: 'uygunops',
+        sourceBot,
         status: 'processed',
         payload: {
           previousStatus: product.status,

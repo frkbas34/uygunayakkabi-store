@@ -3,6 +3,7 @@
 import React from 'react'
 import { useFormFields } from '@payloadcms/ui'
 import { formatBrandSafetyReason, scanBrandSafety } from '@/lib/brandSafety'
+import { summarizeChannelDispatchResult } from '@/lib/channelDispatchStatus'
 import { PRODUCT_LIFECYCLE_LABELS, deriveProductLifecycle } from '@/lib/productLifecycle'
 
 type CheckItem = {
@@ -444,11 +445,15 @@ export const ReviewPanel: React.FC = () => {
             <div style={{ padding: '6px 0' }}>
               {dispatchResults.map((r, idx) => {
                 const label = CHANNEL_LABEL[r.channel] ?? r.channel
+                const dispatchSummary = summarizeChannelDispatchResult(r)
                 const eligibleIcon  = r.eligible ? '✅' : '⛔'
-                const dispatchIcon  = !r.eligible ? '—'
-                  : r.dispatched    ? '✅'
-                  : r.error         ? '❌'
-                  : '⚠️'
+                const dispatchIcon =
+                  dispatchSummary.state === 'published' ? '✅'
+                    : dispatchSummary.state === 'failed' ? '❌'
+                      : dispatchSummary.state === 'blocked' ? '⛔'
+                        : dispatchSummary.state === 'queued' ? '🕓'
+                          : dispatchSummary.state === 'preview' ? '👁️'
+                            : '⚠️'
                 const webhookIcon = r.webhookConfigured ? '🔗' : '⚠️ URL yok'
                 const rowBg = r.dispatched ? '#0a1f0f'
                   : !r.eligible     ? '#1a1a1a'
@@ -484,8 +489,13 @@ export const ReviewPanel: React.FC = () => {
                         }}
                         title="Dispatched"
                       >
-                        {dispatchIcon} {r.dispatched ? 'gönderildi' : r.eligible ? 'gönderilemedi' : 'atlandı'}
+                        {dispatchIcon} {dispatchSummary.label}
                       </span>
+                      {dispatchSummary.canRedispatch && (
+                        <span style={{ color: '#64748b', fontSize: '10px' }}>
+                          redispatch mümkün
+                        </span>
+                      )}
                       {/* Webhook */}
                       <span style={{ color: r.webhookConfigured ? '#475569' : '#92400e' }} title="Webhook URL">
                         {webhookIcon}

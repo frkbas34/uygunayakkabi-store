@@ -761,6 +761,8 @@ export async function triggerChannelRedispatch(
     triggerReason,
     { onlyChannels: [channelTyped] },
   )
+  const channelResults = results.filter((r) => r.channel === channel)
+  const channelDispatched = dispatchedChannels.filter((ch) => ch === channel)
 
   // Persist per-channel result, PRESERVING other channels' notes.
   const sourceMeta = (product.sourceMeta as Record<string, unknown> | undefined) ?? {}
@@ -776,7 +778,7 @@ export async function triggerChannelRedispatch(
   const otherNotes = prevNotes.filter((n) => n?.channel !== channel)
   const newNotes = [
     ...otherNotes,
-    ...results.map((r) => ({
+    ...channelResults.map((r) => ({
       channel: r.channel,
       eligible: r.eligible,
       dispatched: r.dispatched,
@@ -791,7 +793,7 @@ export async function triggerChannelRedispatch(
 
   // Shopier-specific: if dispatchProductToChannels returned eligible+queued,
   // we need to enqueue the actual sync job (matches afterChange hook behaviour).
-  const shopierResult = results.find((r) => r.channel === 'shopier')
+  const shopierResult = channelResults.find((r) => r.channel === 'shopier')
   const shouldQueueShopier =
     shopierResult?.eligible === true &&
     shopierResult?.skippedReason === 'queued-via-jobs-queue' &&
@@ -828,7 +830,7 @@ export async function triggerChannelRedispatch(
 
   // Build operator-facing message
   const channelLabel = CHANNEL_LABELS[channel]
-  const r = results[0]
+  const r = channelResults[0]
   let resultLine: string
   if (!r) {
     resultLine = '— Sonuç dönmedi'
@@ -856,11 +858,11 @@ export async function triggerChannelRedispatch(
     ok: true,
     channel,
     productId,
-    results,
+    results: channelResults,
     message:
       `🔁 <b>${channelLabel}</b> tekrar gönderildi\n` +
       `Ürün ID: ${productId}${webhookHint}\n\n` +
       resultLine +
-      `\n\n<i>Dispatched: [${dispatchedChannels.join(', ') || '—'}]</i>`,
+      `\n\n<i>Dispatched: [${channelDispatched.join(', ') || '—'}]</i>`,
   }
 }

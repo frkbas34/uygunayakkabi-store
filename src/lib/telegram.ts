@@ -498,14 +498,30 @@ export function parseTelegramCaption(caption: string): ParsedCaption | null {
 
   // Channel targets
   let channelTargets: string[] | undefined
+  const targets: string[] = []
+  const addTarget = (target: string) => {
+    if (!targets.includes(target)) targets.push(target)
+  }
   if (fields['channels']) {
     const rawChannels = fields['channels'].toLowerCase()
-    const targets: string[] = []
-    if (rawChannels.includes('website') || rawChannels.includes('site') || rawChannels.includes('web')) targets.push('website')
-    if (rawChannels.includes('instagram') || rawChannels.includes('insta') || rawChannels.includes('ig')) targets.push('instagram')
-    if (rawChannels.includes('shopier')) targets.push('shopier')
-    if (targets.length > 0) channelTargets = targets
+    const normalizedChannels = normalizeLabel(fields['channels'])
+    const channelTokens = new Set(
+      normalizedChannels
+        .split(/[^a-z0-9]+/)
+        .map((token) => token.trim())
+        .filter(Boolean),
+    )
+    if (rawChannels.includes('website') || rawChannels.includes('site') || rawChannels.includes('web')) addTarget('website')
+    if (rawChannels.includes('instagram') || rawChannels.includes('insta') || rawChannels.includes('ig')) addTarget('instagram')
+    if (rawChannels.includes('shopier')) addTarget('shopier')
+    if (channelTokens.has('x') || rawChannels.includes('twitter')) addTarget('x')
+    if (rawChannels.includes('facebook') || channelTokens.has('fb')) addTarget('facebook')
   }
+  if (fields['instagram'] && parseBoolFlag(fields['instagram'])) {
+    addTarget('website')
+    addTarget('instagram')
+  }
+  if (targets.length > 0) channelTargets = targets
 
   // ── Compute confidence score ───────────────────────────────
   // Based on presence of required fields for publication readiness

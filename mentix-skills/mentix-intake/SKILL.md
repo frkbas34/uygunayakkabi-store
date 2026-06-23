@@ -81,7 +81,7 @@ Classify the incoming message:
 
 | Signal | Intent | Skill |
 |--------|--------|-------|
-| Photo + caption + mention | `new_product_intake` | mentix-intake → n8n webhook |
+| Photo + caption + mention | `new_product_intake` | mentix-intake -> Payload draft workflow; n8n only if explicitly configured |
 | "neden görünmüyor", "veri akışını debug et" | `product_visibility_debug` | product-flow-debugger |
 | "stok sorunu", "fiyat yanlış", "görsel yüklenmedi" | `product_data_debug` | product-flow-debugger |
 | "publish readiness check", "yayın öncesi kontrol" | `publish_readiness_check` | product-flow-debugger |
@@ -144,7 +144,9 @@ Aynı mesaja reply ile gönder, devam edeyim.
 - Missing fields → ASK_FOR_MISSING_DATA
 - Low confidence → REPORT_ONLY
 
-**4.6 POST to Payload automation endpoint** (on confirm):
+**4.6 Create a Payload draft** (on confirm):
+
+Payload remains the source of truth. Prefer the app-side Telegram/admin product workflow. Use n8n only as optional glue when it is deliberately configured and verified; do not treat n8n as the default product brain.
 
 ```
 POST https://www.uygunayakkabi.com/api/automation/products
@@ -160,7 +162,7 @@ Header: Content-Type: application/json
   "source": "telegram",
   "stockQuantity": <number>,
   "sku": "<sku or generated>",
-  "category": "<one of: Günlük | Spor | Klasik | Bot | Sandalet | Krampon | Cüzdan>",
+  "category": "<one of: Günlük | Spor | Klasik | Bot | Terlik | Cüzdan>",
   "automationMeta": {
     "telegramChatId": "<chat_id as string>",
     "telegramMessageId": "<message_id as string>"
@@ -178,8 +180,8 @@ Header: Content-Type: application/json
 - Spor / koşu / sneaker → `Spor`
 - Günlük / casual → `Günlük`
 - Bot / bot çizme → `Bot`
-- Sandalet → `Sandalet`
-- Krampon / futbol → `Krampon`
+- Terlik / sandalet → `Terlik`
+- Krampon / futbol → `Spor` unless the user explicitly creates a separate category
 - Cüzdan / kemer → `Cüzdan`
 
 ---
@@ -339,7 +341,8 @@ Always respond in **Turkish** unless the sender writes in English.
 
 - **OpenClaw gateway** — provides chat_type, chat_id, sender_id from Telegram Update
 - **groupAllowFrom** in `openclaw.json` — gateway-level allowlist (pre-filter)
-- **n8n webhook** — receives product intake payload
+- **Payload/Next product workflow** — creates and reviews product drafts
+- **n8n webhook** — optional glue only when explicitly configured and verified
 - **mentix-memory/** — all layers written on every real session
 - **product-flow-debugger** — primary diagnostic + validation skill
 - **decision engine** — confidence + risk + gate computation

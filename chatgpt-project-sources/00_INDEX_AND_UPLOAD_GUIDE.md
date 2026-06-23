@@ -14,6 +14,8 @@ Upload every Markdown file in this folder. The pack is intentionally below the 2
 
 Current document count: 18
 
+do not exceed 20 documents in this folder; merge or remove old files before adding more.
+
 ## Update Rule
 
 Whenever Codex or Claude changes plans, architecture, active channels, bot roles, milestones, or major implementation status, update this folder too.
@@ -37,4 +39,3 @@ The most important files to keep fresh are:
 ## Source Priority
 
 If this folder conflicts with old project-control exports or raw chats, this folder wins unless the user explicitly says otherwise.
-

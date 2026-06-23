@@ -31,7 +31,7 @@ Activate when:
        ↓
 [3] mentix-intake Skill (caption/photo parsing)
        ↓
-[4] n8n Webhook (mentix-intake → automation/products)
+[4] Optional n8n bridge (only if explicitly configured; otherwise skip)
        ↓
 [5] POST /api/automation/products (Payload endpoint)
        ↓
@@ -132,8 +132,8 @@ Check sequence:
 1. Bot online? mentix_aibot responding?  → uptime-kuma check
 2. OpenClaw gateway healthy?             → agent.uygunayakkabi.com
 3. mentix-intake skill triggered?        → group allowlist? requireMention?
-4. n8n webhook reachable from VPS?       → http://n8n:5678/webhook/mentix-intake
-5. /api/automation/products responded?  → AUTOMATION_SECRET header correct?
+4. If n8n bridge is configured: webhook reachable from VPS? → http://n8n:5678/webhook/mentix-intake
+5. App-side intake or /api/automation/products responded? → token/secret correct?
 6. Duplicate detected?                   → same chatId+messageId already stored?
 7. parseConfidence + readiness?          → product may be created as draft
 ```

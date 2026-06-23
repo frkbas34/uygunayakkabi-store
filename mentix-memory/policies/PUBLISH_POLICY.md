@@ -6,7 +6,7 @@ _Version: 1.0 — 2026-03-16_
 
 ## Rule
 Nothing is published to any external channel without explicit human confirmation.
-This applies to: Instagram, Shopier, Dolap, and any future channel.
+This applies to: Instagram, Facebook, X, Shopier, and any future active channel.
 
 ## Publication States
 

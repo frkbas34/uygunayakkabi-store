@@ -14,7 +14,7 @@ Activate when:
 - User asks for market research, competitor analysis, or trend information
 - User asks about pricing strategies, product categories, or market positioning
 - Content intelligence is needed for blog posts or product descriptions
-- User needs to research a supplier, brand, or product line
+- User needs to research a brand, product line, market pattern, or active integration
 - Operational research: evaluating tools, services, or integrations
 - User asks "what are others doing" in e-commerce, specifically Turkish market
 
@@ -31,7 +31,7 @@ Activate when:
 - Research product categories, brands, and models
 - Find market prices for comparison
 - Identify trending products in Turkish footwear market
-- Evaluate product-market fit for new additions
+- Evaluate product-market fit for our own products
 - **Output:** Product brief with market context
 
 ### 3. Content Intelligence
@@ -102,6 +102,7 @@ No automated actions have been taken. Review findings before acting.
 
 ## Constraints
 - Research output is advisory only — never auto-execute based on findings
+- SupplierScout remains dormant. Do not research suppliers for sourcing or recommend supplier-product intake unless the user explicitly reverses the own-products-only strategy.
 - Do not scrape or store competitor customer data
 - Do not reverse-engineer competitor proprietary systems
 - Respect robots.txt and rate limits when checking competitor sites

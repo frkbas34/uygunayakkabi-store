@@ -1,6 +1,6 @@
 # Master Roadmap
 
-Last updated: 2026-06-21
+Last updated: 2026-06-23
 
 ## Phase 0: Project Control Center
 
@@ -36,6 +36,8 @@ Acceptance:
 - One command gives reliable health signal.
 - Claude/Codex stop chasing stale generated files.
 
+Current status: usable as of 2026-06-23. `npm run validate` passes with lint warnings only and the safe tests cover brand safety, product media readiness, product stock readiness, lifecycle, operator/admin readiness summary, source-pack governance, SupplierScout dormancy, Mentix/OpenClaw skill governance, admin visibility, product-channel normalization, publish readiness, state coherence, Telegram parsing and confirmation wizard handling, channel dispatch, dispatch state, provider health, redispatch, automation decisions, activation guard, and Publish Desk activation wrapper.
+
 ## Phase 2: Core Product Workflow
 
 Goal: make product upload, review, image, stock, and publish flow smooth.
@@ -58,6 +60,8 @@ Acceptance:
 - A product can be added in under 2 minutes.
 - Admin and Telegram flows create the same clean product shape.
 
+Current status: active. The admin ReviewPanel now appears for admin/manual products and shows readiness, lifecycle, channels, brand safety, and activation-guard signals. Product channel targets and publish flags are normalized before activation so manual admin saves match dispatch gates. ReviewPanel and `/pipeline` media/stock diagnostics now use the same usable-media and stock-summary definitions as central activation/readiness, and ReviewPanel's ready banner depends on central six-dimension publish readiness. Live admin and Telegram operator smoke tests are still needed with the operator present.
+
 ## Phase 3: Mentix And OpenClaw Brain
 
 Goal: make Mentix useful and clearly owned.
@@ -75,6 +79,8 @@ Acceptance:
 - Mentix can explain product failures and prepare channel content.
 - OpenClaw is not confused with the app-side Telegram route.
 
+Current status: repo-side guardrails added. The OpenClaw deployment sync checklist lives at `mentix-skills/OPENCLAW_DEPLOYMENT_SYNC.md`, active skill docs have been aligned to own-products-only and optional n8n, and `npm run test:mentix-skills` checks those rules. VPS deployment reality still needs verification before live OpenClaw operator use.
+
 ## Phase 4: Publishing Reliability
 
 Goal: make active channel publishing dependable.
@@ -90,6 +96,8 @@ Deliverables:
 Acceptance:
 
 - Each active product shows where it published and why any channel failed.
+
+Current status: in progress. Shared dispatch-state summaries now cover `published`, `queued`, `failed`, `blocked`, `preview`, `unrecorded`, `not_configured`, and `skipped`. ReviewPanel builds an overview from active targets plus recorded dispatch notes, so Website shows as native published, external targets with no result show as unrecorded, and historical non-target notes remain visible. Telegram `/diagnostics` now reports secret-safe provider health for Website, Instagram, Facebook, X, and Shopier. Deeper retry handling still needs work.
 - Unsafe products cannot accidentally go external.
 
 ## Phase 5: AI Images And GEO Content
@@ -178,4 +186,3 @@ Deliverables:
 Acceptance:
 
 - Deploy, verify, diagnose, and rollback steps are clear.
-

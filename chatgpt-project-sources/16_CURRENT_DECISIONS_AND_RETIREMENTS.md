@@ -1,6 +1,6 @@
 # Current Decisions And Retirements
 
-Last updated: 2026-06-21
+Last updated: 2026-06-23
 
 ## Active Business Decision
 
@@ -28,6 +28,7 @@ Implications:
 - Collections can stay.
 - API no-ops unless `SUPPLIER_SCOUT_ENABLED=true`.
 - Daily Vercel cron removed.
+- Dormancy is checked by `npm run test:supplierscout-dormant`.
 - Do not activate without explicit new strategy decision.
 
 ## n8n Decision
@@ -47,4 +48,3 @@ It should support reasoning, diagnostics, memory, and operator help. Payload/Nex
 No autonomous ad spending yet.
 
 Manual campaign support comes first. Pixel/CAPI/Ads API come later after tracking and privacy decisions.
-

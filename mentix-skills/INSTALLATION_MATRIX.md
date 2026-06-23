@@ -1,7 +1,7 @@
 # Mentix Skill Stack — Installation Matrix
 
 _Created: 2026-03-16_
-_Status: Ready for VPS deployment_
+_Status: Current-truth sync required before VPS deployment_
 
 ---
 
@@ -13,12 +13,12 @@ _Status: Ready for VPS deployment_
 | mentix-intake skill | ✅ LIVE | VPS: `/home/furkan/.openclaw/skills/mentix-intake/SKILL.md` |
 | OpenClaw gateway | ✅ Running | VPS Docker, port 18789 |
 | Telegram bot (mentix_aibot) | ✅ Connected | OpenClaw Telegram channel |
-| n8n workflow engine | ✅ Running | VPS Docker, `flow.uygunayakkabi.com` |
+| n8n workflow engine | OPTIONAL / VERIFY | VPS Docker, `flow.uygunayakkabi.com`; no new n8n work until product flow is stable |
 | Payload CMS + automation API | ✅ LIVE | Vercel, `uygunayakkabi.com/admin` |
 | Storefront | ✅ LIVE | Vercel, `uygunayakkabi.com` |
 | PostgreSQL (Neon) | ✅ Running | Cloud-hosted |
 | Caddy reverse proxy | ✅ Running | VPS Docker |
-| Channel dispatch stubs | ✅ Created | Repo: `n8n-workflows/stubs/` |
+| Channel dispatch stubs | HISTORICAL / VERIFY | Do not add Dolap/Threads/n8n stubs; active channels are Website, Instagram, Facebook, X, Shopier |
 | Project memory docs | ✅ Maintained | Repo: `project-control/` |
 
 ### Failed Previous Skill Installs
@@ -152,9 +152,9 @@ Send a message to @mentix_aibot:
 
 ## 7. NEXT BEST ACTIONS
 
-1. **IMMEDIATE** — Deploy Level A skills to VPS via SCP
-2. **IMMEDIATE** — Verify OpenClaw recognizes new skills
-3. **IMMEDIATE** — Test each Level A skill with a basic Telegram command
+1. **IMMEDIATE** — Run repo validation, including `npm run test:mentix-skills`
+2. **IMMEDIATE** — Verify the VPS skill directory before copying anything
+3. **IMMEDIATE** — Deploy only after OpenClaw/Mentix current-truth guardrails pass
 4. **SHORT-TERM** — Configure environment variables for sql-toolkit and github-workflow
 5. **SHORT-TERM** — Run E2E stub test (still pending from Step 16)
 6. **MEDIUM-TERM** — Set up Level B skills after Level A is confirmed working

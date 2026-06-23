@@ -1,10 +1,12 @@
 # Mentix And OpenClaw Skills
 
-Last updated: 2026-06-21
+Last updated: 2026-06-23
 
 ## Direction
 
 OpenClaw should be the agent brain for Mentix. The Next/Payload app should execute product and publishing workflows.
+
+Current guardrail: `mentix-skills/OPENCLAW_DEPLOYMENT_SYNC.md` is the deployment checklist for VPS sync, and `npm run test:mentix-skills` checks that OpenClaw/Mentix skill guidance stays aligned with the current truth.
 
 ## Active Skill Priorities
 
@@ -71,6 +73,25 @@ Needs:
 - Restart/verify logs checklist.
 - Avoid stale skills reintroducing retired channels.
 
+Current checklist:
+
+- Run `npm run validate` and `npm run test:mentix-skills` before copying skills to VPS.
+- Verify VPS skill directory before copying anything.
+- Copy only reviewed skill folders.
+- Restart OpenClaw only after the copied set is known.
+- Test first with read-only Telegram prompts.
+- Roll back by disabling/restoring the changed skill folder and logging the decision.
+
+Guarded current-truth rules:
+
+- Payload/Next is the source of truth and execution layer.
+- OpenClaw/Mentix reasons, diagnoses, drafts, and supports the operator.
+- n8n is optional glue only, not the default product brain.
+- Active channels are Website, Instagram, Facebook, X, and Shopier.
+- Dolap/Threads stay retired.
+- SupplierScout stays dormant.
+- Research and intake skills must respect own-products-only.
+
 ## Done Means
 
 Mentix can answer:
@@ -79,4 +100,3 @@ Mentix can answer:
 - Why did a channel fail?
 - What should the operator do next?
 - Which fields are missing before publish?
-

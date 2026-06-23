@@ -1,6 +1,6 @@
 # Bots And Automations
 
-Last updated: 2026-06-21
+Last updated: 2026-06-23
 
 ## Mentix / Uygunops
 
@@ -87,6 +87,7 @@ Current handling:
 - Collections remain.
 - Vercel cron removed.
 - `/api/supplier-scout` ignores actions unless `SUPPLIER_SCOUT_ENABLED=true`.
+- `npm run test:supplierscout-dormant` verifies the route gate, cron absence, package scripts, and source-pack guidance.
 
 ## n8n
 
@@ -110,3 +111,4 @@ Use for:
 
 Do not use it as an unbounded autonomous executor.
 
+Deployment guardrail: before copying or restarting VPS OpenClaw skills, follow `mentix-skills/OPENCLAW_DEPLOYMENT_SYNC.md` and run `npm run test:mentix-skills`.

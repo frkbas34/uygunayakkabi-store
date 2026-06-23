@@ -54,3 +54,6 @@ After this folder changes:
 2. ChatGPT Project should treat this folder as the current source of truth.
 3. Old uploaded sources should be removed if they conflict with this pack.
 
+## Mechanical Guard
+
+`npm run test:source-pack` checks the source-pack document count, required files, active channel truth, retirement decisions, and selected active control artifacts. `npm run validate` includes this guard.

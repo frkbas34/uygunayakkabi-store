@@ -1,6 +1,6 @@
 # Active Channels And Publishing
 
-Last updated: 2026-06-22
+Last updated: 2026-06-23
 
 ## Active Channels
 
@@ -35,7 +35,7 @@ Needed:
 
 - Token health visibility.
 - Better carousel support if useful.
-- Clear dispatch result display.
+- Provider-specific success/failure detail beyond the shared dispatch overview.
 
 ## Facebook
 
@@ -44,7 +44,7 @@ Direct Graph API Page publishing path exists.
 Needed:
 
 - Page ID/token health visibility.
-- Clear dispatch result display.
+- Provider-specific success/failure detail beyond the shared dispatch overview.
 
 ## X
 
@@ -53,7 +53,7 @@ Direct posting path exists with configured credentials.
 Needed:
 
 - Credential health check.
-- Better result display.
+- Provider-specific success/failure detail beyond the shared dispatch overview.
 - Retry handling.
 
 ## Shopier
@@ -80,6 +80,10 @@ Central publish readiness resolves active product targets through the same activ
 
 Dispatch code has direct safety coverage in `src/lib/channelDispatch.test.ts`: supported external channels exclude Website/Dolap/Threads, unsupported `channelTargets` never become eligible, product/global flags can block targeted channels, website-only targets do not dispatch externally, dry-run `onlyChannels` previews exactly one channel, and brand safety blocks all otherwise eligible external dispatch.
 
+Product saves now normalize `channelTargets` and `channels.publish*` to the same active channel set in `Products.beforeChange`. This makes the admin/manual path match Telegram and confirmation-wizard behavior, and reduces hidden failures where activation/readiness sees a target but dispatch skips because a matching publish flag is false. Covered by `src/lib/productChannels.test.ts` and hook coverage in `src/lib/productActivationGuard.test.ts`.
+
+State-coherence diagnostics now surface channel drift on older records: unsupported targets, target selected with a false publish flag, and true publish flag without the matching target. This is read-only and helps operators identify products that should be saved once to normalize channel state.
+
 Telegram caption parsing is covered by `src/lib/telegramParser.test.ts`: captions can target Website, Instagram, Shopier, X, and Facebook, including common `twitter` and `fb` aliases. The legacy `Instagram: evet` shorthand maps to Website + Instagram. Dolap/Threads are ignored and do not become product channel targets.
 
 ## Dispatch State
@@ -91,10 +95,15 @@ Per-channel results are normalized in `src/lib/channelDispatchStatus.ts` and dis
 - `failed`
 - `blocked`
 - `preview`
+- `unrecorded`
 - `not_configured`
 - `skipped`
 
 This gives operators one readable state plus a reason and whether redispatch is useful.
+
+ReviewPanel now builds a dispatch overview from the active target list plus recorded `sourceMeta.dispatchNotes`. Website appears as a native published row, external targets with no note appear as `unrecorded`, and old notes for non-target channels remain visible as historical context. Covered by `src/lib/channelDispatchStatus.test.ts`.
+
+Provider-health visibility is read-only and secret-safe in `src/lib/channelProviderHealth.ts`. Telegram `/diagnostics` now reports Website native readiness plus Instagram/Facebook/X/Shopier states as `ready`, `fallback`, `disabled`, or `missing`, including missing key names but never token values. Covered by `src/lib/channelProviderHealth.test.ts`.
 
 ## Redispatch
 

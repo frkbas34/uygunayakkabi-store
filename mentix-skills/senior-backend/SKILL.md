@@ -25,7 +25,7 @@ Activate when:
 - **Database:** Neon PostgreSQL via Drizzle ORM (`push: true`)
 - **Auth:** Payload built-in (bcrypt, session-based)
 - **Media:** Vercel Blob Storage
-- **Automation:** n8n webhooks, OpenClaw skills, Telegram Bot API
+- **Automation:** Next/Payload Telegram routes, optional n8n webhooks, OpenClaw skills, Telegram Bot API
 - **Hosting:** Vercel (app), Netcup VPS Docker (n8n + OpenClaw + Caddy)
 - **Key patterns:** Onion architecture, pure function libs, webhook-driven automation
 
@@ -35,7 +35,7 @@ Activate when:
 - Evaluate proposed changes against existing architecture (see ARCHITECTURE.md)
 - Identify coupling risks, single points of failure, and scaling concerns
 - Recommend patterns: separation of concerns, pure functions, idempotency
-- Review data flow: Telegram → OpenClaw → n8n → Payload API → DB → Storefront
+- Review current data flow: Telegram or admin input -> Next/Payload product workflow -> DB -> Storefront/channel dispatch. OpenClaw reasons and drafts; n8n is optional glue only when explicitly configured.
 
 ### 2. API Design
 - Design new REST endpoints following Payload conventions

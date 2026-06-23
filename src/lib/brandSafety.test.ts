@@ -110,4 +110,20 @@ check('empty/malformed input is safe', () => {
   assert.strictEqual(scanProductBrandSafety({}).safe, true)
 })
 
+// 10. D-344A: Asics found live on storefront — must hard-block (Asics was missing from BLOCKED_BRANDS).
+check('Asics Sneaker Bej is BLOCKED + Asics detected', () => {
+  const r = scanBrandSafety([{ field: 'title', text: 'Asics Sneaker Bej' }])
+  assert.strictEqual(r.safe, false, `"Asics Sneaker Bej" must block; got ${JSON.stringify(r)}`)
+  assert.ok(r.blockedBrands.includes('Asics'), 'should detect Asics')
+})
+
+// 11. D-344A: each newly-added third-party brand blocks (Asics, Reebok, Skechers, Loro Piana).
+check('newly-added brands each block', () => {
+  for (const brand of ['Asics', 'Reebok', 'Skechers', 'Loro Piana']) {
+    const r = scanBrandSafety([{ field: 'title', text: `${brand} Spor Ayakkabı` }])
+    assert.strictEqual(r.safe, false, `"${brand}" should hard-block; got ${JSON.stringify(r)}`)
+    assert.ok(r.blockedBrands.includes(brand), `should detect ${brand}`)
+  }
+})
+
 console.log(`\nbrandSafety: ${passed} checks passed${process.exitCode ? ' — WITH FAILURES' : ' — ALL OK'}`)

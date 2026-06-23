@@ -47,6 +47,8 @@ export const BLOCKED_BRANDS: string[] = [
   'Louis Vuitton', 'LV', 'BOSS', 'Hugo Boss', 'New Balance', 'Nike', 'Adidas',
   'Puma', 'Jordan', 'Gucci', 'Prada', 'Dior', 'Chanel', 'Balenciaga', 'Versace',
   'Fendi', 'Armani', 'Lacoste', 'Tommy Hilfiger', 'Calvin Klein', 'Vans', 'Converse',
+  // D-344A: added missing third-party brands (Asics found live on storefront; rest per cleanup policy)
+  'Asics', 'Reebok', 'Skechers', 'Loro Piana',
 ]
 
 /** Risky claim/authenticity/model terms (warning signal; escalate when with a brand). */

@@ -7,6 +7,7 @@ import {
   resolveProductStatus,
   resolveChannelTargets,
 } from '@/lib/automationDecision'
+import { evaluateChannelProviderHealth, formatChannelProviderHealthLine } from '@/lib/channelProviderHealth'
 
 // ── Vercel function timeout ────────────────────────────────────────────────────
 // Luma polling loop runs up to 120s. OpenAI gpt-image-1 typically 15-40s.
@@ -1825,7 +1826,7 @@ export async function POST(req: NextRequest) {
       // wz_tgt:{value} — channel target selection (multi-select)
       if (cbData.startsWith('wz_tgt:')) {
         try {
-          const { getWizardSession, setWizardSession, formatConfirmationSummary, CHANNEL_OPTIONS } =
+          const { getWizardSession, setWizardSession, formatConfirmationSummary, CHANNEL_OPTIONS, isWizardChannelTarget } =
             await import('@/lib/confirmationWizard')
           const session = getWizardSession(cbChatId, cbUserId)
           if (!session || session.step !== 'targets') {
@@ -1862,6 +1863,10 @@ export async function POST(req: NextRequest) {
             await setWizardSession(cbChatId, session, cbUserId)
           } else {
             // Toggle individual target
+            if (!isWizardChannelTarget(tgtValue)) {
+              await answerCallbackQuery(cbQueryId, '⚠️ Geçersiz yayın hedefi')
+              return NextResponse.json({ ok: true })
+            }
             if (!session.collected.channelTargets) session.collected.channelTargets = []
             const idx = session.collected.channelTargets.indexOf(tgtValue)
             if (idx >= 0) {
@@ -4620,6 +4625,20 @@ export async function POST(req: NextRequest) {
         const envOk = envChecks.filter(e => e.val).length
         const envMissing = envChecks.filter(e => !e.val).map(e => e.name)
         lines.push(`${envOk === envChecks.length ? '✅' : '🟡'} <b>Env:</b> ${envOk}/${envChecks.length} keys set${envMissing.length > 0 ? ` — missing: ${envMissing.join(', ')}` : ''}`)
+
+        // 2b. Channel provider capability visibility. This is read-only and
+        // reports key names only; token values are never printed.
+        try {
+          const automationSettings = await fetchAutomationSettings(payload)
+          const providerHealth = evaluateChannelProviderHealth(automationSettings)
+          lines.push('')
+          lines.push('<b>Channel providers:</b>')
+          for (const health of providerHealth) {
+            lines.push(`- <code>${formatChannelProviderHealthLine(health)}</code>`)
+          }
+        } catch {
+          lines.push('❌ <b>Channel providers:</b> Health check failed')
+        }
 
         // 3. Recent BotEvents
         try {

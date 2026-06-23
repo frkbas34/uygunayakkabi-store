@@ -16,6 +16,7 @@ export type ChannelDispatchState =
   | 'failed'
   | 'blocked'
   | 'preview'
+  | 'unrecorded'
   | 'not_configured'
   | 'skipped'
 
@@ -26,18 +27,41 @@ export type ChannelDispatchSummary = {
   canRedispatch: boolean
 }
 
+export type ChannelDispatchOverviewRow = DispatchChannelResultLike & {
+  hasResult: boolean
+}
+
 export const CHANNEL_DISPATCH_STATE_LABELS: Record<ChannelDispatchState, string> = {
   published: 'Published',
   queued: 'Queued',
   failed: 'Failed',
   blocked: 'Blocked',
   preview: 'Preview',
+  unrecorded: 'No dispatch record',
   not_configured: 'Not configured',
   skipped: 'Skipped',
 }
 
+const CHANNEL_OVERVIEW_ORDER = ['website', 'instagram', 'shopier', 'x', 'facebook'] as const
+
+function normalizeReason(result: DispatchChannelResultLike): string | null {
+  if (result.error) return result.error
+  if (result.skippedReason === 'native-website') return 'Website is live through the storefront'
+  if (result.skippedReason === 'no-dispatch-record') return 'No dispatch result recorded yet'
+  return result.skippedReason ?? null
+}
+
 export function summarizeChannelDispatchResult(result: DispatchChannelResultLike): ChannelDispatchSummary {
-  const reason = result.error ?? result.skippedReason ?? null
+  const reason = normalizeReason(result)
+
+  if (result.skippedReason === 'no-dispatch-record') {
+    return {
+      state: 'unrecorded',
+      label: CHANNEL_DISPATCH_STATE_LABELS.unrecorded,
+      reason,
+      canRedispatch: result.channel !== 'website',
+    }
+  }
 
   if (!result.eligible) {
     return {
@@ -53,7 +77,7 @@ export function summarizeChannelDispatchResult(result: DispatchChannelResultLike
       state: 'published',
       label: CHANNEL_DISPATCH_STATE_LABELS.published,
       reason,
-      canRedispatch: true,
+      canRedispatch: result.channel !== 'website',
     }
   }
 
@@ -99,4 +123,56 @@ export function summarizeChannelDispatchResult(result: DispatchChannelResultLike
     reason,
     canRedispatch: true,
   }
+}
+
+export function buildChannelDispatchOverview(
+  activeTargets: readonly string[] = [],
+  results: readonly DispatchChannelResultLike[] = [],
+): ChannelDispatchOverviewRow[] {
+  const latestByChannel = new Map<string, DispatchChannelResultLike>()
+
+  for (const result of results) {
+    if (typeof result.channel === 'string' && result.channel.length > 0) {
+      latestByChannel.set(result.channel, result)
+    }
+  }
+
+  const targetSet = new Set(activeTargets.filter((channel): channel is string => typeof channel === 'string' && channel.length > 0))
+  const orderedTargets = [
+    ...CHANNEL_OVERVIEW_ORDER.filter((channel) => targetSet.has(channel)),
+    ...[...targetSet].filter((channel) => !(CHANNEL_OVERVIEW_ORDER as readonly string[]).includes(channel)),
+  ]
+
+  const rows: ChannelDispatchOverviewRow[] = orderedTargets.map((channel) => {
+    const existing = latestByChannel.get(channel)
+    if (existing) return { ...existing, hasResult: true }
+
+    if (channel === 'website') {
+      return {
+        channel,
+        eligible: true,
+        dispatched: true,
+        webhookConfigured: true,
+        skippedReason: 'native-website',
+        hasResult: false,
+      }
+    }
+
+    return {
+      channel,
+      eligible: true,
+      dispatched: false,
+      webhookConfigured: true,
+      skippedReason: 'no-dispatch-record',
+      hasResult: false,
+    }
+  })
+
+  for (const result of results) {
+    if (!targetSet.has(result.channel)) {
+      rows.push({ ...result, hasResult: true })
+    }
+  }
+
+  return rows
 }

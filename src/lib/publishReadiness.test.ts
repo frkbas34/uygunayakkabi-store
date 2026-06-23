@@ -3,7 +3,12 @@
  * readiness signal. No test framework required.
  */
 import assert from 'node:assert'
-import { evaluatePublishReadiness, type ReadinessProduct } from './publishReadiness'
+import {
+  computePipelineStatus,
+  detectStateIncoherence,
+  evaluatePublishReadiness,
+  type ReadinessProduct,
+} from './publishReadiness'
 
 let passed = 0
 
@@ -109,6 +114,69 @@ check('empty media rows do not satisfy visuals', () => {
   }))
   assert.notStrictEqual(readiness.level, 'ready')
   assert.ok(readiness.blockers.some((b) => b.includes('visuals')), readiness.blockers.join('\n'))
+})
+
+check('pipeline visuals ignore placeholder media rows', () => {
+  const pipeline = computePipelineStatus(readyProduct({
+    images: [{}],
+    generativeGallery: [],
+  }))
+  const visuals = pipeline.stages.find((stage) => stage.name === 'Visuals')
+
+  assert.ok(visuals, JSON.stringify(pipeline.stages))
+  assert.strictEqual(visuals?.detail, 'No usable media rows (status: approved)')
+  assert.notStrictEqual(visuals?.icon, '✅')
+})
+
+check('pipeline stock uses variant stock summary', () => {
+  const pipeline = computePipelineStatus(readyProduct({
+    stockQuantity: 10,
+    variants: [{ stock: 0 }, { stock: 2 }, { stock: 1 }],
+  }))
+  const stock = pipeline.stages.find((stage) => stage.name === 'Stock')
+
+  assert.ok(stock, JSON.stringify(pipeline.stages))
+  assert.strictEqual(stock?.detail, '3 units from variants (3 unit(s) from variants)')
+})
+
+check('pipeline stock explains sold-out state even with positive stock', () => {
+  const pipeline = computePipelineStatus(readyProduct({
+    stockQuantity: 4,
+    workflow: {
+      ...readyProduct().workflow,
+      stockState: 'sold_out',
+      sellable: false,
+    },
+  }))
+  const stock = pipeline.stages.find((stage) => stage.name === 'Stock')
+
+  assert.ok(stock, JSON.stringify(pipeline.stages))
+  assert.strictEqual(stock?.status, 'sold_out')
+  assert.ok(stock?.detail.includes('Product is sold out'), stock?.detail)
+})
+
+check('coherence diagnostics detect channel target/flag drift', () => {
+  const issues = detectStateIncoherence(readyProduct({
+    channelTargets: ['website', 'instagram', 'threads'],
+    channels: {
+      publishWebsite: true,
+      publishInstagram: false,
+      publishShopier: true,
+    },
+  }))
+
+  assert.ok(
+    issues.some((issue) => issue.field === 'channelTargets' && issue.actual.includes('threads')),
+    JSON.stringify(issues),
+  )
+  assert.ok(
+    issues.some((issue) => issue.actual.includes('publishInstagram')),
+    JSON.stringify(issues),
+  )
+  assert.ok(
+    issues.some((issue) => issue.actual.includes('publishShopier')),
+    JSON.stringify(issues),
+  )
 })
 
 console.log(`\npublishReadiness: ${passed} checks passed${process.exitCode ? ' - WITH FAILURES' : ' - ALL OK'}`)

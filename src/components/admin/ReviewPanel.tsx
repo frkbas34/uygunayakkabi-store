@@ -3,8 +3,13 @@
 import React from 'react'
 import { useFormFields } from '@payloadcms/ui'
 import { formatBrandSafetyReason, scanBrandSafety } from '@/lib/brandSafety'
-import { summarizeChannelDispatchResult } from '@/lib/channelDispatchStatus'
+import { buildChannelDispatchOverview, summarizeChannelDispatchResult } from '@/lib/channelDispatchStatus'
+import { countUsableMediaRows } from '@/lib/productMedia'
+import { summarizeProductStock, type ProductStockVariantInput } from '@/lib/productStock'
 import { PRODUCT_LIFECYCLE_LABELS, deriveProductLifecycle } from '@/lib/productLifecycle'
+import { summarizeOperatorReadiness } from '@/lib/operatorReadiness'
+import { evaluatePublishReadiness } from '@/lib/publishReadiness'
+import { resolveConfiguredTargets } from '@/lib/productChannels'
 
 type CheckItem = {
   label: string
@@ -39,18 +44,16 @@ const CHANNEL_LABEL: Record<string, string> = {
   facebook:  '📘 Facebook',
 }
 
-const ACTIVE_TARGETS = ['website', 'instagram', 'shopier', 'x', 'facebook'] as const
-
 /**
- * ReviewPanel — Automation Product Review & Approval Checklist
+ * ReviewPanel - Operator Product Review & Approval Checklist
  *
  * Rendered as a `ui` field on the product edit page.
- * Only visible for non-admin-sourced products (telegram / n8n / automation).
+ * Visible for admin/manual and automation-sourced products.
  *
  * Shows:
  *  - Telegram metadata (chat ID, message ID, sender)
  *  - Step 11: Caption parse confidence score + warnings
- *  - Step 12: Automation decision row (active/draft + reason)
+ *  - Step 12: Product decision row (active/draft + reason)
  *  - Step 14: Channel dispatch status (per-channel eligible/dispatched/skipped)
  *  - Field completeness checklist
  *  - "Ready to publish" summary
@@ -61,10 +64,15 @@ export const ReviewPanel: React.FC = () => {
   const sku           = useFormFields(([f]) => f['sku']?.value) as string | undefined
   const status        = useFormFields(([f]) => f['status']?.value) as string | undefined
   const workflowStatus = useFormFields(([f]) => f['workflow.workflowStatus']?.value) as string | undefined
+  const visualStatus = useFormFields(([f]) => f['workflow.visualStatus']?.value) as string | undefined
   const confirmationStatus = useFormFields(([f]) => f['workflow.confirmationStatus']?.value) as string | undefined
   const contentStatus = useFormFields(([f]) => f['workflow.contentStatus']?.value) as string | undefined
   const auditStatus = useFormFields(([f]) => f['workflow.auditStatus']?.value) as string | undefined
+  const publishStatus = useFormFields(([f]) => f['workflow.publishStatus']?.value) as string | undefined
   const stockState = useFormFields(([f]) => f['workflow.stockState']?.value) as string | undefined
+  const sellable = useFormFields(([f]) => f['workflow.sellable']?.value) as boolean | undefined
+  const auditOverallResult = useFormFields(([f]) => f['auditResult.overallResult']?.value) as string | undefined
+  const approvedForPublish = useFormFields(([f]) => f['auditResult.approvedForPublish']?.value) as boolean | undefined
   const source        = useFormFields(([f]) => f['source']?.value) as string | undefined
   const brand         = useFormFields(([f]) => f['brand']?.value) as string | undefined
   const category      = useFormFields(([f]) => f['category']?.value) as string | undefined
@@ -72,6 +80,7 @@ export const ReviewPanel: React.FC = () => {
   // v21: also read generativeGallery — AI-approved images count as valid product visuals
   const generativeGallery = useFormFields(([f]) => f['generativeGallery']?.value) as unknown[] | undefined
   const stockQuantity     = useFormFields(([f]) => f['stockQuantity']?.value) as number | undefined
+  const variants          = useFormFields(([f]) => f['variants']?.value) as ProductStockVariantInput[] | undefined
   const channelTargets    = useFormFields(([f]) => f['channelTargets']?.value) as string[] | undefined
   const publishWebsite    = useFormFields(([f]) => f['channels.publishWebsite']?.value) as boolean | undefined
   const publishInstagram  = useFormFields(([f]) => f['channels.publishInstagram']?.value) as boolean | undefined
@@ -97,36 +106,37 @@ export const ReviewPanel: React.FC = () => {
   const dispatchNotesRaw      = useFormFields(([f]) => f['sourceMeta.dispatchNotes']?.value) as string | undefined
   const forceRedispatch       = useFormFields(([f]) => f['sourceMeta.forceRedispatch']?.value) as boolean | undefined
 
-  // Only render for automation-sourced products
-  if (!source || source === 'admin') return null
+  const effectiveSource = source || 'admin'
 
   // v21: hasImages = true if product.images OR product.generativeGallery has content.
   // AI-approved images go to generativeGallery (never product.images), so both lanes
   // must be checked to correctly report visual presence.
-  const imagesCount   = Array.isArray(images) ? images.length : 0
-  const aiGalleryCount = Array.isArray(generativeGallery) ? generativeGallery.length : 0
+  const imagesCount   = countUsableMediaRows(images)
+  const aiGalleryCount = countUsableMediaRows(generativeGallery)
   const hasImages      = imagesCount > 0 || aiGalleryCount > 0
   const priceNum   = typeof price === 'number' ? price : Number(price)
   const hasPrice   = !isNaN(priceNum) && priceNum > 0
-  const stockNum   = typeof stockQuantity === 'number' ? stockQuantity : Number(stockQuantity)
-  const hasStock   = !isNaN(stockNum) && stockNum > 0
-  const configuredTargets = new Set<string>()
-  if (Array.isArray(channelTargets)) {
-    for (const target of channelTargets) {
-      if ((ACTIVE_TARGETS as readonly string[]).includes(target)) configuredTargets.add(target)
-    }
+  const stock       = summarizeProductStock({
+    stockQuantity,
+    variants,
+    workflow: { stockState, sellable },
+  })
+  const hasStock   = stock.hasSellableStock
+  const stockDetail = hasStock
+    ? `${stock.effectiveStock} adet${stock.hasVariantStockDetails ? ' (varyantlardan)' : ''}`
+    : stock.stockState === 'sold_out'
+      ? 'Sold out'
+      : stock.sellable === false
+        ? 'Satisa kapali'
+        : '0 veya eksik'
+  const channels = {
+    publishWebsite,
+    publishInstagram,
+    publishShopier,
+    publishX,
+    publishFacebook,
   }
-  const channelFlags: Array<[string, boolean | undefined]> = [
-    ['website', publishWebsite],
-    ['instagram', publishInstagram],
-    ['shopier', publishShopier],
-    ['x', publishX],
-    ['facebook', publishFacebook],
-  ]
-  for (const [target, enabled] of channelFlags) {
-    if (enabled === true) configuredTargets.add(target)
-  }
-  const activeTargets = [...configuredTargets]
+  const activeTargets = resolveConfiguredTargets({ channelTargets, channels })
   const hasTargets = activeTargets.length > 0
   const visibleBrandSafety = scanBrandSafety([
     { field: 'title', text: title ?? '' },
@@ -169,7 +179,8 @@ export const ReviewPanel: React.FC = () => {
     } catch { /* Non-critical */ }
   }
 
-  const hasDispatchData = dispatchResults.length > 0 || !!lastDispatchedAt
+  const dispatchOverviewRows = buildChannelDispatchOverview(activeTargets, dispatchResults)
+  const hasDispatchData = dispatchOverviewRows.length > 0 || !!lastDispatchedAt
   const isActive = status === 'active'
 
   // Format dispatch timestamp for display
@@ -208,7 +219,7 @@ export const ReviewPanel: React.FC = () => {
     },
     {
       label: 'Stok adedi',
-      detail: hasStock ? `${stockNum} adet` : '0 veya eksik',
+      detail: stockDetail,
       ok: hasStock,
     },
     {
@@ -243,11 +254,43 @@ export const ReviewPanel: React.FC = () => {
     },
   ]
 
-  const blockers = checks.filter(c => !c.ok && !c.warn)
-  const warnings = checks.filter(c => !c.ok && c.warn)
-  const readyToPublish = blockers.length === 0
   const isPublished = status === 'active'
   const isLocked = !!lockedVal
+  const publishReadiness = evaluatePublishReadiness({
+    id: 'admin-form',
+    title,
+    brand,
+    status,
+    price,
+    images,
+    generativeGallery,
+    stockQuantity,
+    variants,
+    channelTargets,
+    channels,
+    workflow: {
+      workflowStatus,
+      visualStatus,
+      confirmationStatus,
+      contentStatus,
+      auditStatus,
+      publishStatus,
+      stockState,
+      sellable,
+    },
+    auditResult: {
+      overallResult: auditOverallResult,
+      approvedForPublish,
+    },
+  })
+  const operatorReadiness = summarizeOperatorReadiness({
+    status,
+    checks,
+    readiness: publishReadiness,
+  })
+  const blockers = operatorReadiness.fieldBlockers
+  const warnings = operatorReadiness.warnings
+  const readyToPublish = operatorReadiness.isReadyToPublish
   const lifecycleStage = deriveProductLifecycle({
     status,
     workflow: {
@@ -256,11 +299,13 @@ export const ReviewPanel: React.FC = () => {
       contentStatus,
       auditStatus,
       stockState,
+      sellable,
     },
   })
   const lifecycleLabel = PRODUCT_LIFECYCLE_LABELS[lifecycleStage]
 
   const SOURCE_LABEL: Record<string, string> = {
+    admin: 'Admin Paneli',
     telegram: '📱 Telegram',
     n8n: '⚙️ n8n Otomasyon',
     api: '🔌 API',
@@ -272,6 +317,8 @@ export const ReviewPanel: React.FC = () => {
     : confidenceNum! >= 60 ? '#22c55e'
     : confidenceNum! >= 30 ? '#f59e0b'
     : '#ef4444'
+  const fieldBlockerSummary = blockers.map((b) => b.label).join(', ')
+  const readinessBlockerSummary = operatorReadiness.readinessBlockers.slice(0, 3).join('; ')
 
   return (
     <div
@@ -295,7 +342,7 @@ export const ReviewPanel: React.FC = () => {
         }}
       >
         <span style={{ fontWeight: 700, fontSize: '13px', color: '#f1f5f9' }}>
-          🤖 Otomasyon Kontrol Paneli
+          Operator Kontrol Paneli
         </span>
         <span
           style={{
@@ -316,7 +363,7 @@ export const ReviewPanel: React.FC = () => {
       </div>
 
       {/* Telegram + parser meta */}
-      {(source || chatId || msgId || hasConfidence) && (
+      {(effectiveSource || chatId || msgId || hasConfidence) && (
         <div
           style={{
             background: '#0f172a',
@@ -331,7 +378,7 @@ export const ReviewPanel: React.FC = () => {
         >
           <span>
             <strong style={{ color: '#cbd5e1' }}>Kaynak:</strong>{' '}
-            {SOURCE_LABEL[source!] ?? source}
+            {SOURCE_LABEL[effectiveSource] ?? effectiveSource}
           </span>
           <span>
             <strong style={{ color: '#cbd5e1' }}>Lifecycle:</strong>{' '}
@@ -386,7 +433,7 @@ export const ReviewPanel: React.FC = () => {
           }}
         >
           <span style={{ fontSize: '11px', fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.07em', minWidth: '100px' }}>
-            Otomasyon kararı
+            Yayin karari
           </span>
           <div style={{ flex: 1 }}>
             <span
@@ -443,7 +490,7 @@ export const ReviewPanel: React.FC = () => {
           {hasDispatchData ? (
             /* Per-channel result rows */
             <div style={{ padding: '6px 0' }}>
-              {dispatchResults.map((r, idx) => {
+              {dispatchOverviewRows.map((r, idx) => {
                 const label = CHANNEL_LABEL[r.channel] ?? r.channel
                 const dispatchSummary = summarizeChannelDispatchResult(r)
                 const eligibleIcon  = r.eligible ? '✅' : '⛔'
@@ -455,9 +502,10 @@ export const ReviewPanel: React.FC = () => {
                           : dispatchSummary.state === 'preview' ? '👁️'
                             : '⚠️'
                 const webhookIcon = r.webhookConfigured ? '🔗' : '⚠️ URL yok'
-                const rowBg = r.dispatched ? '#0a1f0f'
-                  : !r.eligible     ? '#1a1a1a'
-                  : r.error         ? '#1f0a0a'
+                const rowBg = dispatchSummary.state === 'published' ? '#0a1f0f'
+                  : dispatchSummary.state === 'blocked' ? '#1a1a1a'
+                  : dispatchSummary.state === 'failed' ? '#1f0a0a'
+                  : dispatchSummary.state === 'unrecorded' ? '#111827'
                   : '#1a1500'
 
                 return (
@@ -483,8 +531,9 @@ export const ReviewPanel: React.FC = () => {
                       <span
                         style={{
                           color: !r.eligible ? '#334155'
-                            : r.dispatched ? '#4ade80'
-                            : r.error ? '#f87171'
+                            : dispatchSummary.state === 'published' ? '#4ade80'
+                            : dispatchSummary.state === 'failed' ? '#f87171'
+                            : dispatchSummary.state === 'unrecorded' ? '#94a3b8'
                             : '#f59e0b',
                         }}
                         title="Dispatched"
@@ -507,16 +556,10 @@ export const ReviewPanel: React.FC = () => {
                         </span>
                       )}
                     </div>
-                    {/* Skip reason */}
-                    {r.skippedReason && (
+                    {/* Reason */}
+                    {dispatchSummary.reason && (
                       <div style={{ fontSize: '10px', color: '#475569', marginTop: '2px', paddingLeft: '120px' }}>
-                        ↳ {r.skippedReason}
-                      </div>
-                    )}
-                    {/* Error */}
-                    {r.error && (
-                      <div style={{ fontSize: '10px', color: '#f87171', marginTop: '2px', paddingLeft: '120px' }}>
-                        ↳ Hata: {r.error}
+                        ↳ {dispatchSummary.state === 'failed' ? 'Hata: ' : ''}{dispatchSummary.reason}
                       </div>
                     )}
                     {/* Step 16: publishResult — channel-specific publish outcome */}
@@ -586,7 +629,7 @@ export const ReviewPanel: React.FC = () => {
               ) : (
                 <div style={{ padding: '5px 16px', fontSize: '11px', color: '#475569' }}>
                   ℹ️ Hiçbir kanala iletilmedi
-                  {dispatchResults.some(r => !r.webhookConfigured && r.eligible) && (
+                  {dispatchOverviewRows.some(r => !r.webhookConfigured && r.eligible) && (
                     <span style={{ color: '#92400e' }}> — webhook URL yapılandırılmamış</span>
                   )}
                 </div>
@@ -751,6 +794,27 @@ export const ReviewPanel: React.FC = () => {
           })}
         </div>
 
+        <div
+          style={{
+            marginTop: '10px',
+            padding: '7px 10px',
+            borderRadius: '6px',
+            background: publishReadiness.level === 'ready' ? '#052e16' : '#111827',
+            border: '1px solid #334155',
+            fontSize: '11px',
+            color: publishReadiness.level === 'ready' ? '#bbf7d0' : '#cbd5e1',
+          }}
+        >
+          <strong>Central readiness:</strong>{' '}
+          {operatorReadiness.readinessPassedCount}/{operatorReadiness.readinessTotalCount} ({publishReadiness.level})
+          {operatorReadiness.readinessBlockers.length > 0 && (
+            <div style={{ marginTop: '4px', color: '#fca5a5' }}>
+              {readinessBlockerSummary}
+              {operatorReadiness.readinessBlockers.length > 3 ? ' ...' : ''}
+            </div>
+          )}
+        </div>
+
         {/* Summary */}
         {!isPublished && (
           <div
@@ -765,9 +829,11 @@ export const ReviewPanel: React.FC = () => {
           >
             {readyToPublish
               ? blockers.length === 0 && warnings.length === 0
-                ? '✅ Temel aktivasyon alanları tamam. Payload guard fiyat, görsel, stok, hedef kanal ve brand-safety kontrolünü son kez çalıştırır.'
-                : `✅ Temel aktivasyon alanları tamam. ${warnings.length} önerilen alan eksik; Payload guard son kararı verir.`
-              : `❌ ${blockers.map((b) => b.label).join(', ')} eksik veya bloklu. Payload guard yayına almayacak.`}
+                ? '✅ Central readiness tamam. Payload guard fiyat, görsel, stok, hedef kanal ve brand-safety kontrolünü son kez çalıştırır.'
+                : `✅ Central readiness tamam. ${warnings.length} önerilen alan eksik; Payload guard son kararı verir.`
+              : readinessBlockerSummary
+                ? `❌ Central readiness blokları: ${readinessBlockerSummary}${operatorReadiness.readinessBlockers.length > 3 ? ' ...' : ''}`
+                : `❌ ${fieldBlockerSummary} eksik veya bloklu. Payload guard yayına almayacak.`}
           </div>
         )}
       </div>

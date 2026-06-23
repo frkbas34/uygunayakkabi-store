@@ -1,4 +1,8 @@
 import { formatBrandSafetyReason, scanProductBrandSafety } from './brandSafety'
+import { hasUsableMediaRow } from './productMedia'
+import { resolveConfiguredTargets } from './productChannels'
+export { ACTIVE_PRODUCT_CHANNELS, resolveConfiguredTargets } from './productChannels'
+export type { ActiveProductChannel } from './productChannels'
 
 export type ProductActivationDocument = Record<string, any>
 
@@ -15,9 +19,6 @@ export type ActivationStockResolver = (
 export interface ActivationGuardOptions {
   resolveStockSnapshot?: ActivationStockResolver
 }
-
-export const ACTIVE_PRODUCT_CHANNELS = ['website', 'instagram', 'shopier', 'x', 'facebook'] as const
-export type ActiveProductChannel = (typeof ACTIVE_PRODUCT_CHANNELS)[number]
 
 function isObject(value: unknown): value is ProductActivationDocument {
   return !!value && typeof value === 'object' && !Array.isArray(value)
@@ -40,42 +41,6 @@ export function mergeActivationProduct(
   }
 
   return merged
-}
-
-function hasUsableMediaRow(rows: unknown): boolean {
-  if (!Array.isArray(rows)) return false
-  return rows.some((row) => {
-    if (!row) return false
-    if (typeof row === 'string' || typeof row === 'number') return true
-    if (!isObject(row)) return false
-    return Boolean(row.image ?? row.id)
-  })
-}
-
-export function resolveConfiguredTargets(product: ProductActivationDocument): ActiveProductChannel[] {
-  const found = new Set<ActiveProductChannel>()
-  const targets = Array.isArray(product.channelTargets) ? product.channelTargets : []
-
-  for (const target of targets) {
-    if (ACTIVE_PRODUCT_CHANNELS.includes(target as ActiveProductChannel)) {
-      found.add(target as ActiveProductChannel)
-    }
-  }
-
-  const channels = isObject(product.channels) ? product.channels : {}
-  const channelFlags: Array<[ActiveProductChannel, string]> = [
-    ['website', 'publishWebsite'],
-    ['instagram', 'publishInstagram'],
-    ['shopier', 'publishShopier'],
-    ['x', 'publishX'],
-    ['facebook', 'publishFacebook'],
-  ]
-
-  for (const [channel, flag] of channelFlags) {
-    if (channels[flag] === true) found.add(channel)
-  }
-
-  return [...found]
 }
 
 export function formatActivationError(blockers: string[]): string {
@@ -124,6 +89,22 @@ export function applyActivationWorkflowDefaults(
   }
 
   data.workflow = workflow
+}
+
+export function applySoldOutWorkflowDefaults(
+  data: ProductActivationDocument,
+  product: ProductActivationDocument,
+): void {
+  const existingWorkflow = isObject(product.workflow) ? product.workflow : {}
+  const incomingWorkflow = isObject(data.workflow) ? data.workflow : {}
+
+  data.workflow = {
+    ...existingWorkflow,
+    ...incomingWorkflow,
+    workflowStatus: 'soldout',
+    stockState: 'sold_out',
+    sellable: false,
+  }
 }
 
 export async function collectActivationBlockers(

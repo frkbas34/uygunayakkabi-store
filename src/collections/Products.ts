@@ -1,11 +1,14 @@
 import type { CollectionConfig } from 'payload'
 import {
   applyActivationWorkflowDefaults,
+  applySoldOutWorkflowDefaults,
   collectActivationBlockers,
   formatActivationError,
   mergeActivationProduct,
   type ProductActivationDocument,
 } from '@/lib/productActivationGuard'
+import { shouldShowSourceMeta } from '@/lib/productAdminVisibility'
+import { normalizeProductChannelSelection } from '@/lib/productChannels'
 
 // Turkish slug generator
 function toSlug(text: string): string {
@@ -31,6 +34,22 @@ export const Products: CollectionConfig = {
       // storefront and may trigger external dispatch, so incomplete products
       // are blocked before activation.
       async ({ data, originalDoc, operation, req }) => {
+        const channelShape = mergeActivationProduct(
+          data as ProductActivationDocument,
+          originalDoc as ProductActivationDocument,
+        )
+        const normalizedChannelSelection = normalizeProductChannelSelection(channelShape)
+        data.channelTargets = normalizedChannelSelection.channelTargets
+        data.channels = normalizedChannelSelection.channels
+
+        if ((operation === 'create' || operation === 'update') && data.status === 'soldout') {
+          const soldOutProduct = mergeActivationProduct(
+            data as ProductActivationDocument,
+            originalDoc as ProductActivationDocument,
+          )
+          applySoldOutWorkflowDefaults(data as ProductActivationDocument, soldOutProduct)
+        }
+
         // Guard active creates and status transitions; already-active products can still be edited.
         if ((operation === 'create' || operation === 'update') && data.status === 'active') {
           const wasAlreadyActive = originalDoc?.status === 'active'
@@ -383,7 +402,7 @@ export const Products: CollectionConfig = {
     ],
   },
   fields: [
-    // ── Otomasyon Kontrol Paneli (yalnızca otomasyon ürünlerinde görünür) ──
+    // Operator review panel for admin/manual and automation-sourced products.
     {
       name: 'reviewPanel',
       type: 'ui',
@@ -1047,7 +1066,7 @@ export const Products: CollectionConfig = {
       label: '🔍 Kaynak İzleme',
       admin: {
         description: 'Ürünün hangi sistemden geldiğini izlemek için — manuel düzenlemeye gerek yok',
-        condition: (data: any) => data?.source !== 'admin',
+        condition: shouldShowSourceMeta,
       },
       fields: [
         {

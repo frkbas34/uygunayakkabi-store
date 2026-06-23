@@ -15,7 +15,10 @@
  * Truthfulness rule: never mark ready if any dimension is not satisfied.
  */
 import { formatBrandSafetyReason, scanProductBrandSafety } from './brandSafety'
+import { countUsableMediaRows, hasUsableMediaRow } from './productMedia'
+import { summarizeProductStock, type ProductStockVariantInput } from './productStock'
 import { resolveConfiguredTargets } from './productActivationGuard'
+import { findProductChannelSelectionIssues } from './productChannels'
 
 // ─── Types ───────────────────────────────────────────────────────────
 
@@ -47,7 +50,7 @@ export interface ReadinessProduct {
   images?: any[]
   channelTargets?: string[]
   channels?: Record<string, unknown>
-  variants?: Array<{ stock?: number | null } | number | string>
+  variants?: ProductStockVariantInput[]
   workflow?: {
     workflowStatus?: string
     visualStatus?: string
@@ -110,16 +113,6 @@ function checkVisuals(product: ReadinessProduct): DimensionCheck {
   return { name: 'visuals', passed, status: visualStatus, detail }
 }
 
-function hasUsableMediaRow(rows: unknown): boolean {
-  if (!Array.isArray(rows)) return false
-  return rows.some((row) => {
-    if (!row) return false
-    if (typeof row === 'string' || typeof row === 'number') return true
-    if (typeof row !== 'object' || Array.isArray(row)) return false
-    return Boolean((row as Record<string, unknown>).image ?? (row as Record<string, unknown>).id)
-  })
-}
-
 function checkContent(product: ReadinessProduct): DimensionCheck {
   const contentStatus = product.workflow?.contentStatus ?? 'pending'
   const passed = contentStatus === 'ready'
@@ -163,32 +156,21 @@ function checkAudit(product: ReadinessProduct): DimensionCheck {
 }
 
 function checkSellable(product: ReadinessProduct): DimensionCheck {
-  const stockState = product.workflow?.stockState ?? 'in_stock'
-  const sellable = product.workflow?.sellable
-  const stockQty = Number(product.stockQuantity ?? 0)
   const price = Number(product.price ?? 0)
-  const variantStocks = Array.isArray(product.variants)
-    ? product.variants
-        .map((variant) => (variant && typeof variant === 'object' && !Array.isArray(variant) ? Number(variant.stock ?? 0) : null))
-        .filter((stock): stock is number => stock !== null && Number.isFinite(stock))
-    : []
-  const effectiveStock = variantStocks.length > 0
-    ? variantStocks.reduce((sum, stock) => sum + Math.max(0, stock), 0)
-    : stockQty
+  const stock = summarizeProductStock(product)
+  const effectiveStock = stock.effectiveStock
+  const stockState = stock.stockState
 
   // Sellable check: valid price + stock exists and sellable flag is not explicitly false
   // Legacy compat: sellable=null/undefined + status=active is acceptable
-  const isSoldOut = stockState === 'sold_out'
-  const isSellable = sellable !== false && !isSoldOut
   const hasPrice = Number.isFinite(price) && price > 0
-  const hasStock = Number.isFinite(effectiveStock) && effectiveStock > 0
 
-  const passed = isSellable && hasStock && hasPrice
+  const passed = stock.hasSellableStock && hasPrice
   let detail = ''
-  if (isSoldOut) detail = 'Product is sold out'
-  else if (sellable === false) detail = 'Marked as not sellable'
+  if (stock.stockState === 'sold_out') detail = 'Product is sold out'
+  else if (stock.sellable === false) detail = 'Marked as not sellable'
   else if (!hasPrice) detail = 'Valid price is required'
-  else if (!hasStock) detail = 'No stock available'
+  else if (!stock.hasSellableStock) detail = 'No stock available'
   else detail = `Sellable at ₺${price} with ${effectiveStock} unit(s), state: ${stockState}`
 
   return { name: 'sellable', passed, status: stockState, detail }
@@ -333,16 +315,24 @@ export function computePipelineStatus(product: ReadinessProduct & {
 
   // 2. Visuals
   const vs = wf.visualStatus ?? 'pending'
-  const hasImages = (Array.isArray(product.images) && product.images.length > 0) ||
-    (Array.isArray(product.generativeGallery) && product.generativeGallery.length > 0)
+  const originalImageCount = countUsableMediaRows(product.images)
+  const generatedImageCount = countUsableMediaRows(product.generativeGallery)
+  const hasImages = originalImageCount > 0 || generatedImageCount > 0
+  const visualPassed = hasImages && vs !== 'rejected'
+  const visualParts: string[] = []
+  if (originalImageCount > 0) visualParts.push(`${originalImageCount} original`)
+  if (generatedImageCount > 0) visualParts.push(`${generatedImageCount} AI`)
+  const visualIcon = visualPassed ? '✅' : vs === 'rejected' ? '❌' : hasImages ? '🖼️' : '⏳'
+  const visualDetail = !hasImages ? `No usable media rows (status: ${vs})` :
+    vs === 'approved' ? `Approved (${visualParts.join(' + ')})` :
+      vs === 'rejected' ? `Rejected (${visualParts.join(' + ')})` :
+        vs === 'preview' ? `In preview (${visualParts.join(' + ')})` :
+          `Images exist (${visualParts.join(' + ')}, status: ${vs})`
   stages.push({
     name: 'Visuals',
-    icon: vs === 'approved' ? '✅' : hasImages ? '🖼️' : '⏳',
+    icon: visualIcon,
     status: vs,
-    detail: vs === 'approved' ? 'Approved' :
-      vs === 'rejected' ? 'Rejected' :
-        vs === 'preview' ? 'In preview' :
-          hasImages ? `Images exist (status: ${vs})` : 'No images yet',
+    detail: visualDetail,
   })
 
   // 3. Confirmation
@@ -403,12 +393,13 @@ export function computePipelineStatus(product: ReadinessProduct & {
   })
 
   // 8. Stock
-  const ss = wf.stockState ?? 'in_stock'
+  const stock = summarizeProductStock(product)
+  const ss = stock.stockState
   stages.push({
     name: 'Stock',
-    icon: ss === 'in_stock' ? '✅' : ss === 'low_stock' ? '🟡' : ss === 'sold_out' ? '🔴' : '🔄',
+    icon: stock.hasSellableStock ? '✅' : ss === 'sold_out' ? '🔴' : ss === 'low_stock' ? '🟡' : '🔄',
     status: ss,
-    detail: `${product.stockQuantity ?? 0} units (${ss})`,
+    detail: `${stock.effectiveStock} units${stock.hasVariantStockDetails ? ' from variants' : ''} (${stock.detail})`,
   })
 
   // 9. Merchandising (condensed)
@@ -594,6 +585,17 @@ export function detectStateIncoherence(product: ReadinessProduct): CoherenceIssu
       field: 'publishStatus',
       expected: `'published' (status is 'active')`,
       actual: wf.publishStatus,
+      severity: 'warning',
+    })
+  }
+
+  for (const channelIssue of findProductChannelSelectionIssues(product as any)) {
+    issues.push({
+      field: channelIssue.kind === 'unsupported_target'
+        ? 'channelTargets'
+        : `channelTargets vs channels.${channelIssue.flag}`,
+      expected: 'channelTargets and channels.publish* agree on active channels only',
+      actual: channelIssue.detail,
       severity: 'warning',
     })
   }

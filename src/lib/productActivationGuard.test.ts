@@ -7,6 +7,7 @@
 import assert from 'node:assert'
 import {
   applyActivationWorkflowDefaults,
+  applySoldOutWorkflowDefaults,
   collectActivationBlockers,
   mergeActivationProduct,
   resolveConfiguredTargets,
@@ -153,6 +154,23 @@ async function main() {
     assert.strictEqual(data.workflow.sellable, true)
   })
 
+  await check('sold-out normalization aligns workflow state', () => {
+    const data: ProductActivationDocument = { status: 'soldout' }
+    applySoldOutWorkflowDefaults(data, {
+      workflow: {
+        workflowStatus: 'active',
+        publishStatus: 'published',
+        stockState: 'in_stock',
+        sellable: true,
+      },
+    })
+
+    assert.strictEqual(data.workflow.workflowStatus, 'soldout')
+    assert.strictEqual(data.workflow.publishStatus, 'published')
+    assert.strictEqual(data.workflow.stockState, 'sold_out')
+    assert.strictEqual(data.workflow.sellable, false)
+  })
+
   await check('Products beforeChange rejects incomplete activation', async () => {
     const hook = activationHook()
     await assert.rejects(
@@ -216,6 +234,63 @@ async function main() {
     assert.strictEqual(data.workflow.workflowStatus, 'active')
     assert.strictEqual(data.workflow.publishStatus, 'published')
     assert.strictEqual(data.workflow.sellable, true)
+  })
+
+  await check('Products beforeChange normalizes channel targets and publish flags', async () => {
+    const hook = activationHook()
+    const data: ProductActivationDocument = {
+      status: 'active',
+      title: 'Kanal Normalize Create',
+      price: 2099,
+      stockQuantity: 2,
+      images: [{ image: 1 }],
+      channelTargets: ['instagram'],
+      channels: { publishInstagram: false, publishShopier: true },
+      workflow: { workflowStatus: 'publish_ready', sellable: false },
+    }
+
+    await hook({
+      data,
+      originalDoc: undefined,
+      operation: 'create',
+      req: fakeReqWithVariants(),
+    })
+
+    assert.deepStrictEqual(data.channelTargets, ['instagram', 'shopier'])
+    assert.deepStrictEqual(data.channels, {
+      publishInstagram: true,
+      publishShopier: true,
+      publishWebsite: false,
+      publishX: false,
+      publishFacebook: false,
+    })
+  })
+
+  await check('Products beforeChange normalizes direct sold-out saves', async () => {
+    const hook = activationHook()
+    const data: ProductActivationDocument = { status: 'soldout' }
+    const result = await hook({
+      data,
+      originalDoc: {
+        ...completeProduct,
+        id: 204,
+        status: 'active',
+        workflow: {
+          workflowStatus: 'active',
+          publishStatus: 'published',
+          stockState: 'in_stock',
+          sellable: true,
+        },
+      },
+      operation: 'update',
+      req: fakeReqWithVariants(),
+    })
+
+    assert.strictEqual(result, data)
+    assert.strictEqual(data.workflow.workflowStatus, 'soldout')
+    assert.strictEqual(data.workflow.publishStatus, 'published')
+    assert.strictEqual(data.workflow.stockState, 'sold_out')
+    assert.strictEqual(data.workflow.sellable, false)
   })
 
   await check('Products beforeChange accepts complete activation and normalizes workflow', async () => {

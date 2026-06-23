@@ -21,6 +21,12 @@
 
 // ── Types ─────────────────────────────────────────────────────────────
 
+import {
+  ACTIVE_PRODUCT_CHANNELS,
+  CHANNEL_FLAG_BY_TARGET,
+  type ActiveProductChannel,
+} from './productChannels'
+
 export interface ConfirmableProduct {
   id: number | string
   title?: string | null
@@ -134,11 +140,35 @@ export const PRODUCT_TYPE_OPTIONS = [
 ]
 
 export const CHANNEL_OPTIONS = [
+  { label: 'X', value: 'x' },
   { label: '🌐 Website', value: 'website' },
   { label: '📸 Instagram', value: 'instagram' },
   { label: '🛒 Shopier', value: 'shopier' },
   { label: '📘 Facebook', value: 'facebook' },
 ]
+
+CHANNEL_OPTIONS.sort(
+  (a, b) =>
+    ACTIVE_PRODUCT_CHANNELS.indexOf(a.value as ActiveProductChannel) -
+    ACTIVE_PRODUCT_CHANNELS.indexOf(b.value as ActiveProductChannel),
+)
+
+export function isWizardChannelTarget(value: string): value is ActiveProductChannel {
+  return ACTIVE_PRODUCT_CHANNELS.includes(value as ActiveProductChannel)
+}
+
+export function normalizeWizardChannelTargets(
+  targets: readonly string[] | null | undefined,
+): ActiveProductChannel[] {
+  const normalized: ActiveProductChannel[] = []
+
+  for (const target of targets ?? []) {
+    if (!isWizardChannelTarget(target) || normalized.includes(target)) continue
+    normalized.push(target)
+  }
+
+  return normalized
+}
 
 /** Wizard sessions expire after 30 minutes of inactivity */
 const WIZARD_TIMEOUT_MS = 30 * 60 * 1000
@@ -407,7 +437,7 @@ export function checkConfirmationFields(product: ConfirmableProduct): Confirmati
   })
 
   // Required: channelTargets (at least one)
-  const targets = product.channelTargets ?? []
+  const targets = normalizeWizardChannelTargets(product.channelTargets ?? [])
   const hasTargets = targets.length > 0
   checks.push({
     field: 'targets',
@@ -507,7 +537,9 @@ export function getNextWizardStep(
   if (!product.brand && !collected.brand) return 'brand'
 
   // 9. Channel targets (button multi-select)
-  const hasTargets = (product.channelTargets ?? []).length > 0 || collected.channelTargets
+  const hasTargets =
+    normalizeWizardChannelTargets(product.channelTargets ?? []).length > 0 ||
+    normalizeWizardChannelTargets(collected.channelTargets ?? []).length > 0
   if (!hasTargets) return 'targets'
 
   return 'summary'
@@ -599,7 +631,7 @@ export function formatConfirmationSummary(
   }
 
   // Targets
-  const targets = collected.channelTargets ?? product.channelTargets ?? []
+  const targets = normalizeWizardChannelTargets(collected.channelTargets ?? product.channelTargets ?? [])
   const targetsStr = targets.length > 0 ? targets.join(', ') : '—'
 
   // Visual readiness
@@ -1351,14 +1383,15 @@ export async function applyConfirmation(
     // evaluateChannelEligibility Gate 2 doesn't block channels that are in
     // channelTargets but have publishX=false from the initial product creation.
     if (collected.channelTargets) {
-      productUpdate.channelTargets = collected.channelTargets
-      const ct = collected.channelTargets as string[]
-      productUpdate.channels = {
-        publishWebsite:   ct.includes('website'),
-        publishInstagram: ct.includes('instagram'),
-        publishShopier:   ct.includes('shopier'),
-        publishX:         ct.includes('x'),
-        publishFacebook:  ct.includes('facebook'),
+      const ct = normalizeWizardChannelTargets(collected.channelTargets)
+      if (ct.length > 0) {
+        productUpdate.channelTargets = ct
+        productUpdate.channels = Object.fromEntries(
+          Object.entries(CHANNEL_FLAG_BY_TARGET).map(([channel, flag]) => [
+            flag,
+            ct.includes(channel as ActiveProductChannel),
+          ]),
+        )
       }
     }
 

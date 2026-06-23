@@ -3,7 +3,11 @@
  * state summaries. No test framework required.
  */
 import assert from 'node:assert'
-import { summarizeChannelDispatchResult, type DispatchChannelResultLike } from './channelDispatchStatus'
+import {
+  buildChannelDispatchOverview,
+  summarizeChannelDispatchResult,
+  type DispatchChannelResultLike,
+} from './channelDispatchStatus'
 
 let passed = 0
 
@@ -85,6 +89,45 @@ check('eligible non-dispatched result with configured webhook is skipped', () =>
   }))
   assert.strictEqual(summary.state, 'skipped')
   assert.strictEqual(summary.reason, 'not in onlyChannels')
+})
+
+check('overview creates visible rows for website and unrecorded external targets', () => {
+  const rows = buildChannelDispatchOverview(['website', 'instagram'], [])
+  assert.strictEqual(rows.length, 2)
+
+  const website = rows.find((row) => row.channel === 'website')
+  assert.ok(website)
+  assert.strictEqual(website.hasResult, false)
+  assert.strictEqual(summarizeChannelDispatchResult(website).state, 'published')
+  assert.strictEqual(summarizeChannelDispatchResult(website).canRedispatch, false)
+
+  const instagram = rows.find((row) => row.channel === 'instagram')
+  assert.ok(instagram)
+  assert.strictEqual(instagram.hasResult, false)
+  const instagramSummary = summarizeChannelDispatchResult(instagram)
+  assert.strictEqual(instagramSummary.state, 'unrecorded')
+  assert.strictEqual(instagramSummary.reason, 'No dispatch result recorded yet')
+  assert.strictEqual(instagramSummary.canRedispatch, true)
+})
+
+check('overview prefers latest result note and keeps historical non-target notes', () => {
+  const rows = buildChannelDispatchOverview(['website', 'x'], [
+    result({ channel: 'x', error: 'old error', timestamp: 'old' }),
+    result({ channel: 'x', dispatched: true, timestamp: 'new' }),
+    result({ channel: 'facebook', eligible: false, skippedReason: 'not targeted' }),
+  ])
+
+  assert.deepStrictEqual(rows.map((row) => row.channel), ['website', 'x', 'facebook'])
+  const x = rows.find((row) => row.channel === 'x')
+  assert.ok(x)
+  assert.strictEqual(x.hasResult, true)
+  assert.strictEqual(x.timestamp, 'new')
+  assert.strictEqual(summarizeChannelDispatchResult(x).state, 'published')
+
+  const facebook = rows.find((row) => row.channel === 'facebook')
+  assert.ok(facebook)
+  assert.strictEqual(facebook.hasResult, true)
+  assert.strictEqual(summarizeChannelDispatchResult(facebook).state, 'blocked')
 })
 
 console.log(`\nchannelDispatchStatus: ${passed} checks passed${process.exitCode ? ' - WITH FAILURES' : ' - ALL OK'}`)

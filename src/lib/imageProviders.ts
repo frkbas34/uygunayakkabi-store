@@ -67,9 +67,17 @@ const TASK_FRAMING_BLOCK =
   `• Every structural detail that makes this shoe this specific shoe.\n` +
   `• NOT a similar shoe. NOT a redesigned shoe. THE SAME PHYSICAL OBJECT.\n` +
   `\n` +
+  `SET IDENTITY LOCK (ALL 5 IMAGES — MANDATORY):\n` +
+  `• Every image in this set is the SAME physical shoe — no redesign, no reinterpretation between slots.\n` +
+  `• Do NOT add any extra part, panel, strap, buckle, lace, eyelet, logo, or ornament that is not on the reference.\n` +
+  `• Do NOT remove or hide any part that IS on the reference.\n` +
+  `• Do NOT alter the stitching, accessories, silhouette, sole, heel, or toe shape between slots.\n` +
+  `• Do NOT invent logos or branding. Keep the EXACT same material and color in every slot.\n` +
+  `\n` +
   `WHAT MAY CHANGE:\n` +
-  `• Camera angle, perspective, framing, lighting, background, scene setting.\n` +
-  `• Think: same shoe moved to a different position on the studio set.\n` +
+  `• ONLY the camera angle and viewpoint of the same shoe on the same studio set.\n` +
+  `• The background stays the SAME locked soft warm ivory studio backdrop in EVERY slot — it does NOT change to a floor, tabletop, outdoor, or lifestyle scene.\n` +
+  `• Think: same shoe, same studio, camera moved to a new angle.\n` +
   `\n` +
   `OUTPUT FORMAT — CRITICAL:\n` +
   `• Full-bleed photograph — the image IS the product photo, nothing else.\n` +
@@ -1345,49 +1353,48 @@ const EDITING_SCENES = [
       `COLOR: The shoe is {COLOR}. Output MUST be {COLOR}. Other colors = REJECTED.`,
   },
   {
+    // D-355D: studio-only back/heel view (replaces the old overhead-editorial/floor scene).
     name: 'tabletop_editorial',
-    label: 'Slot 4 — Editoryal Üstten',
+    label: 'Slot 4 — Arka / Topuk (Stüdyo)',
     sceneInstructions:
-      `── SHOT: OVERHEAD EDITORIAL — RAW CAMERA PHOTOGRAPH ──\n` +
-      `You are generating a RAW photograph taken from above. NOT a product card. NOT a mockup. A direct camera shot.\n` +
-      `Re-photograph this EXACT {COLOR} shoe from an elevated angle — same physical object.\n` +
-      `CAMERA: Above and in front, looking DOWN at 55–65°. Three-quarter overhead perspective.\n` +
-      `POSITION: Shoe resting upright on a studio floor. The studio floor extends infinitely in all directions — there is NO edge to the floor visible.\n` +
-      `COMPOSITION: Full shoe visible from above-front. Top face dominant (tongue, lacing from above, toe from overhead). Shoe fills 65% of image area. Centered. No props.\n` +
-      `MUST SEE: Tongue, lace pattern from above, toe shape from overhead, upper opening.\n` +
-      `MUST NOT SEE: The front face of the toe, the side profile, ANY edge or boundary of the floor/surface.\n` +
-      `BACKGROUND: {BACKGROUND} — this is the color of the studio FLOOR that the shoe sits on. The floor is seamless and extends to ALL four edges of the image. There is NO wall, NO horizon line, NO edge where the floor ends.\n` +
-      `LIGHT: Soft diffused studio light from upper-left. Gentle natural shadow lower-right. No harsh reflections.\n` +
-      `OUTPUT: Full-bleed photograph. The studio floor fills the ENTIRE canvas from edge to edge. The shoe sits ON this floor. There is NOTHING between the floor and the canvas edges — no border, no margin, no frame, no card.\n` +
+      `── SHOT: STUDIO BACK / HEEL VIEW ──\n` +
+      `Re-photograph this EXACT {COLOR} shoe from behind — same physical object, studio only.\n` +
+      `CAMERA: Directly behind the shoe, lens perpendicular to the heel counter, at mid-heel height. A slight 10–15° offset to one side is allowed to reveal the heel plus a sliver of the side.\n` +
+      `POSITION: Shoe upright on its sole, centered, heel facing the camera.\n` +
+      `COMPOSITION: Full shoe, heel counter dominant, shoe fills ~75% of frame, full shoe visible, no crop, clean even spacing around the shoe.\n` +
+      `MUST SEE: Heel counter, back seam, collar/topline from behind, heel cap and the heel of the sole.\n` +
+      `MUST NOT SEE: The toe cap front face, any lifestyle prop, any floor/tabletop/outdoor environment.\n` +
+      `BACKGROUND: {BACKGROUND} — the SAME seamless soft warm ivory studio backdrop as every other slot. A clean studio backdrop, NOT a floor scene, NOT a tabletop, NOT an outdoor setting.\n` +
+      `LIGHT: Soft studio lighting — key from upper-left, fill from opposite. One gentle natural soft shadow under the shoe. No harsh reflections.\n` +
+      `OUTPUT: Full-bleed photograph that fills the ENTIRE canvas edge to edge. The image IS the photo — NOT a photo of a photo.\n` +
       `CRITICAL ANTI-FRAME: Do NOT render any border, frame, shadow-box, rounded-corner card, drop-shadow rectangle, or picture-inside-picture effect. ` +
-      `Do NOT render a "product tile" or "floating surface" — the floor is seamless and infinite. ` +
-      `Do NOT add any white or gray margin around the photograph. ` +
+      `The ivory background must extend to ALL four edges with ZERO visible boundary. ` +
       `If there is ANY rectangular outline or visible edge that is not the canvas edge, the image is REJECTED.\n` +
-      `THIS IS NOT: a product card, a mockup, a poster, a framed print, a catalog layout. It is a RAW overhead photograph.\n` +
+      `THIS IS NOT: a front view, a lifestyle shot, an editorial/floor/outdoor scene, a framed image, a product card, a mockup.\n` +
       `COLOR: The shoe is {COLOR}. Output MUST be {COLOR}. Other colors = REJECTED.\n` +
-      `DO NOT repeat the reference angle ({REF_ANGLE}). Generate an overhead editorial.`,
+      `DO NOT repeat the reference angle ({REF_ANGLE}). Generate a clean studio back/heel view.`,
   },
   {
+    // D-355D: studio-only outsole / sole-craft detail (replaces the old outdoor
+    // lifestyle/worn-on-foot scene). Distinct from slot 3's toe/vamp detail.
     name: 'worn_lifestyle',
-    label: 'Slot 5 — Lifestyle Giyilmiş',
+    label: 'Slot 5 — Taban / Detay (Stüdyo)',
     sceneInstructions:
-      `── SHOT: LIFESTYLE — SHOE WORN ON A FOOT — RAW CAMERA PHOTOGRAPH ──\n` +
-      `You are generating a RAW photograph taken outdoors. NOT a product card. NOT a mockup. A direct camera shot.\n` +
-      `Re-photograph this EXACT {COLOR} shoe in a lifestyle worn setting — same physical object.\n` +
-      `CAMERA: Low ground level, 10–15 cm above floor, to the side of the foot.\n` +
-      `COMPOSITION: One foot wearing the shoe. Full shoe visible with lower leg/ankle above collar. Ground surface in lower area of image. Shoe fills 65% of image area. Centered.\n` +
-      `MUST SEE: The shoe ON a foot in natural weight-bearing position, ground contact, ankle/lower leg.\n` +
-      `MUST NOT SEE: Face, upper body. The shoe is the hero — the person is secondary.\n` +
-      `ENVIRONMENT: Warm blurred lifestyle setting — wooden floor, cobblestone, or garden path. Soft bokeh background. The environment extends to ALL four edges of the image — there is NO border where the scene ends.\n` +
-      `LIGHT: Warm natural golden-hour side light. Authentic, non-studio. Soft shadows. No harsh reflections.\n` +
-      `OUTPUT: Full-bleed photograph. The ground, foot, shoe, and blurred background fill the ENTIRE canvas from edge to edge. There is NOTHING between the scene and the canvas edges — no border, no margin, no frame, no card, no vignette border.\n` +
+      `── SHOT: STUDIO OUTSOLE / SOLE-CRAFT DETAIL ──\n` +
+      `Re-photograph this EXACT {COLOR} shoe to show its outsole and lower construction — same physical object, studio only.\n` +
+      `CAMERA: Shoe tilted so the outsole/bottom faces the camera at a 3/4 angle, with a sliver of the side profile visible. Macro-leaning, close enough to read the sole tread and the welt/stitch line.\n` +
+      `COMPOSITION: The outsole tread, sole edge, welt/stitch line and heel block fill ~80% of the frame, centered and sharp.\n` +
+      `MUST SEE: Outsole tread/pattern, sole edge and welt, heel block, and the join between the upper and the sole — the craft of the bottom of the shoe.\n` +
+      `MUST NOT SEE: A foot, a person, any lifestyle prop, any outdoor / floor / tabletop environment.\n` +
+      `BACKGROUND: {BACKGROUND} — the SAME seamless soft warm ivory studio backdrop as every other slot. A clean studio backdrop, NOT a floor scene, NOT a tabletop, NOT an outdoor setting.\n` +
+      `LIGHT: Soft studio lighting — key from upper-left, fill from opposite. One gentle soft shadow. No harsh reflections.\n` +
+      `OUTPUT: Full-bleed photograph that fills the ENTIRE canvas edge to edge. The image IS the photo — NOT a photo of a photo.\n` +
       `CRITICAL ANTI-FRAME: Do NOT render any border, frame, shadow-box, rounded-corner card, drop-shadow rectangle, or picture-inside-picture effect. ` +
-      `Do NOT render a vignette border or darkened edge frame. Do NOT add any white or gray margin around the photograph. ` +
-      `The lifestyle scene must extend seamlessly to ALL four edges with ZERO visible boundary. ` +
+      `The ivory background must extend to ALL four edges with ZERO visible boundary. ` +
       `If there is ANY rectangular outline or visible edge that is not the canvas edge, the image is REJECTED.\n` +
-      `THIS IS NOT: a product card, a mockup, a poster, a framed print, a catalog layout, a studio photo. It is a RAW lifestyle photograph.\n` +
+      `THIS IS NOT: a lifestyle shot, a worn-on-foot shot, an outdoor/golden-hour scene, an editorial/floor scene, a framed image, a product card, a mockup.\n` +
       `COLOR: The shoe is {COLOR}. Output MUST be {COLOR}. Other colors = REJECTED.\n` +
-      `DO NOT repeat the reference angle ({REF_ANGLE}). Generate a lifestyle worn shot.`,
+      `DO NOT repeat the reference angle ({REF_ANGLE}). Generate a clean studio outsole/sole-craft detail.`,
   },
 ] as const
 

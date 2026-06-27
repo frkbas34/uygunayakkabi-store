@@ -40,17 +40,27 @@ function sanitizeDetail(raw: unknown): string | null {
 }
 
 /**
- * D-345: Detect a Postgres "column does not exist" error (code 42703). The
+ * D-345/D-349: Detect a Postgres "column does not exist" error (code 42703). The
  * attribution detail columns (utm_source / utm_medium / utm_campaign / referrer /
  * landing) require manual Neon DDL — push:true silently skips ALTER TABLE (see
- * customer-inquiries collection comment). If a column is missing on a given deploy,
- * we must never lose the lead, so we retry the create with core fields only.
+ * customer-inquiries collection comment).
+ *
+ * D-349: Payload/Drizzle can WRAP the underlying pg error, so the 42703 code and the
+ * original message may sit on a nested `cause`. Walk the cause chain so a wrapped
+ * missing-column error is still recognised (used now only for accurate logging —
+ * the retry below no longer depends on this classification being perfect).
  */
 function isMissingColumnError(err: unknown): boolean {
-  const code = (err as { code?: string } | null)?.code
-  if (code === '42703') return true
-  const msg = (err instanceof Error ? err.message : String(err ?? '')).toLowerCase()
-  return msg.includes('column') && (msg.includes('does not exist') || msg.includes('errormissingcolumn'))
+  let cur: any = err
+  for (let depth = 0; cur && depth < 5; depth++) {
+    if (cur.code === '42703') return true
+    const msg = String(cur.message ?? cur).toLowerCase()
+    if (msg.includes('column') && (msg.includes('does not exist') || msg.includes('errormissingcolumn'))) {
+      return true
+    }
+    cur = cur.cause
+  }
+  return false
 }
 
 export async function POST(req: NextRequest) {
@@ -110,10 +120,24 @@ export async function POST(req: NextRequest) {
         data: { ...coreData, ...detailData },
       })
     } catch (err) {
-      // D-345: never lose a lead because an attribution column isn't migrated yet.
-      // Retry with core fields only when (and only when) a column is missing.
-      if (isMissingColumnError(err) && Object.keys(detailData).length > 0) {
-        console.warn('[inquiries D-345] attribution column missing — saving lead without source-detail fields')
+      // D-349 production hotfix: a lead must NEVER be lost because an OPTIONAL
+      // attribution column (utm_*/referrer/landing) isn't migrated in this
+      // environment. The previous D-345 guard only retried when the error was
+      // *classified* as a missing column; Payload/Neon can wrap that error so the
+      // classifier missed it and the request 500'd (live regression on POST
+      // /api/inquiries after the `landing` column was added without its DDL).
+      //
+      // Fix: when optional detail fields were included, ALWAYS retry once with core
+      // fields only. coreData still carries name/phone/product, so a genuine core
+      // failure re-throws on the retry and correctly surfaces as 500 — we mask no
+      // real error, and pre-create validation (name/phone) already returned 400
+      // before reaching here. customer-inquiries has no hooks and create is
+      // transactional, so the rolled-back first attempt cannot duplicate the lead.
+      if (Object.keys(detailData).length > 0) {
+        const kind = isMissingColumnError(err) ? 'missing-column' : 'unclassified'
+        console.warn(
+          `[inquiries D-349] lead create failed with attribution fields (${kind}) — retrying with core fields only`,
+        )
         created = await payload.create({ collection: 'customer-inquiries', data: coreData })
       } else {
         throw err

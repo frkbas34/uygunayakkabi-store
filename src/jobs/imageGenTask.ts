@@ -74,10 +74,12 @@ export const imageGenTask: TaskConfig<{
 
   handler: async ({ input, req }) => {
     const { jobId } = input
-    // stage: 'standard' → slots 1-3 (default for #gorsel)
-    //        'premium'  → slots 4-5 (explicit operator request)
+    // D-355B: the standard pack now generates the full 5-image studio set (slots
+    // 1-5) by default, not just slots 1-3. 'premium' remains a backward-compatible
+    // path that (re)generates only slots 4-5 for older or partial jobs.
+    // stage: 'standard' → slots 1-5 (default for #gorsel) | 'premium' → slots 4-5
     const stage = (input.stage || 'standard') as 'standard' | 'premium'
-    const sceneIndices = stage === 'premium' ? [3, 4] : [0, 1, 2]
+    const sceneIndices = stage === 'premium' ? [3, 4] : [0, 1, 2, 3, 4]
     // provider: 'openai' (default, gpt-image-1 edit) | 'gemini-pro' (Gemini image gen)
     // v19 Gemini-only: default provider is gemini-pro (was 'openai' before v19)
     const provider = (input.provider || 'gemini-pro') as 'openai' | 'gemini-pro'
@@ -869,7 +871,8 @@ async function sendApprovalKeyboard(
   const colorLine    = mainColor     ? `\n🎨 Renk kilidi: <b>${mainColor}</b>`  : ''
   const providerLine = providerLabel ? `\n🤖 Provider: <b>${providerLabel}</b>` : ''
   const isStandard = stage !== 'premium'
-  const stageLabel = isStandard ? 'Slot 1-3' : 'Slot 4-5'
+  // D-355B: the standard pack is now up to 5 slots — label reflects the real count.
+  const stageLabel = isStandard ? `Slot 1-${imageCount}` : 'Slot 4-5'
 
   // ── Build per-image individual buttons ──────────────────────────────────
   // Uses 1-based slotsStr format that approveImageGenJob() already handles.
@@ -880,9 +883,10 @@ async function sendApprovalKeyboard(
     callback_data: `imgapprove:${jobId}:${i + 1}`,
   }))
 
-  // ── Build 2-image combination buttons (only when 3 images available) ────
-  // Combinations: 1+2, 1+3, 2+3 — displayed on a separate row.
-  const combinationButtons = imageCount >= 3
+  // ── Build 2-image combination buttons (only for a legacy 3-image batch) ────
+  // D-355B: with the 5-image standard pack these fixed 1+2/1+3/2+3 combos would
+  // wrongly imply only 3 images exist, so they show only when exactly 3 were made.
+  const combinationButtons = imageCount === 3
     ? [
         { text: '📸 1+2', callback_data: `imgapprove:${jobId}:1,2` },
         { text: '📸 1+3', callback_data: `imgapprove:${jobId}:1,3` },
@@ -907,7 +911,7 @@ async function sendApprovalKeyboard(
   const keyboard: Array<Array<{ text: string; callback_data: string }>> = []
 
   // Row 1: Approve all
-  const allLabel = isStandard ? '✅ Tümünü Onayla (1-3)' : '✅ Tümünü Onayla (4-5)'
+  const allLabel = isStandard ? `✅ Tümünü Onayla (1-${imageCount})` : '✅ Tümünü Onayla (4-5)'
   keyboard.push([{ text: allLabel, callback_data: `imgapprove:${jobId}:all` }])
 
   // Row 2: Individual image buttons (up to 3 side by side)
@@ -920,8 +924,10 @@ async function sendApprovalKeyboard(
     keyboard.push(combinationButtons)
   }
 
-  // Row 4: Premium upgrade (standard stage only)
-  if (isStandard) {
+  // Row 4: Premium upgrade — only when the standard batch did NOT already include
+  // slots 4-5. D-355B: the standard pack now produces all 5, so this upsell is
+  // hidden then; it remains a recovery path for older/partial 3-image jobs.
+  if (isStandard && imageCount < 5) {
     keyboard.push([{ text: '🌟 4-5 Gemini Pro Üret', callback_data: `imgpremium:${jobId}` }])
   }
 

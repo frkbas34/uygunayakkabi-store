@@ -104,12 +104,18 @@ const TASK_FRAMING_BLOCK =
 // D-303: Studio standard — uniform background, scale, camera & negatives.
 // Appended to every slot prompt so all product images share one look.
 // ─────────────────────────────────────────────────
+// D-355C: single locked background standard (soft warm ivory) for the whole
+// 5-image studio pack — explicit anti-drift + fidelity wording, appended to
+// EVERY slot so all images read as one coherent e-commerce set.
 const STUDIO_STANDARD_BLOCK =
   `\n\n═══ STUDIO STANDARD (MANDATORY — ALL SLOTS) ═══\n` +
-  `BACKGROUND: matte warm ivory/beige seamless studio background — no gradient, no colored tint, no texture, no hard shadow. Identical across every product.\n` +
+  `BACKGROUND: soft warm ivory seamless studio background (matte ivory/beige, hex #F4EFE6) — no gradient, no colored tint, no texture, no hard shadow. Use this EXACT same ivory tone in EVERY slot.\n` +
+  `BACKGROUND CONSISTENCY: all images in this set MUST share one identical ivory tone — no grey drift, no yellow drift, no pink drift, no white-out. The whole batch must look like ONE coherent e-commerce studio set photographed in the same session.\n` +
+  `LIGHTING: consistent soft studio lighting with one gentle soft shadow under the shoe, the same look in every slot.\n` +
   `SCALE: the shoe occupies approximately 74–80% of the canvas width, centered horizontally, full shoe visible, no crop.\n` +
   `BASELINE: the outsole rests on a consistent horizontal baseline, aligned the same way across all products.\n` +
   `CAMERA: clean side/profile product photography, consistent lens, no dramatic perspective distortion.\n` +
+  `FIDELITY (same physical shoe): keep the EXACT form, material, color, stitching, sole, heel and toe of the reference — do NOT invent logos, and do NOT add any fake damage, tears, cracks, peeling, scuffs, stains, deformation, wrong stitching, or distorted sole/heel/toe.\n` +
   `NEGATIVE (must NOT appear): no watermark, no logo hallucination, no text, no extra shoe, no deformed sole, no warped toe, no melted leather, no inconsistent background.\n` +
   `═══════════════════════════\n`
 

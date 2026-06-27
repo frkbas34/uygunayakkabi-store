@@ -55,6 +55,8 @@ check('Shopier jobs queue result is queued', () => {
   }))
   assert.strictEqual(summary.state, 'queued')
   assert.strictEqual(summary.canRedispatch, false)
+  // D-347: internal token is translated to an operator-readable reason
+  assert.strictEqual(summary.reason, 'Queued for Shopier sync — runs on the next jobs-queue cron')
 })
 
 check('dry run preview is preview', () => {
@@ -63,6 +65,8 @@ check('dry run preview is preview', () => {
   }))
   assert.strictEqual(summary.state, 'preview')
   assert.strictEqual(summary.canRedispatch, false)
+  // D-347: internal token is translated to an operator-readable reason
+  assert.strictEqual(summary.reason, 'Preview only — no real publish was sent')
 })
 
 check('error result is failed and redispatchable', () => {

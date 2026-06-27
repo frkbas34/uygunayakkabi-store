@@ -48,6 +48,11 @@ function normalizeReason(result: DispatchChannelResultLike): string | null {
   if (result.error) return result.error
   if (result.skippedReason === 'native-website') return 'Website is live through the storefront'
   if (result.skippedReason === 'no-dispatch-record') return 'No dispatch result recorded yet'
+  // D-347: translate internal dispatch tokens into operator-readable reasons.
+  // This `reason` is rendered verbatim on the admin ReviewPanel "↳" line, so a raw
+  // token like "queued-via-jobs-queue" would otherwise be shown to a human operator.
+  if (result.skippedReason === 'queued-via-jobs-queue') return 'Queued for Shopier sync — runs on the next jobs-queue cron'
+  if (result.skippedReason === 'dry-run-preview') return 'Preview only — no real publish was sent'
   return result.skippedReason ?? null
 }
 

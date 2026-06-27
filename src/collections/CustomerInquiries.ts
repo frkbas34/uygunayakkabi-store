@@ -85,6 +85,7 @@ export const CustomerInquiries: CollectionConfig = {
     //   ALTER TABLE customer_inquiries ADD COLUMN IF NOT EXISTS utm_medium VARCHAR;
     //   ALTER TABLE customer_inquiries ADD COLUMN IF NOT EXISTS utm_campaign VARCHAR;
     //   ALTER TABLE customer_inquiries ADD COLUMN IF NOT EXISTS referrer VARCHAR;
+    //   ALTER TABLE customer_inquiries ADD COLUMN IF NOT EXISTS landing VARCHAR;
     {
       name: 'utmSource',
       type: 'text',
@@ -122,6 +123,19 @@ export const CustomerInquiries: CollectionConfig = {
       admin: {
         position: 'sidebar',
         description: 'Ziyaretçinin geldiği domain — instagram.com, google.com, vb. (otomatik)',
+        readOnly: true,
+      },
+    },
+    {
+      // D-345: landing/submit path — the page the lead originated from. Uses the
+      // first-touch landing path captured by attribution.ts when available, else
+      // the path where the form was submitted. Nullable, path-only (no query/PII).
+      name: 'landing',
+      type: 'text',
+      label: 'Giriş Sayfası',
+      admin: {
+        position: 'sidebar',
+        description: 'Talebin geldiği sayfa yolu — /products/abc, /, vb. (otomatik)',
         readOnly: true,
       },
     },

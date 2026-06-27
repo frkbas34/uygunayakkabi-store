@@ -134,6 +134,10 @@ export function ContactForm({ productId, productTitle, variants, soldout }: Prop
     const utmMedium   = urlUtm.utmMedium   ?? stored.utmMedium   ?? null
     const utmCampaign = urlUtm.utmCampaign ?? stored.utmCampaign ?? null
     const referrer    = captureReferrer()  ?? stored.referrer    ?? null
+    // D-345: landing/submit path — prefer the first-touch landing page captured at
+    // entry; fall back to the page this form was submitted from. Path only, no query.
+    const landing     = stored.landing
+      ?? (typeof window !== 'undefined' ? window.location.pathname.slice(0, 200) : null)
 
     try {
       const res = await fetch('/api/inquiries', {
@@ -146,6 +150,7 @@ export function ContactForm({ productId, productTitle, variants, soldout }: Prop
           ...(utmMedium   ? { utmMedium }   : {}),
           ...(utmCampaign ? { utmCampaign } : {}),
           ...(referrer    ? { referrer }    : {}),
+          ...(landing     ? { landing }     : {}),
         }),
       })
 

@@ -39,11 +39,25 @@ function sanitizeDetail(raw: unknown): string | null {
   return s.length > 0 ? s : null
 }
 
+/**
+ * D-345: Detect a Postgres "column does not exist" error (code 42703). The
+ * attribution detail columns (utm_source / utm_medium / utm_campaign / referrer /
+ * landing) require manual Neon DDL — push:true silently skips ALTER TABLE (see
+ * customer-inquiries collection comment). If a column is missing on a given deploy,
+ * we must never lose the lead, so we retry the create with core fields only.
+ */
+function isMissingColumnError(err: unknown): boolean {
+  const code = (err as { code?: string } | null)?.code
+  if (code === '42703') return true
+  const msg = (err instanceof Error ? err.message : String(err ?? '')).toLowerCase()
+  return msg.includes('column') && (msg.includes('does not exist') || msg.includes('errormissingcolumn'))
+}
+
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json()
     const { name, phone, size, productId, message, source,
-            utmSource, utmMedium, utmCampaign, referrer } = body
+            utmSource, utmMedium, utmCampaign, referrer, landing } = body
 
     if (!name || !phone) {
       return NextResponse.json({ error: 'Name and phone are required' }, { status: 400 })
@@ -67,23 +81,44 @@ export async function POST(req: NextRequest) {
 
     const payload = await getPayload()
 
-    const created = await payload.create({
-      collection: 'customer-inquiries',
-      data: {
-        name,
-        phone,
-        size: size || undefined,
-        product: numericProductId,
-        message: message || undefined,
-        source: normalizeInquirySource(source),
-        status: 'new',
-        // D-251: source-detail — store only when present (null = unknown, not fake)
-        ...(sanitizeDetail(utmSource) !== null ? { utmSource: sanitizeDetail(utmSource) } : {}),
-        ...(sanitizeDetail(utmMedium) !== null ? { utmMedium: sanitizeDetail(utmMedium) } : {}),
-        ...(sanitizeDetail(utmCampaign) !== null ? { utmCampaign: sanitizeDetail(utmCampaign) } : {}),
-        ...(sanitizeDetail(referrer) !== null ? { referrer: sanitizeDetail(referrer) } : {}),
-      },
-    })
+    // Core lead fields — always saved. Splitting these from the optional
+    // attribution detail lets us fail-soft if a detail column isn't migrated yet.
+    const coreData = {
+      name,
+      phone,
+      size: size || undefined,
+      product: numericProductId,
+      message: message || undefined,
+      source: normalizeInquirySource(source),
+      status: 'new' as const,
+    }
+
+    // D-251/D-345: source-detail — store only when present (null = unknown, not fake)
+    const detailData = {
+      ...(sanitizeDetail(utmSource) !== null ? { utmSource: sanitizeDetail(utmSource) } : {}),
+      ...(sanitizeDetail(utmMedium) !== null ? { utmMedium: sanitizeDetail(utmMedium) } : {}),
+      ...(sanitizeDetail(utmCampaign) !== null ? { utmCampaign: sanitizeDetail(utmCampaign) } : {}),
+      ...(sanitizeDetail(referrer) !== null ? { referrer: sanitizeDetail(referrer) } : {}),
+      // D-345: landing/submit path (path-only — no query string, no PII)
+      ...(sanitizeDetail(landing) !== null ? { landing: sanitizeDetail(landing) } : {}),
+    }
+
+    let created
+    try {
+      created = await payload.create({
+        collection: 'customer-inquiries',
+        data: { ...coreData, ...detailData },
+      })
+    } catch (err) {
+      // D-345: never lose a lead because an attribution column isn't migrated yet.
+      // Retry with core fields only when (and only when) a column is missing.
+      if (isMissingColumnError(err) && Object.keys(detailData).length > 0) {
+        console.warn('[inquiries D-345] attribution column missing — saving lead without source-detail fields')
+        created = await payload.create({ collection: 'customer-inquiries', data: coreData })
+      } else {
+        throw err
+      }
+    }
 
     // D-243: fire-and-forget Telegram alert to the operator chat. Reuses
     // TELEGRAM_BOT_TOKEN + TELEGRAM_CHAT_ID env (same routing as

@@ -2895,6 +2895,8 @@ export async function POST(req: NextRequest) {
         '/utm',
         // D-255 campaign review / attribution QA
         '/campaigns', '/campaign',
+        // D-348 manual ad-readiness checklist
+        '/adready',
       ]
       // D-220: PI Bot hashtags owned by Uygunops (operator approval is required before GeoBot handoff).
       const OPS_HASHTAGS = ['#gorsel', '#geminipro', '#geohazirla', '#seoara', '#productintel', '#urunzeka']
@@ -4592,6 +4594,50 @@ export async function POST(req: NextRequest) {
           : ''
 
         await sendTelegramMessage(chatId, pipelineMsg + '\n\n' + readinessMsg + coherenceMsg)
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err)
+        await sendTelegramMessage(chatId, `❌ Hata: ${msg}`)
+      }
+      return NextResponse.json({ ok: true })
+    }
+
+    // ── D-348: Manual Ads Launch Pack — ad-readiness checklist ──────────────
+    // /adready <sn-or-id> — read-only checklist the operator reads before manually
+    // launching an ad. Composes existing safety/readiness helpers. Never publishes,
+    // never spends, never calls an external API.
+    if (text.startsWith('/adready')) {
+      const parts = text.trim().split(/\s+/)
+      const arg = parts[1]
+
+      if (!arg) {
+        await sendTelegramMessage(
+          chatId,
+          '📣 <b>Reklam Hazırlığı</b>\n\n' +
+            '<code>/adready &lt;sn-or-id&gt;</code> — Ürünün manuel reklam kontrol listesini göster\n\n' +
+            'Örnek: <code>/adready SN0186</code> veya <code>/adready 312</code>\n\n' +
+            'Sayfa · görsel · stok/beden · kanal linki · UTM · lead · marka/iddia güvenliği\n\n' +
+            '<i>Sadece kontrol listesi — hiçbir reklam yayınlanmaz veya harcama yapılmaz.</i>',
+        )
+        return NextResponse.json({ ok: true })
+      }
+
+      try {
+        const { resolveProductIdentifier, formatIdentifierMissingMessage } = await import('@/lib/operatorActions')
+        const resolved = await resolveProductIdentifier(payload, arg)
+        if (!resolved) {
+          await sendTelegramMessage(chatId, formatIdentifierMissingMessage(arg))
+          return NextResponse.json({ ok: true })
+        }
+        // depth=1 so brand-safety / media / stock / channel helpers read relationships
+        const product = await payload.findByID({ collection: 'products', id: resolved.productId, depth: 1 })
+        if (!product) {
+          await sendTelegramMessage(chatId, `❌ Ürün #${resolved.productId} bulunamadı.`)
+          return NextResponse.json({ ok: true })
+        }
+
+        const { evaluateAdReadiness, formatAdReadinessMessage } = await import('@/lib/adReadiness')
+        const adReadiness = evaluateAdReadiness(product as any)
+        await sendTelegramMessage(chatId, formatAdReadinessMessage(product as any, adReadiness))
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err)
         await sendTelegramMessage(chatId, `❌ Hata: ${msg}`)

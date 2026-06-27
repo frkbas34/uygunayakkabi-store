@@ -29,9 +29,10 @@
     "test:automation-decision": "tsx src/lib/automationDecision.test.ts",
     "test:activation-guard": "tsx src/lib/productActivationGuard.test.ts",
     "test:publish-desk": "tsx src/lib/publishDesk.test.ts",
+    "test:ad-readiness": "tsx src/lib/adReadiness.test.ts",
     "smoke:activation:read": "tsx scripts/activation-runtime-smoke.ts",
     "smoke:activation:mutate": "tsx scripts/activation-mutation-smoke.ts",
-    "test:safe": "npm run test:brand-safety && npm run test:product-media && npm run test:product-stock && npm run test:lifecycle && npm run test:operator-readiness && npm run test:source-pack && npm run test:supplierscout-dormant && npm run test:mentix-skills && npm run test:admin-visibility && npm run test:product-channels && npm run test:publish-readiness && npm run test:state-coherence && npm run test:telegram-parser && npm run test:confirmation-wizard && npm run test:channel-dispatch && npm run test:dispatch-status && npm run test:provider-health && npm run test:redispatch && npm run test:automation-decision && npm run test:activation-guard && npm run test:publish-desk",
+    "test:safe": "npm run test:brand-safety && npm run test:product-media && npm run test:product-stock && npm run test:lifecycle && npm run test:operator-readiness && npm run test:source-pack && npm run test:supplierscout-dormant && npm run test:mentix-skills && npm run test:admin-visibility && npm run test:product-channels && npm run test:publish-readiness && npm run test:state-coherence && npm run test:telegram-parser && npm run test:confirmation-wizard && npm run test:channel-dispatch && npm run test:dispatch-status && npm run test:provider-health && npm run test:redispatch && npm run test:automation-decision && npm run test:activation-guard && npm run test:publish-desk && npm run test:ad-readiness",
     "validate": "npm run typecheck && npm run lint && npm run test:safe"
   },
   "dependencies": {

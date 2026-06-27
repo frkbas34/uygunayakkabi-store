@@ -1,6 +1,6 @@
 # Open Questions And Next Sprint
 
-Last updated: 2026-06-23
+Last updated: 2026-06-27
 
 ## Immediate Next Sprint
 
@@ -51,6 +51,12 @@ Current sprint status:
 43. Dispatch overview now shows active targets even when no dispatch note exists: Website appears as native published, missing external results appear as `unrecorded`, and historical non-target notes stay visible. Covered by `test:dispatch-status`.
 44. Provider health is now tested by `test:provider-health` and surfaced in Telegram `/diagnostics`: states are `ready`, `fallback`, `disabled`, or `missing`, and diagnostics prints key names only, never secret values.
 45. Next: smoke test the live admin UI and live Telegram operator path with an operator present, then continue product workflow polish and deeper retry handling.
+46. Lead capture production repair (D-351) completed: `/api/inquiries` 500 root-caused to the missing `customer_inquiries.landing` column; DDL applied; route hardened with a staged fail-safe; live form success and admin readback confirmed (product relation, phone, size, source, UTM source/medium/campaign, landing). Revenue lead capture is restored.
+47. Strategic focus shifted to catalog scale-up / product loading factory; ads deferred to D-380+. New roadmap D-352–D-357 is recorded in `02_MASTER_ROADMAP.md` Phase 10, and image-QA standards in `09_AI_IMAGES_GEO_PRODUCT_INTELLIGENCE.md`.
+
+## Immediate Next Focus: Catalog Scale-Up
+
+The next task is D-352A Product Loading Factory Audit (documentation/analysis, no code changes): audit the photo -> title -> category -> description -> size/stock -> price -> image generation -> QA -> publish flow, identify bottlenecks and most-often-missing fields, and assess whether the flow can support 30–50 products/day before scaling to hundreds of products. Ads stay paused until D-380+.
 
 ## Open Questions
 

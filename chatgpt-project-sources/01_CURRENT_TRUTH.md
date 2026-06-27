@@ -1,12 +1,35 @@
 # Current Truth
 
-Last updated: 2026-06-23
+Last updated: 2026-06-27
 
 ## North Star
 
 UygunAyakkabi is a Telegram-first, AI-assisted commerce system for selling and uploading our own products only.
 
 Payload is the source of truth. Products, media, orders, leads, stock, bot events, AI jobs, and publishing status should resolve back to Payload data.
+
+## Current Focus (2026-06-27): Catalog Scale-Up / Product Loading Factory
+
+Strategic shift: we are NOT preparing to launch ads yet. Advertising is intentionally deferred until the catalog is much larger and product-image quality is stable (earliest ad phase is D-380+). The OLD focus "ads readiness" is replaced by the NEW primary focus: build the product catalog and image-QA factory first; advertising comes much later.
+
+Business goal: scale from a small working storefront into a reliable product-loading system that can handle hundreds of shoe products with consistent studio-quality images, strong product QA, category coverage, and controlled publishing.
+
+Top priorities, in order:
+
+1. Product image quality control — no hallucinated defects; multi-angle references preferred; a 5-image studio pack target; a locked studio background.
+2. Catalog depth and category balance.
+3. Controlled, batch-safe publishing.
+4. Ads only after the above are stable (D-380+).
+
+The active roadmap for this phase is D-352 through D-357 in `02_MASTER_ROADMAP.md` (Phase 10). Image-QA standards live in `09_AI_IMAGES_GEO_PRODUCT_INTELLIGENCE.md`.
+
+## D-351 Lead Capture Repair (completed 2026-06-27)
+
+- `/api/inquiries` returned 500 on product lead submit. Root cause: production DB schema drift — the `customer_inquiries.landing` column was missing (added in code via D-345 without its Neon DDL).
+- DDL applied: the `customer_inquiries.landing` column was added.
+- Route hardened with a staged fail-safe (full -> core+product -> minimal name+phone) so lead capture survives an optional-column or product-relation failure.
+- Live test passed: the product inquiry form succeeded. Admin readback confirmed the lead saved with product relation, phone, size, source, UTM source/medium/campaign, and landing.
+- Revenue lead capture is restored. Ads remain paused.
 
 ## Active Channels
 

@@ -1,6 +1,6 @@
 # Master Roadmap
 
-Last updated: 2026-06-23
+Last updated: 2026-06-27
 
 ## Phase 0: Project Control Center
 
@@ -169,6 +169,8 @@ Acceptance:
 - We can choose an ad product confidently.
 - No autonomous ad spend until tracking is reliable.
 
+Current status (2026-06-27): deferred. Ads are paused until catalog depth and image quality are strong. The catalog scale-up work in Phase 10 comes first, and the earliest controlled ad test is D-380+. This phase's manual ad helpers already exist (UTM builder, ad-readiness checklist) but are not the active focus.
+
 ## Phase 9: Deployment And Ops
 
 Goal: reduce production chaos.
@@ -186,3 +188,52 @@ Deliverables:
 Acceptance:
 
 - Deploy, verify, diagnose, and rollback steps are clear.
+
+## Phase 10: Catalog Scale-Up / Product Loading Factory (CURRENT PRIMARY FOCUS, 2026-06-27)
+
+Goal: scale from a small working storefront into a reliable product-loading system for hundreds of shoe products, with consistent studio-quality images, strong product QA, category coverage, and controlled publishing. Ads are deferred to D-380+.
+
+### D-352 — Product Loading Factory Audit
+
+Audit the current Telegram/admin product upload flow and find bottlenecks before scaling.
+Questions: where products enter (Telegram vs admin), time from photo to active listing, most-often-missing fields, which steps need humans, which can be automated, and whether the flow can support 30–50 products/day.
+Flow to audit: photo -> title -> category -> description -> size/stock -> price -> image generation -> QA -> publish.
+
+### D-353 — Bulk Product QA Dashboard
+
+Create visibility for product completeness at scale.
+Metrics: active, draft, missing price, missing category, missing image, missing size/stock, missing slug/publish-readiness, Shopier-ready, brand-safety blocked, image-QC pending, publish-ready.
+
+### D-354 — Category Fill Strategy
+
+Plan category depth before ads. Known underfilled: SPOR, GÜNLÜK, BOT, TERLİK, CÜZDAN.
+Initial depth targets: classic/loafer 40–60; sneaker/sport 30–50; daily 30–50; boots/winter seasonal; slippers seasonal; wallets optional/lower priority.
+
+### D-355 — Product Image Quality Gate
+
+Prevent AI images from inventing defects (tears, cracks, peeling, damaged texture, deformed toe/heel, wrong stitching, fake stains, distorted sole join, color drift, invented logos).
+QC states: PASS (publishable), REVIEW (human review), FAIL (regenerate/reject). Full defect checklist and standards live in `09_AI_IMAGES_GEO_PRODUCT_INTELLIGENCE.md`.
+
+### D-355A — Multi-Angle Product Reference Standard
+
+Treat multiple photos of one shoe as the SAME product from different angles, not different products. Reference depth by risk: low 1–2 angles; medium side+back; high side+back+front/top; premium adds detail close-up. The required prompt concept is recorded in 09.
+
+### D-355B — 5-Image Studio Pack Standard
+
+Move from 3 to 5 generated studio images: hero side profile, pair composition, front/top angle, back/heel view, material/craft detail OR outsole. Defaults: image 4 = back/heel, image 5 = detail close-up (outsole may suit sneaker/bot).
+
+### D-355C — Background Lock Standardization
+
+Single background: soft warm ivory seamless studio. Same tone across all 5 images, no grey/yellow/pink drift, consistent lighting/shadow/crop/scale, product ~74–80% of the frame, one coherent studio set.
+
+### D-356 — Shopier/Web Publish Batch Control
+
+Before hundreds of products go live, ensure incomplete/low-quality products cannot publish: active website visibility, Shopier queue readiness, missing-image block, missing price/category block, brand-safety hard block, channel target clarity, batch publish/retry safety. Builds on the existing activation guard (`productActivationGuard` / `publishReadiness`).
+
+### D-357 — SEO/GEO Blog & Product Comparison Automation
+
+After catalog scale begins, use product data for SEO/GEO and comparison content. Operator approval required; no automatic external publishing; no risky or hallucinated authenticity/material/origin claims.
+
+### D-380+ — First Controlled Ad Test (earliest ad phase)
+
+Paid ads are deferred until catalog depth and image quality are strong. Do NOT start Meta ads, Pixel, CAPI, Ads API, autonomous ad spend, or budget automation before then. Ads become relevant only after: a large enough catalog, category balance, product image QC, stable lead capture, stable UTM/admin readback, and enough publish-ready products. This supersedes the earlier Phase 8 framing as the next ad step.

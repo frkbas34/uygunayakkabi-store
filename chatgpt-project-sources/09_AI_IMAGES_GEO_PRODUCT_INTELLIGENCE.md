@@ -1,6 +1,6 @@
 # AI Images, GEO, And Product Intelligence
 
-Last updated: 2026-06-21
+Last updated: 2026-06-27
 
 ## AI Image Workflow
 
@@ -62,4 +62,51 @@ Needed:
 ## Safety Rule
 
 AI must not invent claims about brand, authenticity, leather/material, origin, or condition. Risky claims need operator confirmation.
+
+## Product Image Quality Factory (D-355 family, 2026-06-27)
+
+Image quality control is the top priority of the catalog scale-up phase (see `02_MASTER_ROADMAP.md` Phase 10). AI-generated shoe images must preserve the real product and never invent defects.
+
+### D-355 — Image Quality Gate
+
+Decision states:
+
+- PASS: publishable.
+- REVIEW: human review required.
+- FAIL: regenerate or reject.
+
+Defect checks (all must hold): no fake tearing, no cracks, no peeling, no damaged suede/leather texture, no deformed toe shape, no broken heel shape, no wrong stitching, no fake stains, no distorted sole join, no color drift from the original product, no invented logos/brand elements.
+
+### D-355A — Multi-Angle Product Reference Standard
+
+If multiple images are provided, treat them as the SAME product from different angles, not different products.
+
+Reference depth by risk:
+
+- Low-risk: 1–2 angles acceptable.
+- Medium-risk: side + back recommended.
+- High-risk: side + back + front/top required.
+- Premium/detail: side + back + front/top + detail close-up preferred.
+
+High-risk product types: suede, tassel loafer, buckle models, glossy leather, dark-colored shoes, fine stitching, premium classic shoes.
+
+Required prompt concept: "These images are different-angle references of the same shoe. Do not interpret them as different products. Preserve the exact product identity, material, color, stitching, sole, heel, toe shape, and details. Do not create any damage, tear, crack, deformation, stain, or extra detail that is not present in the reference."
+
+### D-355B — 5-Image Studio Pack Standard
+
+Target five studio-quality images per product:
+
+1. Hero side profile.
+2. Pair composition.
+3. Front/top angle.
+4. Back/heel view.
+5. Material/craft detail close-up OR outsole view.
+
+Defaults: image 4 = back/heel, image 5 = material/craft detail close-up. Dynamic rule: loafer/classic/premium -> detail close-up; sneaker/bot -> outsole view may be better.
+
+### D-355C — Background Lock Standardization
+
+Single background standard: soft warm ivory seamless studio background.
+
+Requirements: same tone across all 5 images; no grey/yellow/pink drift; consistent studio lighting; consistent soft shadow; consistent crop and scale; product occupies ~74–80% of the frame; the 5 images must look like one coherent studio product set.
 

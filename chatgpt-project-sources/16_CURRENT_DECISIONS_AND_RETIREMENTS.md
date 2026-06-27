@@ -1,6 +1,6 @@
 # Current Decisions And Retirements
 
-Last updated: 2026-06-23
+Last updated: 2026-06-27
 
 ## Active Business Decision
 
@@ -48,3 +48,19 @@ It should support reasoning, diagnostics, memory, and operator help. Payload/Nex
 No autonomous ad spending yet.
 
 Manual campaign support comes first. Pixel/CAPI/Ads API come later after tracking and privacy decisions.
+
+## Strategic Focus Decision (2026-06-27)
+
+Primary focus is catalog scale-up / product loading factory, not ads.
+
+- Advertising is deferred until the catalog is much larger and product-image quality is stable. The earliest ad phase is D-380+.
+- The OLD classification "ads readiness" is replaced by the NEW classification "catalog scale-up / product loading factory."
+- Product image quality control (D-355 family) is the top priority: no hallucinated defects, multi-angle references preferred, a 5-image studio pack target, and a locked soft-warm-ivory studio background.
+- Active roadmap for this phase is D-352–D-357 (see `02_MASTER_ROADMAP.md` Phase 10).
+- Payload remains the source of truth. Active channels and retirements are unchanged: Dolap/Threads retired, SupplierScout dormant.
+
+## D-351 Lead Capture Repair (completed 2026-06-27)
+
+- The `/api/inquiries` 500 root cause was the missing `customer_inquiries.landing` column (production schema drift).
+- DDL applied for `landing`; the route was hardened with a staged fail-safe (full -> core+product -> minimal name+phone).
+- Live form success and admin readback confirmed (name, phone, size, source, product relation, UTM source/medium/campaign, landing). Revenue lead capture is restored; ads remain paused.

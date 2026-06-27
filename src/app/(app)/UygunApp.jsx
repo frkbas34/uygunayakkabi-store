@@ -1523,6 +1523,16 @@ function Catalog({ onView, allProducts, initCat, initQuery, onNav, settings }) {
   const [drawerOpen, setDrawerOpen] = useState(false); // D-260: mobile filter drawer
   const [query, setQuery] = useState(initQuery || "");  // D-266+D-278: search query, seeded from homepage
 
+  // D-346B: the category nav row is fixed/persistent and stays visible on this page,
+  // so clicking a category while the catalog is already mounted updates the initCat/
+  // initQuery props but NOT this local filter state (seeded only once via useState).
+  // Re-sync when the nav target changes so the category buttons filter correctly from
+  // anywhere — not just on the first entry from the homepage.
+  useEffect(() => {
+    sFl(initCat);
+    setQuery(initQuery || "");
+  }, [initCat, initQuery]);
+
   // D-260: lock body scroll when drawer open
   useEffect(() => {
     if (drawerOpen) document.body.style.overflow = "hidden";

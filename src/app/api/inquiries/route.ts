@@ -40,27 +40,27 @@ function sanitizeDetail(raw: unknown): string | null {
 }
 
 /**
- * D-345/D-349: Detect a Postgres "column does not exist" error (code 42703). The
- * attribution detail columns (utm_source / utm_medium / utm_campaign / referrer /
- * landing) require manual Neon DDL — push:true silently skips ALTER TABLE (see
- * customer-inquiries collection comment).
- *
- * D-349: Payload/Drizzle can WRAP the underlying pg error, so the 42703 code and the
- * original message may sit on a nested `cause`. Walk the cause chain so a wrapped
- * missing-column error is still recognised (used now only for accurate logging —
- * the retry below no longer depends on this classification being perfect).
+ * D-350: PII-safe error logging. Production lead failures must be debuggable WITHOUT
+ * ever logging name, phone, or the request body. We redact any run of 7+ digits
+ * (phone-like) defensively, because some Postgres errors echo row values in their
+ * message/detail (e.g. unique-violation "Key (phone)=(...)").
  */
-function isMissingColumnError(err: unknown): boolean {
-  let cur: any = err
-  for (let depth = 0; cur && depth < 5; depth++) {
-    if (cur.code === '42703') return true
-    const msg = String(cur.message ?? cur).toLowerCase()
-    if (msg.includes('column') && (msg.includes('does not exist') || msg.includes('errormissingcolumn'))) {
-      return true
-    }
-    cur = cur.cause
-  }
-  return false
+function redactPII(s: string): string {
+  return s.replace(/\d{7,}/g, '[redacted]')
+}
+
+/**
+ * D-350: Reduce any thrown value to a sanitized {name, code, message} — class + pg
+ * error code + a short, PII-redacted message. The pg code may sit on a wrapped
+ * `cause` (Payload/Drizzle), so check there too. Never returns the raw error object.
+ */
+function sanitizeError(err: unknown): { name: string; code: string; message: string } {
+  const e = err as any
+  const name = typeof e?.name === 'string' ? e.name : typeof err
+  const code = e?.code ?? e?.cause?.code
+  const codeStr = code === undefined || code === null ? 'n/a' : String(code)
+  const rawMsg = typeof e?.message === 'string' ? e.message : ''
+  return { name: String(name), code: codeStr, message: redactPII(rawMsg).slice(0, 200) }
 }
 
 export async function POST(req: NextRequest) {
@@ -91,9 +91,17 @@ export async function POST(req: NextRequest) {
 
     const payload = await getPayload()
 
-    // Core lead fields — always saved. Splitting these from the optional
-    // attribution detail lets us fail-soft if a detail column isn't migrated yet.
-    const coreData = {
+    // ── D-350: Staged, revenue-safe create ────────────────────────────────────
+    // Lead capture must survive BOTH un-migrated attribution columns AND a failing
+    // product relation (D-349 only handled the former — its core retry still carried
+    // `product`, so a relation/core failure still 500'd). We try progressively
+    // smaller payloads and accept the first that saves. Each failed attempt rolls
+    // back (customer-inquiries has no hooks + create is transactional → no duplicate
+    // row). Attribution and product support are preserved — they're just the first,
+    // richest stage, not a hard requirement for capturing the lead.
+
+    // Stage 1 fields: name/phone/size/product/message/source/status.
+    const coreWithProduct = {
       name,
       phone,
       size: size || undefined,
@@ -113,35 +121,58 @@ export async function POST(req: NextRequest) {
       ...(sanitizeDetail(landing) !== null ? { landing: sanitizeDetail(landing) } : {}),
     }
 
-    let created
-    try {
-      created = await payload.create({
-        collection: 'customer-inquiries',
-        data: { ...coreData, ...detailData },
-      })
-    } catch (err) {
-      // D-349 production hotfix: a lead must NEVER be lost because an OPTIONAL
-      // attribution column (utm_*/referrer/landing) isn't migrated in this
-      // environment. The previous D-345 guard only retried when the error was
-      // *classified* as a missing column; Payload/Neon can wrap that error so the
-      // classifier missed it and the request 500'd (live regression on POST
-      // /api/inquiries after the `landing` column was added without its DDL).
-      //
-      // Fix: when optional detail fields were included, ALWAYS retry once with core
-      // fields only. coreData still carries name/phone/product, so a genuine core
-      // failure re-throws on the retry and correctly surfaces as 500 — we mask no
-      // real error, and pre-create validation (name/phone) already returned 400
-      // before reaching here. customer-inquiries has no hooks and create is
-      // transactional, so the rolled-back first attempt cannot duplicate the lead.
-      if (Object.keys(detailData).length > 0) {
-        const kind = isMissingColumnError(err) ? 'missing-column' : 'unclassified'
-        console.warn(
-          `[inquiries D-349] lead create failed with attribution fields (${kind}) — retrying with core fields only`,
-        )
-        created = await payload.create({ collection: 'customer-inquiries', data: coreData })
-      } else {
-        throw err
+    // Minimal stage: name + phone only — NO product relation, NO attribution columns.
+    // Preserve the product/size context as a plain-text note (numeric id + size are
+    // not PII) so the operator still knows what the lead was about if the relation
+    // could not be written.
+    const refParts: string[] = []
+    if (numericProductId !== undefined) refParts.push(`ürün #${numericProductId}`)
+    if (typeof size === 'string' && size.trim()) refParts.push(`beden ${size.trim().slice(0, 20)}`)
+    const minimalNote = refParts.length > 0
+      ? `[oto-kayıt] ${refParts.join(', ')} — ürün ilişkisi/öznitelik kaydedilemedi`
+      : (message || undefined)
+    const minimalData = {
+      name,
+      phone,
+      source: normalizeInquirySource(source),
+      status: 'new' as const,
+      ...(minimalNote ? { message: minimalNote } : {}),
+    }
+
+    // Ordered stages. Skip the redundant core stage when no attribution was sent
+    // (stage 1 already equals core+product in that case).
+    const stages: Array<{ label: string; data: Record<string, unknown> }> = [
+      { label: 'full', data: { ...coreWithProduct, ...detailData } },
+    ]
+    if (Object.keys(detailData).length > 0) {
+      stages.push({ label: 'core+product', data: coreWithProduct })
+    }
+    stages.push({ label: 'minimal', data: minimalData })
+
+    let created: any = null
+    let usedStage = ''
+    let lastErr: unknown = null
+    for (const stage of stages) {
+      try {
+        created = await payload.create({ collection: 'customer-inquiries', data: stage.data as any })
+        usedStage = stage.label
+        break
+      } catch (err) {
+        lastErr = err
+        const s = sanitizeError(err)
+        console.warn(`[inquiries D-350] create failed at stage=${stage.label} err=${s.name} code=${s.code} msg="${s.message}"`)
       }
+    }
+
+    if (!created) {
+      // Every stage failed — the base table itself is unwritable (not optional drift).
+      const s = sanitizeError(lastErr)
+      console.error(`[inquiries D-350] ALL create stages failed err=${s.name} code=${s.code} msg="${s.message}"`)
+      return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
+    }
+
+    if (usedStage !== 'full') {
+      console.warn(`[inquiries D-350] lead saved via degraded stage=${usedStage} — product/attribution may be partial; investigate schema drift`)
     }
 
     // D-243: fire-and-forget Telegram alert to the operator chat. Reuses
@@ -159,7 +190,11 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({ success: true, id: (created as any).id })
   } catch (error) {
-    console.error('Inquiry creation error:', error)
+    // D-350: sanitized only — never log the raw error object (pg .detail can echo
+    // row values incl. phone). This path now only catches pre-create failures
+    // (body parse / getPayload); create-stage failures are handled+logged above.
+    const s = sanitizeError(error)
+    console.error(`[inquiries D-350] request failed before create err=${s.name} code=${s.code} msg="${s.message}"`)
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
   }
 }

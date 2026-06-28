@@ -1946,6 +1946,24 @@ export async function generateByGeminiPro(
     console.log(`[generateByGeminiPro D-167] PNG 1024×1024 ready — ${pngBuffer.length}b (shoe at ${fitWGP}×${fitHGP} center, mirror-extend padding)`)
     console.log(`[lock-reminder D-153] v50 LOCKED rules prepended to every slot prompt — ${LOCK_REMINDER_BLOCK.length}b reminder block active`)
 
+    // ── D-355H: anchor-based detail generation ──────────────────────────────
+    // The material/detail slot (slot 4) is generated using the already-generated
+    // front/hero (slot 2) as the PRIMARY anchor, so the close-up stays tied to the
+    // EXACT same generated shoe instead of drifting independently. The sequential
+    // loop runs the front/hero before the detail slot in the standard 5-slot pack.
+    // If the anchor was not generated in this batch (e.g. a premium-only [3,4]
+    // regen), the detail slot falls back to normal generation — no break.
+    const ANCHOR_SOURCE = 'commerce_front' // slot 2 front/hero
+    const ANCHOR_TARGET = 'worn_lifestyle' // slot 4 material/craft detail (D-355F order)
+    const ANCHOR_DETAIL_BLOCK =
+      `\n\n═══ ANCHOR-DERIVED DETAIL (MANDATORY) ═══\n` +
+      `An ADDITIONAL attached image is the already-generated FRONT/HERO studio photo of THIS SAME shoe. Treat it as the ANCHOR.\n` +
+      `Produce a tighter studio close-up COMPANION of that anchor — the same exact shoe, same visible material and color, same stitching/vamp line, same soft warm ivory background family, same lighting family.\n` +
+      `Stay faithful to the anchor: do NOT redesign, do NOT change proportions, do NOT add or remove anything that is not in the anchor and the source reference.\n` +
+      `FORBIDDEN: inventing any logo or brand text, metal accessory, buckle, ornament, panel, strap, stitching, or decorative detail that is not clearly present in the anchor/reference.\n` +
+      `═══════════════════════════\n`
+    let anchorBuf: Buffer | null = null
+
     for (const scene of scenes) {
       const sceneText = scene.sceneInstructions
         .replace(/\{COLOR\}/g, mainColor)
@@ -1954,6 +1972,18 @@ export async function generateByGeminiPro(
 
       // Same 5-block prompt structure as generateByEditing
       const fullPrompt = LOCK_REMINDER_BLOCK + TASK_FRAMING_BLOCK + identityLock.promptBlock + zoneBlock + sceneText + STUDIO_STANDARD_BLOCK + materialDirectives(identityLock.material, identityLock.visualNotes) + CANONICAL_PROHIBITIONS_BLOCK + ANTI_FRAME_FINAL_BLOCK
+
+      // D-355H: for the detail slot, prepend the generated front/hero anchor (when
+      // available) as the PRIMARY additional reference + an anchor-derivation block.
+      // Anchor is prepended so it survives the 2-image cap in callGeminiImageGenerate.
+      const useAnchor = scene.name === ANCHOR_TARGET && anchorBuf !== null
+      const slotImages = useAnchor
+        ? [{ data: anchorBuf as Buffer, mime: 'image/jpeg' }, ...(additionalImages ?? [])]
+        : additionalImages
+      const slotPrompt = useAnchor ? ANCHOR_DETAIL_BLOCK + fullPrompt : fullPrompt
+      if (useAnchor) {
+        console.log(`[generateByGeminiPro D-355H] ${scene.name} using front/hero anchor (${(anchorBuf as Buffer).length}b) as primary reference`)
+      }
 
       const slotLog: SlotLog = {
         slot: scene.name,
@@ -1971,7 +2001,7 @@ export async function generateByGeminiPro(
       try {
         // ── Attempt 1 ──────────────────────────────────────────────────────────
         slotLog.attempts = 1
-        let rawBuf = await callGeminiImageGenerate(pngBuffer, fullPrompt, geminiKey, additionalImages)
+        let rawBuf = await callGeminiImageGenerate(pngBuffer, slotPrompt, geminiKey, slotImages)
 
         const jpegBuf = await sharp(rawBuf).jpeg({ quality: 92 }).toBuffer()
 
@@ -2013,7 +2043,7 @@ export async function generateByGeminiPro(
           if (!shotCheck.pass && shotCheck.correctionHint) {
             correctionLines.push(shotCheck.correctionHint)
           }
-          const reinforcedPrompt = correctionLines.join('\n') + '\n\n' + fullPrompt
+          const reinforcedPrompt = correctionLines.join('\n') + '\n\n' + slotPrompt
 
           console.warn(
             `[generateByGeminiPro v20] ✗ ${scene.name} fidelity issues — ` +
@@ -2023,7 +2053,7 @@ export async function generateByGeminiPro(
           slotLog.attempts = 2
           await sleep(2000)
 
-          rawBuf = await callGeminiImageGenerate(pngBuffer, reinforcedPrompt, geminiKey, additionalImages)
+          rawBuf = await callGeminiImageGenerate(pngBuffer, reinforcedPrompt, geminiKey, slotImages)
           const retryJpeg = await sharp(rawBuf).jpeg({ quality: 92 }).toBuffer()
 
           const retryColor = await checkColorMatch(retryJpeg, mainColor, geminiKey)
@@ -2063,6 +2093,9 @@ export async function generateByGeminiPro(
       }
 
       if (finalBuf) {
+        // D-355H: capture the generated front/hero as the anchor for the detail slot
+        if (scene.name === ANCHOR_SOURCE) anchorBuf = finalBuf
+
         // D-201: Orientation auto-fix for side_angle — toe must point LEFT
         if (scene.name === 'side_angle' && geminiKey) {
           try {

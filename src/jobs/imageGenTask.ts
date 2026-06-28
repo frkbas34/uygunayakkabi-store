@@ -26,7 +26,7 @@
 import type { TaskConfig } from 'payload'
 
 export const imageGenTask: TaskConfig<{
-  input: { jobId: string; stage?: string; provider?: string }
+  input: { jobId: string; stage?: string; provider?: string; visualFacts?: string }
   output: {
     success: boolean
     mediaIds: string
@@ -41,6 +41,7 @@ export const imageGenTask: TaskConfig<{
     { name: 'jobId', type: 'text', required: true },
     { name: 'stage', type: 'text' },    // 'standard' (slots 1-3) | 'premium' (slots 4-5)
     { name: 'provider', type: 'text' }, // 'openai' (default) | 'gemini-pro'
+    { name: 'visualFacts', type: 'text' }, // D-355N: operator-verified product facts injected into every slot prompt
   ],
 
   outputSchema: [
@@ -390,6 +391,14 @@ export const imageGenTask: TaskConfig<{
       const { generateByEditing, generateByGeminiPro } = await import('../lib/imageProviders')
       const genFn = provider === 'gemini-pro' ? generateByGeminiPro : generateByEditing
 
+      // D-355N: inject the visual fact lock into every slot prompt. The default hard
+      // no-invented-metal lock always applies; operator-verified facts (input.visualFacts)
+      // override the model's visual guesses when supplied.
+      if (input.visualFacts && input.visualFacts.trim()) {
+        console.log(`[imageGenTask D-355N] visual fact lock applied WITH operator facts (${input.visualFacts.trim().length} chars)`)
+      } else {
+        console.log(`[imageGenTask D-355N] visual fact lock active (default no-invented-metal)`)
+      }
       const { results, buffers, slotLogs } = await genFn(
         referenceImage,
         referenceImageMime || 'image/jpeg',
@@ -397,6 +406,7 @@ export const imageGenTask: TaskConfig<{
         sceneIndices,
         additionalReferenceImages.length > 0 ? additionalReferenceImages : undefined,
         productId, // D-233: stable per-product background variant
+        input.visualFacts, // D-355N: operator-verified product facts (visual fact lock)
       )
       generatedBuffers = buffers
       slotLogsSummary = slotLogs

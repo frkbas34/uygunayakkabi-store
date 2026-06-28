@@ -150,6 +150,38 @@ const MATERIAL_IDENTITY_LOCK_BLOCK =
   `• Do NOT invent any metal, logo, brand text, plate, eyelet, ring, chain, shine, texture, panel, seam, or accessory that is not in the reference.\n` +
   `═══════════════════════════\n`
 
+// D-355N: product VISUAL FACT LOCK — a HARD override against the model's most common
+// failure: inventing metal hardware (and brand wordmarks) on shoes that have none.
+// Applied to EVERY generated slot. Operators can ALSO inject product-specific facts
+// (see buildVisualFactLock) which override the model's visual guesses.
+const VISUAL_FACT_LOCK_BLOCK =
+  `\n\n═══ VISUAL FACT LOCK (HARD OVERRIDE — ALL SLOTS) ═══\n` +
+  `These facts OVERRIDE any assumption the model makes about the product:\n` +
+  `• This shoe has NO metal hardware unless something is UNMISTAKABLY shiny solid metal in the reference. Do NOT invent any metal.\n` +
+  `• Side, saddle, strap, loop, bridge, band, or saddle-like details are STITCHED FABRIC, THREAD, or LEATHER — NOT metal. When a detail is ambiguous, render it as the fabric/thread/leather it is, NEVER as a metal bit / buckle / bridge / connector.\n` +
+  `• FORBIDDEN: inventing any silver or gold metal bit, buckle, chain, ring, plate, connector, clasp, stud, eyelet, or shiny hardware.\n` +
+  `• FORBIDDEN: inventing engraved or embossed BRAND-NAME hardware or ANY brand text / logo / wordmark (e.g. do NOT add "BOSS" or any name on metal or anywhere).\n` +
+  `• Any subtle marking, monogram, or emboss visible in the reference stays a SUBTLE same-material fabric / embossed / stitched detail — never a metal plate or shiny badge.\n` +
+  `• If you are unsure whether something is metal, it is NOT metal — keep it the soft material it is in the reference.\n` +
+  `═══════════════════════════\n`
+
+/**
+ * D-355N: Compose the visual fact lock for a slot prompt. The default hard
+ * no-invented-metal lock ALWAYS applies; when the operator supplies product-specific
+ * facts they are appended as the HIGHEST-PRIORITY override of the model's guesses.
+ */
+function buildVisualFactLock(operatorFacts?: string | null): string {
+  const facts = (operatorFacts ?? '').trim()
+  if (!facts) return VISUAL_FACT_LOCK_BLOCK
+  return (
+    VISUAL_FACT_LOCK_BLOCK +
+    `\n═══ OPERATOR-VERIFIED PRODUCT FACTS (HIGHEST PRIORITY — OVERRIDE MODEL) ═══\n` +
+    facts.slice(0, 1000) + `\n` +
+    `These operator facts are TRUE for this exact product. Obey them over any visual guess.\n` +
+    `═══════════════════════════\n`
+  )
+}
+
 // D-303: Suede/nubuck-specific material directives. Returns '' for non-suede
 // products. Detected from the identity-lock material + visual notes so suede
 // shoes stop rendering as glossy patent leather.
@@ -1456,6 +1488,7 @@ export async function generateByEditing(
   sceneIndices?: number[],
   _additionalImages?: Array<{ data: Buffer; mime: string }>, // reserved — OpenAI path uses only primary ref
   productId?: string | number, // D-233: stable per-product background variant
+  visualFacts?: string | null, // D-355N: operator-verified product facts (visual fact lock override)
 ): Promise<{ results: ProviderResult[]; buffers: Buffer[]; slotLogs: SlotLog[] }> {
   // Filter scenes to run — default is all 5
   const scenes = sceneIndices
@@ -1581,7 +1614,7 @@ export async function generateByEditing(
       //   3. zoneBlock — protected brand zones
       //   4. sceneText — camera angle, framing, background, lighting
       //   5. CANONICAL_PROHIBITIONS_BLOCK — 11 canonical prohibitions from productPreservation.ts
-      const fullPrompt = LOCK_REMINDER_BLOCK + TASK_FRAMING_BLOCK + identityLock.promptBlock + zoneBlock + sceneText + STUDIO_STANDARD_BLOCK + materialDirectives(identityLock.material, identityLock.visualNotes) + MATERIAL_IDENTITY_LOCK_BLOCK + CANONICAL_PROHIBITIONS_BLOCK + ANTI_FRAME_FINAL_BLOCK
+      const fullPrompt = LOCK_REMINDER_BLOCK + TASK_FRAMING_BLOCK + identityLock.promptBlock + zoneBlock + sceneText + STUDIO_STANDARD_BLOCK + materialDirectives(identityLock.material, identityLock.visualNotes) + MATERIAL_IDENTITY_LOCK_BLOCK + buildVisualFactLock(visualFacts) + CANONICAL_PROHIBITIONS_BLOCK + ANTI_FRAME_FINAL_BLOCK
 
       const slotLog: SlotLog = {
         slot: scene.name,
@@ -1872,6 +1905,7 @@ export async function generateByGeminiPro(
   sceneIndices?: number[],
   additionalImages?: Array<{ data: Buffer; mime: string }>,
   productId?: string | number, // D-233: stable per-product background variant
+  visualFacts?: string | null, // D-355N: operator-verified product facts (visual fact lock override)
 ): Promise<{ results: ProviderResult[]; buffers: Buffer[]; slotLogs: SlotLog[] }> {
   const scenes = sceneIndices
     ? EDITING_SCENES.filter((_, i) => sceneIndices.includes(i))
@@ -1994,7 +2028,7 @@ export async function generateByGeminiPro(
         .replace(/\{BACKGROUND\}/g, premiumBackground)
 
       // Same 5-block prompt structure as generateByEditing
-      const fullPrompt = LOCK_REMINDER_BLOCK + TASK_FRAMING_BLOCK + identityLock.promptBlock + zoneBlock + sceneText + STUDIO_STANDARD_BLOCK + materialDirectives(identityLock.material, identityLock.visualNotes) + MATERIAL_IDENTITY_LOCK_BLOCK + CANONICAL_PROHIBITIONS_BLOCK + ANTI_FRAME_FINAL_BLOCK
+      const fullPrompt = LOCK_REMINDER_BLOCK + TASK_FRAMING_BLOCK + identityLock.promptBlock + zoneBlock + sceneText + STUDIO_STANDARD_BLOCK + materialDirectives(identityLock.material, identityLock.visualNotes) + MATERIAL_IDENTITY_LOCK_BLOCK + buildVisualFactLock(visualFacts) + CANONICAL_PROHIBITIONS_BLOCK + ANTI_FRAME_FINAL_BLOCK
 
       // D-355H/M: for the LATER slots (toe/vamp, material, rear), feed the already-
       // generated front/hero + side anchors as additional references so material/

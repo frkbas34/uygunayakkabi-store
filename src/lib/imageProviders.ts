@@ -1324,8 +1324,8 @@ const EDITING_SCENES = [
       `COMPOSITION: Full shoe, 70% of image height. Top of collar and sole bottom both visible. Centered. Clean spacing around shoe.\n` +
       `MUST SEE: Toe cap front face, vamp, lace/closure system, collar — the entire FRONT face.\n` +
       `MUST NOT SEE: Heel counter, side profile, sole edge.\n` +
-      `BACKGROUND: {BACKGROUND}\n` +
-      `LIGHT: Soft studio lighting — overhead softbox + bilateral fill. Natural soft shadow under the shoe only. No harsh reflections.\n` +
+      `BACKGROUND: {BACKGROUND} — keep the ivory backdrop at the SAME mid-tone exposure as every other slot; do NOT brighten it toward white or wash it out.\n` +
+      `LIGHT: Soft, even studio lighting at a MODERATE exposure — gentle key + soft fill, one natural soft shadow under the shoe. Do NOT over-light, over-expose, or wash out the scene; match the brightness and ivory tone of the other slots.\n` +
       `OUTPUT: Full-bleed photograph that fills the ENTIRE canvas edge to edge. The image IS the photo — NOT a photo of a photo.\n` +
       `CRITICAL ANTI-FRAME: Do NOT render any border, frame, shadow-box, rounded-corner card, drop-shadow rectangle, or picture-inside-picture effect. ` +
       `Do NOT place the shoe on a "floating card" or "product tile". The background must extend to ALL four edges with ZERO visible boundary. ` +
@@ -1358,40 +1358,16 @@ const EDITING_SCENES = [
       `COLOR: The shoe is {COLOR}. Output MUST be {COLOR}. Other colors = REJECTED.`,
   },
   {
-    // D-355D/E: conservative rear three-quarter studio angle. Avoids a pure back
-    // shot (which invents unseen rear detailing); keeps the visible silhouette.
-    name: 'tabletop_editorial',
-    label: 'Slot 4 — Arka 3/4 (Stüdyo)',
-    sceneInstructions:
-      `── SHOT: REAR THREE-QUARTER STUDIO ANGLE ──\n` +
-      `Re-photograph this EXACT {COLOR} shoe from a rear three-quarter angle — same physical object, studio only.\n` +
-      `CAMERA: Behind and to one side, about 35–45° off the pure back, at mid-shoe height, so BOTH the heel/back and one full side are visible together.\n` +
-      `POSITION: Shoe upright on its sole, centered, angled so the heel and one side face the camera.\n` +
-      `COMPOSITION: Full shoe, ~75% of frame, full shoe visible, no crop, clean even spacing around the shoe.\n` +
-      `MUST SEE: Heel counter and collar from a 3/4 rear angle, plus the side profile that is already visible in the reference.\n` +
-      `CONSERVATIVE REAR RULE (MANDATORY): If the reference does not clearly show the back of the shoe, keep the heel/back plain and consistent with the visible material and color — do NOT invent rear seams, logos, panels, straps, or details that are not visible in the reference.\n` +
-      `MUST NOT SEE: The toe cap front face dead-on, any lifestyle prop, any floor/tabletop/outdoor environment.\n` +
-      `BACKGROUND: {BACKGROUND} — the SAME seamless soft warm ivory studio backdrop as every other slot. A clean studio backdrop, NOT a floor scene, NOT a tabletop, NOT an outdoor setting.\n` +
-      `LIGHT: Soft studio lighting — key from upper-left, fill from opposite. One gentle natural soft shadow under the shoe. No harsh reflections.\n` +
-      `OUTPUT: Full-bleed photograph that fills the ENTIRE canvas edge to edge. The image IS the photo — NOT a photo of a photo.\n` +
-      `CRITICAL ANTI-FRAME: Do NOT render any border, frame, shadow-box, rounded-corner card, drop-shadow rectangle, or picture-inside-picture effect. ` +
-      `The ivory background must extend to ALL four edges with ZERO visible boundary. ` +
-      `If there is ANY rectangular outline or visible edge that is not the canvas edge, the image is REJECTED.\n` +
-      `THIS IS NOT: a front view, a lifestyle shot, an editorial/floor/outdoor scene, a framed image, a product card, a mockup.\n` +
-      `COLOR: The shoe is {COLOR}. Output MUST be {COLOR}. Other colors = REJECTED.\n` +
-      `DO NOT repeat the reference angle ({REF_ANGLE}). Generate a conservative rear three-quarter view.`,
-  },
-  {
-    // D-355E: safe material/craft close-up of VISIBLE upper detail (texture,
-    // stitching, tassel/buckle/vamp). Replaces the outsole shot, which the model
-    // hallucinated because a real sole/outsole reference is almost never provided.
+    // D-355E/F: safe material/craft close-up of VISIBLE upper detail (texture,
+    // stitching, tassel/buckle/vamp). D-355F reorder → this is now SLOT 4, framed
+    // tight so the detail dominates and never looks distant. No outsole/sole.
     name: 'worn_lifestyle',
-    label: 'Slot 5 — Malzeme / Detay (Stüdyo)',
+    label: 'Slot 4 — Malzeme / Detay (Stüdyo)',
     sceneInstructions:
       `── SHOT: STUDIO MATERIAL / CRAFT DETAIL CLOSE-UP ──\n` +
       `Re-photograph this EXACT {COLOR} shoe as a close-up of its VISIBLE upper material and craft — same physical object, studio only.\n` +
-      `CAMERA: Close macro on the upper, 15–25 cm away, at a gentle 3/4 angle. Focus on a region clearly visible in the reference: the vamp/quarter material surface, the stitching, and any tassel, buckle, or hardware that the reference actually shows.\n` +
-      `COMPOSITION: The chosen visible detail fills ~80% of the frame, sharp, with a shallow depth of field. Some shoe body visible for context.\n` +
+      `CAMERA: Close macro on the upper, 12–20 cm away, at a gentle 3/4 angle. Focus on a region clearly visible in the reference: the vamp/quarter material surface, the stitching, and any tassel, buckle, or hardware that the reference actually shows.\n` +
+      `COMPOSITION: The chosen visible detail fills ~85% of the frame — close and tight, the detail dominates and must NEVER look small or distant. Shallow depth of field. Only a little shoe body for context.\n` +
       `MUST SEE: Real material texture (smooth leather grain or matte suede nap exactly as in the reference), stitch lines, and any tassel/buckle/vamp ornament that IS present in the reference.\n` +
       `REFERENCE-SAFE RULE (MANDATORY): Show ONLY details that are clearly visible in the reference. Do NOT show or invent the outsole, sole tread, bottom of the shoe, rear/heel detail, or any new part, panel, buckle, strap, stitching, logo, or ornament that the reference does not show.\n` +
       `MUST NOT SEE: The outsole/sole/tread, the bottom of the shoe, a foot, a person, any lifestyle prop, any outdoor/floor/tabletop environment.\n` +
@@ -1404,6 +1380,31 @@ const EDITING_SCENES = [
       `THIS IS NOT: an outsole/sole shot, a lifestyle shot, a worn-on-foot shot, an outdoor scene, an editorial/floor scene, a framed image, a product card, a mockup.\n` +
       `COLOR: The shoe is {COLOR}. Output MUST be {COLOR}. Other colors = REJECTED.\n` +
       `DO NOT repeat the reference angle ({REF_ANGLE}). Generate a clean studio material/craft detail of a visible region only.`,
+  },
+  {
+    // D-355D/E/F: conservative rear three-quarter studio angle. D-355F reorder →
+    // this is now SLOT 5, framing tightened so the shoe fills the frame and never
+    // looks distant. Avoids a pure back shot (invents unseen rear detail).
+    name: 'tabletop_editorial',
+    label: 'Slot 5 — Arka 3/4 (Stüdyo)',
+    sceneInstructions:
+      `── SHOT: REAR THREE-QUARTER STUDIO ANGLE ──\n` +
+      `Re-photograph this EXACT {COLOR} shoe from a rear three-quarter angle — same physical object, studio only.\n` +
+      `CAMERA: Behind and to one side, about 35–45° off the pure back, at mid-shoe height, so BOTH the heel/back and one full side are visible together.\n` +
+      `POSITION: Shoe upright on its sole, centered, angled so the heel and one side face the camera.\n` +
+      `COMPOSITION: Full shoe, ~80% of frame — the shoe fills the frame and must NOT look distant or small, full shoe visible, no crop, modest even spacing around the shoe.\n` +
+      `MUST SEE: Heel counter and collar from a 3/4 rear angle, plus the side profile that is already visible in the reference.\n` +
+      `CONSERVATIVE REAR RULE (MANDATORY): If the reference does not clearly show the back of the shoe, keep the heel/back plain and consistent with the visible material and color — do NOT invent rear seams, logos, panels, straps, or details that are not visible in the reference.\n` +
+      `MUST NOT SEE: The toe cap front face dead-on, any lifestyle prop, any floor/tabletop/outdoor environment.\n` +
+      `BACKGROUND: {BACKGROUND} — the SAME seamless soft warm ivory studio backdrop as every other slot. A clean studio backdrop, NOT a floor scene, NOT a tabletop, NOT an outdoor setting.\n` +
+      `LIGHT: Soft studio lighting — key from upper-left, fill from opposite. One gentle natural soft shadow under the shoe. No harsh reflections.\n` +
+      `OUTPUT: Full-bleed photograph that fills the ENTIRE canvas edge to edge. The image IS the photo — NOT a photo of a photo.\n` +
+      `CRITICAL ANTI-FRAME: Do NOT render any border, frame, shadow-box, rounded-corner card, drop-shadow rectangle, or picture-inside-picture effect. ` +
+      `The ivory background must extend to ALL four edges with ZERO visible boundary. ` +
+      `If there is ANY rectangular outline or visible edge that is not the canvas edge, the image is REJECTED.\n` +
+      `THIS IS NOT: a front view, a lifestyle shot, an editorial/floor/outdoor scene, a framed image, a product card, a mockup.\n` +
+      `COLOR: The shoe is {COLOR}. Output MUST be {COLOR}. Other colors = REJECTED.\n` +
+      `DO NOT repeat the reference angle ({REF_ANGLE}). Generate a conservative rear three-quarter view.`,
   },
 ] as const
 

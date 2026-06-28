@@ -349,9 +349,10 @@ export const imageGenTask: TaskConfig<{
     // ── Step 6: STEP C — Image Generation (provider-routed) ─────────────────
     // v14: provider='openai' → generateByEditing (gpt-image-1, default, unchanged)
     //      provider='gemini-pro' → generateByGeminiPro (Gemini image gen, optional)
-    const ALL_SLOT_NAMES  = ['side_angle', 'commerce_front', 'detail_closeup', 'tabletop_editorial', 'worn_lifestyle']
-    // D-355E: slots 4-5 are studio + reference-safe (rear three-quarter + visible material/craft detail), no outsole/lifestyle.
-    const ALL_SLOT_LABELS = ['Slot 1 — Yan Profil (PRIMARY)', 'Slot 2 — Ön Hero', 'Slot 3 — Makro', 'Slot 4 — Arka 3/4', 'Slot 5 — Malzeme/Detay']
+    // D-355F: positions 4 & 5 swapped — material/detail is now slot 4, rear 3/4 is slot 5.
+    const ALL_SLOT_NAMES  = ['side_angle', 'commerce_front', 'detail_closeup', 'worn_lifestyle', 'tabletop_editorial']
+    // D-355F: slot order — material/detail close-up = slot 4, rear three-quarter = slot 5 (all studio, reference-safe).
+    const ALL_SLOT_LABELS = ['Slot 1 — Yan Profil (PRIMARY)', 'Slot 2 — Ön Hero', 'Slot 3 — Makro', 'Slot 4 — Malzeme/Detay', 'Slot 5 — Arka 3/4']
     const slotNames  = sceneIndices.map((i) => ALL_SLOT_NAMES[i])
     const slotLabels = sceneIndices.map((i) => ALL_SLOT_LABELS[i])
 

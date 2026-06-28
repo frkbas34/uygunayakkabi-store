@@ -132,6 +132,24 @@ const STUDIO_STANDARD_BLOCK =
   `NEGATIVE (must NOT appear): no watermark, no logo hallucination, no text, no extra shoe, no deformed sole, no warped toe, no melted leather, no inconsistent background.\n` +
   `═══════════════════════════\n`
 
+// D-355M: shared MATERIAL identity lock — appended to EVERY generated slot so the
+// surface / material / finish / colour cannot drift between slots.
+const MATERIAL_IDENTITY_LOCK_BLOCK =
+  `\n\n═══ MATERIAL IDENTITY LOCK (ALL SLOTS — MANDATORY) ═══\n` +
+  `Every image MUST show the SAME material identity as the original reference photo:\n` +
+  `• EXACT same material TYPE as the reference — do NOT reinterpret it.\n` +
+  `• SAME colour tone AND undertone — keep tan/brown (and every colour) exactly; no warmer, cooler, lighter, or darker drift between slots.\n` +
+  `• SAME surface finish — suede / nubuck / smooth leather / grained leather / matte / glossy must NOT change. Matte stays matte; suede stays suede.\n` +
+  `• SAME stitching colour and density.\n` +
+  `• SAME sole colour and thickness.\n` +
+  `• Tassel, lace, buckle, strap, ornament, or hardware appear ONLY if clearly visible in the reference — same kind, same place.\n` +
+  `MATERIAL SWITCHING IS FORBIDDEN:\n` +
+  `• Do NOT turn suede/nubuck into smooth or shiny leather.\n` +
+  `• Do NOT turn a matte material into a shiny / reflective material.\n` +
+  `• Do NOT add metallic accessories, reflective hardware, or glossy highlights.\n` +
+  `• Do NOT invent any metal, logo, brand text, plate, eyelet, ring, chain, shine, texture, panel, seam, or accessory that is not in the reference.\n` +
+  `═══════════════════════════\n`
+
 // D-303: Suede/nubuck-specific material directives. Returns '' for non-suede
 // products. Detected from the identity-lock material + visual notes so suede
 // shoes stop rendering as glossy patent leather.
@@ -1563,7 +1581,7 @@ export async function generateByEditing(
       //   3. zoneBlock — protected brand zones
       //   4. sceneText — camera angle, framing, background, lighting
       //   5. CANONICAL_PROHIBITIONS_BLOCK — 11 canonical prohibitions from productPreservation.ts
-      const fullPrompt = LOCK_REMINDER_BLOCK + TASK_FRAMING_BLOCK + identityLock.promptBlock + zoneBlock + sceneText + STUDIO_STANDARD_BLOCK + materialDirectives(identityLock.material, identityLock.visualNotes) + CANONICAL_PROHIBITIONS_BLOCK + ANTI_FRAME_FINAL_BLOCK
+      const fullPrompt = LOCK_REMINDER_BLOCK + TASK_FRAMING_BLOCK + identityLock.promptBlock + zoneBlock + sceneText + STUDIO_STANDARD_BLOCK + materialDirectives(identityLock.material, identityLock.visualNotes) + MATERIAL_IDENTITY_LOCK_BLOCK + CANONICAL_PROHIBITIONS_BLOCK + ANTI_FRAME_FINAL_BLOCK
 
       const slotLog: SlotLog = {
         slot: scene.name,
@@ -1953,8 +1971,12 @@ export async function generateByGeminiPro(
     // loop runs the front/hero before the detail slot in the standard 5-slot pack.
     // If the anchor was not generated in this batch (e.g. a premium-only [3,4]
     // regen), the detail slot falls back to normal generation — no break.
-    const ANCHOR_SOURCE = 'commerce_front' // slot 2 front/hero
-    const ANCHOR_TARGET = 'worn_lifestyle' // slot 4 material/craft detail (D-355F order)
+    // D-355H/M: capture the generated side(0) + front/hero(1) and feed them as
+    // additional references to the LATER slots (toe/vamp, material, rear) so the
+    // rendered material/finish stays consistent across the set.
+    const ANCHOR_HERO_SOURCE = 'commerce_front' // Slot 2 front/hero
+    const ANCHOR_SIDE_SOURCE = 'side_angle'     // Slot 1 side profile
+    const ANCHOR_TARGET_SLOTS = new Set(['detail_closeup', 'worn_lifestyle', 'tabletop_editorial']) // Slots 3,4,5
     const ANCHOR_DETAIL_BLOCK =
       `\n\n═══ ANCHOR-DERIVED DETAIL (MANDATORY) ═══\n` +
       `An ADDITIONAL attached image is the already-generated FRONT/HERO studio photo of THIS SAME shoe. Treat it as the ANCHOR.\n` +
@@ -1962,7 +1984,8 @@ export async function generateByGeminiPro(
       `Stay faithful to the anchor: do NOT redesign, do NOT change proportions, do NOT add or remove anything that is not in the anchor and the source reference.\n` +
       `FORBIDDEN: inventing any logo or brand text, metal accessory, buckle, ornament, panel, strap, stitching, or decorative detail that is not clearly present in the anchor/reference.\n` +
       `═══════════════════════════\n`
-    let anchorBuf: Buffer | null = null
+    let anchorHero: Buffer | null = null
+    let anchorSide: Buffer | null = null
 
     for (const scene of scenes) {
       const sceneText = scene.sceneInstructions
@@ -1971,18 +1994,28 @@ export async function generateByGeminiPro(
         .replace(/\{BACKGROUND\}/g, premiumBackground)
 
       // Same 5-block prompt structure as generateByEditing
-      const fullPrompt = LOCK_REMINDER_BLOCK + TASK_FRAMING_BLOCK + identityLock.promptBlock + zoneBlock + sceneText + STUDIO_STANDARD_BLOCK + materialDirectives(identityLock.material, identityLock.visualNotes) + CANONICAL_PROHIBITIONS_BLOCK + ANTI_FRAME_FINAL_BLOCK
+      const fullPrompt = LOCK_REMINDER_BLOCK + TASK_FRAMING_BLOCK + identityLock.promptBlock + zoneBlock + sceneText + STUDIO_STANDARD_BLOCK + materialDirectives(identityLock.material, identityLock.visualNotes) + MATERIAL_IDENTITY_LOCK_BLOCK + CANONICAL_PROHIBITIONS_BLOCK + ANTI_FRAME_FINAL_BLOCK
 
-      // D-355H: for the detail slot, prepend the generated front/hero anchor (when
-      // available) as the PRIMARY additional reference + an anchor-derivation block.
-      // Anchor is prepended so it survives the 2-image cap in callGeminiImageGenerate.
-      const useAnchor = scene.name === ANCHOR_TARGET && anchorBuf !== null
-      const slotImages = useAnchor
-        ? [{ data: anchorBuf as Buffer, mime: 'image/jpeg' }, ...(additionalImages ?? [])]
-        : additionalImages
-      const slotPrompt = useAnchor ? ANCHOR_DETAIL_BLOCK + fullPrompt : fullPrompt
-      if (useAnchor) {
-        console.log(`[generateByGeminiPro D-355H] ${scene.name} using front/hero anchor (${(anchorBuf as Buffer).length}b) as primary reference`)
+      // D-355H/M: for the LATER slots (toe/vamp, material, rear), feed the already-
+      // generated front/hero + side anchors as additional references so material/
+      // finish stays consistent. The anchors REPLACE the raw extra product photos for
+      // these slots — they are the strongest material-consistency reference and the
+      // callGeminiImageGenerate additionalImages cap is 2 (so we prefer the strongest
+      // anchors). The primary ORIGINAL reference is always sent separately as the base
+      // image, so material truth is preserved. The material slot also gets the
+      // anchor-derivation block.
+      let slotImages = additionalImages
+      const anchors: Array<{ data: Buffer; mime: string }> = []
+      if (ANCHOR_TARGET_SLOTS.has(scene.name)) {
+        if (anchorHero) anchors.push({ data: anchorHero, mime: 'image/jpeg' })
+        if (anchorSide) anchors.push({ data: anchorSide, mime: 'image/jpeg' })
+        if (anchors.length > 0) slotImages = anchors
+      }
+      const slotPrompt = (scene.name === 'worn_lifestyle' && anchors.length > 0)
+        ? ANCHOR_DETAIL_BLOCK + fullPrompt
+        : fullPrompt
+      if (anchors.length > 0) {
+        console.log(`[generateByGeminiPro D-355M] ${scene.name} reusing ${anchors.length} generated anchor(s) [hero=${!!anchorHero} side=${!!anchorSide}] for material consistency`)
       }
 
       const slotLog: SlotLog = {
@@ -2093,9 +2126,6 @@ export async function generateByGeminiPro(
       }
 
       if (finalBuf) {
-        // D-355H: capture the generated front/hero as the anchor for the detail slot
-        if (scene.name === ANCHOR_SOURCE) anchorBuf = finalBuf
-
         // D-201: Orientation auto-fix for side_angle — toe must point LEFT
         if (scene.name === 'side_angle' && geminiKey) {
           try {
@@ -2112,6 +2142,11 @@ export async function generateByGeminiPro(
             console.warn('[generateByGeminiPro D-201] orientation check failed:', flipErr)
           }
         }
+
+        // D-355M: capture the orientation-corrected generated anchors (front/hero +
+        // side profile) so later slots can reuse them for material consistency.
+        if (scene.name === ANCHOR_HERO_SOURCE) anchorHero = finalBuf
+        if (scene.name === ANCHOR_SIDE_SOURCE) anchorSide = finalBuf
 
         result.buffers.push(finalBuf)
         result.successCount++

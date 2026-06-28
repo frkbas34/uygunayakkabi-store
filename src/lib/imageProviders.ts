@@ -1324,6 +1324,7 @@ const EDITING_SCENES = [
       `COMPOSITION: Full shoe, 70% of image height. Top of collar and sole bottom both visible. Centered. Clean spacing around shoe.\n` +
       `MUST SEE: Toe cap front face, vamp, lace/closure system, collar — the entire FRONT face.\n` +
       `MUST NOT SEE: Heel counter, side profile, sole edge.\n` +
+      `NO INVENTED HARDWARE (MANDATORY): Do NOT add any metal, iron, buckle, plate, chain, ring, eyelet, stud, ornament, logo, brand text, accessory, strap, panel, or hardware that is not CLEARLY visible in the reference. If the original shoe is plain, render it plain. Preserve the original visible material, color, and shape EXACTLY — invent nothing on the front face.\n` +
       `BACKGROUND: {BACKGROUND} — keep the ivory backdrop at the SAME mid-tone exposure as every other slot; do NOT brighten it toward white or wash it out.\n` +
       `LIGHT: Soft, even studio lighting at a MODERATE exposure — gentle key + soft fill, one natural soft shadow under the shoe. Do NOT over-light, over-expose, or wash out the scene; match the brightness and ivory tone of the other slots.\n` +
       `OUTPUT: Full-bleed photograph that fills the ENTIRE canvas edge to edge. The image IS the photo — NOT a photo of a photo.\n` +

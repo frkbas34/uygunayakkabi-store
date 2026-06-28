@@ -26,7 +26,7 @@
 import type { TaskConfig } from 'payload'
 
 export const imageGenTask: TaskConfig<{
-  input: { jobId: string; stage?: string; provider?: string; creative?: string }
+  input: { jobId: string; stage?: string; provider?: string }
   output: {
     success: boolean
     mediaIds: string
@@ -41,7 +41,6 @@ export const imageGenTask: TaskConfig<{
     { name: 'jobId', type: 'text', required: true },
     { name: 'stage', type: 'text' },    // 'standard' (slots 1-3) | 'premium' (slots 4-5)
     { name: 'provider', type: 'text' }, // 'openai' (default) | 'gemini-pro'
-    { name: 'creative', type: 'text' }, // D-355K: 'true' = generative redraw; default/absent = Identity Safe Mode
   ],
 
   outputSchema: [
@@ -86,14 +85,6 @@ export const imageGenTask: TaskConfig<{
     // provider: 'openai' (default, gpt-image-1 edit) | 'gemini-pro' (Gemini image gen)
     // v19 Gemini-only: default provider is gemini-pro (was 'openai' before v19)
     const provider = (input.provider || 'gemini-pro') as 'openai' | 'gemini-pro'
-    // ── D-355K: Product Identity Safe Mode ──────────────────────────────────────
-    // Safe Mode is the DEFAULT for the standard catalog pack: it builds deterministic
-    // crops of the ORIGINAL reference image and NEVER lets a model redraw the shoe, so
-    // product color/material/hardware/shape are preserved exactly. The generative
-    // path runs only when explicitly requested (creative='true', set by #geminipro /
-    // #chatgpt). Premium stage is unaffected (it is not the standard pack).
-    const creativeMode = input.creative === 'true'
-    const useSafeMode = stage === 'standard' && !creativeMode
     const payload = req.payload
 
     console.log(`[imageGenTask v14] start — jobId=${jobId} stage=${stage} provider=${provider} sceneIndices=[${sceneIndices}]`)
@@ -364,25 +355,17 @@ export const imageGenTask: TaskConfig<{
     const ALL_SLOT_NAMES  = ['side_angle', 'commerce_front', 'detail_closeup', 'worn_lifestyle', 'tabletop_editorial']
     // D-355F: slot order — material/detail close-up = slot 4, rear three-quarter = slot 5 (all studio, reference-safe).
     const ALL_SLOT_LABELS = ['Slot 1 — Yan Profil (PRIMARY)', 'Slot 2 — Ön Hero', 'Slot 3 — Makro', 'Slot 4 — Malzeme/Detay', 'Slot 5 — Arka 3/4']
-    // D-355K: Identity Safe Mode uses deterministic original-image slots; the
-    // generative path keeps its scene-based slots.
-    const SAFE_SLOT_NAMES  = ['orig_square', 'orig_hero', 'orig_upper', 'orig_detail']
-    const SAFE_SLOT_LABELS = ['Slot 1 — Orijinal (Kare)', 'Slot 2 — Orijinal Hero', 'Slot 3 — Üst Kırpma', 'Slot 4 — Detay Kırpma']
-    const slotNames  = useSafeMode ? SAFE_SLOT_NAMES.slice()  : sceneIndices.map((i) => ALL_SLOT_NAMES[i])
-    const slotLabels = useSafeMode ? SAFE_SLOT_LABELS.slice() : sceneIndices.map((i) => ALL_SLOT_LABELS[i])
+    const slotNames  = sceneIndices.map((i) => ALL_SLOT_NAMES[i])
+    const slotLabels = sceneIndices.map((i) => ALL_SLOT_LABELS[i])
 
-    const pipelineLabel = useSafeMode
-      ? 'identity-safe-mode-deterministic'
-      : provider === 'gemini-pro'
-        ? `gemini-pro-image-v14:${process.env.GEMINI_IMAGE_GEN_MODEL || 'gemini-2.5-flash-image'}`
-        : 'openai-edit-only-v12'
+    const pipelineLabel = provider === 'gemini-pro'
+      ? `gemini-pro-image-v14:${process.env.GEMINI_IMAGE_GEN_MODEL || 'gemini-2.5-flash-image'}`
+      : 'openai-edit-only-v12'
 
     // Human-readable provider label for Telegram captions and keyboard
-    const providerDisplayLabel = useSafeMode
-      ? '🛡️ Orijinal (Identity Safe Mode)'
-      : provider === 'gemini-pro'
-        ? `✨ Gemini Pro ${process.env.GEMINI_IMAGE_GEN_MODEL || 'gemini-2.5-flash-image'}`
-        : `⚙️ OpenAI gpt-image-1`
+    const providerDisplayLabel = provider === 'gemini-pro'
+      ? `✨ Gemini Pro ${process.env.GEMINI_IMAGE_GEN_MODEL || 'gemini-2.5-flash-image'}`
+      : `⚙️ OpenAI gpt-image-1`
 
     console.log(`[imageGenTask v14] generating — stage=${stage} provider=${provider} slots=[${slotNames.join(',')}]`)
 
@@ -405,55 +388,32 @@ export const imageGenTask: TaskConfig<{
     let providerResultsSummary: unknown[] = []
     let slotLogsSummary: unknown[] = []
 
-    if (useSafeMode) {
-      // ── D-355K: Product Identity Safe Mode — deterministic, NO model redraw ──
-      // The default catalog pack is pure sharp transforms of the ORIGINAL reference
-      // image, so color/material/hardware/shape are preserved exactly. Always yields
-      // 2-4 images (slots 1-2 always succeed; crops degrade out individually if the
-      // source is too small).
-      try {
-        generatedBuffers = await buildSafePack(referenceImage)
-        slotLogsSummary = generatedBuffers.map((_, i) => ({
-          slot: slotNames[i] ?? `safe-${i}`,
-          label: slotLabels[i] ?? `Görsel ${i + 1}`,
-          provider: 'identity-safe-mode',
-          success: true,
-        }))
-        providerResultsSummary = [{ provider: 'identity-safe-mode', success: generatedBuffers.length, total: generatedBuffers.length, errors: [] }]
-        console.log(`[imageGenTask D-355K] Identity Safe Mode — ${generatedBuffers.length} deterministic image(s) from the original reference (no model generation)`)
-      } catch (err) {
-        const errMsg = err instanceof Error ? err.message : String(err)
-        console.error('[imageGenTask D-355K] safe-mode build error:', errMsg)
-        providerResultsSummary = [{ provider: 'identity-safe-mode', error: errMsg }]
-      }
-    } else {
-      try {
-        const { generateByEditing, generateByGeminiPro } = await import('../lib/imageProviders')
-        const genFn = provider === 'gemini-pro' ? generateByGeminiPro : generateByEditing
+    try {
+      const { generateByEditing, generateByGeminiPro } = await import('../lib/imageProviders')
+      const genFn = provider === 'gemini-pro' ? generateByGeminiPro : generateByEditing
 
-        const { results, buffers, slotLogs } = await genFn(
-          referenceImage,
-          referenceImageMime || 'image/jpeg',
-          identityLock,
-          sceneIndices,
-          additionalReferenceImages.length > 0 ? additionalReferenceImages : undefined,
-          productId, // D-233: stable per-product background variant
-        )
-        generatedBuffers = buffers
-        slotLogsSummary = slotLogs
-        providerResultsSummary = results.map((r) => ({
-          provider: r.provider,
-          success: r.successCount,
-          total: r.promptCount,
-          errors: r.errors,
-        }))
+      const { results, buffers, slotLogs } = await genFn(
+        referenceImage,
+        referenceImageMime || 'image/jpeg',
+        identityLock,
+        sceneIndices,
+        additionalReferenceImages.length > 0 ? additionalReferenceImages : undefined,
+        productId, // D-233: stable per-product background variant
+      )
+      generatedBuffers = buffers
+      slotLogsSummary = slotLogs
+      providerResultsSummary = results.map((r) => ({
+        provider: r.provider,
+        success: r.successCount,
+        total: r.promptCount,
+        errors: r.errors,
+      }))
 
-        console.log(`[imageGenTask v14] generated ${generatedBuffers.length} images via ${provider}`)
-      } catch (err) {
-        const errMsg = err instanceof Error ? err.message : String(err)
-        console.error(`[imageGenTask v14] generation error (${provider}):`, errMsg)
-        providerResultsSummary = [{ provider, error: errMsg }]
-      }
+      console.log(`[imageGenTask v14] generated ${generatedBuffers.length} images via ${provider}`)
+    } catch (err) {
+      const errMsg = err instanceof Error ? err.message : String(err)
+      console.error(`[imageGenTask v14] generation error (${provider}):`, errMsg)
+      providerResultsSummary = [{ provider, error: errMsg }]
     }
 
     // ── D-355I: Slot 4 = DETERMINISTIC crop of an already-generated SAFE slot ──
@@ -461,9 +421,8 @@ export const imageGenTask: TaskConfig<{
     // ornaments, accessories, stitching, or parts. Prefer the toe/vamp detail (slot 3),
     // fall back to the front/hero (slot 2). The source is identified by success
     // order (buffers are pushed only for successful slots), so a failed slot cannot
-    // misroute the crop. Standard GENERATIVE pack only — Safe Mode builds its own
-    // deterministic slot 4, so this model-crop step is skipped there.
-    if (!useSafeMode && stage === 'standard' && generatedBuffers.length >= 1) {
+    // misroute the crop. Standard pack only.
+    if (stage === 'standard' && generatedBuffers.length >= 1) {
       try {
         const successSlots = (slotLogsSummary as Array<{ slot?: string; success?: boolean }>)
           .filter((l) => l.success)
@@ -774,86 +733,6 @@ function buildFallbackLock() {
  * lossless PNG intermediate to avoid the pixelated/low-resolution look and an extra
  * JPEG pass.
  */
-// D-355K: soft warm ivory studio backdrop used to pad/contain the original image
-// onto a square canvas (matches the D-303 studio tone #F4EFE6).
-const SAFE_IVORY = { r: 244, g: 239, b: 230 }
-
-/**
- * D-355K: Product Identity Safe Mode pack. Builds the default catalog images as
- * DETERMINISTIC sharp transforms of the ORIGINAL uploaded reference image — no model
- * redraws the shoe, so product color/material/hardware/shape are preserved exactly.
- *
- * Slots (each 1024×1024):
- *   1. Original normalized onto a square ivory canvas (whole product, padded).
- *   2. Original hero — fills more of the square (tighter contain).
- *   3. Upper crop — top region of the photo (shoe upper / vamp), squared.
- *   4. Detail crop — centered zoom, lightly sharpened.
- *
- * Slots 1-2 always succeed; the crop slots (3-4) degrade out individually if the
- * source is too small, so the pack returns 2-4 images and NEVER falls back to the model.
- */
-async function buildSafePack(referenceImage: Buffer): Promise<Buffer[]> {
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
-  const sharp = require('sharp') as typeof import('sharp')
-  const meta = await sharp(referenceImage).rotate().metadata()
-  const w = meta.width ?? 1024
-  const h = meta.height ?? 1024
-  const out: Buffer[] = []
-
-  // Slot 1 — whole product centered on a square ivory canvas (generous padding)
-  out.push(
-    await sharp(referenceImage).rotate()
-      .resize(1024, 1024, { fit: 'contain', background: SAFE_IVORY, kernel: 'lanczos3' })
-      .flatten({ background: SAFE_IVORY })
-      .jpeg({ quality: 95 })
-      .toBuffer(),
-  )
-
-  // Slot 2 — hero: product fills more of the frame (contain to 940 then pad to 1024)
-  out.push(
-    await sharp(referenceImage).rotate()
-      .resize(940, 940, { fit: 'contain', background: SAFE_IVORY, kernel: 'lanczos3' })
-      .extend({ top: 42, bottom: 42, left: 42, right: 42, background: SAFE_IVORY })
-      .flatten({ background: SAFE_IVORY })
-      .jpeg({ quality: 95 })
-      .toBuffer(),
-  )
-
-  // Slot 3 — upper crop: top ~62% of the photo (shoe upper / vamp), squared
-  try {
-    const cropH = Math.max(1, Math.min(h, Math.round(h * 0.62)))
-    out.push(
-      await sharp(referenceImage).rotate()
-        .extract({ left: 0, top: 0, width: w, height: cropH })
-        .resize(1024, 1024, { fit: 'contain', background: SAFE_IVORY, kernel: 'lanczos3' })
-        .flatten({ background: SAFE_IVORY })
-        .jpeg({ quality: 95 })
-        .toBuffer(),
-    )
-  } catch (e) {
-    console.warn('[imageGenTask D-355K] upper crop skipped:', e instanceof Error ? e.message : e)
-  }
-
-  // Slot 4 — detail crop: centered ~55% zoom, mild sharpen
-  try {
-    const side = Math.max(1, Math.round(Math.min(w, h) * 0.55))
-    const left = Math.max(0, Math.min(Math.round((w - side) / 2), w - side))
-    const top  = Math.max(0, Math.min(Math.round((h - side) / 2), h - side))
-    out.push(
-      await sharp(referenceImage).rotate()
-        .extract({ left, top, width: side, height: side })
-        .resize(1024, 1024, { fit: 'cover', kernel: 'lanczos3' })
-        .sharpen({ sigma: 0.5 })
-        .jpeg({ quality: 95 })
-        .toBuffer(),
-    )
-  } catch (e) {
-    console.warn('[imageGenTask D-355K] detail crop skipped:', e instanceof Error ? e.message : e)
-  }
-
-  return out
-}
-
 async function buildDetailCrop(buf: Buffer): Promise<Buffer> {
   // eslint-disable-next-line @typescript-eslint/no-require-imports
   const sharp = require('sharp') as typeof import('sharp')

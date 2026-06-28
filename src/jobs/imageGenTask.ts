@@ -418,8 +418,8 @@ export const imageGenTask: TaskConfig<{
 
     // ── D-355I: Slot 4 = DETERMINISTIC crop of an already-generated SAFE slot ──
     // Cropping real generated pixels cannot invent material, hardware, logos,
-    // ornaments, accessories, stitching, or parts. Prefer the toe/vamp detail (slot 3),
-    // fall back to the front/hero (slot 2). The source is identified by success
+    // ornaments, accessories, stitching, or parts. Prefer the front/hero (slot 2),
+    // fall back to the toe/vamp detail (slot 3). The source is identified by success
     // order (buffers are pushed only for successful slots), so a failed slot cannot
     // misroute the crop. Standard pack only.
     if (stage === 'standard' && generatedBuffers.length >= 1) {
@@ -427,11 +427,8 @@ export const imageGenTask: TaskConfig<{
         const successSlots = (slotLogsSummary as Array<{ slot?: string; success?: boolean }>)
           .filter((l) => l.success)
           .map((l) => l.slot)
-        // D-355J: prefer the toe/vamp DETAIL (slot 3) — it stays faithful to the
-        // original shoe. Use the front/hero (slot 2) only as a fallback, since it has
-        // been observed inventing metal/hardware that the crop would otherwise inherit.
-        const preferIdx   = successSlots.indexOf('detail_closeup')
-        const fallbackIdx = successSlots.indexOf('commerce_front')
+        const preferIdx   = successSlots.indexOf('commerce_front')
+        const fallbackIdx = successSlots.indexOf('detail_closeup')
         const srcIdx = preferIdx >= 0 ? preferIdx : fallbackIdx
         if (srcIdx >= 0 && generatedBuffers[srcIdx]) {
           const cropBuf = await buildDetailCrop(generatedBuffers[srcIdx])
@@ -726,12 +723,10 @@ function buildFallbackLock() {
 }
 
 /**
- * D-355I/J: Build the slot-4 detail image as a DETERMINISTIC center crop/zoom of an
- * already-generated SAFE slot (prefer the toe/vamp detail). Pure sharp pixel
- * operation — no model — so it cannot invent material, hardware, logos, ornaments,
- * stitching, or parts. D-355J: gentler crop + lanczos3 resize + mild sharpen +
- * lossless PNG intermediate to avoid the pixelated/low-resolution look and an extra
- * JPEG pass.
+ * D-355I: Build the slot-4 detail image as a DETERMINISTIC center crop/zoom of an
+ * already-generated slot (front/hero or toe/vamp). Pure sharp pixel operation — no
+ * model — so it cannot invent material, hardware, logos, ornaments, stitching, or
+ * parts. Biased slightly upward toward the vamp/lacing zone.
  */
 async function buildDetailCrop(buf: Buffer): Promise<Buffer> {
   // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -739,20 +734,14 @@ async function buildDetailCrop(buf: Buffer): Promise<Buffer> {
   const meta = await sharp(buf).metadata()
   const w = meta.width ?? 1024
   const h = meta.height ?? 1024
-  // D-355J: gentler ~0.78 crop (was 0.6) so the upscale to 1024 stays mild — the
-  // toe/vamp source is already a close shot, so a heavy zoom only pixelates.
-  const side = Math.max(1, Math.round(Math.min(w, h) * 0.78))
+  const side = Math.max(1, Math.round(Math.min(w, h) * 0.6)) // ~60% center zoom
   const left = Math.max(0, Math.min(Math.round((w - side) / 2), w - side))
   // bias the crop slightly up toward the vamp / lacing area
-  const top = Math.max(0, Math.min(Math.round((h - side) / 2 - h * 0.05), h - side))
-  // D-355J: high-quality lanczos3 resize + mild sharpen; emit a LOSSLESS PNG so the
-  // only lossy compression on this image is the shared stock-number overlay (JPEG)
-  // applied afterward — a single JPEG pass, same as every other slot.
+  const top = Math.max(0, Math.min(Math.round((h - side) / 2 - h * 0.06), h - side))
   return sharp(buf)
     .extract({ left, top, width: side, height: side })
-    .resize(1024, 1024, { fit: 'cover', kernel: 'lanczos3' })
-    .sharpen({ sigma: 0.6 })
-    .png()
+    .resize(1024, 1024, { fit: 'cover' })
+    .jpeg({ quality: 92 })
     .toBuffer()
 }
 

@@ -74,14 +74,12 @@ export const imageGenTask: TaskConfig<{
 
   handler: async ({ input, req }) => {
     const { jobId } = input
-    // D-355I: the standard pack GENERATES only 3 safe studio slots — side(0),
-    // front/hero(1), toe/vamp detail(2). Slot 4 is NOT generated here; it is added
-    // afterward as a DETERMINISTIC crop of an already-generated slot (see below), so
-    // the model can no longer invent material/hardware/ornaments/parts for the detail
-    // view. The old generative material(3) + rear(4) slots are dropped from default.
-    // stage: 'standard' → slots 0-2 generated (+ deterministic slot 4) | 'premium' → legacy [3,4]
+    // D-355B: the standard pack now generates the full 5-image studio set (slots
+    // 1-5) by default, not just slots 1-3. 'premium' remains a backward-compatible
+    // path that (re)generates only slots 4-5 for older or partial jobs.
+    // stage: 'standard' → slots 1-5 (default for #gorsel) | 'premium' → slots 4-5
     const stage = (input.stage || 'standard') as 'standard' | 'premium'
-    const sceneIndices = stage === 'premium' ? [3, 4] : [0, 1, 2]
+    const sceneIndices = stage === 'premium' ? [3, 4] : [0, 1, 2, 3, 4]
     // provider: 'openai' (default, gpt-image-1 edit) | 'gemini-pro' (Gemini image gen)
     // v19 Gemini-only: default provider is gemini-pro (was 'openai' before v19)
     const provider = (input.provider || 'gemini-pro') as 'openai' | 'gemini-pro'
@@ -416,34 +414,6 @@ export const imageGenTask: TaskConfig<{
       providerResultsSummary = [{ provider, error: errMsg }]
     }
 
-    // ── D-355I: Slot 4 = DETERMINISTIC crop of an already-generated SAFE slot ──
-    // Cropping real generated pixels cannot invent material, hardware, logos,
-    // ornaments, accessories, stitching, or parts. Prefer the front/hero (slot 2),
-    // fall back to the toe/vamp detail (slot 3). The source is identified by success
-    // order (buffers are pushed only for successful slots), so a failed slot cannot
-    // misroute the crop. Standard pack only.
-    if (stage === 'standard' && generatedBuffers.length >= 1) {
-      try {
-        const successSlots = (slotLogsSummary as Array<{ slot?: string; success?: boolean }>)
-          .filter((l) => l.success)
-          .map((l) => l.slot)
-        const preferIdx   = successSlots.indexOf('commerce_front')
-        const fallbackIdx = successSlots.indexOf('detail_closeup')
-        const srcIdx = preferIdx >= 0 ? preferIdx : fallbackIdx
-        if (srcIdx >= 0 && generatedBuffers[srcIdx]) {
-          const cropBuf = await buildDetailCrop(generatedBuffers[srcIdx])
-          generatedBuffers.push(cropBuf)
-          slotNames.push('detail_crop')
-          slotLabels.push('Slot 4 — Detay Kırpma')
-          console.log(`[imageGenTask D-355I] slot 4 = deterministic crop of ${successSlots[srcIdx]} (no generation, no invention)`)
-        } else {
-          console.warn('[imageGenTask D-355I] no safe source slot available for the detail crop — skipping slot 4')
-        }
-      } catch (cropErr) {
-        console.warn('[imageGenTask D-355I] detail crop failed (non-fatal):', cropErr instanceof Error ? cropErr.message : cropErr)
-      }
-    }
-
     if (generatedBuffers.length === 0) {
       const providerLabel = provider === 'gemini-pro' ? 'Gemini Pro' : 'OpenAI'
 
@@ -722,29 +692,6 @@ function buildFallbackLock() {
   }
 }
 
-/**
- * D-355I: Build the slot-4 detail image as a DETERMINISTIC center crop/zoom of an
- * already-generated slot (front/hero or toe/vamp). Pure sharp pixel operation — no
- * model — so it cannot invent material, hardware, logos, ornaments, stitching, or
- * parts. Biased slightly upward toward the vamp/lacing zone.
- */
-async function buildDetailCrop(buf: Buffer): Promise<Buffer> {
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
-  const sharp = require('sharp') as typeof import('sharp')
-  const meta = await sharp(buf).metadata()
-  const w = meta.width ?? 1024
-  const h = meta.height ?? 1024
-  const side = Math.max(1, Math.round(Math.min(w, h) * 0.6)) // ~60% center zoom
-  const left = Math.max(0, Math.min(Math.round((w - side) / 2), w - side))
-  // bias the crop slightly up toward the vamp / lacing area
-  const top = Math.max(0, Math.min(Math.round((h - side) / 2 - h * 0.06), h - side))
-  return sharp(buf)
-    .extract({ left, top, width: side, height: side })
-    .resize(1024, 1024, { fit: 'cover' })
-    .jpeg({ quality: 92 })
-    .toBuffer()
-}
-
 async function sendTelegramNotification(chatId: string, text: string): Promise<void> {
   const token = process.env.TELEGRAM_BOT_TOKEN
   if (!token) return
@@ -979,9 +926,12 @@ async function sendApprovalKeyboard(
     keyboard.push(combinationButtons)
   }
 
-  // D-355I: the premium "4-5" upsell is removed — the default pack is now 4 images
-  // (3 generated + 1 deterministic crop) with no slot 5. The imgpremium callback
-  // handler remains for backward compatibility but is no longer surfaced on new sets.
+  // Row 4: Premium upgrade — only when the standard batch did NOT already include
+  // slots 4-5. D-355B: the standard pack now produces all 5, so this upsell is
+  // hidden then; it remains a recovery path for older/partial 3-image jobs.
+  if (isStandard && imageCount < 5) {
+    keyboard.push([{ text: '🌟 4-5 Gemini Pro Üret', callback_data: `imgpremium:${jobId}` }])
+  }
 
   // Last row: Regenerate + Reject
   keyboard.push([

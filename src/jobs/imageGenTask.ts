@@ -364,11 +364,12 @@ export const imageGenTask: TaskConfig<{
     const ALL_SLOT_NAMES  = ['side_angle', 'commerce_front', 'detail_closeup', 'worn_lifestyle', 'tabletop_editorial']
     // D-355F: slot order — material/detail close-up = slot 4, rear three-quarter = slot 5 (all studio, reference-safe).
     const ALL_SLOT_LABELS = ['Slot 1 — Yan Profil (PRIMARY)', 'Slot 2 — Ön Hero', 'Slot 3 — Makro', 'Slot 4 — Malzeme/Detay', 'Slot 5 — Arka 3/4']
-    // D-355K/L: in Identity Safe Mode the slot names/labels come from buildSafePack
-    // (truthful original-derived images, variable 1-4 count) and are repopulated in
-    // the safe branch below. The generative path keeps its scene-based slots.
-    const slotNames  = sceneIndices.map((i) => ALL_SLOT_NAMES[i])
-    const slotLabels = sceneIndices.map((i) => ALL_SLOT_LABELS[i])
+    // D-355K: Identity Safe Mode uses deterministic original-image slots; the
+    // generative path keeps its scene-based slots.
+    const SAFE_SLOT_NAMES  = ['orig_square', 'orig_hero', 'orig_upper', 'orig_detail']
+    const SAFE_SLOT_LABELS = ['Slot 1 — Orijinal (Kare)', 'Slot 2 — Orijinal Hero', 'Slot 3 — Üst Kırpma', 'Slot 4 — Detay Kırpma']
+    const slotNames  = useSafeMode ? SAFE_SLOT_NAMES.slice()  : sceneIndices.map((i) => ALL_SLOT_NAMES[i])
+    const slotLabels = useSafeMode ? SAFE_SLOT_LABELS.slice() : sceneIndices.map((i) => ALL_SLOT_LABELS[i])
 
     const pipelineLabel = useSafeMode
       ? 'identity-safe-mode-deterministic'
@@ -405,27 +406,24 @@ export const imageGenTask: TaskConfig<{
     let slotLogsSummary: unknown[] = []
 
     if (useSafeMode) {
-      // ── D-355K/L: Product Identity Safe Mode — truthful, original-based pack ──
-      // No model redraw. We do NOT force fake studio variations from one photo:
-      //   • 1 distinct source → a clean ivory hero + ONE quality-safe detail crop,
-      //     and the detail crop only when the source is high-res enough (else hero only).
-      //   • 2-4 distinct uploaded references → one normalized hero per real photo.
+      // ── D-355K: Product Identity Safe Mode — deterministic, NO model redraw ──
+      // The default catalog pack is pure sharp transforms of the ORIGINAL reference
+      // image, so color/material/hardware/shape are preserved exactly. Always yields
+      // 2-4 images (slots 1-2 always succeed; crops degrade out individually if the
+      // source is too small).
       try {
-        const safePack = await buildSafePack(referenceImage, additionalReferenceImages)
-        generatedBuffers = safePack.map((p) => p.buf)
-        slotNames.length = 0;  safePack.forEach((p) => slotNames.push(p.name))
-        slotLabels.length = 0; safePack.forEach((p) => slotLabels.push(p.label))
-        slotLogsSummary = safePack.map((p) => ({
-          slot: p.name,
-          label: p.label,
+        generatedBuffers = await buildSafePack(referenceImage)
+        slotLogsSummary = generatedBuffers.map((_, i) => ({
+          slot: slotNames[i] ?? `safe-${i}`,
+          label: slotLabels[i] ?? `Görsel ${i + 1}`,
           provider: 'identity-safe-mode',
           success: true,
         }))
-        providerResultsSummary = [{ provider: 'identity-safe-mode', success: safePack.length, total: safePack.length, errors: [] }]
-        console.log(`[imageGenTask D-355L] Identity Safe Mode — ${safePack.length} truthful original-based image(s) [${slotNames.join(', ')}] (no model generation)`)
+        providerResultsSummary = [{ provider: 'identity-safe-mode', success: generatedBuffers.length, total: generatedBuffers.length, errors: [] }]
+        console.log(`[imageGenTask D-355K] Identity Safe Mode — ${generatedBuffers.length} deterministic image(s) from the original reference (no model generation)`)
       } catch (err) {
         const errMsg = err instanceof Error ? err.message : String(err)
-        console.error('[imageGenTask D-355L] safe-mode build error:', errMsg)
+        console.error('[imageGenTask D-355K] safe-mode build error:', errMsg)
         providerResultsSummary = [{ provider: 'identity-safe-mode', error: errMsg }]
       }
     } else {
@@ -776,93 +774,81 @@ function buildFallbackLock() {
  * lossless PNG intermediate to avoid the pixelated/low-resolution look and an extra
  * JPEG pass.
  */
-// D-355K: soft warm ivory backdrop used to pad/contain the original image onto a
-// square canvas (matches the D-303 studio tone #F4EFE6).
+// D-355K: soft warm ivory studio backdrop used to pad/contain the original image
+// onto a square canvas (matches the D-303 studio tone #F4EFE6).
 const SAFE_IVORY = { r: 244, g: 239, b: 230 }
 
-type SafeImage = { buf: Buffer; name: string; label: string }
-
 /**
- * D-355K/L: Product Identity Safe Mode pack — TRUTHFUL, original-based images only.
- * No model redraws the shoe, so product color/material/hardware/shape are preserved.
+ * D-355K: Product Identity Safe Mode pack. Builds the default catalog images as
+ * DETERMINISTIC sharp transforms of the ORIGINAL uploaded reference image — no model
+ * redraws the shoe, so product color/material/hardware/shape are preserved exactly.
  *
- * D-355L: we no longer force 4 fake studio variations from ONE photo (that looked
- * ugly/repetitive/low-quality). Instead:
- *   • 2-4 DISTINCT uploaded references → one clean ivory hero per real photo (the
- *     real photos supply genuine variety; capped at 4).
- *   • 1 reference → a clean ivory hero, PLUS ONE quality-safe detail crop ONLY when
- *     the source is high-res enough to crop without upscaling/pixelating; otherwise
- *     hero only. No tight zoom crops, no near-duplicate slots.
+ * Slots (each 1024×1024):
+ *   1. Original normalized onto a square ivory canvas (whole product, padded).
+ *   2. Original hero — fills more of the square (tighter contain).
+ *   3. Upper crop — top region of the photo (shoe upper / vamp), squared.
+ *   4. Detail crop — centered zoom, lightly sharpened.
  *
- * Always returns 1-4 images and NEVER falls back to the model.
+ * Slots 1-2 always succeed; the crop slots (3-4) degrade out individually if the
+ * source is too small, so the pack returns 2-4 images and NEVER falls back to the model.
  */
-async function buildSafePack(
-  primary: Buffer,
-  additional: Array<{ data: Buffer; mime: string }> = [],
-): Promise<SafeImage[]> {
+async function buildSafePack(referenceImage: Buffer): Promise<Buffer[]> {
   // eslint-disable-next-line @typescript-eslint/no-require-imports
   const sharp = require('sharp') as typeof import('sharp')
+  const meta = await sharp(referenceImage).rotate().metadata()
+  const w = meta.width ?? 1024
+  const h = meta.height ?? 1024
+  const out: Buffer[] = []
 
-  // Clean ivory hero: contain the whole product onto a 1024 square with a small,
-  // consistent ivory margin. Modest upscale is acceptable here (preserves aspect).
-  const normalizeHero = async (buf: Buffer): Promise<Buffer> =>
-    sharp(buf).rotate()
-      .resize(960, 960, { fit: 'contain', background: SAFE_IVORY, kernel: 'lanczos3' })
-      .extend({ top: 32, bottom: 32, left: 32, right: 32, background: SAFE_IVORY })
+  // Slot 1 — whole product centered on a square ivory canvas (generous padding)
+  out.push(
+    await sharp(referenceImage).rotate()
+      .resize(1024, 1024, { fit: 'contain', background: SAFE_IVORY, kernel: 'lanczos3' })
       .flatten({ background: SAFE_IVORY })
       .jpeg({ quality: 95 })
-      .toBuffer()
+      .toBuffer(),
+  )
 
-  const sources: Buffer[] = [primary, ...additional.map((a) => a.data)].slice(0, 4)
+  // Slot 2 — hero: product fills more of the frame (contain to 940 then pad to 1024)
+  out.push(
+    await sharp(referenceImage).rotate()
+      .resize(940, 940, { fit: 'contain', background: SAFE_IVORY, kernel: 'lanczos3' })
+      .extend({ top: 42, bottom: 42, left: 42, right: 42, background: SAFE_IVORY })
+      .flatten({ background: SAFE_IVORY })
+      .jpeg({ quality: 95 })
+      .toBuffer(),
+  )
 
-  // ── Multiple distinct uploaded references → one truthful hero each (no crops) ──
-  if (sources.length >= 2) {
-    const heroes: SafeImage[] = []
-    for (let i = 0; i < sources.length; i++) {
-      try {
-        heroes.push({
-          buf: await normalizeHero(sources[i]),
-          name: i === 0 ? 'orig_hero' : `orig_${i + 1}`,
-          label: i === 0 ? 'Orijinal Hero' : `Orijinal Görsel ${i + 1}`,
-        })
-      } catch (e) {
-        console.warn(`[imageGenTask D-355L] reference ${i + 1} normalize skipped:`, e instanceof Error ? e.message : e)
-      }
-    }
-    console.log(`[imageGenTask D-355L] ${heroes.length} truthful hero(es) from ${sources.length} distinct uploaded reference(s)`)
-    return heroes
+  // Slot 3 — upper crop: top ~62% of the photo (shoe upper / vamp), squared
+  try {
+    const cropH = Math.max(1, Math.min(h, Math.round(h * 0.62)))
+    out.push(
+      await sharp(referenceImage).rotate()
+        .extract({ left: 0, top: 0, width: w, height: cropH })
+        .resize(1024, 1024, { fit: 'contain', background: SAFE_IVORY, kernel: 'lanczos3' })
+        .flatten({ background: SAFE_IVORY })
+        .jpeg({ quality: 95 })
+        .toBuffer(),
+    )
+  } catch (e) {
+    console.warn('[imageGenTask D-355K] upper crop skipped:', e instanceof Error ? e.message : e)
   }
 
-  // ── Single reference → hero + ONE quality-safe detail crop (resolution-gated) ──
-  const out: SafeImage[] = [{ buf: await normalizeHero(primary), name: 'orig_hero', label: 'Orijinal Hero' }]
-
-  const meta = await sharp(primary).rotate().metadata()
-  const w = meta.width ?? 0
-  const h = meta.height ?? 0
-  const minDim = Math.min(w, h)
-  const CROP_FRACTION = 0.66
-  const TARGET = 1024
-  const cropPx = Math.round(minDim * CROP_FRACTION)
-
-  if (minDim > 0 && cropPx >= TARGET) {
-    // The crop region is large enough to DOWNSCALE to 1024 → clean, no pixelation.
-    try {
-      const side = Math.round(minDim * CROP_FRACTION)
-      const left = Math.max(0, Math.round((w - side) / 2))
-      const top  = Math.max(0, Math.round((h - side) * 0.22)) // bias up toward the vamp/upper
-      const detail = await sharp(primary).rotate()
+  // Slot 4 — detail crop: centered ~55% zoom, mild sharpen
+  try {
+    const side = Math.max(1, Math.round(Math.min(w, h) * 0.55))
+    const left = Math.max(0, Math.min(Math.round((w - side) / 2), w - side))
+    const top  = Math.max(0, Math.min(Math.round((h - side) / 2), h - side))
+    out.push(
+      await sharp(referenceImage).rotate()
         .extract({ left, top, width: side, height: side })
-        .resize(TARGET, TARGET, { fit: 'cover', kernel: 'lanczos3' })
-        .sharpen({ sigma: 0.4 })
+        .resize(1024, 1024, { fit: 'cover', kernel: 'lanczos3' })
+        .sharpen({ sigma: 0.5 })
         .jpeg({ quality: 95 })
-        .toBuffer()
-      out.push({ buf: detail, name: 'orig_detail', label: 'Orijinal Detay' })
-      console.log(`[imageGenTask D-355L] hero + detail crop — source ${w}x${h}, crop region ${cropPx}px >= ${TARGET}px (downscale, high quality)`)
-    } catch (e) {
-      console.warn('[imageGenTask D-355L] detail crop skipped (extract error):', e instanceof Error ? e.message : e)
-    }
-  } else {
-    console.log(`[imageGenTask D-355L] hero ONLY — detail crop skipped: source ${w}x${h}, crop region ${cropPx}px < ${TARGET}px target (would upscale/pixelate)`)
+        .toBuffer(),
+    )
+  } catch (e) {
+    console.warn('[imageGenTask D-355K] detail crop skipped:', e instanceof Error ? e.message : e)
   }
 
   return out

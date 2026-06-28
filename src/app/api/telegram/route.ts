@@ -3884,7 +3884,7 @@ export async function POST(req: NextRequest) {
 
       await payload.jobs.queue({
         task: 'image-gen',
-        input: { jobId: String(gpJobDoc.id), stage: 'standard', provider: 'gemini-pro' },
+        input: { jobId: String(gpJobDoc.id), stage: 'standard', provider: 'gemini-pro', creative: 'true' }, // D-355K: explicit generative opt-in
         overrideAccess: true,
       })
 

@@ -59,6 +59,15 @@ Reviewed SQL plan:
 scripts/sql/d355-image-qc-schema.sql
 ```
 
+Dry-run preview completed on 2026-06-30:
+
+```text
+npm run db:imageqc:apply -- --dry-run --print-sql
+SQL bytes: 2404
+SQL sha256: 832fd6bcff0dde40
+Result: dry-run only; no database connection opened and no DDL executed.
+```
+
 Guarded apply helper:
 
 ```powershell
@@ -93,14 +102,18 @@ CREATE TABLE IF NOT EXISTS products_image_quality_defect_flags (
 
 After migration/verification:
 
-```powershell
-npm run smoke:imageqc:schema -- --confirm-read-only
-npm run smoke:shopier:read -- --confirm-read-only
-```
+```powershel
 
-Then live-smoke:
 
-- `/shopier dashboard`
-- `/shopier publish-ready`
-- `/shopier errors`
-- `/shopier retry-errors`
+## RESOLVED — 2026-06-30
+
+Applied via `npm run db:imageqc:apply -- --apply --confirm-apply-d355-image-qc-schema`
+against the production database. Added the products `image_quality_*` columns, the
+`products_image_quality_defect_flags` table, enums, FK, and indexes. Post-apply smoke
+checks PASS:
+
+- `npm run smoke:imageqc:schema -- --confirm-read-only` → PASS (5/5 columns, defect table present).
+- `npm run smoke:shopier:read -- --confirm-read-only` → completed (previously failed with
+  relation "products_image_quality_defect_flags" does not exist).
+
+This cleared the product-creation crash ("Failed query ... products.image_quality_status").

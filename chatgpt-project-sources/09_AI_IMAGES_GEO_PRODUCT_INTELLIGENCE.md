@@ -118,3 +118,17 @@ Defaults: image 4 = back/heel, image 5 = material/craft detail close-up. Dynamic
 Single background standard: soft warm ivory seamless studio background.
 
 Requirements: same tone across all 5 images; no grey/yellow/pink drift; consistent studio lighting; consistent soft shadow; consistent crop and scale; product occupies ~74–80% of the frame; the 5 images must look like one coherent studio product set.
+
+
+### 2026-06-30 — Fidelity upgrades (see project-control/D-357)
+
+- Generation is Gemini-only (Claid, Luma, and OpenAI generation removed).
+- Multi-reference fidelity: when 2+ angles of the same shoe are sent, a framing block tells
+  the model they are ONE product — reproduce only what is visible, keep every detail
+  (hardware/logos/emblems) at true size, never invent or enlarge. Operators should send 2-3
+  angles plus a close-up of any emblem.
+- Detail-preservation lock: existing embossed/stitched detail must not be erased or smoothed
+  (complements the no-invent-metal lock).
+- Studio-angle QC fixed: all 5 slots are studio shots (slot 4 = material/craft close-up,
+  slot 5 = rear three-quarter); stale foot/marble QC criteria removed.
+- Output upscaled ~2x (sharp Lanczos, cap 2048px) before save for crisp product-page zoom.

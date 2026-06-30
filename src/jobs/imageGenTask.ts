@@ -494,6 +494,31 @@ export const imageGenTask: TaskConfig<{
       const label = slotLabels[i] || `Görsel ${i + 1}`
       const filename = `ai-${productId}-${concept}-${Date.now()}-${i}.jpg`
 
+      // Upscale ~2x (cap long side at 2048px) for crisp product-page zoom ("Büyüt").
+      // sharp is already a dependency; runs on Node/Vercel, no GPU. Falls back to the
+      // original buffer on any error so it can never break image saving.
+      let outBuf = buf
+      try {
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        const sharp = require('sharp') as typeof import('sharp')
+        const meta = await sharp(buf).metadata()
+        const w = meta.width ?? 0
+        const h = meta.height ?? 0
+        const longSide = Math.max(w, h)
+        const scale = longSide > 0 ? Math.min(2, 2048 / longSide) : 1
+        if (scale > 1.01) {
+          outBuf = await sharp(buf)
+            .resize(Math.round(w * scale), Math.round(h * scale), { kernel: 'lanczos3' })
+            .sharpen()
+            .jpeg({ quality: 90 })
+            .toBuffer()
+          console.log(`[imageGenTask] upscaled ${concept} ${w}x${h} -> ${Math.round(w*scale)}x${Math.round(h*scale)} (${buf.length}b -> ${outBuf.length}b)`)
+        }
+      } catch (e) {
+        console.warn(`[imageGenTask] upscale skipped (${concept}):`, e instanceof Error ? e.message : e)
+        outBuf = buf
+      }
+
       try {
         const media = await payload.create({
           collection: 'media',
@@ -503,10 +528,10 @@ export const imageGenTask: TaskConfig<{
             type: 'generated',
           },
           file: {
-            data: buf,
+            data: outBuf,
             mimetype: 'image/jpeg',
             name: filename,
-            size: buf.length,
+            size: outBuf.length,
           },
         })
         mediaIds.push(media.id as number)

@@ -476,6 +476,73 @@ export const Products: CollectionConfig = {
     },
     // ── Marka & Kategori ──────────────────────────────────────
     {
+      name: 'imageQuality',
+      type: 'group',
+      label: 'Image QC (D-355)',
+      admin: {
+        description: 'PASS / REVIEW / FAIL gate for generated product images before scaled catalog loading.',
+      },
+      fields: [
+        {
+          name: 'status',
+          type: 'select',
+          label: 'QC Status',
+          defaultValue: 'pending',
+          options: [
+            { label: 'Pending', value: 'pending' },
+            { label: 'PASS - publishable', value: 'pass' },
+            { label: 'REVIEW - human review needed', value: 'review' },
+            { label: 'FAIL - regenerate or reject', value: 'fail' },
+          ],
+        },
+        {
+          name: 'defectFlags',
+          type: 'select',
+          label: 'Defect Flags',
+          hasMany: true,
+          options: [
+            { label: 'Torn / cracked', value: 'torn_or_cracked' },
+            { label: 'Peeling texture', value: 'peeling_texture' },
+            { label: 'Deformed toe or heel', value: 'deformed_toe_or_heel' },
+            { label: 'Wrong stitching', value: 'wrong_stitching' },
+            { label: 'Fake stains', value: 'fake_stains' },
+            { label: 'Distorted sole join', value: 'distorted_sole_join' },
+            { label: 'Color drift', value: 'color_drift' },
+            { label: 'Invented logo or brand', value: 'invented_logo_or_brand' },
+            { label: 'Background drift', value: 'background_drift' },
+            { label: 'Crop or scale issue', value: 'crop_or_scale_issue' },
+            { label: 'Other', value: 'other' },
+          ],
+          admin: {
+            description: 'Use for REVIEW/FAIL. Keep empty for a clean PASS.',
+          },
+        },
+        {
+          name: 'notes',
+          type: 'textarea',
+          label: 'QC Notes',
+        },
+        {
+          name: 'checkedAt',
+          type: 'date',
+          label: 'Checked At',
+          admin: { readOnly: true },
+        },
+        {
+          name: 'checkedBy',
+          type: 'text',
+          label: 'Checked By',
+          admin: { readOnly: true },
+        },
+        {
+          name: 'source',
+          type: 'text',
+          label: 'QC Source',
+          admin: { readOnly: true },
+        },
+      ],
+    },
+    {
       name: 'brand',
       type: 'text',
       label: 'Marka',

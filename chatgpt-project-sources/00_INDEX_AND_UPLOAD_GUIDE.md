@@ -1,6 +1,6 @@
 # UygunAyakkabi ChatGPT Project Source Pack
 
-Last updated: 2026-06-21
+Last updated: 2026-06-30
 
 Use this folder as the curated source set for the ChatGPT Project. Upload these files, not the full repo, raw chats, `.env`, credentials, screenshots, generated build files, or historical exports.
 
@@ -12,7 +12,7 @@ The project is worked on across ChatGPT, Codex, Claude, Obsidian, and the code r
 
 Upload every Markdown file in this folder. The pack is intentionally below the 20 document limit.
 
-Current document count: 18
+Current document count: 19
 
 do not exceed 20 documents in this folder; merge or remove old files before adding more.
 

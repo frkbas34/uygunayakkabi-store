@@ -1,6 +1,6 @@
 # CLAUDE.md
 
-Current guidance for Claude Code. Last updated: 2026-06-21.
+Current guidance for Claude Code. Last updated: 2026-06-30.
 
 ## Read This First
 
@@ -38,6 +38,10 @@ Do not add Dolap/Threads UI, parser targets, n8n stubs, prompts, or task items.
 
 n8n is optional glue. Keep it frozen unless the user explicitly asks for n8n work or a current workflow clearly depends on it.
 
+## Current Build Focus
+
+Catalog scale-up is the active focus. D-355 structured Image QC is implemented. D-356 Shopier/Web batch publish control is in progress: `/shopier dashboard` is read-only operator visibility, `/shopier publish-ready` is preview-first, `/shopier publish-ready confirm` queues only products that pass the shared Shopier/Web gate, single `/shopier publish|republish` commands use the same guard, `/shopier errors` gives first-pass sync error triage, `/shopier retry-errors` previews safe retry candidates before `/shopier retry-errors confirm` queues them, and Payload admin ReviewPanel shows a read-only Shopier Queue Gate for the current product using the same evaluator.
+
 ## Validation
 
 Use:
@@ -46,7 +50,33 @@ Use:
 npm run validate
 ```
 
-This should pass before a change is considered ready. Warnings are acceptable for now; errors are not.
+This should pass before a change is considered ready. It runs typecheck, lint, and the safe assertion suite. Warnings are acceptable for now; errors are not.
+
+The safe suite includes `test:retired-channels`, which blocks Dolap/Threads from active code, n8n workflow stubs, package activation scripts, and current decision docs.
+
+It also includes `test:n8n-optional`, which keeps n8n as optional glue, checks the allowed active-channel workflow inventory, and blocks package scripts from activating n8n workflows by default.
+
+It also includes `test:ops-runbook`, which keeps the deployment, rollback, env-var, webhook-health, cron/job-runner, and PR workflow runbook aligned with the current architecture rules.
+
+Read-only runtime smoke checks:
+
+```powershell
+npm run smoke:activation:read -- --product=<id> --confirm-read-only
+npm run smoke:imageqc:schema -- --confirm-read-only
+npm run smoke:shopier:read -- --confirm-read-only
+```
+
+These require explicit read-only confirmation and must not write, queue jobs, dispatch channels, call Shopier, or push schema changes.
+
+Guarded D-355 DB repair helper:
+
+```powershell
+npm run db:imageqc:apply
+npm run db:imageqc:apply -- --dry-run --print-sql
+npm run db:imageqc:apply -- --apply --confirm-apply-d355-image-qc-schema
+```
+
+Default mode is dry-run only. Do not run the confirmed apply mode unless the operator explicitly approves applying the reviewed D-355 Image QC DDL. After apply, rerun `smoke:imageqc:schema` and `smoke:shopier:read`.
 
 ## Documentation Sync
 
@@ -61,4 +91,3 @@ Keep that folder below 20 Markdown documents.
 - Avoid broad refactors unless needed.
 - Do not touch secrets.
 - Do not mutate external systems without explicit operator approval.
-

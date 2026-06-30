@@ -1,6 +1,7 @@
 import { formatBrandSafetyReason, scanProductBrandSafety } from './brandSafety'
 import { hasUsableMediaRow } from './productMedia'
 import { resolveConfiguredTargets } from './productChannels'
+import { evaluateImageQualityGate } from './imageQualityGate'
 export { ACTIVE_PRODUCT_CHANNELS, resolveConfiguredTargets } from './productChannels'
 export type { ActiveProductChannel } from './productChannels'
 
@@ -31,7 +32,7 @@ export function mergeActivationProduct(
   const original = isObject(originalDoc) ? originalDoc : {}
   const merged: ProductActivationDocument = { ...original, ...(data ?? {}) }
 
-  for (const group of ['workflow', 'channels', 'content', 'auditResult', 'sourceMeta', 'merchandising']) {
+  for (const group of ['workflow', 'channels', 'content', 'auditResult', 'sourceMeta', 'merchandising', 'imageQuality']) {
     if (isObject(original[group]) || isObject(data?.[group])) {
       merged[group] = {
         ...(isObject(original[group]) ? original[group] : {}),
@@ -122,6 +123,11 @@ export async function collectActivationBlockers(
   const hasGeneratedImage = hasUsableMediaRow(product.generativeGallery)
   if (!hasOriginalImage && !hasGeneratedImage) {
     blockers.push('en az bir urun gorseli veya onayli AI gorseli gerekli')
+  }
+
+  const imageQuality = evaluateImageQualityGate(product)
+  if (!imageQuality.publishable) {
+    blockers.push(`image QC gerekli: ${imageQuality.detail}`)
   }
 
   const targets = resolveConfiguredTargets(product)

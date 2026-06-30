@@ -1,6 +1,6 @@
 # Current Decisions And Retirements
 
-Last updated: 2026-06-27
+Last updated: 2026-06-28
 
 ## Active Business Decision
 
@@ -55,7 +55,7 @@ Primary focus is catalog scale-up / product loading factory, not ads.
 
 - Advertising is deferred until the catalog is much larger and product-image quality is stable. The earliest ad phase is D-380+.
 - The OLD classification "ads readiness" is replaced by the NEW classification "catalog scale-up / product loading factory."
-- Product image quality control (D-355 family) is the top priority: no hallucinated defects, multi-angle references preferred, a 5-image studio pack target, and a locked soft-warm-ivory studio background.
+- Product image quality control (D-355 family) remains central: the structured Image QC gate is implemented, no hallucinated defects are allowed, multi-angle references are preferred, the target is a 5-image studio pack, and the background standard is locked to soft warm ivory.
 - Active roadmap for this phase is D-352–D-357 (see `02_MASTER_ROADMAP.md` Phase 10).
 - Payload remains the source of truth. Active channels and retirements are unchanged: Dolap/Threads retired, SupplierScout dormant.
 

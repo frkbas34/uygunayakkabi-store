@@ -1,6 +1,6 @@
 # Product Intake And Operator Flow
 
-Last updated: 2026-06-23
+Last updated: 2026-06-30
 
 ## Target Flow
 
@@ -56,6 +56,8 @@ Read-only runtime activation diagnostics now exist in `scripts/activation-runtim
 A guarded reversible mutation smoke also exists in `scripts/activation-mutation-smoke.ts`, exposed as `npm run smoke:activation:mutate`. Existing-product mode uses `--product=<smoke-product-id> --confirm-mutate-and-rollback`. Temp helper mode uses `--create-temp-smoke --confirm-create-mutate-delete`. Admin-direct temp mode adds `--admin-direct-update`. It is operator-run only and not part of `validate`. It refuses normal products, requires a `SMOKE`/`TEST` marker, requires `draft` status, requires website-only targets and no external channel flags, activates through either `approveAndActivateProduct()` or a plain Payload `status='active'` update, then rolls back the product snapshot and deletes smoke bot-events. Temp mode can create a website-only smoke draft from an existing media item, run the activation path, then delete the temp product. Product `359` correctly refused before mutation. On 2026-06-22, helper temp-smoke passed with product `363`, two smoke bot-events cleaned up, no external channel dispatch, and no Shopier queue. Admin-direct temp-smoke passed with product `364`, `workflowStatus=active`, `publishStatus=published`, no external dispatch, and no Shopier queue.
 
 Operator-facing activation surfaces have been aligned with the guard. The Payload admin ReviewPanel now treats zero/missing stock, missing active channel target, and visible title/brand brand-safety hits as blockers. Its success message says Payload still runs the final guard. Telegram `/activate` and `/approvepublish` help text now says both central publish readiness and the Payload activation guard must pass.
+
+Shopier operator queueing now has a D-356 guard too. `/shopier dashboard` is read-only and summarizes queue readiness, top blockers, error classes, and safe retry counts. `/shopier publish-ready` previews active Shopier-intent products and shows which are queueable or blocked. It does not write. `/shopier publish-ready confirm` queues only gate-passing products. Single `/shopier publish <sn-or-id>` and `/shopier republish <sn-or-id>` use the same gate before writing `sourceMeta.shopierSyncStatus='queued'` and adding a `shopier-sync` job. The gate requires active website visibility, explicit Shopier target/flag alignment, category, generated-gallery media, Image QC PASS, sellable stock, brand-safety pass, central publish readiness, and no duplicate queued/syncing job. `/shopier errors` gives first-pass sync error triage and suggests the next operator action without retrying or mutating products. `/shopier retry-errors` is preview-only; `/shopier retry-errors confirm` queues only retryable error products that still pass the same gate. `npm run smoke:shopier:read -- --confirm-read-only` checks these previews against real Payload state without mutation.
 
 Media readiness is shared across activation guard, central publish readiness, and the admin ReviewPanel. Empty placeholder image rows do not count as product visuals, so the panel no longer shows a false green when Payload activation would reject the product for missing real media.
 

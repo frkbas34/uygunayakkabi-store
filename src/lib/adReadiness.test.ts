@@ -27,6 +27,7 @@ const readyProduct = {
   status: 'active',
   description: 'Gunluk kullanim icin hafif ve rahat ayakkabi.',
   generativeGallery: [{ image: 1 }, { image: 2 }],
+  imageQuality: { status: 'pass' },
   variants: [{ size: '42', stock: 5 }, { size: '43', stock: 3 }],
   channelTargets: ['website', 'instagram'],
   channels: { publishWebsite: true, publishInstagram: true },
@@ -47,6 +48,7 @@ const reviewProduct = {
   status: 'active',
   description: 'Orijinal deri gorunumlu rahat model.',
   generativeGallery: [{ image: 9 }],
+  imageQuality: { status: 'pass' },
   // no variants + product-level stock → size-clarity warning
   stockQuantity: 4,
   channelTargets: ['website', 'instagram'],

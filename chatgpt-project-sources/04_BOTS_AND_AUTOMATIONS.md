@@ -97,6 +97,8 @@ Use only when a workflow is genuinely easier outside app code.
 
 Do not build Dolap/Threads workflows.
 
+Validation: `npm run test:n8n-optional` checks that n8n stays optional, workflow JSON files stay limited to active-channel fallback paths, package scripts do not activate n8n workflows, and Payload-first/draft-first intake guidance remains in place.
+
 ## OpenClaw
 
 Status: useful if treated as Mentix agent brain.

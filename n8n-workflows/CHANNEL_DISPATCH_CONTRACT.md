@@ -1,6 +1,8 @@
 # Channel Dispatch Contract — Step 14
 
-This document defines the dispatch payload contract between Payload CMS and n8n channel workflows. It serves as the single source of truth for the shape of data that flows from the product activation hook to the n8n stub (and eventually real) channel workflows.
+This document defines the dispatch payload contract between Payload CMS and optional n8n channel workflows. It serves as the single source of truth for the shape of data that flows from the product activation hook to optional fallback stubs or deliberately configured real channel workflows.
+
+n8n is optional glue. If no `N8N_CHANNEL_*_WEBHOOK` env var is configured, channel dispatch falls back to scaffold mode and must not block the Payload product flow.
 
 ---
 

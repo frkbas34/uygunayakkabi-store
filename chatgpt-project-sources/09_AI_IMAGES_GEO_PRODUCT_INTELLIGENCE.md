@@ -1,6 +1,6 @@
 # AI Images, GEO, And Product Intelligence
 
-Last updated: 2026-06-27
+Last updated: 2026-06-28
 
 ## AI Image Workflow
 
@@ -15,10 +15,17 @@ Target behavior:
 - Approved images attach to generated gallery.
 - Generated images remain separate from originals.
 
-Needed:
+Current implementation:
 
-- Stable quality checks.
-- Better rejection/regeneration path.
+- Generated images stay separate from originals in `generativeGallery`.
+- Structured Image QC lives on the product as `imageQuality`.
+- AI/generated images require explicit QC PASS before publish readiness, activation, or ad readiness.
+- Payload admin ReviewPanel shows Image QC state.
+- Telegram `/imageqc` can inspect or set PASS/REVIEW/FAIL without publishing, dispatching, retrying, or spending.
+
+Still needed:
+
+- Better rejection/regeneration path from FAIL/REVIEW back into image generation.
 - Clear provider status.
 
 ## GEO Content
@@ -77,6 +84,8 @@ Decision states:
 
 Defect checks (all must hold): no fake tearing, no cracks, no peeling, no damaged suede/leather texture, no deformed toe shape, no broken heel shape, no wrong stitching, no fake stains, no distorted sole join, no color drift from the original product, no invented logos/brand elements.
 
+Current status (2026-06-30): implemented as a product-level gate in `src/lib/imageQualityGate.ts`, tested by `npm run test:image-quality`, and included in `npm run validate`. The Payload schema stores `imageQuality.status`, defect flags, notes, checkedAt, checkedBy, and source. The gate feeds publish readiness, activation guard, ad readiness, catalog QA, admin ReviewPanel, and Telegram `/imageqc`. Runtime DB still needs the D-355 Image QC migration/DDL verified: `npm run smoke:imageqc:schema -- --confirm-read-only` currently reports missing product columns `image_quality_status`, `image_quality_notes`, `image_quality_checked_at`, `image_quality_checked_by`, `image_quality_source`, plus missing relation `products_image_quality_defect_flags`. The guarded helper is `npm run db:imageqc:apply`; it previews by default and confirmed apply requires explicit operator approval.
+
 ### D-355A — Multi-Angle Product Reference Standard
 
 If multiple images are provided, treat them as the SAME product from different angles, not different products.
@@ -109,4 +118,3 @@ Defaults: image 4 = back/heel, image 5 = material/craft detail close-up. Dynamic
 Single background standard: soft warm ivory seamless studio background.
 
 Requirements: same tone across all 5 images; no grey/yellow/pink drift; consistent studio lighting; consistent soft shadow; consistent crop and scale; product occupies ~74–80% of the frame; the 5 images must look like one coherent studio product set.
-

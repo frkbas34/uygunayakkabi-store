@@ -116,6 +116,27 @@ check('empty media rows do not satisfy visuals', () => {
   assert.ok(readiness.blockers.some((b) => b.includes('visuals')), readiness.blockers.join('\n'))
 })
 
+check('generated images require explicit image QC pass', () => {
+  const readiness = evaluatePublishReadiness(readyProduct({
+    images: [],
+    generativeGallery: [{ image: 1 }],
+    imageQuality: { status: 'pending' },
+  }))
+
+  assert.notStrictEqual(readiness.level, 'ready')
+  assert.ok(readiness.blockers.some((b) => b.includes('Image QC review')), readiness.blockers.join('\n'))
+})
+
+check('generated images with image QC pass satisfy visuals', () => {
+  const readiness = evaluatePublishReadiness(readyProduct({
+    images: [],
+    generativeGallery: [{ image: 1 }],
+    imageQuality: { status: 'pass' },
+  }))
+
+  assert.strictEqual(readiness.level, 'ready')
+})
+
 check('pipeline visuals ignore placeholder media rows', () => {
   const pipeline = computePipelineStatus(readyProduct({
     images: [{}],

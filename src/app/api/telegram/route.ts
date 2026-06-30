@@ -10,8 +10,8 @@ import {
 import { evaluateChannelProviderHealth, formatChannelProviderHealthLine } from '@/lib/channelProviderHealth'
 
 // ── Vercel function timeout ────────────────────────────────────────────────────
-// Luma polling loop runs up to 120s. OpenAI gpt-image-1 typically 15-40s.
-// Default Vercel Pro: 60s — too tight for Luma HQ and borderline for standard.
+// Image polling loop runs up to 120s. OpenAI gpt-image-1 typically 15-40s.
+// Default Vercel Pro: 60s — borderline for standard HQ paths.
 // maxDuration=300 allows up to 5 minutes on Pro/Team plans.
 // Required to prevent after() polling from being killed mid-generation.
 export const maxDuration = 300
@@ -208,7 +208,7 @@ async function answerCallbackQuery(callbackQueryId: string, text?: string): Prom
  *
  * Checks multiple patterns in this priority order:
  * 1. Admin URL: /products/{id}
- * 2. Inline keyboard callback_data: imagegen:{id}:... or claidmode:{id}:...
+ * 2. Inline keyboard callback_data: imagegen:{id}:...
  * 3. Text patterns: "ID: {id}", "#gorsel {id}", "#geminipro {id}", "Ürün ID: {id}"
  *
  * Returns the numeric product ID or null if nothing found.
@@ -224,12 +224,12 @@ function resolveProductFromReply(replyMessage: Record<string, unknown> | undefin
   if (urlMatch) return parseInt(urlMatch[1])
 
   // 2. Inline keyboard callback_data in the replied-to message
-  //    e.g. imagegen:42:geminipro, claidmode:42:studio, imgapprove:42:all
+  //    e.g. imagegen:42:geminipro, imgapprove:42:all
   const replyMarkup = replyMessage.reply_markup as { inline_keyboard?: Array<Array<{ callback_data?: string }>> } | undefined
   if (replyMarkup?.inline_keyboard) {
     for (const row of replyMarkup.inline_keyboard) {
       for (const btn of row) {
-        const cbMatch = btn.callback_data?.match(/^(?:imagegen|claidmode|imgapprove|imgpremium|imgreject|imgregen):(\d+)/)
+        const cbMatch = btn.callback_data?.match(/^(?:imagegen|imgapprove|imgpremium|imgreject|imgregen):(\d+)/)
         if (cbMatch) return parseInt(cbMatch[1])
       }
     }
@@ -746,15 +746,14 @@ async function regenImageGenJob(
   // v18 routing (Gemini-only debug mode):
   //   provider='gemini-pro'  → re-queue image-gen with gemini-pro
   //   provider='openai'      → re-queue image-gen with gemini-pro (redirected during debug phase)
-  //   provider='luma' | unknown → re-queue image-gen with gemini-pro (redirected during debug phase)
   let currentStage = 'standard'
   let currentProvider = 'gemini-pro'  // v18 default: Gemini-only debug phase
   try {
     const prompts = JSON.parse((jobDoc.promptsUsed as string) || '{}')
     currentStage    = (prompts.stage    as string) || 'standard'
-    currentProvider = (prompts.provider as string) || 'luma'
+    currentProvider = (prompts.provider as string) || 'gemini-pro'
   } catch {
-    // ignore parse errors — default to standard + luma
+    // ignore parse errors — default to standard + gemini-pro
   }
   const stageLabel    = currentStage === 'premium' ? 'Premium (4-5)' : 'Standart (1-3)'
   // v19 Gemini-only: all providers display as Gemini Pro
@@ -1279,7 +1278,7 @@ export async function POST(req: NextRequest) {
       }
 
       // ── imgpremium:{jobId} ────────────────────────────────────────────────
-      // Stage 2 Gemini Pro (slots 4-5) — triggered from Stage 1 Luma approval keyboard.
+      // Stage 2 Gemini Pro (slots 4-5) — triggered from Stage 1 approval keyboard.
       // Creates a new job for the same product and queues image-gen with gemini-pro.
       if (cbData.startsWith('imgpremium:')) {
         const cbJobId = cbData.split(':')[1]
@@ -1293,25 +1292,6 @@ export async function POST(req: NextRequest) {
             await sendTelegramMessage(cbChatId, `❌ Gemini Pro üretimi başlatılamadı: ${err instanceof Error ? err.message : 'Bilinmeyen hata'}`)
           }
         })
-      }
-
-      // ── v19 Gemini-only: Claid callbacks deactivated ──────────────────────────
-      // claidapprove, claidregen, claidchange, claidreject all return "devre dışı"
-      // Full handlers preserved in git history (commit 505be38) for future re-enable.
-      if (cbData.startsWith('claidapprove:') || cbData.startsWith('claidregen:') ||
-          cbData.startsWith('claidchange:') || cbData.startsWith('claidreject:')) {
-        await answerCallbackQuery(cbQueryId, '⛔ Claid devre dışı — #gorsel kullanın')
-      }
-
-      // ── claidmode:{productId}:{mode} ─────────────────────────────────────────
-      // v19 Gemini-only: Claid callbacks deactivated
-      if (cbData.startsWith('claidmode:')) {
-        await answerCallbackQuery(cbQueryId, '⛔ Claid devre dışı — #gorsel kullanın')
-      }
-
-      // ── lumahq:{jobId} — v19 Gemini-only: Luma deactivated ──────────────────
-      if (cbData.startsWith('lumahq:')) {
-        await answerCallbackQuery(cbQueryId, '⛔ Luma devre dışı — #gorsel kullanın')
       }
 
       // ── Phase 4: Story callback handlers ───────────────────────────────────
@@ -2749,7 +2729,7 @@ export async function POST(req: NextRequest) {
       // ownership gate below, so Geo_bot's redirect behaviour is unchanged.
       const hasPhoto = !!message.photo || !!(message.reply_to_message?.photo && /[uü]r[uü]ne\s+[cç]evir/i.test(text))
       const isReplyToBotEarly = message.reply_to_message?.from?.id === 8702872700
-      const isOpsHashtagEarly = /^#(gorsel|geminipro|luma|chatgpt|claid|geohazirla|seoara|productintel|urunzeka)\b/i.test(text || '')
+      const isOpsHashtagEarly = /^#(gorsel|geminipro|chatgpt|geohazirla|seoara|productintel|urunzeka)\b/i.test(text || '')
 
       if (!hasPhoto && !isReplyToBotEarly && !hasActiveWizardSession && !isOpsHashtagEarly) {
         console.log(`[telegram/phase-n] Uygunops ignoring group message in chat ${chatId} — Geo_bot owns group context`)
@@ -2788,7 +2768,7 @@ export async function POST(req: NextRequest) {
       // Phase O: allow hashtag triggers (#gorsel, #geminipro etc.) and STOCK batch commands
       // These are intentional operator commands, equivalent to slash commands
       // D-220: PI Bot hashtags (#geohazirla, #seoara, #productintel, #urunzeka)
-      const isHashtagTrigger = /^#(gorsel|geminipro|luma|chatgpt|claid|geohazirla|seoara|productintel|urunzeka)\b/i.test(text) ||
+      const isHashtagTrigger = /^#(gorsel|geminipro|chatgpt|geohazirla|seoara|productintel|urunzeka)\b/i.test(text) ||
         /#gorsel/i.test(text)
       const isStockCommand = text.startsWith('STOCK SKU:')
 
@@ -2897,11 +2877,17 @@ export async function POST(req: NextRequest) {
         '/campaigns', '/campaign',
         // D-348 manual ad-readiness checklist
         '/adready',
+        // D-353 read-only bulk catalog QA
+        '/catalogqa',
+        // D-354 read-only category fill strategy
+        '/categoryfill',
+        // D-355 product image quality gate
+        '/imageqc',
       ]
       // D-220: PI Bot hashtags owned by Uygunops (operator approval is required before GeoBot handoff).
       const OPS_HASHTAGS = ['#gorsel', '#geminipro', '#geohazirla', '#seoara', '#productintel', '#urunzeka']
       // Deactivated providers still show deactivation msg — keep them on ops side
-      const OPS_HASHTAGS_DEACTIVATED = ['#luma', '#chatgpt', '#claid']
+      const OPS_HASHTAGS_DEACTIVATED = ['#chatgpt']
 
       const cmdLower = text.toLowerCase()
       const firstWord = cmdLower.split(/\s/)[0] // e.g. "/confirm" or "#gorsel"
@@ -3220,22 +3206,18 @@ export async function POST(req: NextRequest) {
           /#dengeli/i.test(combinedRaw) ? 'dengeli' :
           'hizli'
         // v19 Gemini-only: engine tags simplified — all map to Gemini Pro
-        // #geminipro still recognized for explicit opt-in; #chatgpt/#luma treated as Gemini
+        // #geminipro still recognized for explicit opt-in; #chatgpt treated as Gemini
         const autoGenEngine: 'geminipro' | null =
           /#geminipro\b/i.test(combinedRaw) ? 'geminipro' :
           /#chatgpt\b/i.test(combinedRaw)   ? 'geminipro' :
-          /#luma\b/i.test(combinedRaw)      ? 'geminipro' :
           null
 
-        // v19 Gemini-only: #claid caption detection disabled — Claid removed from operator flow
-        const isClaidCaption = false // was: /#claid\b/i.test(combinedRaw)
 
         // Caption temizle — bot mentions + trigger phrases + görsel hashtag'leri sil
-        //    #hizli / #dengeli / #premium / #karma / #gorsel / #luma / #chatgpt / #geminipro
-        //    #claid — gibi görsel tag'leri çıkarılır — "bunu ürüne çevir #claid 1755 TL"
-        //    kullanımlarda parseTelegramCaption'ı bozmasın
+        //    #hizli / #dengeli / #premium / #karma / #gorsel / #chatgpt / #geminipro
+        //    gibi görsel tag'leri çıkarılır; parseTelegramCaption'ı bozmasın
         const BOT_MENTIONS = /(@Uygunops_bot|@uygunops_bot|@Geeeeobot|@geeeeobot|@mentix_aibot|@Mentix)/gi
-        const GORSEL_TAGS  = /#(gorsel|hizli|dengeli|premium|karma|geminipro|chatgpt|luma|claid)\b/gi
+        const GORSEL_TAGS  = /#(gorsel|hizli|dengeli|premium|karma|geminipro|chatgpt)\b/gi
         const combinedText = combinedRaw
         const cleanCaption = combinedText
           .replace(/bunu\s+[uü]r[uü]ne\s+[cç]evir/gi, '')
@@ -3491,23 +3473,7 @@ export async function POST(req: NextRequest) {
           `✅ <b>${title}</b>` +
           `\n🔗 <a href="https://www.uygunayakkabi.com/admin/collections/products/${productId}">Admin</a>`
 
-        if (isClaidCaption) {
-          // #claid in caption → skip Gemini queue, show Claid mode keyboard immediately
-          const { CLAID_MODE_LABELS, CLAID_MODE_DESCRIPTIONS } = await import('@/lib/claidProvider')
-          await sendTelegramMessageWithKeyboard(
-            chatId,
-            productSummary + `\n\n🧴 <b>Claid iyileştirme modu seçin:</b>\n\n` +
-            `<b>🧹 Ürün Temizleme</b>\n<i>${CLAID_MODE_DESCRIPTIONS.cleanup}</i>\n\n` +
-            `<b>✨ Stüdyo Geliştirme</b>\n<i>${CLAID_MODE_DESCRIPTIONS.studio}</i>\n\n` +
-            `<b>🎨 Kreatif Arka Plan</b>\n<i>${CLAID_MODE_DESCRIPTIONS.creative}</i>`,
-            [
-              [{ text: `🧹 ${CLAID_MODE_LABELS.cleanup}`,  callback_data: `claidmode:${productId}:cleanup` }],
-              [{ text: `✨ ${CLAID_MODE_LABELS.studio}`,   callback_data: `claidmode:${productId}:studio` }],
-              [{ text: `🎨 ${CLAID_MODE_LABELS.creative}`, callback_data: `claidmode:${productId}:creative` }],
-              [{ text: '❌ İptal (sadece kaydet)',          callback_data: `imagegen:${productId}:skip` }],
-            ],
-          )
-        } else if (autoGenJobId && (autoGenMode || autoGenEngine)) {
+        if (autoGenJobId && (autoGenMode || autoGenEngine)) {
           // Engine/mode was pre-selected in caption — show plain confirmation
           // v18 Gemini-only: single label regardless of tag
           // D-203: removed auto-confirm "generation started" message — operator gets notified when ready
@@ -3562,14 +3528,14 @@ export async function POST(req: NextRequest) {
       /g[oö]rsel\s+[uü]ret/i.test(text)
 
     if (isGorselTrigger) {
-      // Detect generation mode from hashtags in message text (cosmetic — Luma ignores mode)
+      // Detect generation mode from hashtags in message text (cosmetic — informational only)
       const genMode: 'hizli' | 'dengeli' | 'premium' | 'karma' =
         /#karma/i.test(text)   ? 'karma'   :
         /#premium/i.test(text) ? 'premium' :
         /#dengeli/i.test(text) ? 'dengeli' :
         'hizli'
 
-      // v16: Stage 1 is always Luma — genProvider removed.
+      // v16: Stage 1 provider — genProvider removed.
       // OpenAI image generation is no longer active for Stage 1.
       // Stage 2 (slots 4-5) remains Gemini Pro via the imgpremium button.
 
@@ -3788,30 +3754,6 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: true })
     }
 
-    // ── #luma — Luma AI Studio Angles Image Generation (Step 26) ─────────────
-    // Triggers: "#luma" (+ optional product ID or reply to product creation msg)
-    // Generates 3 studio angle shots (front, side, 3/4) via Luma photon-flash-1.
-    // HQ flag: "#luma #hq" → uses photon-1 model.
-    //
-    // Product discovery (same pattern as #gorsel):
-    //   A) Reply to bot's product creation message → extracts product ID from URL
-    //   B) Explicit: "#luma 42" or "#luma 42 #hq"
-    const isLumaTrigger = /#luma\b/i.test(text)
-
-    if (isLumaTrigger) {
-      // v18 Gemini-only debug phase: Luma deactivated — redirect to Gemini
-      await sendTelegramMessage(
-        chatId,
-        `⛔ <b>Luma şu an devre dışı.</b>\n\n` +
-        `Görsel üretimi için: <code>#gorsel</code> veya <code>#geminipro</code> kullanın.\n` +
-        `✨ Aktif motor: Gemini Pro`,
-      )
-      return NextResponse.json({ ok: true })
-    }
-
-    // v18 NOTE: #luma full handler removed — deactivated for Gemini-only debug phase.
-    // Restore from git history (commit a27b78a) when re-enabling Luma.
-
     // ── #chatgpt — ChatGPT (OpenAI gpt-image-1) Stage 1 ─────────────────────
     // Triggers: "#chatgpt 42" or reply + "#chatgpt"
     // Queues image-gen with provider='openai', stage='standard' (slots 1-3).
@@ -3832,7 +3774,7 @@ export async function POST(req: NextRequest) {
     // ── #geminipro — Gemini Pro Stage 1 image generation ─────────────────────
     // Triggers: "#geminipro 42" or reply + "#geminipro"
     // Queues image-gen with provider='gemini-pro', stage='standard' (slots 1-3).
-    // Operator explicit opt-in to Gemini Pro Stage 1 — separate from Luma default.
+    // Operator explicit opt-in to Gemini Pro Stage 1 — separate from the default engine.
     const isGeminiProTrigger = /#geminipro\b/i.test(text)
 
     if (isGeminiProTrigger) {
@@ -3898,28 +3840,6 @@ export async function POST(req: NextRequest) {
         }
       })
 
-      return NextResponse.json({ ok: true })
-    }
-
-    // ── #claid — Claid.ai Product Photo Enhancement ───────────────────────────
-    // Triggers: "#claid 42" or reply to product creation message + "#claid"
-    // Shows a mode selection keyboard — no job is created until the operator
-    // chooses a mode (claidmode: callback).
-    //
-    // Modes:
-    //   cleanup  — white background, upscale, sharpen (marketplace-ready)
-    //   studio   — premium contrast/HDR, no background change
-    //   creative — editorial grey background, mild enhancement
-    const isClaidTrigger = /#claid\b/i.test(text)
-
-    if (isClaidTrigger) {
-      // v19 Gemini-only: Claid deactivated
-      await sendTelegramMessage(
-        chatId,
-        `⛔ <b>Claid şu an devre dışı.</b>\n\n` +
-        `Görsel üretimi için: <code>#gorsel</code> kullanın.\n` +
-        `✨ Aktif motor: Gemini Pro`,
-      )
       return NextResponse.json({ ok: true })
     }
 
@@ -4009,13 +3929,25 @@ export async function POST(req: NextRequest) {
       const subCommand = parts[1]?.toLowerCase()
       const arg = parts[2]
 
-      // /shopier publish <productId>
+      // /shopier publish <sn-or-id>
       if (subCommand === 'publish' && arg) {
         try {
           if (!process.env.SHOPIER_PAT) {
             await sendTelegramMessage(chatId, '❌ SHOPIER_PAT tanımlı değil — Shopier sync devre dışı')
             return NextResponse.json({ ok: true })
           }
+          const { resolveProductIdentifier, formatIdentifierMissingMessage } = await import('@/lib/operatorActions')
+          const { queueShopierSync } = await import('@/lib/shopierPublishControl')
+          const resolved = await resolveProductIdentifier(payload, arg)
+          if (!resolved) {
+            await sendTelegramMessage(chatId, formatIdentifierMissingMessage(arg))
+            return NextResponse.json({ ok: true })
+          }
+          const product = await payload.findByID({ collection: 'products', id: resolved.productId, depth: 1 })
+          const result = await queueShopierSync(payload as any, product as any, { notifyTelegramChatId: chatId })
+          await sendTelegramMessage(chatId, result.message)
+          return NextResponse.json({ ok: true })
+
           const { docs: pDocs } = await payload.find({
             collection: 'products',
             where: { id: { equals: arg } },
@@ -4050,13 +3982,25 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ ok: true })
       }
 
-      // /shopier republish <productId>
+      // /shopier republish <sn-or-id>
       if (subCommand === 'republish' && arg) {
         try {
           if (!process.env.SHOPIER_PAT) {
             await sendTelegramMessage(chatId, '❌ SHOPIER_PAT tanımlı değil — Shopier sync devre dışı')
             return NextResponse.json({ ok: true })
           }
+          const { resolveProductIdentifier, formatIdentifierMissingMessage } = await import('@/lib/operatorActions')
+          const { queueShopierSync } = await import('@/lib/shopierPublishControl')
+          const resolved = await resolveProductIdentifier(payload, arg)
+          if (!resolved) {
+            await sendTelegramMessage(chatId, formatIdentifierMissingMessage(arg))
+            return NextResponse.json({ ok: true })
+          }
+          const product = await payload.findByID({ collection: 'products', id: resolved.productId, depth: 1 })
+          const result = await queueShopierSync(payload as any, product as any, { notifyTelegramChatId: chatId })
+          await sendTelegramMessage(chatId, result.message)
+          return NextResponse.json({ ok: true })
+
           const { docs: rDocs } = await payload.find({
             collection: 'products',
             where: { id: { equals: arg } },
@@ -4145,49 +4089,96 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ ok: true })
       }
 
+      // /shopier dashboard
+      if (subCommand === 'dashboard') {
+        try {
+          const {
+            buildShopierDashboardSummary,
+            evaluateShopierPublishControl,
+            formatShopierOperatorDashboard,
+            hasShopierIntent,
+          } = await import('@/lib/shopierPublishControl')
+          const activeRes = await payload.find({
+            collection: 'products',
+            where: { status: { equals: 'active' } },
+            depth: 1,
+            limit: 100,
+            sort: '-updatedAt',
+          })
+          const candidates = (activeRes.docs as Record<string, unknown>[]).filter((product) => {
+            const sourceMeta = (product.sourceMeta as Record<string, unknown> | undefined) ?? {}
+            return hasShopierIntent(product as any) && !sourceMeta.shopierProductId
+          })
+          const evaluations = candidates.map((product) => evaluateShopierPublishControl(product as any))
+          const errorRes = await payload.find({
+            collection: 'products',
+            where: { 'sourceMeta.shopierSyncStatus': { equals: 'error' } },
+            depth: 1,
+            limit: 50,
+            sort: '-updatedAt',
+          })
+          const summary = buildShopierDashboardSummary(evaluations, errorRes.docs as any[])
+          await sendTelegramMessage(
+            chatId,
+            formatShopierOperatorDashboard(summary, { shopierPatConfigured: Boolean(process.env.SHOPIER_PAT) }),
+          )
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err)
+          await sendTelegramMessage(chatId, `Shopier dashboard error: ${msg}`)
+        }
+        return NextResponse.json({ ok: true })
+      }
+
       // /shopier publish-ready
       if (subCommand === 'publish-ready') {
         try {
-          const { docs } = await payload.find({
-            collection: 'products',
-            where: {
-              and: [
-                { status: { equals: 'active' } },
-                { 'channels.publishShopier': { equals: true } },
-              ],
-            },
-            depth: 0,
-            limit: 50,
-          })
-          const toSync = docs.filter((d: Record<string, unknown>) => {
-            const sm = (d.sourceMeta as Record<string, unknown>) ?? {}
-            return !sm.shopierProductId
-          })
-          if (toSync.length === 0) {
-            await sendTelegramMessage(chatId, '✅ Shopier\'e yayınlanacak yeni ürün yok.')
+          if (!process.env.SHOPIER_PAT) {
+            await sendTelegramMessage(chatId, 'SHOPIER_PAT missing - Shopier sync disabled')
             return NextResponse.json({ ok: true })
           }
-          await sendTelegramMessage(chatId, `⏳ ${toSync.length} ürün Shopier sync kuyruğuna alınıyor...`)
-          let queued = 0
-          for (const p of toSync) {
-            const pMeta = ((p as Record<string, unknown>).sourceMeta as Record<string, unknown>) ?? {}
-            await payload.update({
-              collection: 'products',
-              id: p.id,
-              data: { sourceMeta: { ...pMeta, shopierSyncStatus: 'queued' } },
-              context: { isDispatchUpdate: true },
-            })
-            await payload.jobs.queue({
-              task: 'shopier-sync',
-              input: { productId: String(p.id) },
-              overrideAccess: true,
-            })
-            queued++
+          const confirmed = (parts[2] ?? '').toLowerCase() === 'confirm'
+          const {
+            evaluateShopierPublishControl,
+            formatShopierBatchPlan,
+            hasShopierIntent,
+            queueShopierSync,
+          } = await import('@/lib/shopierPublishControl')
+          const activeRes = await payload.find({
+            collection: 'products',
+            where: { status: { equals: 'active' } },
+            depth: 1,
+            limit: 100,
+            sort: '-updatedAt',
+          })
+          const candidates = (activeRes.docs as Record<string, unknown>[]).filter((product) => {
+            const sourceMeta = (product.sourceMeta as Record<string, unknown> | undefined) ?? {}
+            return hasShopierIntent(product as any) && !sourceMeta.shopierProductId
+          })
+          const evaluations = candidates.map((product) => evaluateShopierPublishControl(product as any))
+
+          if (!confirmed) {
+            await sendTelegramMessage(chatId, formatShopierBatchPlan(evaluations))
+            return NextResponse.json({ ok: true })
           }
-          await sendTelegramMessage(
-            chatId,
-            `✅ ${queued} ürün Shopier sync kuyruğuna alındı.\n\nDurumları kontrol etmek için: /shopier status <id>`,
-          )
+
+          let queuedCount = 0
+          for (let index = 0; index < candidates.length; index++) {
+            const evaluation = evaluations[index]
+            if (!evaluation.ok) continue
+            try {
+              const result = await queueShopierSync(payload as any, candidates[index] as any)
+              if (result.queued) queuedCount++
+              else {
+                evaluation.blockers.push(...result.evaluation.blockers)
+                evaluation.ok = false
+              }
+            } catch (queueErr) {
+              evaluation.ok = false
+              evaluation.blockers.push(queueErr instanceof Error ? queueErr.message : String(queueErr))
+            }
+          }
+          await sendTelegramMessage(chatId, formatShopierBatchPlan(evaluations, { confirmed: true, queued: queuedCount }))
+          return NextResponse.json({ ok: true })
         } catch (err) {
           const msg = err instanceof Error ? err.message : String(err)
           await sendTelegramMessage(chatId, `❌ Toplu yayın hatası: ${msg}`)
@@ -4195,25 +4186,70 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ ok: true })
       }
 
+      // /shopier retry-errors [confirm]
+      if (subCommand === 'retry-errors') {
+        try {
+          if (!process.env.SHOPIER_PAT) {
+            await sendTelegramMessage(chatId, 'SHOPIER_PAT missing - Shopier retry disabled')
+            return NextResponse.json({ ok: true })
+          }
+          const confirmed = (parts[2] ?? '').toLowerCase() === 'confirm'
+          const {
+            buildShopierRetryPlan,
+            formatShopierRetryPlan,
+            queueShopierSync,
+          } = await import('@/lib/shopierPublishControl')
+          const errorRes = await payload.find({
+            collection: 'products',
+            where: { 'sourceMeta.shopierSyncStatus': { equals: 'error' } },
+            depth: 1,
+            limit: 50,
+            sort: '-updatedAt',
+          })
+          const plan = buildShopierRetryPlan(errorRes.docs as any[])
+
+          if (!confirmed) {
+            await sendTelegramMessage(chatId, formatShopierRetryPlan(plan))
+            return NextResponse.json({ ok: true })
+          }
+
+          let queuedCount = 0
+          for (const entry of plan) {
+            if (!entry.queueable) continue
+            try {
+              const result = await queueShopierSync(payload as any, entry.product as any, { notifyTelegramChatId: chatId })
+              if (result.queued) queuedCount++
+              else {
+                entry.queueable = false
+                entry.blockers.push(...result.evaluation.blockers)
+              }
+            } catch (queueErr) {
+              entry.queueable = false
+              entry.blockers.push(queueErr instanceof Error ? queueErr.message : String(queueErr))
+            }
+          }
+
+          await sendTelegramMessage(chatId, formatShopierRetryPlan(plan, { confirmed: true, queued: queuedCount }))
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err)
+          await sendTelegramMessage(chatId, `Shopier retry error: ${msg}`)
+        }
+        return NextResponse.json({ ok: true })
+      }
+
       // /shopier errors
       if (subCommand === 'errors') {
         try {
-          const { docs } = await payload.find({
+          const { formatShopierErrorSummary } = await import('@/lib/shopierPublishControl')
+          const errorRes = await payload.find({
             collection: 'products',
             where: { 'sourceMeta.shopierSyncStatus': { equals: 'error' } },
             depth: 0,
-            limit: 10,
+            limit: 20,
             sort: '-updatedAt',
           })
-          if (docs.length === 0) {
-            await sendTelegramMessage(chatId, '✅ Shopier sync hatası yok.')
-          } else {
-            const lines = docs.map((d: Record<string, unknown>) => {
-              const sm = (d.sourceMeta as Record<string, unknown>) ?? {}
-              return `• ${d.title} (${d.id})\n  Hata: ${(sm.shopierLastError as string)?.slice(0, 100) || '?'}`
-            })
-            await sendTelegramMessage(chatId, `❌ Son Shopier hataları:\n\n${lines.join('\n\n')}`)
-          }
+          await sendTelegramMessage(chatId, formatShopierErrorSummary(errorRes.docs as any[]))
+          return NextResponse.json({ ok: true })
         } catch (err) {
           await sendTelegramMessage(chatId, `❌ Hata: ${err}`)
         }
@@ -4227,6 +4263,7 @@ export async function POST(req: NextRequest) {
           '/shopier republish <id> — Tekrar senkronla\n' +
           '/shopier status <id> — Sync durumu\n' +
           '/shopier url <id> — Shopier linki\n' +
+          '/shopier dashboard — Hazırlık ve hata panosu\n' +
           '/shopier publish-ready — Tüm hazır ürünleri yayınla\n' +
           '/shopier errors — Son hataları listele',
       )
@@ -4647,6 +4684,145 @@ export async function POST(req: NextRequest) {
 
     // ── Phase 13: System Diagnostics Command ────────────────────────────────
     // /diagnostics — lightweight system health check
+    // D-353: Bulk Catalog QA. Read-only product completeness/reporting before
+    // any batch mutation work. D-356 owns mutation/publish paths.
+    if (text.startsWith('/catalogqa')) {
+      const parts = text.trim().split(/\s+/)
+      const rawLimit = parts[1]
+      const defaultLimit = 100
+      const maxLimit = 300
+      let limit = defaultLimit
+
+      if (rawLimit) {
+        const parsedLimit = Number(rawLimit)
+        if (!Number.isInteger(parsedLimit) || parsedLimit < 1) {
+          await sendTelegramMessage(
+            chatId,
+            '<b>Catalog QA</b>\n\n' +
+              '<code>/catalogqa</code> veya <code>/catalogqa 200</code>\n\n' +
+              '<i>Read-only rapor; batch mutation/publish D-356 icin ayrildi.</i>',
+          )
+          return NextResponse.json({ ok: true })
+        }
+        limit = Math.min(parsedLimit, maxLimit)
+      }
+
+      try {
+        const result = await payload.find({
+          collection: 'products',
+          limit,
+          depth: 1,
+          sort: '-updatedAt',
+        })
+        const { buildCatalogQaReport, formatCatalogQaReport } = await import('@/lib/catalogQa')
+        const report = buildCatalogQaReport(result.docs as any[], {
+          sampleLimit: limit,
+          totalProducts: result.totalDocs,
+        })
+        await sendTelegramMessage(chatId, formatCatalogQaReport(report))
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err)
+        await sendTelegramMessage(chatId, `❌ Catalog QA hatası: ${msg}`)
+      }
+      return NextResponse.json({ ok: true })
+    }
+
+    // D-354: Category Fill Strategy. Read-only catalog-depth planning for
+    // ad readiness. No product writes, no publishing, no batch mutation.
+    if (text.startsWith('/categoryfill')) {
+      const parts = text.trim().split(/\s+/)
+      const rawLimit = parts[1]
+      const defaultLimit = 100
+      const maxLimit = 300
+      let limit = defaultLimit
+
+      if (rawLimit) {
+        const parsedLimit = Number(rawLimit)
+        if (!Number.isInteger(parsedLimit) || parsedLimit < 1) {
+          await sendTelegramMessage(
+            chatId,
+            '<b>Category Fill Strategy</b>\n\n' +
+              '<code>/categoryfill</code> veya <code>/categoryfill 200</code>\n\n' +
+              '<i>Read-only kategori doluluk planı; reklamlar D-380+ kadar bekler.</i>',
+          )
+          return NextResponse.json({ ok: true })
+        }
+        limit = Math.min(parsedLimit, maxLimit)
+      }
+
+      try {
+        const result = await payload.find({
+          collection: 'products',
+          limit,
+          depth: 1,
+          sort: '-updatedAt',
+        })
+        const { buildCategoryFillReport, formatCategoryFillReport } = await import('@/lib/categoryFill')
+        const report = buildCategoryFillReport(result.docs as any[], {
+          sampleLimit: limit,
+          totalProducts: result.totalDocs,
+        })
+        await sendTelegramMessage(chatId, formatCategoryFillReport(report))
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err)
+        await sendTelegramMessage(chatId, `❌ Category Fill hatası: ${msg}`)
+      }
+      return NextResponse.json({ ok: true })
+    }
+
+    // D-355: Product Image QC gate. Reads current QC state or records an
+    // operator PASS/REVIEW/FAIL decision. No publish, dispatch, or ad action.
+    if (text.startsWith('/imageqc')) {
+      const parts = text.trim().split(/\s+/)
+      const first = (parts[1] ?? '').toLowerCase()
+      const isDecision = first === 'pass' || first === 'review' || first === 'fail'
+      const decision = isDecision ? (first as 'pass' | 'review' | 'fail') : null
+      const idArg = isDecision ? parts[2] : parts[1]
+      const note = isDecision ? parts.slice(3).join(' ').trim() : ''
+
+      if (!idArg) {
+        await sendTelegramMessage(
+          chatId,
+          '<b>Image QC (D-355)</b>\n\n' +
+            '<code>/imageqc SN0123</code>\n' +
+            '<code>/imageqc pass SN0123 onaylandi</code>\n' +
+            '<code>/imageqc review SN0123 taban birlesimi kontrol</code>\n' +
+            '<code>/imageqc fail SN0123 logo/renk sorunu</code>\n\n' +
+            '<i>AI-generated images need QC PASS before publish/activation. This command does not publish, dispatch, or run ads.</i>',
+        )
+        return NextResponse.json({ ok: true })
+      }
+
+      try {
+        const { resolveProductIdentifier, formatIdentifierMissingMessage } = await import('@/lib/operatorActions')
+        const { applyImageQualityDecision, evaluateImageQualityGate, formatImageQualityMessage } = await import('@/lib/imageQualityGate')
+        const resolved = await resolveProductIdentifier(payload, idArg)
+
+        if (!resolved) {
+          await sendTelegramMessage(chatId, formatIdentifierMissingMessage(idArg))
+          return NextResponse.json({ ok: true })
+        }
+
+        if (decision) {
+          const out = await applyImageQualityDecision(payload, resolved.productId, decision, {
+            notes: note,
+            checkedBy: String(msgUserId ?? message.from?.id ?? chatId),
+            source: 'telegram',
+          })
+          await sendTelegramMessage(chatId, out.message)
+          return NextResponse.json({ ok: true })
+        }
+
+        const product = await payload.findByID({ collection: 'products', id: resolved.productId, depth: 1 })
+        const result = evaluateImageQualityGate(product as any)
+        await sendTelegramMessage(chatId, formatImageQualityMessage(product as any, result))
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err)
+        await sendTelegramMessage(chatId, `Image QC hatasi: ${msg}`)
+      }
+      return NextResponse.json({ ok: true })
+    }
+
     if (text.startsWith('/diagnostics')) {
       try {
         const lines: string[] = ['🔧 <b>System Diagnostics</b>', '']
@@ -4665,7 +4841,6 @@ export async function POST(req: NextRequest) {
           { name: 'GEMINI_API_KEY', val: !!process.env.GEMINI_API_KEY },
           { name: 'SHOPIER_PAT', val: !!process.env.SHOPIER_PAT },
           { name: 'BLOB_READ_WRITE_TOKEN', val: !!process.env.BLOB_READ_WRITE_TOKEN },
-          { name: 'CLAID_API_KEY', val: !!process.env.CLAID_API_KEY },
           { name: 'OPENAI_API_KEY', val: !!process.env.OPENAI_API_KEY },
         ]
         const envOk = envChecks.filter(e => e.val).length

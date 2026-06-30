@@ -20,6 +20,7 @@ import { summarizeProductStock } from './productStock'
 import { countUsableMediaRows } from './productMedia'
 import { resolveConfiguredTargets } from './productActivationGuard'
 import { buildProductUtmUrl } from './utmBuilder'
+import { evaluateImageQualityGate } from './imageQualityGate'
 
 export type AdReadinessLevel = 'ready' | 'review' | 'blocked'
 
@@ -68,6 +69,7 @@ export function evaluateAdReadiness(product: AdProduct): AdReadinessResult {
 
     const aiMedia = countUsableMediaRows(p.generativeGallery)
     const originalMedia = countUsableMediaRows(p.images)
+    const imageQuality = evaluateImageQualityGate(p)
     const stock = summarizeProductStock(p as any)
     const targets = resolveConfiguredTargets(p as any)
     const brand = scanProductBrandSafety(p)
@@ -89,8 +91,15 @@ export function evaluateAdReadiness(product: AdProduct): AdReadinessResult {
     )
 
     // 2. Clean media — only AI/generative images are public + ad-safe. Originals never go public.
-    if (aiMedia > 0) {
+    if (aiMedia > 0 && imageQuality.publishable) {
       checks.push({ key: 'media_clean', label: 'Temiz görsel (AI galeri)', ok: true, detail: `${aiMedia} AI görsel` })
+    } else if (aiMedia > 0) {
+      checks.push({
+        key: 'media_clean',
+        label: 'Temiz gorsel (AI galeri)',
+        ok: false,
+        detail: `AI gorsel QC PASS degil: ${imageQuality.detail}`,
+      })
     } else if (originalMedia > 0) {
       checks.push({
         key: 'media_clean',

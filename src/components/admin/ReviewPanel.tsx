@@ -10,6 +10,12 @@ import { PRODUCT_LIFECYCLE_LABELS, deriveProductLifecycle } from '@/lib/productL
 import { summarizeOperatorReadiness } from '@/lib/operatorReadiness'
 import { evaluatePublishReadiness } from '@/lib/publishReadiness'
 import { resolveConfiguredTargets } from '@/lib/productChannels'
+import { evaluateImageQualityGate } from '@/lib/imageQualityGate'
+import {
+  evaluateShopierPublishControl,
+  hasShopierIntent,
+  summarizeShopierAdminGate,
+} from '@/lib/shopierPublishControl'
 
 type CheckItem = {
   label: string
@@ -61,7 +67,9 @@ const CHANNEL_LABEL: Record<string, string> = {
 export const ReviewPanel: React.FC = () => {
   const title         = useFormFields(([f]) => f['title']?.value) as string | undefined
   const price         = useFormFields(([f]) => f['price']?.value) as number | undefined
+  const slug          = useFormFields(([f]) => f['slug']?.value) as string | undefined
   const sku           = useFormFields(([f]) => f['sku']?.value) as string | undefined
+  const stockNumber   = useFormFields(([f]) => f['stockNumber']?.value) as string | undefined
   const status        = useFormFields(([f]) => f['status']?.value) as string | undefined
   const workflowStatus = useFormFields(([f]) => f['workflow.workflowStatus']?.value) as string | undefined
   const visualStatus = useFormFields(([f]) => f['workflow.visualStatus']?.value) as string | undefined
@@ -71,6 +79,12 @@ export const ReviewPanel: React.FC = () => {
   const publishStatus = useFormFields(([f]) => f['workflow.publishStatus']?.value) as string | undefined
   const stockState = useFormFields(([f]) => f['workflow.stockState']?.value) as string | undefined
   const sellable = useFormFields(([f]) => f['workflow.sellable']?.value) as boolean | undefined
+  const imageQualityStatus = useFormFields(([f]) => f['imageQuality.status']?.value) as string | undefined
+  const imageQualityDefectFlags = useFormFields(([f]) => f['imageQuality.defectFlags']?.value) as string[] | undefined
+  const imageQualityNotes = useFormFields(([f]) => f['imageQuality.notes']?.value) as string | undefined
+  const imageQualityCheckedAt = useFormFields(([f]) => f['imageQuality.checkedAt']?.value) as string | undefined
+  const imageQualityCheckedBy = useFormFields(([f]) => f['imageQuality.checkedBy']?.value) as string | undefined
+  const imageQualitySource = useFormFields(([f]) => f['imageQuality.source']?.value) as string | undefined
   const auditOverallResult = useFormFields(([f]) => f['auditResult.overallResult']?.value) as string | undefined
   const approvedForPublish = useFormFields(([f]) => f['auditResult.approvedForPublish']?.value) as boolean | undefined
   const source        = useFormFields(([f]) => f['source']?.value) as string | undefined
@@ -105,6 +119,9 @@ export const ReviewPanel: React.FC = () => {
   const lastDispatchedAt      = useFormFields(([f]) => f['sourceMeta.lastDispatchedAt']?.value) as string | undefined
   const dispatchNotesRaw      = useFormFields(([f]) => f['sourceMeta.dispatchNotes']?.value) as string | undefined
   const forceRedispatch       = useFormFields(([f]) => f['sourceMeta.forceRedispatch']?.value) as boolean | undefined
+  const shopierProductId      = useFormFields(([f]) => f['sourceMeta.shopierProductId']?.value) as string | undefined
+  const shopierSyncStatus     = useFormFields(([f]) => f['sourceMeta.shopierSyncStatus']?.value) as string | undefined
+  const shopierLastError      = useFormFields(([f]) => f['sourceMeta.shopierLastError']?.value) as string | undefined
 
   const effectiveSource = source || 'admin'
 
@@ -147,6 +164,19 @@ export const ReviewPanel: React.FC = () => {
       ? 'OK'
       : `Uyari: ${formatBrandSafetyReason(visibleBrandSafety)}`
     : formatBrandSafetyReason(visibleBrandSafety)
+  const imageQuality = evaluateImageQualityGate({
+    images,
+    generativeGallery,
+    workflow: { visualStatus, workflowStatus },
+    imageQuality: {
+      status: imageQualityStatus,
+      defectFlags: imageQualityDefectFlags,
+      notes: imageQualityNotes,
+      checkedAt: imageQualityCheckedAt,
+      checkedBy: imageQualityCheckedBy,
+      source: imageQualitySource,
+    },
+  })
 
   // Parse warnings from JSON string
   let parseWarnings: string[] = []
@@ -218,6 +248,11 @@ export const ReviewPanel: React.FC = () => {
       ok: hasImages,
     },
     {
+      label: 'Image QC',
+      detail: imageQuality.detail,
+      ok: imageQuality.publishable,
+    },
+    {
       label: 'Stok adedi',
       detail: stockDetail,
       ok: hasStock,
@@ -282,12 +317,66 @@ export const ReviewPanel: React.FC = () => {
       overallResult: auditOverallResult,
       approvedForPublish,
     },
+    imageQuality: {
+      status: imageQualityStatus,
+      defectFlags: imageQualityDefectFlags,
+      notes: imageQualityNotes,
+      checkedAt: imageQualityCheckedAt,
+      checkedBy: imageQualityCheckedBy,
+      source: imageQualitySource,
+    },
   })
   const operatorReadiness = summarizeOperatorReadiness({
     status,
     checks,
     readiness: publishReadiness,
   })
+  const shopierGateProduct = {
+    id: 'admin-form',
+    title,
+    stockNumber: stockNumber ?? sku,
+    slug,
+    status,
+    category,
+    brand,
+    price,
+    images,
+    generativeGallery,
+    stockQuantity,
+    variants,
+    channelTargets,
+    channels,
+    workflow: {
+      workflowStatus,
+      visualStatus,
+      confirmationStatus,
+      contentStatus,
+      auditStatus,
+      publishStatus,
+      stockState,
+      sellable,
+    },
+    auditResult: {
+      overallResult: auditOverallResult,
+      approvedForPublish,
+    },
+    imageQuality: {
+      status: imageQualityStatus,
+      defectFlags: imageQualityDefectFlags,
+      notes: imageQualityNotes,
+      checkedAt: imageQualityCheckedAt,
+      checkedBy: imageQualityCheckedBy,
+      source: imageQualitySource,
+    },
+    sourceMeta: {
+      shopierProductId,
+      shopierSyncStatus,
+      shopierLastError,
+    },
+  }
+  const shopierHasIntent = hasShopierIntent(shopierGateProduct)
+  const shopierEvaluation = evaluateShopierPublishControl(shopierGateProduct)
+  const shopierGate = summarizeShopierAdminGate(shopierEvaluation, { hasIntent: shopierHasIntent })
   const blockers = operatorReadiness.fieldBlockers
   const warnings = operatorReadiness.warnings
   const readyToPublish = operatorReadiness.isReadyToPublish
@@ -319,6 +408,20 @@ export const ReviewPanel: React.FC = () => {
     : '#ef4444'
   const fieldBlockerSummary = blockers.map((b) => b.label).join(', ')
   const readinessBlockerSummary = operatorReadiness.readinessBlockers.slice(0, 3).join('; ')
+  const shopierGateColor = shopierGate.state === 'ready' || shopierGate.state === 'synced'
+    ? '#86efac'
+    : shopierGate.state === 'queued'
+      ? '#facc15'
+      : shopierGate.state === 'not_targeted'
+        ? '#94a3b8'
+        : '#fca5a5'
+  const shopierGateBg = shopierGate.state === 'ready' || shopierGate.state === 'synced'
+    ? '#052e16'
+    : shopierGate.state === 'queued'
+      ? '#1c1917'
+      : shopierGate.state === 'not_targeted'
+        ? '#111827'
+        : '#450a0a'
 
   return (
     <div
@@ -659,6 +762,54 @@ export const ReviewPanel: React.FC = () => {
           📤 Kanal dispatch: ürün aktif edildiğinde otomatik tetiklenir
         </div>
       )}
+
+      {/* D-356B: Read-only Shopier queue gate */}
+      <div
+        style={{
+          background: shopierGateBg,
+          borderBottom: '1px solid #334155',
+          padding: '8px 16px',
+        }}
+      >
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: '8px',
+            flexWrap: 'wrap',
+            marginBottom: '4px',
+          }}
+        >
+          <span style={{ fontSize: '10px', fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
+            Shopier Queue Gate
+          </span>
+          <span style={{ fontSize: '11px', fontWeight: 700, color: shopierGateColor }}>
+            {shopierGate.label} - readiness {shopierEvaluation.readinessScore}
+          </span>
+        </div>
+        <div style={{ fontSize: '11px', color: '#cbd5e1' }}>
+          {shopierGate.detail}
+        </div>
+        {shopierHasIntent && shopierEvaluation.blockers.length > 0 && (
+          <div style={{ marginTop: '4px', fontSize: '11px', color: '#fecaca' }}>
+            Blockers: {shopierEvaluation.blockers.slice(0, 3).join('; ')}
+            {shopierEvaluation.blockers.length > 3 ? ' ...' : ''}
+          </div>
+        )}
+        {shopierEvaluation.warnings.length > 0 && (
+          <div style={{ marginTop: '4px', fontSize: '11px', color: '#fde68a' }}>
+            Warnings: {shopierEvaluation.warnings.slice(0, 2).join('; ')}
+          </div>
+        )}
+        {(shopierSyncStatus || shopierProductId || shopierLastError) && (
+          <div style={{ marginTop: '4px', fontSize: '10px', color: '#94a3b8' }}>
+            Status: {shopierSyncStatus ?? 'not_synced'}
+            {shopierProductId ? ` | Shopier ID: ${shopierProductId}` : ''}
+            {shopierLastError ? ` | Last error: ${shopierLastError.substring(0, 120)}${shopierLastError.length > 120 ? '...' : ''}` : ''}
+          </div>
+        )}
+      </div>
 
       {/* Step 11: Parse warnings row */}
       {parseWarnings.length > 0 && (

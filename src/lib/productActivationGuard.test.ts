@@ -74,6 +74,28 @@ async function main() {
     assert.deepStrictEqual(blockers, [])
   })
 
+  await check('generated images require image QC pass before activation', async () => {
+    const base: ProductActivationDocument = {
+      ...completeProduct,
+      id: 105,
+      images: [],
+      generativeGallery: [{ image: 1 }],
+    }
+
+    const blockers = await collectActivationBlockers(base, {
+      resolveStockSnapshot: stock(4),
+    })
+    assert.ok(blockers.some((b) => b.includes('image QC')), blockers.join('\n'))
+
+    const passed = await collectActivationBlockers({
+      ...base,
+      imageQuality: { status: 'pass' },
+    }, {
+      resolveStockSnapshot: stock(4),
+    })
+    assert.deepStrictEqual(passed, [])
+  })
+
   await check('missing product reports all core blockers', async () => {
     const blockers = await collectActivationBlockers({
       id: 102,

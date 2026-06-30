@@ -1,10 +1,18 @@
 # n8n Role And Decision
 
-Last updated: 2026-06-21
+Last updated: 2026-06-30
 
 ## Current Position
 
 n8n is optional glue, not the main project brain.
+
+Current validation guard:
+
+```powershell
+npm run test:n8n-optional
+```
+
+This keeps n8n optional, checks the allowed active-channel workflow inventory, verifies scaffold mode does not block the Payload product flow when webhook env vars are missing, and prevents package scripts from activating n8n workflows by default.
 
 ## Good Uses For n8n
 
@@ -59,3 +67,12 @@ Keep n8n only if the current intake workflow is actively useful. Otherwise simpl
 
 Do not invest in new n8n channel workflows until product intake and publishing reliability are stable.
 
+Allowed workflow files for optional fallback testing:
+
+- `n8n-workflows/stubs/channel-instagram.json`
+- `n8n-workflows/stubs/channel-shopier.json`
+- `n8n-workflows/stubs/channel-facebook.json`
+- `n8n-workflows/stubs/channel-x.json`
+- `n8n-workflows/channel-instagram-real.json`
+
+Do not add Dolap, Threads, SupplierScout, or inactive-channel workflows.

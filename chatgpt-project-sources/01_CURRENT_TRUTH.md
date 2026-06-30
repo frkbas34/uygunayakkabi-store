@@ -1,6 +1,6 @@
 # Current Truth
 
-Last updated: 2026-06-27
+Last updated: 2026-06-28
 
 ## North Star
 
@@ -8,7 +8,7 @@ UygunAyakkabi is a Telegram-first, AI-assisted commerce system for selling and u
 
 Payload is the source of truth. Products, media, orders, leads, stock, bot events, AI jobs, and publishing status should resolve back to Payload data.
 
-## Current Focus (2026-06-27): Catalog Scale-Up / Product Loading Factory
+## Current Focus (2026-06-28): Catalog Scale-Up / Product Loading Factory
 
 Strategic shift: we are NOT preparing to launch ads yet. Advertising is intentionally deferred until the catalog is much larger and product-image quality is stable (earliest ad phase is D-380+). The OLD focus "ads readiness" is replaced by the NEW primary focus: build the product catalog and image-QA factory first; advertising comes much later.
 
@@ -22,6 +22,8 @@ Top priorities, in order:
 4. Ads only after the above are stable (D-380+).
 
 The active roadmap for this phase is D-352 through D-357 in `02_MASTER_ROADMAP.md` (Phase 10). Image-QA standards live in `09_AI_IMAGES_GEO_PRODUCT_INTELLIGENCE.md`.
+
+Operator visibility now includes `/catalogqa [limit]` for product completeness, `/categoryfill [limit]` for category depth strategy, `/imageqc` for product image quality state, guarded Shopier operator dashboard via `/shopier dashboard`, guarded Shopier batch preview via `/shopier publish-ready`, first-pass Shopier sync error triage via `/shopier errors`, and safe retry preview via `/shopier retry-errors`. `/catalogqa`, `/categoryfill`, and `/shopier dashboard` are read-only. `/imageqc` only writes Image QC metadata/workflow visual state. `/shopier publish-ready` and `/shopier retry-errors` are preview-only until their `confirm` forms are used. Confirmed Shopier commands queue only products that pass the shared Shopier/Web gate. None of these commands spend on ads.
 
 ## D-351 Lead Capture Repair (completed 2026-06-27)
 
@@ -111,3 +113,9 @@ Stock readiness now uses one shared stock summary across central publish readine
 The Payload admin ReviewPanel ready/not-ready banner now depends on central six-dimension `evaluatePublishReadiness()`, not only its local field checklist. Confirmation, content, audit, media, sellable stock, target channels, and brand safety must all pass before the panel says a draft is ready to publish. Covered by `src/lib/operatorReadiness.test.ts`.
 
 Telegram/operator pipeline diagnostics now use the same usable-media and stock-summary helpers. `/pipeline` no longer counts empty media placeholders as visuals, and its stock stage reports effective variant stock plus sold-out/not-sellable blockers instead of only top-level `stockQuantity`. Covered by `src/lib/publishReadiness.test.ts`.
+
+D-355 structured Image QC is implemented. Products now have an `imageQuality` group with PASS/REVIEW/FAIL state, defect flags, notes, checkedAt, checkedBy, and source. AI/generated product images require explicit QC PASS before publish readiness, activation, or ad readiness. Original-only product media can pass the image QC gate without generated-image QC. Operator visibility exists in the Payload admin ReviewPanel and Telegram `/imageqc`. Covered by `src/lib/imageQualityGate.test.ts`, plus publish-readiness, activation-guard, ad-readiness, and catalog-QA assertions.
+
+D-356 Shopier/Web batch control is in progress. The shared gate in `src/lib/shopierPublishControl.ts` blocks Shopier queueing unless the product is active/visible on the website, has a slug, explicitly targets Shopier in both `channelTargets` and `channels.publishShopier`, has category, sellable stock, generated-gallery media, Image QC PASS, brand-safety pass, and central publish readiness. `/shopier dashboard` is read-only and combines publish-ready counts, top blocker groups, error classes, and safe retry counts. `/shopier publish-ready` previews eligible/blocked products; `/shopier publish-ready confirm` queues only eligible products. `/shopier errors` summarizes products with Shopier sync errors by retryable, product data, configuration, remote state, or unknown class and gives the next operator action. `/shopier retry-errors` previews only retryable errors that still pass the same queue gate; `/shopier retry-errors confirm` queues only those safe retry candidates. `npm run smoke:shopier:read -- --confirm-read-only` mirrors dashboard, publish-ready, errors, and retry-errors against real Payload state without writes, jobs, dispatch, Shopier API calls, or schema push. Covered by `src/lib/shopierPublishControl.test.ts`; runtime smoke is operator-run and not part of `validate`.
+
+Latest read-only schema check on 2026-06-30 shows D-355 Image QC DB drift: missing product columns `image_quality_status`, `image_quality_notes`, `image_quality_checked_at`, `image_quality_checked_by`, `image_quality_source`, plus missing relation `products_image_quality_defect_flags`. The Shopier smoke also stops before preview on that missing relation (`code=42P01`). These checks confirmed no writes, jobs, dispatches, Shopier API calls, or schema push. The guarded repair helper is `npm run db:imageqc:apply`; it previews by default, and confirmed apply requires `--apply --confirm-apply-d355-image-qc-schema`. Apply only with explicit operator approval, then rerun `npm run smoke:imageqc:schema -- --confirm-read-only` before live-smoking Telegram Shopier commands.

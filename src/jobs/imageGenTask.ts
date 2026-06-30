@@ -11,13 +11,12 @@
  *   Stage 1 explicit Gemini Pro: #geminipro {id} → provider='gemini-pro', stage='standard'
  *   Stage 2 premium: imgpremium button → provider='gemini-pro', stage='premium' (slots 4-5)
  *
- *   Default Stage 1 (slots 1-3) is STILL lumaGenTask → #gorsel → luma-gen.
+ *   Default Stage 1 (slots 1-3) → #gorsel → image-gen.
  *   This task handles all image-gen (openai + gemini-pro) explicit engine requests.
  *
  * REGEN ROUTING (v17):
  *   provider='openai'     → re-queues image-gen/openai (preserves explicit engine)
  *   provider='gemini-pro' → re-queues image-gen/gemini-pro
- *   provider='luma'       → re-queues luma-gen (handled in regenImageGenJob, not here)
  *
  * v11 PREVIEW FLOW: images are NOT attached to product until operator
  * explicitly approves via Telegram. See route.ts for approval handlers.

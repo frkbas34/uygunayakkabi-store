@@ -1,6 +1,6 @@
 # Active Channels And Publishing
 
-Last updated: 2026-06-23
+Last updated: 2026-06-30
 
 ## Active Channels
 
@@ -60,11 +60,27 @@ Needed:
 
 Shopier sync is handled through Payload jobs.
 
-Needed:
+Current:
 
-- Job status visibility.
-- Retry and error explanation.
-- Confirm product/media requirements.
+- `src/lib/shopierPublishControl.ts` is the shared Shopier/Web queue gate.
+- `/shopier dashboard` is read-only and summarizes publish-ready counts, top blocker groups, Shopier error classes, and safe retry counts.
+- `/shopier publish <sn-or-id>` and `/shopier republish <sn-or-id>` use that gate before queueing a `shopier-sync` job.
+- `/shopier publish-ready` is preview-only.
+- `/shopier publish-ready confirm` queues only products that pass the gate.
+- `/shopier errors` gives first-pass triage for failed Shopier syncs, grouped as retryable, product data, configuration, remote state, or unknown with a suggested next action.
+- `/shopier retry-errors` previews failed Shopier syncs that are safe to retry.
+- `/shopier retry-errors confirm` queues only retryable errors that still pass the shared gate.
+- Payload admin ReviewPanel shows a read-only Shopier Queue Gate for the current product using the same D-356 evaluator as Telegram queue commands.
+- `npm run smoke:shopier:read -- --confirm-read-only` mirrors dashboard, publish-ready, errors, and retry-errors in read-only runtime mode without writing, queueing, dispatching, calling Shopier, or pushing schema changes.
+- The gate requires active website visibility, slug, explicit Shopier target/flag alignment, category, generated-gallery media, Image QC PASS, sellable stock, brand-safety pass, central publish readiness, and no duplicate queued/syncing job.
+- Covered by `npm run test:shopier-publish-control`, including the admin gate summary states.
+- Latest read-only schema check is blocked by D-355 DB drift: missing product columns `image_quality_status`, `image_quality_notes`, `image_quality_checked_at`, `image_quality_checked_by`, `image_quality_source`, plus missing relation `products_image_quality_defect_flags`.
+- Guarded DB helper: `npm run db:imageqc:apply` previews by default; confirmed apply requires `--apply --confirm-apply-d355-image-qc-schema` and explicit operator approval.
+
+Still needed:
+
+- Apply/verify the D-355 Image QC DB migration/DDL through the guarded helper, rerun `npm run smoke:imageqc:schema -- --confirm-read-only`, rerun the read-only Shopier smoke, then live operator smoke the guarded Telegram commands.
+- Decide whether the first-pass `/shopier dashboard`, `/shopier errors`, `/shopier retry-errors`, and per-product admin gate are enough or if a broader admin batch review surface is needed.
 
 ## Dispatch Gates
 

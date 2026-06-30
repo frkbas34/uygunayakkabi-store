@@ -22,7 +22,7 @@ import { LOCK_REMINDER_BLOCK } from './imageLockReminder'
 // Shared canonical prohibitions — injected into EVERY generation prompt
 // ─────────────────────────────────────────────────────────────────────────────
 // This ensures the same master prohibition list from productPreservation.ts
-// is used by ALL engines (OpenAI, Gemini Pro, Luma) — single source of truth.
+// is used by ALL engines (OpenAI, Gemini Pro) — single source of truth.
 
 const CANONICAL_PROHIBITIONS_BLOCK =
   `\n═══ ABSOLUTE PROHIBITIONS ═══\n` +
@@ -163,6 +163,7 @@ const VISUAL_FACT_LOCK_BLOCK =
   `• FORBIDDEN: inventing engraved or embossed BRAND-NAME hardware or ANY brand text / logo / wordmark (e.g. do NOT add "BOSS" or any name on metal or anywhere).\n` +
   `• Any subtle marking, monogram, or emboss visible in the reference stays a SUBTLE same-material fabric / embossed / stitched detail — never a metal plate or shiny badge.\n` +
   `• If you are unsure whether something is metal, it is NOT metal — keep it the soft material it is in the reference.\n` +
+  `• PRESERVE — do NOT erase, smooth, flatten, blur, or omit — any subtle embossed wordmark, monogram, side detail, perforation, or stitched marking that IS visible in the reference. Reproduce it in the SAME position at the SAME subtlety and SAME material; do not delete it and do not turn it into shiny metal or added brand text.\n` +
   `═══════════════════════════\n`
 
 /**
@@ -1134,16 +1135,16 @@ async function checkShotCompliance(
       correction: 'Camera should be 25-35cm from the shoe, focusing on the toe cap and vamp area. Show the front half with detail — NOT the entire shoe, and NOT an extreme macro of just texture.',
     },
     tabletop_editorial: {
-      required: 'overhead editorial at 55-65° — top of shoe (tongue, lacing) dominant, marble surface',
-      passRule: 'the top of the shoe is prominently visible (tongue, lacing seen from above), clear overhead-ish angle',
-      failSignals: 'straight-on front angle, side profile view, no overhead perspective, lacing not visible from above',
-      correction: 'Camera must be above and in front at 55-65° looking DOWN. The tongue and lacing pattern must be visible from above. Not a front or side view.',
+      required: 'rear three-quarter STUDIO angle — heel/back and one side visible together, on the clean ivory studio backdrop',
+      passRule: 'the shoe is shown from a rear three-quarter angle (heel counter and one side both visible) on a clean studio background',
+      failSignals: 'straight-on front view, pure side profile, overhead/top-down view, marble or tabletop surface, lifestyle or outdoor scene',
+      correction: 'Camera must be BEHIND and to one side (about 35-45° off the pure back), at mid-shoe height, so the heel and one side are both visible, on the clean ivory studio backdrop. Not front, not overhead, not on marble or any textured surface.',
     },
     worn_lifestyle: {
-      required: 'lifestyle worn shot — shoe on a human foot/lower leg, ground-level, warm environment',
-      passRule: 'a human foot/lower leg is visible wearing the shoe in a lifestyle environment (not a studio)',
-      failSignals: 'isolated floating shoe with no foot, studio white background, no human element present',
-      correction: 'The shoe must be WORN ON A HUMAN FOOT. A lower leg/ankle must be visible. This is NOT a product-on-surface shot.',
+      required: 'STUDIO material/craft close-up of the visible upper (vamp/quarter material, stitching, any tassel or buckle) on the clean ivory studio backdrop — NOT worn on a foot, NOT the outsole',
+      passRule: 'a tight close-up of the upper material/stitching/ornament fills most of the frame on a clean studio background',
+      failSignals: 'shoe worn on a human foot, a person or leg visible, the outsole/sole/bottom shown, lifestyle or outdoor environment, full shoe from toe to heel in frame',
+      correction: 'This must be a STUDIO macro of the visible upper material/stitching/ornament on the clean ivory backdrop. NO foot, NO person, NO outsole — a close, tight detail of the upper on the studio background.',
     },
   }
 

@@ -2,7 +2,7 @@
  * productPreservation — Shared product identity preservation rules
  *
  * Central authority for what must be preserved in AI-generated product images.
- * Consumed by ALL generation engines: Luma, ChatGPT (OpenAI), Gemini Pro.
+ * Consumed by ALL generation engines: ChatGPT (OpenAI), Gemini Pro.
  *
  * This module owns:
  *   - ProductIdentityContext type (shared across all engines)
@@ -67,7 +67,7 @@ export const PRODUCT_PRESERVATION_PROHIBITIONS = [
  * into any engine's generation prompt.
  *
  * Covers: color lock, material lock, brand zone lock, hard prohibitions.
- * Engines (Luma, ChatGPT, Gemini Pro) inject this before scene-specific text.
+ * Engines (ChatGPT, Gemini Pro) inject this before scene-specific text.
  */
 export function buildPreservationBlock(ctx: ProductIdentityContext): string {
   const colorNote =

@@ -19,6 +19,7 @@ import { countUsableMediaRows, hasUsableMediaRow } from './productMedia'
 import { summarizeProductStock, type ProductStockVariantInput } from './productStock'
 import { resolveConfiguredTargets } from './productActivationGuard'
 import { findProductChannelSelectionIssues } from './productChannels'
+import { evaluateImageQualityGate } from './imageQualityGate'
 
 // ─── Types ───────────────────────────────────────────────────────────
 
@@ -79,6 +80,14 @@ export interface ReadinessProduct {
     approvedForPublish?: boolean
   }
   generativeGallery?: any[]
+  imageQuality?: {
+    status?: string | null
+    defectFlags?: string[] | null
+    notes?: string | null
+    checkedAt?: string | null
+    checkedBy?: string | null
+    source?: string | null
+  }
   stockQuantity?: number
 }
 
@@ -100,12 +109,14 @@ function checkVisuals(product: ReadinessProduct): DimensionCheck {
   const hasOriginals = hasUsableMediaRow(product.images)
   const hasGenerative = hasUsableMediaRow(product.generativeGallery)
   const hasAnyImages = hasOriginals || hasGenerative
+  const imageQuality = evaluateImageQualityGate(product as any)
 
   // Visual is acceptable if: images exist (original or AI) and status is not 'rejected'
-  const passed = hasAnyImages && visualStatus !== 'rejected'
+  const passed = hasAnyImages && visualStatus !== 'rejected' && imageQuality.publishable
   let detail = ''
   if (!hasAnyImages) detail = 'No images (original or AI-generated)'
   else if (visualStatus === 'rejected') detail = 'Visuals rejected'
+  else if (!imageQuality.publishable) detail = `Image QC ${imageQuality.level}: ${imageQuality.detail}`
   else if (visualStatus === 'approved') detail = 'Visuals approved'
   else if (visualStatus === 'preview') detail = 'Visuals in preview (acceptable)'
   else detail = `Images exist (${hasOriginals ? 'original' : 'AI'})${visualStatus === 'pending' ? ' — visual review pending' : ''}`

@@ -114,6 +114,23 @@ const TASK_FRAMING_BLOCK =
   `═══════════════════════════\n\n`
 
 // ─────────────────────────────────────────────────
+// Multi-angle reference framing — injected ONLY when the operator sends 2-3 real
+// photos of the SAME shoe from different angles. Tells the model the inputs are ONE
+// physical product seen from multiple angles, so it copies the real shoe exactly
+// (true size/shape of every detail) and never invents, enlarges, or restyles anything.
+// This is the core fidelity guarantee: generated images must equal the product the
+// customer will actually receive.
+const MULTI_REFERENCE_FRAMING_BLOCK =
+  `\n\n═══ MULTIPLE REFERENCE ANGLES — SAME PHYSICAL SHOE (GROUND TRUTH) ═══\n` +
+  `You have been given SEVERAL reference photographs of the SAME single physical shoe, taken from DIFFERENT angles.\n` +
+  `They are ONE product — not different shoes, not variants. Study ALL of them together to understand the true shape, material, color, sole, stitching, and every detail.\n` +
+  `These angles exist so you can copy the REAL product EXACTLY and NEVER guess:\n` +
+  `• Reproduce ONLY details that actually appear across these reference photos. If a part is not shown in any of them, keep it plain and consistent — do NOT invent it.\n` +
+  `• Keep every detail at its TRUE size and form as seen in the references — do NOT enlarge, shrink, restyle, or relocate anything.\n` +
+  `• Hardware, logos, emblems, buckles, charms and tassels appear EXACTLY as in the references — same kind, same size, same place. If a metal emblem looks SMALL and flat in the references, keep it SMALL and flat — never turn it into a large buckle, horsebit, bridge, ring, or chain.\n` +
+  `• Do NOT add, remove, or alter any part relative to what these photos show. The generated shoe MUST be 100% the same product the customer will receive.\n` +
+  `═══════════════════════════\n`
+
 // D-303: Studio standard — uniform background, scale, camera & negatives.
 // Appended to every slot prompt so all product images share one look.
 // ─────────────────────────────────────────────────
@@ -2022,6 +2039,9 @@ export async function generateByGeminiPro(
     let anchorHero: Buffer | null = null
     let anchorSide: Buffer | null = null
 
+    // Multi-angle framing applies only when the operator supplied 2-3 real angles of the same shoe.
+    const multiRefFraming = (additionalImages && additionalImages.length > 0) ? MULTI_REFERENCE_FRAMING_BLOCK : ''
+
     for (const scene of scenes) {
       const sceneText = scene.sceneInstructions
         .replace(/\{COLOR\}/g, mainColor)
@@ -2029,7 +2049,7 @@ export async function generateByGeminiPro(
         .replace(/\{BACKGROUND\}/g, premiumBackground)
 
       // Same 5-block prompt structure as generateByEditing
-      const fullPrompt = LOCK_REMINDER_BLOCK + TASK_FRAMING_BLOCK + identityLock.promptBlock + zoneBlock + sceneText + STUDIO_STANDARD_BLOCK + materialDirectives(identityLock.material, identityLock.visualNotes) + MATERIAL_IDENTITY_LOCK_BLOCK + buildVisualFactLock(visualFacts) + CANONICAL_PROHIBITIONS_BLOCK + ANTI_FRAME_FINAL_BLOCK
+      const fullPrompt = LOCK_REMINDER_BLOCK + TASK_FRAMING_BLOCK + multiRefFraming + identityLock.promptBlock + zoneBlock + sceneText + STUDIO_STANDARD_BLOCK + materialDirectives(identityLock.material, identityLock.visualNotes) + MATERIAL_IDENTITY_LOCK_BLOCK + buildVisualFactLock(visualFacts) + CANONICAL_PROHIBITIONS_BLOCK + ANTI_FRAME_FINAL_BLOCK
 
       // D-355H/M: for the LATER slots (toe/vamp, material, rear), feed the already-
       // generated front/hero + side anchors as additional references so material/

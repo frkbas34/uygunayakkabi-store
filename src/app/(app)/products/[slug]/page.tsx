@@ -1,8 +1,11 @@
 import { getPayload } from '@/lib/payload'
+import { isHomepageEligible } from '@/lib/merchandising'
+import type { MerchandisableProduct } from '@/lib/merchandising'
 import { notFound } from 'next/navigation'
 import { ProductImages } from '@/components/ProductImages'
 import { ContactForm } from '@/components/ContactForm'
 import { OOSChip } from '@/components/OOSChip'
+import { SizeChip } from '@/components/SizeChip'
 import { ProductFAQ } from '@/components/ProductFAQ'
 import { StorefrontNavbar } from '@/components/StorefrontNavbar'
 import { StorefrontFooter } from '@/components/StorefrontFooter'
@@ -260,7 +263,14 @@ export default async function ProductPage({ params }: Props) {
   const totalStock = availableSizes.reduce((sum, v) => sum + v.stock, 0)
   const isSoldOut = product.status === 'soldout' || totalStock === 0
 
-  // D-267: similar products — same category, exclude current, max 6
+  // D-267: similar products — same category, exclude current, max 6.
+  // Audit fix: only surface publicly catalog-visible products here. The old
+  // `status not_equals draft` let any non-draft status (soldout, hidden, legacy,
+  // brand-risk products that fail merchandising) leak into "Benzer Modeller"
+  // even though they never appear in the main catalog. We now require
+  // status === 'active' AND pass the same isHomepageEligible gate the storefront
+  // catalog uses, so related products can never expose a hidden/brand-risk item.
+  // Fetch a wider window (limit 24) since the eligibility filter trims the set.
   const similarResult = product.category
     ? await payload.find({
         collection: 'products',
@@ -268,15 +278,17 @@ export default async function ProductPage({ params }: Props) {
           and: [
             { category: { equals: product.category } },
             { id: { not_equals: product.id } },
-            { status: { not_equals: 'draft' } },
+            { status: { equals: 'active' } },
           ],
         },
         depth: 2,
-        limit: 6,
+        limit: 24,
         sort: '-createdAt',
       })
     : { docs: [] }
-  const similarProducts = (similarResult as any).docs as ProductDoc[]
+  const similarProducts = ((similarResult as any).docs as ProductDoc[])
+    .filter((sp) => isHomepageEligible(sp as unknown as MerchandisableProduct))
+    .slice(0, 6)
 
   const serverUrl = process.env.NEXT_PUBLIC_SERVER_URL || ''
   const extractUrls = (entries: ImageEntry[]): string[] =>
@@ -545,70 +557,14 @@ export default async function ProductPage({ params }: Props) {
                       {variants.map((variant) => {
                         const isOut = variant.stock <= 0
                         const isLow = variant.stock > 0 && variant.stock <= 2
-                        const sharedStyle = {
-                          position: 'relative' as const,
-                          minWidth: 50,
-                          height: 50,
-                          borderRadius: 12,
-                          border: isOut
-                            ? '1.5px dashed rgba(28,26,22,0.12)'
-                            : isLow
-                              ? '2px solid #d97706'
-                              : '1px solid rgba(28,26,22,0.1)',
-                          background: isOut
-                            ? 'rgba(28,26,22,0.02)'
-                            : isLow
-                              ? 'rgba(217,119,6,0.08)'
-                              : 'transparent',
-                          display: 'flex',
-                          flexDirection: 'column' as const,
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                          fontFamily: "'Inter', sans-serif",
-                          fontSize: 14,
-                          fontWeight: 600,
-                          color: isOut ? 'rgba(28,26,22,0.25)' : isLow ? '#92400e' : 'rgba(28,26,22,0.5)',
-                          cursor: 'pointer',
-                          textDecoration: isOut ? 'line-through' : 'none',
-                          textDecorationColor: 'rgba(28,26,22,0.2)',
-                          transition: 'all 0.2s',
-                          padding: '4px 12px',
-                          boxSizing: 'border-box' as const,
-                        }
-                        const chipContent = (
-                          <>
-                            <span>{variant.size}</span>
-                            {variant.stock > 0 && (
-                              <span style={{
-                                fontSize: 9,
-                                fontWeight: 500,
-                                color: isLow ? '#b45309' : 'rgba(28,26,22,0.25)',
-                                marginTop: -2,
-                              }}>
-                                ({variant.stock})
-                              </span>
-                            )}
-                            {isLow && (
-                              <div style={{
-                                position: 'absolute',
-                                top: -4,
-                                right: -4,
-                                width: 8,
-                                height: 8,
-                                borderRadius: '50%',
-                                background: '#d97706',
-                                border: '2px solid #f4efe6',
-                              }} />
-                            )}
-                          </>
-                        )
-                        // D-265: OOS chips → OOSChip client component (fires CustomEvent + smooth scroll)
+                        // D-265: OOS chips → OOSChip (prefill + scroll to form).
+                        // Audit fix: in-stock chips → SizeChip — a selectable client
+                        // chip with a visible pressed state that carries the chosen
+                        // size into the inquiry form (was a dead, non-interactive div).
                         return isOut ? (
                           <OOSChip key={variant.id} size={variant.size} />
                         ) : (
-                          <div key={variant.id} style={sharedStyle}>
-                            {chipContent}
-                          </div>
+                          <SizeChip key={variant.id} size={variant.size} stock={variant.stock} isLow={isLow} />
                         )
                       })}
                     </div>

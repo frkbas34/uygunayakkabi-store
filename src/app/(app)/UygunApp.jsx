@@ -125,6 +125,7 @@ function GlobalStyles() {
         .prod-grid { grid-template-columns: repeat(3,1fr) !important; gap: 12px !important; }
         .footer-grid { grid-template-columns: 1fr 1fr !important; }
         .why-us-grid { grid-template-columns: 1fr 1fr !important; }
+        .trust-grid { grid-template-columns: 1fr !important; }
         .about-grid { grid-template-columns: 1fr !important; gap: 40px !important; }
       }
       @media(max-width:640px) {
@@ -257,7 +258,7 @@ function NavRowLink({ label, active, onClick }) {
   );
 }
 
-function Navbar({ onNav, pg, settings, cartCount, onCartToggle }) {
+function Navbar({ onNav, pg, settings, cartCount, onCartToggle, categories }) {
   const waNum = settings?.contact?.whatsappFull || DEFAULT_SETTINGS.contact.whatsappFull;
   const waDisplay = settings?.contact?.whatsapp || DEFAULT_SETTINGS.contact.whatsapp;
   const ig = settings?.contact?.instagram;
@@ -281,6 +282,11 @@ function Navbar({ onNav, pg, settings, cartCount, onCartToggle }) {
 
   const go = (fn) => { fn(); setMo(false); };
 
+  // Audit fix: hide empty categories from the primary nav. `categories` is the set
+  // of category labels that actually have ≥1 product (computed in App from the live
+  // catalog). Non-category links ("Ana Sayfa", "Tüm Ayakkabılar") always stay. If
+  // the set is missing (defensive), everything shows.
+  const catOk = (label) => !categories || categories.has(label);
   const menuItems = [
     { l: "Ana Sayfa", k: "home", on: () => onNav("home") },
     { l: "Tüm Ayakkabılar", k: "catalog", on: () => onNav("catalog") },
@@ -290,7 +296,7 @@ function Navbar({ onNav, pg, settings, cartCount, onCartToggle }) {
     { l: "Bot", on: () => onNav("catalog", "Bot") },
     { l: "Terlik", on: () => onNav("catalog", "Terlik") },
     { l: "Cüzdan", on: () => onNav("catalog", "Cüzdan") },
-  ];
+  ].filter((m) => m.k || catOk(m.l));
 
   const PAD_X = "clamp(28px, 5vw, 64px)";
 
@@ -303,7 +309,7 @@ function Navbar({ onNav, pg, settings, cartCount, onCartToggle }) {
     { l: "Bot", on: () => onNav("catalog", "Bot") },
     { l: "Terlik", on: () => onNav("catalog", "Terlik") },
     { l: "Cüzdan", on: () => onNav("catalog", "Cüzdan") },
-  ];
+  ].filter((r) => r.k || catOk(r.l));
 
   return (
     <>
@@ -1119,15 +1125,20 @@ function CategoryTiles({ allProducts, onNav }) {
     const p = (allProducts || [])[i];
     return p && p.dbImage ? p.dbImage : null;
   };
-  // D-314: predictable behavior for ad traffic — tiles without a reliable category
-  // filter just open the full catalog (no empty-search states). "Klasik" maps to a
-  // real category; "Yeni Gelenler" scrolls to the Yeni Gelenler rail.
+  // Audit fix: each style/gender tile now routes to a real, matching catalog view.
+  // "Klasik" is a true product category → category filter. Loafer/Sneaker/Kadın/
+  // Erkek are not categories (no gender/type field exists), so they route to a
+  // catalog SEARCH for that term (matches product title/stock number). The catalog
+  // heading reflects the term and, when a term has no matches, shows a clear empty
+  // state with a WhatsApp fallback — never a misleading "Tüm Ürünler". Each click
+  // produces a shareable /ayakkabilar?ara=… (or ?kategori=…) URL.
+  // "Yeni Gelenler" scrolls to the Yeni Gelenler rail.
   const tiles = [
-    { label: "Loafer",        go: () => onNav("catalog"),          img: imgAt(0) },
-    { label: "Sneaker",       go: () => onNav("catalog"),          img: imgAt(1) },
-    { label: "Klasik",        go: () => onNav("catalog", "Klasik"), img: imgAt(2) },
-    { label: "Kadın",         go: () => onNav("catalog"),          img: imgAt(3) },
-    { label: "Erkek",         go: () => onNav("catalog"),          img: imgAt(4) },
+    { label: "Loafer",        go: () => onNav("catalog", null, "Loafer"),  img: imgAt(0) },
+    { label: "Sneaker",       go: () => onNav("catalog", null, "Sneaker"), img: imgAt(1) },
+    { label: "Klasik",        go: () => onNav("catalog", "Klasik"),        img: imgAt(2) },
+    { label: "Kadın",         go: () => onNav("catalog", null, "Kadın"),   img: imgAt(3) },
+    { label: "Erkek",         go: () => onNav("catalog", null, "Erkek"),   img: imgAt(4) },
     { label: "Yeni Gelenler", go: () => { const el = document.getElementById("rail-yeni"); if (el) el.scrollIntoView({ behavior: "smooth" }); else onNav("catalog"); }, img: imgAt(5) },
   ];
   return (
@@ -1225,28 +1236,49 @@ const DEMO_REVIEWS = [
   { name: "Elif K.", text: "Loafer seçenekleri sade ve şık. Sipariş süreci WhatsApp üzerinden kolay ilerledi." },
   { name: "Burak T.", text: "Beğendiğim model için numara durumunu hızlıca sordum." },
 ];
+// Audit fix: this section previously showed a placeholder card reading
+// "Gerçek müşteri yorumları onaylı şekilde burada yayınlanacak." under a
+// "Müşteriler Ne Diyor?" heading — a coming-soon placeholder with no real reviews.
+// Until approved customer reviews exist, we show an honest trust section built on
+// verifiable facts (sourcing, support, ordering) — NO fake ratings, counts or
+// quotes. When real reviews land, flip DEMO_REVIEWS_ENABLED and render approved
+// data here.
+const TRUST_POINTS = [
+  { icon: "🏭", title: "Aymakoop Güvencesi", text: "Ürünlerimiz Türkiye'nin güçlü ayakkabı üretim merkezlerinden Aymakoop kaynaklıdır; her model ekibimizce incelenir." },
+  { icon: "💬", title: "Hızlı WhatsApp Desteği", text: "Beden ve stok sorularınıza mesai saatleri içinde genellikle aynı gün dönüş yapıyoruz." },
+  { icon: "📦", title: "Kolay Sipariş & Teslimat", text: "Adınızı ve numaranızı bırakın; sizi arayıp bedeni ve teslimat detaylarını birlikte tamamlayalım." },
+];
 function SocialProofReviews({ onNav }) {
   return (
     <section style={{ padding: "80px 40px", maxWidth: 1440, margin: "0 auto", borderTop: "1px solid rgba(28,26,22,0.06)", position: "relative", zIndex: 1 }}>
       <div style={{ textAlign: "center", marginBottom: 40 }}>
-        <p style={{ fontFamily: T.sans, fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.18em", color: T.red, marginBottom: 10 }}>DENEYİMLER</p>
-        <h2 style={{ fontFamily: T.serif, fontSize: "clamp(28px, 3.2vw, 44px)", fontWeight: 700, color: T.text, letterSpacing: "-0.02em", marginBottom: 12 }}>Müşteriler Ne Diyor?</h2>
+        <p style={{ fontFamily: T.sans, fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.18em", color: T.red, marginBottom: 10 }}>GÜVENCE</p>
+        <h2 style={{ fontFamily: T.serif, fontSize: "clamp(28px, 3.2vw, 44px)", fontWeight: 700, color: T.text, letterSpacing: "-0.02em", marginBottom: 12 }}>Neden UygunAyakkabı?</h2>
         <p style={{ fontFamily: T.sans, fontSize: 15, color: T.textLight, lineHeight: 1.7, maxWidth: 640, margin: "0 auto" }}>Beğenilen modeller, hızlı iletişim ve kolay sipariş süreciyle alışverişi daha pratik hale getiriyoruz.</p>
       </div>
-      <div className="review-row no-scrollbar" style={{ display: "flex", gap: 18, overflowX: "auto", paddingBottom: 8, scrollSnapType: "x mandatory" }}>
-        {/* Soft, honest trust summary card — NO fake rating average or review count */}
-        <div style={{ flex: "0 0 auto", width: 300, scrollSnapAlign: "start", background: "rgba(238,232,222,0.72)", border: "1px solid rgba(28,26,22,0.06)", borderRadius: 20, padding: "28px 26px", display: "flex", flexDirection: "column", justifyContent: "center" }}>
-          <h3 style={{ fontFamily: T.serif, fontSize: 22, fontWeight: 700, color: T.text, marginBottom: 10 }}>Müşteri Deneyimleri</h3>
-          <p style={{ fontFamily: T.sans, fontSize: 13, color: T.textLight, lineHeight: 1.7, marginBottom: 20 }}>Gerçek müşteri yorumları onaylı şekilde burada yayınlanacak.</p>
-          <button onClick={() => { trackEvent(TRACK_EVENTS.CLICK_SOCIAL_PROOF_CTA); onNav("catalog"); }} style={{ alignSelf: "flex-start", fontFamily: T.sans, fontSize: 12, fontWeight: 700, letterSpacing: "0.1em", textTransform: "uppercase", color: "#fff", background: T.text, border: "none", padding: "13px 28px", borderRadius: T.r.full, cursor: "pointer" }}>Ürünleri İncele</button>
+      {DEMO_REVIEWS_ENABLED ? (
+        <div className="review-row no-scrollbar" style={{ display: "flex", gap: 18, overflowX: "auto", paddingBottom: 8, scrollSnapType: "x mandatory" }}>
+          {DEMO_REVIEWS.map((r, i) => (
+            <div key={i} style={{ flex: "0 0 auto", width: 300, scrollSnapAlign: "start", background: "#fff", border: "1px solid rgba(28,26,22,0.06)", borderRadius: 20, padding: "26px 24px", boxShadow: "0 6px 22px rgba(0,0,0,0.04)" }}>
+              <span style={{ color: "#e0a900", fontSize: 14, letterSpacing: 1 }}>★★★★★</span>
+              <p style={{ fontFamily: T.sans, fontSize: 14, color: T.text, lineHeight: 1.65, margin: "14px 0 18px" }}>“{r.text}”</p>
+              <p style={{ fontFamily: T.sans, fontSize: 12, fontWeight: 600, color: T.textLight }}>{r.name}</p>
+            </div>
+          ))}
         </div>
-        {DEMO_REVIEWS_ENABLED && DEMO_REVIEWS.map((r, i) => (
-          <div key={i} style={{ flex: "0 0 auto", width: 300, scrollSnapAlign: "start", background: "#fff", border: "1px solid rgba(28,26,22,0.06)", borderRadius: 20, padding: "26px 24px", boxShadow: "0 6px 22px rgba(0,0,0,0.04)" }}>
-            <span style={{ color: "#e0a900", fontSize: 14, letterSpacing: 1 }}>★★★★★</span>
-            <p style={{ fontFamily: T.sans, fontSize: 14, color: T.text, lineHeight: 1.65, margin: "14px 0 18px" }}>“{r.text}”</p>
-            <p style={{ fontFamily: T.sans, fontSize: 12, fontWeight: 600, color: T.textLight }}>{r.name}</p>
-          </div>
-        ))}
+      ) : (
+        <div className="trust-grid" style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 18, maxWidth: 1000, margin: "0 auto" }}>
+          {TRUST_POINTS.map((tp, i) => (
+            <div key={i} style={{ background: "rgba(238,232,222,0.72)", border: "1px solid rgba(28,26,22,0.06)", borderRadius: 20, padding: "30px 26px" }}>
+              <span style={{ fontSize: 26, display: "block", marginBottom: 14 }}>{tp.icon}</span>
+              <h3 style={{ fontFamily: T.serif, fontSize: 20, fontWeight: 700, color: T.text, marginBottom: 10 }}>{tp.title}</h3>
+              <p style={{ fontFamily: T.sans, fontSize: 13, color: T.textLight, lineHeight: 1.7 }}>{tp.text}</p>
+            </div>
+          ))}
+        </div>
+      )}
+      <div style={{ textAlign: "center", marginTop: 36 }}>
+        <button onClick={() => { trackEvent(TRACK_EVENTS.CLICK_SOCIAL_PROOF_CTA); onNav("catalog"); }} style={{ fontFamily: T.sans, fontSize: 12, fontWeight: 700, letterSpacing: "0.1em", textTransform: "uppercase", color: "#fff", background: T.text, border: "none", padding: "14px 34px", borderRadius: T.r.full, cursor: "pointer" }}>Ürünleri İncele</button>
       </div>
     </section>
   );
@@ -1277,6 +1309,11 @@ export default function App({ dbProducts = [], siteSettings = null, banners = []
     return dbMapped;
   })();
 
+  // Audit fix: categories that actually have ≥1 product. Passed to the Navbar so
+  // empty categories (e.g. Spor/Bot/Sandalet/Terlik/Cüzdan when unstocked) are
+  // hidden from the primary nav instead of routing to an empty "Tüm Ürünler".
+  const presentCategories = new Set(allProducts.map(p => p.category).filter(Boolean));
+
   // D-307: Homepage liveliness sections — prefer merchandising IDs (sections prop),
   // fall back to safe signals derivable from existing data (no DB schema change).
   const byId = new Map(allProducts.map(p => [String(p.id), p]));
@@ -1304,8 +1341,18 @@ export default function App({ dbProducts = [], siteSettings = null, banners = []
     else sInitQuery("");
     sPg(p);
     if (p !== "detail") sSel(null);
-    // Update browser URL
-    const url = p === "home" ? "/" : p === "catalog" ? "/ayakkabilar" : p === "contact" ? "/yardim" : null;
+    // Update browser URL — encode the catalog category/search as shareable query
+    // params so a tile or nav click produces a stable, refreshable, linkable URL
+    // (e.g. /ayakkabilar?kategori=Klasik or /ayakkabilar?ara=Loafer). The mount
+    // effect below reads them back so a direct load restores the same view.
+    let url = p === "home" ? "/" : p === "catalog" ? "/ayakkabilar" : p === "contact" ? "/yardim" : null;
+    if (p === "catalog") {
+      const params = new URLSearchParams();
+      if (cat && cat !== "Tümü") params.set("kategori", cat);
+      if (q) params.set("ara", q);
+      const qs = params.toString();
+      url = qs ? `/ayakkabilar?${qs}` : "/ayakkabilar";
+    }
     if (url) window.history.pushState({ pg: p }, "", url);
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
@@ -1337,8 +1384,11 @@ export default function App({ dbProducts = [], siteSettings = null, banners = []
     const path = window.location.pathname;
     if (path === "/ayakkabilar") {
       sPg("catalog");
-      const k = new URLSearchParams(window.location.search).get("kategori");
+      const sp = new URLSearchParams(window.location.search);
+      const k = sp.get("kategori");
       if (k) sInitCat(k);
+      const ara = sp.get("ara");
+      if (ara) sInitQuery(ara);
     }
     else if (path === "/yardim") { sPg("contact"); }
     else if (path.startsWith("/urun/")) {
@@ -1373,7 +1423,7 @@ export default function App({ dbProducts = [], siteSettings = null, banners = []
     <div style={{ minHeight: "100vh", background: T.bg }}>
       <GlobalStyles />
       <TopBar settings={S} />
-      <Navbar onNav={nav} pg={pg} settings={S} cartCount={cartCount} onCartToggle={() => setCartOpen(!cartOpen)} />
+      <Navbar onNav={nav} pg={pg} settings={S} cartCount={cartCount} onCartToggle={() => setCartOpen(!cartOpen)} categories={presentCategories} />
 
       {/* D-194: Cart Drawer */}
       {cartOpen && (
@@ -1540,8 +1590,13 @@ function Catalog({ onView, allProducts, initCat, initQuery, onNav, settings }) {
     return () => { document.body.style.overflow = ""; };
   }, [drawerOpen]);
 
-  // D-259: dynamic heading
-  const catHeading = fl === "Tümü" ? "Tüm Ürünler"
+  // D-259: dynamic heading. Audit fix: when the view is a pure search (no category
+  // filter) — e.g. arriving from a "Loafer"/"Kadın" homepage tile — the heading
+  // reflects the searched term so the result set is self-evident instead of the
+  // misleading "Tüm Ürünler". A selected category still wins over a typed search.
+  const trimmedQuery = (query || "").trim();
+  const catHeading = (fl === "Tümü" && trimmedQuery) ? trimmedQuery
+    : fl === "Tümü" ? "Tüm Ürünler"
     : fl === "Cüzdan" ? "Cüzdanlar"
     : fl === "Bot" ? "Bot & Kışlık"
     : fl === "Terlik" ? "Terlikler"
@@ -1560,6 +1615,11 @@ function Catalog({ onView, allProducts, initCat, initQuery, onNav, settings }) {
 
   const catFiltered = fl === "Tümü" ? searchFiltered : searchFiltered.filter(p => p.category === fl);
   const allSizes = [...new Set(catFiltered.flatMap(p => p.sizes || []))].sort((a, b) => Number(a) - Number(b));
+
+  // Audit fix: only offer category chips that have products (keep "Tümü" and the
+  // currently-selected category always visible so an active/shared filter stays usable).
+  const presentCats = new Set(allProducts.map(p => p.category).filter(Boolean));
+  const visibleCategories = ALL_CATEGORIES.filter(c => c === "Tümü" || c === fl || presentCats.has(c));
 
   const flt = catFiltered.filter(p =>
     !szFilter || (p.sizes && p.sizes.includes(szFilter))
@@ -1648,7 +1708,7 @@ function Catalog({ onView, allProducts, initCat, initQuery, onNav, settings }) {
         <div className="catalog-desktop-controls">
           {/* Category chips */}
           <div style={{ display: "flex", gap: 10, justifyContent: "center", flexWrap: "wrap", marginBottom: 12 }}>
-            {ALL_CATEGORIES.map(c => (
+            {visibleCategories.map(c => (
               <button key={c} onClick={() => { sFl(c); setSzFilter(null); setSort("default"); sVis(12); }} style={{
                 fontFamily: T.sans, fontSize: 11, fontWeight: 600, letterSpacing: "0.08em",
                 padding: "10px 24px", borderRadius: T.r.full, cursor: "pointer", textTransform: "uppercase",
@@ -1767,35 +1827,50 @@ function Catalog({ onView, allProducts, initCat, initQuery, onNav, settings }) {
           </button>
         </div>
 
-        {/* Grid — D-266: empty state aware of search vs filter */}
+        {/* Grid — D-266 + audit fix: empty state aware of search vs category vs filter,
+            with a WhatsApp fallback so an empty category/search is never a dead end. */}
         {flt.length === 0 ? (
           <div style={{ textAlign: "center", padding: "80px 24px" }}>
-            <div style={{ fontSize: 48, marginBottom: 20 }}>🔍</div>
+            <div style={{ fontSize: 48, marginBottom: 20 }}>{fl !== "Tümü" && !q ? "🧰" : "🔍"}</div>
             <p style={{ fontFamily: T.sans, fontSize: 18, fontWeight: 600, color: T.text, marginBottom: 8 }}>
               {q
                 ? `"${q}" için ürün bulunamadı`
-                : !hasActiveFilter
-                  ? "Henüz ürün eklenmedi"
-                  : "Bu filtrelere uygun ürün bulunamadı"
+                : fl !== "Tümü"
+                  ? `${fl} kategorisinde ürünler hazırlanıyor`
+                  : !hasActiveFilter
+                    ? "Henüz ürün eklenmedi"
+                    : "Bu filtrelere uygun ürün bulunamadı"
               }
             </p>
             <p style={{ fontFamily: T.sans, fontSize: 14, color: T.textLighter, marginBottom: 24, lineHeight: 1.6 }}>
               {q
                 ? "Farklı bir kelime deneyin veya aramayı temizleyerek kategorilere göz atın."
-                : hasActiveFilter
-                  ? "Filtreleri temizleyerek tüm ürünlere göz atabilirsin."
-                  : "Yakında yeni ürünler eklenecek."
+                : fl !== "Tümü"
+                  ? "Aradığınız modeli WhatsApp'tan sorabilirsiniz — stok geldiğinde sizi bilgilendirelim."
+                  : hasActiveFilter
+                    ? "Filtreleri temizleyerek tüm ürünlere göz atabilirsin."
+                    : "Yakında yeni ürünler eklenecek."
               }
             </p>
-            {hasActiveFilter && (
-              <button onClick={resetFilters} style={{
-                fontFamily: T.sans, fontSize: 13, fontWeight: 600,
-                padding: "12px 32px", borderRadius: T.r.full, cursor: "pointer",
-                border: "none", background: T.text, color: "#fff", transition: "all 0.3s",
+            <div style={{ display: "flex", gap: 12, justifyContent: "center", flexWrap: "wrap" }}>
+              {hasActiveFilter && (
+                <button onClick={resetFilters} style={{
+                  fontFamily: T.sans, fontSize: 13, fontWeight: 600,
+                  padding: "12px 32px", borderRadius: T.r.full, cursor: "pointer",
+                  border: "none", background: T.text, color: "#fff", transition: "all 0.3s",
+                }}>
+                  {q ? "Aramayı Temizle" : "Tüm Ürünleri Göster"}
+                </button>
+              )}
+              <a href={waLink()} target="_blank" rel="noreferrer" style={{
+                display: "inline-flex", alignItems: "center", gap: 8,
+                fontFamily: T.sans, fontSize: 13, fontWeight: 700,
+                padding: "12px 28px", borderRadius: T.r.full, textDecoration: "none",
+                color: "#fff", background: T.green,
               }}>
-                {q ? "Aramayı Temizle" : "Tüm Ürünleri Göster"}
-              </button>
-            )}
+                {I.wa} WhatsApp&apos;tan Sor
+              </a>
+            </div>
           </div>
         ) : (
           <div className="prod-grid" style={{ display: "grid", gridTemplateColumns: "repeat(6, 1fr)", gap: 16 }}>
@@ -1859,7 +1934,7 @@ function Catalog({ onView, allProducts, initCat, initQuery, onNav, settings }) {
               <div style={{ paddingTop: 22, paddingBottom: 20, borderBottom: "1px solid rgba(28,26,22,0.07)" }}>
                 <p style={{ fontFamily: T.sans, fontSize: 10, fontWeight: 700, letterSpacing: "0.14em", textTransform: "uppercase", color: T.textLighter, marginBottom: 14 }}>KATEGORİ</p>
                 <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
-                  {ALL_CATEGORIES.map(c => (
+                  {visibleCategories.map(c => (
                     <button key={c} onClick={() => { sFl(c); setSzFilter(null); sVis(12); }} style={{
                       fontFamily: T.sans, fontSize: 12, fontWeight: 600, letterSpacing: "0.06em",
                       padding: "10px 18px", borderRadius: T.r.full, cursor: "pointer", textTransform: "uppercase",

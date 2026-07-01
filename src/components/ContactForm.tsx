@@ -99,6 +99,22 @@ export function ContactForm({ productId, productTitle, variants, soldout }: Prop
     return () => window.removeEventListener('oosChipClicked', handler)
   }, [])
 
+  // Audit fix: listen for in-stock size-chip selections from the PDP size row
+  // (SizeChip). Mirrors the OOS bridge but for available sizes — pre-fills the
+  // size field, marks it as a chip selection (highlights the matching form chip)
+  // and clears any OOS context. An empty size clears the selection.
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const s = (e as CustomEvent<{ size: string }>).detail.size
+      if (!s) { setSize(''); setChipSelected(false); return }
+      setSize(s)
+      setChipSelected(true)
+      setOosContext(null)
+    }
+    window.addEventListener('sizeChipSelected', handler)
+    return () => window.removeEventListener('sizeChipSelected', handler)
+  }, [])
+
   const availableVariants = (variants ?? []).filter((v) => v.stock > 0)
   const hasVariants = availableVariants.length > 0
 
@@ -246,6 +262,8 @@ export function ContactForm({ productId, productTitle, variants, soldout }: Prop
                     // D-264: use chipSelected to distinguish chip from typed size
                     if (selected) { setChipSelected(false); setSize('') }
                     else { setChipSelected(true); setSize(v.size) }
+                    // Keep the PDP size row (SizeChip) in sync with the form choice.
+                    window.dispatchEvent(new CustomEvent('sizeChipSelected', { detail: { size: selected ? '' : v.size } }))
                   }}
                   className={`px-4 py-2 rounded-lg text-sm font-medium border transition-all ${
                     selected

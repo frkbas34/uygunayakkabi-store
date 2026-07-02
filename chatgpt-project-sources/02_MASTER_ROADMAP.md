@@ -1,6 +1,6 @@
 # Master Roadmap
 
-Last updated: 2026-06-30
+Last updated: 2026-07-02
 
 ## Phase 0: Project Control Center
 
@@ -36,7 +36,7 @@ Acceptance:
 - One command gives reliable health signal.
 - Claude/Codex stop chasing stale generated files.
 
-Current status: usable as of 2026-06-23. `npm run validate` passes with lint warnings only and the safe tests cover brand safety, product media readiness, product stock readiness, lifecycle, operator/admin readiness summary, source-pack governance, SupplierScout dormancy, Mentix/OpenClaw skill governance, admin visibility, product-channel normalization, publish readiness, catalog QA, category fill, image quality, state coherence, Telegram parsing and confirmation wizard handling, channel dispatch, dispatch state, provider health, redispatch, automation decisions, activation guard, Publish Desk activation wrapper, and ad readiness.
+Current status: usable as of 2026-07-02. `npm run validate` passes with lint warnings only and the safe tests cover brand safety, product media readiness, product stock readiness, lifecycle, operator/admin readiness summary, source-pack governance, SupplierScout dormancy, Mentix/OpenClaw skill governance, admin visibility, product-channel normalization, product-flow snapshot diagnostics, publish readiness, catalog QA, category fill, image quality, state coherence, Telegram parsing and confirmation wizard handling, channel dispatch, dispatch state, provider health, redispatch, automation decisions, activation guard, Publish Desk activation wrapper, and ad readiness.
 
 ## Phase 2: Core Product Workflow
 
@@ -60,7 +60,7 @@ Acceptance:
 - A product can be added in under 2 minutes.
 - Admin and Telegram flows create the same clean product shape.
 
-Current status: active. The admin ReviewPanel now appears for admin/manual products and shows readiness, lifecycle, channels, brand safety, and activation-guard signals. Product channel targets and publish flags are normalized before activation so manual admin saves match dispatch gates. ReviewPanel and `/pipeline` media/stock diagnostics now use the same usable-media and stock-summary definitions as central activation/readiness, and ReviewPanel's ready banner depends on central six-dimension publish readiness. Live admin and Telegram operator smoke tests are still needed with the operator present.
+Current status: active. The admin ReviewPanel now appears for admin/manual products and shows readiness, lifecycle, channels, brand safety, and activation-guard signals. Product channel targets and publish flags are normalized before activation so manual admin saves match dispatch gates. ReviewPanel and `/pipeline` media/stock diagnostics now use the same usable-media and stock-summary definitions as central activation/readiness, and ReviewPanel's ready banner depends on central six-dimension publish readiness. Telegram now also has read-only `/productflow <sn-or-id>` and `/flow <sn-or-id>` snapshots that combine lifecycle, readiness, activation blockers, image QC, Shopier gate, dispatch state, coherence issues, and next actions without mutation. Runtime preflight exists at `npm run smoke:product-flow:read -- --product=<id-or-sn> --confirm-read-only`, which reads real Payload state through the same helper without writes or provider calls. Live admin and Telegram operator smoke tests are still needed with the operator present.
 
 ## Phase 3: Mentix And OpenClaw Brain
 
@@ -79,7 +79,7 @@ Acceptance:
 - Mentix can explain product failures and prepare channel content.
 - OpenClaw is not confused with the app-side Telegram route.
 
-Current status: repo-side guardrails added. The OpenClaw deployment sync checklist lives at `mentix-skills/OPENCLAW_DEPLOYMENT_SYNC.md`, active skill docs have been aligned to own-products-only and optional n8n, and `npm run test:mentix-skills` checks those rules. VPS deployment reality still needs verification before live OpenClaw operator use.
+Current status: repo-side guardrails added. The OpenClaw deployment sync checklist lives at `mentix-skills/OPENCLAW_DEPLOYMENT_SYNC.md`, active skill docs have been aligned to own-products-only and optional n8n, and `npm run test:mentix-skills` checks those rules. The product-flow-debugger skill can now ground operator answers in the app-side Product Flow Snapshot helper and `/productflow` Telegram surface. VPS deployment reality still needs verification before live OpenClaw operator use.
 
 ## Phase 4: Publishing Reliability
 
@@ -117,6 +117,8 @@ Acceptance:
 - AI images are consistently usable.
 - GEO content improves pages without hallucinated claims.
 
+Current status: Image QC gates are implemented and provider visibility now exists for Product Intelligence/GEO. `src/lib/productIntelligence/providerHealth.ts` and `npm run smoke:pi-provider-health:read -- --confirm-read-only` report Gemini, Google Vision, DataForSEO, SerpAPI, and reverse-search selection readiness from env without Payload access, provider calls, or secret values. Live provider quota/balance/permission checks still require operator-approved runs.
+
 ## Phase 6: Storefront Conversion
 
 Goal: improve the sales surface.
@@ -134,6 +136,8 @@ Acceptance:
 - Product pages are ready for ad traffic.
 - Buying path is obvious on mobile.
 
+Current status: product detail pages already include price, size/stock chips, lead form, WhatsApp CTA, Shopier CTA when available, trust messaging, FAQ, product guide content, and mobile sticky CTA. New read-only preflight exists at `npm run smoke:ad-readiness:read -- --product=<id-or-sn> --confirm-read-only`; it mirrors Telegram `/adready` against real Payload data and checks PDP/product-page status, Image QC/media, stock/size, active-channel linkability, UTM, lead visibility, brand safety, risky claims, and no-autonomous-spend without writing or publishing.
+
 ## Phase 7: Orders, Leads, Stock, Analytics
 
 Goal: know what sells and keep stock coherent.
@@ -150,6 +154,8 @@ Acceptance:
 
 - Leads and campaign source are visible.
 - Stock drift is diagnosable.
+
+Current status: core operator visibility exists and is now guarded by tests/runtime smoke. Telegram `/business` gives the daily owner snapshot across leads, sales, orders, and stock urgency. Telegram `/funnel`, `/funnel today`, `/funnel week`, and `/huni` group lead demand by source, attribute converted orders through `relatedInquiry`, separate direct orders without a lead, and show UTM/referrer detail when present. Validation now includes `test:business-desk` and `test:funnel-desk`; runtime smoke exists at `npm run smoke:business-funnel:read -- --confirm-read-only` and mirrors `/business` plus `/funnel` without writes, provider calls, Shopier calls, ad spend, or schema push. Latest 2026-07-02 smoke found 6 open leads, 5 stale leads, 1 sold-out product, and 2 website leads in the 7-day funnel. Still needed: order/stock reconciliation proof for Shopier order webhooks and cancellation/restore-stock policy.
 
 ## Phase 8: Ads And Growth
 
@@ -169,7 +175,7 @@ Acceptance:
 - We can choose an ad product confidently.
 - No autonomous ad spend until tracking is reliable.
 
-Current status (2026-06-27): deferred. Ads are paused until catalog depth and image quality are strong. The catalog scale-up work in Phase 10 comes first, and the earliest controlled ad test is D-380+. This phase's manual ad helpers already exist (UTM builder, ad-readiness checklist) but are not the active focus.
+Current status (2026-07-02): deferred. Ads are paused until catalog depth and image quality are strong. The catalog scale-up work in Phase 10 comes first, and the earliest controlled ad test is D-380+. This phase's manual ad helpers already exist (UTM builder, Telegram `/adready`, and read-only `smoke:ad-readiness:read`) but are not the active focus.
 
 ## Phase 9: Deployment And Ops
 
@@ -238,12 +244,16 @@ Single background: soft warm ivory seamless studio. Same tone across all 5 image
 
 Before hundreds of products go live, ensure incomplete/low-quality products cannot publish: active website visibility, Shopier queue readiness, missing-image block, missing price/category block, brand-safety hard block, channel target clarity, batch publish/retry safety. Builds on the existing activation guard (`productActivationGuard` / `publishReadiness`).
 
-Current status (2026-06-30): first guard, read-only operator dashboard, first-pass error triage, safe retry preview/confirm, per-product admin visibility, read-only runtime smoke support, read-only Image QC schema checking, and a guarded D-355 SQL repair helper implemented. Code: `src/lib/shopierPublishControl.ts`, `src/lib/shopierPublishControl.test.ts`, `src/components/admin/ReviewPanel.tsx`, `scripts/shopier-operator-smoke.ts`, `scripts/image-qc-schema-check.ts`, `scripts/image-qc-schema-apply.ts`, and `scripts/sql/d355-image-qc-schema.sql`; Telegram surfaces: `/shopier dashboard`, `/shopier publish`, `/shopier republish`, `/shopier publish-ready`, `/shopier errors`, and `/shopier retry-errors`; admin surface: ReviewPanel read-only Shopier Queue Gate for the current product; smoke commands: `npm run smoke:imageqc:schema -- --confirm-read-only` and `npm run smoke:shopier:read -- --confirm-read-only`; DB helper: `npm run db:imageqc:apply` previews by default and confirmed apply requires `--apply --confirm-apply-d355-image-qc-schema`. `/shopier dashboard` combines publish-ready counts, top blocker groups, error classes, and safe retry counts without mutation. Batch `/shopier publish-ready` is preview-first and requires `/shopier publish-ready confirm` to queue jobs. The shared gate requires active website visibility, slug, explicit Shopier target/flag alignment, category, generated-gallery media, Image QC PASS, sellable stock, brand-safety pass, central publish readiness, and no duplicate queued/syncing Shopier job. `/shopier errors` classifies sync failures as retryable, product data, configuration, remote state, or unknown and suggests the next operator action. `/shopier retry-errors` previews only retryable error products that still pass the shared gate; `/shopier retry-errors confirm` queues those safe retry candidates. Latest read-only schema check is blocked by D-355 DB drift: missing `image_quality_*` product columns and relation `products_image_quality_defect_flags`. Still needed: operator-approved D-355 apply/verify, rerun schema and Shopier read-only smoke, live-smoke Telegram commands, then decide whether a broader admin batch review surface is still needed beyond the per-product gate.
+Current status (2026-07-02): first guard, read-only operator dashboard, first-pass error triage, safe retry preview/confirm, per-product admin visibility, read-only runtime smoke support, read-only Product Flow Snapshot smoke, read-only Image QC schema checking, and a guarded D-355 SQL repair helper implemented. Code: `src/lib/shopierPublishControl.ts`, `src/lib/shopierPublishControl.test.ts`, `src/lib/productFlowSnapshot.ts`, `scripts/product-flow-runtime-smoke.ts`, `src/components/admin/ReviewPanel.tsx`, `scripts/shopier-operator-smoke.ts`, `scripts/image-qc-schema-check.ts`, `scripts/image-qc-schema-apply.ts`, and `scripts/sql/d355-image-qc-schema.sql`; Telegram surfaces: `/productflow`, `/flow`, `/shopier dashboard`, `/shopier publish`, `/shopier republish`, `/shopier publish-ready`, `/shopier errors`, and `/shopier retry-errors`; admin surface: ReviewPanel read-only Shopier Queue Gate for the current product; smoke commands: `npm run smoke:imageqc:schema -- --confirm-read-only`, `npm run smoke:product-flow:read -- --product=<id-or-sn> --confirm-read-only`, and `npm run smoke:shopier:read -- --confirm-read-only`. D-355 schema now passes read-only verification. `/shopier dashboard` combines publish-ready counts, top blocker groups, error classes, and safe retry counts without mutation. Batch `/shopier publish-ready` is preview-first and requires `/shopier publish-ready confirm` to queue jobs. The shared gate requires active website visibility, slug, explicit Shopier target/flag alignment, category, generated-gallery media, Image QC PASS, sellable stock, brand-safety pass, central publish readiness, and no duplicate queued/syncing Shopier job. Latest read-only smokes completed: product `359` product-flow snapshot reports Image QC review and X credits-depleted as the next operator issues; Shopier read-only preview found 0 new publish candidates, 0 sync errors, and `SHOPIER_PAT configured: no`. Still needed: live-smoke Telegram commands with the operator present, configure/verify Shopier credentials before queueing, then decide whether a broader admin batch review surface is still needed beyond the per-product gate.
 
 ### D-357 — SEO/GEO Blog & Product Comparison Automation
 
 After catalog scale begins, use product data for SEO/GEO and comparison content. Operator approval required; no automatic external publishing; no risky or hallucinated authenticity/material/origin claims.
 
+Current status (2026-07-02): preflight provider visibility added. `npm run test:pi-provider-health` and `npm run smoke:pi-provider-health:read -- --confirm-read-only` make Gemini/reverse-search capability visible before running `#geohazirla`, GeoBot content generation, or comparison drafts. This does not call providers or spend credits; actual SEO/GEO generation remains operator-controlled.
+
 ### D-380+ — First Controlled Ad Test (earliest ad phase)
 
 Paid ads are deferred until catalog depth and image quality are strong. Do NOT start Meta ads, Pixel, CAPI, Ads API, autonomous ad spend, or budget automation before then. Ads become relevant only after: a large enough catalog, category balance, product image QC, stable lead capture, stable UTM/admin readback, and enough publish-ready products. This supersedes the earlier Phase 8 framing as the next ad step.
+
+Current supporting tooling: when ads are eventually reconsidered, run `npm run smoke:ad-readiness:read -- --product=<id-or-sn> --confirm-read-only` before treating a product as a paid-traffic candidate. Latest product `359` run on 2026-07-02 blocked manual ads until generated-image QC PASS is recorded.

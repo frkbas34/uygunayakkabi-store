@@ -1,6 +1,6 @@
 # Bots And Automations
 
-Last updated: 2026-06-23
+Last updated: 2026-07-02
 
 ## Mentix / Uygunops
 
@@ -16,11 +16,12 @@ Current intended responsibilities:
 - Shopier commands
 - Lead/order/funnel/UTM/campaign helpers
 - Diagnostics and repair guidance
+- Read-only product flow snapshots via `/productflow` and `/flow`
 
 Needed improvements:
 
 - Clear command ownership.
-- Better product-flow debugger.
+- Deploy and live-smoke the improved product-flow debugger path with OpenClaw.
 - Better output summaries.
 - Safer long-running task handling.
 
@@ -52,10 +53,11 @@ Responsibilities:
 - Similar product evidence
 - SEO/GEO suggestions
 - FAQ and buyer intent suggestions
+- Secret-safe provider readiness via `npm run smoke:pi-provider-health:read -- --confirm-read-only`
 
 Needed improvements:
 
-- Decide real provider set.
+- Verify real production provider quota/balance/permissions before credit-spending runs.
 - Make reports easy to approve.
 - Do not auto-publish intelligence without operator confirmation.
 
@@ -114,3 +116,5 @@ Use for:
 Do not use it as an unbounded autonomous executor.
 
 Deployment guardrail: before copying or restarting VPS OpenClaw skills, follow `mentix-skills/OPENCLAW_DEPLOYMENT_SYNC.md` and run `npm run test:mentix-skills`.
+
+Current app-side helper: `src/lib/productFlowSnapshot.ts` powers `/productflow` and `/flow` for read-only lifecycle, readiness, activation blocker, image QC, Shopier gate, dispatch, coherence, and next-action diagnostics. OpenClaw/Mentix should use that evidence shape when explaining product problems instead of inventing a separate source of truth.

@@ -1,6 +1,6 @@
 # D-352A Product Loading Factory Audit
 
-Last updated: 2026-06-30
+Last updated: 2026-07-02
 
 ## Result
 
@@ -18,7 +18,7 @@ Payload remains the source of truth. Active channels remain Website, Instagram, 
 
 The system is safe enough for controlled single-product or small-batch loading, but it is not ready for sustained 30-50 products/day.
 
-Main remaining reason: single-product readiness is strong, D-353/D-354 provide read-only catalog/category visibility, D-355 structured Image QC is implemented, D-356A adds a guarded Shopier/Web queue path plus read-only `/shopier dashboard`, first-pass `/shopier errors` triage, `/shopier retry-errors` safe retry preview, and `npm run smoke:shopier:read` read-only runtime smoke support, and D-356B adds a read-only Payload admin Shopier Queue Gate for the current product. Sustained 30-50 products/day still needs D-355 DB schema drift resolved, the Shopier smoke rerun against real Payload state, and retry/error visibility proven in operator use.
+Main remaining reason: single-product readiness is strong, D-353/D-354 provide read-only catalog/category visibility, D-355 structured Image QC is implemented, D-356A adds a guarded Shopier/Web queue path plus read-only `/shopier dashboard`, first-pass `/shopier errors` triage, `/shopier retry-errors` safe retry preview, and `npm run smoke:shopier:read` read-only runtime smoke support, D-356B adds a read-only Payload admin Shopier Queue Gate for the current product, and Phase 2/3 now has `/productflow` plus `npm run smoke:product-flow:read` for read-only per-product flow diagnostics. D-355 DB schema drift is resolved as of the 2026-07-02 read-only schema smoke. Sustained 30-50 products/day still needs live operator smoke of the Telegram product-flow/Shopier commands, Shopier credentials verified before queueing, and retry/error visibility proven in operator use.
 
 ## Bottlenecks
 
@@ -46,4 +46,4 @@ D-353 Bulk Product QA is now implemented read-only via `src/lib/catalogQa.ts`, `
 
 Use it before loading larger batches to see status/source/category distribution, derived lifecycle, missing-field counts, readiness blockers, image-QC pending/rejected, content/audit pending, Shopier queue/error/sync state, brand-safety blocked, draft age, and last updated time.
 
-Next focus is continuing D-356 Shopier/Web Publish Batch Control: apply/verify `scripts/sql/d355-image-qc-schema.sql` for missing `image_quality_*` product columns and relation `products_image_quality_defect_flags`, rerun `npm run smoke:imageqc:schema -- --confirm-read-only`, rerun `npm run smoke:shopier:read -- --confirm-read-only`, live-smoke `/shopier dashboard`, `/shopier publish-ready`, `/shopier errors`, and `/shopier retry-errors`, then decide whether a broader admin batch review surface is needed beyond the per-product Shopier gate. Do not add broad batch mutation/publish or ads until this is operator-safe.
+Next focus is continuing D-356 Shopier/Web Publish Batch Control: live-smoke `/productflow`, `/shopier dashboard`, `/shopier publish-ready`, `/shopier errors`, and `/shopier retry-errors`, verify Shopier credentials before any queueing, then decide whether a broader admin batch review surface is needed beyond the per-product Shopier gate. Do not add broad batch mutation/publish or ads until this is operator-safe.

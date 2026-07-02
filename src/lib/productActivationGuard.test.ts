@@ -139,6 +139,43 @@ async function main() {
     assert.ok(blockers.some((b) => b.includes('brand safety')), blockers.join('\n'))
   })
 
+  await check('manual publish override skips only QC and brand-safety blockers', async () => {
+    const blockers = await collectActivationBlockers({
+      ...completeProduct,
+      id: 106,
+      brand: 'BOSS',
+      images: [],
+      generativeGallery: [{ image: 1 }],
+      imageQuality: { status: 'pending' },
+    }, {
+      resolveStockSnapshot: stock(3),
+      manualPublishOverride: true,
+    })
+
+    assert.deepStrictEqual(blockers, [])
+
+    const coreBlockers = await collectActivationBlockers({
+      ...completeProduct,
+      id: 107,
+      brand: 'BOSS',
+      price: 0,
+      stockQuantity: 0,
+      channelTargets: [],
+      images: [],
+      generativeGallery: [{ image: 1 }],
+      imageQuality: { status: 'pending' },
+    }, {
+      resolveStockSnapshot: stock(0),
+      manualPublishOverride: true,
+    })
+
+    assert.ok(coreBlockers.some((b) => b.includes('fiyat')), coreBlockers.join('\n'))
+    assert.ok(coreBlockers.some((b) => b.includes('yayin hedefi')), coreBlockers.join('\n'))
+    assert.ok(coreBlockers.some((b) => b.includes('stok adedi')), coreBlockers.join('\n'))
+    assert.ok(!coreBlockers.some((b) => b.includes('image QC')), coreBlockers.join('\n'))
+    assert.ok(!coreBlockers.some((b) => b.includes('brand safety')), coreBlockers.join('\n'))
+  })
+
   await check('channel publish flags count as active targets', () => {
     const targets = resolveConfiguredTargets({
       channelTargets: [],

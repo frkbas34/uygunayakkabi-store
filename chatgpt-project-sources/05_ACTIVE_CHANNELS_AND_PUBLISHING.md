@@ -1,6 +1,6 @@
 # Active Channels And Publishing
 
-Last updated: 2026-06-30
+Last updated: 2026-07-02
 
 ## Active Channels
 
@@ -24,6 +24,7 @@ Website publishing is native. If a product is active and passes storefront filte
 Needed:
 
 - Use `npm run smoke:activation:read -- --product=<id> --confirm-read-only` before manual runtime activation checks. Code-path smoke exists in `src/lib/publishDesk.test.ts`; the read-only runtime smoke exists in `scripts/activation-runtime-smoke.ts`.
+- Use `npm run smoke:product-flow:read -- --product=<id-or-sn> --confirm-read-only` before live Telegram `/productflow` checks when diagnostics, readiness summaries, dispatch summaries, or next-action guidance change.
 - Clear product readiness state.
 - Better PDP conversion.
 
@@ -71,15 +72,17 @@ Current:
 - `/shopier retry-errors` previews failed Shopier syncs that are safe to retry.
 - `/shopier retry-errors confirm` queues only retryable errors that still pass the shared gate.
 - Payload admin ReviewPanel shows a read-only Shopier Queue Gate for the current product using the same D-356 evaluator as Telegram queue commands.
+- Telegram `/productflow` and runtime `smoke:product-flow:read` include the same Shopier gate in a broader read-only product-flow snapshot.
 - `npm run smoke:shopier:read -- --confirm-read-only` mirrors dashboard, publish-ready, errors, and retry-errors in read-only runtime mode without writing, queueing, dispatching, calling Shopier, or pushing schema changes.
 - The gate requires active website visibility, slug, explicit Shopier target/flag alignment, category, generated-gallery media, Image QC PASS, sellable stock, brand-safety pass, central publish readiness, and no duplicate queued/syncing job.
 - Covered by `npm run test:shopier-publish-control`, including the admin gate summary states.
-- Latest read-only schema check is blocked by D-355 DB drift: missing product columns `image_quality_status`, `image_quality_notes`, `image_quality_checked_at`, `image_quality_checked_by`, `image_quality_source`, plus missing relation `products_image_quality_defect_flags`.
-- Guarded DB helper: `npm run db:imageqc:apply` previews by default; confirmed apply requires `--apply --confirm-apply-d355-image-qc-schema` and explicit operator approval.
+- Latest read-only schema check on 2026-07-02 passes: D-355 Image QC columns and the `products_image_quality_defect_flags` relation are present.
+- Guarded DB helper remains available if drift reappears: `npm run db:imageqc:apply` previews by default; confirmed apply requires `--apply --confirm-apply-d355-image-qc-schema` and explicit operator approval.
 
 Still needed:
 
-- Apply/verify the D-355 Image QC DB migration/DDL through the guarded helper, rerun `npm run smoke:imageqc:schema -- --confirm-read-only`, rerun the read-only Shopier smoke, then live operator smoke the guarded Telegram commands.
+- Live operator smoke the guarded Telegram commands now that read-only schema/product-flow/Shopier smokes complete.
+- Configure or verify `SHOPIER_PAT` before queueing Shopier jobs; latest read-only smoke reported `SHOPIER_PAT configured: no`.
 - Decide whether the first-pass `/shopier dashboard`, `/shopier errors`, `/shopier retry-errors`, and per-product admin gate are enough or if a broader admin batch review surface is needed.
 
 ## Dispatch Gates
@@ -119,7 +122,7 @@ This gives operators one readable state plus a reason and whether redispatch is 
 
 ReviewPanel now builds a dispatch overview from the active target list plus recorded `sourceMeta.dispatchNotes`. Website appears as a native published row, external targets with no note appear as `unrecorded`, and old notes for non-target channels remain visible as historical context. Covered by `src/lib/channelDispatchStatus.test.ts`.
 
-Provider-health visibility is read-only and secret-safe in `src/lib/channelProviderHealth.ts`. Telegram `/diagnostics` now reports Website native readiness plus Instagram/Facebook/X/Shopier states as `ready`, `fallback`, `disabled`, or `missing`, including missing key names but never token values. Covered by `src/lib/channelProviderHealth.test.ts`.
+Provider-health visibility is read-only and secret-safe in `src/lib/channelProviderHealth.ts`. Telegram `/diagnostics` now reports Website native readiness plus Instagram/Facebook/X/Shopier states as `ready`, `fallback`, `disabled`, or `missing`, including missing key names but never token values. Runtime smoke `npm run smoke:provider-health:read -- --confirm-read-only` reads AutomationSettings with `PAYLOAD_DB_PUSH=false` and prints the same provider-health model without writing, dispatching, queueing, calling providers, calling Shopier, pushing schema changes, or exposing secret values. Covered by `src/lib/channelProviderHealth.test.ts`.
 
 ## Redispatch
 

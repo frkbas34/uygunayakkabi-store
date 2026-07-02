@@ -114,6 +114,28 @@ async function main() {
     assert.strictEqual(fake.calls.find((c) => c.method === 'create')?.args.data.eventType, 'publish.approved')
   })
 
+  await check('manual publish approval activates when only QC and brand-audit checks are blocking', async () => {
+    const fake = fakePayload(readyProduct({
+      brand: 'BOSS',
+      images: [],
+      generativeGallery: [{ image: 1 }],
+      imageQuality: { status: 'pending' },
+      auditResult: { overallResult: 'needs_revision', approvedForPublish: false },
+    }))
+    const result = await approveAndActivateProduct(fake.payload, 501, 'telegram_button', 'pdesk_act')
+
+    assert.strictEqual(result.ok, true)
+    assert.strictEqual(result.idempotent, false)
+    const update = fake.calls.find((c) => c.method === 'update')
+    assert.ok(update, 'expected manual override activation update')
+    assert.strictEqual(update.args.data.status, 'active')
+    assert.strictEqual(update.args.context?.manualPublishOverride, true)
+    assert.strictEqual(update.args.data.workflow.publishStatus, 'published')
+    const activationEvent = fake.calls.filter((c) => c.method === 'create').at(-1)?.args.data
+    assert.strictEqual(activationEvent.eventType, 'product.activated')
+    assert.strictEqual(activationEvent.payload.manualPublishOverride, true)
+  })
+
   await check('Payload activation guard errors become operator-facing refusals', async () => {
     const fake = fakePayload(readyProduct(), {
       updateThrows: new Error([

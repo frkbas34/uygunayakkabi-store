@@ -4,6 +4,14 @@ _Last updated: 2026-04-28 (LOCK CHECKPOINT — D-227 → D-231 stabilization. PI
 
 ---
 
+## Manual publish override — 2026-07-02 — LOCAL FIX READY, deployment pending
+
+- [x] Root-cause product #410 publish failure: manual **Yayına Al** was blocked by Image QC PASS + brand/audit readiness despite operator approval.
+- [x] Add regression tests proving manual approval activates when only `visuals`/`audit` fail, but does not bypass price/stock/media/target blockers.
+- [x] Implement local fix in `publishDesk.ts`, `productActivationGuard.ts`, and `Products.ts` using `context.manualPublishOverride=true`.
+- [x] Validate locally: `test:publish-desk`, `test:activation-guard`, `test:publish-readiness`, `test:image-quality`, `typecheck`, targeted ESLint.
+- [ ] Commit and deploy after operator confirmation; production UygunOps is unchanged until then.
+
 ## Product copy fix — 2026-06-21 — D-338A #354 leather claim softened COMPLETE (data, ad-safe)
 
 - [x] D-338A: Admin API PATCH `/api/products/354` content-only (status/title/slug/price/stock/images unchanged).

@@ -62,6 +62,7 @@ export const Products: CollectionConfig = {
             const blockers = await collectActivationBlockers(activationProduct, {
               resolveStockSnapshot: (productId, productLevelStock) =>
                 getStockSnapshot(req.payload, productId, productLevelStock),
+              manualPublishOverride: (req.context as Record<string, unknown> | undefined)?.manualPublishOverride === true,
             })
             if (blockers.length > 0) {
               throw new Error(formatActivationError(blockers))

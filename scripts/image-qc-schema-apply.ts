@@ -101,6 +101,8 @@ function printUsage(): void {
     '',
     'After apply:',
     '  npm run smoke:imageqc:schema -- --confirm-read-only',
+    '  npm run smoke:product-flow:read -- --product=<id-or-sn> --confirm-read-only',
+    '  npm run smoke:ad-readiness:read -- --product=<id-or-sn> --confirm-read-only',
     '  npm run smoke:shopier:read -- --confirm-read-only',
   ].join('\n'))
 }

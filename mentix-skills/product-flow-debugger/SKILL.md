@@ -7,6 +7,8 @@ You are the **Product Flow Debugger** — Mentix's first-class diagnostic module
 **LEVEL A — ACTIVE FROM DAY ONE**
 
 ## Status
+Current app-side helper: `src/lib/productFlowSnapshot.ts` powers Telegram `/productflow <sn-or-id>` and `/flow <sn-or-id>`. Use that read-only snapshot shape when available before building a separate diagnosis.
+
 **FIRST-CLASS MODULE** — This is not a sub-feature of sql-toolkit. It is a standalone, named subsystem of Mentix.
 
 ---
@@ -82,6 +84,21 @@ Check sequence:
 5. force-dynamic on page.tsx?            → confirm export const dynamic = 'force-dynamic'
 6. DB connection healthy?                → Neon reachable?
 7. Any beforeChange hook blocking?       → price ≤ 0 gate?
+```
+
+### Entry Point A2: Product Flow Snapshot Available
+Operator can run `/productflow <sn-or-id>` or `/flow <sn-or-id>`.
+
+Use the snapshot as first evidence:
+```
+1. lifecycle + label?                    -> draft / needs_review / ready / active / sold_out
+2. readiness summary?                    -> central publish readiness blockers
+3. activation blockers?                  -> Payload activation guard blockers
+4. image QC state?                       -> PASS / REVIEW / FAIL / pending
+5. Shopier gate?                         -> ready / blocked / queued / synced / not-targeted
+6. dispatch rows?                        -> per active channel status and failure reason
+7. coherence issues?                     -> repair or channel-drift hint
+8. next actions?                         -> safest operator command to run next
 ```
 
 ### Entry Point B: Product Data Missing / Wrong

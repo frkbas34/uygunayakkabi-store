@@ -2,6 +2,9 @@
 
 _Created 2026-06-14. Newest first. Each deploy = fast-forward git push to `main` → Vercel production build._
 
+## 2026-07-02
+- _local only, not deployed:_ manual publish override fix prepared for UygunOps **Yayına Al** semantics. Explicit operator approval will be able to bypass only Image QC and brand/audit review blockers; hard commerce blockers still apply. Validation passed locally. Awaiting commit/push/deploy approval.
+
 ## 2026-06-18
 - **D-324** — _production DATA op (no code deploy):_ Admin unpublished placeholder product id 361 `Taslak Ürün 16/06-4184` (`status active → draft`). No git/code change; docs-only commit `docs: record D-324 catalog hygiene`.
 

@@ -234,6 +234,8 @@ async function main(): Promise<void> {
 
     if (missingProductColumns.length === 0 && missingDefectColumns.length === 0 && !missingDefectTable) {
       console.log('Schema result: PASS')
+      console.log('Next: npm run smoke:product-flow:read -- --product=<id-or-sn> --confirm-read-only')
+      console.log('Next: npm run smoke:ad-readiness:read -- --product=<id-or-sn> --confirm-read-only')
       console.log('Next: npm run smoke:shopier:read -- --confirm-read-only')
       return
     }

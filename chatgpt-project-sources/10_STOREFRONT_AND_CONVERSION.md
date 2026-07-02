@@ -1,6 +1,6 @@
 # Storefront And Conversion
 
-Last updated: 2026-06-21
+Last updated: 2026-07-02
 
 ## Goal
 
@@ -8,14 +8,9 @@ Turn the website into a better sales surface for product traffic from Telegram, 
 
 ## Product Detail Page Needs
 
-- Better mobile gallery.
-- Clear product title, price, stock, sizes.
-- Clear WhatsApp CTA.
-- Clear Shopier CTA when available.
-- Trust messaging.
-- Shipping and returns wording.
-- FAQ when useful.
-- Product guide content only when useful.
+- Keep the current mobile gallery, product title, price, stock, size chips, WhatsApp CTA, Shopier CTA when available, trust messaging, lead form, FAQ, and product guide content working cleanly.
+- Treat PDP changes as conversion polish only; do not rewrite product truth or add unsupported claims.
+- Before paid traffic, verify the real product with `npm run smoke:ad-readiness:read -- --product=<id-or-sn> --confirm-read-only`.
 
 ## Homepage Needs
 
@@ -38,4 +33,3 @@ Turn the website into a better sales surface for product traffic from Telegram, 
 - Visitor understands available sizes/stock.
 - Buying or messaging path is obvious.
 - Mobile flow feels clean.
-

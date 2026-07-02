@@ -19,6 +19,15 @@ export type ActivationStockResolver = (
 
 export interface ActivationGuardOptions {
   resolveStockSnapshot?: ActivationStockResolver
+  /**
+   * Explicit operator "Yayına Al" override.
+   *
+   * This bypasses review-only gates that can be intentionally overruled by a
+   * human operator (Image QC PASS and brand-safety/audit wording checks), but
+   * it still keeps hard commerce/source-of-truth blockers in place: price,
+   * media existence, publish targets, and sellable stock.
+   */
+  manualPublishOverride?: boolean
 }
 
 function isObject(value: unknown): value is ProductActivationDocument {
@@ -125,9 +134,11 @@ export async function collectActivationBlockers(
     blockers.push('en az bir urun gorseli veya onayli AI gorseli gerekli')
   }
 
-  const imageQuality = evaluateImageQualityGate(product)
-  if (!imageQuality.publishable) {
-    blockers.push(`image QC gerekli: ${imageQuality.detail}`)
+  if (!options.manualPublishOverride) {
+    const imageQuality = evaluateImageQualityGate(product)
+    if (!imageQuality.publishable) {
+      blockers.push(`image QC gerekli: ${imageQuality.detail}`)
+    }
   }
 
   const targets = resolveConfiguredTargets(product)
@@ -155,11 +166,13 @@ export async function collectActivationBlockers(
     blockers.push('stok adedi 0dan buyuk olmali')
   }
 
-  const brandSafety = scanProductBrandSafety(product)
-  if (!brandSafety.safe) {
-    blockers.push(
-      `brand safety blokladi: ${formatBrandSafetyReason(brandSafety) || brandSafety.reasons.join('; ')}`,
-    )
+  if (!options.manualPublishOverride) {
+    const brandSafety = scanProductBrandSafety(product)
+    if (!brandSafety.safe) {
+      blockers.push(
+        `brand safety blokladi: ${formatBrandSafetyReason(brandSafety) || brandSafety.reasons.join('; ')}`,
+      )
+    }
   }
 
   return blockers

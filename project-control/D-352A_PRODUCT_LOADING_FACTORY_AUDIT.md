@@ -62,7 +62,7 @@ Not ready yet.
 
 The safety rails are good enough for controlled single-product or small-batch loading, but 30-50 products/day needs a batch QA dashboard and image-QC triage. Without that, the operator will spend too much time opening individual products to discover missing category, stock, content, audit, or visual issues.
 
-Current realistic throughput estimate from code shape: small batches are feasible; sustained 30-50/day is still risky until D-355 DB schema drift is resolved, D-356 is live-smoked, and retry/error handling is proven in operator use. The first D-356 Shopier/Web queue guard, `/shopier errors` triage, `/shopier retry-errors` safe retry preview, per-product admin Shopier Queue Gate, and `npm run smoke:shopier:read` read-only runtime smoke support are implemented as operator surfaces.
+Current realistic throughput estimate from code shape: small batches are feasible; sustained 30-50/day is still risky until D-356 is live-smoked and retry/error handling is proven in operator use. D-355 DB schema drift is resolved as of the 2026-07-02 read-only schema smoke. The first D-356 Shopier/Web queue guard, `/shopier errors` triage, `/shopier retry-errors` safe retry preview, per-product admin Shopier Queue Gate, `npm run smoke:shopier:read` read-only runtime smoke support, and `/productflow` plus `npm run smoke:product-flow:read` read-only product-flow diagnostics are implemented as operator surfaces.
 
 ## Recommended Next Build
 
@@ -70,8 +70,8 @@ Current realistic throughput estimate from code shape: small batches are feasibl
 2. Use D-354 `/categoryfill [limit]` before loading larger batches to prioritize category gaps.
 3. D-355: structured image QC fields, operator visibility, and activation/readiness gates are implemented.
 4. Keep D-353/D-354 read-only. Do not add broad batch mutation until D-356.
-5. D-356: first Shopier/Web queue guard, `/shopier errors` triage, `/shopier retry-errors` safe retry preview/confirm, per-product admin Shopier Queue Gate, and read-only runtime smoke support are implemented; next resolve the missing Image QC DB relation, rerun the smoke, live operator smoke the Telegram commands, and decide whether richer retry/error UI is needed.
+5. D-356: first Shopier/Web queue guard, `/shopier errors` triage, `/shopier retry-errors` safe retry preview/confirm, per-product admin Shopier Queue Gate, `/productflow` diagnostics, and read-only runtime smoke support are implemented; next live operator smoke the Telegram commands, verify Shopier credentials before queueing, and decide whether richer retry/error UI is needed.
 
 ## Decision
 
-D-352A is complete as a code-evidence audit, D-353/D-354 now give the operator read-only catalog and category-depth visibility, D-355 structured Image QC is implemented, D-356A adds a guarded Shopier/Web queue path plus first-pass error triage, safe retry preview/confirm, and read-only runtime smoke support, and D-356B adds per-product admin Shopier Queue Gate visibility. The latest smoke is blocked by missing Image QC DB relation `products_image_quality_defect_flags`. Do not proceed to mass loading, broad batch publishing, or ads until DB drift is resolved, D-356 is live-smoked, and retry/error visibility is good enough for operator use.
+D-352A is complete as a code-evidence audit, D-353/D-354 now give the operator read-only catalog and category-depth visibility, D-355 structured Image QC is implemented and DB schema verified, D-356A adds a guarded Shopier/Web queue path plus first-pass error triage, safe retry preview/confirm, and read-only runtime smoke support, D-356B adds per-product admin Shopier Queue Gate visibility, and Phase 2/3 now adds read-only Product Flow Snapshot diagnostics. Do not proceed to mass loading, broad batch publishing, or ads until D-356 is live-smoked and retry/error visibility is good enough for operator use.

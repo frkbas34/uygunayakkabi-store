@@ -1,5 +1,12 @@
 # DECISIONS — Uygunayakkabi
 
+## 2026-07-02 — Manual publish override semantics (LOCAL CODE, NOT DEPLOYED)
+**Decision:** explicit operator **Yayına Al / approvepublish** should be able to publish a product even when the only remaining blockers are human-review gates: generated-image QC PASS and/or brand/audit safety wording. It must **not** bypass hard commerce/source-of-truth blockers: invalid price, no usable media, no active publish target, or no sellable stock.
+**Reason:** product #410 showed the old behavior was too strict for manual operation: `publish.approved` was recorded, but activation was refused at readiness `4/6` due only to `visuals` and `audit`, preventing Website/X/Facebook/Shopier dispatch.
+**Implementation (local):** `approveAndActivateProduct()` computes a manual override only when failed dimensions are limited to `visuals`/`audit`; it sends `context.manualPublishOverride=true` to Payload. `Products.beforeChange` forwards that context to `collectActivationBlockers()`, which skips only Image QC and brand-safety blockers under explicit manual override. Bot event payload records `manualPublishOverride` and `overriddenBlockers`.
+**Validation:** `test:publish-desk`, `test:activation-guard`, `test:publish-readiness`, `test:image-quality`, `typecheck`, and targeted ESLint passed locally.
+**Status:** awaiting commit/push/deploy approval; production unchanged.
+
 ## D-338A — Product #354 genuine-leather claim softening (2026-06-21, DATA, DONE)
 **Operator-approved product-copy safety update.** Removed unverified genuine-leather/material-certainty claims from #354 ("Siyah Tokalı Püsküllü Loafer") so it can run in ads with safe wording, matching 359/355/353's "deri görünümlü/hissiyatı" style. **DATA-only change via Admin API PATCH `/api/products/354` — `content` group only.** Title, slug, price, stock, images, status (`active`) all UNCHANGED.
 **Why no external dispatch:** Products `afterChange` dispatches only on draft→active transition or explicit `sourceMeta.forceRedispatch` (channelDispatch.ts L133). PATCH sent `content` only (no `status`, no `forceRedispatch`) ⇒ wasActive=true & isNowActive=true ⇒ isStatusTransition=false ⇒ NO Shopier/X/FB/IG publish. Verified status stayed `active` (no transition).

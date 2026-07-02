@@ -2,6 +2,10 @@
 
 _Last updated: 2026-04-28 (LOCK CHECKPOINT — D-227 → D-231 stabilization. PI auto-bridge into GeoBot, observability + mandatory prompt rules, idempotent applyConfirmation, richer SEO/GEO pack with mandatory sections, parallel commerce/discovery, wizard category+brand+productType vision autofill — all PROD-VALIDATED. Operator confirmation: "it's working perfectly now". Future work branches from this baseline.)_
 
+## Manual publish override — 2026-07-02 (LOCAL CODE, not deployed)
+
+Product #410 exposed a manual-publish semantics bug: **Yayına Al** recorded `publish.approved` but activation was refused when the only blockers were generated-image QC PASS and brand/audit safety. Local code now lets explicit manual publish approval bypass only those review gates (`visuals` and/or `audit`) while still blocking hard commerce requirements: valid price, usable media, active target, and sellable stock. Touched files: `publishDesk.ts`, `productActivationGuard.ts`, `Products.ts`, and tests. Local validation passed: `test:publish-desk`, `test:activation-guard`, `test:publish-readiness`, `test:image-quality`, `typecheck`, targeted ESLint. Production is unchanged until commit/push/deploy.
+
 ## Product copy fix — 2026-06-21 (D-338A: #354 genuine-leather claim softened — DONE, ad-safe)
 
 Operator-approved DATA-only copy fix on product #354 via Admin API PATCH (`content` group only; title/slug/price/stock/images/status unchanged; no external dispatch — no status transition). Removed all "Gerçek deri / Hakiki deri / deri malzeme(si)" certainty claims across commercePack (website/IG/X/FB/Shopier/highlights) + discoveryPack (articleBody, metaTitle, metaDescription, faq[0]+faq[2]); replaced with "deri görünümlü yüzey / yüzey" wording (matches 359/355/353). SEO `keywordEntities` + category nav links preserved. Verified live: PDP 200, softened copy renders, all CTAs/sizes/price/lead form/Ürün Rehberi intact, 0 leather claims in prose, active set still [353,354,355,359]. #354 now ad-safe on material wording. Docs commit `docs: record D-338A product 354 claim softening`.

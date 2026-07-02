@@ -2850,7 +2850,7 @@ export async function POST(req: NextRequest) {
       // D-234 / D-235 / D-236 / D-237 / D-238: Operator Pack commands are
       // SHARED so the operator can use them from either bot.
       const SHARED_CMDS = [
-        '/ara', '/pipeline', '/sn',
+        '/ara', '/pipeline', '/productflow', '/flow', '/sn',
         '/find', '/soldout', '/oneleft', '/twoleft', '/restock', '/stopsale', '/restartsale',
         '/redispatch',
         '/inbox',
@@ -4634,6 +4634,49 @@ export async function POST(req: NextRequest) {
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err)
         await sendTelegramMessage(chatId, `❌ Hata: ${msg}`)
+      }
+      return NextResponse.json({ ok: true })
+    }
+
+    // Phase 2/3: /productflow <sn-or-id> (alias: /flow) - read-only product
+    // workflow snapshot for operators and Mentix/OpenClaw diagnostics.
+    const productFlowParts = text.trim().split(/\s+/)
+    const productFlowCommand = productFlowParts[0]?.toLowerCase()
+    if (productFlowCommand === '/productflow' || productFlowCommand === '/flow') {
+      const parts = productFlowParts
+      const arg = parts[1]
+
+      if (!arg) {
+        await sendTelegramMessage(
+          chatId,
+          '<b>Product Flow Snapshot</b>\n\n' +
+            '<code>/productflow &lt;sn-or-id&gt;</code> veya <code>/flow &lt;sn-or-id&gt;</code>\n\n' +
+            'Lifecycle, readiness, activation guard, image QC, channel drift, Shopier gate, dispatch state ve next action listesini tek mesajda gosterir.\n\n' +
+            '<i>Read-only: Payload yazmaz, publish etmez, provider/API cagirmasi yapmaz.</i>',
+        )
+        return NextResponse.json({ ok: true })
+      }
+
+      try {
+        const { resolveProductIdentifier, formatIdentifierMissingMessage } = await import('@/lib/operatorActions')
+        const resolved = await resolveProductIdentifier(payload, arg)
+        if (!resolved) {
+          await sendTelegramMessage(chatId, formatIdentifierMissingMessage(arg))
+          return NextResponse.json({ ok: true })
+        }
+
+        const product = await payload.findByID({ collection: 'products', id: resolved.productId, depth: 1 })
+        if (!product) {
+          await sendTelegramMessage(chatId, `❌ Urun #${resolved.productId} bulunamadi.`)
+          return NextResponse.json({ ok: true })
+        }
+
+        const { buildProductFlowSnapshot, formatProductFlowSnapshot } = await import('@/lib/productFlowSnapshot')
+        const snapshot = await buildProductFlowSnapshot(product as any)
+        await sendTelegramMessage(chatId, formatProductFlowSnapshot(snapshot))
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err)
+        await sendTelegramMessage(chatId, `❌ Product flow hatasi: ${msg}`)
       }
       return NextResponse.json({ ok: true })
     }

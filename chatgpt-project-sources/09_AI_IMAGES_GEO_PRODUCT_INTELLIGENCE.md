@@ -22,11 +22,12 @@ Current implementation:
 - AI/generated images require explicit QC PASS before publish readiness, activation, or ad readiness.
 - Payload admin ReviewPanel shows Image QC state.
 - Telegram `/imageqc` can inspect or set PASS/REVIEW/FAIL without publishing, dispatching, retrying, or spending.
+- Provider visibility exists through `npm run smoke:pi-provider-health:read -- --confirm-read-only`, which checks Gemini, Google Vision, DataForSEO, SerpAPI, and reverse-search selection without Payload access, provider calls, or secret-value printing.
 
 Still needed:
 
 - Better rejection/regeneration path from FAIL/REVIEW back into image generation.
-- Clear provider status.
+- Live provider quota/balance/permission verification when the operator is ready to spend credits or run `#geohazirla`.
 
 ## GEO Content
 
@@ -66,6 +67,13 @@ Needed:
 - Avoid assuming provider availability from local env.
 - Keep intelligence as recommendation until approved.
 
+Current provider-status support:
+
+- `src/lib/productIntelligence/providerHealth.ts` evaluates provider readiness from env only.
+- `npm run test:pi-provider-health` covers missing/partial credentials, reverse-search selection, explicit provider preference behavior, and secret-safe formatting.
+- `npm run smoke:pi-provider-health:read -- --confirm-read-only` loads local env files and prints provider states/missing key names without external calls.
+- Latest local result on 2026-07-02: Gemini text/image ready, `GEMINI_IMAGE_GEN_MODEL` override present, and reverse search missing because Google Vision, DataForSEO, and SerpAPI credentials are not configured locally.
+
 ## Safety Rule
 
 AI must not invent claims about brand, authenticity, leather/material, origin, or condition. Risky claims need operator confirmation.
@@ -84,7 +92,7 @@ Decision states:
 
 Defect checks (all must hold): no fake tearing, no cracks, no peeling, no damaged suede/leather texture, no deformed toe shape, no broken heel shape, no wrong stitching, no fake stains, no distorted sole join, no color drift from the original product, no invented logos/brand elements.
 
-Current status (2026-06-30): implemented as a product-level gate in `src/lib/imageQualityGate.ts`, tested by `npm run test:image-quality`, and included in `npm run validate`. The Payload schema stores `imageQuality.status`, defect flags, notes, checkedAt, checkedBy, and source. The gate feeds publish readiness, activation guard, ad readiness, catalog QA, admin ReviewPanel, and Telegram `/imageqc`. Runtime DB still needs the D-355 Image QC migration/DDL verified: `npm run smoke:imageqc:schema -- --confirm-read-only` currently reports missing product columns `image_quality_status`, `image_quality_notes`, `image_quality_checked_at`, `image_quality_checked_by`, `image_quality_source`, plus missing relation `products_image_quality_defect_flags`. The guarded helper is `npm run db:imageqc:apply`; it previews by default and confirmed apply requires explicit operator approval.
+Current status (2026-07-02): implemented as a product-level gate in `src/lib/imageQualityGate.ts`, tested by `npm run test:image-quality`, and included in `npm run validate`. The Payload schema stores `imageQuality.status`, defect flags, notes, checkedAt, checkedBy, and source. The gate feeds publish readiness, activation guard, ad readiness, catalog QA, admin ReviewPanel, Telegram `/imageqc`, Product Flow Snapshot, and Shopier/Web queue gates. Runtime DB verification now passes: `npm run smoke:imageqc:schema -- --confirm-read-only` sees all required `image_quality_*` product columns and the `products_image_quality_defect_flags` relation. The guarded helper remains available if drift reappears; it previews by default and confirmed apply requires explicit operator approval.
 
 ### D-355A — Multi-Angle Product Reference Standard
 

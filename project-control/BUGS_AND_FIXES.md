@@ -2,6 +2,14 @@
 
 _Created 2026-06-14. Newest at top. No secrets/PII._
 
+## 2026-07-02 — Manual **Yayına Al** blocked by QC/audit readiness despite operator approval (FIXED LOCALLY, NOT DEPLOYED)
+- **Symptom:** product **#410** was approved and content-ready, but clicking **Yayına Al** still produced `Aktivasyon engellendi` / readiness `4/6`. Blockers were `visuals: Image QC review: Generated images require explicit QC PASS` and `audit: Brand safety blocked: marka: BOSS ...`. Website did not activate; therefore X/Facebook/Shopier dispatch did not start.
+- **Root cause:** `src/lib/publishDesk.ts` treated manual approval the same as fully automated readiness: `approveAndActivateProduct()` refused if `evaluatePublishReadiness(product).level !== 'ready'`, even when the only blockers were human-review gates the operator intended to override. Payload's activation guard also independently enforced Image QC and brand-safety blockers.
+- **Fix (local):** manual publish approval now overrides **only** `visuals` and/or `audit` readiness failures. It passes `context.manualPublishOverride=true` into `payload.update()`, and `Products.beforeChange` forwards that context to `collectActivationBlockers()`, which skips only Image QC and brand-safety blockers under explicit manual publish override.
+- **Still blocked:** no/zero price, no usable media at all, no active publish target, and no sellable stock remain hard blockers.
+- **Validation:** `test:publish-desk`, `test:activation-guard`, `test:publish-readiness`, `test:image-quality`, `typecheck`, and targeted ESLint all passed locally.
+- **Status:** fixed in local working tree only; needs commit + production deploy before live UygunOps behavior changes.
+
 ## D-335B — Brand-named product #362 published live + to external channels (OPEN — publish risk)
 - **Symptom:** product #362 "New Balance Sneaker Çok Renkli" is `active` and was published to website + Shopier + X + Facebook with pervasive brand wording, 'N' logo emphasis, a specific-model claim ("New Balance 9060"), and an authenticity claim ("…'New Balance' yazısı, özgünlüğünü vurgular"). X copy carries "#NewBalance". Risk = HIGH→CRITICAL (trademark/counterfeit + customer-confusion). Worse than D-328.
 - **Root cause:** NO automated brand-name guard in the intake → GeoBot content-gen → publish pipeline. A brand-named product passed straight through to active + external channels despite the earlier D-328 cleanup.

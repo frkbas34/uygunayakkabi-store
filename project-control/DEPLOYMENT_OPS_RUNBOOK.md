@@ -101,6 +101,10 @@ After an approved D-355 apply:
 
 ```powershell
 npm run smoke:imageqc:schema -- --confirm-read-only
+npm run smoke:provider-health:read -- --confirm-read-only
+npm run smoke:product-flow:read -- --product=<id-or-sn> --confirm-read-only
+npm run smoke:ad-readiness:read -- --product=<id-or-sn> --confirm-read-only
+npm run smoke:business-funnel:read -- --confirm-read-only
 npm run smoke:shopier:read -- --confirm-read-only
 ```
 
@@ -115,6 +119,7 @@ Telegram/Mentix:
 - Verify webhook URL points to the current deployment.
 - Verify secret/header validation is configured.
 - Check pending update count and last error.
+- Run `npm run smoke:provider-health:read -- --confirm-read-only` before using `/diagnostics` as provider/credential evidence.
 - Send an operator-safe command such as `/diagnostics` only when an operator is present.
 
 Shopier:
@@ -131,6 +136,19 @@ Geo/Product Intelligence:
 
 - Keep outputs operator-controlled.
 - Do not let AI content activate or publish a product without the product readiness and brand-safety gates.
+- Run `npm run smoke:pi-provider-health:read -- --confirm-read-only` before relying on Product Intelligence, GEO content, or comparison automation provider readiness.
+
+Storefront/manual ads:
+
+- Ads remain deferred until catalog depth and image quality are strong.
+- Run `npm run smoke:ad-readiness:read -- --product=<id-or-sn> --confirm-read-only` before treating any product as ready for manual paid traffic.
+- The command mirrors Telegram `/adready` and must not write, publish, queue jobs, call providers, call Shopier, spend on ads, or push schema changes.
+
+Orders/leads/funnel:
+
+- Run `npm run smoke:business-funnel:read -- --confirm-read-only` before relying on `/business`, `/funnel`, lead source visibility, order counts, stock urgency, or basic funnel analytics.
+- Use `--period=week` when source attribution or 7-day funnel visibility matters.
+- The command must not mutate leads, orders, stock, products, jobs, channels, providers, Shopier, ads, or schema.
 
 n8n:
 
@@ -178,6 +196,11 @@ Use read-only smoke first:
 
 ```powershell
 npm run smoke:activation:read -- --product=<id> --confirm-read-only
+npm run smoke:product-flow:read -- --product=<id-or-sn> --confirm-read-only
+npm run smoke:provider-health:read -- --confirm-read-only
+npm run smoke:pi-provider-health:read -- --confirm-read-only
+npm run smoke:ad-readiness:read -- --product=<id-or-sn> --confirm-read-only
+npm run smoke:business-funnel:read -- --confirm-read-only
 npm run smoke:imageqc:schema -- --confirm-read-only
 npm run smoke:shopier:read -- --confirm-read-only
 ```
@@ -186,8 +209,12 @@ Then, with the operator present, run only the relevant manual checks:
 
 - `/diagnostics`
 - `/pipeline <id>`
+- `/productflow <id-or-sn>`
 - `/catalogqa`
 - `/categoryfill`
+- `/adready <id-or-sn>`
+- `/business`
+- `/funnel`
 - `/shopier dashboard`
 - `/shopier publish-ready`
 - `/shopier errors`

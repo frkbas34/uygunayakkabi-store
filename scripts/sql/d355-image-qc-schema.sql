@@ -14,6 +14,8 @@
 --
 -- After applying/verification, rerun:
 --   npm run smoke:imageqc:schema -- --confirm-read-only
+--   npm run smoke:product-flow:read -- --product=<id-or-sn> --confirm-read-only
+--   npm run smoke:ad-readiness:read -- --product=<id-or-sn> --confirm-read-only
 --   npm run smoke:shopier:read -- --confirm-read-only
 
 BEGIN;
@@ -83,4 +85,3 @@ CREATE INDEX IF NOT EXISTS products_image_quality_defect_flags_parent_idx
   ON products_image_quality_defect_flags (parent_id);
 
 COMMIT;
-

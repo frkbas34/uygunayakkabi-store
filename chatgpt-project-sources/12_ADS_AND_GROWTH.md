@@ -1,6 +1,6 @@
 # Ads And Growth
 
-Last updated: 2026-06-27
+Last updated: 2026-07-02
 
 ## Strategic Status (2026-06-27): Ads Deferred
 
@@ -23,6 +23,12 @@ Manual ad support first. Automation later.
 - Check brand/claim safety.
 - Track leads and funnel.
 - Summarize basic campaign performance.
+
+## Current Operator Tooling
+
+- Telegram `/adready <sn-or-id>` shows the manual ad-readiness checklist for one product.
+- `npm run smoke:ad-readiness:read -- --product=<id-or-sn> --confirm-read-only` mirrors `/adready` from the repo against real Payload data without writing, publishing, provider calls, Shopier calls, or ad spend.
+- The readiness checklist covers product page status, clean AI media/Image QC, stock and size clarity, active-channel linkability, UTM availability, lead-form visibility, brand safety, risky claims, and the no-autonomous-spend guardrail.
 
 ## What Not To Build Yet
 
@@ -50,4 +56,4 @@ Before spending on ads:
 - Channel links work.
 - UTM tracking works.
 - Operator can see leads.
-
+- Read-only ad-readiness smoke has been run for the product being considered.

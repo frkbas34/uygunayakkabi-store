@@ -430,7 +430,12 @@ export async function approveAndActivateProduct(
 
   const { evaluatePublishReadiness } = await import('./publishReadiness')
   const readiness = evaluatePublishReadiness(product as any)
-  if (readiness.level !== 'ready') {
+  const failedDimensions = readiness.dimensions.filter((dimension) => !dimension.passed)
+  const manualOverride =
+    readiness.level !== 'ready' &&
+    failedDimensions.length > 0 &&
+    failedDimensions.every((dimension) => dimension.name === 'visuals' || dimension.name === 'audit')
+  if (readiness.level !== 'ready' && !manualOverride) {
     return {
       ok: false,
       idempotent: false,
@@ -468,6 +473,7 @@ export async function approveAndActivateProduct(
           newUntil,
         },
       },
+      ...(manualOverride ? { context: { manualPublishOverride: true } } : {}),
     })
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)
@@ -504,6 +510,8 @@ export async function approveAndActivateProduct(
           publishedAt,
           newUntil,
           readinessScore: `${readiness.passedCount}/${readiness.totalCount}`,
+          manualPublishOverride: manualOverride,
+          overriddenBlockers: manualOverride ? readiness.blockers : [],
           triggeredBy,
         },
         notes: `Product ${productId} activated via ${triggeredBy}. status: draft→active.`,
@@ -524,7 +532,10 @@ export async function approveAndActivateProduct(
       `🟢 status = active\n` +
       `📅 publishedAt = ${publishedAt.split('T')[0]}\n` +
       `📅 newUntil = ${newUntil.split('T')[0]}\n` +
+      (manualOverride
+        ? `⚠️ Manuel override: QC/audit blockerları operatör onayıyla aşıldı\n`
+        : '') +
       `🔄 Kanal dispatch tetiklendi (afterChange hook)`,
-    summary: `<code>${sn}</code> · aktive edildi`,
+    summary: `<code>${sn}</code> · aktive edildi${manualOverride ? ' (manual override)' : ''}`,
   }
 }

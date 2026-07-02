@@ -2,6 +2,14 @@
 
 _Created 2026-06-14. Compact handoff for future sessions. See PROJECT_STATE.md / DECISIONS.md / DEPLOYMENT_LOG.md / BUGS_AND_FIXES.md for detail. No secrets/PII._
 
+## Manual publish override fix (2026-07-02) — LOCAL CODE, NOT DEPLOYED
+- Root cause from product **#410**: operator clicked **Yayına Al**, but `approveAndActivateProduct()` refused activation at `evaluatePublishReadiness()` when only review-style blockers remained: generated images lacked explicit Image QC PASS and brand/audit safety blocked `BOSS` wording. Result: `publish.approved` event was recorded, but `status` stayed non-active, so Website/X/Facebook/Shopier dispatch never ran.
+- Local fix: manual publish approval now overrides **only** `visuals` and/or `audit` readiness failures. Hard commerce/source-of-truth blockers still block activation: missing/zero price, no usable media, no active publish target, and no sellable stock.
+- Files changed: `src/lib/publishDesk.ts`, `src/lib/productActivationGuard.ts`, `src/collections/Products.ts`, `src/lib/publishDesk.test.ts`, `src/lib/productActivationGuard.test.ts`.
+- Implementation detail: `approveAndActivateProduct()` computes `manualOverride` when failed dimensions are limited to `visuals`/`audit`, passes `context.manualPublishOverride=true` into the Payload update, and records `manualPublishOverride` + overridden blockers in the `product.activated` bot-event. `Products.beforeChange` passes that context into `collectActivationBlockers()`, which skips only Image QC and brand-safety blockers under this explicit context.
+- Validation passed locally: `npm run test:publish-desk`, `npm run test:activation-guard`, `npm run test:publish-readiness`, `npm run test:image-quality`, `npm run typecheck`, and targeted ESLint on the touched files.
+- Status: code is local only; production UygunOps will not change until this is committed/pushed/deployed with operator approval.
+
 ## Product copy fix (2026-06-21) — D-338A #354 genuine-leather claim softened, ad-safe
 - Operator-approved DATA-only copy fix on product **#354** (resolves the D-338 advisory). Admin API PATCH `/api/products/354` **content group only** — title/slug/price/stock/images/status (`active`) all unchanged.
 - **No external dispatch:** Products `afterChange` fires only on draft→active transition or `sourceMeta.forceRedispatch` (channelDispatch.ts L133). PATCH sent `content` only ⇒ no transition ⇒ no Shopier/X/FB/IG publish. Confirmed status stayed `active`.
@@ -72,3 +80,6 @@ _Created 2026-06-14. Compact handoff for future sessions. See PROJECT_STATE.md /
 
 ## Standing rule (operator, 2026-06-14)
 After each Uygunayakkabi D-task, update the project-control memory files: PROJECT_STATE / DECISIONS / TASK_QUEUE / BUGS_AND_FIXES / DEPLOYMENT_LOG / CLAUDE_MEMORY. No secrets/PII; record only what actually happened.
+
+## Standing rule update (operator, 2026-07-02)
+After **every** Hermes-made repo change, without exception, update the relevant in-repo memory/context files in the same task so Claude/Codex inherit accurate state and do not hallucinate from stale project memory. At minimum consider `CLAUDE_MEMORY.md`, `PROJECT_STATE.md`, `TASK_QUEUE.md`, `BUGS_AND_FIXES.md`, `DEPLOYMENT_LOG.md`, `AGENTS.md`, `CLAUDE.md`, and relevant `chatgpt-project-sources/` files. Never record secrets.

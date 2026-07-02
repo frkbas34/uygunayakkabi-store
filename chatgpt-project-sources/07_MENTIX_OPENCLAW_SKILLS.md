@@ -1,12 +1,14 @@
 # Mentix And OpenClaw Skills
 
-Last updated: 2026-06-23
+Last updated: 2026-07-02
 
 ## Direction
 
 OpenClaw should be the agent brain for Mentix. The Next/Payload app should execute product and publishing workflows.
 
 Current guardrail: `mentix-skills/OPENCLAW_DEPLOYMENT_SYNC.md` is the deployment checklist for VPS sync, and `npm run test:mentix-skills` checks that OpenClaw/Mentix skill guidance stays aligned with the current truth.
+
+Current app-side diagnostic helper: `src/lib/productFlowSnapshot.ts` powers Telegram `/productflow` and `/flow`. It is read-only and summarizes lifecycle, readiness, activation blockers, image QC, Shopier gate, dispatch state, coherence drift, and next actions. OpenClaw should use this as the evidence shape for product-flow-debugger answers.
 
 ## Active Skill Priorities
 
@@ -18,7 +20,8 @@ Purpose:
 
 Needs:
 
-- Update flow to active channels only.
+- Use the app-side Product Flow Snapshot helper or `/productflow` output when available.
+- Stay limited to active channels only.
 - Read Payload state and dispatch notes.
 - Return evidence-based diagnosis.
 
@@ -54,6 +57,7 @@ Purpose:
 Needs:
 
 - Avoid unsupported provider assumptions.
+- Use `smoke:pi-provider-health:read` output before claiming Gemini, Google Vision, DataForSEO, SerpAPI, or reverse search is available.
 
 ### agent-memory
 

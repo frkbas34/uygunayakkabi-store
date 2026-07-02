@@ -1,12 +1,22 @@
 # D-355 Image QC DB Drift
 
-Last updated: 2026-06-30.
+Last updated: 2026-07-02.
 
-## Runtime Evidence
+## Current Status
 
-`npm run smoke:imageqc:schema -- --confirm-read-only` ran in read-only mode and checked PostgreSQL `information_schema`.
+Resolved in the current runtime database.
 
-Result:
+`npm run smoke:imageqc:schema -- --confirm-read-only` passed on 2026-07-02:
+
+- all 5 required `products.image_quality_*` columns are present
+- `products_image_quality_defect_flags` exists
+- required defect relation columns are present: `order`, `parent_id`, `value`, `id`
+
+The read-only check uses PostgreSQL `information_schema` only. It does not run DDL, update Payload, queue jobs, dispatch channels, call Shopier, or push schema changes.
+
+## Historical Blocker
+
+On 2026-06-30 the same read-only smoke found the runtime database behind the repo schema:
 
 ```text
 Missing products columns:
@@ -20,100 +30,49 @@ Missing relation:
 products_image_quality_defect_flags
 ```
 
-Expected relation columns, based on the observed `products_channel_targets` Payload v3 hasMany select table shape:
-
-```text
-order
-parent_id
-value
-id
-```
-
-`npm run smoke:shopier:read -- --confirm-read-only --limit=5` also ran in read-only mode and stopped before preview because the runtime database is behind the current repo schema.
-
-Evidence:
+`npm run smoke:shopier:read -- --confirm-read-only --limit=5` also stopped before preview then with:
 
 ```text
 relation "products_image_quality_defect_flags" does not exist
 code=42P01
 ```
 
-The smoke confirmed:
+## Guarded Repair Helper
 
-- `PAYLOAD_DB_PUSH=false`
-- no Payload writes
-- no `shopier-sync` job queue writes
-- no external dispatch
-- no Shopier API calls
-- no schema push
-
-## Required Operator/Ops Action
-
-Apply or verify the D-355 Image QC Payload DB migration/DDL before live-smoking Shopier Telegram commands or scaling catalog loading.
-
-Current repo schema expects scalar Image QC columns on `products` and a has-many select relation for `imageQuality.defectFlags`.
-
-Reviewed SQL plan:
+The reviewed SQL plan remains in:
 
 ```text
 scripts/sql/d355-image-qc-schema.sql
 ```
 
-Dry-run preview completed on 2026-06-30:
+Current dry-run preview on 2026-07-02:
 
 ```text
 npm run db:imageqc:apply -- --dry-run --print-sql
-SQL bytes: 2404
-SQL sha256: 832fd6bcff0dde40
+SQL bytes: 2484
+SQL sha256: c22e5c5a9b701fc8
 Result: dry-run only; no database connection opened and no DDL executed.
 ```
 
-Guarded apply helper:
+Confirmed apply remains operator-run only:
 
 ```powershell
-npm run db:imageqc:apply
-npm run db:imageqc:apply -- --dry-run --print-sql
 npm run db:imageqc:apply -- --apply --confirm-apply-d355-image-qc-schema
 ```
 
-Default mode is dry-run only and does not connect to PostgreSQL. Confirmed apply mode requires the explicit operator confirmation flag and runs the reviewed SQL plan, then performs a direct post-apply `information_schema` verification. Codex/Claude should not run the confirmed apply mode without explicit operator approval.
+Codex/Claude must not run confirmed apply mode without explicit operator approval.
 
-Likely scalar columns to verify:
+## Post-Resolution Read-Only Smokes
 
-```sql
-ALTER TABLE products ADD COLUMN IF NOT EXISTS image_quality_status enum_products_image_quality_status DEFAULT 'pending';
-ALTER TABLE products ADD COLUMN IF NOT EXISTS image_quality_notes text;
-ALTER TABLE products ADD COLUMN IF NOT EXISTS image_quality_checked_at timestamptz;
-ALTER TABLE products ADD COLUMN IF NOT EXISTS image_quality_checked_by varchar;
-ALTER TABLE products ADD COLUMN IF NOT EXISTS image_quality_source varchar;
-```
+On 2026-07-02:
 
-Observed missing relation name:
+- `npm run smoke:imageqc:schema -- --confirm-read-only` -> PASS.
+- `npm run smoke:product-flow:read -- --product=359 --confirm-read-only` -> completed. Product `359` is active with all active targets, no channel/coherence drift, Shopier already synced, Image QC review blocking full readiness, and X dispatch failed because credits are depleted. No writes, jobs, dispatches, provider calls, Shopier calls, or schema pushes were performed.
+- `npm run smoke:shopier:read -- --confirm-read-only --limit=5` -> completed. Result: 0 new publish candidates, 0 sync errors, 0 retry candidates, and `SHOPIER_PAT configured: no`. No writes, jobs, dispatches, Shopier calls, or schema pushes were performed.
 
-```sql
--- Verify exact columns/types/indexes against Payload/Drizzle output before production.
-CREATE TABLE IF NOT EXISTS products_image_quality_defect_flags (
-  "order" integer NOT NULL,
-  parent_id integer NOT NULL REFERENCES products(id) ON DELETE CASCADE,
-  value enum_products_image_quality_defect_flags,
-  id SERIAL PRIMARY KEY
-);
-```
+## Remaining Ops Gates
 
-After migration/verification:
-
-```powershel
-
-
-## RESOLVED — 2026-06-30
-
-Applied via `npm run db:imageqc:apply -- --apply --confirm-apply-d355-image-qc-schema`
-against the production database. Added the products `image_quality_*` columns, the
-`products_image_quality_defect_flags` table, enums, FK, and indexes. Post-apply smoke
-checks PASS:
-
-- `npm run smoke:imageqc:schema -- --confirm-read-only` → PASS (5/5 columns, defect table present).
-- `npm run smoke:shopier:read -- --confirm-read-only` → completed (previously failed with
-  relation "products_image_quality_defect_flags" does not exist).
-
-This cleared the product-creation crash ("Failed query ... products.image_quality_status").
+- Live-smoke `/productflow`, `/shopier dashboard`, `/shopier publish-ready`, `/shopier errors`, and `/shopier retry-errors` with the operator present.
+- Verify/configure `SHOPIER_PAT` before queueing or retrying Shopier jobs.
+- Resolve product `359` generated-image QC review before treating it as fully ready.
+- Resolve or intentionally defer X posting while the account reports credits depleted.

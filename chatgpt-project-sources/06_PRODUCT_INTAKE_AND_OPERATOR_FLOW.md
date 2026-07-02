@@ -1,6 +1,6 @@
 # Product Intake And Operator Flow
 
-Last updated: 2026-06-30
+Last updated: 2026-07-02
 
 ## Target Flow
 
@@ -52,6 +52,8 @@ Direct admin saves to `status='soldout'` now normalize workflow state in the sam
 Code-level smoke coverage exists in `src/lib/productActivationGuard.test.ts` and `src/lib/publishDesk.test.ts`, and runs through `npm run validate`. It covers helper logic, actual `Products.beforeChange` hook behavior, direct sold-out admin-save normalization, and the Telegram/Publish Desk activation wrapper for readiness failures, Payload guard failures, idempotent active products, and successful activation events.
 
 Read-only runtime activation diagnostics now exist in `scripts/activation-runtime-smoke.ts`, exposed as `npm run smoke:activation:read -- --product=<id> --confirm-read-only`. The script forces `PAYLOAD_DB_PUSH=false`, reads one Payload product through a minimal read-only Payload config, and prints lifecycle, readiness, stock, active targets, activation blockers, and state-coherence issues. It performs no product update, dispatch, Shopier queue write, or schema push. Product `359` passed this check on 2026-06-23.
+
+Read-only Product Flow Snapshot diagnostics now exist in `src/lib/productFlowSnapshot.ts`, Telegram `/productflow <sn-or-id>` and `/flow <sn-or-id>`, and runtime smoke `npm run smoke:product-flow:read -- --product=<id-or-sn> --confirm-read-only`. The snapshot combines lifecycle, central readiness, Payload activation blockers, image QC, Shopier queue gate, active-channel dispatch state, channel/coherence drift, and next actions. The runtime smoke accepts a Payload id or stock number, forces `PAYLOAD_DB_PUSH=false`, uses the same helper as Telegram, and performs no writes, jobs, dispatches, provider calls, Shopier calls, or schema pushes.
 
 A guarded reversible mutation smoke also exists in `scripts/activation-mutation-smoke.ts`, exposed as `npm run smoke:activation:mutate`. Existing-product mode uses `--product=<smoke-product-id> --confirm-mutate-and-rollback`. Temp helper mode uses `--create-temp-smoke --confirm-create-mutate-delete`. Admin-direct temp mode adds `--admin-direct-update`. It is operator-run only and not part of `validate`. It refuses normal products, requires a `SMOKE`/`TEST` marker, requires `draft` status, requires website-only targets and no external channel flags, activates through either `approveAndActivateProduct()` or a plain Payload `status='active'` update, then rolls back the product snapshot and deletes smoke bot-events. Temp mode can create a website-only smoke draft from an existing media item, run the activation path, then delete the temp product. Product `359` correctly refused before mutation. On 2026-06-22, helper temp-smoke passed with product `363`, two smoke bot-events cleaned up, no external channel dispatch, and no Shopier queue. Admin-direct temp-smoke passed with product `364`, `workflowStatus=active`, `publishStatus=published`, no external dispatch, and no Shopier queue.
 

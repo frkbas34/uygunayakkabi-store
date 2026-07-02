@@ -8,6 +8,7 @@ import {
   resolveChannelTargets,
 } from '@/lib/automationDecision'
 import { evaluateChannelProviderHealth, formatChannelProviderHealthLine } from '@/lib/channelProviderHealth'
+import { evaluateTelegramDmAccess, DM_REFUSAL_MESSAGE } from '@/lib/telegramAccess'
 
 // ── Vercel function timeout ────────────────────────────────────────────────────
 // Image polling loop runs up to 120s. OpenAI gpt-image-1 typically 15-40s.
@@ -895,6 +896,14 @@ export async function POST(req: NextRequest) {
     const expectedSecret = botParam === 'geo'
       ? (process.env.TELEGRAM_GEO_WEBHOOK_SECRET || process.env.TELEGRAM_WEBHOOK_SECRET)
       : process.env.TELEGRAM_WEBHOOK_SECRET
+    if (!expectedSecret) {
+      // Pre-traffic hardening: the signature gate silently disabling itself is
+      // how a prod misconfiguration goes unnoticed — make it loud.
+      console.warn(
+        '[telegram/security] TELEGRAM_WEBHOOK_SECRET is NOT set — webhook signature verification is DISABLED. ' +
+          'Anyone who finds the endpoint can POST fake updates. Set the secret in production env vars.',
+      )
+    }
     if (expectedSecret && secret !== expectedSecret) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
@@ -2820,6 +2829,40 @@ export async function POST(req: NextRequest) {
       } catch (err) {
         console.error('[telegram/group] Failed to check group settings:', err)
         // Fail-closed: if we can't verify settings, don't process group messages
+        return NextResponse.json({ ok: true })
+      }
+    }
+
+    // ── Pre-traffic hardening: DM operator allowlist ─────────────────────────
+    // Private chats previously skipped the allowlist entirely, so anyone who
+    // discovered the bot username could run every command (including mutating
+    // ones) from a DM. Mirror the Phase I group semantics for private chats:
+    // a NON-EMPTY telegram.allowedUserIds denies unlisted senders with a polite
+    // refusal before any command handler runs; an EMPTY allowlist keeps
+    // legacy-open behavior (no lockout for an unconfigured setup) but logs a
+    // loud warning. Group behavior above is unchanged.
+    if (!isGroupChat) {
+      try {
+        const autoSettings = await payload.findGlobal({ slug: 'automation-settings' })
+        const telegramSettings = (autoSettings as Record<string, unknown>)?.telegram as Record<string, unknown> | undefined
+        const dmAccess = evaluateTelegramDmAccess({
+          senderId: String(message.from?.id || ''),
+          allowedRaw: (telegramSettings?.allowedUserIds as string) || '',
+        })
+        if (!dmAccess.allowed) {
+          console.log(`[telegram/dm] User ${String(message.from?.id || '')} not in allowlist — refusing DM in chat ${chatId}`)
+          await sendTelegramMessage(chatId, DM_REFUSAL_MESSAGE)
+          return NextResponse.json({ ok: true })
+        }
+        if (dmAccess.reason === 'open-allowlist') {
+          console.warn(
+            '[telegram/dm] telegram.allowedUserIds is EMPTY — the DM allowlist is OPEN and any Telegram user can operate this bot. ' +
+              'Set operator user IDs in AutomationSettings → Telegram to lock it down.',
+          )
+        }
+      } catch (err) {
+        console.error('[telegram/dm] Failed to check DM allowlist settings:', err)
+        // Fail-closed like the group gate: if settings can't be verified, don't process
         return NextResponse.json({ ok: true })
       }
     }

@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { captureFirstTouch, getStoredAttribution } from '@/lib/attribution'
+import { captureFirstTouch, getStoredAttribution, resolveSubmitAttribution } from '@/lib/attribution'
 import { trackEvent, TRACK_EVENTS } from '@/lib/trackEvent'
 
 // ── D-251: Source-detail capture helpers ─────────────────────────────────────
@@ -64,6 +64,7 @@ export function ContactForm({ productId, productTitle, variants, soldout }: Prop
   const [name, setName]         = useState('')
   const [phone, setPhone]       = useState('')
   const [size, setSize]         = useState('')
+  const [honeypot, setHoneypot] = useState('') // pre-traffic hardening: hidden anti-bot field
   const [chipSelected, setChipSelected] = useState(false)   // D-264: tracks chip vs typed size
   const [oosContext, setOosContext] = useState<string | null>(null) // D-265: OOS size prefill context
   const [status, setStatus]     = useState<'idle' | 'loading' | 'success' | 'error'>('idle')
@@ -142,18 +143,16 @@ export function ContactForm({ productId, productTitle, variants, soldout }: Prop
 
     setStatus('loading')
 
-    // D-251/D-315: attribution at submit — prefer the current URL, fall back to the
-    // first-touch values stored at landing (homepage→PDP navigation drops the query).
-    const urlUtm = captureUtmParams()
-    const stored = getStoredAttribution()
-    const utmSource   = urlUtm.utmSource   ?? stored.utmSource   ?? null
-    const utmMedium   = urlUtm.utmMedium   ?? stored.utmMedium   ?? null
-    const utmCampaign = urlUtm.utmCampaign ?? stored.utmCampaign ?? null
-    const referrer    = captureReferrer()  ?? stored.referrer    ?? null
-    // D-345: landing/submit path — prefer the first-touch landing page captured at
-    // entry; fall back to the page this form was submitted from. Path only, no query.
-    const landing     = stored.landing
-      ?? (typeof window !== 'undefined' ? window.location.pathname.slice(0, 200) : null)
+    // D-251/D-315/D-345: attribution at submit — current URL wins, first-touch
+    // fills the gaps, landing prefers the first-touch entry path. Extracted to
+    // resolveSubmitAttribution (pure, test-pinned) in the hardening pass;
+    // behavior is unchanged.
+    const { utmSource, utmMedium, utmCampaign, referrer, landing } = resolveSubmitAttribution({
+      currentUtm: captureUtmParams(),
+      currentReferrer: captureReferrer(),
+      stored: getStoredAttribution(),
+      currentPath: typeof window !== 'undefined' ? window.location.pathname : null,
+    })
 
     try {
       const res = await fetch('/api/inquiries', {
@@ -161,6 +160,9 @@ export function ContactForm({ productId, productTitle, variants, soldout }: Prop
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           name, phone, size, productId,
+          // Pre-traffic hardening: honeypot — humans never see/fill this field;
+          // the server silently drops submissions where it is non-empty.
+          company: honeypot,
           // D-251: source-detail — null values dropped by server
           ...(utmSource   ? { utmSource }   : {}),
           ...(utmMedium   ? { utmMedium }   : {}),
@@ -186,6 +188,10 @@ export function ContactForm({ productId, productTitle, variants, soldout }: Prop
         if (res.status === 400 && serverErr.toLowerCase().includes('phone')) {
           setPhoneError('Lütfen geçerli bir telefon numarası girin.')
           setStatus('idle')
+        } else if (res.status === 429) {
+          // Pre-traffic hardening: rate limited — show the server's Turkish copy
+          setStatus('error')
+          setErrMsg(serverErr || 'Çok fazla deneme yapıldı. Lütfen birkaç dakika sonra tekrar deneyin ya da WhatsApp üzerinden bize yazın.')
         } else {
           setStatus('error')
           setErrMsg('Talebiniz gönderilemedi. Lütfen tekrar deneyin veya WhatsApp\'tan ulaşın.')
@@ -236,6 +242,22 @@ export function ContactForm({ productId, productTitle, variants, soldout }: Prop
   // ── Form ────────────────────────────────────────────────────────────────────
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
+
+      {/* Pre-traffic hardening: honeypot — visually hidden, excluded from tab
+          order and screen readers. Humans never fill it; bots that auto-fill
+          every input do, and the server silently drops those submissions. */}
+      <div aria-hidden="true" style={{ position: 'absolute', left: '-9999px', top: 'auto', width: 1, height: 1, overflow: 'hidden' }}>
+        <label htmlFor="inq-company">Firma (boş bırakın)</label>
+        <input
+          id="inq-company"
+          name="company"
+          type="text"
+          tabIndex={-1}
+          autoComplete="off"
+          value={honeypot}
+          onChange={(e) => setHoneypot(e.target.value)}
+        />
+      </div>
 
       {/* Soldout notice */}
       {soldout && (

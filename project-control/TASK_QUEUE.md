@@ -4,6 +4,16 @@ _Last updated: 2026-04-28 (LOCK CHECKPOINT — D-227 → D-231 stabilization. PI
 
 ---
 
+## Pre-traffic hardening — 2026-07-02 — LOCAL FIX READY, deployment pending
+
+- [x] Telegram DM operator allowlist (mirror group semantics; polite refusal; empty-allowlist loud warning) + `TELEGRAM_WEBHOOK_SECRET` unset warning — `src/lib/telegramAccess.ts` + surgical `route.ts` diff.
+- [x] Lead-form abuse protection: honeypot + per-IP/per-phone rate limit + 10-min phone+product duplicate collapse (fail-open, no schema change) — `src/lib/inquiryGuard.ts`, `/api/inquiries`, ContactForm.
+- [x] Sitemap: `force-dynamic` → `revalidate=3600` (route wasn't registering in prod build under Next 16 canary); per-collection fail-safety; pure builder `src/lib/sitemapEntries.ts`.
+- [x] `/yardim` "NASIL ÇALIŞIR?" grid → 2×2 at ≤768px.
+- [x] 34 new assertions in 5 suites wired into `test:safe`; `npm run validate` GREEN.
+- [ ] Push/deploy after operator confirmation; then verify prod `/sitemap.xml` returns 200 XML and a non-allowlisted DM gets the refusal.
+- [ ] OPERATOR-ONLY (unchanged): #362 external cleanup (Shopier `48281164`, X, FB); Loro Piana record de-brand via Payload admin; verify `TELEGRAM_WEBHOOK_SECRET` / `SHOPIER_WEBHOOK_TOKEN` / `CRON_SECRET` set in Vercel.
+
 ## Manual publish override — 2026-07-02 — LOCAL FIX READY, deployment pending
 
 - [x] Root-cause product #410 publish failure: manual **Yayına Al** was blocked by Image QC PASS + brand/audit readiness despite operator approval.

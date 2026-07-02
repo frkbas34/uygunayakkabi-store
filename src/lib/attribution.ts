@@ -85,3 +85,34 @@ export function getStoredAttribution(): Attribution {
     return {}
   }
 }
+
+export type SubmitAttribution = {
+  utmSource: string | null
+  utmMedium: string | null
+  utmCampaign: string | null
+  referrer: string | null
+  landing: string | null
+}
+
+/**
+ * Pre-traffic hardening: the D-251/D-315/D-345 merge the lead form applies at
+ * submit time, extracted as a pure function so the exact behavior is pinned by
+ * tests. Semantics (unchanged from the previous inline version in
+ * ContactForm): current-URL UTM/referrer win, stored first-touch fills the
+ * gaps, and `landing` prefers the first-touch entry path with the submitting
+ * page's path as fallback.
+ */
+export function resolveSubmitAttribution(input: {
+  currentUtm: { utmSource?: string | null; utmMedium?: string | null; utmCampaign?: string | null }
+  currentReferrer?: string | null
+  stored: Attribution
+  currentPath?: string | null
+}): SubmitAttribution {
+  return {
+    utmSource: input.currentUtm.utmSource ?? input.stored.utmSource ?? null,
+    utmMedium: input.currentUtm.utmMedium ?? input.stored.utmMedium ?? null,
+    utmCampaign: input.currentUtm.utmCampaign ?? input.stored.utmCampaign ?? null,
+    referrer: input.currentReferrer ?? input.stored.referrer ?? null,
+    landing: input.stored.landing ?? (input.currentPath ? input.currentPath.slice(0, 200) : null),
+  }
+}

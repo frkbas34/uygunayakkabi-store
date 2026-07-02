@@ -127,6 +127,8 @@ function GlobalStyles() {
         .why-us-grid { grid-template-columns: 1fr 1fr !important; }
         .trust-grid { grid-template-columns: 1fr !important; }
         .about-grid { grid-template-columns: 1fr !important; gap: 40px !important; }
+        /* Pre-traffic hardening: /yardim "NASIL ÇALIŞIR?" steps — 2x2 on mobile */
+        .help-steps-grid { grid-template-columns: 1fr 1fr !important; }
       }
       @media(max-width:640px) {
         .prod-grid { grid-template-columns: repeat(2,1fr) !important; }
@@ -1236,9 +1238,9 @@ const DEMO_REVIEWS = [
   { name: "Elif K.", text: "Loafer seçenekleri sade ve şık. Sipariş süreci WhatsApp üzerinden kolay ilerledi." },
   { name: "Burak T.", text: "Beğendiğim model için numara durumunu hızlıca sordum." },
 ];
-// Audit fix: this section previously showed a placeholder card reading
-// "Gerçek müşteri yorumları onaylı şekilde burada yayınlanacak." under a
-// "Müşteriler Ne Diyor?" heading — a coming-soon placeholder with no real reviews.
+// Audit fix: this section previously showed a coming-soon placeholder card
+// (customer reviews "to be published here once approved") under a reviews
+// heading — placeholder copy with no real reviews behind it.
 // Until approved customer reviews exist, we show an honest trust section built on
 // verifiable facts (sourcing, support, ordering) — NO fake ratings, counts or
 // quotes. When real reviews land, flip DEMO_REVIEWS_ENABLED and render approved
@@ -2218,7 +2220,7 @@ function HelpContactPage({ onNav, settings }) {
       {/* Process summary — 4 compact steps */}
       <section style={{ padding: "0 40px 60px", maxWidth: 1100, margin: "0 auto" }}>
         <p style={{ fontFamily: T.sans, fontSize: 10, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.18em", color: T.textLighter, textAlign: "center", marginBottom: 24 }}>NASIL ÇALIŞIR?</p>
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 12 }}>
+        <div className="help-steps-grid" style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 12 }}>
           {STEPS_DATA.map((s, i) => (
             <div key={i} style={{
               background: "rgba(238,232,222,0.5)", border: "1px solid rgba(28,26,22,0.06)", borderRadius: 16,

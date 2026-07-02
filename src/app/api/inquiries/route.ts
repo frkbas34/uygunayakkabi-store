@@ -1,5 +1,18 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getPayload } from '@/lib/payload'
+import {
+  HONEYPOT_FIELD,
+  isHoneypotTripped,
+  createInquiryRateLimiter,
+  clientIpKey,
+  normalizePhoneKey,
+  RATE_LIMIT_MESSAGE_TR,
+  buildDuplicateWhere,
+} from '@/lib/inquiryGuard'
+
+// Pre-traffic hardening: best-effort per-instance limiter (see inquiryGuard.ts
+// for scope/limits — serverless memory, no schema change, no new dependency).
+const inquiryRateLimiter = createInquiryRateLimiter()
 
 /**
  * D-250: Normalize the free-text source from the request body to a known
@@ -69,6 +82,15 @@ export async function POST(req: NextRequest) {
     const { name, phone, size, productId, message, source,
             utmSource, utmMedium, utmCampaign, referrer, landing } = body
 
+    // ── Pre-traffic hardening: honeypot ──────────────────────────────────────
+    // Bots that auto-fill every field trip the hidden "company" input. Answer
+    // with a normal-looking success WITHOUT creating a lead so the bot learns
+    // nothing. No PII in the log line.
+    if (isHoneypotTripped(body[HONEYPOT_FIELD])) {
+      console.warn('[inquiries/guard] honeypot tripped — dropping submission silently')
+      return NextResponse.json({ success: true })
+    }
+
     if (!name || !phone) {
       return NextResponse.json({ error: 'Name and phone are required' }, { status: 400 })
     }
@@ -77,6 +99,21 @@ export async function POST(req: NextRequest) {
     const phoneRegex = /^[0-9+\-\s()]{7,20}$/
     if (!phoneRegex.test(phone)) {
       return NextResponse.json({ error: 'Invalid phone number' }, { status: 400 })
+    }
+
+    // ── Pre-traffic hardening: best-effort rate limit (per IP + per phone) ──
+    // Blocks naive curl/bot floods before any DB work. Per-instance memory —
+    // see inquiryGuard.ts for documented limits. Turkish copy for real users.
+    const rateVerdict = inquiryRateLimiter.check({
+      ipKey: clientIpKey((h) => req.headers.get(h)),
+      phoneKey: normalizePhoneKey(phone),
+    })
+    if (!rateVerdict.allowed) {
+      console.warn(`[inquiries/guard] rate limit hit (scope=${rateVerdict.scope}) — rejecting with 429`)
+      return NextResponse.json(
+        { error: RATE_LIMIT_MESSAGE_TR },
+        { status: 429, headers: { 'Retry-After': String(rateVerdict.retryAfterSeconds) } },
+      )
     }
 
     // D-320: products use numeric ids, but the storefront form sends productId as a
@@ -90,6 +127,32 @@ export async function POST(req: NextRequest) {
         : undefined
 
     const payload = await getPayload()
+
+    // ── Pre-traffic hardening: duplicate collapse (same phone + product) ────
+    // A re-submit (double-click, retry, bot repeat) inside a 10-minute window
+    // returns the EXISTING lead id as a success instead of creating a new row
+    // and re-pinging the operator's Telegram. Exact phone match on the existing
+    // collection (no schema change). FAIL-OPEN: a guard error must never block
+    // lead capture — on any failure we fall through to the normal create.
+    if (numericProductId !== undefined) {
+      try {
+        const dup = await payload.find({
+          collection: 'customer-inquiries',
+          where: buildDuplicateWhere({ phone, productId: numericProductId, nowMs: Date.now() }) as any,
+          limit: 1,
+          sort: '-createdAt',
+          depth: 0,
+        })
+        const existing = (dup as any)?.docs?.[0]
+        if (existing?.id !== undefined) {
+          console.log(`[inquiries/guard] duplicate collapsed onto lead #${existing.id} (same phone+product inside window)`)
+          return NextResponse.json({ success: true, id: existing.id })
+        }
+      } catch (err) {
+        const s = sanitizeError(err)
+        console.warn(`[inquiries/guard] duplicate check failed (fail-open) err=${s.name} code=${s.code} msg="${s.message}"`)
+      }
+    }
 
     // ── D-350: Staged, revenue-safe create ────────────────────────────────────
     // Lead capture must survive BOTH un-migrated attribution columns AND a failing

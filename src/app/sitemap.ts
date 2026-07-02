@@ -1,65 +1,63 @@
 import type { MetadataRoute } from 'next'
 import { getPayload } from '@/lib/payload'
+import { buildSitemapEntries, type SlugDoc } from '@/lib/sitemapEntries'
 
-// D-295: Computed per request (never at build time) so a DB-less or
-// secret-less build can never fail on this route. At runtime on Vercel the
-// DB is available; if a fetch ever fails we degrade to the static routes.
-export const dynamic = 'force-dynamic'
+// D-295 + pre-traffic hardening: production /sitemap.xml returned the app's
+// 404 page even though this file was in the deployed tree — i.e. the route was
+// never REGISTERED in the build manifest, not merely erroring (an error would
+// 500). The one unusual element here was `export const dynamic =
+// 'force-dynamic'` on a metadata route under Next 16 canary, a fragile
+// combination that can drop the route at build time (robots.ts, identical
+// minus that config, has no such issue). Switched to ISR (`revalidate`), the
+// same caching pattern as the rest of the storefront: the route prerenders and
+// refreshes hourly. The try/catch below keeps the original D-295 safety — a
+// DB-less build or a runtime fetch failure degrades to the static routes,
+// never a throw.
+export const revalidate = 3600
 
 const BASE = 'https://uygunayakkabi.com'
 
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   const now = new Date()
 
-  // Always-present public routes.
-  const staticRoutes: MetadataRoute.Sitemap = [
-    { url: `${BASE}/`, lastModified: now, changeFrequency: 'daily', priority: 1 },
-    { url: `${BASE}/blog`, lastModified: now, changeFrequency: 'weekly', priority: 0.6 },
-    { url: `${BASE}/yardim`, lastModified: now, changeFrequency: 'monthly', priority: 0.4 },
-  ]
+  let products: SlugDoc[] = []
+  let posts: SlugDoc[] = []
 
-  let productRoutes: MetadataRoute.Sitemap = []
-  let blogRoutes: MetadataRoute.Sitemap = []
-
+  // Each collection fetch fails independently: a blog-posts hiccup must not
+  // drop the product URLs (and vice versa).
   try {
     const payload = await getPayload()
 
-    // Only website-visible products (same gate the storefront uses).
-    const products = await payload.find({
-      collection: 'products',
-      where: { status: { in: ['active', 'soldout'] } },
-      depth: 0,
-      pagination: false,
-      limit: 5000,
-    })
-    productRoutes = (products.docs as Array<{ slug?: string | null; updatedAt?: string | null }>)
-      .filter((p) => p.slug)
-      .map((p) => ({
-        url: `${BASE}/products/${p.slug}`,
-        lastModified: p.updatedAt ? new Date(p.updatedAt) : now,
-        changeFrequency: 'weekly',
-        priority: 0.8,
-      }))
+    try {
+      // Only website-visible products (same gate the storefront uses).
+      const result = await payload.find({
+        collection: 'products',
+        where: { status: { in: ['active', 'soldout'] } },
+        depth: 0,
+        pagination: false,
+        limit: 5000,
+      })
+      products = result.docs as SlugDoc[]
+    } catch (err) {
+      console.error('[sitemap] product fetch failed, omitting product routes:', err)
+    }
 
-    const posts = await payload.find({
-      collection: 'blog-posts',
-      where: { status: { equals: 'published' } },
-      depth: 0,
-      pagination: false,
-      limit: 5000,
-    })
-    blogRoutes = (posts.docs as Array<{ slug?: string | null; updatedAt?: string | null }>)
-      .filter((b) => b.slug)
-      .map((b) => ({
-        url: `${BASE}/blog/${b.slug}`,
-        lastModified: b.updatedAt ? new Date(b.updatedAt) : now,
-        changeFrequency: 'monthly',
-        priority: 0.5,
-      }))
+    try {
+      const result = await payload.find({
+        collection: 'blog-posts',
+        where: { status: { equals: 'published' } },
+        depth: 0,
+        pagination: false,
+        limit: 5000,
+      })
+      posts = result.docs as SlugDoc[]
+    } catch (err) {
+      console.error('[sitemap] blog fetch failed, omitting blog routes:', err)
+    }
   } catch (err) {
-    // A runtime DB hiccup yields the static sitemap, never a 500.
-    console.error('[sitemap] dynamic route fetch failed, serving static routes only:', err)
+    // A runtime DB/init hiccup yields the static sitemap, never a 500.
+    console.error('[sitemap] payload init failed, serving static routes only:', err)
   }
 
-  return [...staticRoutes, ...productRoutes, ...blogRoutes]
+  return buildSitemapEntries({ baseUrl: BASE, now, products, posts }) as MetadataRoute.Sitemap
 }

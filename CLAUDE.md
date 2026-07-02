@@ -60,6 +60,8 @@ It also includes `test:ops-runbook`, which keeps the deployment, rollback, env-v
 
 It also includes `test:product-flow-snapshot`, which keeps the read-only `/productflow` helper aligned with the current product workflow and active-channel rules.
 
+Pre-traffic hardening (2026-07-02) added five suites to the safe suite: `test:telegram-access` (DM operator allowlist denial semantics), `test:inquiry-guard` (lead-form honeypot / rate-limit / duplicate-collapse), `test:sitemap-entries` (sitemap structure + safe degrade), `test:attribution` (first-touch UTM survives homepage→PDP; submit merge pinned), and `test:storefront-trust` (DEMO_REVIEWS_ENABLED stays false; placeholder review copy stays removed).
+
 Read-only runtime smoke checks:
 
 ```powershell

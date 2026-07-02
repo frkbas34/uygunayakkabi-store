@@ -12,7 +12,14 @@ _Last updated: 2026-04-28 (LOCK CHECKPOINT — D-227 → D-231 stabilization. PI
 - [x] `/yardim` "NASIL ÇALIŞIR?" grid → 2×2 at ≤768px.
 - [x] 34 new assertions in 5 suites wired into `test:safe`; `npm run validate` GREEN.
 - [ ] Push/deploy after operator confirmation; then verify prod `/sitemap.xml` returns 200 XML and a non-allowlisted DM gets the refusal.
-- [ ] OPERATOR-ONLY (unchanged): #362 external cleanup (Shopier `48281164`, X, FB); Loro Piana record de-brand via Payload admin; verify `TELEGRAM_WEBHOOK_SECRET` / `SHOPIER_WEBHOOK_TOKEN` / `CRON_SECRET` set in Vercel.
+- [ ] OPERATOR-ONLY (unchanged): verify `TELEGRAM_WEBHOOK_SECRET` / `SHOPIER_WEBHOOK_TOKEN` / `CRON_SECRET` set in Vercel.
+
+## Brand-risk cleanup — 2026-07-02 (Prompt 4A/4B) — 2 resolved, 2 blocked on operator auth
+- [x] Shopier listing `48281164` — RESOLVED (live public not-found today).
+- [x] X `#NewBalance` post — RESOLVED per D-341 deleted-posts list (optional operator eyeball).
+- [ ] **Facebook — OPERATOR (Page admin):** delete 7 live New Balance posts (Çok Renkli ×2, 530 ×2, 9060, 1906R, 990) + the Asics Bej Sneaker post on page `61576525131424`; sweep Adidas/Nike/Jordan/Skechers/Converse/Loro Piana too. Claude session was a personal profile (Save/Report only, no Delete) + renderer unstable → not executed.
+- [ ] **Loro Piana `TG-1779223963653` de-brand — OPERATOR:** log into Payload admin, apply prepared values (title `Bej Süet Loafer`, clear brand, meta/OG/description/article/FAQ/keywords per 4A report) or draft the record; Claude cannot enter admin credentials.
+- [ ] FOLLOW-UP: extend brand-safety guard to the Facebook posting path (live "Asics Bej Sneaker" post shows newer products still reach FB with brand-as-identity copy).
 
 ## Manual publish override — 2026-07-02 — LOCAL FIX READY, deployment pending
 

@@ -36,8 +36,8 @@ export const SLOT_PROMPT_VERSION = 'slotset-v1'
 // Canonical slot keys — FIXED order. Index === position in the generated set.
 // ─────────────────────────────────────────────────────────────────────────────
 export const GENERATED_SLOT_KEYS = [
-  'hero_3q',
   'side',
+  'hero_3q',
   'top',
   'back',
   'detail',
@@ -93,27 +93,29 @@ export const CENTERING_FRAMING_BLOCK =
 // ─────────────────────────────────────────────────────────────────────────────
 export const GENERATED_SLOTS: readonly SlotDefinition[] = [
   {
+    // D-419: SIDE is now Slot 1 — the operator's main channel/e-commerce image
+    // must be a SINGLE side-profile shoe (not the pair hero).
     index: 0,
-    key: 'hero_3q',
-    label: 'Slot 1 — 3/4 Hero',
-    meaning: 'Main hero — three-quarter (front + one side visible together) presentation.',
+    key: 'side',
+    label: 'Slot 1 — Yan (Side) — ANA',
+    meaning: 'Side presentation, single shoe — the main channel/hero image.',
     compositionIntent:
-      `PAIR SHOT: show BOTH shoes of the pair — the LEFT and the RIGHT foot of the SAME shoe model — together at a THREE-QUARTER hero angle, side by side on the studio background. ` +
-      `The two shoes are the matched pair of the exact same product: IDENTICAL colour, material, stitching, logo, stripes, sole and every detail — mirror-matched left/right feet, not two different shoes. ` +
-      `Arrange them as a natural premium catalog pair (close together, slightly angled), the front and one side of each visible. This is the main dimensional hero.`,
+      `Present this shoe from the SIDE so its full silhouette and profile read clearly from toe to heel. ` +
+      `Choose whatever exact side framing reads best; keep the whole shoe visible. This single side shot is the main product image.`,
     frameCoverage: 0.82,
-    layout: 'pair',
+    layout: 'single',
   },
   {
     index: 1,
-    key: 'side',
-    label: 'Slot 2 — Yan (Side)',
-    meaning: 'Side presentation of the shoe.',
+    key: 'hero_3q',
+    label: 'Slot 2 — 3/4 Hero (Çift)',
+    meaning: 'Three-quarter matched pair — both shoes at a 3/4 angle.',
     compositionIntent:
-      `Present this shoe from the SIDE so its full silhouette and profile read clearly from toe to heel. ` +
-      `Choose whatever exact side framing reads best; keep the whole shoe visible.`,
+      `PAIR SHOT: show BOTH shoes of the pair — the LEFT and the RIGHT foot of the SAME shoe model — together at a THREE-QUARTER angle, side by side on the studio background. ` +
+      `The two shoes are the matched pair of the exact same product: IDENTICAL colour, material, stitching, logo, stripes, sole and every detail — mirror-matched left/right feet, not two different shoes. ` +
+      `Arrange them as a natural premium catalog pair (close together, slightly angled), the front and one side of each visible.`,
     frameCoverage: 0.82,
-    layout: 'single',
+    layout: 'pair',
   },
   {
     index: 2,

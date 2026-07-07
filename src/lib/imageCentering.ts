@@ -354,3 +354,58 @@ export async function makePairShot(input: Buffer, opts: PairOptions = {}): Promi
     return input
   }
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// D-419: background consistency — white-balance each slot's studio background to
+// one fixed ivory so the whole 5-slot set matches (the model tends to render a
+// slightly different bg tone per slot).
+// ─────────────────────────────────────────────────────────────────────────────
+
+export type BgNormalizeOptions = {
+  targetHex?: string
+  /** Max per-channel gain (and 1/gain) — keeps the correction gentle. Default 1.18. */
+  maxGain?: number
+  jpegQuality?: number
+}
+
+/**
+ * Nudge the image so its background corner tone matches a fixed target ivory,
+ * making the background consistent across slots. Samples the corner background
+ * (median, robust), computes a gentle per-channel gain toward the target, clamps
+ * it, and applies it linearly. Skips when the corner is clearly NOT a light
+ * background (e.g. a tight detail whose corner sits on the shoe), so it never
+ * distorts those. Returns the original buffer on error.
+ */
+export async function normalizeBackground(input: Buffer, opts: BgNormalizeOptions = {}): Promise<Buffer> {
+  const target = hexToRgb(opts.targetHex ?? STUDIO_BG_HEX)
+  const maxGain = opts.maxGain ?? 1.18
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const sharp = require('sharp') as typeof import('sharp')
+    const meta = await sharp(input).metadata()
+    const W = meta.width ?? 0, H = meta.height ?? 0
+    if (!W || !H) return input
+    const bg = await sampleCornerBg(sharp, input, W, H)
+    if (!bg) return input
+    // Guard: the corner must actually look like a light studio background. If it is
+    // dark or strongly coloured, it is probably on the product — skip.
+    const minCh = Math.min(bg.r, bg.g, bg.b)
+    const spread = Math.max(bg.r, bg.g, bg.b) - minCh
+    if (minCh < 150 || spread > 45) return input
+
+    const clamp = (g: number) => Math.max(1 / maxGain, Math.min(maxGain, g))
+    const gr = clamp(target.r / Math.max(1, bg.r))
+    const gg = clamp(target.g / Math.max(1, bg.g))
+    const gb = clamp(target.b / Math.max(1, bg.b))
+    // No-op if already on target (avoid needless re-encode).
+    if (Math.abs(gr - 1) < 0.012 && Math.abs(gg - 1) < 0.012 && Math.abs(gb - 1) < 0.012) return input
+
+    return await sharp(input)
+      .linear([gr, gg, gb], [0, 0, 0])
+      .jpeg({ quality: opts.jpegQuality ?? 92 })
+      .toBuffer()
+  } catch (err) {
+    console.warn('[normalizeBackground] skipped (returning original):', err instanceof Error ? err.message : err)
+    return input
+  }
+}

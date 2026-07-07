@@ -64,6 +64,7 @@ const PAIR_MODE_FINAL_BLOCK =
   `This specific image is a PAIR shot. Show EXACTLY TWO shoes: the LEFT foot and the RIGHT foot of the SAME shoe model, side by side.\n` +
   `This OVERRIDES any "single shoe", "one shoe", "no extra shoe", or "same single physical object" instruction above — for THIS image a matched pair (two shoes) is REQUIRED, not one.\n` +
   `The two shoes MUST be the identical matched pair of the exact same product: same colour, same material, same stitching, same logo, same stripes, same sole, same every detail. They are a left/right pair, NOT two different shoes and NOT two of the same foot.\n` +
+  `COLOUR LOCK (CRITICAL): BOTH shoes MUST be the EXACT SAME colour and colourway as the reference — the same tone on both. Do NOT make one shoe a different colour, shade, or material from the other (e.g. one tan and one grey is WRONG). Both are the same colour of the same product.\n` +
   `All text and logos (brand name, model name, stripes, emblems) must read CORRECTLY and un-mirrored on BOTH shoes.\n` +
   `Arrange them close together as a natural, premium e-commerce catalog pair on the same seamless studio background. Exactly two shoes — not one, not three.\n` +
   `═══════════════════════════════════════════════════\n`

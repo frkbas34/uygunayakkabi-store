@@ -509,21 +509,24 @@ export const imageGenTask: TaskConfig<{
     // slot just gets centered. For a pair image the detector treats the two shoes
     // as one group and centers the pair. Runs before the stock-number overlay.
     if (process.env.IMAGE_CENTERING_ENABLED !== '0') {
-      const { normalizeProductCentering } = await import('../lib/imageCentering')
+      const { normalizeProductCentering, normalizeBackground } = await import('../lib/imageCentering')
       const { frameCoverageForIndex } = await import('../lib/imageSlotContract')
-      let centered = 0
+      let centered = 0, bgFixed = 0
       for (let i = 0; i < generatedBuffers.length; i++) {
         try {
           const slotIndex = sceneIndices[i]
-          const before = generatedBuffers[i]
-          const after = await normalizeProductCentering(before, { coverage: frameCoverageForIndex(slotIndex) })
-          if (after !== before) centered++
-          generatedBuffers[i] = after
+          const b0 = generatedBuffers[i]
+          const b1 = await normalizeProductCentering(b0, { coverage: frameCoverageForIndex(slotIndex) })
+          if (b1 !== b0) centered++
+          // D-419: unify the studio background tone across all slots.
+          const b2 = await normalizeBackground(b1)
+          if (b2 !== b1) bgFixed++
+          generatedBuffers[i] = b2
         } catch (err) {
-          console.warn(`[imageGenTask D-408] centering skipped for buffer ${i}:`, err instanceof Error ? err.message : err)
+          console.warn(`[imageGenTask D-408/D-419] centering/bg skipped for buffer ${i}:`, err instanceof Error ? err.message : err)
         }
       }
-      console.log(`[imageGenTask D-408] centering applied — ${centered}/${generatedBuffers.length} slots`)
+      console.log(`[imageGenTask D-408/D-419] ${centered} centered + ${bgFixed} bg-normalized / ${generatedBuffers.length} slots`)
     }
 
     // ── Step 6b: Overlay stockNumber on each generated image ──────────────

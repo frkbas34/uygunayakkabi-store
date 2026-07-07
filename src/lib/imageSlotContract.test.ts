@@ -41,7 +41,7 @@ check('there are exactly 5 slots and 5 keys', () => {
 check('slot keys match the canonical contract in the exact fixed order', () => {
   assert.deepStrictEqual(
     [...GENERATED_SLOT_KEYS],
-    ['hero_3q', 'side', 'top', 'back', 'detail'],
+    ['side', 'hero_3q', 'top', 'back', 'detail'],
   )
 })
 
@@ -122,7 +122,8 @@ check('buildSlotMeta degrades safely for an out-of-range slot index', () => {
 
 // ── Lookup + ordering helpers ───────────────────────────────────────────────
 check('getSlotByIndex / getSlotByKey resolve the canonical slots', () => {
-  assert.strictEqual(getSlotByIndex(0)?.key, 'hero_3q')
+  assert.strictEqual(getSlotByIndex(0)?.key, 'side')
+  assert.strictEqual(getSlotByIndex(1)?.key, 'hero_3q')
   assert.strictEqual(getSlotByIndex(4)?.key, 'detail')
   assert.strictEqual(getSlotByKey('top')?.index, 2)
   assert.strictEqual(getSlotByIndex(5), undefined)
@@ -130,11 +131,11 @@ check('getSlotByIndex / getSlotByKey resolve the canonical slots', () => {
 
 check('orderBySlot restores the fixed slot order from a shuffled set', () => {
   const shuffled = [
-    { slotKey: 'detail', id: 5 },
-    { slotKey: 'hero_3q', id: 1 },
-    { slotKey: 'back', id: 4 },
-    { slotKey: 'side', id: 2 },
-    { slotKey: 'top', id: 3 },
+    { slotKey: 'detail', id: 5 },   // index 4
+    { slotKey: 'hero_3q', id: 2 },  // index 1
+    { slotKey: 'back', id: 4 },     // index 3
+    { slotKey: 'side', id: 1 },     // index 0
+    { slotKey: 'top', id: 3 },      // index 2
   ]
   const ordered = orderBySlot(shuffled, (x) => x.slotKey)
   assert.deepStrictEqual(ordered.map((x) => x.id), [1, 2, 3, 4, 5])
@@ -143,8 +144,8 @@ check('orderBySlot restores the fixed slot order from a shuffled set', () => {
 check('orderBySlot keeps unknown-slot items after known ones (stable)', () => {
   const items = [
     { slotKey: 'weird', id: 9 },
-    { slotKey: 'side', id: 2 },
-    { slotKey: 'hero_3q', id: 1 },
+    { slotKey: 'hero_3q', id: 2 }, // index 1
+    { slotKey: 'side', id: 1 },    // index 0
   ]
   const ordered = orderBySlot(items, (x) => x.slotKey)
   assert.deepStrictEqual(ordered.map((x) => x.id), [1, 2, 9])
@@ -164,16 +165,16 @@ check('every slot carries a valid centering coverage (0..1] — D-408 lock', () 
   // full-shoe slots share one scale; the tight detail fills more of the frame
   assert.strictEqual(getSlotByKey('hero_3q')!.frameCoverage, getSlotByKey('back')!.frameCoverage)
   assert.ok(getSlotByKey('detail')!.frameCoverage > getSlotByKey('hero_3q')!.frameCoverage)
-  assert.strictEqual(frameCoverageForIndex(0), getSlotByKey('hero_3q')!.frameCoverage)
+  assert.strictEqual(frameCoverageForIndex(0), getSlotByKey('side')!.frameCoverage)
   assert.strictEqual(frameCoverageForIndex(99), 0.82) // safe fallback
 })
 
 check('exactly hero_3q + top are pair slots; the rest are single — D-416', () => {
   const pairs = GENERATED_SLOTS.filter((s) => s.layout === 'pair').map((s) => s.key)
   assert.deepStrictEqual(pairs.sort(), ['hero_3q', 'top'])
-  assert.strictEqual(slotLayoutForIndex(0), 'pair')  // hero_3q
-  assert.strictEqual(slotLayoutForIndex(2), 'pair')  // top
-  assert.strictEqual(slotLayoutForIndex(1), 'single') // side
+  assert.strictEqual(slotLayoutForIndex(0), 'single') // side (main image)
+  assert.strictEqual(slotLayoutForIndex(1), 'pair')   // hero_3q
+  assert.strictEqual(slotLayoutForIndex(2), 'pair')   // top
   assert.strictEqual(slotLayoutForIndex(3), 'single') // back
   assert.strictEqual(slotLayoutForIndex(4), 'single') // detail
   assert.strictEqual(slotLayoutForIndex(99), 'single') // safe fallback

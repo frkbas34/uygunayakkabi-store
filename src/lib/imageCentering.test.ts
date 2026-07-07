@@ -4,6 +4,7 @@ const sharp = require('sharp') as typeof import('sharp')
 import {
   normalizeProductCentering,
   makePairShot,
+  normalizeBackground,
   detectSubjectBbox,
   hexToRgb,
   STUDIO_BG_HEX,
@@ -136,6 +137,32 @@ void (async () => {
   await check('makePairShot returns the input unchanged when no subject is found', async () => {
     const blank = await makeImg(200, null)
     assert.strictEqual(await makePairShot(blank), blank)
+  })
+
+  // ── D-419 background normalization ──────────────────────────────────────────
+  const cornerRGB = async (buf: Buffer) => {
+    const { data } = await sharp(buf).extract({ left: 2, top: 2, width: 16, height: 16 }).removeAlpha().raw().toBuffer({ resolveWithObject: true })
+    let r = 0, g = 0, b = 0; const n = data.length / 3
+    for (let i = 0; i < data.length; i += 3) { r += data[i]; g += data[i + 1]; b += data[i + 2] }
+    return { r: r / n, g: g / n, b: b / n }
+  }
+  const distToTarget = (c: { r: number; g: number; b: number }) => Math.hypot(c.r - IVORY.r, c.g - IVORY.g, c.b - IVORY.b)
+
+  await check('normalizeBackground pulls an off-tone background toward the target ivory', async () => {
+    const S = 200
+    const dark = await sharp({ create: { width: 40, height: 40, channels: 3, background: { r: 20, g: 20, b: 22 } } }).png().toBuffer()
+    const img = await sharp({ create: { width: S, height: S, channels: 3, background: { r: 220, g: 208, b: 190 } } })
+      .composite([{ input: dark, left: 80, top: 80 }]).jpeg().toBuffer()
+    const before = await cornerRGB(img)
+    const after = await cornerRGB(await normalizeBackground(img))
+    assert.ok(distToTarget(after) < distToTarget(before) - 5,
+      `bg not moved toward target: ${JSON.stringify(before)} -> ${JSON.stringify(after)}`)
+  })
+
+  await check('normalizeBackground skips when the corner is not a light background', async () => {
+    // whole image is dark (corner is "product", not bg) → must not touch it
+    const darkImg = await sharp({ create: { width: 120, height: 120, channels: 3, background: { r: 30, g: 30, b: 30 } } }).jpeg().toBuffer()
+    assert.strictEqual(await normalizeBackground(darkImg), darkImg)
   })
 
   console.log(`\nimageCentering: ${passed} checks passed${process.exitCode ? ' - WITH FAILURES' : ' - ALL OK'}`)

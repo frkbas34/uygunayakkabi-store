@@ -30,8 +30,6 @@ import {
   SLOT_PROMPT_VERSION,
   buildSlotMeta,
 } from '../lib/imageSlotContract'
-// D-411: brand-safety gate — block AI image gen for protected-brand products.
-import { evaluateImageBrandGate } from '../lib/imageBrandGate'
 
 export const imageGenTask: TaskConfig<{
   input: { jobId: string; stage?: string; provider?: string; visualFacts?: string }
@@ -139,36 +137,9 @@ export const imageGenTask: TaskConfig<{
 
     const productTitle = (productDoc.title as string) || 'Ürün'
 
-    // ── Step 2 brand gate: D-411 — do NOT generate AI images for protected-brand
-    // products. Reproducing a real shoe's brand wordmark / metal logo plate into
-    // AI output is a trademark risk (and the source of the "BOSS / metal added"
-    // defects). Mirrors the storyDispatch brand-safety block (D-381). Fails fast
-    // before any provider/vision call, so it also saves rate-limit budget.
-    const brandGate = evaluateImageBrandGate(productDoc)
-    if (brandGate.blocked) {
-      console.warn(
-        `[imageGenTask D-411] BRAND-SAFETY BLOCK product=${productId} ` +
-        `brands=[${brandGate.brands.join(',')}] — no AI images generated`,
-      )
-      await payload.update({
-        collection: 'image-generation-jobs',
-        id: jobId,
-        data: {
-          status: 'failed',
-          errorMessage: `Marka güvenliği: korumalı marka (${brandGate.brands.join(', ')}) — AI görsel üretilmedi.`,
-          generationCompletedAt: new Date().toISOString(),
-          providerResults: JSON.stringify({
-            brandSafetyBlocked: true,
-            brands: brandGate.brands,
-            reason: brandGate.reason,
-          }),
-        },
-      })
-      if (telegramChatId) {
-        await sendTelegramNotification(telegramChatId, brandGate.operatorMessage)
-      }
-      throw new Error(brandGate.reason)
-    }
+    // D-415: brand gate REMOVED per operator decision — branded products are sent
+    // deliberately to be generated branded; image gen does NOT block on brand.
+    // (evaluateImageBrandGate / imageBrandGate.ts retained but not called.)
 
     // ── Step 2a: Ensure persistent stockNumber ────────────────────────────────
     // Format: SN0001–SN9999. Generated once per product, never changes.

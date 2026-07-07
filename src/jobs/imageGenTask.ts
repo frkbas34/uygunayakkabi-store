@@ -23,6 +23,13 @@
  */
 
 import type { TaskConfig } from 'payload'
+// D-407: central 5-slot contract — slot keys/labels/order + per-image metadata.
+import {
+  GENERATED_SLOT_KEYS,
+  GENERATED_SLOTS,
+  SLOT_PROMPT_VERSION,
+  buildSlotMeta,
+} from '../lib/imageSlotContract'
 
 export const imageGenTask: TaskConfig<{
   input: { jobId: string; stage?: string; provider?: string; visualFacts?: string }
@@ -152,6 +159,9 @@ export const imageGenTask: TaskConfig<{
     // to lock onto the exact product identity — reduces hallucination on retries.
     let referenceImage: Buffer | undefined
     let referenceImageMime: string | undefined
+    // D-407: media ID of the primary reference (original product photo) the
+    // generation is based on — stamped into every generated image's metadata.
+    let sourceImageId: number | null = null
     const additionalReferenceImages: Array<{ data: Buffer; mime: string }> = []
 
     const siteBase =
@@ -208,7 +218,11 @@ export const imageGenTask: TaskConfig<{
         if (i === 0) {
           referenceImage = buf
           referenceImageMime = resolved.mime
-          console.log(`[imageGenTask v14] primary ref — ${buf.length}b ${resolved.mime}`)
+          // D-407: capture the source (original) media ID for slot metadata.
+          sourceImageId = typeof item === 'object'
+            ? ((item as { id?: number }).id ?? null)
+            : (item as number)
+          console.log(`[imageGenTask v14] primary ref — ${buf.length}b ${resolved.mime} sourceImageId=${sourceImageId ?? '—'}`)
         } else {
           additionalReferenceImages.push({ data: buf, mime: resolved.mime })
           console.log(`[imageGenTask v14] additional ref ${i + 1} — ${buf.length}b`)
@@ -349,10 +363,10 @@ export const imageGenTask: TaskConfig<{
     // ── Step 6: STEP C — Image Generation (provider-routed) ─────────────────
     // v14: provider='openai' → generateByEditing (gpt-image-1, default, unchanged)
     //      provider='gemini-pro' → generateByGeminiPro (Gemini image gen, optional)
-    // D-355F: positions 4 & 5 swapped — material/detail is now slot 4, rear 3/4 is slot 5.
-    const ALL_SLOT_NAMES  = ['side_angle', 'commerce_front', 'detail_closeup', 'worn_lifestyle', 'tabletop_editorial']
-    // D-355F: slot order — material/detail close-up = slot 4, rear three-quarter = slot 5 (all studio, reference-safe).
-    const ALL_SLOT_LABELS = ['Slot 1 — Yan Profil (PRIMARY)', 'Slot 2 — Ön Hero', 'Slot 3 — Makro', 'Slot 4 — Malzeme/Detay', 'Slot 5 — Arka 3/4']
+    // D-407: slot names/labels come from the central 5-slot contract.
+    // Canonical order (index → key): 0 front · 1 side · 2 top_pair · 3 heel · 4 material_detail
+    const ALL_SLOT_NAMES  = GENERATED_SLOT_KEYS as readonly string[]
+    const ALL_SLOT_LABELS = GENERATED_SLOTS.map((s) => s.label)
     const slotNames  = sceneIndices.map((i) => ALL_SLOT_NAMES[i])
     const slotLabels = sceneIndices.map((i) => ALL_SLOT_LABELS[i])
 
@@ -367,6 +381,12 @@ export const imageGenTask: TaskConfig<{
 
     console.log(`[imageGenTask v14] generating — stage=${stage} provider=${provider} slots=[${slotNames.join(',')}]`)
 
+    // D-407: per-image slot-contract metadata (slotIndex, slotKey, promptVersion,
+    // productId, sourceImageId). mediaId is filled in after the media docs exist.
+    const slotContractMeta = sceneIndices.map((slotIndex) =>
+      buildSlotMeta({ slotIndex, productId, sourceImageId, mediaId: null }),
+    )
+
     await payload.update({
       collection: 'image-generation-jobs',
       id: jobId,
@@ -378,6 +398,9 @@ export const imageGenTask: TaskConfig<{
           mode: `${mode} (cosmetic)`,
           identityLock: identityLockMeta,
           slots: slotNames,
+          // D-407: fixed 5-slot contract metadata
+          promptVersion: SLOT_PROMPT_VERSION,
+          slotContract: slotContractMeta,
         }),
       },
     })
@@ -462,6 +485,30 @@ export const imageGenTask: TaskConfig<{
       }
 
       throw new Error(apiErrorSummary ? `${msg} API: ${apiErrorSummary}` : msg)
+    }
+
+    // ── Step 6a2: D-408 deterministic centering / scale lock ──────────────
+    // Runs BEFORE the stock-number overlay so the corner badge never affects the
+    // detected product bounding box. Rescales + centers the product to the slot's
+    // locked frameCoverage so every slot shares the exact same scale + centering,
+    // independent of how the model framed each shot. Safe: returns the original
+    // buffer on any error or when the shot already fills the frame.
+    {
+      const { normalizeProductCentering } = await import('../lib/imageCentering')
+      const { frameCoverageForIndex } = await import('../lib/imageSlotContract')
+      let centered = 0
+      for (let i = 0; i < generatedBuffers.length; i++) {
+        try {
+          const slotIndex = sceneIndices[i]
+          const before = generatedBuffers[i]
+          const after = await normalizeProductCentering(before, { coverage: frameCoverageForIndex(slotIndex) })
+          if (after !== before) centered++
+          generatedBuffers[i] = after
+        } catch (err) {
+          console.warn(`[imageGenTask D-408] centering skipped for buffer ${i}:`, err instanceof Error ? err.message : err)
+        }
+      }
+      console.log(`[imageGenTask D-408] centering lock applied — ${centered}/${generatedBuffers.length} slots normalized`)
     }
 
     // ── Step 6b: Overlay stockNumber on each generated image ──────────────
@@ -649,6 +696,10 @@ export const imageGenTask: TaskConfig<{
         slotLogs: slotLogsSummary,
         identityLock: identityLockMeta,
         mediaUrls,
+        // D-407: final per-image slot-contract metadata, now with the saved media
+        // IDs paired to each slot (slotIndex/slotKey/promptVersion/productId/sourceImageId).
+        promptVersion: SLOT_PROMPT_VERSION,
+        slotContract: slotContractMeta.map((m, i) => ({ ...m, mediaId: mediaIds[i] ?? null })),
       }),
       jobTitle: provider === 'gemini-pro'
         ? `${productTitle} — Gemini Pro (${mediaIds.length} görsel)`
@@ -919,20 +970,10 @@ async function sendApprovalKeyboard(
     callback_data: `imgapprove:${jobId}:${i + 1}`,
   }))
 
-  // ── Build 2-image combination buttons (only for a legacy 3-image batch) ────
-  // D-355B: with the 5-image standard pack these fixed 1+2/1+3/2+3 combos would
-  // wrongly imply only 3 images exist, so they show only when exactly 3 were made.
-  const combinationButtons = imageCount === 3
-    ? [
-        { text: '📸 1+2', callback_data: `imgapprove:${jobId}:1,2` },
-        { text: '📸 1+3', callback_data: `imgapprove:${jobId}:1,3` },
-        { text: '📸 2+3', callback_data: `imgapprove:${jobId}:2,3` },
-      ]
-    : []
-
-  const stageNote = isStandard
-    ? `Tüm görselleri veya istediğinizi seçin:`
-    : `İstediğiniz görseli seçin veya tümünü onaylayın:`
+  // D-409: legacy 1+2/1+3/2+3 combo buttons removed (dead for the 5-image pack).
+  // Partial approval stays available via the per-image buttons below and via the
+  // text command "onayla 1,3,5".
+  const stageNote = `Tümünü onayla, tek tek seç ya da yeniden üret. (Kısmi: "onayla 1,3,5")`
 
   const text =
     `${isStandard ? '📸' : '🌟'} <b>${imageCount} önizleme hazır (${stageLabel})</b>\n\n` +
@@ -950,22 +991,13 @@ async function sendApprovalKeyboard(
   const allLabel = isStandard ? `✅ Tümünü Onayla (1-${imageCount})` : '✅ Tümünü Onayla (4-5)'
   keyboard.push([{ text: allLabel, callback_data: `imgapprove:${jobId}:all` }])
 
-  // Row 2: Individual image buttons (up to 3 side by side)
+  // Row 2: per-image buttons for partial approval (Telegram wraps as needed)
   if (individualButtons.length > 0) {
     keyboard.push(individualButtons)
   }
 
-  // Row 3: 2-image combination buttons (only for 3-image stage)
-  if (combinationButtons.length > 0) {
-    keyboard.push(combinationButtons)
-  }
-
-  // Row 4: Premium upgrade — only when the standard batch did NOT already include
-  // slots 4-5. D-355B: the standard pack now produces all 5, so this upsell is
-  // hidden then; it remains a recovery path for older/partial 3-image jobs.
-  if (isStandard && imageCount < 5) {
-    keyboard.push([{ text: '🌟 4-5 Gemini Pro Üret', callback_data: `imgpremium:${jobId}` }])
-  }
+  // D-409: combo-button row and the "🌟 4-5 Gemini Pro Üret" up-sell row removed —
+  // the standard pack always produces all 5 slots, so both were dead/confusing excess.
 
   // Last row: Regenerate + Reject
   keyboard.push([

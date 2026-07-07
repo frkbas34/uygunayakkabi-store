@@ -504,22 +504,28 @@ export const imageGenTask: TaskConfig<{
     // while still scaling/centering the shoe. Set IMAGE_CENTERING_ENABLED=0 to
     // disable. (Note: it does not remove a frame Gemini itself may render into the
     // source — that stays an anti-frame prompt concern.)
+    // D-416: 'pair' slots (hero_3q + top) are turned into a deterministic mirror
+    // pair here — the model generated ONE shoe, and we duplicate+mirror it so the
+    // two shoes are 100% identical. 'single' slots get the normal centering. Both
+    // run BEFORE the stock-number overlay, so a pair carries a single overlay.
     if (process.env.IMAGE_CENTERING_ENABLED !== '0') {
-      const { normalizeProductCentering } = await import('../lib/imageCentering')
-      const { frameCoverageForIndex } = await import('../lib/imageSlotContract')
-      let centered = 0
+      const { normalizeProductCentering, makeMirrorPair } = await import('../lib/imageCentering')
+      const { frameCoverageForIndex, slotLayoutForIndex } = await import('../lib/imageSlotContract')
+      let centered = 0, paired = 0
       for (let i = 0; i < generatedBuffers.length; i++) {
         try {
           const slotIndex = sceneIndices[i]
           const before = generatedBuffers[i]
-          const after = await normalizeProductCentering(before, { coverage: frameCoverageForIndex(slotIndex) })
-          if (after !== before) centered++
+          const after = slotLayoutForIndex(slotIndex) === 'pair'
+            ? await makeMirrorPair(before, { coverage: 0.9 }) // each shoe fills its half; bigger + closer than the single coverage
+            : await normalizeProductCentering(before, { coverage: frameCoverageForIndex(slotIndex) })
+          if (after !== before) { if (slotLayoutForIndex(slotIndex) === 'pair') paired++; else centered++ }
           generatedBuffers[i] = after
         } catch (err) {
-          console.warn(`[imageGenTask D-408] centering skipped for buffer ${i}:`, err instanceof Error ? err.message : err)
+          console.warn(`[imageGenTask D-408] centering/pair skipped for buffer ${i}:`, err instanceof Error ? err.message : err)
         }
       }
-      console.log(`[imageGenTask D-408] centering lock applied — ${centered}/${generatedBuffers.length} slots normalized`)
+      console.log(`[imageGenTask D-408/D-416] ${centered} centered + ${paired} paired / ${generatedBuffers.length} slots`)
     }
 
     // ── Step 6b: Overlay stockNumber on each generated image ──────────────

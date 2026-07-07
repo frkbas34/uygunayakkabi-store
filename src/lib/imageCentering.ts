@@ -273,3 +273,85 @@ export async function normalizeProductCentering(
     return input
   }
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// D-416: deterministic mirror PAIR — show both shoes, 100% identical.
+// ─────────────────────────────────────────────────────────────────────────────
+
+export type PairOptions = {
+  /** Fraction of each half-tile the single shoe's longer side should occupy. */
+  coverage?: number
+  backgroundHex?: string
+  bgDistanceThreshold?: number
+  jpegQuality?: number
+}
+
+/**
+ * Build a PAIR from a single generated shoe by placing the shoe next to its
+ * horizontal MIRROR (left foot + right foot are mirror images). The two shoes are
+ * pixel-identical (same source, mirrored), so they are guaranteed 100% the same.
+ *
+ * Seam-free: each half is a crop WINDOW around the shoe (continuous gradient bg,
+ * edges copy-extended); the right half is the left flopped, so the centre columns
+ * match exactly and the whole background is mirror-symmetric — no visible seam.
+ *
+ * Returns the original buffer unchanged if no subject is detected (safe fallback).
+ */
+export async function makeMirrorPair(input: Buffer, opts: PairOptions = {}): Promise<Buffer> {
+  const coverage = opts.coverage ?? 0.82
+  const bgHex = opts.backgroundHex ?? STUDIO_BG_HEX
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const sharp = require('sharp') as typeof import('sharp')
+
+    const detected = await detectSubjectBbox(input, {
+      backgroundHex: opts.backgroundHex,
+      bgDistanceThreshold: opts.bgDistanceThreshold,
+    })
+    if (!detected) return input
+    const { bbox, canvasW, canvasH } = detected
+    const S = Math.min(canvasW, canvasH)
+
+    // Crop window around the single shoe (same approach as centering).
+    const longSide = Math.max(bbox.width, bbox.height)
+    const windowSide = Math.max(longSide + 4, Math.round(longSide / coverage))
+    const cx = bbox.left + bbox.width / 2
+    const cy = bbox.top + bbox.height / 2
+    let left = Math.round(cx - windowSide / 2)
+    let top = Math.round(cy - windowSide / 2)
+    const padLeft = Math.max(0, -left)
+    const padTop = Math.max(0, -top)
+    const padRight = Math.max(0, left + windowSide - canvasW)
+    const padBottom = Math.max(0, top + windowSide - canvasH)
+    let src = input
+    if (padLeft || padTop || padRight || padBottom) {
+      src = await sharp(input)
+        .extend({ top: padTop, bottom: padBottom, left: padLeft, right: padRight, extendWith: 'copy' })
+        .toBuffer()
+      left += padLeft
+      top += padTop
+    }
+    const win = await sharp(src).extract({ left, top, width: windowSide, height: windowSide }).toBuffer()
+
+    // Each shoe occupies half the width; copy-extend vertically to full height so
+    // there is no top/bottom gap, then mirror for the right half.
+    const halfW = Math.round(S / 2)
+    const tile = await sharp(win).resize(halfW, halfW, { fit: 'fill' }).toBuffer()
+    const extra = S - halfW
+    const colLeft = await sharp(tile)
+      .extend({ top: Math.floor(extra / 2), bottom: extra - Math.floor(extra / 2), left: 0, right: 0, extendWith: 'copy' })
+      .toBuffer()
+    const colRight = await sharp(colLeft).flop().toBuffer()
+
+    const bg = hexToRgb(bgHex)
+    return await sharp({
+      create: { width: halfW * 2, height: S, channels: 3, background: { r: bg.r, g: bg.g, b: bg.b } },
+    })
+      .composite([{ input: colLeft, left: 0, top: 0 }, { input: colRight, left: halfW, top: 0 }])
+      .jpeg({ quality: opts.jpegQuality ?? 92 })
+      .toBuffer()
+  } catch (err) {
+    console.warn('[makeMirrorPair] skipped (returning original):', err instanceof Error ? err.message : err)
+    return input
+  }
+}

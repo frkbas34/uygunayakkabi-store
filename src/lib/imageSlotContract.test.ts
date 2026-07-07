@@ -10,6 +10,7 @@ import {
   getSlotByIndex,
   getSlotByKey,
   frameCoverageForIndex,
+  slotLayoutForIndex,
   isValidSlotKey,
   orderBySlot,
   validateSlotContract,
@@ -165,6 +166,18 @@ check('every slot carries a valid centering coverage (0..1] — D-408 lock', () 
   assert.ok(getSlotByKey('detail')!.frameCoverage > getSlotByKey('hero_3q')!.frameCoverage)
   assert.strictEqual(frameCoverageForIndex(0), getSlotByKey('hero_3q')!.frameCoverage)
   assert.strictEqual(frameCoverageForIndex(99), 0.82) // safe fallback
+})
+
+check('exactly hero_3q + top are pair slots; the rest are single — D-416', () => {
+  const pairs = GENERATED_SLOTS.filter((s) => s.layout === 'pair').map((s) => s.key)
+  assert.deepStrictEqual(pairs.sort(), ['hero_3q', 'top'])
+  assert.strictEqual(slotLayoutForIndex(0), 'pair')  // hero_3q
+  assert.strictEqual(slotLayoutForIndex(2), 'pair')  // top
+  assert.strictEqual(slotLayoutForIndex(1), 'single') // side
+  assert.strictEqual(slotLayoutForIndex(3), 'single') // back
+  assert.strictEqual(slotLayoutForIndex(4), 'single') // detail
+  assert.strictEqual(slotLayoutForIndex(99), 'single') // safe fallback
+  for (const s of GENERATED_SLOTS) assert.ok(s.layout === 'single' || s.layout === 'pair')
 })
 
 check('validateSlotContract() reports the contract as valid', () => {

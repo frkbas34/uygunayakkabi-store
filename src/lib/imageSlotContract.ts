@@ -66,6 +66,12 @@ export type SlotDefinition = {
    * slot. The tight material detail intentionally fills more of the frame.
    */
   frameCoverage: number
+  /**
+   * D-416: 'single' = one shoe (normal). 'pair' = show BOTH shoes. The model
+   * still generates ONE shoe; the pair is built deterministically post-process by
+   * duplicating + mirroring it (left/right foot), so the two are 100% identical.
+   */
+  layout: 'single' | 'pair'
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -96,6 +102,7 @@ export const GENERATED_SLOTS: readonly SlotDefinition[] = [
       `A dead-on front is too flat for a shoe; this is the primary, most dimensional shot. ` +
       `Choose whatever exact three-quarter framing reads best for a clean e-commerce hero.`,
     frameCoverage: 0.82,
+    layout: 'pair',
   },
   {
     index: 1,
@@ -106,6 +113,7 @@ export const GENERATED_SLOTS: readonly SlotDefinition[] = [
       `Present this shoe from the SIDE so its full silhouette and profile read clearly from toe to heel. ` +
       `Choose whatever exact side framing reads best; keep the whole shoe visible.`,
     frameCoverage: 0.82,
+    layout: 'single',
   },
   {
     index: 2,
@@ -117,6 +125,7 @@ export const GENERATED_SLOTS: readonly SlotDefinition[] = [
       `This is ONE single shoe (the same physical shoe): do NOT invent, duplicate, or add a second shoe or any extra object. ` +
       `Choose whatever exact overhead/overview framing reads best.`,
     frameCoverage: 0.82,
+    layout: 'pair',
   },
   {
     index: 3,
@@ -131,6 +140,7 @@ export const GENERATED_SLOTS: readonly SlotDefinition[] = [
       `This is NOT a flat straight-on dead-back, and NOT a tight close-up: show the WHOLE shoe from behind-and-to-one-side. ` +
       `Choose whatever exact rear-three-quarter framing reads best. If the reference does not clearly show the back, keep the heel plain and consistent with the visible material and colour — do NOT invent rear seams, panels, logos, or details.`,
     frameCoverage: 0.82,
+    layout: 'single',
   },
   {
     index: 4,
@@ -145,6 +155,7 @@ export const GENERATED_SLOTS: readonly SlotDefinition[] = [
     // Intentionally high: the detail already fills the frame, so the centering
     // normalizer will typically skip it (skipIfCoverageAbove) and leave it full-bleed.
     frameCoverage: 0.94,
+    layout: 'single',
   },
 ] as const
 
@@ -213,6 +224,14 @@ export function getSlotByKey(key: string): SlotDefinition | undefined {
  */
 export function frameCoverageForIndex(index: number): number {
   return getSlotByIndex(index)?.frameCoverage ?? 0.82
+}
+
+/**
+ * D-416: the layout for a slot index — 'pair' means the generated single shoe is
+ * duplicated + mirrored into a pair post-process. Defaults to 'single'.
+ */
+export function slotLayoutForIndex(index: number): 'single' | 'pair' {
+  return getSlotByIndex(index)?.layout ?? 'single'
 }
 
 /**
@@ -306,7 +325,17 @@ export function validateSlotContract(): { ok: boolean; errors: string[] } {
     if (!(slot.frameCoverage > 0 && slot.frameCoverage <= 1)) {
       errors.push(`slot "${slot.key}" has invalid frameCoverage ${slot.frameCoverage}`)
     }
+    // D-416: layout must be 'single' or 'pair'.
+    if (slot.layout !== 'single' && slot.layout !== 'pair') {
+      errors.push(`slot "${slot.key}" has invalid layout ${slot.layout}`)
+    }
   })
+
+  // D-416: exactly the two intended slots are pairs (hero_3q + top).
+  const pairKeys = GENERATED_SLOTS.filter((s) => s.layout === 'pair').map((s) => s.key)
+  if (pairKeys.length !== 2 || !pairKeys.includes('hero_3q') || !pairKeys.includes('top')) {
+    errors.push(`expected exactly [hero_3q, top] as pair slots, got [${pairKeys.join(', ')}]`)
+  }
 
   // GENERATED_SCENES must mirror the slots 1:1 in order
   if (GENERATED_SCENES.length !== GENERATED_SLOTS.length) {

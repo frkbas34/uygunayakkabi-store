@@ -3,6 +3,7 @@ import assert from 'node:assert'
 const sharp = require('sharp') as typeof import('sharp')
 import {
   normalizeProductCentering,
+  makeMirrorPair,
   detectSubjectBbox,
   hexToRgb,
   STUDIO_BG_HEX,
@@ -110,6 +111,28 @@ void (async () => {
     const img = await makeImg(120, { x: 10, y: 10, w: 20, h: 20 })
     assert.strictEqual(await normalizeProductCentering(img, { coverage: 0 }), img)
     assert.strictEqual(await normalizeProductCentering(img, { coverage: 1.5 }), img)
+  })
+
+  // ── D-416 deterministic mirror pair ────────────────────────────────────────
+  await check('makeMirrorPair builds a mirror-symmetric pair (both shoes 100% identical)', async () => {
+    const S = 400
+    const img = await makeImg(S, { x: 60, y: 130, w: 130, h: 90 }) // off-centre asymmetric
+    const pair = await makeMirrorPair(img, { coverage: 0.8 })
+    const meta = await sharp(pair).metadata()
+    assert.ok(Math.abs((meta.width || 0) - S) <= 2, `width ${meta.width}`)
+    assert.ok(Math.abs((meta.height || 0) - S) <= 2, `height ${meta.height}`)
+    // right half == left half mirrored → flopping the whole output ≈ itself
+    const a = await sharp(pair).removeAlpha().raw().toBuffer()
+    const b = await sharp(pair).flop().removeAlpha().raw().toBuffer()
+    let diff = 0
+    for (let i = 0; i < a.length; i++) diff += Math.abs(a[i] - b[i])
+    const mad = diff / a.length
+    assert.ok(mad < 6, `pair not mirror-symmetric (mean abs diff ${mad.toFixed(2)})`)
+  })
+
+  await check('makeMirrorPair returns the input unchanged when no subject is found', async () => {
+    const blank = await makeImg(200, null)
+    assert.strictEqual(await makeMirrorPair(blank), blank)
   })
 
   console.log(`\nimageCentering: ${passed} checks passed${process.exitCode ? ' - WITH FAILURES' : ' - ALL OK'}`)

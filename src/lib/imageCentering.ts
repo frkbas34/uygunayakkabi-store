@@ -363,8 +363,10 @@ export async function makePairShot(input: Buffer, opts: PairOptions = {}): Promi
 
 export type BgNormalizeOptions = {
   targetHex?: string
-  /** Max per-channel gain (and 1/gain) — keeps the correction gentle. Default 1.18. */
+  /** Max per-channel gain (and 1/gain) — keeps the correction gentle. Default 1.15. */
   maxGain?: number
+  /** Fraction of the correction to apply (0..1). <1 avoids overshooting the target. Default 0.7. */
+  strength?: number
   jpegQuality?: number
 }
 
@@ -378,7 +380,8 @@ export type BgNormalizeOptions = {
  */
 export async function normalizeBackground(input: Buffer, opts: BgNormalizeOptions = {}): Promise<Buffer> {
   const target = hexToRgb(opts.targetHex ?? STUDIO_BG_HEX)
-  const maxGain = opts.maxGain ?? 1.18
+  const maxGain = opts.maxGain ?? 1.15
+  const strength = Math.max(0, Math.min(1, opts.strength ?? 0.7))
   try {
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     const sharp = require('sharp') as typeof import('sharp')
@@ -393,10 +396,13 @@ export async function normalizeBackground(input: Buffer, opts: BgNormalizeOption
     const spread = Math.max(bg.r, bg.g, bg.b) - minCh
     if (minCh < 150 || spread > 45) return input
 
+    // Partial correction (strength<1) moves the bg part-way to the target so it
+    // never overshoots past it; the clamp caps extreme gains.
     const clamp = (g: number) => Math.max(1 / maxGain, Math.min(maxGain, g))
-    const gr = clamp(target.r / Math.max(1, bg.r))
-    const gg = clamp(target.g / Math.max(1, bg.g))
-    const gb = clamp(target.b / Math.max(1, bg.b))
+    const gain = (bgc: number, tc: number) => clamp(1 + strength * (tc / Math.max(1, bgc) - 1))
+    const gr = gain(bg.r, target.r)
+    const gg = gain(bg.g, target.g)
+    const gb = gain(bg.b, target.b)
     // No-op if already on target (avoid needless re-encode).
     if (Math.abs(gr - 1) < 0.012 && Math.abs(gg - 1) < 0.012 && Math.abs(gb - 1) < 0.012) return input
 

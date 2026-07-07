@@ -28,6 +28,9 @@
     "test:catalog-qa": "tsx src/lib/catalogQa.test.ts",
     "test:category-fill": "tsx src/lib/categoryFill.test.ts",
     "test:image-quality": "tsx src/lib/imageQualityGate.test.ts",
+    "test:image-slot-contract": "tsx src/lib/imageSlotContract.test.ts",
+    "test:image-centering": "tsx src/lib/imageCentering.test.ts",
+    "test:image-brand-gate": "tsx src/lib/imageBrandGate.test.ts",
     "test:shopier-publish-control": "tsx src/lib/shopierPublishControl.test.ts",
     "test:state-coherence": "tsx src/lib/stateCoherence.test.ts",
     "test:telegram-parser": "tsx src/lib/telegramParser.test.ts",
@@ -56,7 +59,7 @@
     "smoke:imageqc:schema": "tsx scripts/image-qc-schema-check.ts",
     "smoke:shopier:read": "tsx scripts/shopier-operator-smoke.ts",
     "db:imageqc:apply": "tsx scripts/image-qc-schema-apply.ts",
-    "test:safe": "npm run test:brand-safety && npm run test:product-media && npm run test:product-stock && npm run test:lifecycle && npm run test:operator-readiness && npm run test:source-pack && npm run test:retired-channels && npm run test:n8n-optional && npm run test:ops-runbook && npm run test:supplierscout-dormant && npm run test:mentix-skills && npm run test:admin-visibility && npm run test:product-channels && npm run test:product-flow-snapshot && npm run test:publish-readiness && npm run test:business-desk && npm run test:funnel-desk && npm run test:catalog-qa && npm run test:category-fill && npm run test:image-quality && npm run test:shopier-publish-control && npm run test:state-coherence && npm run test:telegram-parser && npm run test:confirmation-wizard && npm run test:channel-dispatch && npm run test:dispatch-status && npm run test:provider-health && npm run test:pi-provider-health && npm run test:redispatch && npm run test:automation-decision && npm run test:activation-guard && npm run test:publish-desk && npm run test:ad-readiness && npm run test:telegram-access && npm run test:inquiry-guard && npm run test:sitemap-entries && npm run test:attribution && npm run test:storefront-trust",
+    "test:safe": "npm run test:brand-safety && npm run test:product-media && npm run test:product-stock && npm run test:lifecycle && npm run test:operator-readiness && npm run test:source-pack && npm run test:retired-channels && npm run test:n8n-optional && npm run test:ops-runbook && npm run test:supplierscout-dormant && npm run test:mentix-skills && npm run test:admin-visibility && npm run test:product-channels && npm run test:product-flow-snapshot && npm run test:publish-readiness && npm run test:business-desk && npm run test:funnel-desk && npm run test:catalog-qa && npm run test:category-fill && npm run test:image-quality && npm run test:image-slot-contract && npm run test:image-centering && npm run test:image-brand-gate && npm run test:shopier-publish-control && npm run test:state-coherence && npm run test:telegram-parser && npm run test:confirmation-wizard && npm run test:channel-dispatch && npm run test:dispatch-status && npm run test:provider-health && npm run test:pi-provider-health && npm run test:redispatch && npm run test:automation-decision && npm run test:activation-guard && npm run test:publish-desk && npm run test:ad-readiness && npm run test:telegram-access && npm run test:inquiry-guard && npm run test:sitemap-entries && npm run test:attribution && npm run test:storefront-trust",
     "validate": "npm run typecheck && npm run lint && npm run test:safe"
   },
   "dependencies": {

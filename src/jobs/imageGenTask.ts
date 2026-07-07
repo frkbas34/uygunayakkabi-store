@@ -525,14 +525,16 @@ export const imageGenTask: TaskConfig<{
     // detected product bounding box. Rescales + centers the product to the slot's
     // locked frameCoverage so every slot shares the exact same scale + centering.
     //
-    // D-412: RE-ENABLED by default after verifying on the operator's REAL generated
-    // images — net-positive (scales up small/off-center shoes, centers them) and
-    // safe (returns the original buffer on skip/error, never distorts). It now
-    // samples the actual corner background and no longer feeds on the second-shoe
-    // (removed at source). It does NOT remove image-in-image frame artifacts — that
-    // is a generation concern handled by the anti-frame prompt. Set
-    // IMAGE_CENTERING_ENABLED=0 to disable.
-    if (process.env.IMAGE_CENTERING_ENABLED !== '0') {
+    // D-413: DISABLED again (opt-in via IMAGE_CENTERING_ENABLED=1). Root cause
+    // found on real output: this normalizer CROPS the subject bbox (shoe + its
+    // surrounding studio background) and composites it onto a fresh FLAT ivory
+    // canvas. Real studio backdrops are GRADIENT (lighter centre, darker edges),
+    // so the pasted crop's tone does not match the flat canvas → it creates a
+    // visible rectangle = the exact frame artifact the operator reported. The flat
+    // "crop-and-composite" approach is fundamentally wrong for a gradient bg. It
+    // must be rebuilt with a true alpha MASK (@imgly/background-removal) that lifts
+    // ONLY the shoe pixels (no bg patch), verified on real images, before re-enable.
+    if (process.env.IMAGE_CENTERING_ENABLED === '1') {
       const { normalizeProductCentering } = await import('../lib/imageCentering')
       const { frameCoverageForIndex } = await import('../lib/imageSlotContract')
       let centered = 0

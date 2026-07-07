@@ -17,9 +17,6 @@
 
 import { PRODUCT_PRESERVATION_PROHIBITIONS } from './productPreservation'
 import { LOCK_REMINDER_BLOCK } from './imageLockReminder'
-// D-407: central 5-slot contract — single source of truth for slot types, order,
-// and the centering/framing discipline. EDITING_SCENES is now derived from it.
-import { GENERATED_SCENES } from './imageSlotContract'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Shared canonical prohibitions — injected into EVERY generation prompt
@@ -1121,13 +1118,7 @@ async function checkBrandFidelity(
  *
  * Returns { pass, detectedShot, correctionHint } where correctionHint is pre-formatted
  * for direct injection into the retry preamble.
- *
- * D-409: DISABLED / retained for reference. No longer called — D-407 loosened the
- * composition rule and D-408 makes centering deterministic, so per-slot angle
- * verification is redundant and was a major rate-limit / extra-regeneration cost.
- * Kept (with SHOT_CRITERIA) so it can be re-enabled if a future need appears.
  */
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
 async function checkShotCompliance(
   generatedImage: Buffer,
   slotName: string,
@@ -1135,46 +1126,42 @@ async function checkShotCompliance(
 ): Promise<{ pass: boolean; detectedShot: string; correctionHint: string }> {
   const visionModel = 'gemini-2.5-flash'
 
-  // D-407: per-slot criteria for the fixed 5-slot contract. LOOSE by design —
-  // they check that the shot serves the slot's PURPOSE, the product is CENTERED
-  // and fully framed, and the studio background/identity discipline holds. They
-  // do NOT enforce exact degrees/geometry (the model chooses composition).
-  // Slot keys mirror imageSlotContract.GENERATED_SLOT_KEYS.
+  // Per-slot criteria — description, pass rule, fail signals, required correction
   const SHOT_CRITERIA: Record<string, {
     required: string
     passRule: string
     failSignals: string
     correction: string
   }> = {
-    hero_3q: {
-      required: 'three-quarter hero — front and one side visible together, product centered on the clean studio backdrop',
-      passRule: 'the shoe is shown from a three-quarter angle (front and one side both visible), centered and fully in frame on a clean studio background',
-      failSignals: 'dead-on front only, pure side profile only, rear/heel-only view, lifestyle or outdoor scene, foot or person visible, shoe strongly off-center or cropped out of frame',
-      correction: 'Show a THREE-QUARTER hero (front + one side together), product centered and fully in frame on the clean ivory studio backdrop.',
+    commerce_front: {
+      required: 'straight-on front hero — camera directly facing the toe cap, symmetric, white background',
+      passRule: 'the toe cap front face is fully visible and both sides are symmetric (equal width on left and right)',
+      failSignals: 'heel counter visible, 3/4 diagonal angle, side profile dominant, asymmetric sides',
+      correction: 'Camera must be DIRECTLY IN FRONT of the toe cap, perpendicular. Both sides equally visible. No diagonal. Pure front-on.',
     },
-    side: {
-      required: 'side presentation — the full silhouette/profile reads from toe to heel, product centered on the clean studio backdrop',
-      passRule: 'the shoe is shown from the side with its full profile visible toe-to-heel, centered and fully in frame on a clean studio background',
-      failSignals: 'dead-on front only, rear/heel-only view, extreme macro, lifestyle or outdoor scene, foot or person visible, shoe strongly off-center or cut off',
-      correction: 'Show the SIDE profile of the shoe with the full silhouette visible from toe to heel, product centered and fully in frame on the clean ivory studio backdrop.',
+    side_angle: {
+      required: 'pure 90° lateral side profile — complete sole edge visible, toe front face NOT visible, toe pointing LEFT and heel pointing RIGHT, shoe perfectly centered',
+      passRule: 'the sole edge profile is fully visible from toe tip to heel, the toe front face is NOT visible, the front/toe of the shoe is on the LEFT side and the heel/back is on the RIGHT side, and the shoe is centered in the frame',
+      failSignals: 'toe front face visible, slight diagonal (3/4 from front), heel hidden, angled top-down, shoe facing right instead of left, shoe not centered',
+      correction: 'Camera must be at exactly 90° to the side. The toe FRONT FACE must NOT be visible. The sole profile must be fully exposed from toe to heel. ORIENTATION: toe/front of shoe must point LEFT, heel/back must point RIGHT. Shoe must be perfectly centered horizontally and vertically.',
     },
-    top: {
-      required: 'top / overview presentation — the product seen from above as a clean catalog overview, ONE shoe, centered on the clean studio backdrop',
-      passRule: 'the shoe is shown from an elevated/top overview and is centered and fully in frame on a clean studio background',
-      failSignals: 'a second/extra shoe invented, straight side profile only, lifestyle or outdoor scene, foot or person visible, shoe strongly off-center or cropped',
-      correction: 'Show a TOP / OVERVIEW of the SAME single shoe from above, centered and fully in frame on the clean ivory studio backdrop. Do NOT add a second shoe or any extra object.',
+    detail_closeup: {
+      required: 'detail close-up of the front half of the shoe (toe cap + vamp area) — NOT the full shoe, NOT extreme macro',
+      passRule: 'the front portion of the shoe (toe/vamp) fills the frame, material detail and stitching visible, heel is blurred or out of frame',
+      failSignals: 'full shoe in sharp focus from toe to heel, extreme macro showing only texture with no recognizable shoe shape, standard product angle showing entire shoe',
+      correction: 'Camera should be 25-35cm from the shoe, focusing on the toe cap and vamp area. Show the front half with detail — NOT the entire shoe, and NOT an extreme macro of just texture.',
     },
-    back: {
-      required: 'rear / heel presentation — the back of the shoe and heel read clearly, product centered on the clean studio backdrop',
-      passRule: 'the rear/heel of the shoe is the dominant view and the shoe is centered and fully in frame on a clean studio background',
-      failSignals: 'dead-on front only, pure side profile with no rear visible, lifestyle or outdoor scene, foot or person visible, shoe strongly off-center or cropped',
-      correction: 'Show the REAR / HEEL of the shoe as the main view, product centered and fully in frame on the clean ivory studio backdrop. Keep unseen rear detail plain — do not invent it.',
+    tabletop_editorial: {
+      required: 'rear three-quarter STUDIO angle — heel/back and one side visible together, on the clean ivory studio backdrop',
+      passRule: 'the shoe is shown from a rear three-quarter angle (heel counter and one side both visible) on a clean studio background',
+      failSignals: 'straight-on front view, pure side profile, overhead/top-down view, marble or tabletop surface, lifestyle or outdoor scene',
+      correction: 'Camera must be BEHIND and to one side (about 35-45° off the pure back), at mid-shoe height, so the heel and one side are both visible, on the clean ivory studio backdrop. Not front, not overhead, not on marble or any textured surface.',
     },
-    detail: {
-      required: 'material detail close-up — texture / stitching / grain / sole edge that is visible in the reference fills most of the frame, on the clean studio backdrop',
-      passRule: 'a close detail of the real material/stitching/texture/sole edge fills most of the frame on a clean studio background',
-      failSignals: 'a distant full-shoe shot with no detail emphasis, worn on a foot, a person visible, lifestyle or outdoor environment, invented ornament/logo',
-      correction: 'Show a CLOSE material detail (texture, stitching, grain, or sole edge) that is actually visible in the reference, filling most of the frame on the clean ivory studio backdrop. Show only real, visible detail.',
+    worn_lifestyle: {
+      required: 'STUDIO material/craft close-up of the visible upper (vamp/quarter material, stitching, any tassel or buckle) on the clean ivory studio backdrop — NOT worn on a foot, NOT the outsole',
+      passRule: 'a tight close-up of the upper material/stitching/ornament fills most of the frame on a clean studio background',
+      failSignals: 'shoe worn on a human foot, a person or leg visible, the outsole/sole/bottom shown, lifestyle or outdoor environment, full shoe from toe to heel in frame',
+      correction: 'This must be a STUDIO macro of the visible upper material/stitching/ornament on the clean ivory backdrop. NO foot, NO person, NO outsole — a close, tight detail of the upper on the studio background.',
     },
   }
 
@@ -1234,7 +1221,7 @@ async function checkShotCompliance(
 }
 
 /**
- * D-201: Check shoe orientation in the SIDE slot images.
+ * D-201: Check shoe orientation in side_angle images.
  * Asks Gemini Vision a simple binary question: "Is the toe pointing LEFT or RIGHT?"
  * Returns 'left' | 'right' | 'unknown'.
  *
@@ -1362,21 +1349,132 @@ async function callGPTImageEdit(
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
- * D-407: EDITING_SCENES is now derived from the central 5-slot contract
- * (src/lib/imageSlotContract.ts) — the single source of truth for slot types,
- * order, and the centering/framing discipline.
+ * Each slot is defined by exact camera axis, height, framing, required visible parts,
+ * a FORBIDDEN list, and a slot-specific note about what distinguishes it from the others.
  *
- * Canonical slot order (index → key):
- *   0 front · 1 side · 2 top_pair · 3 heel · 4 material_detail
- *
- * Each scene keeps the { name, label, sceneInstructions } shape and the
- * {COLOR}/{BACKGROUND}/{REF_ANGLE} placeholders resolved below, so the rest of
- * the pipeline (identity lock, material lock, visual fact lock, anti-frame,
- * prohibitions) is unchanged. Per operator rule D-407 the scenes intentionally
- * describe LOOSE composition intent (no hardcoded degrees/geometry) plus the
- * fixed centering discipline — the model chooses the best exact composition.
+ * The "{COLOR}" placeholder is replaced at runtime with the identity lock's mainColor.
+ * The "{REF_ANGLE}" placeholder is replaced with the detected reference angle.
  */
-const EDITING_SCENES = GENERATED_SCENES
+const EDITING_SCENES = [
+  {
+    name: 'side_angle',
+    label: 'Slot 1 — 90° Yan Profil (PRIMARY)',
+    sceneInstructions:
+      `── SHOT: PURE LATERAL SIDE PROFILE ──\n` +
+      `Re-photograph this EXACT {COLOR} shoe from the side — same physical object.\n` +
+      `CAMERA: Exactly 90° to the side (medial or lateral), at sole level. Looking directly at the side face.\n` +
+      `ORIENTATION (MANDATORY — REJECTION RULE): The FRONT of the shoe (toe box) MUST point to the LEFT edge of the image. ` +
+      `The BACK of the shoe (heel) MUST point to the RIGHT edge. ` +
+      `Think of it as: toe = LEFT, heel = RIGHT. This is a hard requirement — if the shoe faces right or is angled, the image is REJECTED.\n` +
+      `CENTERING (MANDATORY): The shoe MUST be perfectly centered both horizontally and vertically in the frame. ` +
+      `Equal empty space on all four sides. The shoe's midpoint (between toe tip and heel end) must align with the image center.\n` +
+      `COMPOSITION: Full shoe from toe tip to heel counter. Entire sole edge visible. Shoe fills 75% of image width.\n` +
+      `MUST SEE: Complete sole profile (toe to heel), arch curve, heel counter height, collar line. The sole silhouette is the dominant visual.\n` +
+      `MUST NOT SEE: Toe cap front face (if you can see the front of the toe, the angle is WRONG).\n` +
+      `BACKGROUND: {BACKGROUND}\n` +
+      `LIGHT: Soft studio lighting — key from front-left 45°, fill from opposite. Natural soft shadow. No harsh reflections.\n` +
+      `OUTPUT: Full-bleed photograph that fills the ENTIRE canvas edge to edge. The image IS the photo — NOT a photo of a photo.\n` +
+      `CRITICAL ANTI-FRAME: Do NOT render any border, frame, shadow-box, rounded-corner card, drop-shadow rectangle, or picture-inside-picture effect. ` +
+      `Do NOT place the shoe on a "floating card" or "product tile". The background must extend to ALL four edges with ZERO visible boundary. ` +
+      `If there is ANY rectangular outline or visible edge that is not the canvas edge, the image is REJECTED.\n` +
+      `THIS IS NOT: a front view, a 3/4 view, a top-down view, a framed image, a product card, a mockup.\n` +
+      `COLOR: The shoe is {COLOR}. Output MUST be {COLOR}. Other colors = REJECTED.\n` +
+      `DO NOT repeat the reference angle ({REF_ANGLE}). Generate a pure side profile.`,
+  },
+  {
+    name: 'commerce_front',
+    label: 'Slot 2 — Ön Stüdyo Hero',
+    sceneInstructions:
+      `── SHOT: FRONT STUDIO HERO ──\n` +
+      `Re-photograph this EXACT {COLOR} shoe from the front — same physical object.\n` +
+      `CAMERA: Directly in front of the shoe, lens perpendicular to the toe cap, at mid-shoe height (lacing zone).\n` +
+      `POSITION: Shoe upright on sole, centered, toe cap facing camera dead-on. Both sides equally visible (symmetric).\n` +
+      `COMPOSITION: Full shoe, 70% of image height. Top of collar and sole bottom both visible. Centered. Clean spacing around shoe.\n` +
+      `MUST SEE: Toe cap front face, vamp, lace/closure system, collar — the entire FRONT face.\n` +
+      `MUST NOT SEE: Heel counter, side profile, sole edge.\n` +
+      `BACKGROUND: {BACKGROUND} — keep the ivory backdrop at the SAME mid-tone exposure as every other slot; do NOT brighten it toward white or wash it out.\n` +
+      `LIGHT: Soft, even studio lighting at a MODERATE exposure — gentle key + soft fill, one natural soft shadow under the shoe. Do NOT over-light, over-expose, or wash out the scene; match the brightness and ivory tone of the other slots.\n` +
+      `OUTPUT: Full-bleed photograph that fills the ENTIRE canvas edge to edge. The image IS the photo — NOT a photo of a photo.\n` +
+      `CRITICAL ANTI-FRAME: Do NOT render any border, frame, shadow-box, rounded-corner card, drop-shadow rectangle, or picture-inside-picture effect. ` +
+      `Do NOT place the shoe on a "floating card" or "product tile". The background must extend to ALL four edges with ZERO visible boundary. ` +
+      `If there is ANY rectangular outline or visible edge that is not the canvas edge, the image is REJECTED.\n` +
+      `THIS IS NOT: a side view, a 3/4 view, a lifestyle shot, a close-up, a framed image, a product card, a mockup.\n` +
+      `COLOR: The shoe is {COLOR}. Output MUST be {COLOR}. Other colors = REJECTED.\n` +
+      `DO NOT repeat the reference angle ({REF_ANGLE}). Generate a clean front hero.`,
+  },
+  {
+    name: 'detail_closeup',
+    label: 'Slot 3 — Detay Yakın Çekim',
+    sceneInstructions:
+      `── SHOT: DETAIL CLOSE-UP — 3/4 ANGLE FROM ABOVE ──\n` +
+      `Re-photograph this EXACT {COLOR} shoe — a close-up from a 3/4 angle focusing on the toe and vamp area — same physical object.\n` +
+      `CAMERA: 18–25 cm from the shoe. Positioned at 30–45° to the side (not straight-on), looking down at 25–35°. This gives a three-quarter perspective that reveals both the top and one side.\n` +
+      `FRAMING: Show the toe cap, vamp, and lacing/buckle area from a 3/4 angle. The heel should be blurred or partially out of frame. ` +
+      `The shoe portion fills 85% of image area. Some studio background visible around the shoe.\n` +
+      `COMPOSITION: Shallow depth of field. Toe cap and vamp area sharp with visible material detail. Back of shoe soft/blurred.\n` +
+      `MUST SEE: Toe cap detail, vamp material texture and pattern, stitching, buckles/hardware, any perforations or logos on the front area.\n` +
+      `MUST NOT: Show the entire shoe from toe to heel in sharp focus — this is NOT a full product shot. Do NOT shoot straight-on from the front.\n` +
+      `BACKGROUND: {BACKGROUND} — This is a STUDIO shot. The shoe must be on a clean, solid-color studio backdrop. ` +
+      `Do NOT use the reference photo's surface/floor. Do NOT use stone, concrete, marble, or any textured surface. ` +
+      `The background is a smooth, uniform studio color as specified above.\n` +
+      `LIGHT: Soft studio lighting — key from front-left 45°, fill from opposite. Natural soft shadow. No harsh reflections.\n` +
+      `OUTPUT: Full-bleed photograph that fills the ENTIRE canvas edge to edge. The image IS the photo — NOT a photo of a photo.\n` +
+      `CRITICAL ANTI-FRAME: Do NOT render any border, frame, shadow-box, rounded-corner card, drop-shadow rectangle, or picture-inside-picture effect. ` +
+      `Do NOT place the shoe on a "floating card" or "product tile". The background must extend to ALL four edges with ZERO visible boundary. ` +
+      `If there is ANY rectangular outline or visible edge that is not the canvas edge, the image is REJECTED.\n` +
+      `THIS IS NOT: a full-shoe product shot, a side profile, an editorial placement, a framed image, a product card, a mockup.\n` +
+      `COLOR: The shoe is {COLOR}. Output MUST be {COLOR}. Other colors = REJECTED.`,
+  },
+  {
+    // D-355E/F: safe material/craft close-up of VISIBLE upper detail (texture,
+    // stitching, tassel/buckle/vamp). D-355F reorder → this is now SLOT 4, framed
+    // tight so the detail dominates and never looks distant. No outsole/sole.
+    name: 'worn_lifestyle',
+    label: 'Slot 4 — Malzeme / Detay (Stüdyo)',
+    sceneInstructions:
+      `── SHOT: STUDIO MATERIAL / CRAFT DETAIL CLOSE-UP ──\n` +
+      `Re-photograph this EXACT {COLOR} shoe as a close-up of its VISIBLE upper material and craft — same physical object, studio only.\n` +
+      `CAMERA: Close macro on the upper, 12–20 cm away, at a gentle 3/4 angle. Focus on a region clearly visible in the reference: the vamp/quarter material surface, the stitching, and any tassel, buckle, or hardware that the reference actually shows.\n` +
+      `COMPOSITION: The chosen visible detail fills ~85% of the frame — close and tight, the detail dominates and must NEVER look small or distant. Shallow depth of field. Only a little shoe body for context.\n` +
+      `MUST SEE: Real material texture (smooth leather grain or matte suede nap exactly as in the reference), stitch lines, and any tassel/buckle/vamp ornament that IS present in the reference.\n` +
+      `REFERENCE-SAFE RULE (MANDATORY): Show ONLY details that are clearly visible in the reference. Do NOT show or invent the outsole, sole tread, bottom of the shoe, rear/heel detail, or any new part, panel, buckle, strap, stitching, logo, or ornament that the reference does not show.\n` +
+      `MUST NOT SEE: The outsole/sole/tread, the bottom of the shoe, a foot, a person, any lifestyle prop, any outdoor/floor/tabletop environment.\n` +
+      `BACKGROUND: {BACKGROUND} — the SAME seamless soft warm ivory studio backdrop as every other slot. A clean studio backdrop, NOT a floor scene, NOT a tabletop, NOT an outdoor setting.\n` +
+      `LIGHT: Soft studio lighting — key from upper-left, fill from opposite. One gentle soft shadow. No harsh reflections.\n` +
+      `OUTPUT: Full-bleed photograph that fills the ENTIRE canvas edge to edge. The image IS the photo — NOT a photo of a photo.\n` +
+      `CRITICAL ANTI-FRAME: Do NOT render any border, frame, shadow-box, rounded-corner card, drop-shadow rectangle, or picture-inside-picture effect. ` +
+      `The ivory background must extend to ALL four edges with ZERO visible boundary. ` +
+      `If there is ANY rectangular outline or visible edge that is not the canvas edge, the image is REJECTED.\n` +
+      `THIS IS NOT: an outsole/sole shot, a lifestyle shot, a worn-on-foot shot, an outdoor scene, an editorial/floor scene, a framed image, a product card, a mockup.\n` +
+      `COLOR: The shoe is {COLOR}. Output MUST be {COLOR}. Other colors = REJECTED.\n` +
+      `DO NOT repeat the reference angle ({REF_ANGLE}). Generate a clean studio material/craft detail of a visible region only.`,
+  },
+  {
+    // D-355D/E/F: conservative rear three-quarter studio angle. D-355F reorder →
+    // this is now SLOT 5, framing tightened so the shoe fills the frame and never
+    // looks distant. Avoids a pure back shot (invents unseen rear detail).
+    name: 'tabletop_editorial',
+    label: 'Slot 5 — Arka 3/4 (Stüdyo)',
+    sceneInstructions:
+      `── SHOT: REAR THREE-QUARTER STUDIO ANGLE ──\n` +
+      `Re-photograph this EXACT {COLOR} shoe from a rear three-quarter angle — same physical object, studio only.\n` +
+      `CAMERA: Behind and to one side, about 35–45° off the pure back, at mid-shoe height, so BOTH the heel/back and one full side are visible together.\n` +
+      `POSITION: Shoe upright on its sole, centered, angled so the heel and one side face the camera.\n` +
+      `COMPOSITION: Full shoe, ~80% of frame — the shoe fills the frame and must NOT look distant or small, full shoe visible, no crop, modest even spacing around the shoe.\n` +
+      `MUST SEE: Heel counter and collar from a 3/4 rear angle, plus the side profile that is already visible in the reference.\n` +
+      `CONSERVATIVE REAR RULE (MANDATORY): If the reference does not clearly show the back of the shoe, keep the heel/back plain and consistent with the visible material and color — do NOT invent rear seams, logos, panels, straps, or details that are not visible in the reference.\n` +
+      `MUST NOT SEE: The toe cap front face dead-on, any lifestyle prop, any floor/tabletop/outdoor environment.\n` +
+      `BACKGROUND: {BACKGROUND} — the SAME seamless soft warm ivory studio backdrop as every other slot. A clean studio backdrop, NOT a floor scene, NOT a tabletop, NOT an outdoor setting.\n` +
+      `LIGHT: Soft studio lighting — key from upper-left, fill from opposite. One gentle natural soft shadow under the shoe. No harsh reflections.\n` +
+      `OUTPUT: Full-bleed photograph that fills the ENTIRE canvas edge to edge. The image IS the photo — NOT a photo of a photo.\n` +
+      `CRITICAL ANTI-FRAME: Do NOT render any border, frame, shadow-box, rounded-corner card, drop-shadow rectangle, or picture-inside-picture effect. ` +
+      `The ivory background must extend to ALL four edges with ZERO visible boundary. ` +
+      `If there is ANY rectangular outline or visible edge that is not the canvas edge, the image is REJECTED.\n` +
+      `THIS IS NOT: a front view, a lifestyle shot, an editorial/floor/outdoor scene, a framed image, a product card, a mockup.\n` +
+      `COLOR: The shoe is {COLOR}. Output MUST be {COLOR}. Other colors = REJECTED.\n` +
+      `DO NOT repeat the reference angle ({REF_ANGLE}). Generate a conservative rear three-quarter view.`,
+  },
+] as const
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Pipeline A — generateByEditing (THE ONLY generation path)
@@ -1928,11 +2026,9 @@ export async function generateByGeminiPro(
     // D-355H/M: capture the generated side(0) + front/hero(1) and feed them as
     // additional references to the LATER slots (toe/vamp, material, rear) so the
     // rendered material/finish stays consistent across the set.
-    // D-407/D-410: anchors keyed to the 5-slot contract. hero_3q(0) + side(1) run
-    // first, then feed the later slots (top, back, detail) for consistency.
-    const ANCHOR_HERO_SOURCE = 'hero_3q' // Slot 1 3/4 hero
-    const ANCHOR_SIDE_SOURCE = 'side'    // Slot 2 side profile
-    const ANCHOR_TARGET_SLOTS = new Set(['top', 'back', 'detail']) // Slots 3,4,5
+    const ANCHOR_HERO_SOURCE = 'commerce_front' // Slot 2 front/hero
+    const ANCHOR_SIDE_SOURCE = 'side_angle'     // Slot 1 side profile
+    const ANCHOR_TARGET_SLOTS = new Set(['detail_closeup', 'worn_lifestyle', 'tabletop_editorial']) // Slots 3,4,5
     const ANCHOR_DETAIL_BLOCK =
       `\n\n═══ ANCHOR-DERIVED DETAIL (MANDATORY) ═══\n` +
       `An ADDITIONAL attached image is the already-generated FRONT/HERO studio photo of THIS SAME shoe. Treat it as the ANCHOR.\n` +
@@ -1970,7 +2066,7 @@ export async function generateByGeminiPro(
         if (anchorSide) anchors.push({ data: anchorSide, mime: 'image/jpeg' })
         if (anchors.length > 0) slotImages = anchors
       }
-      const slotPrompt = (scene.name === 'detail' && anchors.length > 0)
+      const slotPrompt = (scene.name === 'worn_lifestyle' && anchors.length > 0)
         ? ANCHOR_DETAIL_BLOCK + fullPrompt
         : fullPrompt
       if (anchors.length > 0) {
@@ -2011,12 +2107,12 @@ export async function generateByGeminiPro(
           slotLog.brandFidelityNotes = brandCheck.reinforcementHint || undefined
         }
 
-        // D-409: shot-compliance Vision check REMOVED. D-407 lets the model
-        // choose composition and D-408 guarantees centering deterministically, so
-        // a per-slot angle check is redundant, contradicts the loose-composition
-        // rule, and was a major source of rate-limit pressure + extra regenerations.
-        // Retry now fires only on real fidelity drift: colour or brand zones.
-        const needsRetry = !colorCheck.match || (brandCheck !== null && !brandCheck.pass)
+        // Step D3: Shot compliance check (v20)
+        const shotCheck = await checkShotCompliance(jpegBuf, scene.name, geminiKey)
+        slotLog.shotCompliancePass = shotCheck.pass
+        slotLog.detectedShot = shotCheck.detectedShot
+
+        const needsRetry = !colorCheck.match || (brandCheck !== null && !brandCheck.pass) || !shotCheck.pass
 
         if (needsRetry) {
           const correctionLines: string[] = []
@@ -2032,11 +2128,15 @@ export async function generateByGeminiPro(
               `Do NOT invent fake brand text, logos, or marks.`,
             )
           }
+          if (!shotCheck.pass && shotCheck.correctionHint) {
+            correctionLines.push(shotCheck.correctionHint)
+          }
           const reinforcedPrompt = correctionLines.join('\n') + '\n\n' + slotPrompt
 
           console.warn(
-            `[generateByGeminiPro D-409] ✗ ${scene.name} fidelity issues — ` +
-            `color=${colorCheck.match} brand=${brandCheck?.pass ?? 'skip'} — retrying`,
+            `[generateByGeminiPro v20] ✗ ${scene.name} fidelity issues — ` +
+            `color=${colorCheck.match} brand=${brandCheck?.pass ?? 'skip'} ` +
+            `shot=${shotCheck.pass} (detected="${shotCheck.detectedShot.slice(0, 60)}") — retrying`,
           )
           slotLog.attempts = 2
           await sleep(2000)
@@ -2055,9 +2155,17 @@ export async function generateByGeminiPro(
             slotLog.brandFidelityNotes = retryBrand.reinforcementHint || undefined
           }
 
+          // Re-check shot on retry (only if first attempt failed shot check)
+          if (!shotCheck.pass) {
+            const retryShotCheck = await checkShotCompliance(retryJpeg, scene.name, geminiKey)
+            slotLog.shotCompliancePass = retryShotCheck.pass
+            slotLog.detectedShot = retryShotCheck.detectedShot
+          }
+
           const warnings: string[] = []
           if (!retryColor.match) warnings.push(`color drift: expected ${mainColor} got ${retryColor.detectedColor}`)
           if (slotLog.brandFidelityPass === false) warnings.push(`brand zones drifted: ${slotLog.brandFidelityNotes || 'unknown'}`)
+          if (slotLog.shotCompliancePass === false) warnings.push(`angle wrong: got "${slotLog.detectedShot || 'unknown'}"`)
           if (warnings.length > 0) slotLog.rejectionReason = warnings.join('; ')
 
           finalBuf = retryJpeg
@@ -2073,18 +2181,16 @@ export async function generateByGeminiPro(
       }
 
       if (finalBuf) {
-        // D-201 / D-407: Orientation auto-fix for the SIDE slot — toe must point
-        // LEFT. This is a post-process alignment (keeps the side shot consistent
-        // across the set), not a hardcoded prompt geometry.
-        if (scene.name === 'side' && geminiKey) {
+        // D-201: Orientation auto-fix for side_angle — toe must point LEFT
+        if (scene.name === 'side_angle' && geminiKey) {
           try {
             const orientation = await checkShoeOrientation(finalBuf, geminiKey)
             if (orientation === 'right') {
-              console.log(`[generateByGeminiPro D-201] side toe points RIGHT — flipping horizontally`)
+              console.log(`[generateByGeminiPro D-201] side_angle toe points RIGHT — flipping horizontally`)
               finalBuf = await sharp(finalBuf).flop().jpeg({ quality: 92 }).toBuffer()
               ;(slotLog as Record<string, unknown>).orientationFixed = true
             } else {
-              console.log(`[generateByGeminiPro D-201] side orientation OK: ${orientation}`)
+              console.log(`[generateByGeminiPro D-201] side_angle orientation OK: ${orientation}`)
               ;(slotLog as Record<string, unknown>).orientationFixed = false
             }
           } catch (flipErr) {

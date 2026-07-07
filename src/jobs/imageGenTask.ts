@@ -510,7 +510,7 @@ export const imageGenTask: TaskConfig<{
     // as one group and centers the pair. Runs before the stock-number overlay.
     if (process.env.IMAGE_CENTERING_ENABLED !== '0') {
       const { normalizeProductCentering, normalizeBackground } = await import('../lib/imageCentering')
-      const { frameCoverageForIndex } = await import('../lib/imageSlotContract')
+      const { frameCoverageForIndex, getSlotByIndex } = await import('../lib/imageSlotContract')
       let centered = 0, bgFixed = 0
       for (let i = 0; i < generatedBuffers.length; i++) {
         try {
@@ -519,7 +519,11 @@ export const imageGenTask: TaskConfig<{
           const b1 = await normalizeProductCentering(b0, { coverage: frameCoverageForIndex(slotIndex) })
           if (b1 !== b0) centered++
           // D-419: unify the studio background tone across all slots.
-          const b2 = await normalizeBackground(b1)
+          // D-421: EXCEPT the detail slot — a macro close-up can cover the corners
+          // with shoe material, so corner sampling could mis-read the "background"
+          // and tint the product. Detail shows almost no bg anyway; skip it.
+          const isDetail = getSlotByIndex(slotIndex)?.key === 'detail'
+          const b2 = isDetail ? b1 : await normalizeBackground(b1)
           if (b2 !== b1) bgFixed++
           generatedBuffers[i] = b2
         } catch (err) {

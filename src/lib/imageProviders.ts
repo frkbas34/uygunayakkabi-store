@@ -19,7 +19,7 @@ import { PRODUCT_PRESERVATION_PROHIBITIONS } from './productPreservation'
 import { LOCK_REMINDER_BLOCK } from './imageLockReminder'
 // D-407: central 5-slot contract — single source of truth for slot types, order,
 // and the centering/framing discipline. EDITING_SCENES is now derived from it.
-import { GENERATED_SCENES } from './imageSlotContract'
+import { GENERATED_SCENES, getSlotByKey } from './imageSlotContract'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Shared canonical prohibitions — injected into EVERY generation prompt
@@ -50,6 +50,22 @@ const ANTI_FRAME_FINAL_BLOCK =
   `The background color/scene MUST extend to ALL FOUR edges of the output canvas.\n` +
   `There must be ZERO pixels of border/margin between the photo content and the canvas edge.\n` +
   `This is a raw camera photograph, NOT a product card, NOT a mockup, NOT a framed print.\n` +
+  `═══════════════════════════════════════════════════\n`
+
+// ─────────────────────────────────────────────────────────────────────────────
+// D-418: PAIR MODE — for the 2 'pair' slots (hero_3q + top) the model renders a
+// natural matched pair (left + right foot). Placed LAST (max recency) so it
+// overrides the earlier "single shoe / no extra shoe / same physical object"
+// rules for THIS image only. Text/logos stay readable on both (unlike the old
+// deterministic mirror), and the two shoes are the same identical model.
+// ─────────────────────────────────────────────────────────────────────────────
+const PAIR_MODE_FINAL_BLOCK =
+  `\n\n═══ PAIR MODE — THIS IMAGE SHOWS BOTH SHOES (OVERRIDE) ═══\n` +
+  `This specific image is a PAIR shot. Show EXACTLY TWO shoes: the LEFT foot and the RIGHT foot of the SAME shoe model, side by side.\n` +
+  `This OVERRIDES any "single shoe", "one shoe", "no extra shoe", or "same single physical object" instruction above — for THIS image a matched pair (two shoes) is REQUIRED, not one.\n` +
+  `The two shoes MUST be the identical matched pair of the exact same product: same colour, same material, same stitching, same logo, same stripes, same sole, same every detail. They are a left/right pair, NOT two different shoes and NOT two of the same foot.\n` +
+  `All text and logos (brand name, model name, stripes, emblems) must read CORRECTLY and un-mirrored on BOTH shoes.\n` +
+  `Arrange them close together as a natural, premium e-commerce catalog pair on the same seamless studio background. Exactly two shoes — not one, not three.\n` +
   `═══════════════════════════════════════════════════\n`
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1537,7 +1553,8 @@ export async function generateByEditing(
       //   3. zoneBlock — protected brand zones
       //   4. sceneText — camera angle, framing, background, lighting
       //   5. CANONICAL_PROHIBITIONS_BLOCK — 11 canonical prohibitions from productPreservation.ts
-      const fullPrompt = LOCK_REMINDER_BLOCK + TASK_FRAMING_BLOCK + identityLock.promptBlock + zoneBlock + sceneText + STUDIO_STANDARD_BLOCK + materialDirectives(identityLock.material, identityLock.visualNotes) + MATERIAL_IDENTITY_LOCK_BLOCK + buildVisualFactLock(visualFacts) + CANONICAL_PROHIBITIONS_BLOCK + ANTI_FRAME_FINAL_BLOCK
+      const isPairSlot = getSlotByKey(scene.name)?.layout === 'pair'
+      const fullPrompt = LOCK_REMINDER_BLOCK + TASK_FRAMING_BLOCK + identityLock.promptBlock + zoneBlock + sceneText + STUDIO_STANDARD_BLOCK + materialDirectives(identityLock.material, identityLock.visualNotes) + MATERIAL_IDENTITY_LOCK_BLOCK + buildVisualFactLock(visualFacts) + CANONICAL_PROHIBITIONS_BLOCK + ANTI_FRAME_FINAL_BLOCK + (isPairSlot ? PAIR_MODE_FINAL_BLOCK : '')
 
       const slotLog: SlotLog = {
         slot: scene.name,
@@ -1946,7 +1963,8 @@ export async function generateByGeminiPro(
         .replace(/\{BACKGROUND\}/g, premiumBackground)
 
       // Same 5-block prompt structure as generateByEditing
-      const fullPrompt = LOCK_REMINDER_BLOCK + TASK_FRAMING_BLOCK + multiRefFraming + identityLock.promptBlock + zoneBlock + sceneText + STUDIO_STANDARD_BLOCK + materialDirectives(identityLock.material, identityLock.visualNotes) + MATERIAL_IDENTITY_LOCK_BLOCK + buildVisualFactLock(visualFacts) + CANONICAL_PROHIBITIONS_BLOCK + ANTI_FRAME_FINAL_BLOCK
+      const isPairSlot = getSlotByKey(scene.name)?.layout === 'pair'
+      const fullPrompt = LOCK_REMINDER_BLOCK + TASK_FRAMING_BLOCK + multiRefFraming + identityLock.promptBlock + zoneBlock + sceneText + STUDIO_STANDARD_BLOCK + materialDirectives(identityLock.material, identityLock.visualNotes) + MATERIAL_IDENTITY_LOCK_BLOCK + buildVisualFactLock(visualFacts) + CANONICAL_PROHIBITIONS_BLOCK + ANTI_FRAME_FINAL_BLOCK + (isPairSlot ? PAIR_MODE_FINAL_BLOCK : '')
 
       // D-412: every slot uses only the ORIGINAL reference image(s) (primary base +
       // any real operator-supplied extra angles of the SAME shoe). No generated

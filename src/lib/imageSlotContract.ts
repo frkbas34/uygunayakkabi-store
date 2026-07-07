@@ -98,9 +98,9 @@ export const GENERATED_SLOTS: readonly SlotDefinition[] = [
     label: 'Slot 1 — 3/4 Hero',
     meaning: 'Main hero — three-quarter (front + one side visible together) presentation.',
     compositionIntent:
-      `Present this shoe from a THREE-QUARTER HERO angle — the front AND one side visible together so the product reads dimensional, as the main catalog hero. ` +
-      `A dead-on front is too flat for a shoe; this is the primary, most dimensional shot. ` +
-      `Choose whatever exact three-quarter framing reads best for a clean e-commerce hero.`,
+      `PAIR SHOT: show BOTH shoes of the pair — the LEFT and the RIGHT foot of the SAME shoe model — together at a THREE-QUARTER hero angle, side by side on the studio background. ` +
+      `The two shoes are the matched pair of the exact same product: IDENTICAL colour, material, stitching, logo, stripes, sole and every detail — mirror-matched left/right feet, not two different shoes. ` +
+      `Arrange them as a natural premium catalog pair (close together, slightly angled), the front and one side of each visible. This is the main dimensional hero.`,
     frameCoverage: 0.82,
     layout: 'pair',
   },
@@ -121,9 +121,9 @@ export const GENERATED_SLOTS: readonly SlotDefinition[] = [
     label: 'Slot 3 — Üstten (Top)',
     meaning: 'Top overview — the product seen from above (opening, topline, closure).',
     compositionIntent:
-      `Present this shoe as a TOP / OVERVIEW shot — looking down onto the product so the opening, topline, and closure read for a clean catalog overview. ` +
-      `This is ONE single shoe (the same physical shoe): do NOT invent, duplicate, or add a second shoe or any extra object. ` +
-      `Choose whatever exact overhead/overview framing reads best.`,
+      `PAIR SHOT: show BOTH shoes of the pair from ABOVE (clean top-down view) — the LEFT and the RIGHT foot of the SAME shoe model, side by side as a matched catalog pair. ` +
+      `The two shoes are IDENTICAL colour, material, stitching, logo, stripes, sole and every detail — the matched left/right pair of the exact same product, not two different shoes. ` +
+      `Arrange them close together as a natural top-down pair; the opening, topline and closure of each visible.`,
     frameCoverage: 0.82,
     layout: 'pair',
   },

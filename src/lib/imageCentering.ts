@@ -191,7 +191,6 @@ export async function normalizeProductCentering(
   const skipAbove = opts.skipIfCoverageAbove ?? 0.9
   const minCoverage = opts.minCoverage ?? 0.02
   const bgHex = opts.backgroundHex ?? STUDIO_BG_HEX
-  const bg = hexToRgb(bgHex)
 
   try {
     // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -210,32 +209,40 @@ export async function normalizeProductCentering(
     if (actual < minCoverage) return input
     if (bbox.width < 2 || bbox.height < 2) return input
 
-    // Output is a square canvas sized to the input's shorter side (generation is
-    // square, so this is a no-op sizing; robust if a non-square ever appears).
+    // D-413: CROP-WINDOW centering (no flat-canvas composite → no seam/frame).
+    // Instead of lifting the shoe bbox onto a fresh flat canvas — which renders a
+    // visible rectangle whenever the studio backdrop is gradient — we compute a
+    // square crop WINDOW centered on the shoe, sized so the shoe's longer side is
+    // `coverage` of the window, and extract that window straight from the original.
+    // The background inside the window is the REAL (continuous, gradient) backdrop,
+    // so there is no tone seam. Out-of-bounds is edge-replicated so the gradient
+    // continues instead of introducing a hard border.
     const S = Math.min(canvasW, canvasH)
+    const bw = bbox.width, bh = bbox.height
+    const longSide = Math.max(bw, bh)
+    const windowSide = Math.max(longSide + 4, Math.round(longSide / coverage))
+    const cx = bbox.left + bw / 2
+    const cy = bbox.top + bh / 2
+    let left = Math.round(cx - windowSide / 2)
+    let top = Math.round(cy - windowSide / 2)
 
-    // Extract the product, rescale so its longer side == coverage * S.
-    const subject = await sharp(input)
-      .extract({ left: bbox.left, top: bbox.top, width: bbox.width, height: bbox.height })
-      .toBuffer()
+    const padLeft = Math.max(0, -left)
+    const padTop = Math.max(0, -top)
+    const padRight = Math.max(0, left + windowSide - canvasW)
+    const padBottom = Math.max(0, top + windowSide - canvasH)
 
-    const targetLong = Math.max(1, Math.round(coverage * S))
-    const subjLong = Math.max(bbox.width, bbox.height)
-    const rescale = targetLong / subjLong
-    const newW = Math.max(1, Math.round(bbox.width * rescale))
-    const newH = Math.max(1, Math.round(bbox.height * rescale))
+    let src = input
+    if (padLeft || padTop || padRight || padBottom) {
+      src = await sharp(input)
+        .extend({ top: padTop, bottom: padBottom, left: padLeft, right: padRight, extendWith: 'copy' })
+        .toBuffer()
+      left += padLeft
+      top += padTop
+    }
 
-    const resized = await sharp(subject)
-      .resize(newW, newH, { fit: 'fill' })
-      .toBuffer()
-
-    const left = Math.round((S - newW) / 2)
-    const top = Math.round((S - newH) / 2)
-
-    const out = await sharp({
-      create: { width: S, height: S, channels: 3, background: { r: bg.r, g: bg.g, b: bg.b } },
-    })
-      .composite([{ input: resized, left, top }])
+    const out = await sharp(src)
+      .extract({ left, top, width: windowSide, height: windowSide })
+      .resize(S, S, { fit: 'fill' })
       .jpeg({ quality: opts.jpegQuality ?? 92 })
       .toBuffer()
 

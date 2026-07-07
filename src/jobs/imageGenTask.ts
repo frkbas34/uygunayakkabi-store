@@ -525,16 +525,15 @@ export const imageGenTask: TaskConfig<{
     // detected product bounding box. Rescales + centers the product to the slot's
     // locked frameCoverage so every slot shares the exact same scale + centering.
     //
-    // D-413: DISABLED again (opt-in via IMAGE_CENTERING_ENABLED=1). Root cause
-    // found on real output: this normalizer CROPS the subject bbox (shoe + its
-    // surrounding studio background) and composites it onto a fresh FLAT ivory
-    // canvas. Real studio backdrops are GRADIENT (lighter centre, darker edges),
-    // so the pasted crop's tone does not match the flat canvas → it creates a
-    // visible rectangle = the exact frame artifact the operator reported. The flat
-    // "crop-and-composite" approach is fundamentally wrong for a gradient bg. It
-    // must be rebuilt with a true alpha MASK (@imgly/background-removal) that lifts
-    // ONLY the shoe pixels (no bg patch), verified on real images, before re-enable.
-    if (process.env.IMAGE_CENTERING_ENABLED === '1') {
+    // D-413: RE-ENABLED with the CROP-WINDOW rewrite, verified on the operator's
+    // real generated images to NO LONGER create a frame. The previous flat-canvas
+    // composite pasted a gradient-bg crop onto a flat canvas → visible rectangle.
+    // The normalizer now extracts a square crop WINDOW straight from the original
+    // (continuous gradient bg preserved, edges copy-extended) → no seam, no frame,
+    // while still scaling/centering the shoe. Set IMAGE_CENTERING_ENABLED=0 to
+    // disable. (Note: it does not remove a frame Gemini itself may render into the
+    // source — that stays an anti-frame prompt concern.)
+    if (process.env.IMAGE_CENTERING_ENABLED !== '0') {
       const { normalizeProductCentering } = await import('../lib/imageCentering')
       const { frameCoverageForIndex } = await import('../lib/imageSlotContract')
       let centered = 0

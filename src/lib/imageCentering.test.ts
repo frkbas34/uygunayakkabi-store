@@ -3,7 +3,7 @@ import assert from 'node:assert'
 const sharp = require('sharp') as typeof import('sharp')
 import {
   normalizeProductCentering,
-  makeMirrorPair,
+  makePairShot,
   detectSubjectBbox,
   hexToRgb,
   STUDIO_BG_HEX,
@@ -113,26 +113,29 @@ void (async () => {
     assert.strictEqual(await normalizeProductCentering(img, { coverage: 1.5 }), img)
   })
 
-  // ── D-416 deterministic mirror pair ────────────────────────────────────────
-  await check('makeMirrorPair builds a mirror-symmetric pair (both shoes 100% identical)', async () => {
+  // ── D-416/D-417 deterministic duplicate pair ───────────────────────────────
+  await check('makePairShot: the two shoes are IDENTICAL copies (not mirrored — text stays readable)', async () => {
     const S = 400
     const img = await makeImg(S, { x: 60, y: 130, w: 130, h: 90 }) // off-centre asymmetric
-    const pair = await makeMirrorPair(img, { coverage: 0.8 })
+    const pair = await makePairShot(img, { coverage: 0.8 })
     const meta = await sharp(pair).metadata()
-    assert.ok(Math.abs((meta.width || 0) - S) <= 2, `width ${meta.width}`)
-    assert.ok(Math.abs((meta.height || 0) - S) <= 2, `height ${meta.height}`)
-    // right half == left half mirrored → flopping the whole output ≈ itself
-    const a = await sharp(pair).removeAlpha().raw().toBuffer()
-    const b = await sharp(pair).flop().removeAlpha().raw().toBuffer()
+    const W = meta.width || 0, H = meta.height || 0
+    assert.ok(Math.abs(W - S) <= 2, `width ${W}`)
+    assert.ok(Math.abs(H - S) <= 2, `height ${H}`)
+    // left half === right half (copies, same orientation). NOT mirror-symmetric.
+    const halfW = Math.floor(W / 2)
+    const lh = await sharp(pair).extract({ left: 0, top: 0, width: halfW, height: H }).removeAlpha().raw().toBuffer()
+    const rh = await sharp(pair).extract({ left: W - halfW, top: 0, width: halfW, height: H }).removeAlpha().raw().toBuffer()
     let diff = 0
-    for (let i = 0; i < a.length; i++) diff += Math.abs(a[i] - b[i])
-    const mad = diff / a.length
-    assert.ok(mad < 6, `pair not mirror-symmetric (mean abs diff ${mad.toFixed(2)})`)
+    for (let i = 0; i < lh.length; i++) diff += Math.abs(lh[i] - rh[i])
+    const mad = diff / lh.length
+    // left half === right half → the two shoes are the same copy (not a flip).
+    assert.ok(mad < 4, `halves not identical (mean abs diff ${mad.toFixed(2)})`)
   })
 
-  await check('makeMirrorPair returns the input unchanged when no subject is found', async () => {
+  await check('makePairShot returns the input unchanged when no subject is found', async () => {
     const blank = await makeImg(200, null)
-    assert.strictEqual(await makeMirrorPair(blank), blank)
+    assert.strictEqual(await makePairShot(blank), blank)
   })
 
   console.log(`\nimageCentering: ${passed} checks passed${process.exitCode ? ' - WITH FAILURES' : ' - ALL OK'}`)

@@ -287,17 +287,17 @@ export type PairOptions = {
 }
 
 /**
- * Build a PAIR from a single generated shoe by placing the shoe next to its
- * horizontal MIRROR (left foot + right foot are mirror images). The two shoes are
- * pixel-identical (same source, mirrored), so they are guaranteed 100% the same.
- *
- * Seam-free: each half is a crop WINDOW around the shoe (continuous gradient bg,
- * edges copy-extended); the right half is the left flopped, so the centre columns
- * match exactly and the whole background is mirror-symmetric — no visible seam.
+ * Build a PAIR from a single generated shoe by placing TWO identical copies of it
+ * side by side. The two shoes are pixel-identical (same source, same orientation),
+ * so they are guaranteed 100% the same AND any text/logo (e.g. "adidas", "SAMBA",
+ * the 3-stripes) reads correctly on BOTH — unlike a horizontal mirror, which flips
+ * the text backwards on one shoe. Each half is a crop WINDOW around the shoe
+ * (continuous gradient bg, edges copy-extended), so the studio background stays
+ * continuous with no visible seam.
  *
  * Returns the original buffer unchanged if no subject is detected (safe fallback).
  */
-export async function makeMirrorPair(input: Buffer, opts: PairOptions = {}): Promise<Buffer> {
+export async function makePairShot(input: Buffer, opts: PairOptions = {}): Promise<Buffer> {
   const coverage = opts.coverage ?? 0.82
   const bgHex = opts.backgroundHex ?? STUDIO_BG_HEX
   try {
@@ -338,20 +338,19 @@ export async function makeMirrorPair(input: Buffer, opts: PairOptions = {}): Pro
     const halfW = Math.round(S / 2)
     const tile = await sharp(win).resize(halfW, halfW, { fit: 'fill' }).toBuffer()
     const extra = S - halfW
-    const colLeft = await sharp(tile)
+    const col = await sharp(tile)
       .extend({ top: Math.floor(extra / 2), bottom: extra - Math.floor(extra / 2), left: 0, right: 0, extendWith: 'copy' })
       .toBuffer()
-    const colRight = await sharp(colLeft).flop().toBuffer()
-
+    // Both halves are the SAME column (no flip) → both shoes identical, text readable.
     const bg = hexToRgb(bgHex)
     return await sharp({
       create: { width: halfW * 2, height: S, channels: 3, background: { r: bg.r, g: bg.g, b: bg.b } },
     })
-      .composite([{ input: colLeft, left: 0, top: 0 }, { input: colRight, left: halfW, top: 0 }])
+      .composite([{ input: col, left: 0, top: 0 }, { input: col, left: halfW, top: 0 }])
       .jpeg({ quality: opts.jpegQuality ?? 92 })
       .toBuffer()
   } catch (err) {
-    console.warn('[makeMirrorPair] skipped (returning original):', err instanceof Error ? err.message : err)
+    console.warn('[makePairShot] skipped (returning original):', err instanceof Error ? err.message : err)
     return input
   }
 }

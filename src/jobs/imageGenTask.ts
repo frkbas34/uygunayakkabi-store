@@ -509,7 +509,7 @@ export const imageGenTask: TaskConfig<{
     // two shoes are 100% identical. 'single' slots get the normal centering. Both
     // run BEFORE the stock-number overlay, so a pair carries a single overlay.
     if (process.env.IMAGE_CENTERING_ENABLED !== '0') {
-      const { normalizeProductCentering, makeMirrorPair } = await import('../lib/imageCentering')
+      const { normalizeProductCentering, makePairShot } = await import('../lib/imageCentering')
       const { frameCoverageForIndex, slotLayoutForIndex } = await import('../lib/imageSlotContract')
       let centered = 0, paired = 0
       for (let i = 0; i < generatedBuffers.length; i++) {
@@ -517,7 +517,7 @@ export const imageGenTask: TaskConfig<{
           const slotIndex = sceneIndices[i]
           const before = generatedBuffers[i]
           const after = slotLayoutForIndex(slotIndex) === 'pair'
-            ? await makeMirrorPair(before, { coverage: 0.9 }) // each shoe fills its half; bigger + closer than the single coverage
+            ? await makePairShot(before, { coverage: 0.9 }) // two identical copies, text readable on both
             : await normalizeProductCentering(before, { coverage: frameCoverageForIndex(slotIndex) })
           if (after !== before) { if (slotLayoutForIndex(slotIndex) === 'pair') paired++; else centered++ }
           generatedBuffers[i] = after

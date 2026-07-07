@@ -147,8 +147,17 @@ export async function detectSubjectBbox(
     .raw()
     .toBuffer({ resolveWithObject: true })
 
+  // D-413: DENSITY-based bounding box. A soft drop shadow and jpeg noise scatter a
+  // few subject pixels far from the product; a plain min/max extent then inflates
+  // the box and shifts its centre (so the shoe lands off-centre and at an
+  // inconsistent scale slot-to-slot). Instead we build per-row and per-column
+  // subject-pixel counts (projection profiles) and take the box as the span where
+  // the count clears a fraction of that axis's PEAK — this locks onto the dense
+  // product mass and ignores the sparse shadow/noise, giving a tight, consistent box.
   const ch = info.channels
-  let minX = info.width, minY = info.height, maxX = -1, maxY = -1
+  const rowCount = new Array<number>(info.height).fill(0)
+  const colCount = new Array<number>(info.width).fill(0)
+  let total = 0
   for (let y = 0; y < info.height; y++) {
     for (let x = 0; x < info.width; x++) {
       const i = (y * info.width + x) * ch
@@ -156,15 +165,27 @@ export async function detectSubjectBbox(
       const dg = data[i + 1] - bg.g
       const db = data[i + 2] - bg.b
       if (dr * dr + dg * dg + db * db > thresh2) {
-        if (x < minX) minX = x
-        if (x > maxX) maxX = x
-        if (y < minY) minY = y
-        if (y > maxY) maxY = y
+        rowCount[y]++
+        colCount[x]++
+        total++
       }
     }
   }
 
-  if (maxX < 0) return null // nothing but background
+  if (total === 0) return null // nothing but background
+
+  const peakRow = Math.max(...rowCount)
+  const peakCol = Math.max(...colCount)
+  const rowThresh = Math.max(1, peakRow * 0.06)
+  const colThresh = Math.max(1, peakCol * 0.06)
+  let minX = -1, maxX = -1, minY = -1, maxY = -1
+  for (let y = 0; y < info.height; y++) {
+    if (rowCount[y] >= rowThresh) { if (minY < 0) minY = y; maxY = y }
+  }
+  for (let x = 0; x < info.width; x++) {
+    if (colCount[x] >= colThresh) { if (minX < 0) minX = x; maxX = x }
+  }
+  if (maxX < 0 || maxY < 0) return null
 
   // Map the scan-space bbox back to full resolution.
   const fLeft = Math.max(0, Math.floor(minX / scale))

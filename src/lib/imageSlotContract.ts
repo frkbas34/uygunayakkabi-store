@@ -120,12 +120,16 @@ export const GENERATED_SLOTS: readonly SlotDefinition[] = [
   },
   {
     index: 3,
+    // D-414: was a flat straight-on "dead-back" (operator: static/ugly, over-
+    // emphasises rear brand logos). Changed to a rear THREE-QUARTER angle — the
+    // heel + one side together, dimensional and premium. Key stays 'back'.
     key: 'back',
-    label: 'Slot 4 — Arka / Topuk (Back)',
-    meaning: 'Rear / heel-focused presentation.',
+    label: 'Slot 4 — Arka 3/4 (Rear)',
+    meaning: 'Rear three-quarter — heel and one side visible together (dimensional, not a flat dead-back).',
     compositionIntent:
-      `Present this shoe from the REAR / HEEL so the back of the shoe and the heel read clearly. ` +
-      `Choose whatever exact rear framing reads best. If the reference does not clearly show the back, keep the heel plain and consistent with the visible material and colour — do NOT invent rear seams, panels, logos, or details.`,
+      `Present this shoe from a REAR THREE-QUARTER angle — the heel/back AND one side visible together, so the back reads in a dimensional, premium, catalog way. ` +
+      `This is NOT a flat straight-on dead-back, and NOT a tight close-up: show the WHOLE shoe from behind-and-to-one-side. ` +
+      `Choose whatever exact rear-three-quarter framing reads best. If the reference does not clearly show the back, keep the heel plain and consistent with the visible material and colour — do NOT invent rear seams, panels, logos, or details.`,
     frameCoverage: 0.82,
   },
   {

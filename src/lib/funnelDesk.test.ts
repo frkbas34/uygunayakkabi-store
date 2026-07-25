@@ -202,6 +202,43 @@ async function run() {
     assert.ok(busy.includes('&lt;unsafe&gt;'))
     assert.ok(busy.includes('lead-siz'))
     assert.ok(busy.includes('200'))
+    assert.ok(busy.includes('Next safe reads'))
+    assert.ok(busy.includes('/leadplan'))
+    assert.ok(busy.includes('/orders'))
+    assert.ok(!busy.includes('/adpack'))
+    assert.ok(!busy.includes('/shopier publish-ready confirm'))
+  })
+
+  await check('formatter suggests ad report only when attribution detail exists', () => {
+    const rendered = formatFunnelSnapshot({
+      ...emptySnapshot(),
+      sources: [
+        {
+          source: 'website',
+          stages: { new: 0, contacted: 0, follow_up: 0, closed_won: 1, closed_lost: 0, spam: 0, total: 1 },
+          ordersConverted: 1,
+          revenue: 1500,
+        },
+      ],
+      totals: {
+        source: 'TOPLAM',
+        stages: { new: 0, contacted: 0, follow_up: 0, closed_won: 1, closed_lost: 0, spam: 0, total: 1 },
+        ordersConverted: 1,
+        revenue: 1500,
+      },
+      attributionDetail: {
+        coveredLeads: 1,
+        topUtmSources: [{ value: 'instagram', count: 1 }],
+        topUtmCampaigns: [{ value: 'drop', count: 1 }],
+        topReferrers: [],
+      },
+    })
+
+    assert.ok(rendered.includes('Next safe reads'))
+    assert.ok(rendered.includes('/orders'))
+    assert.ok(rendered.includes('/adreport week'))
+    assert.ok(!rendered.includes('/leadplan'))
+    assert.ok(!rendered.includes('/adpack'))
   })
 }
 

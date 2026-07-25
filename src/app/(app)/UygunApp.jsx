@@ -1,5 +1,6 @@
 "use client";
 import { useState, useEffect, useRef } from "react";
+import Image from "next/image";
 import { captureFirstTouch } from "@/lib/attribution";
 import { trackEvent, TRACK_EVENTS } from "@/lib/trackEvent";
 
@@ -42,19 +43,6 @@ function shoe(bg, sole, body, acc, lace, rot = 0) {
 // — all demo/placeholder products purged, only real DB products shown
 
 // ============================================
-// CATEGORY DATA
-// ============================================
-// D-177: Removed Erkek Ayakkabı & Krampon
-const CAT_DATA = [
-  { name: "Spor", desc: "Koşu & Fitness", icon: "⚡" },
-  { name: "Günlük", desc: "Her Güne Uygun", icon: "👟" },
-  { name: "Klasik", desc: "Ofis & Şıklık", icon: "✦" },
-  { name: "Bot", desc: "Kış & Dağ", icon: "🏔" },
-  { name: "Terlik", desc: "Rahat & Hafif", icon: "🩴" },
-  { name: "Cüzdan", desc: "Deri & Kartlık", icon: "◆" },
-];
-
-// ============================================
 // ICONS (SVG)
 // ============================================
 const I = {
@@ -71,11 +59,51 @@ const I = {
 // ============================================
 const waLink = (num) => `https://wa.me/${num || '905331524843'}`;
 
+function isNextImageSource(src) {
+  if (typeof src !== "string" || !src) return false;
+  if (src.startsWith("/")) return true;
+  if (!src.startsWith("https://")) return false;
+
+  try {
+    const hostname = new URL(src).hostname;
+    return (
+      hostname.endsWith(".public.blob.vercel-storage.com") ||
+      hostname.endsWith(".r2.cloudflarestorage.com") ||
+      hostname.endsWith(".amazonaws.com") ||
+      hostname === "images.unsplash.com"
+    );
+  } catch {
+    return false;
+  }
+}
+
+function ProductImage({ src, alt, priority = false, loading = "lazy", sizes, style }) {
+  if (!src) return null;
+
+  if (!isNextImageSource(src)) {
+    // Data/blob and unconfigured legacy media cannot pass through next/image.
+    // eslint-disable-next-line @next/next/no-img-element
+    return <img src={src} alt={alt} loading={priority ? "eager" : loading} fetchPriority={priority ? "high" : undefined} style={style} />;
+  }
+
+  return (
+    <Image
+      src={src}
+      alt={alt}
+      fill
+      priority={priority}
+      loading={priority ? undefined : loading}
+      sizes={sizes}
+      style={style}
+    />
+  );
+}
+
 const DEFAULT_SETTINGS = {
   siteName: 'UygunAyakkabı',
   contact: { whatsapp: '0533 152 48 43', whatsappFull: '905331524843', email: '', instagram: '' },
   shipping: { freeShippingThreshold: 3000, shippingCost: 49, showFreeShippingBanner: true },
-  trustBadges: { monthlyCustomers: '500+', totalProducts: '200+', satisfactionRate: '%98' },
+  trustBadges: { enabled: false, monthlyCustomers: '', totalProducts: '', satisfactionRate: '' },
   announcementBar: { enabled: true, text: '3.000₺ üzeri siparişlerde KARGO BEDAVA', bgColor: '#c8102e' },
 };
 
@@ -83,14 +111,6 @@ const DEFAULT_SETTINGS = {
 // GLOBAL STYLES
 // ============================================
 function GlobalStyles() {
-  useEffect(() => {
-    const link = document.createElement("link");
-    link.href = "https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=Playfair+Display:wght@400;500;600;700;800;900&display=swap";
-    link.rel = "stylesheet";
-    link.setAttribute("data-uygun-fonts", "1");
-    document.head.appendChild(link);
-  }, []);
-
   return (
     <style>{`
       *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
@@ -322,6 +342,8 @@ function Navbar({ onNav, pg, settings, cartCount, onCartToggle, categories }) {
       borderBottom: sc ? "1px solid rgba(28,26,22,0.06)" : "1px solid transparent",
       transition: "all 0.4s cubic-bezier(.22,1,.36,1)",
     }}>
+      <TopBar settings={settings} />
+
       {/* Row 1: menu trigger · centered logo · cart/whatsapp */}
       <div style={{ position: "relative", maxWidth: 1440, margin: "0 auto", padding: "0 40px", height: 56, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
         {/* Left: Menu trigger */}
@@ -490,7 +512,7 @@ function Navbar({ onNav, pg, settings, cartCount, onCartToggle, categories }) {
 // ============================================
 // PRODUCT CARD — Beige glassmorphism
 // ============================================
-function Card({ p, onView }) {
+function Card({ p }) {
   const [h, sH] = useState(false);
   const [slideIdx, setSI] = useState(0);
   // D-174b: Only AI images (generativeGallery), never original intake photos
@@ -519,7 +541,7 @@ function Card({ p, onView }) {
     >
       {/* Image with swipe */}
       <div style={{ position: "relative", paddingTop: "115%", overflow: "hidden", background: "var(--product-image-bg, #f4efe6)" }}>
-        <img src={displayImg} alt={p.name} loading="lazy" style={{
+        <ProductImage src={displayImg} alt={p.name || p.title || "Product"} loading="lazy" sizes="(max-width: 768px) 50vw, 25vw" style={{
           position: "absolute", top: 0, left: 0, width: "100%", height: "100%",
           objectFit: "contain", transition: "transform 0.5s cubic-bezier(.22,1,.36,1), opacity 0.4s",
           transform: h ? "scale(1.06)" : "scale(1)",
@@ -630,8 +652,7 @@ function Card({ p, onView }) {
 // ============================================
 // HERO SECTION
 // ============================================
-function Hero({ onNav, settings, allProducts }) {
-  const trust = settings?.trustBadges || DEFAULT_SETTINGS.trustBadges;
+function Hero({ onNav, settings }) {
   const contact = settings?.contact || DEFAULT_SETTINGS.contact;
 
   const onImg = HERO_IMAGES.length > 0;
@@ -813,17 +834,16 @@ function StepsSection({ onNav }) {
 // ============================================
 // BEST SELLERS HORIZONTAL SCROLL
 // ============================================
-function BestSellersScroll({ allProducts, onView, onNav }) {
+function BestSellersScroll({ products = [], onView, onNav }) {
   const scrollRef = useRef(null);
   const scroll = (dir) => { if (scrollRef.current) scrollRef.current.scrollBy({ left: dir * 320, behavior: "smooth" }); };
-  const moreProducts = allProducts.slice(6, 18);
-  if (moreProducts.length === 0) return null;
+  if (products.length < 2) return null;
   return (
     <section style={{ padding: "80px 0", borderTop: "1px solid rgba(28,26,22,0.06)", position: "relative", zIndex: 1 }}>
       <div style={{ maxWidth: 1440, margin: "0 auto", padding: "0 40px", display: "flex", justifyContent: "space-between", alignItems: "flex-end", marginBottom: 32 }}>
         <div>
-          <p style={{ fontFamily: T.sans, fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.18em", color: T.red, marginBottom: 10 }}>KOLEKSİYON</p>
-          <h2 style={{ fontFamily: T.serif, fontSize: "clamp(30px, 3.5vw, 48px)", fontWeight: 700, color: T.text, letterSpacing: "-0.02em" }}>Daha Fazlasını Keşfet</h2>
+          <p style={{ fontFamily: T.sans, fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.18em", color: T.red, marginBottom: 10 }}>ÇOK SATANLAR</p>
+          <h2 style={{ fontFamily: T.serif, fontSize: "clamp(30px, 3.5vw, 48px)", fontWeight: 700, color: T.text, letterSpacing: "-0.02em" }}>Çok Satanlar</h2>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
           {/* D-257: Tümünü Gör link */}
@@ -835,7 +855,7 @@ function BestSellersScroll({ allProducts, onView, onNav }) {
         </div>
       </div>
       <div ref={scrollRef} style={{ display: "flex", gap: 16, overflowX: "auto", scrollSnapType: "x mandatory", paddingLeft: 40, paddingRight: 40, scrollbarWidth: "none", msOverflowStyle: "none" }}>
-        {moreProducts.map(p => (
+        {products.map(p => (
           <div key={p.id || p.slug} style={{ flex: "0 0 280px", scrollSnapAlign: "start" }}>
             <Card p={p} onView={onView} />
           </div>
@@ -853,6 +873,17 @@ function BestSellersScroll({ allProducts, onView, onNav }) {
 // ============================================
 function AboutTrustSection({ onNav, settings }) {
   const tb = settings?.trustBadges || DEFAULT_SETTINGS.trustBadges;
+  const trustStats = tb.enabled && [
+    { val: tb.monthlyCustomers?.trim(), label: "Mutlu Müşteri" },
+    { val: tb.totalProducts?.trim(), label: "Ürün" },
+    { val: tb.satisfactionRate?.trim(), label: "Memnuniyet" },
+  ].every((stat) => stat.val)
+    ? [
+        { val: tb.monthlyCustomers.trim(), label: "Mutlu Müşteri" },
+        { val: tb.totalProducts.trim(), label: "Ürün" },
+        { val: tb.satisfactionRate.trim(), label: "Memnuniyet" },
+      ]
+    : null;
   const values = [
     "Kaynağından seçilmiş, kalite odaklı ürünler",
     "Piyasadaki değerinden genellikle daha uygun fiyatlar",
@@ -862,7 +893,7 @@ function AboutTrustSection({ onNav, settings }) {
   ];
   return (
     <section style={{ padding: "100px 40px", maxWidth: 1440, margin: "0 auto", borderTop: "1px solid rgba(28,26,22,0.06)", position: "relative", zIndex: 1 }}>
-      <div className="about-grid" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 80, alignItems: "start" }}>
+      <div className="about-grid" style={{ display: "grid", gridTemplateColumns: trustStats ? "1fr 1fr" : "minmax(0, 760px)", gap: 80, alignItems: "start" }}>
         {/* Left — who we are + why us + CTA */}
         <div>
           <p style={{ fontFamily: T.sans, fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.18em", color: T.red, marginBottom: 10 }}>BİZ KİMİZ &amp; GÜVEN</p>
@@ -906,105 +937,26 @@ function AboutTrustSection({ onNav, settings }) {
         </div>
 
         {/* Right — stats card (sticky) */}
-        <div style={{ position: "sticky", top: 120 }}>
-          <div style={{ borderRadius: 24, overflow: "hidden", aspectRatio: "4/3", background: "#ebe5da", border: "1px solid rgba(28,26,22,0.06)", position: "relative" }}>
-            <div style={{ width: "100%", height: "100%", background: "linear-gradient(135deg, #efe7da 0%, #d9c7ad 55%, #b8966a 100%)" }} />
-            <div style={{ position: "absolute", bottom: 0, left: 0, right: 0, padding: 32, background: "linear-gradient(transparent, rgba(0,0,0,0.55))" }}>
-              <div style={{ display: "flex", gap: 40 }}>
-                {[
-                  { val: tb.monthlyCustomers, label: "Mutlu Müşteri" },
-                  { val: tb.totalProducts, label: "Ürün" },
-                  { val: tb.satisfactionRate, label: "Memnuniyet" },
-                ].map((s, i) => (
-                  <div key={i}>
-                    <p style={{ fontSize: 24, fontWeight: 800, color: "#fff" }}>{s.val}</p>
-                    <p style={{ fontSize: 10, color: "rgba(255,255,255,0.7)", textTransform: "uppercase", letterSpacing: "0.1em", marginTop: 4 }}>{s.label}</p>
-                  </div>
-                ))}
+        {trustStats && (
+          <div style={{ position: "sticky", top: 120 }}>
+            <div style={{ borderRadius: 24, overflow: "hidden", aspectRatio: "4/3", background: "#ebe5da", border: "1px solid rgba(28,26,22,0.06)", position: "relative" }}>
+              <div style={{ width: "100%", height: "100%", background: "linear-gradient(135deg, #efe7da 0%, #d9c7ad 55%, #b8966a 100%)" }} />
+              <div style={{ position: "absolute", bottom: 0, left: 0, right: 0, padding: 32, background: "linear-gradient(transparent, rgba(0,0,0,0.55))" }}>
+                <div style={{ display: "flex", gap: 40 }}>
+                  {trustStats.map((s, i) => (
+                    <div key={i}>
+                      <p style={{ fontSize: 24, fontWeight: 800, color: "#fff" }}>{s.val}</p>
+                      <p style={{ fontSize: 10, color: "rgba(255,255,255,0.7)", textTransform: "uppercase", letterSpacing: "0.1em", marginTop: 4 }}>{s.label}</p>
+                    </div>
+                  ))}
+                </div>
               </div>
             </div>
+            <div style={{ marginTop: 20, textAlign: "center" }}>
+              <p style={{ fontFamily: T.sans, fontSize: 12, fontWeight: 600, color: T.textLight, letterSpacing: "0.06em" }}>Seçili ürünler — kişisel destek</p>
+            </div>
           </div>
-          <div style={{ marginTop: 20, textAlign: "center" }}>
-            <p style={{ fontFamily: T.sans, fontSize: 12, fontWeight: 600, color: T.textLight, letterSpacing: "0.06em" }}>Seçili ürünler — kişisel destek</p>
-          </div>
-        </div>
-      </div>
-    </section>
-  );
-}
-
-// ============================================
-// CATEGORY OVERLAY
-// ============================================
-const CAT_CHIPS = [
-  { icon: "⚡", name: "Spor" },
-  { icon: "👟", name: "Günlük" },
-  { icon: "✦", name: "Klasik" },
-  { icon: "🥾", name: "Bot" },
-  { icon: "☀", name: "Sandalet" },
-  { icon: "🩴", name: "Terlik" },
-];
-
-// D-277: CategoryOverlay upgraded — proper section heading + larger chips + Tüm Ürünler fallback
-function CategoryOverlay({ onNav }) {
-  const [searchVal, setSearchVal] = useState("");  // D-278: homepage search input
-  const handleSearch = (e) => {
-    e.preventDefault();
-    const q = searchVal.trim();
-    if (q) onNav("catalog", null, q);
-    else onNav("catalog");
-  };
-  return (
-    <section style={{ padding: "72px 40px", maxWidth: 1440, margin: "0 auto", borderTop: "1px solid rgba(28,26,22,0.06)", position: "relative", zIndex: 1 }}>
-      <div style={{ textAlign: "center", marginBottom: 36 }}>
-        <p style={{ fontFamily: T.sans, fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.18em", color: T.red, marginBottom: 10 }}>KEŞFET</p>
-        <h2 style={{ fontFamily: T.serif, fontSize: "clamp(26px, 3vw, 40px)", fontWeight: 700, color: T.text, letterSpacing: "-0.02em", marginBottom: 10 }}>Ne Arıyorsunuz?</h2>
-        <p style={{ fontFamily: T.sans, fontSize: 13, color: T.textLighter, lineHeight: 1.6 }}>Model veya beden arayın, bir kategori seçin ya da tüm koleksiyona göz atın</p>
-      </div>
-      {/* D-278: Homepage quick-start search */}
-      <form onSubmit={handleSearch} style={{ maxWidth: 480, margin: "0 auto 32px", display: "flex", gap: 8 }}>
-        <input
-          type="text"
-          value={searchVal}
-          onChange={e => setSearchVal(e.target.value)}
-          placeholder="Model veya beden ara..."
-          style={{
-            flex: 1, padding: "13px 20px", borderRadius: T.r.full,
-            border: "1px solid rgba(28,26,22,0.12)", background: "rgba(255,255,255,0.7)",
-            fontFamily: T.sans, fontSize: 14, color: T.text, outline: "none",
-            boxShadow: "0 2px 8px rgba(0,0,0,0.04)",
-          }}
-        />
-        <button type="submit" style={{
-          padding: "13px 22px", borderRadius: T.r.full, background: T.red,
-          border: "none", cursor: "pointer", color: "#fff",
-          fontFamily: T.sans, fontSize: 12, fontWeight: 700,
-          boxShadow: "0 4px 12px rgba(177,41,41,0.25)",
-        }}>
-          Ara
-        </button>
-      </form>
-      <div style={{ display: "flex", flexWrap: "wrap", gap: 12, justifyContent: "center" }}>
-        {CAT_CHIPS.map((c, i) => (
-          <button key={i} onClick={() => onNav("catalog", c.name)} style={{
-            display: "flex", alignItems: "center", gap: 10, padding: "13px 26px", borderRadius: 999,
-            background: "rgba(238,232,222,0.8)", border: "1px solid rgba(28,26,22,0.1)",
-            cursor: "pointer", transition: "all 0.3s", fontFamily: T.sans,
-            boxShadow: "0 2px 8px rgba(0,0,0,0.04)",
-          }}>
-            <span style={{ fontSize: 18 }}>{c.icon}</span>
-            <span style={{ fontSize: 13, fontWeight: 600, color: T.text }}>{c.name}</span>
-          </button>
-        ))}
-      </div>
-      <div style={{ textAlign: "center", marginTop: 24 }}>
-        <button onClick={() => onNav("catalog")} style={{
-          fontFamily: T.sans, fontSize: 12, fontWeight: 600,
-          color: "rgba(28,26,22,0.4)", background: "none", border: "none",
-          cursor: "pointer", letterSpacing: "0.04em",
-        }}>
-          veya tüm ürünlere göz at →
-        </button>
+        )}
       </div>
     </section>
   );
@@ -1013,11 +965,10 @@ function CategoryOverlay({ onNav }) {
 // ============================================
 // İNDİRİMLİ ÜRÜNLER (Discounted Horizontal Scroll)
 // ============================================
-function DiscountedSection({ allProducts, onView, onNav }) {
+function DiscountedSection({ products = [], onView, onNav }) {
   const scrollRef = useRef(null);
   const scroll = (dir) => { if (scrollRef.current) scrollRef.current.scrollBy({ left: dir * 320, behavior: "smooth" }); };
-  const discounted = allProducts.filter(p => p.originalPrice && p.originalPrice > p.price);
-  if (discounted.length === 0) return null;
+  if (products.length < 2) return null;
   return (
     <section style={{ padding: "40px 0 100px", position: "relative", zIndex: 1 }}>
       <div style={{ maxWidth: 1440, margin: "0 auto", padding: "0 40px", display: "flex", justifyContent: "space-between", alignItems: "flex-end", marginBottom: 32, marginTop: 20 }}>
@@ -1035,7 +986,7 @@ function DiscountedSection({ allProducts, onView, onNav }) {
         </div>
       </div>
       <div ref={scrollRef} style={{ display: "flex", gap: 16, overflowX: "auto", scrollSnapType: "x mandatory", paddingLeft: 40, paddingRight: 40, scrollbarWidth: "none", msOverflowStyle: "none" }}>
-        {discounted.map(p => (
+        {products.map(p => (
           <div key={p.id || p.slug} style={{ flex: "0 0 280px", scrollSnapAlign: "start" }}>
             <Card p={p} onView={onView} />
           </div>
@@ -1048,7 +999,7 @@ function DiscountedSection({ allProducts, onView, onNav }) {
 // ============================================
 // PRE-FOOTER CTA (D-284 — exit recovery)
 // ============================================
-function PreFooterCTA({ onNav, settings }) {
+function PreFooterCTA({ onNav }) {
   return (
     <section style={{
       padding: "80px 40px",
@@ -1157,7 +1108,7 @@ function CategoryTiles({ allProducts, onNav }) {
             background: t.img ? "#ebe5da" : "linear-gradient(160deg, #efe7da, #e3d8c6)",
             boxShadow: "0 8px 24px rgba(0,0,0,0.06)",
           }}>
-            {t.img && <img src={t.img} alt="" aria-hidden="true" loading="lazy" style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover" }} />}
+            {t.img && <ProductImage src={t.img} alt="" loading="lazy" sizes="(max-width: 768px) 33vw, 16vw" style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover" }} />}
             <span style={{ position: "absolute", inset: 0, background: "linear-gradient(to top, rgba(28,26,22,0.62) 0%, rgba(28,26,22,0.04) 58%)" }} />
             <span style={{ position: "absolute", left: 0, right: 0, bottom: 14, color: "#fff", fontFamily: T.sans, fontSize: 14, fontWeight: 700, letterSpacing: "0.03em", textShadow: "0 1px 6px rgba(0,0,0,0.45)" }}>{t.label}</span>
           </button>
@@ -1181,7 +1132,7 @@ const EDITORIAL_IMAGES = [
   "/hero/hero-suedegold.jpg",
 ];
 
-function EditorialImageSection({ bgImage, onNav }) {
+function EditorialImageSection({ onNav }) {
   const [idx, setIdx] = useState(0);
   useEffect(() => {
     if (EDITORIAL_IMAGES.length <= 1) return;
@@ -1286,7 +1237,7 @@ function SocialProofReviews({ onNav }) {
   );
 }
 
-export default function App({ dbProducts = [], siteSettings = null, banners = [], sections = null }) {
+export default function App({ dbProducts = [], siteSettings = null, sections = null }) {
   const S = siteSettings || DEFAULT_SETTINGS;
   const [pg, sPg] = useState("home");
   const [sel, sSel] = useState(null);
@@ -1327,12 +1278,10 @@ export default function App({ dbProducts = [], siteSettings = null, banners = []
   })();
   const yeniIds = new Set(yeniList.map(p => String(p.id)));
   allProducts.forEach(p => { p.isNew = yeniIds.has(String(p.id)); });
-  const cokSorulanList = (() => {
-    const merged = [...pickIds(sections?.popular), ...pickIds(sections?.bestSellers)];
-    const uniq = [...new Map(merged.map(p => [String(p.id), p])).values()];
-    if (uniq.length >= 2) return uniq.slice(0, 12);
-    return allProducts.slice(0, 12);
-  })();
+  const editorPicksList = pickIds(sections?.popular);
+  const bestSellersList = pickIds(sections?.bestSellers);
+  const dealsList = pickIds(sections?.deals);
+  const discountedList = pickIds(sections?.discounted);
   const tukenmedenList = allProducts.filter(p => p.status !== "soldout" && p.stock > 0 && p.stock <= 3).slice(0, 12);
 
   // D-194: URL sync — pushState so browser URL reflects current page
@@ -1424,7 +1373,6 @@ export default function App({ dbProducts = [], siteSettings = null, banners = []
   return (
     <div style={{ minHeight: "100vh", background: T.bg }}>
       <GlobalStyles />
-      <TopBar settings={S} />
       <Navbar onNav={nav} pg={pg} settings={S} cartCount={cartCount} onCartToggle={() => setCartOpen(!cartOpen)} categories={presentCategories} />
 
       {/* D-194: Cart Drawer */}
@@ -1448,8 +1396,8 @@ export default function App({ dbProducts = [], siteSettings = null, banners = []
               ) : (
                 cart.map((c, idx) => (
                   <div key={idx} style={{ display: "flex", gap: 14, padding: "14px 0", borderBottom: "1px solid rgba(28,26,22,0.06)" }}>
-                    <div style={{ width: 64, height: 64, borderRadius: 12, overflow: "hidden", background: "#ebe5da", flexShrink: 0 }}>
-                      <img src={c.dbImage || c.image} alt={c.name || c.title} loading="lazy" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+                    <div style={{ position: "relative", width: 64, height: 64, borderRadius: 12, overflow: "hidden", background: "#ebe5da", flexShrink: 0 }}>
+                      <ProductImage src={c.dbImage || c.image} alt={c.name || c.title || "Product"} loading="lazy" sizes="64px" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
                     </div>
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <p style={{ fontFamily: T.sans, fontSize: 13, fontWeight: 600, color: T.text, margin: "0 0 4px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
@@ -1489,18 +1437,21 @@ export default function App({ dbProducts = [], siteSettings = null, banners = []
 
       {pg === "home" && (
         <div>
-          <Hero onNav={nav} settings={S} allProducts={allProducts} />
+          <Hero onNav={nav} settings={S} />
 
           {/* D-310: visual category tiles */}
           <CategoryTiles allProducts={allProducts} onNav={nav} />
 
           {/* Product-first rails */}
           <ProductRail id="rail-yeni" tag="YENİ SEZON" title="Yeni Gelenler" products={yeniList} onView={view} onNav={nav} accent={T.green} />
+          <ProductRail id="rail-editor-picks" tag="EDİTÖRÜN SEÇİMİ" title="Editörün Seçimleri" products={editorPicksList} onView={view} onNav={nav} accent={T.red} />
+          <BestSellersScroll products={bestSellersList} onView={view} onNav={nav} />
+          <ProductRail id="rail-deals" tag="FIRSATLAR" title="Öne Çıkan Fırsatlar" products={dealsList} onView={view} onNav={nav} accent="#d97706" />
           <ProductRail tag="SON FIRSAT" title="Tükenmeden Yakala" products={tukenmedenList} onView={view} onNav={nav} accent="#d97706" />
 
           {/* D-310/D-314: full-width editorial section — warm premium gradient
               (full-bleed studio-shoe image looked artificial). */}
-          <EditorialImageSection bgImage={null} onNav={nav} />
+          <EditorialImageSection onNav={nav} />
 
           {/* D-311: social proof / reviews (demo-flagged) */}
           <SocialProofReviews onNav={nav} />
@@ -1512,13 +1463,12 @@ export default function App({ dbProducts = [], siteSettings = null, banners = []
           <StepsSection onNav={nav} />
 
           {/* Deals */}
-          <DiscountedSection allProducts={allProducts} onView={view} onNav={nav} />
+          <DiscountedSection products={discountedList} onView={view} onNav={nav} />
 
           {/* Lower: extra discovery */}
-          <BestSellersScroll allProducts={allProducts} onView={view} onNav={nav} />
 
           {/* Final exit recovery CTA before footer */}
-          <PreFooterCTA onNav={nav} settings={S} />
+          <PreFooterCTA onNav={nav} />
 
           {/* D-308: mobile spacer so sticky WhatsApp CTA never covers footer/content */}
           <div className="uy-sticky-spacer" aria-hidden="true" />
@@ -2052,14 +2002,14 @@ function Detail({ product: p, onBack, settings, onNav, onAddToCart }) {
         <div className="detail-grid" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 60, alignItems: "start" }}>
           {/* Gallery */}
           <div>
-            <div style={{ borderRadius: T.r.lg, overflow: "hidden", aspectRatio: "1/1", background: T.bgCard, border: "1px solid rgba(28,26,22,0.06)", marginBottom: 14 }}>
-              <img src={allImages[im]} alt={p.name} fetchPriority="high" loading="eager" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+            <div style={{ position: "relative", borderRadius: T.r.lg, overflow: "hidden", aspectRatio: "1/1", background: T.bgCard, border: "1px solid rgba(28,26,22,0.06)", marginBottom: 14 }}>
+              <ProductImage src={allImages[im]} alt={p.name || p.title || "Product"} priority sizes="(max-width: 768px) 100vw, 50vw" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
             </div>
             {allImages.length > 1 && (
               <div style={{ display: "flex", gap: 10 }}>
                 {allImages.map((x, i) => (
-                  <div key={i} onClick={() => sIm(i)} style={{ width: 72, height: 72, borderRadius: T.r.sm, overflow: "hidden", border: `2px solid ${im === i ? T.text : "transparent"}`, cursor: "pointer", background: T.bgCard, opacity: im === i ? 1 : 0.5, transition: "all 0.2s" }}>
-                    <img src={x} alt="" loading="lazy" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+                  <div key={i} onClick={() => sIm(i)} style={{ position: "relative", width: 72, height: 72, borderRadius: T.r.sm, overflow: "hidden", border: `2px solid ${im === i ? T.text : "transparent"}`, cursor: "pointer", background: T.bgCard, opacity: im === i ? 1 : 0.5, transition: "all 0.2s" }}>
+                    <ProductImage src={x} alt="" loading="lazy" sizes="72px" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
                   </div>
                 ))}
               </div>

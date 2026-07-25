@@ -25,8 +25,7 @@
  * ── Storage: Payload AutomationSettings global ────────────────────────────
  *   Replaces n8n Variables (locked on current plan).
  *   Written to: automation-settings.instagramTokens.{accessToken, userId, ...}
- *   Read by: Products.ts afterChange → buildDispatchPayload → n8n webhook body
- *   n8n workflow reads: $json.instagramAccessToken / $json.instagramUserId
+ *   Read by: direct Instagram/Facebook dispatch and optional n8n fallback payloads.
  *
  * ── Registered redirect URI in Meta Developer Portal ─────────────────────
  *   Local:       http://localhost:3000/api/auth/instagram/callback
@@ -76,7 +75,7 @@ async function storeTokensInPayload(
         connectedAt: new Date().toISOString(),
         ...(expiresAt ? { expiresAt } : {}),
         // D-188b: facebookPageId NOT stored here — Neon push:true doesn't create
-        // the column. Use INSTAGRAM_PAGE_ID env var instead (injected in Products.ts).
+        // the column. channelDispatch resolves INSTAGRAM_PAGE_ID when needed.
       },
     } as Record<string, unknown>,
   })

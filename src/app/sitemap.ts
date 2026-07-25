@@ -1,5 +1,6 @@
 import type { MetadataRoute } from 'next'
 import { getPayload } from '@/lib/payload'
+import { isStorefrontProductSafe } from '@/lib/merchandising'
 import { buildSitemapEntries, type SlugDoc } from '@/lib/sitemapEntries'
 
 // D-295 + pre-traffic hardening: production /sitemap.xml returned the app's
@@ -37,7 +38,9 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
         pagination: false,
         limit: 5000,
       })
-      products = result.docs as SlugDoc[]
+      products = result.docs.filter((product: any) =>
+        isStorefrontProductSafe(product),
+      ) as SlugDoc[]
     } catch (err) {
       console.error('[sitemap] product fetch failed, omitting product routes:', err)
     }

@@ -1,3 +1,5 @@
+import { normalizeForMatch, scanProductBrandSafety } from './brandSafety'
+
 /**
  * merchandising.ts — Phase 2: Homepage Merchandising Logic
  *
@@ -31,6 +33,7 @@
  */
 export type MerchandisableProduct = {
   id: string | number
+  title?: string | null
   status?: string | null                 // 'active' | 'soldout' | 'draft'
   price?: number | null
   originalPrice?: number | null
@@ -53,6 +56,38 @@ export type MerchandisableProduct = {
     bestSellerScore?: number | null
     lastMerchandisingSyncAt?: string | Date | null
   } | null
+}
+
+const PLACEHOLDER_TITLE_PREFIX = /^(?:taslak|draft|test|demo|ornek)\b/
+
+/**
+ * Detect intake/test titles that must never be presented as customer-facing
+ * catalog entries. This is a display gate only; it does not mutate Payload.
+ */
+export function isPlaceholderProductTitle(product: { title?: unknown } | null | undefined): boolean {
+  const title = typeof product?.title === 'string' ? product.title : ''
+  return PLACEHOLDER_TITLE_PREFIX.test(normalizeForMatch(title))
+}
+
+/**
+ * Shared public-storefront safety gate for legacy active records as well as
+ * new ones. Activation still owns the primary enforcement; this protects
+ * visitors from records that became active before the current hard gate.
+ */
+export function isStorefrontProductSafe(product: { title?: unknown } | null | undefined): boolean {
+  if (isPlaceholderProductTitle(product)) return false
+  return scanProductBrandSafety(product as Record<string, unknown>).safe
+}
+
+/**
+ * Shared public-PDP gate for operator links and ad landing pages. A public
+ * lifecycle state alone is not sufficient because legacy records can still be
+ * hidden by the storefront's placeholder and protected-brand safety policy.
+ */
+export function isPublicStorefrontProduct(product: { status?: unknown; title?: unknown; brand?: unknown } | null | undefined): boolean {
+  const status = typeof product?.status === 'string' ? product.status.trim() : ''
+  const publicStatus = status === 'active' || status === 'soldout' || status === 'sold_out'
+  return publicStatus && isStorefrontProductSafe(product)
 }
 
 /**
@@ -125,6 +160,9 @@ const DEFAULTS = {
 export function isHomepageEligible(product: MerchandisableProduct): boolean {
   // Must be active
   if (product.status !== 'active') return false
+
+  // Public catalog safety for legacy active records.
+  if (!isStorefrontProductSafe(product)) return false
 
   // Soldout exclusion via workflow.stockState
   if (product.workflow?.stockState === 'sold_out') return false

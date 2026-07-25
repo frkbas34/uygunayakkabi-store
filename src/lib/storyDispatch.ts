@@ -20,13 +20,9 @@
  *   - Future: Admin manual story trigger
  */
 
-import type { StoryTargetConfig, ProductStorySettings, ResolvedTarget } from './storyTargets'
-import {
-  resolveProductTargets,
-  getBlockedTargets,
-  shouldAutoTriggerStory,
-  isPlatformBlocked,
-} from './storyTargets'
+import type { StoryTargetConfig, ProductStorySettings } from './storyTargets'
+import { resolveProductTargets } from './storyTargets'
+import { formatBrandSafetyReason, scanProductBrandSafety } from './brandSafety'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Type Definitions
@@ -50,7 +46,7 @@ export type StoryDispatchResult = {
   success: boolean
   jobCreated: boolean
   storyJobId?: string | number
-  status: string             // 'queued' | 'awaiting_asset' | 'awaiting_approval' | 'blocked_officially' | 'skipped' | 'error'
+  status: string             // 'queued' | 'awaiting_asset' | 'awaiting_approval' | 'blocked_officially' | 'brand_safety_blocked' | 'skipped' | 'error'
   targets: string[]          // platforms targeted
   blockedTargets: string[]   // platforms blocked
   asset?: string | null      // resolved asset URL
@@ -240,13 +236,44 @@ export async function dispatchStory(
       }
     }
 
-    // 2. Resolve asset
+    // 2. Brand safety guard. Story dispatch is non-blocking, but it must not
+    // create a future social/story job for protected-brand products.
+    const brandScan = scanProductBrandSafety(product as Record<string, any>)
+    if (!brandScan.safe) {
+      const reason =
+        `brand_safety_block: ${formatBrandSafetyReason(brandScan) || brandScan.reasons.join('; ')}`
+      await safeUpdateSourceMeta(payload, product, {
+        storyStatus: 'failed',
+        storyQueuedAt: new Date().toISOString(),
+        storyTargetsPublished: '[]',
+        storyTargetsFailed: JSON.stringify(targetPlatforms),
+        lastStoryAsset: '',
+        lastStoryCaption: '',
+        lastStoryError: reason,
+      }, req)
+
+      console.warn(
+        `[StoryDispatch] BRAND-SAFETY BLOCK product=${product.id} ` +
+        `brands=[${brandScan.blockedBrands.join(',')}] fields=[${brandScan.matchedFields.join(',')}]`,
+      )
+
+      return {
+        success: false,
+        jobCreated: false,
+        status: 'brand_safety_blocked',
+        targets: [],
+        blockedTargets: targetPlatforms,
+        error: reason,
+      }
+    }
+
+    // 3. Resolve asset
     const assetUrl = resolveStoryAsset(product)
 
-    // 3. Generate caption
+    // 4. Generate caption
     const caption = generateStoryCaption(product)
 
-    // 4. Determine initial status
+    // 5. Determine initial status
     const needsApproval = !product.storySettings?.skipApproval &&
       publishable.some((t) => t.requiresApproval)
     let initialStatus: string
@@ -262,7 +289,7 @@ export async function dispatchStory(
     // Determine approval state
     const approvalState = needsApproval ? 'pending' : 'not_required'
 
-    // 5. Create StoryJob
+    // 6. Create StoryJob
     const job = await payload.create({
       collection: 'story-jobs',
       data: {
@@ -278,7 +305,7 @@ export async function dispatchStory(
       ...(req ? { req } : {}),
     })
 
-    // 6. Update product sourceMeta
+    // 7. Update product sourceMeta
     await safeUpdateSourceMeta(payload, product, {
       storyStatus: initialStatus === 'queued' ? 'queued' : initialStatus,
       storyQueuedAt: new Date().toISOString(),

@@ -39,20 +39,30 @@ check('website is always native-ready without credentials', () => {
   assert.deepStrictEqual(website.missing, [])
 })
 
-check('Meta channels report direct readiness from AutomationSettings tokens', () => {
+check('Meta channels report direct readiness from OAuth tokens and INSTAGRAM_PAGE_ID', () => {
   const settings: AutomationSettingsSnapshot = {
     instagramTokens: {
       accessToken: 'secret-meta-token',
       userId: 'ig-user',
-      facebookPageId: 'fb-page',
     },
   }
-  const rows = evaluateChannelProviderHealth(settings, {})
+  const rows = evaluateChannelProviderHealth(settings, { INSTAGRAM_PAGE_ID: 'fb-page' })
 
   assert.strictEqual(byChannel(rows, 'instagram').state, 'ready')
   assert.strictEqual(byChannel(rows, 'instagram').mode, 'direct')
   assert.strictEqual(byChannel(rows, 'facebook').state, 'ready')
   assert.strictEqual(byChannel(rows, 'facebook').mode, 'direct')
+})
+
+check('Facebook reports INSTAGRAM_PAGE_ID when its Page ID is missing', () => {
+  const rows = evaluateChannelProviderHealth({
+    instagramTokens: { accessToken: 'secret-meta-token' },
+  }, {})
+  const facebook = byChannel(rows, 'facebook')
+
+  assert.strictEqual(facebook.state, 'missing')
+  assert.ok(facebook.missing.includes('INSTAGRAM_PAGE_ID'))
+  assert.ok(!facebook.missing.includes('AutomationSettings.instagramTokens.facebookPageId'))
 })
 
 check('configured webhook is reported as fallback when direct credentials are missing', () => {
@@ -77,6 +87,19 @@ check('X requires the full OAuth 1.0a env set for direct readiness', () => {
   assert.strictEqual(x.mode, 'none')
   assert.ok(x.missing.includes('X_API_KEY'))
   assert.ok(x.missing.includes('X_API_SECRET'))
+  assert.ok(x.missing.includes('X_ACCESS_TOKEN_SECRET'))
+})
+
+check('X uses a configured webhook fallback when its OAuth configuration is incomplete', () => {
+  const rows = evaluateChannelProviderHealth({}, {
+    X_ACCESS_TOKEN: 'secret-token',
+    N8N_CHANNEL_X_WEBHOOK: 'https://example.test/x',
+  })
+  const x = byChannel(rows, 'x')
+
+  assert.strictEqual(x.state, 'fallback')
+  assert.strictEqual(x.mode, 'webhook')
+  assert.ok(x.missing.includes('X_API_KEY'))
   assert.ok(x.missing.includes('X_ACCESS_TOKEN_SECRET'))
 })
 

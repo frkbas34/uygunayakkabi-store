@@ -87,23 +87,29 @@ export const SiteSettings: GlobalConfig = {
       label: 'Güven Göstergeleri',
       fields: [
         {
+          name: 'enabled',
+          type: 'checkbox',
+          label: 'Doğrulanmış Metrikleri Göster',
+          defaultValue: false,
+          admin: {
+            description: 'Yalnızca güncel satış/katalog verisiyle doğruladığınız üç metrik de girildikten sonra açın.',
+          },
+        },
+        {
           name: 'monthlyCustomers',
           type: 'text',
           label: 'Aylık Müşteri Sayısı',
-          defaultValue: '500+',
-          admin: { description: 'Sitede görüntülenecek: "Aylık 500+ Müşteri"' },
+          admin: { description: 'Doğrulanmış sayı; metrikler kapalıysa sitede gösterilmez.' },
         },
         {
           name: 'totalProducts',
           type: 'text',
           label: 'Toplam Ürün Sayısı',
-          defaultValue: '200+',
         },
         {
           name: 'satisfactionRate',
           type: 'text',
           label: 'Müşteri Memnuniyeti',
-          defaultValue: '%98',
         },
       ],
     },

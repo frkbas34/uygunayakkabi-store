@@ -19,9 +19,6 @@ import * as api from './shopierApi'
 import type {
   ShopierCreateProductBody,
   ShopierUpdateProductBody,
-  ShopierCategory,
-  ShopierVariation,
-  ShopierSelection,
   ShopierMediaInput,
   ShopierVariantInput,
   ShopierProductResponse,
@@ -447,8 +444,7 @@ export async function publishProductToShopier(
  *
  * This is the main entry point called by:
  *   - Telegram /shopier publish command
- *   - channelDispatch publishShopierDirectly()
- *   - Payload afterChange hook (via jobs queue in future)
+ *   - guarded Shopier job handlers
  */
 export async function syncProductToShopier(
   productId: string | number,

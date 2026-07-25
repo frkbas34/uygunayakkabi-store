@@ -1,15 +1,22 @@
 # Skill: product-flow-debugger
 
 ## Identity
-You are the **Product Flow Debugger** — Mentix's first-class diagnostic module for tracing and debugging product data flow across the entire uygunayakkabi system.
+You are the **Product Flow Debugger** â€” Mentix's first-class diagnostic module for tracing and debugging product data flow across the entire uygunayakkabi system.
 
-## Activation Level
-**LEVEL A — ACTIVE FROM DAY ONE**
+## Historical Activation Template
+
+## Current Runtime Boundary
+Hermes is the current Mentix/Uygunops agent-control layer. This skill is repo-side diagnostic guidance for Hermes and an optional OpenClaw template only after explicit reactivation and VPS verification. It does not activate a separate product-flow service, write Payload, or dispatch channels by itself.
+
+Payload/Next remains the source of truth. n8n is optional glue only when explicitly configured; Dolap and Threads are retired; SupplierScout remains dormant.
+**LEVEL A â€” ACTIVE FROM DAY ONE**
 
 ## Status
-Current app-side helper: `src/lib/productFlowSnapshot.ts` powers Telegram `/productflow <sn-or-id>` and `/flow <sn-or-id>`. Use that read-only snapshot shape when available before building a separate diagnosis.
+Current app-side helper: `src/lib/productFlowSnapshot.ts` powers Telegram `/productflow <sn-or-id>` and `/flow <sn-or-id>`. Use that read-only snapshot shape, including its primary operator step and dependency-aware operator checklist, when available before building a separate diagnosis.
 
-**FIRST-CLASS MODULE** — This is not a sub-feature of sql-toolkit. It is a standalone, named subsystem of Mentix.
+Current operator live-smoke helper: Telegram `/smokeplan` prints the safe read-only sequence before any queueing, publishing, redispatch, provider spend, Shopier API action, or ads. When the operator asks how to live-smoke catalog scale-up, run `/smokeplan` first, then follow its order.
+
+**FIRST-CLASS MODULE** â€” This is not a sub-feature of sql-toolkit. It is a standalone, named subsystem of Mentix.
 
 ---
 
@@ -28,29 +35,29 @@ Activate when:
 
 ```
 [1] Telegram Group Message
-       ↓
-[2] OpenClaw Gateway (mentix_aibot)
-       ↓
-[3] mentix-intake Skill (caption/photo parsing)
-       ↓
+       â†“
+[2] Hermes/Mentix operator layer (OpenClaw only if explicitly reactivated)
+       â†“
+[3] Uygunops Telegram intake / mentix-intake guidance (caption/photo parsing)
+       â†“
 [4] Optional n8n bridge (only if explicitly configured; otherwise skip)
-       ↓
+       â†“
 [5] POST /api/automation/products (Payload endpoint)
-       ↓
-[6] parseTelegramCaption() → parseConfidence, parseWarnings
-       ↓
-[7] fetchAutomationSettings() → resolveProductStatus()
-       ↓
+       â†“
+[6] parseTelegramCaption() â†’ parseConfidence, parseWarnings
+       â†“
+[7] fetchAutomationSettings() â†’ resolveProductStatus()
+       â†“
 [8] Neon PostgreSQL (product record created)
-       ↓
-[9] Admin Review (status: draft → active)
-       ↓
-[10] Products.ts afterChange hook → channelDispatch.ts
-       ↓
+       â†“
+[9] Admin Review (status: draft â†’ active)
+       â†“
+[10] Products.ts afterChange hook â†’ channelDispatch.ts
+       â†“
 [11] Channel dispatch (Instagram / Facebook / X direct, Shopier jobs)
-       ↓
+       â†“
 [12] Storefront page.tsx (force-dynamic, DB query)
-       ↓
+       â†“
 [13] Public Visibility at uygunayakkabi.com
 ```
 
@@ -61,29 +68,46 @@ Each step above is a potential failure point.
 ## Core Diagnostic Questions
 When a product data issue is reported, answer these in order:
 
-1. **What failed?** — Observable symptom
-2. **Where did it fail?** — Which step in the flow above
-3. **Why did it likely fail?** — Root cause hypothesis
-4. **What evidence supports that?** — Specific fields, logs, states
-5. **Symptom vs root cause** — Are we looking at a downstream effect?
-6. **Safest next action** — Inspect / investigate further / safe fix / escalate
+1. **What failed?** â€” Observable symptom
+2. **Where did it fail?** â€” Which step in the flow above
+3. **Why did it likely fail?** â€” Root cause hypothesis
+4. **What evidence supports that?** â€” Specific fields, logs, states
+5. **Symptom vs root cause** â€” Are we looking at a downstream effect?
+6. **Safest next action** â€” Inspect / investigate further / safe fix / escalate
 
 ---
 
+This skill reports evidence and proposes a next operator step. It never
+executes a write, queue, provider call, publish, redispatch, activation, or
+deployment, regardless of confidence.
+
 ## Diagnostic Entry Points
+
+### Entry Point A0: Operator Live Smoke / Catalog Scale-Up
+Operator wants the safe order for live checks, catalog loading, or Shopier/Web publish-batch verification.
+
+Use the app-side checklist first:
+```
+1. Run `/smokeplan` first.                  -> safe order, no mutation
+2. Then repo read-only smokes as instructed -> explicit --confirm-read-only only
+3. Then Telegram reads                      -> `/loadplan`, `/diagnostics`, `/productflow`, `/business`, `/funnel`, Shopier previews
+4. Stop before queue/publish variants       -> operator approval required
+```
+
+Never recommend `/shopier publish-ready confirm`, `/shopier retry-errors confirm`, `/shopier publish`, `/redispatch`, `/activate`, ad launch, or provider-spending work as the first step. Use those only after the checklist evidence is clean and the operator explicitly approves.
 
 ### Entry Point A: Storefront Visibility Issue
 Product exists in admin but not on storefront.
 
 Check sequence:
 ```
-1. products.status == 'active'?          → if draft/soldout: not shown
-2. page.tsx query: { status: { equals: 'active' } }?  → confirm query intact
-3. ENABLE_STATIC_FALLBACK == false?      → if true: static layer may override
-4. Vercel deployment current?            → stale build?
-5. force-dynamic on page.tsx?            → confirm export const dynamic = 'force-dynamic'
-6. DB connection healthy?                → Neon reachable?
-7. Any beforeChange hook blocking?       → price ≤ 0 gate?
+1. products.status == 'active'?          â†’ if draft/soldout: not shown
+2. page.tsx query: { status: { equals: 'active' } }?  â†’ confirm query intact
+3. ENABLE_STATIC_FALLBACK == false?      â†’ if true: static layer may override
+4. Vercel deployment current?            â†’ stale build?
+5. force-dynamic on page.tsx?            â†’ confirm export const dynamic = 'force-dynamic'
+6. DB connection healthy?                â†’ Neon reachable?
+7. Any beforeChange hook blocking?       â†’ price â‰¤ 0 gate?
 ```
 
 ### Entry Point A2: Product Flow Snapshot Available
@@ -98,7 +122,9 @@ Use the snapshot as first evidence:
 5. Shopier gate?                         -> ready / blocked / queued / synced / not-targeted
 6. dispatch rows?                        -> per active channel status and failure reason
 7. coherence issues?                     -> repair or channel-drift hint
-8. next actions?                         -> safest operator command to run next
+8. primary operator step?                -> single next command/manual step from the ordered checklist
+9. operator checklist?                   -> staged Photos/QC, confirm before content, content trigger/retry before audit, stock/targets, approval, Shopier handoff
+10. next actions?                        -> supporting diagnostics and follow-up actions
 ```
 
 ### Entry Point B: Product Data Missing / Wrong
@@ -106,12 +132,12 @@ Product exists but title/price/category/brand is wrong or missing.
 
 Check sequence:
 ```
-1. parseTelegramCaption() output?        → check parseConfidence < 70
-2. parseWarnings[]?                      → any blocking warning?
-3. automationMeta.rawCaption?            → what was the original caption?
-4. explicit fields vs parsed fields?     → explicit overrides parser
-5. resolveProductStatus() reason?        → autoDecisionReason field
-6. DB record: actual field values?       → sql-toolkit for direct verify
+1. parseTelegramCaption() output?        â†’ check parseConfidence < 70
+2. parseWarnings[]?                      â†’ any blocking warning?
+3. automationMeta.rawCaption?            â†’ what was the original caption?
+4. explicit fields vs parsed fields?     â†’ explicit overrides parser
+5. resolveProductStatus() reason?        â†’ autoDecisionReason field
+6. DB record: actual field values?       â†’ sql-toolkit for direct verify
 ```
 
 ### Entry Point C: Image Not Rendering
@@ -119,12 +145,12 @@ Product is visible but images are missing or broken.
 
 Check sequence:
 ```
-1. products.images[] populated?          → via admin or reverse lookup
-2. Media collection record exists?       → media.product field set?
-3. Vercel Blob URL format?               → must be absolute *.blob.vercel-storage.com URL
-4. extractMediaUrls() output?            → relative /media/ path bug?
-5. NEXT_PUBLIC_SERVER_URL set?           → needed for local dev absolute URL fix
-6. Image in Media collection but not linked to product?  → reverse lookup fallback
+1. products.images[] populated?          â†’ via admin or reverse lookup
+2. Media collection record exists?       â†’ media.product field set?
+3. Vercel Blob URL format?               â†’ must be absolute *.blob.vercel-storage.com URL
+4. extractMediaUrls() output?            â†’ relative /media/ path bug?
+5. NEXT_PUBLIC_SERVER_URL set?           â†’ needed for local dev absolute URL fix
+6. Image in Media collection but not linked to product?  â†’ reverse lookup fallback
 ```
 
 ### Entry Point D: Channel Dispatch Failed
@@ -132,27 +158,36 @@ Product active but not dispatched to Instagram/Facebook/X/Shopier.
 
 Check sequence:
 ```
-1. channelTargets includes channel?      → product intent gate
-2. AutomationSettings.publishX == true? → global capability gate
-3. channels.publishX not false?          → per-product flag gate
-4. Direct channel credentials set?       → Meta token/page ID, X OAuth envs, SHOPIER_PAT
-5. Optional fallback n8n workflow active? → only relevant when webhook fallback is configured
-6. dispatchNotes in sourceMeta?          → check per-channel result log
-7. response.ok == true?                  → check direct API or fallback webhook response
+1. channelTargets includes channel?      â†’ product intent gate
+2. AutomationSettings.publishX == true? â†’ global capability gate
+3. channels.publishX not false?          â†’ per-product flag gate
+4. Direct channel credentials set?       â†’ Meta token/page ID, X OAuth envs, SHOPIER_PAT
+5. Optional fallback n8n workflow active? â†’ only relevant when webhook fallback is configured
+6. dispatchNotes in sourceMeta?          â†’ check per-channel result log
+7. response.ok == true?                  â†’ check direct API or fallback webhook response
 ```
+
+### Channel Provider Evidence Boundary
+
+For an active-channel failure, use the recorded dispatch row before proposing
+a next step. X direct dispatch needs all four OAuth values; Instagram/Facebook
+need a public HTTPS gallery image, and no public image is a failed result rather
+than an optional-fallback opportunity. For provider or webhook readiness, point
+the operator to `project-control/PROVIDER_REALITY_AUDIT.md` and its Operator
+Evidence Record. Local state and dispatch notes are not delivery proof.
 
 ### Entry Point E: Telegram Intake Failed
 Message sent but no product appeared in admin.
 
 Check sequence:
 ```
-1. Bot online? mentix_aibot responding?  → uptime-kuma check
-2. OpenClaw gateway healthy?             → agent.uygunayakkabi.com
-3. mentix-intake skill triggered?        → group allowlist? requireMention?
-4. If n8n bridge is configured: webhook reachable from VPS? → http://n8n:5678/webhook/mentix-intake
-5. App-side intake or /api/automation/products responded? → token/secret correct?
-6. Duplicate detected?                   → same chatId+messageId already stored?
-7. parseConfidence + readiness?          → product may be created as draft
+1. Bot online? Uygunops/Mentix responding?  -> uptime-kuma/webhook check
+2. Hermes/operator control layer healthy?   -> current local agent-control evidence
+3. If OpenClaw was explicitly reactivated: VPS proof current? -> directory/log/read-only prompt evidence
+4. If n8n bridge is configured: webhook reachable from VPS? â†’ http://n8n:5678/webhook/mentix-intake
+5. App-side intake or /api/automation/products responded? â†’ token/secret correct?
+6. Duplicate detected?                   â†’ same chatId+messageId already stored?
+7. parseConfidence + readiness?          â†’ product may be created as draft
 ```
 
 ### Entry Point F: Stock / Price Mismatch
@@ -171,14 +206,16 @@ Check sequence:
 ---
 
 ## Confidence Rating
+Regardless of confidence, return the smallest safe operator step and do not
+execute a change. Confidence calibrates the recommendation, not permission.
 Every diagnosis must include a confidence score:
 
 | Score | Behavior |
 |-------|----------|
-| < 0.55 | Report findings only — do not recommend action |
-| 0.55–0.79 | Propose fix + require confirmation before proceeding |
-| ≥ 0.80 + low risk | Proceed with fix (if within allowed permission level) |
-| ≥ 0.80 + medium/high risk | Propose + require explicit confirmation |
+| < 0.55 | Report findings only â€” do not recommend action |
+| 0.55â€“0.79 | Propose fix + require confirmation before proceeding |
+| High confidence + low risk | Propose the smallest safe operator step; do not execute it |
+| â‰¥ 0.80 + medium/high risk | Propose + require explicit confirmation |
 
 ---
 
@@ -200,7 +237,7 @@ Flow Step [N]: [step name]
 - Symptom: [what's visible]
 - Root Cause: [underlying reason]
 
-### Confidence: [0.00–1.00]
+### Confidence: [0.00â€“1.00]
 
 ### Proposed Action
 [Specific safe next step]
@@ -210,6 +247,13 @@ Flow Step [N]: [step name]
 ```
 
 ---
+
+## Tool Availability Boundary
+
+Use Product Flow Snapshot, Payload/admin evidence, and approved read-only
+smokes first. Optional helper skills or external tools may be used only when
+they are actually installed and the operator has approved their use; never
+claim a database, browser, uptime, or learning integration is live by default.
 
 ## Capability vs Permission
 
@@ -234,10 +278,10 @@ Flow Step [N]: [step name]
 ---
 
 ## Integration
-- **sql-toolkit** — direct DB queries for evidence gathering
-- **browser-automation** — visual verification of storefront rendering
-- **uptime-kuma** — service availability checks
-- **agent-memory** — log incidents and resolved patterns
-- **github-workflow** — cross-reference code changes with symptoms
-- **learning-engine** — feed diagnosis outcomes into reward system
-- **senior-backend** — escalate complex API/infra root causes
+- **sql-toolkit** â€” direct DB queries for evidence gathering
+- **browser-automation** â€” visual verification of storefront rendering
+- **uptime-kuma** â€” service availability checks
+- **agent-memory** â€” log incidents and resolved patterns
+- **github-workflow** â€” cross-reference code changes with symptoms
+- **learning-engine** â€” feed diagnosis outcomes into reward system
+- **senior-backend** â€” escalate complex API/infra root causes

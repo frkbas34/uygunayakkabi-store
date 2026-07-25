@@ -1,6 +1,6 @@
 # Active Channels And Publishing
 
-Last updated: 2026-07-02
+Last updated: 2026-07-25
 
 ## Active Channels
 
@@ -30,7 +30,11 @@ Needed:
 
 ## Instagram
 
-Direct Graph API path exists when tokens and HTTPS image are valid.
+Direct Graph API path exists when tokens and at least one public HTTPS gallery
+image are valid. D-494 scans every gallery URL, so an insecure or relative
+first image does not block a later public HTTPS image from direct publishing.
+D-495 records a readable failure before direct Meta or optional n8n fallback
+when no public HTTPS image exists; n8n is not sent relative media.
 
 Needed:
 
@@ -40,7 +44,11 @@ Needed:
 
 ## Facebook
 
-Direct Graph API Page publishing path exists.
+Direct Graph API Page publishing path exists when token/Page ID and at least
+one public HTTPS gallery image are valid; D-494 scans the full gallery rather
+than checking only the first image.
+D-495 blocks both direct and fallback dispatch with a media-specific reason
+when the gallery has no public HTTPS image.
 
 Needed:
 
@@ -49,13 +57,17 @@ Needed:
 
 ## X
 
-Direct posting path exists with configured credentials.
+Direct posting requires all four OAuth 1.0a values: `X_API_KEY`,
+`X_API_SECRET`, `X_ACCESS_TOKEN`, and `X_ACCESS_TOKEN_SECRET`. Partial OAuth
+configuration never attempts a direct X API call: it uses the optional
+`N8N_CHANNEL_X_WEBHOOK` fallback when configured, or records the missing key
+names and fallback requirement for operator triage. This is covered by
+`src/lib/channelDispatch.test.ts` and `src/lib/channelProviderHealth.test.ts`.
 
 Needed:
 
-- Credential health check.
+- Production OAuth, account permission, quota, and real-dispatch evidence.
 - Provider-specific success/failure detail beyond the shared dispatch overview.
-- Retry handling.
 
 ## Shopier
 
@@ -64,18 +76,26 @@ Shopier sync is handled through Payload jobs.
 Current:
 
 - `src/lib/shopierPublishControl.ts` is the shared Shopier/Web queue gate.
-- `/shopier dashboard` is read-only and summarizes publish-ready counts, top blocker groups, Shopier error classes, and safe retry counts.
-- `/shopier publish <sn-or-id>` and `/shopier republish <sn-or-id>` use that gate before queueing a `shopier-sync` job.
+- The dispatch payload carries the operator-reviewed `content.commercePack`: Instagram prefers `instagramCaption`, Facebook prefers `facebookCopy`, X prefers `xPost` while replacing its product-link placeholder, and Shopier prefers `shopierCopy`. Each channel retains a structured fallback when the relevant copy is absent.
+- `/shopier dashboard` is read-only and summarizes publish-ready counts, top blocker groups, sample ready/blocked/queued/synced product rows, Shopier error classes, and safe retry counts.
+- `/shopier publish <sn-or-id>` and `/shopier republish <sn-or-id>` resolve the product and use the shared `queueShopierSync()` gate before queueing a `shopier-sync` job. `test:shopier-commands` blocks both direct Telegram route-level job writes and reintroduction of the retired `channelDispatch` direct-publish helper, leaving the guarded Payload job path as the only supported Shopier publishing route.
 - `/shopier publish-ready` is preview-only.
 - `/shopier publish-ready confirm` queues only products that pass the gate.
 - `/shopier errors` gives first-pass triage for failed Shopier syncs, grouped as retryable, product data, configuration, remote state, or unknown with a suggested next action.
 - `/shopier retry-errors` previews failed Shopier syncs that are safe to retry.
 - `/shopier retry-errors confirm` queues only retryable errors that still pass the shared gate.
 - Payload admin ReviewPanel shows a read-only Shopier Queue Gate for the current product using the same D-356 evaluator as Telegram queue commands.
-- Telegram `/productflow` and runtime `smoke:product-flow:read` include the same Shopier gate in a broader read-only product-flow snapshot.
+- The `/shopier dashboard` batch review sample uses the same evaluator and suggests only manual next commands such as `/shopier publish-ready`, `/imageqc <sn-or-id>`, or `/productflow <sn-or-id>`. D-428 also prints each sample row's `/productflow <ref>` handoff and exact repo preflight `npm run smoke:product-flow:read -- --product=<ref> --confirm-read-only` before queue decisions.
+- D-429 adds the same `/productflow <ref>` and exact `smoke:product-flow:read -- --product=<ref> --confirm-read-only` handoffs to `/shopier publish-ready` and `/shopier retry-errors` preview rows. Telegram previews can render without `SHOPIER_PAT`; only `confirm` queue/retry actions are blocked when `SHOPIER_PAT` is missing.
+- D-440 adds deterministic operator links to `/shopier dashboard`, `/shopier publish-ready`, `/shopier retry-errors`, and `smoke:shopier:read` preview/review rows: Payload admin when the product has an id, and public PDP only when the product has a slug plus public status. Confirmed queue/retry output stays free of preview-only links.
+- D-441 adds preview-only credential holds to `/shopier publish-ready`, `/shopier retry-errors`, and `smoke:shopier:read`: previews show whether `SHOPIER_PAT` is configured, missing credentials keep preview available, configured credentials still require webhook/account/quota verification outside chat, and confirmed output stays free of preview-only credential hints.
+- D-430 aligns `/smokeplan` with those Shopier row handoffs: after Shopier dashboard/publish-ready/error/retry preview reads, the plan pauses on `/productflow <ref>` plus exact repo product-flow smoke handoffs before any Shopier confirm action.
+- D-431 adds the next `/smokeplan` pause before final queue approval: verify `SHOPIER_PAT`, Shopier webhook readiness, account permission, and quota/readiness outside chat without pasting secrets before any Shopier confirm action.
+- Telegram `/productflow` and runtime `smoke:product-flow:read` include the same Shopier gate in a broader read-only product-flow snapshot. D-459 also adds active-channel dispatch-summary counts before the dispatch rows, so operators can see published/queued/failed/blocked/not-configured/unrecorded health at a glance. D-460 adds each non-published row's recovery path beside its state/reason: queued Shopier uses `/shopier dashboard`, ready-but-unrecorded Shopier uses the shared guarded publish path, and external failures only suggest redispatch after the recorded cause is fixed.
 - `npm run smoke:shopier:read -- --confirm-read-only` mirrors dashboard, publish-ready, errors, and retry-errors in read-only runtime mode without writing, queueing, dispatching, calling Shopier, or pushing schema changes.
+- D-480 makes the inbound Shopier webhook fail closed: the route checks the existing HMAC-SHA256 signature against the exact raw request body with constant-time comparison and token-rotation support. Missing `SHOPIER_WEBHOOK_TOKEN` returns `503`; missing, malformed, or invalid signatures return `401` before JSON parsing, order/stock mutation, or Telegram notification. `npm run test:shopier-webhook-security` is included in `npm run test:shopier-webhook-local`.
 - The gate requires active website visibility, slug, explicit Shopier target/flag alignment, category, generated-gallery media, Image QC PASS, sellable stock, brand-safety pass, central publish readiness, and no duplicate queued/syncing job.
-- Covered by `npm run test:shopier-publish-control`, including the admin gate summary states.
+- Covered by `npm run test:shopier-publish-control`, including the admin gate summary states, dashboard batch review sample, D-428 dashboard product-flow handoff commands, D-429 publish/retry preview handoff commands, D-440 preview/dashboard operator links, and D-441 preview credential holds. `test:shopier-commands` keeps the Telegram confirm path credential-gated, and `test:operator-smoke-plan` keeps the D-430 row-handoff pause plus D-431 credential/webhook hold in the live-smoke checklist.
 - Latest read-only schema check on 2026-07-02 passes: D-355 Image QC columns and the `products_image_quality_defect_flags` relation are present.
 - Guarded DB helper remains available if drift reappears: `npm run db:imageqc:apply` previews by default; confirmed apply requires `--apply --confirm-apply-d355-image-qc-schema` and explicit operator approval.
 
@@ -83,7 +103,16 @@ Still needed:
 
 - Live operator smoke the guarded Telegram commands now that read-only schema/product-flow/Shopier smokes complete.
 - Configure or verify `SHOPIER_PAT` before queueing Shopier jobs; latest read-only smoke reported `SHOPIER_PAT configured: no`.
-- Decide whether the first-pass `/shopier dashboard`, `/shopier errors`, `/shopier retry-errors`, and per-product admin gate are enough or if a broader admin batch review surface is needed.
+- Decide whether the D-400 Telegram `/shopier dashboard` batch review sample is enough or if a broader Payload admin batch review surface is still needed.
+
+- D-481 keeps Shopier duplicate webhook delivery from reaching stock mutation
+  after a database duplicate-key create result. Its approved partial unique
+  order-ID index is applied and post-apply verified in the configured database.
+  This does not replace an operator-approved live webhook delivery smoke.
+- D-482 makes each local Shopier order create plus stock/inventory-log mutation
+  one Payload transaction. The order alert follows commit, and a verified
+  processing failure returns `500` for Shopier retry. This adds no Shopier API
+  call and does not replace the separately verified D-481 database index.
 
 ## Dispatch Gates
 

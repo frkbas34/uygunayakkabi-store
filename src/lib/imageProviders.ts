@@ -245,145 +245,12 @@ function materialDirectives(material?: string | null, notes?: string | null): st
 // Maps shoe color → premium contrasting background for studio shots.
 // Goal: background supports the product, never competes. Soft, minimal, premium.
 
-// D-233: per-family palette with productId-based deterministic variant.
-// Each shoe-color family carries 3-5 premium tones so two products of the
-// same shoe color get DIFFERENT backgrounds while every slot of a SINGLE
-// product still shares the SAME background (cross-slot consistency from v43
-// preserved). Tones stay in the "premium studio, never compete with shoe"
-// band — soft, muted, slightly varied luminance/chroma.
-type BgVariant = { name: string; hex: string; descriptor?: string }
-
-const BG_PALETTE: Record<string, BgVariant[]> = {
-  black: [
-    { name: 'warm beige', hex: '#F5F0E8' },
-    { name: 'muted sand', hex: '#EAE2D2' },
-    { name: 'dusty rose', hex: '#F0E5DD' },
-    { name: 'champagne', hex: '#EDE6D5' },
-    { name: 'soft taupe', hex: '#E0D8CC' },
-  ],
-  white: [
-    { name: 'light grey', hex: '#E8E8E8', descriptor: 'NOT white — shoe must contrast.' },
-    { name: 'cool stone', hex: '#DDE2E5', descriptor: 'NOT white — shoe must contrast.' },
-    { name: 'warm taupe', hex: '#E5E0DA', descriptor: 'NOT white — shoe must contrast.' },
-    { name: 'pale slate', hex: '#D8DDE2', descriptor: 'NOT white — shoe must contrast.' },
-    { name: 'soft bone', hex: '#E8E5DC', descriptor: 'NOT white — shoe must contrast.' },
-  ],
-  brown: [
-    { name: 'warm cream', hex: '#F5F1E6' },
-    { name: 'soft sand', hex: '#ECE4D2' },
-    { name: 'oat', hex: '#E8DCC4' },
-    { name: 'pale vanilla', hex: '#F0E8D5' },
-    { name: 'dusty parchment', hex: '#E5DBC8' },
-  ],
-  tan: [
-    { name: 'off-white', hex: '#FAF8F5' },
-    { name: 'pale cream', hex: '#F5EFE3' },
-    { name: 'soft latte', hex: '#EDE3D0' },
-    { name: 'powder beige', hex: '#F0E8D8' },
-    { name: 'subtle sage', hex: '#E8E5D6' },
-  ],
-  grey: [
-    { name: 'clean white', hex: '#FFFFFF' },
-    { name: 'soft pearl', hex: '#F2F0EC' },
-    { name: 'pale champagne', hex: '#F5F0E5' },
-    { name: 'light dove', hex: '#ECEAE3' },
-    { name: 'warm bone', hex: '#F0EBDF' },
-  ],
-  navy: [
-    { name: 'light grey', hex: '#EDEDED' },
-    { name: 'soft stone', hex: '#E2E5E8' },
-    { name: 'pale dove', hex: '#DEDFE0' },
-    { name: 'warm cool grey', hex: '#E5E2DD' },
-    { name: 'ice grey', hex: '#DAE0E2' },
-  ],
-  red: [
-    { name: 'neutral off-white', hex: '#F7F5F3' },
-    { name: 'dusty rose', hex: '#F2E8E5' },
-    { name: 'warm blush', hex: '#EFE5E0' },
-    { name: 'muted clay', hex: '#E8DDD8' },
-    { name: 'powder cream', hex: '#F0E5D8' },
-  ],
-  green: [
-    { name: 'warm cream', hex: '#F5F0E8' },
-    { name: 'sage tint', hex: '#E8EBE0' },
-    { name: 'muted parchment', hex: '#EFEBDD' },
-    { name: 'mint mist', hex: '#E0E5D8' },
-    { name: 'soft pistachio', hex: '#ECE8D5' },
-  ],
-  blue: [
-    { name: 'warm off-white', hex: '#F5F2ED' },
-    { name: 'pale slate', hex: '#D8DDE2' },
-    { name: 'soft mist', hex: '#E0E5E8' },
-    { name: 'dusty cloud', hex: '#E8EAE8' },
-    { name: 'cool pearl', hex: '#ECEEF0' },
-  ],
-  pink: [
-    { name: 'light grey', hex: '#ECECEC' },
-    { name: 'dusty mauve', hex: '#EAE0E2' },
-    { name: 'soft cream', hex: '#F0EBE3' },
-    { name: 'warm grey', hex: '#E5E2DD' },
-    { name: 'powder pink', hex: '#F0E5E5' },
-  ],
-  beige: [
-    { name: 'warm grey', hex: '#E0DDD8' },
-    { name: 'soft taupe', hex: '#DAD5CC' },
-    { name: 'muted sand', hex: '#DDD8C8' },
-    { name: 'dusty parchment', hex: '#E5DDC8' },
-    { name: 'soft stone', hex: '#D8D5D0' },
-  ],
-  default: [
-    { name: 'neutral light grey', hex: '#EDEDED' },
-    { name: 'warm pearl', hex: '#F0EBE3' },
-    { name: 'soft sand', hex: '#E8E2D5' },
-    { name: 'cool stone', hex: '#E0E3E5' },
-    { name: 'soft bone', hex: '#E8E5DC' },
-  ],
-}
-
-function pickFamily(c: string): keyof typeof BG_PALETTE {
-  if (c.includes('black') || c.includes('siyah')) return 'black'
-  if (c.includes('white') || c.includes('beyaz') || c.includes('off-white')) return 'white'
-  if (c.includes('brown') || c.includes('kahve') || c.includes('espresso')) return 'brown'
-  if (c.includes('tan') || c.includes('tobacco') || c.includes('camel') || c.includes('taba')) return 'tan'
-  if (c.includes('grey') || c.includes('gray') || c.includes('gri')) return 'grey'
-  if (c.includes('navy') || c.includes('lacivert') || (c.includes('blue') && c.includes('dark'))) return 'navy'
-  if (c.includes('red') || c.includes('kırmızı') || c.includes('bordo') || c.includes('burgundy')) return 'red'
-  if (c.includes('green') || c.includes('yeşil') || c.includes('olive') || c.includes('haki') || c.includes('khaki')) return 'green'
-  if (c.includes('blue') || c.includes('mavi')) return 'blue'
-  if (c.includes('pink') || c.includes('pembe') || c.includes('rose')) return 'pink'
-  if (c.includes('beige') || c.includes('cream') || c.includes('krem')) return 'beige'
-  return 'default'
-}
-
-/**
- * D-233: Stable per-product variant pick. Same productId always returns the
- * same variant within a family. Different productIds with the same shoe
- * color get different backgrounds. When productId is omitted, returns the
- * first variant — keeps backward compatibility for any callsite that hasn't
- * been threaded yet.
- */
-function pickVariant(family: BgVariant[], productId?: string | number): BgVariant {
-  if (family.length === 0) return { name: 'neutral light grey', hex: '#EDEDED' }
-  if (productId == null) return family[0]
-  const numStr = String(productId).replace(/\D/g, '') || '0'
-  const n = Number.parseInt(numStr, 10)
-  const idx = Math.abs(Number.isFinite(n) ? n : 0) % family.length
-  return family[idx]
-}
-
-function renderBg(v: BgVariant): string {
-  const tail = v.descriptor
-    ? `Solid, uniform tone. ${v.descriptor} Use this EXACT color for ALL slots. No gradient.`
-    : `Solid, uniform, soft premium studio tone. Use this EXACT color for ALL slots in this batch. No gradient.`
-  return `${v.name} (${v.hex}). ${tail}`
-}
-
 function getBackgroundForColor(mainColor: string, productId?: string | number): string {
   // D-303: Unified studio background for ALL products (operator rule — every
   // product-card image must share the SAME premium neutral background). This
   // supersedes the per-color/per-product variation (D-233 / v43). The hex is
   // kept in sync with the storefront --product-image-bg CSS variable.
-  // Reversible: restore the BG_PALETTE pick (pickFamily/pickVariant) to revert.
+  // D-303 is the current catalog policy: all generated product cards share this background.
   void mainColor; void productId
   return 'matte warm ivory/beige (#F4EFE6). Seamless studio background — no gradient, no colored tint, no texture, no hard shadow. Solid, uniform tone. Use this EXACT color for ALL slots in this batch.'
 }
@@ -804,7 +671,6 @@ export async function extractIdentityLock(
       return null
     }
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     let p: any
     try {
       p = JSON.parse(text.trim())
@@ -1475,10 +1341,6 @@ export async function generateByEditing(
     const premiumBackground = getBackgroundForColor(mainColor, productId)
     const bgRGB = getBackgroundRGB(premiumBackground)
 
-    // D-167: paddingRGB is no longer used for actual padding (replaced by
-    // mirror-extend below). Kept only for logging/audit.
-    const paddingRGB = bgRGB // historical ref — see D-167 below
-
     console.log(
       `[generateByEditing v12] protected zones: ${hasBrandZones ? (identityLock.protectedZones?.map((z) => z.name).join(',')) : 'none'}`,
     )
@@ -1891,10 +1753,6 @@ export async function generateByGeminiPro(
     // color get different premium backdrops.
     const premiumBackground = getBackgroundForColor(mainColor, productId)
     const bgRGB = getBackgroundRGB(premiumBackground)
-
-    // D-167: paddingRGB no longer used for actual padding (replaced by
-    // mirror-extend below). Kept for logging/audit only.
-    const paddingRGB = bgRGB // historical ref — see D-167
 
     console.log(
       `[generateByGeminiPro D-167] scene-bg=${JSON.stringify(bgRGB)} (prompt target) — padding: mirror-extend (no solid color)`,

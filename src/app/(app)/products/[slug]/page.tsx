@@ -1,5 +1,5 @@
 import { getPayload } from '@/lib/payload'
-import { isHomepageEligible } from '@/lib/merchandising'
+import { isHomepageEligible, isStorefrontProductSafe } from '@/lib/merchandising'
 import type { MerchandisableProduct } from '@/lib/merchandising'
 import { notFound } from 'next/navigation'
 import { ProductImages } from '@/components/ProductImages'
@@ -9,8 +9,16 @@ import { SizeChip } from '@/components/SizeChip'
 import { ProductFAQ } from '@/components/ProductFAQ'
 import { StorefrontNavbar } from '@/components/StorefrontNavbar'
 import { StorefrontFooter } from '@/components/StorefrontFooter'
+import Image from 'next/image'
 import Link from 'next/link'
 import type { Metadata } from 'next'
+import { summarizeProductStock } from '@/lib/productStock'
+import {
+  buildFaqJsonLd,
+  buildProductJsonLd,
+} from '@/lib/productStructuredData'
+import { resolveProductStorefrontImageUrls } from '@/lib/productStorefrontImages'
+import { serializeJsonLd } from '@/lib/structuredData'
 
 export const revalidate = 60
 
@@ -52,7 +60,12 @@ type ProductDoc = {
   color?: string | null
   material?: string | null
   status?: string | null
+  stockQuantity?: number | null
   stockNumber?: string | null
+  workflow?: {
+    stockState?: string | null
+    sellable?: boolean | null
+  } | null
   sourceMeta?: {
     shopierProductUrl?: string | null
     shopierSyncStatus?: string | null
@@ -98,7 +111,7 @@ async function getProduct(slug: string): Promise<ProductDoc | undefined> {
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const { slug } = await params
   const product = await getProduct(slug)
-  if (!product) return {}
+  if (!product || product.status === 'draft' || !isStorefrontProductSafe(product)) return {}
 
   const metaTitle =
     product.content?.discoveryPack?.metaTitle ||
@@ -158,60 +171,6 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
 // JSON-LD Structured Data
 // ─────────────────────────────────────────────────────────────────────────────
 
-function buildProductJsonLd(product: ProductDoc, url: string) {
-  const desc =
-    product.content?.commercePack?.websiteDescription ||
-    product.title
-
-  const imageUrl = (() => {
-    const gallery = product.generativeGallery ?? []
-    if (gallery.length === 0) return undefined
-    const first = gallery[0]
-    const mediaDoc = first.image as MediaDoc
-    return mediaDoc?.url || undefined
-  })()
-
-  const jsonLd: Record<string, unknown> = {
-    '@context': 'https://schema.org',
-    '@type': 'Product',
-    name: product.title,
-    description: desc,
-    sku: product.sku,
-    url,
-    ...(product.brand ? { brand: { '@type': 'Brand', name: product.brand } } : {}),
-    ...(product.color ? { color: product.color } : {}),
-    ...(product.material ? { material: product.material } : {}),
-    ...(imageUrl ? { image: imageUrl } : {}),
-    offers: {
-      '@type': 'Offer',
-      price: product.price,
-      priceCurrency: 'TRY',
-      availability:
-        product.status === 'active'
-          ? 'https://schema.org/InStock'
-          : 'https://schema.org/OutOfStock',
-      url,
-    },
-  }
-
-  return jsonLd
-}
-
-function buildFaqJsonLd(faq: FAQItem[]) {
-  return {
-    '@context': 'https://schema.org',
-    '@type': 'FAQPage',
-    mainEntity: faq.map((item) => ({
-      '@type': 'Question',
-      name: item.q,
-      acceptedAnswer: {
-        '@type': 'Answer',
-        text: item.a,
-      },
-    })),
-  }
-}
-
 // ─────────────────────────────────────────────────────────────────────────────
 // D-261: Static default process FAQ — shown when product has no DB FAQ data
 // ─────────────────────────────────────────────────────────────────────────────
@@ -246,7 +205,7 @@ export default async function ProductPage({ params }: Props) {
     notFound()
   }
 
-  if (product.status === 'draft') {
+  if (product.status === 'draft' || !isStorefrontProductSafe(product)) {
     notFound()
   }
 
@@ -260,8 +219,9 @@ export default async function ProductPage({ params }: Props) {
   })
   const variants = variantResult.docs as VariantDoc[]
   const availableSizes = variants.filter((v) => v.stock > 0)
-  const totalStock = availableSizes.reduce((sum, v) => sum + v.stock, 0)
-  const isSoldOut = product.status === 'soldout' || totalStock === 0
+  const stockSummary = summarizeProductStock({ ...product, variants })
+  const totalStock = stockSummary.effectiveStock
+  const isSoldOut = product.status === 'soldout' || !stockSummary.hasSellableStock
 
   // D-267: similar products — same category, exclude current, max 6.
   // Audit fix: only surface publicly catalog-visible products here. The old
@@ -290,21 +250,11 @@ export default async function ProductPage({ params }: Props) {
     .filter((sp) => isHomepageEligible(sp as unknown as MerchandisableProduct))
     .slice(0, 6)
 
-  const serverUrl = process.env.NEXT_PUBLIC_SERVER_URL || ''
-  const extractUrls = (entries: ImageEntry[]): string[] =>
-    entries
-      .map((img) => {
-        const mediaDoc = img.image as MediaDoc
-        if (!mediaDoc || typeof mediaDoc === 'number' || typeof mediaDoc === 'string') return null
-        const largeUrl = (mediaDoc as any)?.sizes?.large?.url
-        if (largeUrl) return largeUrl.startsWith('http') ? largeUrl : `${serverUrl}${largeUrl}`
-        if (mediaDoc?.url) return mediaDoc.url.startsWith('http') ? mediaDoc.url : `${serverUrl}${mediaDoc.url}`
-        if ((mediaDoc as any)?.filename) return `/media/${(mediaDoc as any).filename}`
-        return null
-      })
-      .filter(Boolean) as string[]
-
-  const images = extractUrls(product.generativeGallery ?? [])
+  const images = resolveProductStorefrontImageUrls({
+    generativeGallery: product.generativeGallery,
+    images: product.images,
+    serverUrl: process.env.NEXT_PUBLIC_SERVER_URL,
+  })
 
   const websiteDescription =
     product.content?.commercePack?.websiteDescription || null
@@ -314,7 +264,11 @@ export default async function ProductPage({ params }: Props) {
     ? highlights.filter((h): h is string => typeof h === 'string' && h.trim().length > 0)
     : []
   const validFaq = Array.isArray(faq)
-    ? faq.filter((f): f is FAQItem => !!f && typeof f.q === 'string' && typeof f.a === 'string')
+    ? faq.filter((f): f is FAQItem => (
+      !!f &&
+      typeof f.q === 'string' && f.q.trim().length > 0 &&
+      typeof f.a === 'string' && f.a.trim().length > 0
+    ))
     : []
 
   // D-335A: surface the discovery article as a visible, server-rendered
@@ -340,7 +294,10 @@ export default async function ProductPage({ params }: Props) {
 
   const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || 'https://www.uygunayakkabi.com'
   const productUrl = `${siteUrl}/products/${product.slug}`
-  const productJsonLd = buildProductJsonLd(product, productUrl)
+  const productJsonLd = buildProductJsonLd(product, productUrl, {
+    imageUrls: images,
+    inStock: product.status === 'active' && !isSoldOut,
+  })
   const faqJsonLd = validFaq.length > 0 ? buildFaqJsonLd(validFaq) : null
   const waNumber = process.env.NEXT_PUBLIC_WHATSAPP_NUMBER || '905331524843'
 
@@ -355,20 +312,14 @@ export default async function ProductPage({ params }: Props) {
     <>
       <script
         type="application/ld+json"
-        dangerouslySetInnerHTML={{ __html: JSON.stringify(productJsonLd) }}
+        dangerouslySetInnerHTML={{ __html: serializeJsonLd(productJsonLd) }}
       />
       {faqJsonLd && (
-        <script
-          type="application/ld+json"
-          dangerouslySetInnerHTML={{ __html: JSON.stringify(faqJsonLd) }}
+          <script
+            type="application/ld+json"
+            dangerouslySetInnerHTML={{ __html: serializeJsonLd(faqJsonLd) }}
         />
       )}
-
-      {/* Load Inter + Playfair fonts */}
-      <link
-        href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=Playfair+Display:wght@400;500;600;700;800;900&display=swap"
-        rel="stylesheet"
-      />
 
       <div style={{ background: '#f4efe6', minHeight: '100vh' }}>
         <StorefrontNavbar />
@@ -898,8 +849,11 @@ export default async function ProductPage({ params }: Props) {
               marginBottom: 24 }}>Benzer Modeller</h2>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: 16 }}>
               {similarProducts.map((sp: ProductDoc) => {
-                const spImg = extractUrls((sp as any).generativeGallery ?? [])[0]
-                  || extractUrls((sp as any).images ?? [])[0] || null
+                const spImg = resolveProductStorefrontImageUrls({
+                  generativeGallery: sp.generativeGallery,
+                  images: sp.images,
+                  serverUrl: process.env.NEXT_PUBLIC_SERVER_URL,
+                })[0] ?? null
                 return (
                   <a key={sp.id} href={`/products/${(sp as any).slug}`}
                     style={{ display: 'block', textDecoration: 'none', borderRadius: 16,
@@ -907,8 +861,13 @@ export default async function ProductPage({ params }: Props) {
                       border: '1px solid rgba(28,26,22,0.06)', transition: 'transform 0.2s' }}>
                     {spImg && (
                       <div style={{ paddingTop: '100%', position: 'relative', background: '#ebe5da' }}>
-                        <img src={spImg} alt={(sp as any).title} loading="lazy" style={{ position: 'absolute', inset: 0,
-                          width: '100%', height: '100%', objectFit: 'cover' }} />
+                        <Image
+                          src={spImg}
+                          alt={(sp as any).title}
+                          fill
+                          sizes="(max-width: 640px) 50vw, (max-width: 1024px) 33vw, 25vw"
+                          style={{ objectFit: 'cover' }}
+                        />
                       </div>
                     )}
                     <div style={{ padding: '14px 16px 18px' }}>

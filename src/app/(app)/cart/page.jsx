@@ -24,6 +24,7 @@ function CartItemImage({ src, alt }) {
   if (!src) return null;
   if (src.startsWith("data:") || src.startsWith("blob:")) {
     return (
+      // eslint-disable-next-line @next/next/no-img-element -- data/blob URLs cannot use next/image.
       <img src={src} alt={alt} className="w-full h-full object-contain select-none" />
     );
   }

@@ -27,16 +27,6 @@ import type { Payload } from 'payload'
 // Data Aggregation
 // ─────────────────────────────────────────────────────────────────────────────
 
-/** Get Istanbul date string for a given UTC timestamp. */
-function toIstanbulDate(ts: number = Date.now()): string {
-  return new Date(ts).toLocaleDateString('tr-TR', {
-    timeZone: 'Europe/Istanbul',
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-  })
-}
-
 /** Build a FullDailyReport from database records for a given date. */
 export async function buildDailyReport(date: string, payload: Payload): Promise<FullDailyReport> {
   const today = date // YYYY-MM-DD format (Istanbul)
@@ -181,13 +171,6 @@ export async function buildDailyReport(date: string, payload: Payload): Promise<
   const newTerms = actions
     .filter(a => a.actionType === 'term_learned')
     .map(a => a.details as string)
-
-  const lastReportLearning = await payload.find({
-    collection: 'supplier-daily-reports',
-    where: { reportDate: { not_equals: today } },
-    sort: '-reportDate',
-    limit: 1,
-  })
 
   const learning = {
     newTermsLearned: newTerms,

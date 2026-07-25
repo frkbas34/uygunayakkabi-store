@@ -11,16 +11,20 @@
  * Consumed by the /utm Telegram command in route.ts.
  */
 
+import { isPublicStorefrontProduct } from './merchandising'
+
 const STOREFRONT_BASE = 'https://www.uygunayakkabi.com'
 
 export const APPROVED_SOURCES = new Set([
   'instagram', 'whatsapp', 'google', 'facebook', 'telegram',
   'shopier', 'website', 'referral', 'email', 'tiktok',
+  'meta',
 ])
 
 export const APPROVED_MEDIUMS = new Set([
   'social', 'bio', 'story', 'dm', 'direct', 'organic',
   'cpc', 'manual', 'email', 'reel',
+  'paid', 'paid_social',
 ])
 
 /** Minimum 2 chars, maximum 50. Lowercase letters, digits, underscores only. */
@@ -74,19 +78,51 @@ export function validateUtmInputs(source: string, medium: string, campaign: stri
   return errors
 }
 
+export interface ProductUtmEligibility {
+  ok: boolean
+  reason: string | null
+}
+
+/**
+ * A UTM is only useful when its landing page is actually available to a buyer.
+ * Keep URL formatting pure below; callers that resolve a product must use this
+ * policy before returning a copy-ready link.
+ */
+export function evaluateProductUtmEligibility(product: unknown): ProductUtmEligibility {
+  const p = product && typeof product === 'object'
+    ? product as { status?: unknown; title?: unknown; brand?: unknown; slug?: unknown }
+    : {}
+  const slug = typeof p.slug === 'string' ? p.slug.trim() : ''
+  const status = typeof p.status === 'string' ? p.status.trim() : ''
+
+  if (!slug) {
+    return { ok: false, reason: 'Product has no website slug.' }
+  }
+  if (status !== 'active') {
+    return { ok: false, reason: `Product must be active before a marketing UTM link is created (status=${status || 'missing'}).` }
+  }
+  if (!isPublicStorefrontProduct(p)) {
+    return { ok: false, reason: 'Public storefront safety policy blocks this product page.' }
+  }
+
+  return { ok: true, reason: null }
+}
+
 /** Build the final tagged storefront product URL. Inputs must already be validated. */
 export function buildProductUtmUrl(
   slug: string,
   source: string,
   medium: string,
   campaign: string,
+  content?: string | null,
 ): string {
-  return (
+  const base = (
     `${STOREFRONT_BASE}/products/${slug}` +
     `?utm_source=${encodeURIComponent(source)}` +
     `&utm_medium=${encodeURIComponent(medium)}` +
     `&utm_campaign=${encodeURIComponent(campaign)}`
   )
+  return content ? `${base}&utm_content=${encodeURIComponent(content)}` : base
 }
 
 /** Usage string shown when /utm is called with wrong arg count. */

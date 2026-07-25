@@ -76,15 +76,6 @@ function startOfPastDaysUTC(days: number): Date {
   const d = startOfTodayUTC(); d.setUTCDate(d.getUTCDate() - (days - 1)); return d
 }
 
-function countByField(leads: any[], field: string): Map<string, number> {
-  const m = new Map<string, number>()
-  for (const l of leads) {
-    const v = l[field]
-    if (v && typeof v === 'string' && v.trim()) m.set(v, (m.get(v) ?? 0) + 1)
-  }
-  return m
-}
-
 function topN(counts: Map<string, number>, n: number): Array<{ value: string; count: number }> {
   return Array.from(counts.entries())
     .sort((a, b) => b[1] - a[1])

@@ -119,7 +119,7 @@ check('Asics Sneaker Bej is BLOCKED + Asics detected', () => {
 
 // 11. D-344A: each newly-added third-party brand blocks (Asics, Reebok, Skechers, Loro Piana).
 check('newly-added brands each block', () => {
-  for (const brand of ['Asics', 'Reebok', 'Skechers', 'Loro Piana']) {
+  for (const brand of ['Asics', 'Reebok', 'Skechers', 'Loro Piana', 'Camper']) {
     const r = scanBrandSafety([{ field: 'title', text: `${brand} Spor Ayakkabı` }])
     assert.strictEqual(r.safe, false, `"${brand}" should hard-block; got ${JSON.stringify(r)}`)
     assert.ok(r.blockedBrands.includes(brand), `should detect ${brand}`)

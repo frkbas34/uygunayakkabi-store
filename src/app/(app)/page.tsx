@@ -122,8 +122,9 @@ export default async function Page() {
       isHomepageEligible(p as MerchandisableProduct),
     );
 
-    // Resolve sections (for future use when UygunApp supports section props)
-    // For now, this validates the merchandising engine works correctly server-side
+    // Resolve homepage sections server-side and pass their product IDs to UygunApp.
+    // The client uses these memberships for its merchandising rails, with safe
+    // fallbacks when a section does not yet have enough eligible products.
     const sections = resolveHomepageSections(
       eligibleProducts as unknown as MerchandisableProduct[],
       merchSettings,
@@ -168,7 +169,7 @@ export default async function Page() {
             variantMap.get(pid)!.push(v);
           }
         }
-      } catch (e) {
+      } catch {
         // Non-critical — sizes will fall back to empty
       }
     }
@@ -194,7 +195,7 @@ export default async function Page() {
             reverseMediaMap.get(pid)!.push(m);
           }
         }
-      } catch (e) {
+      } catch {
         // Non-critical — just means reverse media won't be used as fallback
       }
     }
@@ -204,8 +205,6 @@ export default async function Page() {
       // D-174b: ONLY AI-generated images. Original photos are NEVER public.
       const aiUrls = getAllMediaUrls(p.generativeGallery || []);
       // Fallback: category placeholder (never original intake photos)
-      const imgSrc = aiUrls[0] || shoeImg;
-      const img2 = aiUrls[1] || shoeImg;
 
       // Varyantlardan beden ve stok — use variantMap (product_id FK) instead of
       // p.variants (hasMany via products_rels, which may be empty)
@@ -269,9 +268,10 @@ export default async function Page() {
           showFreeShippingBanner: settings.shipping?.showFreeShippingBanner ?? true,
         },
         trustBadges: {
-          monthlyCustomers: settings.trustBadges?.monthlyCustomers || '500+',
-          totalProducts: settings.trustBadges?.totalProducts || '200+',
-          satisfactionRate: settings.trustBadges?.satisfactionRate || '%98',
+          enabled: settings.trustBadges?.enabled === true,
+          monthlyCustomers: settings.trustBadges?.monthlyCustomers || '',
+          totalProducts: settings.trustBadges?.totalProducts || '',
+          satisfactionRate: settings.trustBadges?.satisfactionRate || '',
         },
         announcementBar: {
           enabled: settings.announcementBar?.enabled ?? true,
@@ -279,7 +279,7 @@ export default async function Page() {
           bgColor: settings.announcementBar?.bgColor || '#c8102e',
         },
       };
-    } catch (e) {
+    } catch {
       console.log('[Page] SiteSettings yüklenemedi, varsayılan değerler kullanılacak');
     }
 
@@ -307,7 +307,7 @@ export default async function Page() {
         placement: b.placement || 'top_bar',
         imageUrl: b.image?.url || null,
       }));
-    } catch (e) {
+    } catch {
       console.log('[Page] Bannerlar yüklenemedi');
     }
 

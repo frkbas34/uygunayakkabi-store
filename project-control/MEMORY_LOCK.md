@@ -1,6 +1,6 @@
 # MEMORY LOCK — Uygunayakkabi
 
-_Last updated: 2026-03-23 (Consolidated — Step 20 complete)_
+_Last updated: 2026-07-24 (D-461 current-control truth reconciliation)_
 _Purpose: Stable truths that MUST persist across all sessions. Do not re-litigate these._
 
 ---
@@ -21,7 +21,7 @@ This is an EXISTING production system with:
 - 13 deployed AI skills (Mentix v2)
 - Live Instagram + Facebook direct publish
 - **Live Shopier product sync** (non-blocking jobs queue, GitHub Actions 5-min cron)
-- Live Telegram → OpenClaw → n8n → Payload pipeline
+- Current Telegram operator path: Mentix/Uygunops → Next/Payload. Hermes is the current agent-control layer; OpenClaw and n8n are optional only when explicitly reactivated or needed.
 
 **Any new session MUST continue from the current state, not rebuild.**
 
@@ -38,9 +38,9 @@ This is an EXISTING production system with:
 |-------|--------|------|
 | Phase 1 — Core Admin + Storefront | ✅ COMPLETE | 2026-03-13 |
 | Phase 2A — Controlled Product Intake | ✅ Steps 1-19 COMPLETE | 2026-03-22 |
-| Phase 2B — Multi-Channel Distribution | 🟡 IN PROGRESS (IG+FB+Shopier live, Dolap scaffold) | 2026-03-23 |
-| Phase 2C — Content Growth Layer | 📋 PLANNED | — |
-| Phase 3 — Visual & Experience | 📋 PLANNED | — |
+| Master Phases 0-1 — Control and Validation | ✅ Current truth and `npm run validate` are the local baseline | 2026-07-24 |
+| Master Phase 2 — Core Product Workflow | 🟡 Active local build focus | 2026-07-24 |
+| Channel policy | CURRENT ACTIVE CHANNELS: Website/Instagram/Facebook/X/Shopier; Dolap/Threads retired | 2026-07-24 |
 
 ## Locked Stack Decisions
 
@@ -51,20 +51,22 @@ This is an EXISTING production system with:
 - **VPS**: Netcup, Ubuntu 22.04.5 LTS
 - **Containers**: Docker + Docker Compose
 - **Reverse Proxy**: Caddy (auto-TLS)
-- **Workflow**: n8n at flow.uygunayakkabi.com
-- **AI Agent**: OpenClaw at agent.uygunayakkabi.com
+- **Workflow glue**: n8n is optional; do not make it a required intake, publishing, or deploy dependency.
+- **Agent control**: Hermes is current for Mentix/Uygunops operations. OpenClaw is historical/optional and requires explicit reactivation plus VPS verification before use.
 - **AI Model**: OpenAI gpt-5-mini
 - **Deployment**: Vercel (storefront), VPS (automation)
 
 ## Locked Architecture Rules
 
 - Payload CMS is THE single source of truth for all product data (D-059)
+- Payload/Next is the current execution layer for product, storefront, publishing, jobs, and bot workflows.
 - All automation creates via Payload API — never directly to DB (D-059)
 - Instagram/Facebook publish directly from Payload, NOT via n8n (D-088, D-089)
 - importMap MUST be manually maintained (D-034)
 - `<img>` tags only — no next/image for product images (D-025)
 - SSL in pool options, NOT in DATABASE_URI string (D-035)
 - Products.slug is auto-generated and readOnly (D-040)
+- SupplierScout is dormant for the own-products-only strategy. Do not activate, schedule, or extend it without explicit operator reversal.
 
 ## Locked Operational Rules
 
@@ -83,12 +85,12 @@ This is an EXISTING production system with:
 
 ## Decision ID Registry
 
-- D-001 to D-051: Core decisions (Phase 1 + early Phase 2)
-- D-052 to D-060: Telegram/automation/channel architecture
-- D-061 to D-069: Steps 9-15 implementation decisions
-- D-070 to D-076: Mentix Intelligence Layer
-- D-077 to D-089: Steps 16-19 + Instagram/Facebook publish
-- D-090 to D-091: Renumbered duplicates (media access, upload rule)
-- D-092 to D-09x: Step 20 — Shopier integration decisions
-- D-093: Try-On Is UX Layer Only (renumbered from D-060/D-087 collision)
-- **⚠️ Next available ID: D-094** (check DECISIONS.md before adding)
+- Decision identifiers are historical and not sequential. Always inspect `project-control/DECISIONS.md`, `PROJECT_STATE.md`, and `TASK_QUEUE.md` before adding a checkpoint.
+
+## Current Agent And Automation Truth
+
+- Mentix/Uygunops is the Telegram-facing operator identity; the Next/Payload Telegram route executes commerce workflows.
+- Hermes is the current agent-control layer for reasoning, diagnostics, drafting, and operator support.
+- OpenClaw is historical/optional. Repo files are not evidence that it is deployed; use `mentix-skills/OPENCLAW_VPS_VERIFICATION.md` only after explicit reactivation.
+- n8n is optional glue. Direct Payload/Next remains the default; do not add new workflows unless a current operator need is verified.
+- Active channels are Website, Instagram, Facebook, X, and Shopier. Dolap and Threads are retired. SupplierScout is dormant.

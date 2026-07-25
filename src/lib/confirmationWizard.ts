@@ -178,40 +178,35 @@ const WIZARD_TIMEOUT_MS = 30 * 60 * 1000
 // or `${chatId}` in DM context (backward compatible — userId omitted or same as chatId).
 //
 // D-158: the in-memory Map is a per-Lambda-instance fast-path cache, but the
-// canonical store is now the Neon `wizard_sessions` table so sessions survive
-// cold starts, deploys, and instance rotations. Call hydrateWizardSession()
-// at the start of each handler to load from DB into the Map; sync getters
-// then work as before. Writes are fire-and-forget via persistWizardSessionBackground().
+// canonical store is the pre-provisioned `wizard_sessions` table so sessions
+// survive cold starts, deploys, and instance rotations. Request handling must
+// never create or alter that table; schema changes belong to the approved
+// deployment/migration path. Call hydrateWizardSession() at the start of each
+// handler to load from DB into the Map; sync getters then work as before.
 
 const wizardSessions = new Map<string, WizardState>()
-
-/** D-173: Per-instance flag so we only run CREATE TABLE IF NOT EXISTS once. */
-let tableEnsured = false
-
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-async function ensureWizardTable(pool: { query: (text: string, vals?: any[]) => Promise<{ rows: any[] }> }): Promise<void> {
-  if (tableEnsured) return
-  try {
-    await pool.query(`
-      CREATE TABLE IF NOT EXISTS wizard_sessions (
-        session_key TEXT PRIMARY KEY,
-        state JSONB NOT NULL,
-        started_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-      )
-    `)
-    tableEnsured = true
-  } catch (tblErr) {
-    console.warn('[ensureWizardTable D-173] auto-create failed:', tblErr instanceof Error ? tblErr.message : tblErr)
-  }
-}
 
 function sessionKey(chatId: number, userId?: number): string {
   return userId ? `${chatId}:${userId}` : String(chatId)
 }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 type PayloadLike = { db?: { pool?: { query: (text: string, vals?: any[]) => Promise<{ rows: any[] }> } } }
+
+function logWizardSessionStoreError(operation: 'load' | 'upsert' | 'delete', error: unknown): void {
+  const record = error as { code?: string; message?: string }
+  if (record?.code === '42P01') {
+    console.warn(
+      `[wizardSessions] ${operation} skipped: public.wizard_sessions is missing. ` +
+        'Provision it through the guarded D-489 schema workflow; request handling will not create schema.',
+    )
+    return
+  }
+
+  console.warn(
+    `[wizardSessions] ${operation} failed:`,
+    error instanceof Error ? error.message : String(error),
+  )
+}
 
 /**
  * D-158: Load wizard session from DB into the in-memory cache.
@@ -238,9 +233,6 @@ export async function hydrateWizardSession(
     return cached ?? null
   }
 
-  // D-173: ensure table exists before querying
-  await ensureWizardTable(pool)
-
   try {
     const { rows } = await pool.query(
       `SELECT state, started_at FROM wizard_sessions
@@ -260,7 +252,7 @@ export async function hydrateWizardSession(
     console.log(`[hydrateWizardSession D-158] loaded key=${key} step=${state.step} productId=${state.productId}`)
     return state
   } catch (err) {
-    console.warn('[hydrateWizardSession D-158] DB load failed:', err instanceof Error ? err.message : err)
+    logWizardSessionStoreError('load', err)
     return cached ?? null
   }
 }
@@ -287,8 +279,6 @@ async function persistWizardSession(
 ): Promise<void> {
   const pool = payload?.db?.pool
   if (!pool) return
-  // D-173: ensure table exists before writing
-  await ensureWizardTable(pool)
   try {
     await pool.query(
       `INSERT INTO wizard_sessions (session_key, state, started_at, updated_at)
@@ -298,7 +288,7 @@ async function persistWizardSession(
       [key, JSON.stringify(state), state.startedAt],
     )
   } catch (err) {
-    console.warn('[persistWizardSession D-166] DB upsert failed:', err instanceof Error ? err.message : err)
+    logWizardSessionStoreError('upsert', err)
   }
 }
 
@@ -309,11 +299,10 @@ async function persistWizardSession(
 async function deleteWizardSession(payload: PayloadLike | null, key: string): Promise<void> {
   const pool = payload?.db?.pool
   if (!pool) return
-  await ensureWizardTable(pool)
   try {
     await pool.query(`DELETE FROM wizard_sessions WHERE session_key = $1`, [key])
   } catch (err) {
-    console.warn('[deleteWizardSession D-166] DB delete failed:', err instanceof Error ? err.message : err)
+    logWizardSessionStoreError('delete', err)
   }
 }
 
@@ -1291,24 +1280,6 @@ export async function applyConfirmation(
         `[confirmationWizard] idempotency re-read failed (non-blocking) — product=${productId}:`,
         idemErr instanceof Error ? idemErr.message : String(idemErr),
       )
-    }
-
-    // D-172e: Ensure new category ENUM values exist in Postgres before updating.
-    // Payload's push:true doesn't reliably ALTER TYPE for new enum values.
-    // This is idempotent — IF NOT EXISTS prevents errors on subsequent calls.
-    const pool = payload?.db?.pool
-    if (pool && collected.category) {
-      const enumValues = ['Erkek Ayakkabı', 'Spor', 'Günlük', 'Klasik', 'Bot', 'Krampon', 'Terlik', 'Cüzdan']
-      for (const val of enumValues) {
-        try {
-          await pool.query(`ALTER TYPE enum_products_category ADD VALUE IF NOT EXISTS '${val}'`)
-        } catch (enumErr: any) {
-          // 42710 = duplicate_object (value already exists) — safe to ignore
-          if (enumErr?.code !== '42710') {
-            console.warn(`[confirmationWizard] ENUM alter failed for '${val}':`, enumErr?.message)
-          }
-        }
-      }
     }
 
     // 1. Build product update

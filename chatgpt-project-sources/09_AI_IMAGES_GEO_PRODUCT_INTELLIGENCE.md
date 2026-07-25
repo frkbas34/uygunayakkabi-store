@@ -1,6 +1,6 @@
 # AI Images, GEO, And Product Intelligence
 
-Last updated: 2026-06-28
+Last updated: 2026-07-06
 
 ## AI Image Workflow
 
@@ -22,11 +22,12 @@ Current implementation:
 - AI/generated images require explicit QC PASS before publish readiness, activation, or ad readiness.
 - Payload admin ReviewPanel shows Image QC state.
 - Telegram `/imageqc` can inspect or set PASS/REVIEW/FAIL without publishing, dispatching, retrying, or spending.
+- Telegram `/imageplan <sn-or-id>` and `/regenplan <sn-or-id>` can inspect product Image QC plus recent image-generation job state and suggest the next safe manual command without writing, queueing providers, publishing, dispatching, calling Shopier, or spending.
+- `npm run smoke:image-plan:read -- --product=<id-or-sn> --confirm-read-only` mirrors `/imageplan` from repo-side Payload reads before live Telegram smoke and performs no writes, image-generation queueing, provider calls, Shopier calls, dispatch, ad spend, SupplierScout activation, retired-channel activation, or schema push.
 - Provider visibility exists through `npm run smoke:pi-provider-health:read -- --confirm-read-only`, which checks Gemini, Google Vision, DataForSEO, SerpAPI, and reverse-search selection without Payload access, provider calls, or secret-value printing.
 
 Still needed:
 
-- Better rejection/regeneration path from FAIL/REVIEW back into image generation.
 - Live provider quota/balance/permission verification when the operator is ready to spend credits or run `#geohazirla`.
 
 ## GEO Content
@@ -49,6 +50,14 @@ Needed:
 - Operator approval.
 - Storefront rendering for useful fields.
 - Claim safety.
+
+### Blog Editorial Preflight (D-479)
+
+Blog copy is now protected by a shared first-publication gate. It blocks missing, short, malformed, or placeholder title/excerpt/body content; records `publishedAt` for a valid first publication; and leaves legacy published-post edits compatible. AI-authored and evidence-sensitive wording remains `needs_review`, so the operator must decide whether claims are supportable before publishing.
+
+- Telegram read: `/blogpreflight <id-or-slug>`.
+- Repo-side Payload read: `npm run smoke:blog-preflight:read -- --post=<id-or-slug> --confirm-read-only`.
+- Neither diagnostic writes, publishes, calls an AI/search provider, spends credits, or changes schema.
 
 ## Product Intelligence
 
@@ -73,6 +82,64 @@ Current provider-status support:
 - `npm run test:pi-provider-health` covers missing/partial credentials, reverse-search selection, explicit provider preference behavior, and secret-safe formatting.
 - `npm run smoke:pi-provider-health:read -- --confirm-read-only` loads local env files and prints provider states/missing key names without external calls.
 - Latest local result on 2026-07-02: Gemini text/image ready, `GEMINI_IMAGE_GEN_MODEL` override present, and reverse search missing because Google Vision, DataForSEO, and SerpAPI credentials are not configured locally.
+
+### D-403 Provider Reality Audit
+
+D-403 provider reality audit adds `project-control/PROVIDER_REALITY_AUDIT.md` and `npm run test:provider-reality`. The audit records that local env readiness is not production provider readiness.
+
+It covers Website, Instagram, Facebook, X, Shopier, Gemini, Google Vision, DataForSEO, SerpAPI, reverse-search selection, and n8n fallback webhooks. It keeps provider checks local-only unless the operator explicitly approves live/provider work.
+
+Guardrails:
+
+- Do not print or copy secret values.
+- Do not call Gemini, Google Vision, DataForSEO, SerpAPI, Meta, X, Shopier, or n8n from the audit without explicit operator approval.
+- Do not spend credits, queue jobs, publish products, dispatch channels, run live Telegram commands, activate SupplierScout, or revive retired channels.
+- Do not mark production provider reality as proven until current production env, account/quota/permission, and approved probe evidence is recorded.
+
+### D-404 Image Regeneration Plan
+
+D-404 adds a read-only bridge from product-level Image QC to the job-level image preview/regeneration flow.
+
+Code and surfaces:
+
+- `src/lib/imageRegenerationPlan.ts`
+- `src/lib/imageRegenerationPlan.test.ts`
+- Telegram `/imageplan <sn-or-id>`
+- Telegram `/regenplan <sn-or-id>`
+- `/smokeplan` includes `npm run smoke:image-plan:read -- --product=<id-or-sn> --confirm-read-only` before `/imageplan <id-or-sn>`
+- Package validation: `npm run test:image-regeneration-plan`
+- Runtime smoke: `npm run smoke:image-plan:read -- --product=<id-or-sn> --confirm-read-only`
+
+The plan reads product media, `imageQuality`, workflow `visualStatus`, and recent `image-generation-jobs`. It classifies states such as original-only/no action, generation running, preview needs operator, QC decision needed, REVIEW needs decision, and regenerate recommended.
+
+Guardrails:
+
+- Read-only only.
+- No product writes.
+- No image-generation job queueing.
+- No Gemini or provider call.
+- No publish, dispatch, Shopier call, SupplierScout activation, retired-channel activation, or ad spend.
+- It suggests manual commands such as `onayla`, `yeniden uret`, `#gorsel <sn-or-id>`, `/imageqc pass ...`, `/imageqc fail ...`, and `/productflow ...`; it does not run them.
+
+### D-405 Image-Plan Runtime Smoke
+
+D-405 adds `scripts/image-plan-runtime-smoke.ts` and package command `smoke:image-plan:read`.
+
+The smoke is operator-run only and requires:
+
+```powershell
+npm run smoke:image-plan:read -- --product=<id-or-sn> --confirm-read-only
+```
+
+It reads one real Payload product and up to three recent `image-generation-jobs`, then prints the same regeneration plan used by Telegram `/imageplan`.
+
+Guardrails:
+
+- Requires explicit `READ_ONLY` confirmation.
+- Forces `PAYLOAD_DB_PUSH=false`.
+- Refuses mutation, queue, publish, dispatch, provider, Shopier, SupplierScout, retired-channel, or spend flags.
+- Does not write products, queue image generation, call providers, publish, dispatch, call Shopier, spend on ads, activate SupplierScout, revive retired channels, or push schema changes.
+- Covered by `test:runtime-smokes` and included in `/smokeplan` before the live Telegram `/imageplan` read.
 
 ## Safety Rule
 

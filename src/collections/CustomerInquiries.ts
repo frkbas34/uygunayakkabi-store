@@ -47,13 +47,8 @@ export const CustomerInquiries: CollectionConfig = {
       // D-241: extended pipeline. `completed` is kept for backward compatibility
       // (legacy rows) and treated as equivalent to `closed_won` in the operator
       // surface. New writes should prefer the explicit closed_* values.
-      // NOTE (Neon): adding values to this select requires manual DDL.
-      // See feedback_push_true_drift.md — push:true silently skips the
-      // ALTER TYPE ADD VALUE migration. Run on prod after deploy:
-      //   ALTER TYPE enum_customer_inquiries_status ADD VALUE IF NOT EXISTS 'follow_up';
-      //   ALTER TYPE enum_customer_inquiries_status ADD VALUE IF NOT EXISTS 'closed_won';
-      //   ALTER TYPE enum_customer_inquiries_status ADD VALUE IF NOT EXISTS 'closed_lost';
-      //   ALTER TYPE enum_customer_inquiries_status ADD VALUE IF NOT EXISTS 'spam';
+      // D-490: the database enum is pre-provisioned through the guarded
+      // lead-status schema workflow. Request paths never change enum values.
       options: [
         { label: 'Yeni', value: 'new' },
         { label: 'Arandı', value: 'contacted' },
@@ -80,12 +75,8 @@ export const CustomerInquiries: CollectionConfig = {
     // All fields are nullable — written only when truthfully available at
     // inquiry creation time. Never invent values.
     //
-    // Neon DDL (push:true silently skips — run manually after deploy):
-    //   ALTER TABLE customer_inquiries ADD COLUMN IF NOT EXISTS utm_source VARCHAR;
-    //   ALTER TABLE customer_inquiries ADD COLUMN IF NOT EXISTS utm_medium VARCHAR;
-    //   ALTER TABLE customer_inquiries ADD COLUMN IF NOT EXISTS utm_campaign VARCHAR;
-    //   ALTER TABLE customer_inquiries ADD COLUMN IF NOT EXISTS referrer VARCHAR;
-    //   ALTER TABLE customer_inquiries ADD COLUMN IF NOT EXISTS landing VARCHAR;
+    // These nullable attribution fields are deployment-schema responsibilities;
+    // runtime lead intake must never attempt to create them.
     {
       name: 'utmSource',
       type: 'text',

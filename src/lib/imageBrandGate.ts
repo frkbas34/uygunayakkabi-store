@@ -37,7 +37,6 @@ const OK: ImageBrandGate = { blocked: false, brands: [], reason: '', operatorMes
  * any unexpected shape (fail-open — never break the pipeline on a bad input).
  */
 export function evaluateImageBrandGate(product: unknown): ImageBrandGate {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const scan = scanProductBrandSafety(product as any)
   if (scan.safe) return OK
 

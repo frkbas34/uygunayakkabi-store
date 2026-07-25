@@ -22,10 +22,9 @@ export interface ActivationGuardOptions {
   /**
    * Explicit operator "Yayına Al" override.
    *
-   * This bypasses review-only gates that can be intentionally overruled by a
-   * human operator (Image QC PASS and brand-safety/audit wording checks), but
-   * it still keeps hard commerce/source-of-truth blockers in place: price,
-   * media existence, publish targets, and sellable stock.
+   * This bypasses Image QC review only. Protected-brand safety remains a hard
+   * gate even for an operator override: provenance must be resolved before the
+   * product can enter an active state or external dispatch path.
    */
   manualPublishOverride?: boolean
 }
@@ -166,13 +165,11 @@ export async function collectActivationBlockers(
     blockers.push('stok adedi 0dan buyuk olmali')
   }
 
-  if (!options.manualPublishOverride) {
-    const brandSafety = scanProductBrandSafety(product)
-    if (!brandSafety.safe) {
-      blockers.push(
-        `brand safety blokladi: ${formatBrandSafetyReason(brandSafety) || brandSafety.reasons.join('; ')}`,
-      )
-    }
+  const brandSafety = scanProductBrandSafety(product)
+  if (!brandSafety.safe) {
+    blockers.push(
+      `brand safety blokladi: ${formatBrandSafetyReason(brandSafety) || brandSafety.reasons.join('; ')}`,
+    )
   }
 
   return blockers

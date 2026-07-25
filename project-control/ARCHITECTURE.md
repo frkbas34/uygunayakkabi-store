@@ -1,6 +1,16 @@
 # ARCHITECTURE — Uygunayakkabi
 
-_Last updated: 2026-06-21 (Dolap/Threads retired; SupplierScout dormant by default)_
+_Last updated: 2026-07-24 (D-463 Hermes-current skill-policy reconciliation)_
+
+## Current Verification Note
+
+D-401 current truth: repo-side OpenClaw skill files are expected state, not proof that VPS OpenClaw is synced, loaded, or live. Before copying skills, restarting OpenClaw, or running live Telegram/OpenClaw prompts, use `mentix-skills/OPENCLAW_VPS_VERIFICATION.md` and record VPS directory evidence, log evidence, and read-only prompt evidence. Older sections in this file may describe historical VPS state; do not treat them as current deployment proof without fresh verification.
+
+## Current Runtime Override (D-463)
+
+Payload/Next is the current commerce execution layer and source of truth. Hermes/Mentix is the current operator-control layer on the operator PC. OpenClaw is historical/optional unless explicitly reactivated; n8n is optional glue only, not the default Telegram intake or publishing path. Website, Instagram, Facebook, X, and Shopier are the only active channels; Dolap and Threads are retired; SupplierScout is dormant.
+
+The dated VPS, OpenClaw, n8n, Telegram, provider, credential, and "live" claims below are historical implementation notes. Do not use them as live operating facts, copy commands, deployment instructions, or evidence of configured credentials. Use `AGENTS.md`, `CLAUDE.md`, `chatgpt-project-sources/`, `project-control/DEPLOYMENT_OPS_RUNBOOK.md`, and `OPENCLAW_VPS_VERIFICATION.md` for current decisions and any approved external action.
 
 ## High-Level Overview
 Uygunayakkabi is a **Telegram-first, AI-assisted, multi-channel commerce engine** with integrated content generation, visual expansion, and future try-on capabilities. It is not a simple storefront — it is a central product management system that publishes to active channels (website, Instagram, Facebook, X, Shopier) from a single source of truth (Payload CMS). Dolap and Threads were retired from the project on 2026-06-21.
@@ -257,7 +267,7 @@ n8n-workflows/                   # Steps 14+16: n8n workflow assets (VCS-tracked
 - **Step 17**: Instagram OAuth token exchange — `initiate/route.ts` + `callback/route.ts` (src/app/api/auth/instagram/), long-lived token acquisition, NPE bypass protocol, token storage in AutomationSettings global
 - **Step 18**: Instagram direct publish — bypass n8n, `publishInstagramDirectly()` in channelDispatch.ts, 3-step workflow (create container → wait for processing → publish), caption builder mirrors n8n logic
 - **Step 19**: Facebook Page direct publish — `publishFacebookDirectly()` in channelDispatch.ts, Page Access Token exchange, correct page ID discovery via graph.facebook.com/me/accounts
-- **Step 20**: Shopier product sync — `src/lib/shopierApi.ts` (REST v1 client, Bearer JWT), `src/lib/shopierSync.ts` (Payload jobs queue), `src/app/api/webhooks/shopier/route.ts` (HMAC-SHA256 multi-token verification), `src/app/api/payload-jobs/run/route.ts` (jobs runner). GitHub Actions cron every 5 min (`process-jobs.yml`). 4 webhooks registered (order.created, order.fulfilled, refund.requested, refund.updated). Smoke test: Product 11 → Shopier ID `45456186` ✅. `payload_jobs` table + `source_meta_shopier_*` columns created manually in Neon. Shopier PAT expires 2031-03-23.
+- **Step 20**: Shopier product sync — `src/lib/shopierApi.ts` (REST v1 client, Bearer JWT), `src/lib/shopierSync.ts` (Payload jobs queue), `src/app/api/webhooks/shopier/route.ts` (HMAC-SHA256 multi-token verification), `src/app/api/payload-jobs/run/route.ts` (jobs runner). GitHub Actions cron every 5 min (`process-jobs.yml`). 4 webhooks registered (order.created, order.fulfilled, refund.requested, refund.updated); fulfilled now uses the shared order lifecycle helper with source `shopier_webhook`, refund.requested records an idempotent marker before stock restore, and refund.updated records note/audit traceability through `shopierRefundLifecycle`. Smoke test: Product 11 → Shopier ID `45456186` ✅. `payload_jobs` table + `source_meta_shopier_*` columns created manually in Neon. Shopier PAT expires 2031-03-23.
 
 ### Phase 2B — Multi-Channel Distribution (PARTIALLY LIVE ✅ — 2026-03-23)
 - Website publish (native — already works via active status) ✅
@@ -455,10 +465,12 @@ Content Engine (if active + generateBlog):
   - Covers website, phone, telegram, manual orders
   - Creates InventoryLog + triggers `reactToStockChange()`
   - Skips Shopier source (handled in webhook)
-- `src/app/api/webhooks/shopier/route.ts` — refund stock restoration:
-  - `handleRefundRequested()` now increments product + variant stock on order cancellation
-  - Creates InventoryLog with positive change
-  - Triggers `reactToStockChange()` (may fire product.restocked)
+- `src/lib/shopierOrderStock.ts` + `src/app/api/webhooks/shopier/route.ts` — Shopier order/refund stock reconciliation:
+  - `order.created` decrements matching variant stock when variants exist, otherwise product-level stock
+  - `refund.requested` records an idempotent marker before restoring through the same variant-or-product rule
+  - `refund.updated` records note/audit traceability through `src/lib/shopierRefundLifecycle.ts` without status or stock mutation
+  - Creates InventoryLog entries and returns affected product IDs for `reactToStockChange()`
+  - Mismatched Shopier product IDs/sizes are skipped with explicit reasons
 - `src/lib/stockReaction.ts` — low-stock Telegram alerts:
   - `sendStockAlertToTelegram()` fires on soldout, restock, low_stock transitions
   - HTML-formatted message with product title, stock, variant breakdown
@@ -477,7 +489,7 @@ Content Engine (if active + generateBlog):
     5. Emits BotEvents (stock.changed, product.soldout, product.restocked)
   - `formatStockStatusMessage()` — Telegram display with per-variant breakdown
 - Integration points (called after stock changes):
-  - Shopier webhook: `decrementStockForOrder()` → returns affected product IDs → `reactToStockChange()` per product
+  - Shopier webhook: `shopierOrderStock` mutation helpers → affected product IDs → `reactToStockChange()` per product
   - Telegram STOCK command: after variant updates → `reactToStockChange()` with inline soldout/restock feedback
 - Merchandising exclusion: via existing `isHomepageEligible()` in merchandising.ts — checks status, stockState, sellable
   - No changes to merchandising.ts — Phase 2 already built correct gates
@@ -583,6 +595,7 @@ Content Engine (if active + generateBlog):
 - Backward-safe: products with null workflow fields skipped, no existing hooks modified
 
 ## Phase 4 Story Pipeline Wiring (2026-04-04)
+- D-381 local hardening (2026-07-03): `dispatchStory()` checks brand safety before StoryJob creation. Protected-brand products record `storyStatus=failed` and a `brand_safety_block` error instead of queueing a future story/social job.
 - Story dispatch wired into Products.ts afterChange hook — non-blocking, after channel dispatch, inside isStatusTransition check
 - Trigger condition: `shouldAutoTriggerStory(doc)` — checks storySettings.enabled + autoOnPublish
 - Uses `dispatchStory()` from `src/lib/storyDispatch.ts` — creates StoryJob, resolves targets, updates sourceMeta

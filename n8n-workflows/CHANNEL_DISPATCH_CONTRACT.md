@@ -22,6 +22,10 @@ The dispatch is **NOT** fired on:
 
 ## Env Vars
 
+## Dispatch Selection
+
+Payload/Next evaluates product intent and provider requirements first. When configured, Instagram, Facebook, and X use direct provider adapters, and Shopier uses the Payload jobs queue. The webhook contract below applies only when an explicitly configured optional n8n fallback is needed; it is not the default channel-publishing path.
+
 Set in Vercel (or `.env.local` for dev):
 
 | Variable | Channel | Example Value |
@@ -226,6 +230,16 @@ https://uygunayakkabi.com/media/filename.jpg  (using NEXT_PUBLIC_SERVER_URL)
 If `NEXT_PUBLIC_SERVER_URL` is not set, the URL falls back to `/media/filename.jpg` (relative — NOT reachable by n8n). This should not occur in production where `NEXT_PUBLIC_SERVER_URL=https://uygunayakkabi.com`.
 
 **Verification:** After your first real dispatch, check `mediaUrls` in the n8n execution's Webhook input. All entries must start with `https://`.
+
+**Direct Meta selection:** Instagram and Facebook direct adapters scan the
+complete gallery and select public `https://` media. A relative or insecure
+first URL does not prevent direct publishing when a later public image exists.
+This does not make relative URLs safe for an n8n fallback workflow; production
+fallback payloads still need publicly reachable media URLs.
+
+If no public `https://` URL exists, the app records a Meta media failure before
+calling a direct adapter or this optional fallback contract. Configure a
+webhook only after the product has externally reachable media.
 
 ---
 

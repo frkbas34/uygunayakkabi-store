@@ -1,10 +1,11 @@
 /**
  * channelDispatch.ts — Step 13 (scaffold) + Step 16 (real Instagram integration)
  *
- * Pure dispatch layer for Instagram / Facebook / X / Shopier channel adapters.
- * Fires n8n webhooks (via N8N_CHANNEL_*_WEBHOOK env vars) that orchestrate
- * real channel publishing.  Instagram is now a real publish workflow (Step 16).
- * Shopier sync is queued through Payload jobs; social channels publish directly when configured.
+ * Payload/Next owns dispatch decisions and records per-channel results.
+ * Instagram, Facebook, and X use direct provider paths when configured, while
+ * Shopier sync runs through Payload jobs. n8n webhooks are compatibility
+ * fallback glue only; they are never the product source of truth or a required
+ * dependency for the core product flow.
  *
  * Architecture:
  *   Products.ts afterChange hook → dispatchProductToChannels()
@@ -13,8 +14,8 @@
  *     → dispatchToChannel()             (POST to n8n webhook OR dry-run log)
  *
  * Env vars (all optional — absent = scaffold/dry-run mode):
- *   N8N_CHANNEL_INSTAGRAM_WEBHOOK  e.g. https://flow.uygunayakkabi.com/webhook/channel-instagram
- *   N8N_CHANNEL_SHOPIER_WEBHOOK    e.g. https://flow.uygunayakkabi.com/webhook/channel-shopier
+ * Optional n8n fallback env vars (absent = no fallback dispatch):
+ *   N8N_CHANNEL_<INSTAGRAM|FACEBOOK|X|SHOPIER>_WEBHOOK
  *
  * Design constraints:
  *   - Pure functions (no Payload dependency) — testable in isolation
@@ -26,6 +27,8 @@
 import type { AutomationSettingsSnapshot } from './automationDecision'
 import crypto from 'crypto'
 import { scanProductBrandSafety } from './brandSafety'
+import { hasCompleteXOAuthCredentials, missingXOAuthCredentials } from './channelProviderHealth'
+import { resolveMetaProviderCredentials } from './metaProviderCredentials'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -141,7 +144,7 @@ export type ChannelDispatchResult = {
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 /**
- * Returns the n8n webhook URL for a given channel.
+ * Returns the optional n8n fallback webhook URL for a given channel.
  * Returns undefined if the corresponding env var is not set or empty.
  */
 export function buildChannelWebhookUrl(channel: SupportedChannel): string | undefined {
@@ -153,6 +156,10 @@ export function buildChannelWebhookUrl(channel: SupportedChannel): string | unde
   }
   const url = envMap[channel]
   return url && url.trim().length > 0 ? url.trim() : undefined
+}
+
+export function hasPublicHttpsMediaUrl(mediaUrls: readonly string[]): boolean {
+  return mediaUrls.some((url) => typeof url === 'string' && url.startsWith('https://'))
 }
 
 /**
@@ -194,7 +201,9 @@ function extractMediaUrls(product: Record<string, unknown>): string[] {
       })
       .filter((url): url is string => url !== null)
 
-  // AI-generated images (generativeGallery) take priority — side_angle is [0]
+  // AI-generated images (generativeGallery) take priority — slot order is fixed
+  // by imageSlotContract (D-419: side is [0], the main channel image); the
+  // gallery is stored in that slot order.
   const aiImages = product.generativeGallery as ImgEntry[] | undefined
   const originalImages = product.images as ImgEntry[] | undefined
 
@@ -829,79 +838,6 @@ async function publishInstagramDirectly(
  * Note: This function does NOT write back to Payload (the caller/hook handles that).
  * It only calls the Shopier API and returns the result as a ChannelDispatchResult.
  */
-async function publishShopierDirectly(
-  payload: ChannelDispatchPayload,
-  product: Record<string, unknown>,
-): Promise<ChannelDispatchResult> {
-  const timestamp = new Date().toISOString()
-
-  try {
-    // Dynamic import to avoid circular dependency at module load time
-    const { publishProductToShopier } = await import('./shopierSync')
-
-    const result = await publishProductToShopier(product)
-
-    if (!result.success) {
-      console.error(`[channelDispatch] Shopier publish failed for product=${payload.productId}: ${result.error}`)
-      return {
-        channel: 'shopier',
-        eligible: true,
-        dispatched: false,
-        webhookConfigured: false,
-        error: result.error ?? 'Shopier sync failed',
-        publishResult: {
-          mode: 'direct',
-          success: false,
-          error: result.error,
-          details: result.details,
-          timestamp: new Date().toISOString(),
-        },
-        timestamp,
-      }
-    }
-
-    console.log(
-      `[channelDispatch] Shopier direct publish success — product=${payload.productId} ` +
-        `shopierProductId=${result.shopierProductId} url=${result.shopierProductUrl}`,
-    )
-
-    return {
-      channel: 'shopier',
-      eligible: true,
-      dispatched: true,
-      webhookConfigured: false,
-      responseStatus: 200,
-      publishResult: {
-        received: true,
-        channel: 'shopier',
-        mode: 'direct',
-        success: true,
-        shopierProductId: result.shopierProductId,
-        shopierProductUrl: result.shopierProductUrl,
-        timestamp: new Date().toISOString(),
-      },
-      timestamp,
-    }
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err)
-    console.error(`[channelDispatch] Shopier direct publish error:`, message)
-    return {
-      channel: 'shopier',
-      eligible: true,
-      dispatched: false,
-      webhookConfigured: false,
-      error: `Shopier publish threw: ${message}`,
-      publishResult: {
-        mode: 'direct',
-        success: false,
-        thrownError: message,
-        timestamp: new Date().toISOString(),
-      },
-      timestamp,
-    }
-  }
-}
-
 // ── Core Functions ────────────────────────────────────────────────────────────
 
 /**
@@ -1033,14 +969,14 @@ export function buildDispatchPayload(
 }
 
 /**
- * Send a dispatch payload to a single channel's n8n webhook.
+ * Send a dispatch payload to a single channel's optional n8n fallback webhook.
  *
- * Scaffold mode (no webhook URL):
+ * Scaffold mode (no fallback webhook URL):
  *   - Logs full payload intent at INFO level
  *   - Returns result with dispatched=false, webhookConfigured=false
  *   - Does NOT throw
  *
- * Live mode (webhook URL configured):
+ * Fallback mode (webhook URL configured):
  *   - POSTs payload as JSON with 10s timeout
  *   - Returns result with HTTP status
  *   - On non-2xx: dispatched=false, error contains status code
@@ -1061,7 +997,7 @@ export async function dispatchToChannel(
     console.log(
       `[channelDispatch] SCAFFOLD — channel=${payload.channel} product=${payload.productId} ` +
         `title="${payload.title}" price=${payload.price} media=${payload.mediaUrls.length} ` +
-        `— configure ${`N8N_CHANNEL_${payload.channel.toUpperCase()}_WEBHOOK`} to enable real dispatch` +
+        `— no direct provider or optional N8N_CHANNEL_${payload.channel.toUpperCase()}_WEBHOOK fallback is configured` +
         `\n  payload: ${JSON.stringify(logPayload)}`,
     )
     return {
@@ -1441,7 +1377,6 @@ async function publishXDirectly(
 function resolvePreviewCaption(
   payload: ChannelDispatchPayload,
   channel: SupportedChannel,
-  instagramTokens?: { accessToken?: string | null; userId?: string | null; facebookPageId?: string | null },
 ): { caption: string; source: string; geobotField?: string } {
   if (channel === 'instagram') {
     if (payload.geobot?.instagramCaption) {
@@ -1516,14 +1451,15 @@ export async function dispatchProductToChannels(
     )
   }
 
-  // Extract Instagram/Facebook tokens from settings snapshot.
   // The same Meta long-lived user token covers both Instagram and Facebook.
-  // facebookPageId is set manually in AutomationSettings admin.
-  const instagramTokens = settings?.instagramTokens
+  // Facebook Page ID is resolved from INSTAGRAM_PAGE_ID, with the legacy
+  // snapshot field supported for existing in-memory callers.
+  const metaCredentials = resolveMetaProviderCredentials(settings)
+  const instagramTokens = metaCredentials.accessToken || metaCredentials.instagramUserId || metaCredentials.facebookPageId
     ? {
-        accessToken:    settings.instagramTokens.accessToken    ?? null,
-        userId:         settings.instagramTokens.userId         ?? null,
-        facebookPageId: settings.instagramTokens.facebookPageId ?? null,
+        accessToken: metaCredentials.accessToken,
+        userId: metaCredentials.instagramUserId,
+        facebookPageId: metaCredentials.facebookPageId,
       }
     : undefined
 
@@ -1570,7 +1506,7 @@ export async function dispatchProductToChannels(
 
     // ── Phase G: Dry-run mode — resolve captions, skip all external API calls ──
     if (dryRun) {
-      const previewCaption = resolvePreviewCaption(dispatchPayload, channel, instagramTokens)
+      const previewCaption = resolvePreviewCaption(dispatchPayload, channel)
       results.push({
         channel,
         eligible:          true,
@@ -1594,14 +1530,27 @@ export async function dispatchProductToChannels(
 
     // Instagram: direct Graph API publish (bypasses n8n — D-088).
     // Facebook:  direct Graph API photo post (same Meta user token — D-089).
-    // All other channels: fall through to n8n webhook.
+    // A channel without direct provider requirements may use an explicitly
+    // configured optional n8n fallback webhook.
     let result: ChannelDispatchResult
-    if (
+    const hasPublicMetaMedia = hasPublicHttpsMediaUrl(dispatchPayload.mediaUrls)
+    if ((channel === 'instagram' || channel === 'facebook') && !hasPublicMetaMedia) {
+      const webhookUrl = buildChannelWebhookUrl(channel)
+      result = {
+        channel,
+        eligible: true,
+        dispatched: false,
+        webhookConfigured: !!webhookUrl,
+        error:
+          `${channel === 'instagram' ? 'Instagram' : 'Facebook'} requires at least one public HTTPS media URL. ` +
+          'Attach public media before direct publishing or optional n8n fallback dispatch.',
+        timestamp: new Date().toISOString(),
+      }
+    } else if (
       channel === 'instagram' &&
       instagramTokens?.accessToken &&
       instagramTokens?.userId &&
-      dispatchPayload.mediaUrls.length > 0 &&
-      dispatchPayload.mediaUrls[0].startsWith('https://')
+      hasPublicMetaMedia
     ) {
       result = await publishInstagramDirectly(
         dispatchPayload,
@@ -1612,18 +1561,14 @@ export async function dispatchProductToChannels(
       channel === 'facebook' &&
       instagramTokens?.accessToken &&
       instagramTokens?.facebookPageId &&
-      dispatchPayload.mediaUrls.length > 0 &&
-      dispatchPayload.mediaUrls[0].startsWith('https://')
+      hasPublicMetaMedia
     ) {
       result = await publishFacebookDirectly(
         dispatchPayload,
         instagramTokens.facebookPageId,
         instagramTokens.accessToken,
       )
-    } else if (
-      channel === 'x' &&
-      process.env.X_ACCESS_TOKEN
-    ) {
+    } else if (channel === 'x' && hasCompleteXOAuthCredentials()) {
       // D-195c: X (Twitter) direct publish via API v2 — OAuth 1.0a (no refresh needed)
       result = await publishXDirectly(dispatchPayload)
     } else if (
@@ -1632,7 +1577,7 @@ export async function dispatchProductToChannels(
     ) {
       // Shopier sync is handled non-blocking via the Payload Jobs Queue (Step 20).
       // Products.ts afterChange hook calls req.payload.jobs.queue() after this
-      // function returns. publishShopierDirectly() is no longer called here.
+      // function returns. The guarded queue path is the only Shopier route.
       // The job transitions status: queued → syncing → synced | error.
       result = {
         channel: 'shopier',
@@ -1644,7 +1589,20 @@ export async function dispatchProductToChannels(
       }
     } else {
       const webhookUrl = buildChannelWebhookUrl(channel)
-      result           = await dispatchToChannel(dispatchPayload, webhookUrl)
+      if (channel === 'x' && !webhookUrl) {
+        const missing = missingXOAuthCredentials()
+        result = {
+          channel,
+          eligible: true,
+          dispatched: false,
+          webhookConfigured: false,
+          skippedReason: 'N8N_CHANNEL_X_WEBHOOK env var not configured (scaffold mode)',
+          error: `X direct provider is incomplete; missing: ${missing.join(', ')}. Configure all X OAuth credentials or N8N_CHANNEL_X_WEBHOOK.`,
+          timestamp: new Date().toISOString(),
+        }
+      } else {
+        result = await dispatchToChannel(dispatchPayload, webhookUrl)
+      }
     }
 
     results.push(result)

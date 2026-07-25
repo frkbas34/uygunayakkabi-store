@@ -34,6 +34,7 @@ function getBotToken(): string | undefined {
 }
 
 /** Send a Telegram message using an explicit bot token (for cross-bot notifications). */
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 async function sendTelegramMessageAs(
   token: string,
   chatId: number,
@@ -748,11 +749,9 @@ async function regenImageGenJob(
   //   provider='gemini-pro'  → re-queue image-gen with gemini-pro
   //   provider='openai'      → re-queue image-gen with gemini-pro (redirected during debug phase)
   let currentStage = 'standard'
-  let currentProvider = 'gemini-pro'  // v18 default: Gemini-only debug phase
   try {
     const prompts = JSON.parse((jobDoc.promptsUsed as string) || '{}')
     currentStage    = (prompts.stage    as string) || 'standard'
-    currentProvider = (prompts.provider as string) || 'gemini-pro'
   } catch {
     // ignore parse errors — default to standard + gemini-pro
   }
@@ -1459,7 +1458,7 @@ export async function POST(req: NextRequest) {
             return NextResponse.json({ ok: true })
           }
           await sendTelegramMessage(cbChatId, `⏳ Ürün #${geoProductId} audit başlatılıyor...`)
-          const auditResult = await triggerAudit(payloadInst, product, 'telegram_command')
+          await triggerAudit(payloadInst, product, 'telegram_command')
           const updatedProduct = await payloadInst.findByID({ collection: 'products', id: geoProductId, depth: 1 })
           const statusMsg = formatAuditStatusMessage((updatedProduct ?? product) as any)
           const nextButtons: Array<Array<{ text: string; callback_data: string }>> = []
@@ -1600,7 +1599,7 @@ export async function POST(req: NextRequest) {
           const {
             checkConfirmationFields, getNextWizardStep, setWizardSession, clearWizardSession,
             getTitlePrompt, getCategoryPrompt, getProductTypePrompt,
-            getPricePrompt, getTargetsPrompt, getBrandPrompt, getStockPrompt, formatConfirmationSummary,
+            getPricePrompt, getTargetsPrompt, getBrandPrompt, formatConfirmationSummary,
             applyVisionAutofillToSession, formatAutofillReport,
           } = await import('@/lib/confirmationWizard')
 
@@ -1678,8 +1677,8 @@ export async function POST(req: NextRequest) {
       // wz_cat:{value} — category selection
       if (cbData.startsWith('wz_cat:')) {
         try {
-          const { getWizardSession, setWizardSession, getNextWizardStep, getPricePrompt, getSizesPrompt,
-                  getTargetsPrompt, getProductTypePrompt, getBrandPrompt, getStockPrompt,
+          const { getWizardSession, setWizardSession, getNextWizardStep, getPricePrompt,
+                  getTargetsPrompt, getProductTypePrompt, getBrandPrompt,
                   getTitlePrompt, formatConfirmationSummary: fmtSummary } =
             await import('@/lib/confirmationWizard')
           const session = getWizardSession(cbChatId, cbUserId)
@@ -1749,7 +1748,7 @@ export async function POST(req: NextRequest) {
       if (cbData.startsWith('wz_ptype:')) {
         try {
           const { getWizardSession, setWizardSession, getNextWizardStep, getPricePrompt,
-                  getSizesPrompt, getTargetsPrompt, getBrandPrompt, getStockPrompt,
+                  getTargetsPrompt, getBrandPrompt,
                   getTitlePrompt, formatConfirmationSummary } =
             await import('@/lib/confirmationWizard')
           const session = getWizardSession(cbChatId, cbUserId)
@@ -2438,7 +2437,7 @@ export async function POST(req: NextRequest) {
       //          | won | lost | spam. Same code path as the slash commands —
       //          both converge on applyLeadStatus.
       if (cbData.startsWith('ldact:')) {
-        const [_, idStr, action] = cbData.split(':')
+        const [, idStr, action] = cbData.split(':')
         const leadId = parseInt(idStr ?? '', 10)
         if (Number.isNaN(leadId) || !action) {
           await answerCallbackQuery(cbQueryId, '❌ Geçersiz lead/aksiyon')
@@ -2472,7 +2471,7 @@ export async function POST(req: NextRequest) {
       // Buttons: oract:<orderId>:<action>  where action ∈ ship | deliver | cancel.
       // Same code path as the slash commands — both converge on applyOrderStatus.
       if (cbData.startsWith('oract:')) {
-        const [_, idStr, action] = cbData.split(':')
+        const [, idStr, action] = cbData.split(':')
         const orderId = parseInt(idStr ?? '', 10)
         if (Number.isNaN(orderId) || !action) {
           await answerCallbackQuery(cbQueryId, '❌ Geçersiz sipariş/aksiyon')
@@ -2919,11 +2918,15 @@ export async function POST(req: NextRequest) {
         // D-255 campaign review / attribution QA
         '/campaigns', '/campaign',
         // D-348 manual ad-readiness checklist
-        '/adready',
+        '/adready', '/adpack', '/adreport',
         // D-353 read-only bulk catalog QA
-        '/catalogqa',
+        '/catalogqa', '/brandplan', '/brandreview', '/imageqcplan', '/blogpreflight',
         // D-354 read-only category fill strategy
         '/categoryfill',
+        // D-387 read-only product loading plan
+        '/loadplan', '/loadingplan',
+        // D-389 read-only operator live smoke sequence
+        '/smokeplan',
         // D-355 product image quality gate
         '/imageqc',
       ]
@@ -2986,9 +2989,9 @@ export async function POST(req: NextRequest) {
     if (botParam !== 'geo' && text && !text.startsWith('/') && !text.startsWith('#') && !text.startsWith('STOCK ')) {
       const { getWizardSession, setWizardSession, clearWizardSession,
               hydrateWizardSession,
-              parsePrice, parseSizes, parseStockNumber, getNextWizardStep,
+              parsePrice, getNextWizardStep,
               getCategoryPrompt, getProductTypePrompt,
-              getSizesPrompt, getStockPrompt, getTargetsPrompt, getPricePrompt,
+              getTargetsPrompt, getPricePrompt,
               getBrandPrompt, getTitlePrompt,
               formatConfirmationSummary } = await import('@/lib/confirmationWizard')
       // D-158: Load wizard session from Neon before the sync getter runs so
@@ -3644,11 +3647,12 @@ export async function POST(req: NextRequest) {
       const modeLabelMap: Record<string, string> = {
         hizli: '⚡ Hızlı', dengeli: '⚖️ Dengeli', premium: '💎 Premium', karma: '🌈 Karma',
       }
+      const modeLabel = modeLabelMap[genMode] ?? genMode
       // v18 Gemini-only debug phase
       const jobDoc = await payload.create({
         collection: 'image-generation-jobs',
         data: {
-          jobTitle: `${gorselProduct.title} — ✨ Gemini Pro`,
+          jobTitle: [gorselProduct.title, modeLabel, 'Gemini Pro'].join(' - '),
           product: gorselProductId,
           mode: genMode,
           status: 'queued',
@@ -3991,33 +3995,6 @@ export async function POST(req: NextRequest) {
           await sendTelegramMessage(chatId, result.message)
           return NextResponse.json({ ok: true })
 
-          const { docs: pDocs } = await payload.find({
-            collection: 'products',
-            where: { id: { equals: arg } },
-            depth: 0,
-            limit: 1,
-          })
-          if (pDocs.length === 0) {
-            await sendTelegramMessage(chatId, `❌ Ürün bulunamadı: ${arg}`)
-            return NextResponse.json({ ok: true })
-          }
-          const pDoc = pDocs[0] as Record<string, unknown>
-          const pMeta = (pDoc.sourceMeta as Record<string, unknown>) ?? {}
-          await payload.update({
-            collection: 'products',
-            id: arg,
-            data: { sourceMeta: { ...pMeta, shopierSyncStatus: 'queued' } },
-            context: { isDispatchUpdate: true },
-          })
-          await payload.jobs.queue({
-            task: 'shopier-sync',
-            input: { productId: arg, notifyTelegramChatId: chatId },
-            overrideAccess: true,
-          })
-          await sendTelegramMessage(
-            chatId,
-            `⏳ Shopier sync kuyruğa alındı\nÜrün: ${pDoc.title ?? arg}\n\nSync tamamlanınca bildirim gelecek.`,
-          )
         } catch (err) {
           const msg = err instanceof Error ? err.message : String(err)
           await sendTelegramMessage(chatId, `❌ Shopier publish hatası: ${msg}`)
@@ -4044,33 +4021,6 @@ export async function POST(req: NextRequest) {
           await sendTelegramMessage(chatId, result.message)
           return NextResponse.json({ ok: true })
 
-          const { docs: rDocs } = await payload.find({
-            collection: 'products',
-            where: { id: { equals: arg } },
-            depth: 0,
-            limit: 1,
-          })
-          if (rDocs.length === 0) {
-            await sendTelegramMessage(chatId, `❌ Ürün bulunamadı: ${arg}`)
-            return NextResponse.json({ ok: true })
-          }
-          const rDoc = rDocs[0] as Record<string, unknown>
-          const rMeta = (rDoc.sourceMeta as Record<string, unknown>) ?? {}
-          await payload.update({
-            collection: 'products',
-            id: arg,
-            data: { sourceMeta: { ...rMeta, shopierSyncStatus: 'queued' } },
-            context: { isDispatchUpdate: true },
-          })
-          await payload.jobs.queue({
-            task: 'shopier-sync',
-            input: { productId: arg, notifyTelegramChatId: chatId },
-            overrideAccess: true,
-          })
-          await sendTelegramMessage(
-            chatId,
-            `🔄 Shopier tekrar sync kuyruğa alındı\nÜrün: ${rDoc.title ?? arg}\n\nSync tamamlanınca bildirim gelecek.`,
-          )
         } catch (err) {
           const msg = err instanceof Error ? err.message : String(err)
           await sendTelegramMessage(chatId, `❌ Shopier republish hatası: ${msg}`)
@@ -4136,6 +4086,7 @@ export async function POST(req: NextRequest) {
       if (subCommand === 'dashboard') {
         try {
           const {
+            buildShopierDashboardReviewRows,
             buildShopierDashboardSummary,
             evaluateShopierPublishControl,
             formatShopierOperatorDashboard,
@@ -4161,9 +4112,13 @@ export async function POST(req: NextRequest) {
             sort: '-updatedAt',
           })
           const summary = buildShopierDashboardSummary(evaluations, errorRes.docs as any[])
+          const reviewRows = buildShopierDashboardReviewRows(evaluations)
           await sendTelegramMessage(
             chatId,
-            formatShopierOperatorDashboard(summary, { shopierPatConfigured: Boolean(process.env.SHOPIER_PAT) }),
+            formatShopierOperatorDashboard(summary, {
+              shopierPatConfigured: Boolean(process.env.SHOPIER_PAT),
+              reviewRows,
+            }),
           )
         } catch (err) {
           const msg = err instanceof Error ? err.message : String(err)
@@ -4175,11 +4130,11 @@ export async function POST(req: NextRequest) {
       // /shopier publish-ready
       if (subCommand === 'publish-ready') {
         try {
-          if (!process.env.SHOPIER_PAT) {
-            await sendTelegramMessage(chatId, 'SHOPIER_PAT missing - Shopier sync disabled')
+          const confirmed = (parts[2] ?? '').toLowerCase() === 'confirm'
+          if (confirmed && !process.env.SHOPIER_PAT) {
+            await sendTelegramMessage(chatId, 'SHOPIER_PAT missing - preview is available, but Shopier queueing is disabled')
             return NextResponse.json({ ok: true })
           }
-          const confirmed = (parts[2] ?? '').toLowerCase() === 'confirm'
           const {
             evaluateShopierPublishControl,
             formatShopierBatchPlan,
@@ -4200,7 +4155,10 @@ export async function POST(req: NextRequest) {
           const evaluations = candidates.map((product) => evaluateShopierPublishControl(product as any))
 
           if (!confirmed) {
-            await sendTelegramMessage(chatId, formatShopierBatchPlan(evaluations))
+            await sendTelegramMessage(
+              chatId,
+              formatShopierBatchPlan(evaluations, { shopierPatConfigured: Boolean(process.env.SHOPIER_PAT) }),
+            )
             return NextResponse.json({ ok: true })
           }
 
@@ -4232,11 +4190,11 @@ export async function POST(req: NextRequest) {
       // /shopier retry-errors [confirm]
       if (subCommand === 'retry-errors') {
         try {
-          if (!process.env.SHOPIER_PAT) {
-            await sendTelegramMessage(chatId, 'SHOPIER_PAT missing - Shopier retry disabled')
+          const confirmed = (parts[2] ?? '').toLowerCase() === 'confirm'
+          if (confirmed && !process.env.SHOPIER_PAT) {
+            await sendTelegramMessage(chatId, 'SHOPIER_PAT missing - preview is available, but Shopier retry queueing is disabled')
             return NextResponse.json({ ok: true })
           }
-          const confirmed = (parts[2] ?? '').toLowerCase() === 'confirm'
           const {
             buildShopierRetryPlan,
             formatShopierRetryPlan,
@@ -4252,7 +4210,10 @@ export async function POST(req: NextRequest) {
           const plan = buildShopierRetryPlan(errorRes.docs as any[])
 
           if (!confirmed) {
-            await sendTelegramMessage(chatId, formatShopierRetryPlan(plan))
+            await sendTelegramMessage(
+              chatId,
+              formatShopierRetryPlan(plan, { shopierPatConfigured: Boolean(process.env.SHOPIER_PAT) }),
+            )
             return NextResponse.json({ ok: true })
           }
 
@@ -4714,8 +4675,22 @@ export async function POST(req: NextRequest) {
           return NextResponse.json({ ok: true })
         }
 
+        const provenanceEvents = await payload.find({
+          collection: 'bot-events',
+          where: {
+            and: [
+              { eventType: { equals: 'brand_safety.provenance_reviewed' } },
+              { product: { equals: resolved.productId } },
+            ],
+          },
+          limit: 100,
+          depth: 0,
+          sort: '-createdAt',
+        })
         const { buildProductFlowSnapshot, formatProductFlowSnapshot } = await import('@/lib/productFlowSnapshot')
-        const snapshot = await buildProductFlowSnapshot(product as any)
+        const snapshot = await buildProductFlowSnapshot(product as any, {
+          provenanceEvents: provenanceEvents.docs as any[],
+        })
         await sendTelegramMessage(chatId, formatProductFlowSnapshot(snapshot))
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err)
@@ -4772,6 +4747,252 @@ export async function POST(req: NextRequest) {
     // /diagnostics — lightweight system health check
     // D-353: Bulk Catalog QA. Read-only product completeness/reporting before
     // any batch mutation work. D-356 owns mutation/publish paths.
+    // D-380: /adpack <sn-or-id> [campaign] - read-only manual ad launch pack.
+    // Produces copy drafts and UTM links only after hard blockers are clear.
+    // No campaign, post, pixel, provider call, or ad spend is created here.
+    if (text.startsWith('/adpack')) {
+      const parts = text.trim().split(/\s+/)
+      const arg = parts[1]
+      const campaign = parts.length > 2 ? parts.slice(2).join('_') : undefined
+
+      if (!arg) {
+        await sendTelegramMessage(
+          chatId,
+          '<b>Manual Ad Pack</b>\n\n' +
+            '<code>/adpack &lt;sn-or-id&gt; [campaign]</code>\n\n' +
+            'Ornek: <code>/adpack SN0186 first loafers test</code>\n\n' +
+            '<i>Read-only: copy drafts + UTM links only. No ad is launched and no spend happens.</i>',
+        )
+        return NextResponse.json({ ok: true })
+      }
+
+      try {
+        const { resolveProductIdentifier, formatIdentifierMissingMessage } = await import('@/lib/operatorActions')
+        const resolved = await resolveProductIdentifier(payload, arg)
+        if (!resolved) {
+          await sendTelegramMessage(chatId, formatIdentifierMissingMessage(arg))
+          return NextResponse.json({ ok: true })
+        }
+
+        const product = await payload.findByID({ collection: 'products', id: resolved.productId, depth: 1 })
+        if (!product) {
+          await sendTelegramMessage(chatId, `X Urun #${resolved.productId} bulunamadi.`)
+          return NextResponse.json({ ok: true })
+        }
+
+        const { buildAdLaunchPack, formatAdLaunchPackMessage } = await import('@/lib/adLaunchPack')
+        const pack = buildAdLaunchPack(product as any, { campaign })
+        await sendTelegramMessage(chatId, formatAdLaunchPackMessage(pack))
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err)
+        await sendTelegramMessage(chatId, `X Ad pack hatasi: ${msg}`)
+      }
+      return NextResponse.json({ ok: true })
+    }
+
+    // D-383: /adreport [today|week|month] - read-only manual ad performance
+    // summary from Payload leads/orders. No Pixel, CAPI, Ads API, provider call,
+    // external post, campaign creation, or ad spend happens here.
+    {
+      const firstWordAdReport = text.trim().split(/\s+/)[0].replace(/@\w+$/, '').toLowerCase()
+      if (firstWordAdReport === '/adreport') {
+        try {
+          const parts = text.trim().split(/\s+/)
+          const { getAdPerformanceSnapshot, formatAdPerformanceSnapshot, parseAdPerformancePeriod } =
+            await import('@/lib/adPerformance')
+          const period = parseAdPerformancePeriod(parts[1])
+          const snap = await getAdPerformanceSnapshot(payload, { period })
+          await sendTelegramMessage(chatId, formatAdPerformanceSnapshot(snap))
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err)
+          await sendTelegramMessage(chatId, `X Ad report hatasi: ${msg}`)
+        }
+        return NextResponse.json({ ok: true })
+      }
+    }
+
+    // D-479: Blog editorial publishing preflight. Read-only operator evidence
+    // for claim/tone review and public article essentials; no write or publish.
+    {
+      const firstWordBlogPreflight = text.trim().split(/\s+/)[0].replace(/@\w+$/, '').toLowerCase()
+      if (firstWordBlogPreflight === '/blogpreflight') {
+        const ref = text.trim().split(/\s+/)[1]
+        if (!ref) {
+          await sendTelegramMessage(
+            chatId,
+            '<b>Blog Editorial Preflight</b>\n\n' +
+              '<code>/blogpreflight &lt;id-or-slug&gt;</code>\n\n' +
+              '<i>Read-only: checks article essentials and evidence-sensitive wording before manual publication. It never edits or publishes a post.</i>',
+          )
+          return NextResponse.json({ ok: true })
+        }
+
+        try {
+          const {
+            evaluateBlogPublishingPreflight,
+            findBlogPostForPreflight,
+            formatBlogPublishingPreflight,
+          } = await import('@/lib/blogPublishingPreflight')
+          const post = await findBlogPostForPreflight(payload, ref)
+          if (!post) {
+            await sendTelegramMessage(chatId, `X Blog post not found: <code>${ref}</code>`)
+            return NextResponse.json({ ok: true })
+          }
+          await sendTelegramMessage(chatId, formatBlogPublishingPreflight(evaluateBlogPublishingPreflight(post)))
+        } catch (err) {
+          const message = err instanceof Error ? err.message : String(err)
+          await sendTelegramMessage(chatId, `X Blog preflight error: ${message}`)
+        }
+        return NextResponse.json({ ok: true })
+      }
+    }
+
+    // D-477/D-478: explicit operator provenance record. Preview-first;
+    // confirmation writes one delivery-idempotent BotEvents audit record only
+    // and never changes the product, clears brand safety, publishes,
+    // redispatches, or calls external services.
+    {
+      const firstWordBrandReview = text.trim().split(/\s+/)[0].replace(/@\w+$/, '').toLowerCase()
+      if (firstWordBrandReview === '/brandreview') {
+        const parts = text.trim().split(/\s+/)
+        const {
+          findProductForBrandProvenanceReview,
+          formatBrandProvenanceReviewPreview,
+          formatRecordedBrandProvenanceReview,
+          parseBrandProvenanceReviewCommand,
+          recordBrandProvenanceReview,
+        } = await import('@/lib/brandProvenanceReview')
+        const parsed = parseBrandProvenanceReviewCommand(parts.slice(1))
+
+        if (parsed.error || !parsed.ref || !parsed.decision) {
+          await sendTelegramMessage(chatId, formatBrandProvenanceReviewPreview({}, parsed))
+          return NextResponse.json({ ok: true })
+        }
+
+        try {
+          const product = await findProductForBrandProvenanceReview(payload, parsed.ref)
+          if (!product) {
+            await sendTelegramMessage(chatId, `❌ Urun bulunamadi: <code>${parsed.ref}</code>`)
+            return NextResponse.json({ ok: true })
+          }
+
+          if (!parsed.confirmed) {
+            await sendTelegramMessage(chatId, formatBrandProvenanceReviewPreview(product, parsed))
+            return NextResponse.json({ ok: true })
+          }
+
+          const idempotencyKey = Number.isInteger(body?.update_id)
+            ? `telegram-update:${body.update_id}`
+            : `telegram-message:${chatId}:${messageId}`
+          const recordResult = await recordBrandProvenanceReview(payload, product, parsed, undefined, { idempotencyKey })
+          await sendTelegramMessage(
+            chatId,
+            formatRecordedBrandProvenanceReview(product, recordResult.review, { alreadyRecorded: recordResult.alreadyRecorded }),
+          )
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err)
+          await sendTelegramMessage(chatId, `X Brand provenance review hatasi: ${msg}`)
+        }
+        return NextResponse.json({ ok: true })
+      }
+    }
+
+    // D-466/D-477/D-478: protected-brand remediation queue. Read-only visibility;
+    // it includes latest provenance review evidence but never writes products.
+    if (text.startsWith('/brandplan')) {
+      const parts = text.trim().split(/\s+/)
+      const rawLimit = parts[1]
+      const defaultLimit = 100
+      const maxLimit = 300
+      let limit = defaultLimit
+
+      if (rawLimit) {
+        const parsedLimit = Number(rawLimit)
+        if (!Number.isInteger(parsedLimit) || parsedLimit < 1) {
+          await sendTelegramMessage(
+            chatId,
+            '<b>Brand-Safety Remediation Plan</b>\n\n' +
+              '<code>/brandplan</code> or <code>/brandplan 200</code>\n\n' +
+              '<i>Read-only queue. Verify product provenance before any manual edit, stop-sale, or publish decision.</i>',
+          )
+          return NextResponse.json({ ok: true })
+        }
+        limit = Math.min(parsedLimit, maxLimit)
+      }
+
+      try {
+        const result = await payload.find({
+          collection: 'products',
+          limit,
+          depth: 1,
+          sort: '-updatedAt',
+        })
+        const provenanceEvents = await payload.find({
+          collection: 'bot-events',
+          where: { eventType: { equals: 'brand_safety.provenance_reviewed' } },
+          limit: 1000,
+          depth: 0,
+          sort: '-createdAt',
+        })
+        const { buildBrandSafetyRemediationPlan, formatBrandSafetyRemediationPlan } =
+          await import('@/lib/brandSafetyRemediationPlan')
+        const plan = buildBrandSafetyRemediationPlan(result.docs as any[], {
+          sampleLimit: limit,
+          totalProducts: result.totalDocs,
+          provenanceEvents: provenanceEvents.docs as any[],
+        })
+        await sendTelegramMessage(chatId, formatBrandSafetyRemediationPlan(plan))
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err)
+        await sendTelegramMessage(chatId, `X Brand-safety plan error: ${msg}`)
+      }
+      return NextResponse.json({ ok: true })
+    }
+
+    // D-499: Read-only batch Image QC remediation queue. It deliberately
+    // points operators to /imageplan before any QC or generation action.
+    if (text.startsWith('/imageqcplan')) {
+      const parts = text.trim().split(/\s+/)
+      const rawLimit = parts[1]
+      const defaultLimit = 100
+      const maxLimit = 300
+      let limit = defaultLimit
+
+      if (rawLimit) {
+        const parsedLimit = Number(rawLimit)
+        if (!Number.isInteger(parsedLimit) || parsedLimit < 1) {
+          await sendTelegramMessage(
+            chatId,
+            '<b>Image QC Remediation Queue</b>\n\n' +
+              '<code>/imageqcplan</code> or <code>/imageqcplan 200</code>\n\n' +
+              '<i>Read-only queue. It never generates, approves, rejects, publishes, or changes a product.</i>',
+          )
+          return NextResponse.json({ ok: true })
+        }
+        limit = Math.min(parsedLimit, maxLimit)
+      }
+
+      try {
+        const result = await payload.find({
+          collection: 'products',
+          limit,
+          depth: 1,
+          sort: '-updatedAt',
+        })
+        const { buildImageQcRemediationPlan, formatImageQcRemediationPlan } =
+          await import('@/lib/imageQcRemediationPlan')
+        const plan = buildImageQcRemediationPlan(result.docs as any[], {
+          sampleLimit: limit,
+          totalProducts: result.totalDocs,
+        })
+        await sendTelegramMessage(chatId, formatImageQcRemediationPlan(plan))
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err)
+        await sendTelegramMessage(chatId, `Image QC remediation queue error: ${msg}`)
+      }
+      return NextResponse.json({ ok: true })
+    }
+
     if (text.startsWith('/catalogqa')) {
       const parts = text.trim().split(/\s+/)
       const rawLimit = parts[1]
@@ -4854,6 +5075,123 @@ export async function POST(req: NextRequest) {
         await sendTelegramMessage(chatId, `❌ Category Fill hatası: ${msg}`)
       }
       return NextResponse.json({ ok: true })
+    }
+
+    // D-387: Product Loading Plan. Read-only catalog scale-up action plan
+    // composed from Catalog QA + Category Fill. No writes, publish, queues, or ads.
+    {
+      const firstWordLoadPlan = text.trim().split(/\s+/)[0].replace(/@\w+$/, '').toLowerCase()
+      if (firstWordLoadPlan === '/loadplan' || firstWordLoadPlan === '/loadingplan') {
+        const parts = text.trim().split(/\s+/)
+        const rawLimit = parts[1]
+        const defaultLimit = 100
+        const maxLimit = 300
+        let limit = defaultLimit
+
+        if (rawLimit) {
+          const parsedLimit = Number(rawLimit)
+          if (!Number.isInteger(parsedLimit) || parsedLimit < 1) {
+            await sendTelegramMessage(
+              chatId,
+              '<b>Product Loading Plan</b>\n\n' +
+                '<code>/loadplan</code> veya <code>/loadplan 200</code>\n\n' +
+                '<i>Read-only plan; product writes, publishing, Shopier queueing, providers, and ads stay off.</i>',
+            )
+            return NextResponse.json({ ok: true })
+          }
+          limit = Math.min(parsedLimit, maxLimit)
+        }
+
+        try {
+          const result = await payload.find({
+            collection: 'products',
+            limit,
+            depth: 1,
+            sort: '-updatedAt',
+          })
+          const { buildProductLoadingPlan, formatProductLoadingPlan } = await import('@/lib/productLoadingPlan')
+          const plan = buildProductLoadingPlan(result.docs as any[], {
+            sampleLimit: limit,
+            totalProducts: result.totalDocs,
+          })
+          await sendTelegramMessage(chatId, formatProductLoadingPlan(plan))
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err)
+          await sendTelegramMessage(chatId, `X Product loading plan hatasi: ${msg}`)
+        }
+        return NextResponse.json({ ok: true })
+      }
+    }
+
+    // D-389: Operator Live Smoke Plan. Pure read-only plan for the safe
+    // sequence of runtime smokes and Telegram reads before any live queueing.
+    {
+      const firstWordSmokePlan = text.trim().split(/\s+/)[0].replace(/@\w+$/, '').toLowerCase()
+      if (firstWordSmokePlan === '/smokeplan') {
+        const { buildOperatorSmokePlan, formatOperatorSmokePlan } = await import('@/lib/operatorSmokePlan')
+        await sendTelegramMessage(chatId, formatOperatorSmokePlan(buildOperatorSmokePlan()))
+        return NextResponse.json({ ok: true })
+      }
+    }
+
+    // D-404: Image regeneration plan. Read-only bridge between product-level
+    // Image QC and job-level preview/regeneration commands.
+    {
+      const firstWordImagePlan = text.trim().split(/\s+/)[0].replace(/@\w+$/, '').toLowerCase()
+      if (firstWordImagePlan === '/imageplan' || firstWordImagePlan === '/regenplan') {
+        const idArg = text.trim().split(/\s+/)[1]
+
+        if (!idArg) {
+          await sendTelegramMessage(
+            chatId,
+            '<b>Image Regeneration Plan (D-404)</b>\n\n' +
+              '<code>/imageplan SN0123</code>\n' +
+              '<code>/regenplan SN0123</code>\n\n' +
+              '<i>Read-only: checks product Image QC and recent image-generation job state. No provider calls, no queueing, no publish.</i>',
+          )
+          return NextResponse.json({ ok: true })
+        }
+
+        try {
+          const { resolveProductIdentifier, formatIdentifierMissingMessage } = await import('@/lib/operatorActions')
+          const { buildImageRegenerationPlan, formatImageRegenerationPlan } = await import('@/lib/imageRegenerationPlan')
+          const resolved = await resolveProductIdentifier(payload, idArg)
+
+          if (!resolved) {
+            await sendTelegramMessage(chatId, formatIdentifierMissingMessage(idArg))
+            return NextResponse.json({ ok: true })
+          }
+
+          const product = await payload.findByID({ collection: 'products', id: resolved.productId, depth: 1 })
+          const { docs: jobs } = await payload.find({
+            collection: 'image-generation-jobs',
+            where: { product: { equals: resolved.productId } },
+            sort: '-updatedAt',
+            limit: 3,
+            depth: 0,
+          })
+          const provenanceEvents = await payload.find({
+            collection: 'bot-events',
+            where: {
+              and: [
+                { eventType: { equals: 'brand_safety.provenance_reviewed' } },
+                { product: { equals: resolved.productId } },
+              ],
+            },
+            limit: 100,
+            depth: 0,
+            sort: '-createdAt',
+          })
+          const plan = buildImageRegenerationPlan(product as any, jobs as any[], {
+            provenanceEvents: provenanceEvents.docs as any[],
+          })
+          await sendTelegramMessage(chatId, formatImageRegenerationPlan(plan))
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err)
+          await sendTelegramMessage(chatId, `Image regeneration plan hatasi: ${msg}`)
+        }
+        return NextResponse.json({ ok: true })
+      }
     }
 
     // D-355: Product Image QC gate. Reads current QC state or records an
@@ -5559,6 +5897,19 @@ export async function POST(req: NextRequest) {
         }
         return NextResponse.json({ ok: true })
       }
+
+      if (firstWordLeads === '/leadplan' || firstWordLeads === '/followupplan') {
+        try {
+          const { getLeadFollowupPlan, formatLeadFollowupPlan } = await import('@/lib/leadFollowupPlan')
+          const plan = await getLeadFollowupPlan(payload)
+          await sendTelegramMessage(chatId, formatLeadFollowupPlan(plan))
+        } catch (err) {
+          const m = err instanceof Error ? err.message : String(err)
+          console.error(`[telegram/leadplan D-394] error:`, m)
+          await sendTelegramMessage(chatId, `❌ Lead follow-up plan error: ${m}`)
+        }
+        return NextResponse.json({ ok: true })
+      }
     }
 
     // ── D-245: Order Fulfillment ──────────────────────────────────────────
@@ -5824,7 +6175,7 @@ export async function POST(req: NextRequest) {
       const firstWordUtm = text.trim().split(/\s+/)[0].replace(/@\w+$/, '').toLowerCase()
       if (firstWordUtm === '/utm') {
         try {
-          const { normalizeCampaign, validateUtmInputs, buildProductUtmUrl, UTM_USAGE } =
+          const { normalizeCampaign, validateUtmInputs, evaluateProductUtmEligibility, buildProductUtmUrl, UTM_USAGE } =
             await import('@/lib/utmBuilder')
 
           const parts = text.trim().split(/\s+/)
@@ -5859,7 +6210,7 @@ Format: <code>SN0034</code> veya sadece numara (ör: <code>34</code>)`,
             collection: 'products',
             where: { stockNumber: { equals: normalizedSN } },
             limit: 1,
-            depth: 0,
+            depth: 1,
           })
 
           if (snResult.docs.length === 0) {
@@ -5868,11 +6219,16 @@ Format: <code>SN0034</code> veya sadece numara (ör: <code>34</code>)`,
           }
 
           const p = snResult.docs[0] as any
-          const slug = p.slug as string
-          if (!slug) {
-            await sendTelegramMessage(chatId, `❌ Bu ürünün slug'ı yok — önce ürünü tamamlayın.`)
+          const utmEligibility = evaluateProductUtmEligibility(p)
+          if (!utmEligibility.ok) {
+            const ref = (p.stockNumber as string) || normalizedSN
+            await sendTelegramMessage(
+              chatId,
+              `🚫 Bu ürün için UTM linki üretilemez.\n\n${utmEligibility.reason}\n\nÖnce <code>/productflow ${ref}</code> ile ürün durumunu inceleyin.`,
+            )
             return NextResponse.json({ ok: true })
           }
+          const slug = p.slug as string
 
           // Validate inputs
           const errors = validateUtmInputs(rawSource, rawMedium, rawCampaign)
@@ -6538,7 +6894,7 @@ Tüm kampanyalar için: <code>/campaigns</code>`,
 
         // /audit {id} run — force run audit
         if (subCommand === 'run') {
-          const { isAuditEligible, triggerAudit, formatAuditStatusMessage } = await import('@/lib/mentixAudit')
+          const { isAuditEligible, triggerAudit } = await import('@/lib/mentixAudit')
           if (!isAuditEligible(product as any)) {
             const reason = (product as any).workflow?.confirmationStatus !== 'confirmed'
               ? 'Ürün henüz onaylanmadı. Önce /confirm kullanın.'
@@ -6849,7 +7205,6 @@ Tüm kampanyalar için: <code>/campaigns</code>`,
             getCategoryPrompt,
             getProductTypePrompt,
             getPricePrompt,
-            getStockPrompt,
             getTargetsPrompt,
             getBrandPrompt,
             formatConfirmationSummary,
@@ -7330,7 +7685,7 @@ Tüm kampanyalar için: <code>/campaigns</code>`,
 
       // Phase 9: Central stock reaction after variant updates
       try {
-        const { reactToStockChange, formatStockStatusMessage, getStockSnapshot } = await import('@/lib/stockReaction')
+        const { reactToStockChange } = await import('@/lib/stockReaction')
         const reactionResult = await reactToStockChange(payload, product as any, 'telegram')
         if (reactionResult.reacted && reactionResult.transition) {
           const t = reactionResult.transition

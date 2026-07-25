@@ -1,6 +1,6 @@
 # Current Decisions And Retirements
 
-Last updated: 2026-06-28
+Last updated: 2026-07-24
 
 ## Active Business Decision
 
@@ -39,7 +39,7 @@ It is not the main brain and should not duplicate core app logic unless there is
 
 ## OpenClaw Decision
 
-OpenClaw remains useful as the Mentix agent/skill layer.
+Hermes is the current agent-control layer for UygunAyakkabi/Mentix operations. OpenClaw is historical/optional unless the operator explicitly reactivates it.
 
 It should support reasoning, diagnostics, memory, and operator help. Payload/Next remains the execution and source-of-truth layer.
 
@@ -48,6 +48,12 @@ It should support reasoning, diagnostics, memory, and operator help. Payload/Nex
 No autonomous ad spending yet.
 
 Manual campaign support comes first. Pixel/CAPI/Ads API come later after tracking and privacy decisions.
+
+## Storefront Metrics Decision
+
+Do not use default or invented social-proof numbers on the public storefront.
+
+Numeric trust metrics are hidden unless an operator has verified all displayed values from real business evidence and explicitly enables the Site Settings switch.
 
 ## Strategic Focus Decision (2026-06-27)
 

@@ -616,8 +616,7 @@ export function formatIdentifierMissingMessage(raw: string): string {
 
 import type { SupportedChannel } from './channelDispatch'
 
-const REDISPATCHABLE_CHANNELS = ['instagram', 'facebook', 'x', 'shopier'] as const
-export type RedispatchableChannel = (typeof REDISPATCHABLE_CHANNELS)[number]
+export type RedispatchableChannel = 'instagram' | 'facebook' | 'x' | 'shopier'
 
 const CHANNEL_ALIASES: Record<string, RedispatchableChannel | 'website'> = {
   // X (Twitter)
@@ -748,10 +747,6 @@ export async function triggerChannelRedispatch(
   const { dispatchProductToChannels, buildChannelWebhookUrl } = await import('./channelDispatch')
 
   const settings = await fetchAutomationSettings(payload)
-  // D-188b: same Facebook Page ID env injection the afterChange hook does.
-  if (settings?.instagramTokens && process.env.INSTAGRAM_PAGE_ID) {
-    settings.instagramTokens.facebookPageId = process.env.INSTAGRAM_PAGE_ID
-  }
 
   const channelTyped = channel as SupportedChannel
   const triggerReason = `telegram-redispatch:${channel}:product=${productId}`

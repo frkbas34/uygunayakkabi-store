@@ -42,7 +42,6 @@ import {
 import {
   loadLanguageMemory,
   loadRecentCorrections,
-  loadSellerMemory,
   incrementSellerStats,
   logAction,
 } from '@/lib/supplierScout/memory'
@@ -80,7 +79,6 @@ function isSupplierScoutEnabled(): boolean {
 
 async function loadGroupConfig(
   telegramGroupId: number,
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   payload: any,
 ): Promise<SupplierGroupConfig | null> {
   try {

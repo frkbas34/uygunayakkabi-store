@@ -2,6 +2,7 @@ import { formatBrandSafetyReason, scanProductBrandSafety } from './brandSafety'
 import { evaluateImageQualityGate } from './imageQualityGate'
 import { countUsableMediaRows } from './productMedia'
 import { findProductChannelSelectionIssues } from './productChannels'
+import { isPublicStorefrontProduct } from './merchandising'
 import { summarizeProductStock } from './productStock'
 import { evaluatePublishReadiness } from './publishReadiness'
 
@@ -28,6 +29,10 @@ export interface ShopierPublishEvaluation {
   productId: number | string | null
   title: string
   stockNumber: string | null
+  operatorLinks: {
+    adminUrl: string | null
+    productUrl: string | null
+  }
   blockers: string[]
   warnings: string[]
   readinessScore: string
@@ -80,6 +85,23 @@ export interface ShopierDashboardSummary {
   }
 }
 
+export type ShopierDashboardReviewState = 'ready' | 'blocked' | 'queued' | 'synced'
+
+export interface ShopierDashboardReviewRow {
+  productId: number | string | null
+  stockNumber: string | null
+  title: string
+  state: ShopierDashboardReviewState
+  detail: string
+  nextAction: string
+  operatorLinks: {
+    adminUrl: string | null
+    productUrl: string | null
+  }
+  flowCommand: string
+  runtimeFlowCommand: string
+}
+
 export type ShopierAdminGateState = 'not_targeted' | 'ready' | 'blocked' | 'queued' | 'synced'
 
 export interface ShopierAdminGateSummary {
@@ -94,6 +116,75 @@ function productLabel(product: ProductLike): string {
 
 function dedupe(values: string[]): string[] {
   return [...new Set(values.filter((value) => value.trim().length > 0))]
+}
+
+function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+}
+
+function evaluationRef(evaluation: ShopierPublishEvaluation): string {
+  return evaluation.stockNumber ?? String(evaluation.productId ?? '?')
+}
+
+function appendProductFlowPreviewHandoff(lines: string[], ref: string): void {
+  lines.push(`  Flow: <code>${escapeHtml(productFlowCommand(ref))}</code>`)
+  lines.push(`  Smoke: <code>${escapeHtml(productFlowRuntimeCommand(ref))}</code>`)
+}
+
+function trimTrailingSlash(value: string): string {
+  return value.replace(/\/+$/, '')
+}
+
+function siteBaseUrl(): string {
+  return trimTrailingSlash(
+    process.env.NEXT_PUBLIC_SITE_URL ||
+    process.env.NEXT_PUBLIC_SERVER_URL ||
+    'https://www.uygunayakkabi.com',
+  )
+}
+
+function buildOperatorLinks(product: ProductLike): ShopierPublishEvaluation['operatorLinks'] {
+  const baseUrl = siteBaseUrl()
+  const productId = product.id ?? null
+  const slug = typeof product.slug === 'string' && product.slug.trim().length > 0
+    ? product.slug.trim()
+    : null
+
+  return {
+    adminUrl: productId === null || productId === undefined
+      ? null
+      : `${baseUrl}/admin/collections/products/${encodeURIComponent(String(productId))}`,
+    productUrl: slug && isPublicStorefrontProduct(product)
+      ? `${baseUrl}/products/${encodeURIComponent(slug)}`
+      : null,
+  }
+}
+
+function appendOperatorLinks(lines: string[], links: ShopierPublishEvaluation['operatorLinks']): void {
+  const rendered: string[] = []
+  if (links.adminUrl) rendered.push(`<a href="${escapeHtml(links.adminUrl)}">admin</a>`)
+  if (links.productUrl) rendered.push(`<a href="${escapeHtml(links.productUrl)}">PDP</a>`)
+  if (rendered.length > 0) lines.push(`  Links: ${rendered.join(' / ')}`)
+}
+
+function appendShopierCredentialPreviewHint(
+  lines: string[],
+  shopierPatConfigured: boolean | undefined,
+  confirmCommand: string,
+): void {
+  if (shopierPatConfigured === undefined) return
+
+  lines.push(
+    `<b>Credential hold:</b> SHOPIER_PAT configured: ${shopierPatConfigured ? 'yes' : 'no'}`,
+    shopierPatConfigured
+      ? `Verify Shopier webhook/account/quota outside chat before <code>${escapeHtml(confirmCommand)}</code>.`
+      : `Preview only. Configure SHOPIER_PAT before <code>${escapeHtml(confirmCommand)}</code>.`,
+    '',
+  )
 }
 
 export function hasShopierIntent(product: ProductLike): boolean {
@@ -220,6 +311,7 @@ export function evaluateShopierPublishControl(product: ProductLike | null | unde
     productId: p.id ?? null,
     title: typeof p.title === 'string' ? p.title : 'Untitled',
     stockNumber: typeof p.stockNumber === 'string' ? p.stockNumber : null,
+    operatorLinks: buildOperatorLinks(p),
     blockers: dedupe(blockers),
     warnings: dedupe(warnings),
     readinessScore: `${readiness.passedCount}/${readiness.totalCount}`,
@@ -301,7 +393,7 @@ export function formatShopierQueueResult(result: ShopierQueueResult): string {
 
 export function formatShopierBatchPlan(
   evaluations: ShopierPublishEvaluation[],
-  options: { confirmed?: boolean; queued?: number; limit?: number } = {},
+  options: { confirmed?: boolean; queued?: number; limit?: number; shopierPatConfigured?: boolean } = {},
 ): string {
   const ready = evaluations.filter((entry) => entry.ok)
   const blocked = evaluations.filter((entry) => !entry.ok)
@@ -317,6 +409,7 @@ export function formatShopierBatchPlan(
 
   if (!options.confirmed && ready.length > 0) {
     lines.push('<i>To queue ready products, run:</i> <code>/shopier publish-ready confirm</code>', '')
+    appendShopierCredentialPreviewHint(lines, options.shopierPatConfigured, '/shopier publish-ready confirm')
   }
 
   if (ready.length > 0) {
@@ -324,6 +417,10 @@ export function formatShopierBatchPlan(
     for (const entry of ready.slice(0, limit)) {
       const label = entry.stockNumber ? `<code>${entry.stockNumber}</code>` : `ID:${entry.productId}`
       lines.push(`+ ${label} - ${entry.title}`)
+      if (!options.confirmed) {
+        appendProductFlowPreviewHandoff(lines, evaluationRef(entry))
+        appendOperatorLinks(lines, entry.operatorLinks)
+      }
     }
     if (ready.length > limit) lines.push(`+ ${ready.length - limit} more ready products not shown`)
     lines.push('')
@@ -335,6 +432,10 @@ export function formatShopierBatchPlan(
       const label = entry.stockNumber ? `<code>${entry.stockNumber}</code>` : `ID:${entry.productId}`
       const firstBlocker = entry.blockers[0] ?? 'unknown blocker'
       lines.push(`- ${label} - ${firstBlocker}`)
+      if (!options.confirmed) {
+        appendProductFlowPreviewHandoff(lines, evaluationRef(entry))
+        appendOperatorLinks(lines, entry.operatorLinks)
+      }
     }
     if (blocked.length > limit) lines.push(`- ${blocked.length - limit} more blocked products not shown`)
   }
@@ -497,7 +598,7 @@ export function formatShopierErrorSummary(products: ProductLike[], options: { li
 
 export function formatShopierRetryPlan(
   entries: ShopierRetryPlanEntry[],
-  options: { confirmed?: boolean; queued?: number; limit?: number } = {},
+  options: { confirmed?: boolean; queued?: number; limit?: number; shopierPatConfigured?: boolean } = {},
 ): string {
   const queueable = entries.filter((entry) => entry.queueable)
   const blocked = entries.filter((entry) => !entry.queueable)
@@ -513,6 +614,7 @@ export function formatShopierRetryPlan(
 
   if (!options.confirmed && queueable.length > 0) {
     lines.push('<i>To queue safe retries, run:</i> <code>/shopier retry-errors confirm</code>', '')
+    appendShopierCredentialPreviewHint(lines, options.shopierPatConfigured, '/shopier retry-errors confirm')
   }
 
   if (queueable.length > 0) {
@@ -520,6 +622,10 @@ export function formatShopierRetryPlan(
     for (const entry of queueable.slice(0, limit)) {
       const label = entry.evaluation.stockNumber ? `<code>${entry.evaluation.stockNumber}</code>` : `ID:${entry.evaluation.productId ?? '?'}`
       lines.push(`+ ${label} - ${entry.evaluation.title} (${entry.error.kind})`)
+      if (!options.confirmed) {
+        appendProductFlowPreviewHandoff(lines, evaluationRef(entry.evaluation))
+        appendOperatorLinks(lines, entry.evaluation.operatorLinks)
+      }
     }
     if (queueable.length > limit) lines.push(`+ ${queueable.length - limit} more safe retries not shown`)
     lines.push('')
@@ -531,6 +637,10 @@ export function formatShopierRetryPlan(
       const label = entry.evaluation.stockNumber ? `<code>${entry.evaluation.stockNumber}</code>` : `ID:${entry.evaluation.productId ?? '?'}`
       const firstBlocker = entry.blockers[0] ?? 'unknown blocker'
       lines.push(`- ${label} - ${firstBlocker}`)
+      if (!options.confirmed) {
+        appendProductFlowPreviewHandoff(lines, evaluationRef(entry.evaluation))
+        appendOperatorLinks(lines, entry.evaluation.operatorLinks)
+      }
     }
     if (blocked.length > limit) lines.push(`- ${blocked.length - limit} more blocked retries not shown`)
   }
@@ -556,6 +666,79 @@ function classifyBlocker(blocker: string): string {
   if (lower.includes('publish readiness')) return 'Publish readiness block'
   if (lower.includes('already queued') || lower.includes('already syncing')) return 'Shopier job already queued/syncing'
   return 'Other blocker'
+}
+
+function reviewStateRank(state: ShopierDashboardReviewState): number {
+  switch (state) {
+    case 'ready': return 0
+    case 'blocked': return 1
+    case 'queued': return 2
+    case 'synced': return 3
+  }
+}
+
+function nextActionForEvaluation(evaluation: ShopierPublishEvaluation): string {
+  const ref = evaluationRef(evaluation)
+  const blocker = evaluation.blockers[0]?.toLowerCase() ?? ''
+
+  if (evaluation.ok) return '/shopier publish-ready'
+  if (evaluation.queueStatus === 'queued' || evaluation.queueStatus === 'syncing') return `/productflow ${ref}`
+  if (evaluation.alreadySynced || evaluation.queueStatus === 'synced') return `/productflow ${ref}`
+  if (blocker.includes('image qc') || blocker.includes('generated gallery')) return `/imageqc ${ref}`
+  if (blocker.includes('category') || blocker.includes('website slug') || blocker.includes('stock')) return `/productflow ${ref}`
+  if (blocker.includes('brand safety')) return `/productflow ${ref}`
+  if (blocker.includes('target') || blocker.includes('publishshopier')) return `/productflow ${ref}`
+  return `/productflow ${ref}`
+}
+
+function productFlowCommand(ref: string): string {
+  return `/productflow ${ref}`
+}
+
+function productFlowRuntimeCommand(ref: string): string {
+  return `npm run smoke:product-flow:read -- --product=${ref} --confirm-read-only`
+}
+
+export function buildShopierDashboardReviewRows(
+  evaluations: ShopierPublishEvaluation[],
+  options: { limit?: number } = {},
+): ShopierDashboardReviewRow[] {
+  const limit = options.limit ?? 8
+
+  return evaluations
+    .map((evaluation) => {
+      const ref = evaluationRef(evaluation)
+      let state: ShopierDashboardReviewState = 'blocked'
+      let detail = evaluation.blockers[0] ?? 'Shopier queue gate did not pass.'
+
+      if (evaluation.queueStatus === 'queued' || evaluation.queueStatus === 'syncing') {
+        state = 'queued'
+        detail = `Shopier sync already ${evaluation.queueStatus}.`
+      } else if (evaluation.alreadySynced || evaluation.queueStatus === 'synced') {
+        state = 'synced'
+        detail = evaluation.warnings[0] ?? 'Already synced to Shopier.'
+      } else if (evaluation.ok) {
+        state = 'ready'
+        detail = `Ready to queue; readiness ${evaluation.readinessScore}.`
+      }
+
+      return {
+        productId: evaluation.productId,
+        stockNumber: evaluation.stockNumber,
+        title: evaluation.title,
+        state,
+        detail,
+        nextAction: nextActionForEvaluation(evaluation),
+        operatorLinks: evaluation.operatorLinks,
+        flowCommand: productFlowCommand(ref),
+        runtimeFlowCommand: productFlowRuntimeCommand(ref),
+      }
+    })
+    .sort((a, b) =>
+      reviewStateRank(a.state) - reviewStateRank(b.state) ||
+      a.title.localeCompare(b.title),
+    )
+    .slice(0, limit)
 }
 
 export function buildShopierDashboardSummary(
@@ -600,7 +783,11 @@ export function buildShopierDashboardSummary(
 
 export function formatShopierOperatorDashboard(
   summary: ShopierDashboardSummary,
-  options: { blockerLimit?: number; shopierPatConfigured?: boolean } = {},
+  options: {
+    blockerLimit?: number
+    shopierPatConfigured?: boolean
+    reviewRows?: ShopierDashboardReviewRow[]
+  } = {},
 ): string {
   const blockerLimit = options.blockerLimit ?? 5
   const lines = [
@@ -626,6 +813,21 @@ export function formatShopierOperatorDashboard(
     }
     if (summary.topBlockers.length > blockerLimit) {
       lines.push(`- ${summary.topBlockers.length - blockerLimit} more blocker groups not shown`)
+    }
+    lines.push('')
+  }
+
+  const reviewRows = options.reviewRows ?? []
+  if (reviewRows.length > 0) {
+    lines.push('<b>Batch review sample</b>')
+    for (const row of reviewRows) {
+      const label = row.stockNumber ? `<code>${escapeHtml(row.stockNumber)}</code>` : `ID:${escapeHtml(String(row.productId ?? '?'))}`
+      lines.push(`- [${row.state}] ${label} - ${escapeHtml(row.title)}`)
+      lines.push(`  ${escapeHtml(row.detail)}`)
+      lines.push(`  Next: <code>${escapeHtml(row.nextAction)}</code>`)
+      lines.push(`  Flow: <code>${escapeHtml(row.flowCommand)}</code>`)
+      lines.push(`  Smoke: <code>${escapeHtml(row.runtimeFlowCommand)}</code>`)
+      appendOperatorLinks(lines, row.operatorLinks)
     }
     lines.push('')
   }

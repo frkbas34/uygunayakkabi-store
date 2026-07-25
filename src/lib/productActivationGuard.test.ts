@@ -139,7 +139,7 @@ async function main() {
     assert.ok(blockers.some((b) => b.includes('brand safety')), blockers.join('\n'))
   })
 
-  await check('manual publish override skips only QC and brand-safety blockers', async () => {
+  await check('manual publish override skips Image QC but keeps protected-brand blocking', async () => {
     const blockers = await collectActivationBlockers({
       ...completeProduct,
       id: 106,
@@ -152,7 +152,8 @@ async function main() {
       manualPublishOverride: true,
     })
 
-    assert.deepStrictEqual(blockers, [])
+    assert.ok(blockers.some((b) => b.includes('brand safety')), blockers.join('\n'))
+    assert.ok(!blockers.some((b) => b.includes('image QC')), blockers.join('\n'))
 
     const coreBlockers = await collectActivationBlockers({
       ...completeProduct,
@@ -173,7 +174,7 @@ async function main() {
     assert.ok(coreBlockers.some((b) => b.includes('yayin hedefi')), coreBlockers.join('\n'))
     assert.ok(coreBlockers.some((b) => b.includes('stok adedi')), coreBlockers.join('\n'))
     assert.ok(!coreBlockers.some((b) => b.includes('image QC')), coreBlockers.join('\n'))
-    assert.ok(!coreBlockers.some((b) => b.includes('brand safety')), coreBlockers.join('\n'))
+    assert.ok(coreBlockers.some((b) => b.includes('brand safety')), coreBlockers.join('\n'))
   })
 
   await check('channel publish flags count as active targets', () => {
@@ -293,6 +294,27 @@ async function main() {
     assert.strictEqual(data.workflow.workflowStatus, 'active')
     assert.strictEqual(data.workflow.publishStatus, 'published')
     assert.strictEqual(data.workflow.sellable, true)
+  })
+
+  await check('Products beforeChange rejects protected-brand activation even with manual override context', async () => {
+    const hook = activationHook()
+    await assert.rejects(
+      hook({
+        data: { status: 'active' },
+        originalDoc: {
+          ...completeProduct,
+          id: 205,
+          status: 'draft',
+          brand: 'Nike',
+        },
+        operation: 'update',
+        req: {
+          ...fakeReqWithVariants(),
+          context: { manualPublishOverride: true },
+        },
+      }),
+      /brand safety blokladi/,
+    )
   })
 
   await check('Products beforeChange normalizes channel targets and publish flags', async () => {

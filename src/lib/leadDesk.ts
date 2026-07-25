@@ -24,6 +24,8 @@
  * subject is the lead, not a product).
  */
 
+import { isPublicStorefrontProduct } from './merchandising'
+
 const OPEN_STATUSES = ['new', 'contacted', 'follow_up'] as const
 const CLOSED_STATUSES = ['closed_won', 'closed_lost', 'spam', 'completed'] as const
 const LIST_LIMIT = 10
@@ -66,11 +68,24 @@ export interface LeadEntry {
   utmMedium?: string | null
   utmCampaign?: string | null
   referrer?: string | null
-  product?: { id: number; title?: string | null; stockNumber?: string | null } | null
+  product?: {
+    id: number
+    title?: string | null
+    stockNumber?: string | null
+    slug?: string | null
+    status?: string | null
+    brand?: string | null
+  } | null
   lastContactedAt?: string | null
   handledAt?: string | null
   createdAt: string
   updatedAt: string
+}
+
+export interface LeadOperatorLinks {
+  leadAdminUrl: string
+  productAdminUrl: string | null
+  productUrl: string | null
 }
 
 function normalizeLead(doc: any): LeadEntry {
@@ -81,9 +96,12 @@ function normalizeLead(doc: any): LeadEntry {
         id: doc.product.id as number,
         title: (doc.product.title as string) ?? null,
         stockNumber: (doc.product.stockNumber as string) ?? null,
+        slug: (doc.product.slug as string) ?? null,
+        status: (doc.product.status as string) ?? null,
+        brand: (doc.product.brand as string) ?? null,
       }
     }
-    return { id: doc.product as number, title: null, stockNumber: null }
+    return { id: doc.product as number, title: null, stockNumber: null, slug: null, status: null, brand: null }
   })()
   return {
     id: doc.id as number,
@@ -309,8 +327,8 @@ export async function applyLeadStatus(
     })
   } catch (uErr) {
     const msg = uErr instanceof Error ? uErr.message : String(uErr)
-    // Detect the "enum value not in DB" case — see feedback_push_true_drift.md.
-    // The Neon DDL one-liner lives in the CustomerInquiries.ts comment block.
+    // D-490: Telegram never exposes or executes DDL when a deployed enum is
+    // behind the schema. Operators use the guarded schema workflow instead.
     if (/invalid input value for enum|invalid_text_representation/i.test(msg)) {
       return {
         ok: false,
@@ -319,11 +337,11 @@ export async function applyLeadStatus(
         fromStatus,
         toStatus,
         message:
-          `❌ <b>Lead #${leadId}</b> — yeni durum (<code>${toStatus}</code>) Neon enumunda yok.\n\n` +
-          `<i>Operatör Neon konsolunda şu DDL'i çalıştırmalı:</i>\n` +
-          `<code>ALTER TYPE enum_customer_inquiries_status ADD VALUE IF NOT EXISTS '${toStatus}';</code>\n\n` +
-          `<i>Lead durumu değiştirilmedi.</i>`,
-        summary: `<code>L${leadId}</code> · enum eksik (${toStatus})`,
+          `<b>Lead #${leadId}</b> cannot use <code>${toStatus}</code> because the deployed lead-status schema is incomplete.\n\n` +
+          `<i>No lead change was made. Run the approved read-only schema check outside Telegram:</i>\n` +
+          `<code>npm run smoke:lead-status-schema:read -- --confirm-read-only</code>\n\n` +
+          `<i>Do not run schema changes from chat. Any apply needs separate approval.</i>`,
+        summary: `<code>L${leadId}</code> · enum missing (${toStatus})`,
       }
     }
     throw uErr
@@ -394,6 +412,45 @@ export function escapeHtml(s: string): string {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
 }
 
+function getSiteBaseUrl(): string {
+  const raw =
+    process.env.NEXT_PUBLIC_SITE_URL ||
+    process.env.VERCEL_PROJECT_PRODUCTION_URL ||
+    process.env.VERCEL_URL ||
+    'https://www.uygunayakkabi.com'
+  const withProtocol = raw.startsWith('http://') || raw.startsWith('https://') ? raw : `https://${raw}`
+  return withProtocol.replace(/\/+$/, '')
+}
+
+export function buildLeadOperatorLinks(lead: LeadEntry): LeadOperatorLinks {
+  const baseUrl = getSiteBaseUrl()
+  const product = lead.product
+  const productId = product?.id
+  const productSlug = product?.slug?.trim()
+
+  return {
+    leadAdminUrl: `${baseUrl}/admin/collections/customer-inquiries/${encodeURIComponent(String(lead.id))}`,
+    productAdminUrl: productId === null || productId === undefined
+      ? null
+      : `${baseUrl}/admin/collections/products/${encodeURIComponent(String(productId))}`,
+    productUrl: productSlug && isPublicStorefrontProduct(product)
+      ? `${baseUrl}/products/${encodeURIComponent(productSlug)}`
+      : null,
+  }
+}
+
+function formatLeadOperatorLinks(lead: LeadEntry): string {
+  const links = buildLeadOperatorLinks(lead)
+  const parts = [`<a href="${escapeHtml(links.leadAdminUrl)}">lead admin</a>`]
+  if (links.productAdminUrl) {
+    parts.push(`<a href="${escapeHtml(links.productAdminUrl)}">product admin</a>`)
+  }
+  if (links.productUrl) {
+    parts.push(`<a href="${escapeHtml(links.productUrl)}">PDP</a>`)
+  }
+  return `Links: ${parts.join(' / ')}`
+}
+
 function fmtPhone(p: string): string {
   return `<code>${escapeHtml(p)}</code>`
 }
@@ -416,7 +473,7 @@ export function formatLeadLine(l: LeadEntry): string {
     : ''
   const size = l.size ? ` · ⌀${escapeHtml(l.size)}` : ''
   const lastT = l.lastContactedAt ? fmtDate(l.lastContactedAt) : fmtDate(l.createdAt)
-  return `${statusEmoji(l.status)} <b>#${l.id}</b> · ${name} · ${fmtPhone(l.phone)}${product}${size}\n   <i>${lastT}</i>`
+  return `${statusEmoji(l.status)} <b>#${l.id}</b> · ${name} · ${fmtPhone(l.phone)}${product}${size}\n   <i>${lastT}</i>\n   ${formatLeadOperatorLinks(l)}`
 }
 
 export function formatOpenLeadsList(d: Awaited<ReturnType<typeof getOpenLeads>>): string {
@@ -498,6 +555,7 @@ export function formatLeadCard(l: LeadEntry): string {
     }
     if (l.referrer) lines.push(`🔗 Ref: ${escapeHtml(l.referrer)}`)
   }
+  lines.push(``, formatLeadOperatorLinks(l))
   return lines.join('\n')
 }
 
@@ -551,7 +609,7 @@ export function formatNewLeadAlert(l: LeadEntry): string {
     ].filter(Boolean).join(' · ')
     lines.push(`🌐 ${hint}`)
   }
-  lines.push(``, `<i>Detay: /lead ${l.id}</i>`)
+  lines.push(``, formatLeadOperatorLinks(l), `<i>Detay: /lead ${l.id}</i>`)
   return lines.join('\n')
 }
 
@@ -795,7 +853,7 @@ export interface ConvertLeadResult {
   idempotent: boolean
   leadId: number | string
   conversion?: ConversionRecord
-  refusalReason?: 'lead_not_found' | 'already_converted'
+  refusalReason?: 'lead_not_found' | 'already_converted' | 'related_inquiry_schema_missing'
   message: string
 }
 
@@ -851,6 +909,33 @@ export async function getConversionForLead(
   payload: any,
   leadId: number | string,
 ): Promise<ConversionRecord | null> {
+  return (await findConversionForLead(payload, leadId)).conversion
+}
+
+type ConversionLookup = {
+  conversion: ConversionRecord | null
+  schemaBlocked: boolean
+}
+
+function isRelatedInquirySchemaError(message: string): boolean {
+  const normalized = message.toLowerCase()
+  const mentionsRelationship =
+    normalized.includes('related_inquiry_id') ||
+    normalized.includes('relatedinquiry') ||
+    normalized.includes('customer_inquiries')
+  const indicatesMissingSchema =
+    normalized.includes('does not exist') ||
+    normalized.includes('undefined column') ||
+    normalized.includes('unknown column') ||
+    normalized.includes('column not found')
+
+  return mentionsRelationship && indicatesMissingSchema
+}
+
+async function findConversionForLead(
+  payload: any,
+  leadId: number | string,
+): Promise<ConversionLookup> {
   try {
     const r = await payload.find({
       collection: 'orders',
@@ -860,10 +945,11 @@ export async function getConversionForLead(
       sort: '-createdAt',
     })
     const doc = (r.docs as any[])[0]
-    if (!doc) return null
-    return normalizeOrder(doc, leadId)
-  } catch {
-    return null
+    if (!doc) return { conversion: null, schemaBlocked: false }
+    return { conversion: normalizeOrder(doc, leadId), schemaBlocked: false }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    return { conversion: null, schemaBlocked: isRelatedInquirySchemaError(message) }
   }
 }
 
@@ -906,8 +992,22 @@ export async function convertLeadToOrder(
   }
 
   // Idempotency: existing order for this lead?
-  const existing = await getConversionForLead(payload, leadId)
-  if (existing) {
+  const conversionLookup = await findConversionForLead(payload, leadId)
+  if (conversionLookup.schemaBlocked) {
+    return {
+      ok: false,
+      idempotent: false,
+      leadId,
+      refusalReason: 'related_inquiry_schema_missing',
+      message:
+        `<b>Lead #${leadId}</b> cannot be converted because the deployed order-to-lead relationship is incomplete.\n\n` +
+        `<i>No order, lead-status, or audit record was written. Run the approved read-only schema check outside Telegram:</i>\n` +
+        `<code>npm run smoke:lead-conversion-schema:read -- --confirm-read-only</code>\n\n` +
+        `<i>Do not run schema changes from chat. Any apply needs separate approval.</i>`,
+    }
+  }
+  if (conversionLookup.conversion) {
+    const existing = conversionLookup.conversion
     return {
       ok: true,
       idempotent: true,

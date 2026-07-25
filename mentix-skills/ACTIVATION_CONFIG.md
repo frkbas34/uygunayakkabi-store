@@ -1,7 +1,15 @@
 # Mentix Activation Configuration
 
 _Created: 2026-03-16_
-_Purpose: Controlled rollout policy for the Mentix skill stack_
+_Purpose: Historical optional-OpenClaw rollout template for the Mentix skill stack_
+
+## Current Runtime Override (D-463)
+
+- Hermes is the current Mentix/Uygunops agent-control layer.
+- OpenClaw is historical/optional unless the operator explicitly reactivates it and completes `OPENCLAW_VPS_VERIFICATION.md`.
+- The `mode: active`, `auto_trigger`, and permission examples below are not evidence of currently deployed or enabled OpenClaw behavior.
+- Payload/Next remains the source of truth and execution layer. n8n is optional glue only; Dolap/Threads are retired; SupplierScout is dormant.
+- Do not copy, restart, or live-test an OpenClaw skill from this file without explicit operator approval and the verification-first process in `OPENCLAW_DEPLOYMENT_SYNC.md`.
 
 ---
 

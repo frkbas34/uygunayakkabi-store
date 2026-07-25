@@ -27,6 +27,8 @@
  * No mutations. Every helper here is a read.
  */
 
+import { isPublicStorefrontProduct } from './merchandising'
+
 const LIST_LIMIT = 10
 const FAILED_EVENT_TYPES = [
   'content.failed',
@@ -48,11 +50,37 @@ function escapeHtml(s: string): string {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
 }
 
+function getSiteBaseUrl(): string {
+  const raw =
+    process.env.NEXT_PUBLIC_SITE_URL ||
+    process.env.VERCEL_PROJECT_PRODUCTION_URL ||
+    process.env.VERCEL_URL ||
+    'https://www.uygunayakkabi.com'
+  const withProtocol = raw.startsWith('http://') || raw.startsWith('https://') ? raw : `https://${raw}`
+  return withProtocol.replace(/\/+$/, '')
+}
+
+function productLinksFor(p: any): string {
+  const baseUrl = getSiteBaseUrl()
+  const id = p?.id
+  const slug = typeof p?.slug === 'string' ? p.slug.trim() : ''
+  const links: string[] = []
+
+  if (id !== null && id !== undefined) {
+    links.push(`<a href="${escapeHtml(`${baseUrl}/admin/collections/products/${encodeURIComponent(String(id))}`)}">admin</a>`)
+  }
+  if (slug && isPublicStorefrontProduct(p)) {
+    links.push(`<a href="${escapeHtml(`${baseUrl}/products/${encodeURIComponent(slug)}`)}">PDP</a>`)
+  }
+
+  return links.length > 0 ? ` · Links: ${links.join(' / ')}` : ''
+}
+
 function lineFor(p: any, extra?: string): string {
   const sn = p.stockNumber ? `<code>${p.stockNumber}</code>` : `ID:${p.id}`
   const title = escapeHtml((p.title as string) || 'İsimsiz').slice(0, 40)
   const tag = extra ? ` · ${extra}` : ''
-  return `${statusEmoji(p.status)} ${sn} · ${title}${tag}`
+  return `${statusEmoji(p.status)} ${sn} · ${title}${tag}${productLinksFor(p)}`
 }
 
 function header(label: string, count: number, total?: number): string {

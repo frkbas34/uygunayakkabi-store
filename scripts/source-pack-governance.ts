@@ -69,6 +69,7 @@ assertIncludes(currentTruth, 'Dolap: removed from active channel model.', 'curre
 assertIncludes(currentTruth, 'Threads: removed from active channel model.', 'current truth retirement')
 assertIncludes(currentTruth, 'SupplierScout: dormant.', 'current truth dormant system')
 assertIncludes(currentTruth, 'Operator Live Smoke Plan (D-389/D-452)', 'current truth latest smoke-plan boundary')
+assertIncludes(currentTruth, 'D-501 mobile PDP CTA overflow correction', 'current truth mobile PDP correction')
 assertIncludes(roadmap, 'D-452 - Ad-Readiness Storefront Trust Hint', 'roadmap latest milestone')
 assertIncludes(roadmap, 'D-453 - Source-Pack Latest-Boundary Guardrail', 'roadmap latest milestone')
 assertIncludes(roadmap, 'D-454 - Loading-Plan Batch Summary', 'roadmap latest milestone')
@@ -122,7 +123,8 @@ assertIncludes(roadmap, 'D-497 - Brand Remediation External-Exposure Visibility'
 assertIncludes(roadmap, 'D-498 - Brand Remediation Provenance-State Workflow', 'roadmap latest milestone')
 assertIncludes(roadmap, 'D-499 - Batch Image QC Remediation Queue', 'roadmap latest milestone')
 assertIncludes(roadmap, 'D-500 - Meta Provider Configuration Unification', 'roadmap latest milestone')
-assertIncludes(nextSprint, 'Latest local boundary: D-500.', 'next sprint latest boundary')
+assertIncludes(roadmap, 'D-501 - Mobile PDP CTA Overflow Guard', 'roadmap latest milestone')
+assertIncludes(nextSprint, 'Latest local boundary: D-501.', 'next sprint latest boundary')
 assertIncludes(nextSprint, 'D-380-D-406 plus D-422-D-500', 'next sprint release boundary')
 assertIncludes(nextSprint, 'Operator Live Smoke Plan (D-389/D-452)', 'next sprint smoke-plan title boundary')
 assertIncludes(nextSprint, '### Catalog Provenance Review', 'next sprint catalog provenance decision')
@@ -157,6 +159,7 @@ assertIncludes(completionAudit, 'D-497 recorded external-dispatch visibility', '
 assertIncludes(completionAudit, 'D-498 provenance-state workflow', 'completion audit provenance-state workflow')
 assertIncludes(completionAudit, 'D-499 batch Image QC remediation', 'completion audit batch Image QC remediation')
 assertIncludes(completionAudit, 'D-500 unifies Facebook direct dispatch', 'completion audit Meta provider configuration')
+assertIncludes(completionAudit, 'D-501 records the first deployed mobile storefront evidence', 'completion audit mobile PDP correction')
 assertIncludes(completionAudit, '20-document limit', 'completion audit source-pack cap')
 for (const phrase of [
   'approved 2026-07-25 metadata preflight confirms the nullable relationship',

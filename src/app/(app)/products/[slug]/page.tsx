@@ -940,6 +940,8 @@ export default async function ProductPage({ params }: Props) {
               fontFamily: "'Inter', sans-serif",
               fontWeight: 700,
               fontSize: 13,
+              boxSizing: 'border-box',
+              minWidth: 0,
               padding: '16px 12px',
               textDecoration: 'none',
               letterSpacing: '0.01em',
@@ -962,6 +964,8 @@ export default async function ProductPage({ params }: Props) {
               fontWeight: 700,
               fontSize: 15,
               letterSpacing: '0.01em',
+              boxSizing: 'border-box',
+              minWidth: 0,
               padding: '16px 12px',
               textDecoration: 'none',
             }}

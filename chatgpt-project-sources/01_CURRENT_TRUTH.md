@@ -333,5 +333,16 @@ not proof of production credentials, account permissions, quota, or a live
 provider call. The approved 2026-07-25 D-500 read reports Website ready,
 Facebook ready/direct, Instagram disabled by AutomationSettings, and X plus
 Shopier missing their current requirements; it made no write or provider call.
-Draft PR #6 contains the pushed and rebased `codex/master-build-plan-d500`
-branch. It is not merged or deployed.
+PR #6 merged the reviewed D-380-D-500 stack into `main`. Vercel Production
+deployment `dpl_5L6CXiNjKBiqS8sp7DAuRabcG1cj` is Ready; public homepage and
+PDP smoke checks pass. This is not proof of production provider credentials,
+account permissions, quotas, webhook delivery, or a real dispatch.
+
+D-501 mobile PDP CTA overflow correction: a read-only 390px production smoke
+found the deployed Classic Loafer PDP at 440px document width, due to
+content-box padding outside its fixed 40/60 mobile CTA flex split. The homepage
+had no document overflow. The local fix applies `boxSizing: 'border-box'` and
+`minWidth: 0` to both CTA controls; `test:storefront-trust`, typecheck, and
+lint pass. It is not deployed. Repeat the 390px PDP smoke after an approved
+release; this local correction does not call providers, Shopier, Telegram, or
+n8n and does not write Payload data.

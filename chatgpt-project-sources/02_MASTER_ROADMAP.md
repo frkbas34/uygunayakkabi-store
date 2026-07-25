@@ -788,3 +788,14 @@ lists the four direct X OAuth 1.0a variables. Focused provider-health,
 credential-resolver, and channel-dispatch checks pass locally. This neither
 proves production configuration nor calls Meta, X, n8n, Shopier, or any other
 provider.
+
+### D-501 - Mobile PDP CTA Overflow Guard
+
+Phase 6 storefront conversion correction. A read-only 390px production smoke
+found the live Classic Loafer PDP at 440px document width: its fixed mobile CTA
+used a 40/60 flex split but added content-box padding outside each basis. Both
+controls now use `boxSizing: 'border-box'` and `minWidth: 0`, keeping their
+padding inside the split. `test:storefront-trust`, typecheck, and lint cover
+the local correction. It changes no Payload data and makes no provider,
+Shopier, Telegram, n8n, SupplierScout, retired-channel, or ad action. Deploy
+and repeat the 390px PDP smoke before treating Phase 6 as complete.

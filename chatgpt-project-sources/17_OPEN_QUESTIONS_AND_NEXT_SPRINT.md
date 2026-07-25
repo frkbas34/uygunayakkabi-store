@@ -2,15 +2,29 @@
 
 Last updated: 2026-07-25
 
+## Post-Merge Storefront Correction
+
+D-501 is an uncommitted local mobile PDP correction. A read-only 390px
+production smoke found the deployed Classic Loafer PDP at 440px document width:
+the fixed 40/60 CTA controls added content-box padding outside their flex
+basis. The homepage had no document overflow. Both controls now use
+`boxSizing: 'border-box'` and `minWidth: 0`; `npm run test:storefront-trust`,
+`npm run typecheck`, and `npm run lint` pass. An approved deploy and repeat
+390px PDP smoke are required before Phase 6 storefront conversion is complete.
+No provider, Shopier, Telegram, n8n, Payload, SupplierScout, retired-channel,
+or ad action occurred.
+
 ## Local PR Preparation Checkpoint
 
 The approved local PR preparation is complete. The D-380-D-500 stack is
 committed on `codex/master-build-plan-d500` and rebased on the current
 `origin/main`; `npm run validate`, `npm run build`, and the review diff check
-pass. Draft PR #6 is open and Vercel's preview is ready. No merge, production
-deployment, live Telegram command, provider call, Shopier action, queue write,
-ad spend, SupplierScout activation, retired-channel activation, or optional
-OpenClaw sync has occurred. The next separate approval is PR review and merge.
+pass. PR #6 is merged into `main`; Vercel Production deployment
+`dpl_5L6CXiNjKBiqS8sp7DAuRabcG1cj` is Ready. Read-only browser smoke confirms
+the public homepage and a live PDP with Shopier and WhatsApp CTAs. No live
+Telegram command, provider call, Shopier action, queue write, ad spend,
+SupplierScout activation, retired-channel activation, or optional OpenClaw sync
+has occurred. The next separate approval is an operator-present read-only smoke.
 
 ## Latest Approved Schema Result
 
@@ -615,9 +629,9 @@ copy correction, or exclusion. It never removes the protected-brand gate.
 
 ### D-500 Meta Provider Configuration Unification Update
 
-Latest local boundary: D-500.
+The deployed release boundary is D-500. D-501 is the current local follow-up.
 
-The current local boundary supersedes D-499. The local release/PR range is
+The deployed release boundary superseded D-499. The completed release/PR range is
 `D-380-D-406 plus D-422-D-500`. Direct Facebook dispatch and provider health
 now resolve their Page ID from the same deployment value, `INSTAGRAM_PAGE_ID`;
 operators must not try to add a removed `facebookPageId` field to Payload.
@@ -625,3 +639,16 @@ The environment template also removes retired Dolap/Threads fallback variables
 and lists all four direct X OAuth 1.0a variables. Next: review the deployed
 environment by credential name only, record the provider evidence, then obtain
 separate approval before any live probe, queue, or post.
+
+### D-501 Mobile PDP CTA Overflow Correction
+
+Latest local boundary: D-501.
+
+The current local follow-up is D-501, outside the already-deployed D-500
+release range. A read-only 390px production smoke found the Classic Loafer PDP
+at 440px document width while the homepage remained within its viewport. The
+fixed CTA's 40/60 flex children used content-box padding; both now use
+`boxSizing: 'border-box'` and `minWidth: 0`. `test:storefront-trust`, typecheck,
+and lint pass locally. The next required evidence is a new approved deployment
+and clean 390px PDP smoke; no provider, Shopier, Telegram, n8n, Payload, or ad
+action is part of this correction.

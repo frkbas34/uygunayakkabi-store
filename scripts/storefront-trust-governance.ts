@@ -44,6 +44,7 @@ const structuredData = readFileSync(STRUCTURED_DATA_FILE, 'utf8')
 const merchandising = readFileSync(MERCHANDISING_FILE, 'utf8')
 const sitemap = readFileSync(SITEMAP_FILE, 'utf8')
 const siteSettings = readFileSync(SITE_SETTINGS_FILE, 'utf8')
+const mobilePdpCta = productPage.slice(productPage.indexOf('D-262: Sticky mobile CTA'))
 
 check(
   'DEMO_REVIEWS_ENABLED is pinned to false (no fake review cards in production)',
@@ -167,6 +168,15 @@ check(
     productPage.includes('target="_blank"') &&
     productPage.includes('rel="noopener noreferrer"'),
   'Expected Shopier CTA to require a product Shopier URL, avoid sold-out products, and open safely.',
+)
+
+check(
+  'PDP mobile sticky CTA keeps its split controls inside the viewport',
+  mobilePdpCta.includes("flex: '0 0 40%'") &&
+    mobilePdpCta.includes("flex: '0 0 60%'") &&
+    (mobilePdpCta.match(/boxSizing: 'border-box'/g) ?? []).length >= 2 &&
+    (mobilePdpCta.match(/minWidth: 0/g) ?? []).length >= 2,
+  'Expected both fixed mobile CTA controls to use border-box sizing and minWidth: 0 so their padding cannot overflow the 40/60 split.',
 )
 
 check(

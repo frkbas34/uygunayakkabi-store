@@ -51,7 +51,8 @@ for (const phrase of [
   'Active channels: Website, Instagram, Facebook, X, Shopier.',
   'Dolap and Threads are retired.',
   'SupplierScout is dormant.',
-  'Local release boundary: D-500.',
+  'D-500 is the deployed release boundary.',
+  'D-501 is the current uncommitted local storefront correction.',
   'X direct publishing requires all four OAuth 1.0a values.',
   'Direct Instagram/Facebook dispatch scans the complete gallery for public',
   'If no public HTTPS media exists, Instagram/Facebook fail with a clear media',
@@ -109,6 +110,7 @@ for (const phrase of [
   'D-498',
   'D-499',
   'D-500',
+  'D-501',
   "D-481's approved partial",
   'post-apply verified',
 ]) {

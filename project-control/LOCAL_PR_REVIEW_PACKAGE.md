@@ -4,13 +4,12 @@ Last updated: 2026-07-25
 
 ## D-398 Local PR review package
 
-Status: draft PR #6 is open for `codex/master-build-plan-d500`, rebased on
-`origin/main`; it is not merged or deployed.
+Status: PR #6 merged the reviewed `codex/master-build-plan-d500` stack into
+`main`; Vercel Production deployment `dpl_5L6CXiNjKBiqS8sp7DAuRabcG1cj` is Ready.
 
-This file prepares the current local stack for human review. It is not
-permission to push, open a PR, deploy, run live Telegram commands, queue
-Shopier jobs, call providers, sync optional OpenClaw, activate SupplierScout,
-revive retired channels, or spend on ads.
+This file records the completed review package. It is not permission to deploy,
+run live Telegram commands, queue Shopier jobs, call providers, sync optional
+OpenClaw, activate SupplierScout, revive retired channels, or spend on ads.
 
 ## Proposed PR Title
 
@@ -318,11 +317,11 @@ chatgpt-project-sources contains 20 Markdown documents and is at the 20-document
 
 ## Not Run / Not Done
 
-The approved PR preparation pushed `codex/master-build-plan-d500` and created
-draft PR #6. No merge, production deploy, live Telegram command, live Shopier
-webhook smoke, provider call, external dispatch, queue write, ad spend,
-SupplierScout activation, retired-channel activation, or optional OpenClaw sync
-has been performed for this local package.
+The approved PR review merged PR #6 into `main`. Vercel Production deployment
+`dpl_5L6CXiNjKBiqS8sp7DAuRabcG1cj` is Ready and public homepage/PDP smoke
+checks pass. No live Telegram command, live Shopier webhook smoke, provider
+call, external dispatch, queue write, ad spend, SupplierScout activation,
+retired-channel activation, or optional OpenClaw sync has been performed.
 
 ## Suggested PR Notes
 

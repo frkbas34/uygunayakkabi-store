@@ -4,9 +4,9 @@ Last updated: 2026-07-25
 
 ## D-397/D-500 Local release candidate boundary
 
-Status: pushed to GitHub, draft PR #6 open, not merged, not deployed.
+Status: merged to `main` via PR #6 and deployed to Vercel Production; live integrations remain unverified.
 
-This file is the current handoff manifest for the local UygunAyakkabi build stack. It is not a deployment approval and it is not proof that live Telegram, live Shopier, provider calls, ad traffic, or optional OpenClaw sync have been performed.
+This file is the current handoff manifest for the local UygunAyakkabi build stack. Vercel deployment `dpl_5L6CXiNjKBiqS8sp7DAuRabcG1cj` is Ready and public homepage/PDP smoke checks pass. The individual checkpoint sections record their local validation boundary; this is not proof that live Telegram, live Shopier, provider calls, ad traffic, or optional OpenClaw sync have been performed.
 
 ## Current Architecture Invariants
 
@@ -141,7 +141,8 @@ protected-brand hard gate.
 
 ## D-500 Local Verification Boundary
 
-D-500 is local-only and not deployed. It unifies direct Facebook dispatch and
+D-500 was locally validated before PR #6 and is now in the deployed source
+release. It unifies direct Facebook dispatch and
 provider-health on deployment env `INSTAGRAM_PAGE_ID`, not the removed Payload
 `facebookPageId` column. It also removes retired Dolap/Threads fallback keys
 from `.env.example` and lists the active X OAuth 1.0a keys. The existing
@@ -548,10 +549,9 @@ chatgpt-project-sources contains 20 Markdown documents and is at the 20-document
 
 ## Explicitly Not Done
 
-No production deploy, live Telegram command, optional OpenClaw sync, live Shopier webhook smoke, provider call, external dispatch, queue write, ad spend, SupplierScout activation, or retired-channel activation has been performed for this local candidate.
+Vercel Production deployment `dpl_5L6CXiNjKBiqS8sp7DAuRabcG1cj` is Ready, and public homepage/PDP smoke checks pass. No live Telegram command, optional OpenClaw sync, live Shopier webhook smoke, provider call, external dispatch, queue write, ad spend, SupplierScout activation, or retired-channel activation has been performed.
 
-The approved PR preparation pushed `codex/master-build-plan-d500` and created
-draft PR #6. Do not merge, deploy, or run live smokes unless the operator asks.
+The approved PR review merged PR #6 into `main`. Do not run live integration smokes unless the operator asks.
 
 ## Next Operator Decision
 

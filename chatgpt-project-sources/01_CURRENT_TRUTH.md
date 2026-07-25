@@ -333,5 +333,7 @@ not proof of production credentials, account permissions, quota, or a live
 provider call. The approved 2026-07-25 D-500 read reports Website ready,
 Facebook ready/direct, Instagram disabled by AutomationSettings, and X plus
 Shopier missing their current requirements; it made no write or provider call.
-Draft PR #6 contains the pushed and rebased `codex/master-build-plan-d500`
-branch. It is not merged or deployed.
+PR #6 merged the reviewed D-380-D-500 stack into `main`. Vercel Production
+deployment `dpl_5L6CXiNjKBiqS8sp7DAuRabcG1cj` is Ready; public homepage and
+PDP smoke checks pass. This is not proof of production provider credentials,
+account permissions, quotas, webhook delivery, or a real dispatch.

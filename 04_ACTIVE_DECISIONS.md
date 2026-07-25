@@ -17,6 +17,10 @@ Last updated: 2026-07-24
 ## Operations
 
 - Payload/Next is the source of truth and execution layer.
+- PR #6 merged the D-380-D-500 master-build stack into `main`; Vercel
+  Production deployment `dpl_5L6CXiNjKBiqS8sp7DAuRabcG1cj` is Ready and a
+  public homepage/PDP smoke passed. Live operator and integration evidence
+  remain separate approval-gated work.
 - Hermes/Mentix is the current agent-control and Telegram operator layer.
 - OpenClaw is optional/history until explicitly reactivated and verified.
 - Its legacy VPS sync requires both `--reactivate-openclaw` and

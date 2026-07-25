@@ -7,10 +7,12 @@ Last updated: 2026-07-25
 The approved local PR preparation is complete. The D-380-D-500 stack is
 committed on `codex/master-build-plan-d500` and rebased on the current
 `origin/main`; `npm run validate`, `npm run build`, and the review diff check
-pass. Draft PR #6 is open and Vercel's preview is ready. No merge, production
-deployment, live Telegram command, provider call, Shopier action, queue write,
-ad spend, SupplierScout activation, retired-channel activation, or optional
-OpenClaw sync has occurred. The next separate approval is PR review and merge.
+pass. PR #6 is merged into `main`; Vercel Production deployment
+`dpl_5L6CXiNjKBiqS8sp7DAuRabcG1cj` is Ready. Read-only browser smoke confirms
+the public homepage and a live PDP with Shopier and WhatsApp CTAs. No live
+Telegram command, provider call, Shopier action, queue write, ad spend,
+SupplierScout activation, retired-channel activation, or optional OpenClaw sync
+has occurred. The next separate approval is an operator-present read-only smoke.
 
 ## Latest Approved Schema Result
 

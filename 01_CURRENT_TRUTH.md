@@ -29,9 +29,10 @@ Last updated: 2026-07-25
   readiness, and brand safety.
 - Local release boundary: D-500. Full `npm run validate` and `npm run build`
   pass after the D-500 Meta-provider configuration alignment; the approved
-  readiness reads are PII-light and read-only. Draft PR #6 contains the pushed,
-  rebased `codex/master-build-plan-d500` branch; it is not merged, deployed, or
-  proof of live provider readiness.
+  readiness reads are PII-light and read-only. PR #6 merged the reviewed stack
+  into `main`, and Vercel Production deployment
+  `dpl_5L6CXiNjKBiqS8sp7DAuRabcG1cj` is Ready. Public homepage and PDP smoke
+  checks pass; this is not proof of live provider readiness.
 - The storefront announcement bar is part of the fixed header, and `Camper`
   is included in the shared protected-brand hard gate across activation and
   public storefront eligibility.

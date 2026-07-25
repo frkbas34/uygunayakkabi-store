@@ -582,6 +582,7 @@ remain compatible. `.env.example` lists only active n8n fallback keys and the
 four direct X OAuth 1.0a keys. Covered by `test:provider-health`,
 `test:meta-provider-credentials`, and `test:channel-dispatch`. This is local
 configuration behavior only, not proof of deployed credentials, Meta account
-permissions, or a live post. Draft PR #6 contains the pushed and rebased
-`codex/master-build-plan-d500` branch; do not merge, deploy, or run live
+permissions, or a live post. PR #6 merged the reviewed D-380-D-500 stack into
+`main`, and Vercel Production deployment `dpl_5L6CXiNjKBiqS8sp7DAuRabcG1cj`
+is Ready; public homepage/PDP smoke checks pass. Do not run live integration
 actions without a separate operator approval.

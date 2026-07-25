@@ -113,7 +113,7 @@ for (const phrase of [
   'D-498 brand remediation provenance-state workflow',
   'D-499 batch Image QC remediation queue',
   'D-500 Meta provider configuration unification',
-  'Status: pushed to GitHub, draft PR #6 open, not merged, not deployed.',
+  'Status: merged to `main` via PR #6 and deployed to Vercel Production; live integrations remain unverified.',
   'Payload/Next remains the source of truth',
   'Active channels are Website, Instagram, Facebook, X, and Shopier.',
   'Dolap and Threads are retired.',
@@ -164,9 +164,10 @@ for (const phrase of [
   'npm run test:story-dispatch',
   'lint 0 errors / 0 warnings',
   `chatgpt-project-sources contains ${mdFiles.length} Markdown documents`,
-  'No production deploy, live Telegram command, optional OpenClaw sync, live Shopier webhook smoke, provider call, external dispatch, queue write, ad spend, SupplierScout activation, or retired-channel activation has been performed',
-  'The approved PR preparation pushed `codex/master-build-plan-d500` and created',
-  'Do not merge, deploy, or run live smokes unless the operator asks.',
+  'Vercel Production deployment `dpl_5L6CXiNjKBiqS8sp7DAuRabcG1cj` is Ready',
+  'No live Telegram command, optional OpenClaw sync, live Shopier webhook smoke, provider call, external dispatch, queue write, ad spend, SupplierScout activation, or retired-channel activation has been performed',
+  'The approved PR review merged PR #6 into `main`.',
+  'Do not run live integration smokes unless the operator asks.',
 ]) {
   assertIncludes(manifest, phrase, 'local release candidate manifest')
 }

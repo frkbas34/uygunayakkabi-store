@@ -7,7 +7,8 @@ Last updated: 2026-07-25
 Status: PR #6 merged the reviewed `codex/master-build-plan-d500` stack into
 `main`; Vercel Production deployment `dpl_5L6CXiNjKBiqS8sp7DAuRabcG1cj` is Ready.
 
-This file records the completed review package. It is not permission to deploy,
+This file records the completed D-500 review package. D-501 is a separate,
+unreviewed local mobile-PDP correction and is not covered by this package. It is not permission to deploy,
 run live Telegram commands, queue Shopier jobs, call providers, sync optional
 OpenClaw, activate SupplierScout, revive retired channels, or spend on ads.
 

@@ -17,8 +17,8 @@ before changing architecture, bots, channels, or roadmap priorities.
 
 1. The D-380-D-500 master-build stack is merged into `main` through PR #6 and
    Vercel Production deployment `dpl_5L6CXiNjKBiqS8sp7DAuRabcG1cj` is Ready.
-   The public homepage and a live PDP smoke pass; next, obtain
-   operator-present read-only evidence before treating integrations as live.
+   Desktop storefront smoke passes, while the 390px PDP smoke found a 50px
+   fixed-CTA overflow. D-501 fixes it locally and awaits deploy/re-smoke.
 2. Resolve protected-brand catalog blockers through `/brandplan`; protected-brand matches cannot be manually activated, then scale verified own products with image QC and controlled publishing.
 3. Keep the active storefront and Shopier bridge trustworthy before ads.
 4. Keep direct X publishing behind the complete OAuth requirement, and all

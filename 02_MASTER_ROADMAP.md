@@ -160,3 +160,12 @@ AutomationSettings. The environment template now removes retired Dolap/Threads
 fallback webhooks and lists the four active X OAuth 1.0a keys. This is local
 configuration alignment only; production credential, permission, quota, and
 live-post evidence remain operator work.
+
+## D-501 Mobile PDP CTA Overflow Guard
+
+Phase 6 mobile storefront smoke found the deployed Classic Loafer PDP at 440px
+document width on a 390px viewport. The fixed 40/60 CTA bar added content-box
+padding outside both flex bases. D-501 applies `boxSizing: 'border-box'` and
+`minWidth: 0` to both controls, and `test:storefront-trust` now guards that
+contract. Typecheck and lint pass locally. Deploy and repeat the 390px PDP
+smoke before treating storefront conversion as mobile-ready.

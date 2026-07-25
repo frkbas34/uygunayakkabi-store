@@ -1,6 +1,12 @@
 ﻿# PROJECT STATE — Uygunayakkabi
 
-_Last updated: 2026-07-25 (D-500 Meta provider configuration unification, approved read-only provider-health evidence, and verified Vercel Production deployment.)_
+_Last updated: 2026-07-25 (D-501 mobile PDP CTA overflow correction, D-500 Meta provider configuration unification, approved read-only provider-health evidence, and verified Vercel Production deployment.)_
+
+## D-501 mobile PDP CTA overflow correction - 2026-07-25 (LOCAL CODE/DOCS, not deployed)
+
+- Read-only 390px production smoke found the Classic Loafer PDP at 440px document width: the fixed mobile CTA used a 40/60 flex split plus content-box padding, creating 50px of horizontal overflow. The homepage remained at 385px document width with no horizontal overflow.
+- Both fixed CTA controls now use `boxSizing: 'border-box'` and `minWidth: 0`, so their padding remains inside the 40/60 split. `scripts/storefront-trust-governance.ts` asserts that contract alongside existing PDP conversion requirements.
+- `npm run test:storefront-trust`, `npm run typecheck`, `npm run lint`, and `git diff --check` pass. This correction has not been deployed; repeat the 390px PDP smoke after an approved release. It makes no Payload write, provider call, Shopier call, Telegram action, n8n action, SupplierScout activation, retired-channel activation, or ad action.
 
 ## D-500 Meta provider configuration unification - 2026-07-25 (LOCAL CODE/DOCS, configured read passed, source release deployed)
 

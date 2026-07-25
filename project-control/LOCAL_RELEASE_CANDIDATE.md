@@ -6,7 +6,7 @@ Last updated: 2026-07-25
 
 Status: merged to `main` via PR #6 and deployed to Vercel Production; live integrations remain unverified.
 
-This file is the current handoff manifest for the local UygunAyakkabi build stack. Vercel deployment `dpl_5L6CXiNjKBiqS8sp7DAuRabcG1cj` is Ready and public homepage/PDP smoke checks pass. The individual checkpoint sections record their local validation boundary; this is not proof that live Telegram, live Shopier, provider calls, ad traffic, or optional OpenClaw sync have been performed.
+This file is the archived D-500 handoff manifest for the deployed UygunAyakkabi build stack. Vercel deployment `dpl_5L6CXiNjKBiqS8sp7DAuRabcG1cj` is Ready and public homepage/PDP smoke checks pass. D-501 is a separate, unreviewed local mobile-PDP correction and is not part of this candidate. The individual checkpoint sections record their local validation boundary; this is not proof that live Telegram, live Shopier, provider calls, ad traffic, or optional OpenClaw sync have been performed.
 
 ## Current Architecture Invariants
 

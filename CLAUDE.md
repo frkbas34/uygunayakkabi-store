@@ -586,3 +586,13 @@ permissions, or a live post. PR #6 merged the reviewed D-380-D-500 stack into
 `main`, and Vercel Production deployment `dpl_5L6CXiNjKBiqS8sp7DAuRabcG1cj`
 is Ready; public homepage/PDP smoke checks pass. Do not run live integration
 actions without a separate operator approval.
+
+## D-501 Mobile PDP CTA Overflow Guard
+
+The deployed PDP mobile smoke at a 390px viewport found the fixed 40/60 CTA
+bar expanding the document to 440px because both controls added padding outside
+their flex basis. D-501 is local-only: both controls now use `boxSizing:
+'border-box'` and `minWidth: 0`, and `test:storefront-trust` guards that
+contract. It must be deployed and re-smoked before Phase 6 storefront
+conversion can be considered complete. It does not call providers, Shopier,
+Telegram, n8n, or make a data write.

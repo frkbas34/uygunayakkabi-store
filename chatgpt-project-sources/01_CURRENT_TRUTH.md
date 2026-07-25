@@ -333,6 +333,5 @@ not proof of production credentials, account permissions, quota, or a live
 provider call. The approved 2026-07-25 D-500 read reports Website ready,
 Facebook ready/direct, Instagram disabled by AutomationSettings, and X plus
 Shopier missing their current requirements; it made no write or provider call.
-Approved local PR preparation committed and rebased
-`codex/master-build-plan-d500` on `origin/main`; it is not pushed, has no PR,
-and is not deployed.
+Draft PR #6 contains the pushed and rebased `codex/master-build-plan-d500`
+branch. It is not merged or deployed.

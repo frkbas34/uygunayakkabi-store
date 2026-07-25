@@ -28,7 +28,7 @@ const mdFiles = readdirSync('chatgpt-project-sources').filter((name) => name.end
 
 for (const phrase of [
   'D-398 Local PR review package',
-  'Status: locally committed on `codex/master-build-plan-d500`, rebased on',
+  'Status: draft PR #6 is open for `codex/master-build-plan-d500`, rebased on',
   'Proposed PR Title',
   'Scope Summary',
   'D-399 loading-plan first product worklist',
@@ -171,8 +171,8 @@ for (const phrase of [
   'npm run validate',
   'lint 0 errors / 0 warnings',
   `chatgpt-project-sources contains ${mdFiles.length} Markdown documents`,
-  'The approved local PR preparation committed and rebased',
-  'No push, PR creation,',
+  'The approved PR preparation pushed `codex/master-build-plan-d500` and created',
+  'No merge, production deploy,',
 ]) {
   assertIncludes(review, phrase, 'local PR review package')
 }

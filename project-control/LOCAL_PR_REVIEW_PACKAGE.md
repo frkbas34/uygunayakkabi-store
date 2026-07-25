@@ -4,8 +4,8 @@ Last updated: 2026-07-25
 
 ## D-398 Local PR review package
 
-Status: locally committed on `codex/master-build-plan-d500`, rebased on
-`origin/main`, not pushed, and no PR created.
+Status: draft PR #6 is open for `codex/master-build-plan-d500`, rebased on
+`origin/main`; it is not merged or deployed.
 
 This file prepares the current local stack for human review. It is not
 permission to push, open a PR, deploy, run live Telegram commands, queue
@@ -318,12 +318,11 @@ chatgpt-project-sources contains 20 Markdown documents and is at the 20-document
 
 ## Not Run / Not Done
 
-The approved local PR preparation committed and rebased
-`codex/master-build-plan-d500` on `origin/main`. No push, PR creation,
-production deploy, live Telegram command, live Shopier webhook smoke, provider
-call, external dispatch, queue write, ad spend, SupplierScout activation,
-retired-channel activation, or optional OpenClaw sync has been performed for
-this local package.
+The approved PR preparation pushed `codex/master-build-plan-d500` and created
+draft PR #6. No merge, production deploy, live Telegram command, live Shopier
+webhook smoke, provider call, external dispatch, queue write, ad spend,
+SupplierScout activation, retired-channel activation, or optional OpenClaw sync
+has been performed for this local package.
 
 ## Suggested PR Notes
 

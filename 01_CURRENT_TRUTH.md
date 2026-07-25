@@ -29,9 +29,9 @@ Last updated: 2026-07-25
   readiness, and brand safety.
 - Local release boundary: D-500. Full `npm run validate` and `npm run build`
   pass after the D-500 Meta-provider configuration alignment; the approved
-  readiness reads are PII-light and read-only. The local review branch
-  `codex/master-build-plan-d500` is committed and rebased on `origin/main`, but
-  it is not pushed, deployed, or proof of live provider readiness.
+  readiness reads are PII-light and read-only. Draft PR #6 contains the pushed,
+  rebased `codex/master-build-plan-d500` branch; it is not merged, deployed, or
+  proof of live provider readiness.
 - The storefront announcement bar is part of the fixed header, and `Camper`
   is included in the shared protected-brand hard gate across activation and
   public storefront eligibility.

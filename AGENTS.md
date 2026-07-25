@@ -572,6 +572,6 @@ remain compatible. `.env.example` lists only active n8n fallback keys and the
 four direct X OAuth 1.0a keys. Covered by `test:provider-health`,
 `test:meta-provider-credentials`, and `test:channel-dispatch`. This is local
 configuration behavior only, not proof of deployed credentials, Meta account
-permissions, or a live post. The approved local PR preparation committed and
-rebased `codex/master-build-plan-d500` on `origin/main`; do not push, open a
-PR, deploy, or run live actions without a separate operator approval.
+permissions, or a live post. Draft PR #6 contains the pushed and rebased
+`codex/master-build-plan-d500` branch; do not merge, deploy, or run live
+actions without a separate operator approval.

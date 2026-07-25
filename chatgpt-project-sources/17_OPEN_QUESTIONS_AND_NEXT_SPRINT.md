@@ -7,11 +7,10 @@ Last updated: 2026-07-25
 The approved local PR preparation is complete. The D-380-D-500 stack is
 committed on `codex/master-build-plan-d500` and rebased on the current
 `origin/main`; `npm run validate`, `npm run build`, and the review diff check
-pass. It has not been pushed, no pull request exists, and no deployment, live
-Telegram command, provider call, Shopier action, queue write, ad spend,
-SupplierScout activation, retired-channel activation, or optional OpenClaw sync
-has occurred. The next separate approval is to push this branch and open a
-draft PR.
+pass. Draft PR #6 is open and Vercel's preview is ready. No merge, production
+deployment, live Telegram command, provider call, Shopier action, queue write,
+ad spend, SupplierScout activation, retired-channel activation, or optional
+OpenClaw sync has occurred. The next separate approval is PR review and merge.
 
 ## Latest Approved Schema Result
 

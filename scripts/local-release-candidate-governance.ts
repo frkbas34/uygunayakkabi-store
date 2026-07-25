@@ -113,7 +113,7 @@ for (const phrase of [
   'D-498 brand remediation provenance-state workflow',
   'D-499 batch Image QC remediation queue',
   'D-500 Meta provider configuration unification',
-  'Status: local-only, committed on the local review branch, not pushed, not deployed.',
+  'Status: pushed to GitHub, draft PR #6 open, not merged, not deployed.',
   'Payload/Next remains the source of truth',
   'Active channels are Website, Instagram, Facebook, X, and Shopier.',
   'Dolap and Threads are retired.',
@@ -165,8 +165,8 @@ for (const phrase of [
   'lint 0 errors / 0 warnings',
   `chatgpt-project-sources contains ${mdFiles.length} Markdown documents`,
   'No production deploy, live Telegram command, optional OpenClaw sync, live Shopier webhook smoke, provider call, external dispatch, queue write, ad spend, SupplierScout activation, or retired-channel activation has been performed',
-  'The approved local PR preparation created and rebased',
-  'Do not push, open a PR, deploy, or run live smokes unless the operator asks.',
+  'The approved PR preparation pushed `codex/master-build-plan-d500` and created',
+  'Do not merge, deploy, or run live smokes unless the operator asks.',
 ]) {
   assertIncludes(manifest, phrase, 'local release candidate manifest')
 }

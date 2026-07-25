@@ -4,7 +4,7 @@ Last updated: 2026-07-25
 
 ## D-397/D-500 Local release candidate boundary
 
-Status: local-only, committed on the local review branch, not pushed, not deployed.
+Status: pushed to GitHub, draft PR #6 open, not merged, not deployed.
 
 This file is the current handoff manifest for the local UygunAyakkabi build stack. It is not a deployment approval and it is not proof that live Telegram, live Shopier, provider calls, ad traffic, or optional OpenClaw sync have been performed.
 
@@ -550,8 +550,8 @@ chatgpt-project-sources contains 20 Markdown documents and is at the 20-document
 
 No production deploy, live Telegram command, optional OpenClaw sync, live Shopier webhook smoke, provider call, external dispatch, queue write, ad spend, SupplierScout activation, or retired-channel activation has been performed for this local candidate.
 
-The approved local PR preparation created and rebased
-`codex/master-build-plan-d500` on the current `origin/main`. Do not push, open a PR, deploy, or run live smokes unless the operator asks.
+The approved PR preparation pushed `codex/master-build-plan-d500` and created
+draft PR #6. Do not merge, deploy, or run live smokes unless the operator asks.
 
 ## Next Operator Decision
 

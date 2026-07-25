@@ -1,9 +1,568 @@
-# DECISIONS — Uygunayakkabi
+﻿# DECISIONS — Uygunayakkabi
 
-## 2026-07-02 — Manual publish override semantics (LOCAL CODE, NOT DEPLOYED)
-**Decision:** explicit operator **Yayına Al / approvepublish** should be able to publish a product even when the only remaining blockers are human-review gates: generated-image QC PASS and/or brand/audit safety wording. It must **not** bypass hard commerce/source-of-truth blockers: invalid price, no usable media, no active publish target, or no sellable stock.
+## 2026-07-25 - D-481 concurrent duplicate protection applied and verified
+
+**Decision:** After approved preflight and reviewed dry-run SQL, apply the D-481 concurrent partial unique index for non-empty Shopier order IDs.
+
+**Evidence:** `orders_shopier_order_id_unique_idx` is present, duplicate non-empty IDs are zero, and the post-apply read-only check passes. The reviewed SQL fingerprint was `c79810ec7a084bfc`; `npm run test:shopier-webhook-local` passes locally.
+
+**Guardrail:** this is configured-database schema evidence only. It does not prove live Shopier webhook delivery, create a deployment, or authorize further DDL.
+
+## 2026-07-24 - D-482 keeps Shopier order and stock writes atomic (LOCAL CODE/DOCS, NOT DEPLOYED)
+
+**Decision:** treat a Shopier `order.created` Order create, stock mutation, and
+InventoryLog write as one Payload transaction. Fail closed when the transaction
+cannot start and return `500` for a verified processing failure so Shopier can
+retry. Send the webhook-specific Telegram alert only after commit; suppress the
+generic Orders alert for Shopier-created orders.
+
+**Reason:** a partial successful order was worse than a retried order. This
+preserves stock reconciliation and prevents a premature or duplicate alert.
+
+**Guardrails:** this is local code only. It makes no database metadata query,
+DDL, Shopier call, Payload write outside a real future webhook, provider call,
+dispatch, or deployment. D-481's reviewed partial unique index remains
+un-applied and still needs separately approved preflight and DDL for concurrent
+duplicate-delivery protection.
+
+## 2026-07-24 - D-481 separates Shopier duplicate safety from schema approval (LOCAL CODE/DOCS, NOT DEPLOYED)
+
+**Decision:** Keep Shopier `order.created` idempotency database-backed. Declare `shopierOrderId` unique in Payload, handle a duplicate-key order create before stock mutation, and require a partial PostgreSQL unique index for non-empty external order IDs.
+
+**Reason:** an application-level `find` then `create` check cannot prevent concurrent webhook deliveries from both passing the lookup. A partial index protects real Shopier IDs without constraining manually created orders with no external ID.
+
+**Guardrails:** the index helper defaults to dry-run and does not connect to PostgreSQL. Read-only metadata preflight requires explicit confirmation and refuses mutation flags. DDL requires a separate explicit operator approval after duplicate-ID review; do not infer that approval from code validation. No database preflight, DDL, live Shopier webhook/API, Payload write, or deployment occurred for D-481.
+
+## 2026-07-24 - D-463 makes repo-side Mentix skills runtime-truthful (LOCAL CODE/DOCS, NOT DEPLOYED)
+
+**Decision:** Treat Hermes/Mentix as the current operator-control layer. Treat OpenClaw skills, activation configuration, and dashboard entries as optional historical templates until an operator explicitly reactivates OpenClaw and records VPS verification evidence.
+
+**Reason:** The repo previously combined correct high-level architecture with skill-level wording that implied an active VPS deployment. That creates operational ambiguity and risks agents treating a template as a second execution layer.
+
+**Guardrails:** Payload/Next remains the commerce source of truth/execution layer. Skill outputs are diagnostic, advisory, or operator-reviewed drafts only; they cannot publish, call providers, deploy schema, or write customer memory. Durable memory is PII-light project control knowledge and must update the relevant source-pack document with any current-truth decision. No VPS or live-service action is part of this documentation change.
+
+## 2026-07-24 - D-462 treats BlogPosts relationship drift as an operator-approved schema repair (LOCAL CODE/DOCS, NOT DEPLOYED)
+
+**Decision:** Keep the existing `BlogPosts.featuredImage -> media` relationship. Do not remove it merely to silence the sitemap build warning. Instead, use a read-only metadata preflight and a dry-run-first additive SQL helper to repair the missing `blog_posts.featured_image_id` relationship when the operator approves.
+
+**Reason:** The field has existed in the repo since the original BlogPosts collection. The local build proved the configured database drifted from that schema. Removing the field would hide drift and break the existing blog page feature. The sitemap already degrades safely by omitting blog entries while preserving static and product URLs.
+
+**Guardrails:** `npm run smoke:blog-schema:read -- --confirm-read-only` may read metadata only. It and the apply helper require `media.id`, and any pre-existing `blog_posts.featured_image_id`, to be PostgreSQL `integer`, plus the exact `featured_image_id -> public.media.id ON DELETE SET NULL` contract; they refuse incompatible types and existing conflicting foreign keys rather than attempting coercion or constraint replacement. `npm run db:blog-featured-image:apply` does not connect by default; confirmed apply requires `--apply --confirm-apply-d462-blog-featured-image-schema` plus explicit operator approval. The D-462 plan only repairs an existing `blog_posts` and `media` pair, never creates whole collection tables.
+
+## 2026-07-24 - D-461 reconciles session-start control truth (LOCAL CODE/DOCS, NOT DEPLOYED)
+
+**Decision:** make Memory Lock files follow the same current control architecture as AGENTS, CLAUDE, and the source pack.
+
+**Implementation (local):** Payload/Next is current execution, Hermes is current agent control, OpenClaw is historical/optional, n8n is optional glue with direct Payload/Next as default, and SupplierScout remains dormant. The stale live OpenClaw/n8n pipeline wording is now rejected by governance.
+
+**Guardrail:** no VPS, webhook, n8n workflow, OpenClaw sync, provider, Shopier, SupplierScout, retired-channel, or ad action occurs as part of this documentation/control change.
+
+## 2026-07-24 - D-460 keeps dispatch recovery paths diagnostic-only (LOCAL CODE/DOCS, NOT DEPLOYED)
+
+**Decision:** attach a deterministic next operator action to every non-published active-channel Product Flow Snapshot row.
+
+**Why:** operators need the state, recorded failure/configuration reason, and approved recovery route in one place; a separate generic action list makes channel recovery easy to misread.
+
+**Implementation (local):** queued Shopier points to `/shopier dashboard`, ready-but-unrecorded Shopier points to shared `/shopier publish <ref>`, configuration rows point to `/diagnostics`, and redispatchable failures only suggest `/redispatch <channel> <ref>` after the recorded cause is fixed.
+
+**Guardrail:** this is a read-only recommendation. The snapshot does not write, queue, publish, redispatch, call providers or Shopier, activate SupplierScout, revive retired channels, sync OpenClaw, or spend on ads.
+
+## 2026-07-18 - D-459 product-flow dispatch summary stays read-only (LOCAL CODE/DOCS, NOT DEPLOYED)
+
+**Decision:** add compact active-channel dispatch-health counts to Product Flow Snapshot.
+
+**Why:** operators should see publishing health at a glance before reading every dispatch row, especially when products target multiple active channels.
+
+**Implementation (local):** `src/lib/productFlowSnapshot.ts` now derives `channels.dispatchSummary`; `/productflow`, `/flow`, and `smoke:product-flow:read` show the summary before full dispatch rows.
+
+**Guardrail:** no product write, queue job, publish, redispatch, provider call, Shopier call, SupplierScout activation, retired-channel activation, optional OpenClaw sync, or ad spend.
+
+## 2026-07-18 - D-458 product-flow checklist summary stays read-only (LOCAL CODE/DOCS, NOT DEPLOYED)
+
+**Decision:** add compact done/next/blocked/needs-work counts to the Product Flow Snapshot checklist.
+**Reason:** operators need faster product-flow triage before reading every checklist row. The summary helps judge whether a product is nearly ready, blocked, or still missing core work while keeping Payload as the evidence source.
+**Implementation (local):** `src/lib/productFlowSnapshot.ts` now derives `checklistSummary`; `/productflow`, `/flow`, and `smoke:product-flow:read` show the summary before the full staged checklist.
+**Guardrail:** read-only product-flow diagnostics only. No product/lead/order write, stock change, queue job, publish, dispatch, provider call, Shopier call, ad-platform API call, campaign/post/pixel creation, SupplierScout activation, retired-channel activation, optional OpenClaw sync, deploy, PR, or ad spend.
+**Coverage:** `test:product-flow-snapshot` and `test:runtime-smokes` cover the local behavior. Validation passed locally with source/release/PR governance, typecheck, lint, diff check, and full `npm run validate`.
+
+## 2026-07-18 - D-457 loading-plan focus details stay read-only (LOCAL CODE/DOCS, NOT DEPLOYED)
+
+**Decision:** extend the D-456 focus queue with reason details beside each queued safe read command.
+**Reason:** operators should see why each top product appears in the focus queue without cross-referencing the full worklist. This keeps daily catalog loading faster while preserving the read-only planning boundary.
+**Implementation (local):** `src/lib/productLoadingPlan.ts` now derives `batchSummary.focus.queue` with product ref, command, and reasons; `/loadplan`, `/loadingplan`, and `smoke:load-plan:read` show the reason details.
+**Guardrail:** read-only catalog planning only. No product/lead/order write, stock change, queue job, publish, dispatch, provider call, Shopier call, ad-platform API call, campaign/post/pixel creation, SupplierScout activation, retired-channel activation, optional OpenClaw sync, deploy, PR, or ad spend.
+**Coverage:** `test:loading-plan` and `test:runtime-smokes` cover the local behavior. Validation passed locally with source/release/PR governance, typecheck, lint, diff check, and full `npm run validate`.
+
+## 2026-07-18 - D-456 loading-plan focus queue stays read-only (LOCAL CODE/DOCS, NOT DEPLOYED)
+
+**Decision:** extend D-455 batch focus with matching focus refs and a short queue of safe read commands.
+**Reason:** a focus label is useful, but operators still need to know which worklist rows match that bottleneck. The queue makes daily catalog loading easier to execute without adding automation.
+**Implementation (local):** `src/lib/productLoadingPlan.ts` now derives `batchSummary.focus.refs` and `batchSummary.focus.nextSafeReads`, `/loadplan` and `/loadingplan` show the focus refs/queue, and `smoke:load-plan:read` prints the same fields.
+**Guardrail:** read-only catalog planning only. No product/lead/order write, stock change, queue job, publish, dispatch, provider call, Shopier call, ad-platform API call, campaign/post/pixel creation, SupplierScout activation, retired-channel activation, optional OpenClaw sync, deploy, PR, or ad spend.
+**Coverage:** `test:loading-plan` and `test:runtime-smokes` cover the local behavior. Validation passed locally with source/release/PR governance, typecheck, lint, diff check, and full `npm run validate`.
+
+## 2026-07-18 - D-455 loading-plan batch focus stays read-only (LOCAL CODE/DOCS, NOT DEPLOYED)
+
+**Decision:** extend the Product Loading Plan batch summary with a deterministic focus object so operators see the main safe bottleneck and next safe read before scanning product rows.
+**Reason:** D-454 gave counts, but the operator still had to infer where to start. Catalog scale-up needs a single visible focus path for daily loading sessions.
+**Implementation (local):** `src/lib/productLoadingPlan.ts` now derives `batchSummary.focus` from the first product worklist, `/loadplan` and `/loadingplan` show the focus label/reason/next safe read, and `smoke:load-plan:read` prints the same fields.
+**Guardrail:** read-only catalog planning only. No product/lead/order write, stock change, queue job, publish, dispatch, provider call, Shopier call, ad-platform API call, campaign/post/pixel creation, SupplierScout activation, retired-channel activation, optional OpenClaw sync, deploy, PR, or ad spend.
+**Coverage:** `test:loading-plan` and `test:runtime-smokes` cover the local behavior. Validation passed locally with source/release/PR governance, typecheck, lint, diff check, and full `npm run validate`.
+
+## 2026-07-18 - D-454 loading-plan batch summary stays read-only (LOCAL CODE/DOCS, NOT DEPLOYED)
+
+**Decision:** make `/loadplan` start with a batch-level worklist summary before individual product rows.
+**Reason:** catalog scale-up needs faster daily execution; operators should see the number of candidates, priority/blocker totals, and the first safe command without manually reading every worklist row.
+**Implementation (local):** `src/lib/productLoadingPlan.ts` now returns `batchSummary` derived from the first product worklist; `formatProductLoadingPlan()` and `scripts/load-plan-runtime-smoke.ts` surface candidate counts, priority counts, blocker counts, first suggested command, first `/productflow` handoff, and first repo-side product-flow smoke command.
+**Guardrails:** no product/lead/order write, stock change, customer message, queue job, provider call, Shopier call, ad-platform API call, campaign/post/pixel creation, Pixel/CAPI action, SupplierScout activation, retired-channel activation, ad spend, deploy, branch, commit, push, PR, or optional OpenClaw sync was performed.
+**Validation:** `npm run test:loading-plan`, `npm run test:runtime-smokes`, `npm run test:source-pack`, `npm run test:local-release-candidate`, `npm run test:local-pr-review`, `npm run typecheck`, `npm run lint` with 0 errors / 71 warnings, `git diff --check`, and full `npm run validate` passed locally.
+
+## 2026-07-16 - D-453 source-pack latest-boundary guardrail stays local-only (LOCAL CODE/DOCS, NOT DEPLOYED)
+
+**Decision:** make `test:source-pack` enforce the latest source-pack boundary instead of relying on manual memory.
+**Reason:** ChatGPT Project sources are manually uploaded, so stale "current D-449" or D-422-D-451 wording can mislead future planning even when runtime code is newer.
+**Implementation (local):** `scripts/source-pack-governance.ts` now requires next-sprint source-pack notes to say `Latest local boundary: D-453.`, keep `Operator Live Smoke Plan (D-389/D-452)` as the actual smoke-plan title boundary, describe the D-380-D-406 plus D-422-D-453 release/PR stack, and reject stale current-D-449 or D-422-D-451 wording.
+**Guardrails:** no runtime behavior change, product/lead/order write, stock change, customer message, queue job, provider call, Shopier call, ad-platform API call, campaign/post/pixel creation, Pixel/CAPI action, SupplierScout activation, retired-channel activation, ad spend, deploy, branch, commit, push, PR, or optional OpenClaw sync was performed.
+**Validation:** `npm run test:source-pack`, `npm run test:local-release-candidate`, `npm run test:local-pr-review`, `npm run typecheck`, `npm run lint` with 0 errors / 71 warnings, `git diff --check`, and full `npm run validate` passed locally.
+
+## 2026-07-16 - D-452 ad-readiness storefront trust hint stays read-only (LOCAL CODE/DOCS, NOT DEPLOYED)
+
+**Decision:** add the storefront/PDP trust preflight directly to `/adready` review/ready next reads, and bump the `/smokeplan` rendered boundary to D-452.
+**Reason:** D-451 protects PDP conversion essentials, but manual paid-traffic operators should see that preflight at the ad-readiness surface before moving to copy drafts or performance reads.
+**Implementation (local):** `src/lib/adReadiness.ts` now adds `npm run test:storefront-trust` before `/adpack <ref> manual_ads` and `/adreport week` for review/ready products; blocked products still stay on `/productflow` and `/imageplan` diagnostics. `src/lib/operatorSmokePlan.ts` now renders `Operator Live Smoke Plan (D-389/D-452)`.
+**Guardrails:** no product/lead/order write, stock change, customer message, queue job, provider call, Shopier call, ad-platform API call, campaign/post/pixel creation, Pixel/CAPI action, SupplierScout activation, retired-channel activation, ad spend, deploy, branch, commit, push, PR, or optional OpenClaw sync was performed.
+**Validation:** `npm run test:ad-readiness`, `npm run test:operator-smoke-plan`, `npm run test:source-pack`, `npm run test:local-release-candidate`, `npm run test:local-pr-review`, `npm run typecheck`, `npm run lint` with 0 errors / 71 warnings, `git diff --check`, and full `npm run validate` passed locally.
+
+## 2026-07-16 - D-451 PDP conversion trust guardrail (LOCAL CODE/DOCS, NOT DEPLOYED)
+
+**Decision:** extend `test:storefront-trust` beyond homepage trust checks so it also pins buyer-critical PDP conversion essentials before paid traffic.
+**Reason:** Phase 6/8 work depends on the public product detail page retaining gallery, size/stock clarity, lead form context, WhatsApp, Shopier, FAQ, draft hiding, and safe similar-product behavior. Losing one of these silently would make ad-readiness evidence weaker.
+**Implementation (local):** `scripts/storefront-trust-governance.ts` now reads `src/app/(app)/products/[slug]/page.tsx` and checks draft `notFound()`, `ProductImages`, variant-backed `SizeChip`/`OOSChip`, `ContactForm` product/sold-out context, WhatsApp and Shopier CTAs, process FAQ fallback, and active-status plus merchandising-gated similar products.
+**Guardrails:** no build, DB read, network call, product/lead/order write, stock change, customer message, queue job, provider call, Shopier call, ad-platform API call, campaign/post/pixel creation, SupplierScout activation, retired-channel activation, ad spend, deploy, branch, commit, push, PR, or optional OpenClaw sync was performed.
+**Validation:** `npm run test:storefront-trust`, `npm run test:source-pack`, `npm run test:local-release-candidate`, `npm run test:local-pr-review`, `npm run typecheck`, `npm run lint` with 0 errors / 71 warnings, `git diff --check`, and full `npm run validate` passed locally.
+
+## 2026-07-16 - D-450 retired-channel memory-lock guardrail (LOCAL CODE/DOCS, NOT DEPLOYED)
+
+**Decision:** extend `test:retired-channels` to cover `project-control/MEMORY_LOCK.md` and `project-control/exports/MEMORY_LOCK.md`.
+**Reason:** those files are session-start handoff documents. If they drift back to old Dolap/Threads scaffold/planned wording, future Codex/Claude/ChatGPT sessions can inherit stale channel truth even when active code is safe.
+**Implementation (local):** `scripts/retired-channel-governance.ts` now requires the Memory Lock files to state active channels as Website/Instagram/Facebook/X/Shopier and Dolap/Threads retired, and blocks scaffolded/planned/active/future-work descriptions for Dolap/Threads.
+**Guardrails:** no runtime behavior change, product/lead/order write, stock change, customer message, queue job, provider call, Shopier call, ad-platform API call, campaign/post/pixel creation, SupplierScout activation, retired-channel activation, ad spend, deploy, branch, commit, push, PR, or optional OpenClaw sync was performed.
+**Validation:** `npm run test:retired-channels`, `npm run test:source-pack`, `npm run test:local-release-candidate`, `npm run test:local-pr-review`, `npm run typecheck`, `npm run lint` with 0 errors / 71 warnings, `git diff --check`, and full `npm run validate` passed locally.
+
+## 2026-07-16 - D-449 smoke-plan latest-boundary label stays read-only (LOCAL CODE/DOCS, NOT DEPLOYED)
+
+**Decision:** update the `/smokeplan` rendered title to the current local boundary so operators see `Operator Live Smoke Plan (D-389/D-449)` instead of the stale D-437 label.
+**Reason:** D-448 made ad-readiness guidance more actionable, and `/smokeplan` is the operator entrypoint for safe live-smoke sequencing. Its title should reflect the latest local handoff boundary without implying any live action has run.
+**Implementation (local):** `src/lib/operatorSmokePlan.ts` now renders the D-449 title, and `src/lib/operatorSmokePlan.test.ts` asserts it.
+**Guardrails:** no smoke-order change, product/lead/order write, stock change, customer message, queue job, provider call, Shopier call, ad-platform API call, campaign/post/pixel creation, SupplierScout activation, retired-channel activation, ad spend, deploy, branch, commit, push, PR, or optional OpenClaw sync was performed.
+**Validation:** `npm run test:operator-smoke-plan`, `npm run test:source-pack`, `npm run test:local-release-candidate`, `npm run test:local-pr-review`, `npm run typecheck`, `npm run lint` with 0 errors / 71 warnings, `git diff --check`, and full `npm run validate` passed locally.
+
+## 2026-07-16 - D-448 ad-readiness next-action hints stay read-only (LOCAL CODE/DOCS, NOT DEPLOYED)
+
+**Decision:** add safe next-read hints to `/adready` so readiness blockers, image concerns, and ready/review states point the operator to existing local follow-up views instead of implying any automatic ad action.
+**Reason:** Phase 8 manual ad support should be actionable while remaining operator-controlled. `/productflow`, `/imageplan`, `/adpack`, and `/adreport week` are the safe local surfaces around ad readiness; `/adready` should point to them explicitly.
+**Implementation (local):** `src/lib/adReadiness.ts` now renders `Next safe reads` with `/productflow`, `/imageplan`, `/adpack <ref> manual_ads`, and `/adreport week` as applicable. `src/lib/adReadiness.test.ts` covers ready, blocked, and review output plus absence of unsafe Shopier/ad-launch commands.
+**Guardrails:** no product/lead/order write, stock change, customer message, queue job, provider call, Shopier call, ad-platform API call, campaign/post/pixel creation, SupplierScout activation, retired-channel activation, ad spend, deploy, branch, commit, push, PR, or optional OpenClaw sync was performed.
+**Validation:** `npm run test:ad-readiness`, `npm run test:source-pack`, `npm run test:local-release-candidate`, `npm run test:local-pr-review`, `npm run typecheck`, `npm run lint` with 0 errors / 71 warnings, `git diff --check`, and full `npm run validate` passed locally.
+
+## 2026-07-16 - D-447 funnel snapshot next-action hints stay read-only (LOCAL CODE/DOCS, NOT DEPLOYED)
+
+**Decision:** add safe next-read hints to `/funnel` so lead-source, order, and UTM attribution evidence points the operator to existing read-only follow-up views instead of implying any automatic action.
+**Reason:** Phase 7 funnel visibility should be actionable without becoming autonomous. Open leads, converted/direct orders, and campaign-attributed leads already have safe read surfaces; `/funnel` should point to them explicitly.
+**Implementation (local):** `src/lib/funnelDesk.ts` now renders `Next safe reads` with `/leadplan`, `/orders`, and `/adreport week` as applicable. `src/lib/funnelDesk.test.ts` covers the hints and absence of unsafe Shopier/ad commands.
+**Guardrails:** no lead/order/product write, stock change, customer message, queue job, provider call, Shopier call, ad-platform API call, campaign/post/pixel creation, SupplierScout activation, retired-channel activation, ad spend, deploy, branch, commit, push, PR, or optional OpenClaw sync was performed.
+**Validation:** `npm run test:funnel-desk`, `npm run test:source-pack`, `npm run test:local-release-candidate`, `npm run test:local-pr-review`, `npm run typecheck`, `npm run lint` with 0 errors / 71 warnings, `git diff --check`, and full `npm run validate` passed locally.
+
+## 2026-07-16 - D-446 business snapshot next-action hints stay read-only (LOCAL CODE/DOCS, NOT DEPLOYED)
+
+**Decision:** add safe next-read hints to `/business` so urgency counts point the operator to existing read-only follow-up views instead of implying any automatic action.
+**Reason:** Phase 7 business visibility should be actionable without being autonomous. Stale leads, stale shipped orders, open orders, sold-out products, and low-stock products already have safe read surfaces; `/business` should point to them explicitly.
+**Implementation (local):** `src/lib/businessDesk.ts` now renders `Next safe reads` with `/leadplan`, `/orderreminders`, `/orders`, and `/inbox stock` as applicable. `src/lib/businessDesk.test.ts` covers the hints and absence of unsafe Shopier/ad commands.
+**Guardrails:** no lead/order/product write, stock change, customer message, queue job, provider call, Shopier call, ad-platform API call, campaign/post/pixel creation, SupplierScout activation, retired-channel activation, ad spend, deploy, branch, commit, push, PR, or optional OpenClaw sync was performed.
+**Validation:** `npm run test:business-desk`, `npm run test:source-pack`, `npm run test:local-release-candidate`, `npm run test:local-pr-review`, `npm run typecheck`, `npm run lint` with 0 errors / 71 warnings, `git diff --check`, and full `npm run validate` passed locally.
+
+## 2026-07-16 - D-445 order desk operator links stay read-only (LOCAL CODE/DOCS, NOT DEPLOYED)
+
+**Decision:** add shared direct order/product/lead context links to order desk surfaces so operators can jump from `/inbox orders`, `/orders`, `/orders today`, `/orderreminders`, `/order <id>`, and new-order alerts to Payload admin and public PDPs without changing order state or stock.
+**Reason:** Phase 7 order triage should be diagnosable from Telegram. The lead desk now has direct links, and order triage needed the same operator handoff discipline while preserving the existing order action callback model.
+**Implementation (local):** `src/lib/orderDesk.ts` now exposes `buildOrderOperatorLinks()` and appends order-admin/product-admin/lead-admin/public-status-only PDP links to order list lines, order detail cards, and new-order alerts. `src/lib/orderDesk.test.ts` covers public product links, draft admin-only links, formatter output, and absence of unsafe action commands.
+**Guardrails:** no order status write, stock restore, customer message, queue job, provider call, Shopier call, ad-platform API call, campaign/post/pixel creation, SupplierScout activation, retired-channel activation, ad spend, deploy, branch, commit, push, PR, or optional OpenClaw sync was performed.
+**Validation:** `npm run test:order-desk`, `npm run test:source-pack`, `npm run test:local-release-candidate`, `npm run test:local-pr-review`, `npm run typecheck`, `npm run lint` with 0 errors / 71 warnings, `git diff --check`, and full `npm run validate` passed locally.
+
+## 2026-07-16 - D-444 lead desk operator links stay read-only (LOCAL CODE/DOCS, NOT DEPLOYED)
+
+**Decision:** add shared direct lead/product context links to lead desk surfaces so operators can jump from `/inbox leads`, `/leadreminders`, `/leads`, `/lead <id>`, and new-lead alerts to Payload admin and public PDPs without changing lead state.
+
+**Implementation (local):** `src/lib/leadDesk.ts` now owns `buildLeadOperatorLinks()` and appends lead-admin, related product-admin, and public-status-only PDP links to lead list lines, lead detail cards, and new-lead alerts. `src/lib/leadFollowupPlan.ts` reuses the same helper.
+
+**Guardrails:** Read-only visibility only. No lead status write, customer message, job queue, publish, dispatch, provider call, Shopier call, external dispatch, ad-platform API call, campaign/post/pixel creation, SupplierScout activation, retired-channel activation, ad spend, deploy, commit, branch, push, or PR action was performed.
+
+**Validation:** `npm run test:lead-desk`, `npm run test:lead-followup-plan`, `npm run test:source-pack`, `npm run test:local-release-candidate`, `npm run test:local-pr-review`, `npm run typecheck`, `npm run lint` with 0 errors / 71 warnings, `git diff --check`, and full `npm run validate` passed locally.
+
+## 2026-07-16 - D-443 operator inbox product links stay read-only (LOCAL CODE/DOCS, NOT DEPLOYED)
+
+**Decision:** add direct product context links to `/inbox` product queues so operators can jump from daily triage rows to Payload admin and public PDPs without changing product state.
+
+**Implementation (local):** `src/lib/operatorInbox.ts` now appends admin/PDP links to product rows. Public PDP links require product slug plus public status. `src/lib/operatorInbox.test.ts` covers public/draft link behavior, formatter reuse across inbox buckets, and no unsafe action commands.
+
+**Guardrails:** Read-only visibility only. No product write, activation, job queue, publish, dispatch, provider call, Shopier call, external dispatch, ad-platform API call, campaign/post/pixel creation, SupplierScout activation, retired-channel activation, ad spend, deploy, commit, branch, push, or PR action was performed.
+
+**Validation:** `npm run test:operator-inbox`, `npm run test:source-pack`, `npm run test:local-release-candidate`, `npm run test:local-pr-review`, `npm run typecheck`, `npm run lint` with 0 errors / 71 warnings, `git diff --check`, and full `npm run validate` passed locally.
+
+## 2026-07-16 - D-442 lead follow-up operator links stay read-only (LOCAL CODE/DOCS, NOT DEPLOYED)
+
+**Decision:** add direct operator context links to `/leadplan`, `/followupplan`, and `smoke:lead-followup:read` so stale/open leads can be opened in Payload and related products can be inspected without changing lead status.
+
+**Implementation (local):** `src/lib/leadDesk.ts` now preserves related product slug/status when available. `src/lib/leadFollowupPlan.ts` adds `operatorLinks` for lead admin, related product admin, and public-status-only PDP links. The Telegram formatter and lead-followup runtime smoke render the same links.
+
+**Guardrails:** Read-only visibility only. Public PDP links require related product slug plus public status. No lead write, customer message, job queue, provider call, Shopier call, external dispatch, ad-platform API call, campaign/post/pixel creation, SupplierScout activation, retired-channel activation, ad spend, deploy, commit, branch, push, or PR action was performed.
+
+**Validation:** `npm run test:lead-followup-plan`, `npm run test:source-pack`, `npm run test:local-release-candidate`, `npm run test:local-pr-review`, `npm run typecheck`, `npm run lint` with 0 errors / 71 warnings, `git diff --check`, and full `npm run validate` passed locally.
+
+## 2026-07-16 - D-441 Shopier preview credential holds stay read-only (LOCAL CODE/DOCS, NOT DEPLOYED)
+
+**Decision:** show `SHOPIER_PAT` readiness inside `/shopier publish-ready`, `/shopier retry-errors`, and `smoke:shopier:read` previews before operators reach for confirm commands, while keeping previews available when credentials are missing.
+
+**Implementation (local):** `src/lib/shopierPublishControl.ts` now renders a preview-only `Credential hold` line when `shopierPatConfigured` is supplied. Telegram publish-ready/retry previews and the Shopier runtime smoke pass `Boolean(process.env.SHOPIER_PAT)` into the formatters. Confirmed queue/retry output stays free of preview-only credential hints.
+
+**Guardrails:** Preview guidance only. No secret values are printed. Existing confirm credential gates remain in place. No direct Shopier call, provider call, publish, redispatch, external dispatch, ad-platform API call, campaign/post/pixel creation, SupplierScout activation, retired-channel activation, ad spend, deploy, commit, branch, push, or PR action was performed.
+
+**Validation:** `npm run test:shopier-publish-control`, `npm run test:source-pack`, `npm run test:local-release-candidate`, `npm run test:local-pr-review`, `npm run typecheck`, `npm run lint` with 0 errors / 71 warnings, `git diff --check`, and full `npm run validate` passed locally.
+
+## 2026-07-16 - D-440 Shopier preview/dashboard operator links stay read-only (LOCAL CODE/DOCS, NOT DEPLOYED)
+
+**Decision:** add deterministic operator handoff links to Shopier preview/dashboard rows so operators can jump from `/shopier dashboard`, `/shopier publish-ready`, `/shopier retry-errors`, or `smoke:shopier:read` directly to Payload admin and, when public, the storefront PDP before deciding on any confirmed queue/retry action.
+
+**Implementation (local):** `src/lib/shopierPublishControl.ts` now builds `operatorLinks.adminUrl` for products with ids and `operatorLinks.productUrl` only for products with a slug and public status. Preview/dashboard formatters render `Links:` lines beside existing `/productflow` and runtime smoke handoffs. Confirmed queue/retry output stays free of preview-only links.
+
+**Guardrails:** Read-only preview/review handoff only. Draft products do not get public PDP links. No direct Shopier call, provider call, publish, redispatch, external dispatch, ad-platform API call, campaign/post/pixel creation, SupplierScout activation, retired-channel activation, ad spend, deploy, commit, branch, push, or PR action was performed.
+
+**Validation:** `npm run test:shopier-publish-control`, `npm run test:source-pack`, `npm run test:local-release-candidate`, `npm run test:local-pr-review`, `npm run typecheck`, `npm run lint` with 0 errors / 71 warnings, `git diff --check`, and full `npm run validate` passed locally.
+
+## 2026-07-16 - D-439 loading-plan worklist operator links stay read-only (LOCAL CODE/DOCS, NOT DEPLOYED)
+
+**Decision:** add deterministic operator handoff links to Product Loading Plan worklist rows so catalog operators can jump from `/loadplan`, `/loadingplan`, or `smoke:load-plan:read` directly to Payload admin and, when public, the storefront PDP.
+
+**Implementation (local):** `src/lib/productLoadingPlan.ts` now builds `operatorLinks.adminUrl` for products with ids and `operatorLinks.productUrl` only for products with a slug and public status. `formatProductLoadingPlan()` renders a `links:` line on worklist rows. `scripts/load-plan-runtime-smoke.ts` prints the same link evidence.
+
+**Guardrails:** Read-only diagnostics/handoff only. Draft products do not get public PDP links. No product write, queue job, publish, redispatch, external dispatch, provider call, Shopier call, ad-platform API call, campaign/post/pixel creation, SupplierScout activation, retired-channel activation, ad spend, deploy, commit, branch, push, or PR action was performed.
+
+**Validation:** `npm run test:loading-plan`, `npm run test:source-pack`, `npm run test:local-release-candidate`, `npm run test:local-pr-review`, `npm run typecheck`, `npm run lint` with 0 errors / 71 warnings, `git diff --check`, and full `npm run validate` passed locally.
+
+## 2026-07-16 - D-438 Product Flow Snapshot operator links stay read-only (LOCAL CODE/DOCS, NOT DEPLOYED)
+
+**Decision:** add deterministic operator handoff links to Product Flow Snapshot so catalog operators can jump from `/productflow`, `/flow`, or `smoke:product-flow:read` to Payload admin and, when public, the storefront PDP.
+
+**Implementation (local):** `src/lib/productFlowSnapshot.ts` now builds `operatorLinks.adminUrl` for products with ids and `operatorLinks.productUrl` only for products with a slug and public status. `formatProductFlowSnapshot()` renders an `Operator Links` block. `scripts/product-flow-runtime-smoke.ts` prints the same link evidence.
+
+**Guardrails:** Read-only diagnostics/handoff only. Draft products do not get public PDP links. No product write, queue job, publish, redispatch, external dispatch, provider call, Shopier call, ad-platform API call, campaign/post/pixel creation, SupplierScout activation, retired-channel activation, ad spend, deploy, commit, branch, push, or PR action was performed.
+
+**Validation:** `npm run test:product-flow-snapshot`, `npm run test:source-pack`, `npm run test:local-release-candidate`, `npm run test:local-pr-review`, `npm run typecheck`, `npm run lint` with 0 errors / 71 warnings, `git diff --check`, and full `npm run validate` passed locally.
+
+## 2026-07-16 - D-437 operator smoke-plan Telegram access preflight stays read-only (LOCAL CODE/DOCS, NOT DEPLOYED)
+
+**Decision:** add Telegram access governance to `/smokeplan` before any live Telegram operator read so live-smoke planning cannot skip private DM allowlist behavior.
+
+**Implementation (local):** `src/lib/operatorSmokePlan.ts` now runs `npm run test:telegram-access` after `smoke:load-plan:read` and before Telegram `/loadplan`. The formatted plan title now reflects the latest local boundary as `Operator Live Smoke Plan (D-389/D-449)`.
+
+**Guardrails:** Read-only checklist/handoff only. No product write, lead/order mutation, queue job, publish, redispatch, external dispatch, provider call, Shopier call, ad-platform API call, campaign/post/pixel creation, SupplierScout activation, retired-channel activation, ad spend, deploy, commit, branch, push, or PR action was performed.
+
+**Validation:** `npm run test:operator-smoke-plan`, `npm run test:telegram-access`, `npm run test:source-pack`, `npm run test:local-release-candidate`, `npm run test:local-pr-review`, `npm run typecheck`, `npm run lint` with 0 errors / 71 warnings, `git diff --check`, and full `npm run validate` passed locally.
+
+## 2026-07-16 - D-436 operator smoke-plan sitemap preflight stays read-only (LOCAL CODE/DOCS, NOT DEPLOYED)
+
+**Decision:** add sitemap governance to `/smokeplan` before manual ad readiness so paid-traffic prep cannot skip static route, website-visible product, and blog sitemap/degrade-safe guardrails.
+
+**Implementation (local):** `src/lib/operatorSmokePlan.ts` now runs `npm run test:sitemap-entries` after `npm run test:attribution` and before `smoke:ad-readiness:read`. The formatted plan title now reflects the latest local boundary as `Operator Live Smoke Plan (D-389/D-449)`.
+
+**Guardrails:** Read-only checklist/handoff only. No product write, lead/order mutation, queue job, publish, redispatch, external dispatch, provider call, Shopier call, ad-platform API call, campaign/post/pixel creation, SupplierScout activation, retired-channel activation, ad spend, deploy, commit, branch, push, or PR action was performed.
+
+**Validation:** `npm run test:operator-smoke-plan`, `npm run test:sitemap-entries`, `npm run test:source-pack`, `npm run test:local-release-candidate`, `npm run test:local-pr-review`, `npm run typecheck`, `npm run lint` with 0 errors / 71 warnings, `git diff --check`, and full `npm run validate` passed locally.
+
+## 2026-07-16 - D-435 operator smoke-plan attribution preflight stays read-only (LOCAL CODE/DOCS, NOT DEPLOYED)
+
+**Decision:** add attribution governance to `/smokeplan` before manual ad readiness so paid-traffic prep cannot skip first-touch UTM/referrer capture, storefront navigation preservation, or lead-submit merge guardrails.
+
+**Implementation (local):** `src/lib/operatorSmokePlan.ts` now runs `npm run test:attribution` after `npm run test:inquiry-guard` and before `smoke:ad-readiness:read`. The formatted plan title now reflects the latest local boundary as `Operator Live Smoke Plan (D-389/D-449)`.
+
+**Guardrails:** Read-only checklist/handoff only. No product write, lead/order mutation, queue job, publish, redispatch, external dispatch, provider call, Shopier call, ad-platform API call, campaign/post/pixel creation, SupplierScout activation, retired-channel activation, ad spend, deploy, commit, branch, push, or PR action was performed.
+
+**Validation:** `npm run test:operator-smoke-plan`, `npm run test:attribution`, source/release/PR governance, `typecheck`, `lint` with 0 errors / 71 warnings, `git diff --check`, and full `npm run validate` passed locally.
+
+## 2026-07-16 - D-434 operator smoke-plan inquiry guard preflight stays read-only (LOCAL CODE/DOCS, NOT DEPLOYED)
+
+**Decision:** add inquiry guard governance to `/smokeplan` before manual ad readiness so paid-traffic prep cannot skip honeypot, rate-limit, duplicate-collapse, and safe lead-form fallback guardrails.
+
+**Implementation (local):** `src/lib/operatorSmokePlan.ts` now runs `npm run test:inquiry-guard` after `npm run test:storefront-trust` and before `smoke:ad-readiness:read`. The formatted plan title now reflects the latest local boundary as `Operator Live Smoke Plan (D-389/D-449)`.
+
+**Guardrails:** Read-only checklist/handoff only. No product write, lead/order mutation, queue job, publish, redispatch, external dispatch, provider call, Shopier call, ad-platform API call, campaign/post/pixel creation, SupplierScout activation, retired-channel activation, ad spend, deploy, commit, branch, push, or PR action was performed.
+
+**Validation:** `npm run test:operator-smoke-plan`, `npm run test:inquiry-guard`, source/release/PR governance, `typecheck`, `lint` with 0 errors / 71 warnings, `git diff --check`, and full `npm run validate` passed locally.
+
+## 2026-07-16 - D-433 operator smoke-plan storefront trust preflight stays read-only (LOCAL CODE/DOCS, NOT DEPLOYED)
+
+**Decision:** add storefront trust governance to `/smokeplan` before manual ad readiness so paid-traffic prep cannot skip fake-review and placeholder-testimonial guardrails.
+
+**Implementation (local):** `src/lib/operatorSmokePlan.ts` now runs `npm run test:storefront-trust` after lead visibility and before `smoke:ad-readiness:read`. The formatted plan title now reflects the latest local boundary as `Operator Live Smoke Plan (D-389/D-449)`.
+
+**Guardrails:** Read-only checklist/handoff only. No product write, lead/order mutation, queue job, publish, redispatch, external dispatch, provider call, Shopier call, ad-platform API call, campaign/post/pixel creation, SupplierScout activation, retired-channel activation, ad spend, deploy, commit, branch, push, or PR action was performed.
+
+**Validation:** `npm run test:operator-smoke-plan`, `npm run test:storefront-trust`, `npm run test:source-pack`, `npm run test:local-release-candidate`, `npm run test:local-pr-review`, `npm run typecheck`, `npm run lint` with 0 errors / 71 warnings, `git diff --check`, and full `npm run validate` passed locally.
+
+## 2026-07-12 - D-432 operator smoke-plan manual ad preflight alignment stays read-only (LOCAL CODE/DOCS, NOT DEPLOYED)
+
+**Decision:** add manual ad readiness and ad performance preflights to `/smokeplan` so paid-traffic thinking uses Payload evidence before any operator-approved manual campaign work, while still refusing launch/spend actions.
+
+**Implementation (local):** `src/lib/operatorSmokePlan.ts` now runs `smoke:ad-readiness:read`, Telegram `/adready`, `smoke:ad-performance:read`, and Telegram `/adreport week` after business/funnel plus lead-followup visibility and before Shopier webhook/queue preflights. The formatted plan title now reflects the latest local boundary as `Operator Live Smoke Plan (D-389/D-449)`.
+
+**Guardrails:** Read-only checklist/handoff only. No product write, lead/order mutation, queue job, publish, redispatch, external dispatch, provider call, Shopier call, ad-platform API call, campaign/post/pixel creation, SupplierScout activation, retired-channel activation, ad spend, deploy, commit, branch, push, or PR action was performed.
+
+**Validation:** `npm run test:operator-smoke-plan`, `npm run test:source-pack`, `npm run test:local-release-candidate`, `npm run test:local-pr-review`, `npm run typecheck`, `npm run lint` with 0 errors / 71 warnings, `git diff --check`, and full `npm run validate` passed locally.
+
+## 2026-07-07 - Reconciliation: Hermes control layer + ads-not-active (DOCS ONLY, NOT DEPLOYED)
+**Decision:** minimal documentation/governance reconciliation to resolve the CONTAINS_CONFLICTS release-candidate verdict, before any code split.
+- **Agent-control layer = Hermes.** Hermes is the current agent-control layer for UygunAyakkabı/Mentix operations (installed on the operator's main PC, already in the Telegram group). Mentix/Uygunops is the Telegram-facing commerce operator identity/interface. Payload/Next remains the source of truth and execution layer. **OpenClaw is historical/optional unless explicitly reactivated** — the OpenClaw VPS-verification/sync additions are HOLD/OPTIONAL and removed from `test:safe`; `OpenClaw remains useful as the Mentix agent/skill layer` only in that optional/historical sense.
+- **Ads:** `NO_AD_LAUNCH_FOR_NOW`, `ADS_NOT_ACTIVE`. Prior first-ad-test readiness verdicts (D-326/D-329/D-337/D-338) are `AD_TEST_READINESS_FINDINGS_HISTORICAL` and do not authorize launching ads. Manual ad tooling stays read-only support (no campaign/post/pixel/provider/spend).
+- **Preserved invariants:** Dolap/Threads retired; SupplierScout dormant; n8n optional glue; no auto-publish without explicit approval; no autonomous ad spend.
+**Files:** `CLAUDE.md`, `AGENTS.md`, `chatgpt-project-sources/{01_CURRENT_TRUTH,07_MENTIX_OPENCLAW_SKILLS,12_ADS_AND_GROWTH}.md`, `project-control/DECISIONS.md`, `package.json` (removed `test:openclaw-vps-verification` from `test:safe`; standalone script kept, isolated).
+**Guardrails:** docs/governance-wiring only. No Shopier/order/stock/lead/UTM/Telegram/AI-image/ads runtime code changed; no external integration, no production data, no Facebook action. Not committed, not pushed by this pass.
+**Validation (2026-07-11):** source-pack, Mentix skill, standalone optional OpenClaw verification, release/PR, ops governance, typecheck, lint with 0 errors / 71 warnings, `git diff --check`, and full `npm run validate` passed locally.
+
+## 2026-07-06 - D-406 Shopier runtime smoke mirrors dashboard review rows (LOCAL CODE, NOT DEPLOYED)
+**Decision:** align `smoke:shopier:read` with Telegram `/shopier dashboard` by passing batch review rows into the dashboard formatter.
+**Reason:** D-400 added read-only batch review rows to the Telegram dashboard, but the repo-side runtime smoke only previewed the summary. The smoke should prove the same operator-facing review surface before live Telegram use.
+**Implementation (local):** updated `scripts/shopier-operator-smoke.ts` to import `buildShopierDashboardReviewRows`, build `reviewRows` from publish evaluations, and pass them to `formatShopierOperatorDashboard()`; updated `test:runtime-smokes` guard needles and synced AGENTS/CLAUDE, source-pack, runtime smoke docs, deployment runbook, release/PR manifests, and project-control docs.
+**Guardrails:** read-only only; no product writes, Shopier queueing, Shopier API call, provider call, external dispatch, SupplierScout activation, retired-channel activation, ad spend, or schema push.
+**Validation:** `test:runtime-smokes`, source-pack/release/PR/ops governance, `typecheck`, `lint` with 0 errors / 70 warnings, `git diff --check`, and full `npm run validate` passed locally.
+**Status:** local-only; production, Shopier, providers, and live Telegram behavior are unchanged.
+
+## 2026-07-06 - D-405 `/imageplan` gets a read-only runtime smoke preflight (LOCAL CODE, NOT DEPLOYED)
+**Decision:** add `smoke:image-plan:read` as the repo-side, read-only preflight for Telegram `/imageplan`.
+**Reason:** D-404 gave operators a safe Telegram image plan, but the live-smoke sequence also needs a local Payload evidence check before relying on Telegram output or deciding whether to run manual `#gorsel`.
+**Implementation (local):** added `scripts/image-plan-runtime-smoke.ts`, added package script `smoke:image-plan:read`, added runtime-smoke governance inventory coverage, inserted the smoke into `/smokeplan` before `/imageplan`, and synced AGENTS/CLAUDE, release/PR manifests, runtime smoke docs, deployment runbook, and source-pack docs.
+**Guardrails:** requires `--confirm-read-only`, forces `PAYLOAD_DB_PUSH=false`, refuses mutation/queue/publish/dispatch/provider/Shopier/SupplierScout/retired-channel/spend flags, and must not write products, queue image generation, call providers, publish, dispatch, call Shopier, spend on ads, activate SupplierScout, revive retired channels, or push schema changes.
+**Validation:** no-connect help, `test:runtime-smokes`, `test:operator-smoke-plan`, release/PR/source-pack/ops governance, `typecheck`, `lint` with 0 errors / 70 warnings, `git diff --check`, and full `npm run validate` passed locally.
+**Status:** local-only; production, providers, and live Telegram behavior are unchanged.
+
+## 2026-07-06 - D-404 Image regeneration guidance stays read-only (LOCAL CODE, NOT DEPLOYED)
+**Decision:** add `/imageplan` and `/regenplan` as read-only operator guidance, not as automatic image regeneration.
+**Reason:** Image QC REVIEW/FAIL and rejected generated visuals need a clear path back to manual preview approval, QC decisions, or `#gorsel`, but the system must not spend provider credits or queue image generation without explicit operator action.
+**Implementation (local):** added `src/lib/imageRegenerationPlan.ts`, `src/lib/imageRegenerationPlan.test.ts`, Telegram `/imageplan <sn-or-id>`, Telegram `/regenplan <sn-or-id>`, package script `test:image-regeneration-plan`, and `/smokeplan` discoverability after `/productflow`.
+**Guardrails:** no product write, no image-generation job queueing, no Gemini/provider call, no publish, no dispatch, no Shopier call, no SupplierScout activation, no retired-channel activation, and no ad spend.
+**Validation:** `test:image-regeneration-plan`, `test:operator-smoke-plan`, release/PR/source-pack/ops governance, `typecheck`, `lint` with 0 errors / 70 warnings, `git diff --check`, and full `npm run validate` passed locally.
+**Status:** local-only; production, providers, and live Telegram behavior are unchanged.
+
+## 2026-07-05 - D-403 local provider checks are not production provider proof (LOCAL CODE, NOT DEPLOYED)
+**Decision:** add a provider reality audit boundary so local env readiness is not treated as production provider readiness.
+**Reason:** existing provider-health checks are useful and secret-safe, but they only prove local diagnostic state. They do not prove production env values, provider account balance/quota, webhook reachability, OAuth validity, Shopier remote access, or actual content/search/image generation.
+**Implementation (local):** added `project-control/PROVIDER_REALITY_AUDIT.md`, added `scripts/provider-reality-governance.ts`, added package script `test:provider-reality`, included it in `test:safe`, and synced AGENTS/CLAUDE, release/PR manifests, ops runbook, and source-pack docs.
+**Guardrails:** no env load, secret print, provider call, credit spend, queue write, publish, live Telegram action, Shopier action, external dispatch, SupplierScout activation, retired-channel activation, or ad spend.
+**Validation:** `test:provider-reality`, release/PR governance, source-pack governance, ops-runbook governance, runtime-smoke governance, retired-channel governance, Product Intelligence provider-health, `typecheck`, `git diff --check`, and full `npm run validate` passed locally with lint at 0 errors / 70 warnings.
+**Status:** local-only; production, provider accounts, and data are unchanged.
+
+## 2026-07-05 - D-402 historical soak scripts stay quarantined (LOCAL CODE, NOT DEPLOYED)
+**Decision:** document old `scripts/d*-soak*.ts` files as historical live-data soak harnesses and guard that they do not become default validation or read-only runtime smoke commands.
+**Reason:** the old soak scripts can touch live data, include cleanup/write paths, and some contain stale absolute `/sessions/...` imports. They should remain historical evidence unless a specific one is reviewed and explicitly approved for a current live-data soak.
+**Implementation (local):** added `project-control/HISTORICAL_SOAK_SCRIPTS.md`, added `scripts/soak-script-governance.ts`, added package script `test:soak-scripts`, included it in `test:safe`, and synced source-pack/project-control docs.
+**Guardrails:** no soak run, live data connection, write, provider call, Shopier call, queue write, external dispatch, SupplierScout activation, retired-channel activation, or ad spend.
+**Validation:** `test:soak-scripts`, release/PR governance, source-pack governance, ops-runbook governance, runtime-smoke governance, retired-channel governance, `typecheck`, `git diff --check`, and full `npm run validate` passed locally with lint at 0 errors / 70 warnings.
+**Status:** local-only; production and data are unchanged.
+
+## 2026-07-05 - D-401 OpenClaw VPS sync is verification-first (LOCAL CODE, NOT DEPLOYED)
+**Decision:** add a read-only VPS verification checklist before any OpenClaw skill copy, restart, or live prompt.
+**Reason:** repo-side skill files are expected state, not proof that VPS OpenClaw is synced, loaded, or safe for live operator use. The project needs a clear evidence boundary before Claude/Codex/operator work touches VPS OpenClaw.
+**Implementation (local):** added `mentix-skills/OPENCLAW_VPS_VERIFICATION.md`, rewrote `mentix-skills/OPENCLAW_DEPLOYMENT_SYNC.md` and `mentix-skills/INSTALLATION_MATRIX.md`, added `scripts/openclaw-vps-verification-governance.ts`, added package script `test:openclaw-vps-verification`, included it in `test:safe`, and synced source-pack/project-control docs.
+**Guardrails:** read-only verification docs/tests only; no VPS command, sync, restart, live Telegram/OpenClaw prompt, provider call, Shopier call, queue write, external dispatch, SupplierScout activation, retired-channel activation, or ad spend.
+**Validation:** `test:openclaw-vps-verification`, `test:mentix-skills`, release/PR governance, source-pack governance, ops-runbook governance, retired-channel governance, `typecheck`, `git diff --check`, and full `npm run validate` passed locally with lint at 0 errors / 70 warnings.
+**Status:** local-only; production and VPS OpenClaw are unchanged.
+
+## 2026-07-05 - D-400 `/shopier dashboard` includes batch review sample (LOCAL CODE, NOT DEPLOYED)
+**Decision:** extend the read-only Shopier operator dashboard with a compact batch review sample.
+**Reason:** D-356 had per-product admin visibility and Telegram summaries, but the roadmap still asked whether a broader batch review surface was needed. Showing ready/blocked/queued/synced sample rows in `/shopier dashboard` gives operators batch context without adding a new mutating admin surface.
+**Implementation (local):** updated `src/lib/shopierPublishControl.ts` with review-row building/formatting, wired Telegram `/shopier dashboard` in `src/app/api/telegram/route.ts`, and added focused coverage to `src/lib/shopierPublishControl.test.ts`.
+**Guardrails:** read-only dashboard only; no publish, Shopier queue, Shopier API call, provider call, external dispatch, SupplierScout activation, retired-channel activation, or ad spend.
+**Validation:** `test:shopier-publish-control`, release/PR governance, source-pack governance, ops-runbook governance, retired-channel governance, `typecheck`, `git diff --check`, and full `npm run validate` passed locally with lint at 0 errors / 70 warnings.
+**Status:** local-only; production is unchanged.
+
+## 2026-07-05 - D-399 `smoke:load-plan:read` must show the first product worklist (LOCAL CODE, NOT DEPLOYED)
+**Decision:** align the read-only load-plan runtime smoke output with the D-399 `/loadplan` worklist surface.
+**Reason:** the source-pack and project-control docs said `smoke:load-plan:read` included the first product worklist, but the terminal smoke script still printed only snapshot/actions/category order. Runtime evidence should match the operator surface before live smoke.
+**Implementation (local):** updated `scripts/load-plan-runtime-smoke.ts` to print `plan.worklist` rows and updated `scripts/runtime-smoke-governance.ts` so `test:runtime-smokes` requires the worklist output surface.
+**Guardrails:** read-only diagnostics only; no product write, publish, Shopier queue, provider call, SupplierScout activation, retired-channel activation, schema push, external dispatch, or ad spend.
+**Validation:** focused `test:runtime-smokes`, `test:loading-plan`, release/PR governance, source-pack governance, ops-runbook governance, retired-channel governance, `typecheck`, `git diff --check`, and full `npm run validate` passed locally with lint at 0 errors / 70 warnings.
+**Status:** local-only; production is unchanged.
+
+## 2026-07-05 - D-399 `/loadplan` includes first product worklist (LOCAL CODE, NOT DEPLOYED)
+**Decision:** extend the read-only Product Loading Plan with a prioritized first product worklist.
+**Reason:** `/loadplan` already explains the category/action priorities, but catalog scale-up also needs a compact "which product should I touch first?" view before operators start fixing Image QC, Shopier errors, stale drafts, or missing core fields.
+**Implementation (local):** updated `src/lib/productLoadingPlan.ts` and `src/lib/productLoadingPlan.test.ts`; synced AGENTS/CLAUDE, release/PR manifests, source-pack, and project-control docs.
+**Guardrails:** read-only planning only; no product write, publish, Shopier queue, provider call, SupplierScout activation, retired-channel activation, or ad spend.
+**Validation:** `test:loading-plan`, `test:local-release-candidate`, `test:local-pr-review`, source-pack governance, ops-runbook governance, retired-channel governance, `typecheck`, `git diff --check`, and full `npm run validate` passed locally with lint at 0 errors / 70 warnings.
+**Status:** local-only; production is unchanged.
+
+## 2026-07-05 - D-398 local PR review package must be explicit (LOCAL DOC/GOVERNANCE, NOT DEPLOYED)
+**Decision:** prepare `project-control/LOCAL_PR_REVIEW_PACKAGE.md` for the D-380-D-404 local stack and guard it with `test:local-pr-review`.
+**Reason:** the local release boundary says what is safe and not deployed, but a future review also needs one concise package with proposed PR title, scope summary, reviewer focus, validation commands, and not-run/not-done claims.
+**Implementation (local):** added `project-control/LOCAL_PR_REVIEW_PACKAGE.md`, added `scripts/local-pr-review-governance.ts`, added package script `test:local-pr-review`, included it in `test:safe`, updated the release manifest to D-380-D-404, and synced AGENTS/CLAUDE, source-pack, deployment runbook, and project-control docs.
+**Guardrails:** no commit, branch, push, PR, deploy, live Telegram command, live Shopier webhook smoke, provider call, external dispatch, queue write, ad spend, SupplierScout activation, retired-channel activation, or VPS OpenClaw sync is performed by this checkpoint.
+**Validation:** `test:local-pr-review`, `test:local-release-candidate`, source-pack governance, ops-runbook governance, retired-channel governance, `typecheck`, `git diff --check`, and full `npm run validate` passed locally. Lint reported 0 errors and 70 existing warnings.
+**Status:** local-only PR/review package; production is unchanged.
+
+## 2026-07-05 - D-397 local release candidate boundary must be explicit (LOCAL DOC/GOVERNANCE, NOT DEPLOYED)
+**Decision:** record the current D-380-D-404 local stack in `project-control/LOCAL_RELEASE_CANDIDATE.md` and guard it with `test:local-release-candidate`.
+**Reason:** the repo now has a large validated local stack. Future Claude/Codex/ChatGPT Project sessions need one authoritative handoff boundary that says what is validated locally, what is not deployed, and what still needs operator approval.
+**Implementation (local):** added `project-control/LOCAL_RELEASE_CANDIDATE.md`, added `scripts/local-release-candidate-governance.ts`, added package script `test:local-release-candidate`, included it in `test:safe`, and synced AGENTS/CLAUDE, source-pack, deployment runbook, and project-control docs.
+**Guardrails:** no commit, push, PR, deploy, live Telegram command, live Shopier webhook smoke, provider call, external dispatch, queue write, ad spend, SupplierScout activation, retired-channel activation, or VPS OpenClaw sync is performed by this checkpoint.
+**Validation:** `test:local-release-candidate`, source-pack governance, ops-runbook governance, retired-channel governance, `typecheck`, `git diff --check`, and full `npm run validate` passed locally. Lint reported 0 errors and 70 existing warnings.
+**Status:** local-only handoff boundary; production is unchanged.
+
+## 2026-07-05 - D-396 `/smokeplan` includes lead-followup preflight before `/leadplan` (LOCAL CODE, NOT DEPLOYED)
+**Decision:** update `/smokeplan` so the operator sequence runs `smoke:lead-followup:read` before Telegram `/leadplan`.
+**Reason:** D-395 added a safer repo-side read-only check for the `/leadplan` helper. The operator checklist should guide people through that preflight before live Telegram reads and before moving into Shopier queue/publish diagnostics.
+**Implementation (local):** updated `src/lib/operatorSmokePlan.ts` and `src/lib/operatorSmokePlan.test.ts`; synced AGENTS/CLAUDE, source-pack, and project-control docs.
+**Guardrails:** sequence-only/read-only guidance; no live Telegram command, lead write, customer message, queue write, provider call, Shopier call, SupplierScout activation, retired-channel activation, or ad spend.
+**Validation:** `test:operator-smoke-plan`, source-pack governance, retired-channel governance, runtime-smoke governance, `typecheck`, `git diff --check`, and full `npm run validate` passed locally. Lint reported 0 errors and 70 existing warnings.
+**Status:** awaiting commit/push/deploy approval. Production is unchanged.
+
+## 2026-07-04 - D-395 `/leadplan` gets a read-only runtime smoke preflight (LOCAL CODE, NOT DEPLOYED)
+**Decision:** add `smoke:lead-followup:read` as an operator-run read-only repo preflight for Telegram `/leadplan` and `/followupplan`.
+**Reason:** D-394 made lead priority visible in Telegram, but live Telegram smoke should be preceded by a safer repo command that reads real Payload leads without writing or exposing phone/name details in terminal logs.
+**Implementation (local):** added `scripts/lead-followup-runtime-smoke.ts`, package script `smoke:lead-followup:read`, runtime-smoke governance inventory coverage, runtime smoke runbook docs, deployment runbook docs, AGENTS/CLAUDE docs, and source-pack docs.
+**Guardrails:** requires `--confirm-read-only`; forces `PAYLOAD_DB_PUSH=false`; prints a PII-light summary; no lead status write, customer message, queue write, provider call, Shopier call, SupplierScout activation, retired-channel activation, ad spend, or schema push.
+**Validation:** no-connect help, runtime-smoke governance, source-pack governance, retired-channel governance, `typecheck`, `git diff --check`, and full `npm run validate` passed locally. Lint reported 0 errors and 70 existing warnings.
+**Status:** awaiting commit/push/deploy approval. Production is unchanged.
+
+## 2026-07-04 - D-394 `/leadplan` stays a read-only lead priority surface (LOCAL CODE, NOT DEPLOYED)
+**Decision:** add Telegram `/leadplan` and `/followupplan` as read-only planning commands for open leads before campaign work.
+**Reason:** `/business` and `/funnel` expose lead counts and source reality, but operators need one next-action view that says which open leads should be called or followed up first.
+**Implementation (local):** added `src/lib/leadFollowupPlan.ts`, `src/lib/leadFollowupPlan.test.ts`, package script `test:lead-followup-plan`, `test:safe` wiring, and Telegram command handling in `src/app/api/telegram/route.ts`.
+**Guardrails:** suggested commands only; no lead status write, customer message, ad action, provider call, Shopier call, SupplierScout activation, or retired-channel activation.
+**Validation:** focused `test:lead-followup-plan`, source-pack governance, retired-channel governance, `typecheck`, `git diff --check`, and full `npm run validate` passed locally. Lint reported 0 errors and 70 existing warnings.
+**Status:** awaiting commit/push/deploy approval. Production is unchanged.
+
+## 2026-07-04 - D-393 `/smokeplan` runs local Shopier webhook preflight before Shopier runtime smoke (LOCAL CODE, NOT DEPLOYED)
+**Decision:** `/smokeplan` should include `npm run test:shopier-webhook-local` before `smoke:shopier:read`.
+**Reason:** local stock/refund webhook assertions are cheaper and safer than any runtime or live webhook smoke. Operators should see that preflight in the checklist before touching Shopier runtime visibility or live webhook verification.
+**Implementation (local):** added package script `test:shopier-webhook-local`, inserted a repo-check step in `src/lib/operatorSmokePlan.ts`, expanded `src/lib/operatorSmokePlan.test.ts`, and updated ops runbook governance.
+**Guardrails:** local tests only; no Shopier API call, live webhook trigger, queue write, channel dispatch, SupplierScout activation, retired-channel activation, or ad spend.
+**Validation:** `test:shopier-webhook-local`, `test:operator-smoke-plan`, `test:ops-runbook`, source-pack governance, retired-channel governance, `typecheck`, `git diff --check`, and full `npm run validate` passed locally. Lint reported 0 errors and 70 existing warnings.
+**Status:** awaiting commit/push/deploy approval. Production is unchanged.
+
+## 2026-07-04 - D-392 Shopier refund.requested is idempotent before stock restore (LOCAL CODE, NOT DEPLOYED)
+**Decision:** Shopier `refund.requested` must record a local request marker before restoring stock, and duplicate or already-recorded refund requests must not restore stock again.
+**Reason:** Shopier webhook delivery can repeat. Stock restore is correct for the first refund request, but duplicate delivery would inflate available inventory if the route restored every time.
+**Implementation (local):** extended `src/lib/shopierRefundLifecycle.ts` and `src/lib/shopierRefundLifecycle.test.ts`, added `order.refund_requested` audit output, recognized legacy `Iade talebi:` markers, and updated `src/app/api/webhooks/shopier/route.ts` to call stock restore only when `shouldRestoreStock=true`.
+**Guardrails:** missing order id, unknown local order, duplicate request, and legacy marker paths do not restore stock. No Shopier API call, channel dispatch, job queueing, SupplierScout activation, retired-channel activation, or ad spend is added.
+**Validation:** `test:shopier-refund-lifecycle`, `test:shopier-order-stock`, `test:order-desk`, source-pack governance, ops-runbook governance, retired-channel governance, `typecheck`, `git diff --check`, and full `npm run validate` passed locally. Lint reported 0 errors and 70 existing warnings.
+**Status:** awaiting commit/push/deploy approval and operator-approved live webhook smoke. Production is unchanged.
+
+## 2026-07-04 - D-391 Shopier refund.updated records local traceability (LOCAL CODE, NOT DEPLOYED)
+**Decision:** Shopier `refund.updated` should update the matching Payload order notes and emit a best-effort audit event, but must not change order status or restore stock.
+**Reason:** `refund.requested` is already the stock-restore/cancel signal. Later refund status updates need an auditable local trail without double-restoring inventory or silently changing lifecycle state.
+**Implementation (local):** added `src/lib/shopierRefundLifecycle.ts`, `src/lib/shopierRefundLifecycle.test.ts`, package script `test:shopier-refund-lifecycle`, `test:safe` wiring, and route integration in `src/app/api/webhooks/shopier/route.ts`.
+**Guardrails:** note/audit only; no stock mutation, no order status change, no Shopier API call, no channel dispatch, no job queueing, no SupplierScout activation, no retired-channel activation, and no ad spend.
+**Validation:** `test:shopier-refund-lifecycle`, `test:shopier-order-stock`, `test:order-desk`, `typecheck`, source-pack governance, ops-runbook governance, retired-channel governance, `git diff --check`, and full `npm run validate` passed locally. Lint reported 0 errors and 70 existing warnings.
+**Status:** awaiting commit/push/deploy approval and operator-approved live webhook smoke. Production is unchanged.
+
+## 2026-07-03 - D-390 Mentix/OpenClaw follows `/smokeplan` first (LOCAL CODE, NOT DEPLOYED)
+**Decision:** repo-side Mentix/OpenClaw live-smoke guidance must point operators to Telegram `/smokeplan` first.
+**Reason:** OpenClaw is the agent/skill layer, not the execution engine. With D-389 implemented, the app-side Telegram route owns the safe live-smoke sequence, so skills should not invent their own queue/publish order or revive n8n-first assumptions.
+**Implementation (local):** updated `product-flow-debugger`, `mentix-intake`, `OPENCLAW_DEPLOYMENT_SYNC.md`, `INSTALLATION_MATRIX.md`, `mentix-skill-stack-dashboard.html`, `scripts/mentix-skill-governance.ts`, and source-pack skill guidance.
+**Guardrails:** Payload/Next remains source of truth; n8n remains optional glue; `/smokeplan` is read-only; no queue, publish, redispatch, provider, Shopier API, or ad action runs without explicit operator approval.
+**Validation:** `test:mentix-skills`, `test:operator-smoke-plan`, and full `npm run validate` passed locally. Lint reported 0 errors and 70 existing warnings.
+**Status:** awaiting commit/push/deploy/VPS sync approval. Production and VPS OpenClaw are unchanged.
+
+## 2026-07-03 - D-389 `/smokeplan` guides live-smoke order (LOCAL CODE, NOT DEPLOYED)
+**Decision:** add `/smokeplan` as a read-only operator checklist before live Telegram/runtime verification.
+**Reason:** the project now has multiple read-only smokes and Telegram read surfaces. Operators need one safe sequence that starts with diagnostics and stops before queue/publish/redispatch actions.
+**Implementation (local):** added `src/lib/operatorSmokePlan.ts`, `src/lib/operatorSmokePlan.test.ts`, package script `test:operator-smoke-plan`, `test:safe` wiring, and Telegram command handling in `src/app/api/telegram/route.ts`.
+**Guardrails:** no Payload writes, no product status changes, no external dispatch, no redispatch, no Shopier queueing/API calls, no provider calls, no secret printing, no ad spend, no SupplierScout activation, and no retired-channel activation.
+**Validation:** `test:operator-smoke-plan`, `test:retired-channels`, `test:source-pack`, `test:ops-runbook`, `typecheck`, `lint` (0 errors, 70 warnings), `git diff --check`, and full `npm run validate` passed locally.
+**Status:** awaiting commit/push/deploy approval. Production is unchanged.
+
+## 2026-07-03 - D-388 `/loadplan` gets an operator-run read-only smoke (LOCAL CODE, NOT DEPLOYED)
+**Decision:** add `smoke:load-plan:read` as a read-only runtime verification path for the D-387 Product Loading Plan.
+**Reason:** `/loadplan` is the next catalog scale-up operator surface. Operators need a guarded way to verify the same helper against real Payload products before relying on it in Telegram, without writing products or queueing any publishing work.
+**Implementation (local):** added `scripts/load-plan-runtime-smoke.ts`, package script `smoke:load-plan:read`, runtime-smoke governance inventory coverage, runtime smoke runbook docs, deployment runbook docs, and source-pack docs.
+**Guardrails:** requires `--confirm-read-only` or `UYAA_LOAD_PLAN_SMOKE_CONFIRM=READ_ONLY`; forces `PAYLOAD_DB_PUSH=false`; refuses mutation, publish, queue, provider, Shopier, SupplierScout, and ad-spend flags; no live run has been performed.
+**Validation:** no-connect `smoke:load-plan:read -- --help`, `test:runtime-smokes`, `test:ops-runbook`, `test:source-pack`, `test:retired-channels`, `typecheck`, `lint` (0 errors, 70 warnings), `git diff --check`, and full `npm run validate` passed locally.
+**Status:** awaiting commit/push/deploy approval. Production is unchanged.
+
+## 2026-07-03 - D-387 `/loadplan` is read-only catalog scale-up guidance (LOCAL CODE, NOT DEPLOYED)
+**Decision:** add `/loadplan [limit]` and `/loadingplan [limit]` as read-only operator planning surfaces for catalog scale-up, not as product loading automation.
+**Reason:** D-353 `/catalogqa` shows what is broken and D-354 `/categoryfill` shows category gaps, but operators still need one daily view that says what to fix/load first before trying to scale product intake.
+**Implementation (local):** added `src/lib/productLoadingPlan.ts`, `src/lib/productLoadingPlan.test.ts`, package script `test:loading-plan`, `test:safe` wiring, and Telegram command handling in `src/app/api/telegram/route.ts`.
+**Guardrails:** own-products-only; no SupplierScout activation; no Dolap/Threads; no product writes; no publishing; no Shopier queueing; no provider calls; no ad spend.
+**Validation:** `test:loading-plan`, `test:retired-channels`, `test:source-pack`, `typecheck`, `lint` (0 errors, 70 warnings), `git diff --check`, and full `npm run validate` passed locally.
+**Status:** awaiting commit/push/deploy approval. Production is unchanged.
+
+## 2026-07-03 - D-386 Telegram Shopier commands use the shared queue gate (LOCAL CODE, NOT DEPLOYED)
+**Decision:** single-product Telegram `/shopier publish` and `/shopier republish` must resolve products and call `queueShopierSync()`, not directly write queue state or enqueue `shopier-sync` jobs inside the Telegram route.
+**Reason:** D-356 needs one shared Shopier/Web gate for single-product, batch, and retry queueing. Dead direct queue branches in the Telegram route were unreachable, but keeping them around risked future drift back to route-local queue logic.
+**Implementation (local):** removed the unreachable direct queue/update branches from `src/app/api/telegram/route.ts`; added `scripts/shopier-command-governance.ts`, package script `test:shopier-commands`, and included it in `test:safe`.
+**Validation:** `test:shopier-commands`, `test:shopier-publish-control`, `test:source-pack`, `typecheck`, `lint` (0 errors, 70 warnings), `git diff --check`, and full `npm run validate` passed locally.
+**Status:** awaiting commit/push/deploy approval. Production is unchanged.
+
+## 2026-07-03 - D-385 runtime-smoke inventory is governance-tested (LOCAL CODE, NOT DEPLOYED)
+**Decision:** add `test:runtime-smokes` as a local validation guard for read-only runtime smoke inventory and safety documentation.
+**Reason:** the project now has several operator-run smokes. They may connect to real Payload/PostgreSQL data, so validation should prove they are documented and guarded without executing them directly.
+**Implementation (local):** added `scripts/runtime-smoke-governance.ts`, package script `test:runtime-smokes`, and included it in `test:safe`. The script checks package scripts, backing scripts, `--confirm-read-only`/`READ_ONLY` confirmation, mutation refusal, no-write wording, Payload `PAYLOAD_DB_PUSH=false` guards where relevant, and synchronized docs in agent guidance, runtime smoke docs, deployment runbook, and source-pack validation docs.
+**Validation:** `test:runtime-smokes`, `test:source-pack`, `test:ops-runbook`, `typecheck`, `lint` (0 errors, 70 warnings), `git diff --check`, and full `npm run validate` passed locally.
+**Status:** awaiting commit/push/deploy approval. Runtime smokes remain operator-run.
+
+## 2026-07-03 - D-384 ad-performance runtime smoke stays read-only (LOCAL CODE, NOT DEPLOYED)
+**Decision:** add `smoke:ad-performance:read` as an operator-run read-only runtime check for `/adreport`, not as a live campaign or ad-platform check.
+**Reason:** D-383 added a pure Payload-backed manual ad report. Before operators rely on it, there should be a guarded way to verify the same helper against real Payload leads/orders with explicit confirmation and no mutation.
+**Implementation (local):** added `scripts/ad-performance-runtime-smoke.ts` and package script `smoke:ad-performance:read`. The script loads env files without printing secrets, sets `PAYLOAD_DB_PUSH=false`, requires `--confirm-read-only`, refuses mutation/publish/queue/provider/Shopier/spend flags, builds a minimal read-only Payload config, and prints tagged campaign rows plus untagged/direct activity.
+**Validation:** no-connect `smoke:ad-performance:read -- --help`, `test:source-pack`, `test:ops-runbook`, `typecheck`, `lint` (0 errors, 70 warnings), `git diff --check`, and full `npm run validate` passed locally.
+**Status:** awaiting commit/push/deploy approval. Live smoke run requires operator approval.
+
+## 2026-07-03 - D-383 manual ad performance report stays Payload-only (LOCAL CODE, NOT DEPLOYED)
+**Decision:** add `/adreport [today|week|month]` as a read-only manual campaign performance surface, not an ad-platform integration.
+**Reason:** Phase 8 needs basic performance visibility before any Pixel/CAPI/Ads API work. The safest current truth is Payload: UTM-tagged leads and orders linked through `relatedInquiry`.
+**Implementation (local):** added `src/lib/adPerformance.ts`, `src/lib/adPerformance.test.ts`, package script `test:ad-performance`, and a Telegram `/adreport` route. The report groups UTM-tagged leads by source/medium/campaign, counts open/stale/won/lost/spam leads, attributes related orders/revenue through `orders.relatedInquiry`, and separates untagged leads plus direct/unattributed orders.
+**Validation:** `test:ad-performance`, `test:source-pack`, `test:ops-runbook`, `typecheck`, `lint` (0 errors, 70 warnings), `git diff --check`, and full `npm run validate` passed locally.
+**Status:** awaiting commit/push/deploy approval. Real ad launch remains operator-only.
+
+## 2026-07-03 - D-381 story dispatch blocks protected-brand StoryJobs (LOCAL CODE, NOT DEPLOYED)
+**Decision:** Story dispatch must run a brand-safety scan before creating StoryJobs.
+**Reason:** Central external channel dispatch already blocks protected-brand products, but the non-blocking Story pipeline could still queue a future story/social job after a manual activation override. StoryJobs must not become a side door around brand safety.
+**Implementation (local):** `src/lib/storyDispatch.ts` now calls `scanProductBrandSafety()` before asset/caption/job creation. Blocked products record `storyStatus='failed'`, empty story asset/caption fields, failed target list, and `lastStoryError='brand_safety_block: ...'`; no StoryJob is created. Added `src/lib/storyDispatch.test.ts`, package script `test:story-dispatch`, and included it in `test:safe`.
+**Validation:** `test:story-dispatch`, `test:source-pack`, `test:ops-runbook`, `typecheck`, `lint` (0 errors, existing warnings only), `git diff --check`, and full `npm run validate` passed locally.
+**Status:** awaiting commit/push/deploy approval. Production is unchanged.
+
+## 2026-07-03 - D-380 manual ad launch pack stays read-only (LOCAL CODE, NOT DEPLOYED)
+**Decision:** add `/adpack <sn-or-id> [campaign]` as a read-only operator support surface, not an ad-launching automation.
+**Reason:** Phase 8/D-380 needs manual ad support eventually, but ads remain deferred until catalog depth, Image QC, tracking, and operator readiness are stronger. The system should help prepare safe copy and UTM links without creating campaigns or spending.
+**Implementation (local):** added `src/lib/adLaunchPack.ts`, `src/lib/adLaunchPack.test.ts`, `test:ad-launch-pack`, and a Telegram `/adpack` route. Updated `utmBuilder` to accept `meta`, `paid_social`, and optional `utm_content`.
+**Validation:** `test:ad-launch-pack`, `test:source-pack`, `test:ops-runbook`, `typecheck`, `lint` (0 errors, existing warnings only), `git diff --check`, and full `npm run validate` passed locally.
+**Status:** awaiting commit/push/deploy approval. Real ad launch remains operator-only.
+
+## 2026-07-03 - Shopier fulfilled lifecycle uses shared order helper (LOCAL CODE, NOT DEPLOYED)
+**Decision:** Shopier `order.fulfilled` should route through the same order lifecycle helper as operator `/ship`, not directly overwrite `status: 'shipped'`.
+**Reason:** Phase 7 order state needs consistent timestamps, idempotency, invalid-transition refusal, and audit events across Telegram/operator actions and Shopier webhook actions.
+**Implementation (local):** `src/app/api/webhooks/shopier/route.ts` now calls `applyOrderStatus(payload, orderId, 'ship', 'shopier_webhook')`; `src/lib/orderDesk.ts` adds `OrderStatusSource`; `src/lib/orderDesk.test.ts` verifies the `shopier_webhook` audit source.
+**Validation:** `test:order-desk`, `test:source-pack`, `test:ops-runbook`, `typecheck`, `lint` (0 errors, existing warnings only), `git diff --check`, and full `npm run validate` passed locally.
+**Status:** awaiting commit/push/deploy approval. Production and live webhooks are unchanged until operator-approved webhook smoke.
+
+## 2026-07-03 — Operator order lifecycle policy tests (LOCAL CODE, NOT DEPLOYED)
+**Decision:** manual/operator order cancellation must not auto-restore stock; stock restore remains explicit via `/restock`, while Shopier refunds restore stock through the Shopier webhook path.
+**Reason:** Phase 7 needs order lifecycle behavior to be diagnosable and not silently mutate inventory. Manual cancellation can happen for many reasons and should not assume inventory is sellable again. Shopier `refund.requested` is different: it is a channel refund signal and now has a tested stock-restore path.
+**Implementation (local):** added `src/lib/orderDesk.test.ts`, package script `test:order-desk`, and included it in `test:safe`.
+**Validation:** `test:order-desk` covers `/ship` stamping `shippedAt`, `/deliver` stamping `deliveredAt` and backfilling `shippedAt`, refusing Telegram cancellation after delivery, idempotent no-write actions, missing-order no-write behavior, and the manual cancellation `/restock` hint/no-auto-restock policy. `test:order-desk`, `test:source-pack`, `test:ops-runbook`, `typecheck`, `git diff --check`, and full `npm run validate` passed locally.
+**Status:** awaiting commit/push/deploy approval. Production is unchanged.
+
+## 2026-07-03 — Shopier order/refund stock reconciliation helper (LOCAL CODE, NOT DEPLOYED)
+**Decision:** Shopier webhook stock mutation belongs in a shared library, not inline private route code, and must respect variant stock when variants exist.
+**Reason:** Phase 7 needed proof that Shopier orders and refunds keep stock coherent. The previous route code mixed order creation, refund handling, inventory logs, and product stock mutation, making it hard to test safely. Product-level stock is not enough when variant rows are the effective stock source.
+**Implementation (local):** added `src/lib/shopierOrderStock.ts`; wired `src/app/api/webhooks/shopier/route.ts` to use it for `order.created` and `refund.requested`. Sales decrement the matching normalized local size variant and sync product-level `stockQuantity` to variant total when variants exist; otherwise they decrement product-level stock. Refunds restore through the same rule. Mismatched Shopier product ids or sizes return explicit skipped-item reasons instead of silent drift.
+**Validation:** added `src/lib/shopierOrderStock.test.ts`, package script `test:shopier-order-stock`, and included it in `test:safe`. Local checks passed: `test:shopier-order-stock`, `test:source-pack`, `test:ops-runbook`, `typecheck`, `lint` with 0 errors and existing warnings only, `git diff --check`, and full `npm run validate`.
+**Status:** awaiting commit/push/deploy approval. Production and live webhooks are unchanged.
+
+## 2026-07-02 — Manual publish override semantics (superseded by D-467; LOCAL CODE, NOT DEPLOYED)
+**Decision:** explicit operator **Yayına Al / approvepublish** may publish a product when the only remaining blockers are generic human-review gates such as generated-image QC PASS and audit review. It must **not** bypass protected-brand safety or hard commerce/source-of-truth blockers: invalid price, no usable media, no active publish target, or no sellable stock.
 **Reason:** product #410 showed the old behavior was too strict for manual operation: `publish.approved` was recorded, but activation was refused at readiness `4/6` due only to `visuals` and `audit`, preventing Website/X/Facebook/Shopier dispatch.
-**Implementation (local):** `approveAndActivateProduct()` computes a manual override only when failed dimensions are limited to `visuals`/`audit`; it sends `context.manualPublishOverride=true` to Payload. `Products.beforeChange` forwards that context to `collectActivationBlockers()`, which skips only Image QC and brand-safety blockers under explicit manual override. Bot event payload records `manualPublishOverride` and `overriddenBlockers`.
+**Implementation (local):** `approveAndActivateProduct()` computes a manual override only when failed dimensions are limited to `visuals`/`audit` and `scanProductBrandSafety()` passes; it sends `context.manualPublishOverride=true` to Payload. `Products.beforeChange` forwards that context to `collectActivationBlockers()`, which may skip Image QC but always preserves the protected-brand block. Bot event payload records `manualPublishOverride` and `overriddenBlockers`.
 **Validation:** `test:publish-desk`, `test:activation-guard`, `test:publish-readiness`, `test:image-quality`, `typecheck`, and targeted ESLint passed locally.
 **Status:** awaiting commit/push/deploy approval; production unchanged.
 
@@ -177,7 +736,7 @@
 - Only flag: `last_error_message = "Read timeout expired"`, `last_error_date = 2026-06-16 15:02 UTC` (~56h old) — coincides with the June-16 product-361 content-gen run (slow request exceeded Telegram's read timeout but completed server-side; report 44 + events exist). **No webhook error from today.**
 - Secret is matching (a mismatch would log `401 Unauthorized`, not a read timeout).
 **setWebhook result:** `ok:true, description:"Webhook is already set"` — confirms it was already correct; re-set changed nothing.
-**Conclusion:** webhook config is HEALTHY — it is NOT the cause of the failed manual trigger. With no new report, no bot-event, no new webhook error, and 0 pending after today's attempt, the most likely cause is that the command **was not actually delivered to @Uygunops_bot today** (not sent, or sent to a different bot/chat — consistent with the earlier "not sure which bot"). 
+**Conclusion:** webhook config is HEALTHY — it is NOT the cause of the failed manual trigger. With no new report, no bot-event, no new webhook error, and 0 pending after today's attempt, the most likely cause is that the command **was not actually delivered to @Uygunops_bot today** (not sent, or sent to a different bot/chat — consistent with the earlier "not sure which bot").
 **Separate finding (architecture, not today's blocker):** the June-16 "Read timeout expired" shows the webhook handler can exceed Telegram's read timeout during slow operations (content-gen / PI run synchronously in-request). Future improvement (D-334?): ack the webhook fast (200) and run PI/content in the background to avoid read timeouts. The work still completes server-side today, so low urgency.
 **Next:** operator sends `#geohazirla 359` to **@Uygunops_bot** (the bot named "Uygunops") and reports whether ANY reply arrives → Claude verifies a fresh report/event. If a "starting" reply appears but no report → handler/timeout code issue; if no reply at all → the command still isn't landing on Uygunops.
 **Status:** webhook VERIFIED HEALTHY; no repair required (setWebhook was idempotent no-op). Docs-only commit `docs: record D-333A uygunops webhook repair`.
@@ -332,22 +891,22 @@
 _(Older decisions D-001 … follow below, in chronological order.)_
 
 ## D-001 — Core Storefront Stack
-**Decision:**  
+**Decision:**
 Use **Next.js** as the main storefront framework.
 
-**Reason:**  
+**Reason:**
 Need a flexible custom storefront that can grow into a more advanced system later.
 
-**Status:**  
+**Status:**
 ACTIVE
 
 ---
 
 ## D-002 — Admin / Backend Layer
-**Decision:**  
+**Decision:**
 Use **Payload CMS** as the admin and backend management layer.
 
-**Reason:**  
+**Reason:**
 Need a strong operational panel for:
 - product management
 - stock management
@@ -355,40 +914,40 @@ Need a strong operational panel for:
 - image/media handling
 - future automation compatibility
 
-**Status:**  
+**Status:**
 ACTIVE
 
 ---
 
 ## D-003 — Shared Multi-PC Data Direction
-**Decision:**  
+**Decision:**
 Use a **shared cloud database approach** for multi-PC workflow.
 
-**Reason:**  
+**Reason:**
 Project is being developed from multiple machines and needs a central source of data.
 
-**Status:**  
+**Status:**
 ACTIVE
 
 ---
 
 ## D-004 — GitHub as Sync Backbone
-**Decision:**  
+**Decision:**
 Use **GitHub** as the main synchronization layer between development machines.
 
-**Reason:**  
+**Reason:**
 The project is developed across different PCs and requires a reliable shared code history.
 
-**Status:**  
+**Status:**
 ACTIVE
 
 ---
 
 ## D-005 — Admin Panel Role
-**Decision:**  
+**Decision:**
 The admin panel is not a temporary side tool; it is a core operational control center.
 
-**Reason:**  
+**Reason:**
 The business needs a place to manage:
 - products
 - stock
@@ -397,131 +956,131 @@ The business needs a place to manage:
 - images
 - future automation-related actions
 
-**Status:**  
+**Status:**
 ACTIVE
 
 ---
 
 ## D-006 — Long-Term Automation Direction
-**Decision:**  
+**Decision:**
 The project should be built in a way that supports future automation layers.
 
-**Reason:**  
+**Reason:**
 Long-term direction includes:
 - Telegram-based product intake
 - AI-supported image workflows
 - product creation automation
 - publishing support for other channels
 
-**Status:**  
+**Status:**
 ACTIVE
 
 ---
 
 ## D-007 — Source of Truth Rule
-**Decision:**  
+**Decision:**
 Old chat conversations are **not** the main authority by default.
 
-**Reason:**  
+**Reason:**
 Chats may become outdated, fragmented, or partially solved.
 The main authority should gradually move into structured files such as:
 - PROJECT_STATE.md
 - ARCHITECTURE.md
 - DECISIONS.md
 
-**Status:**  
+**Status:**
 ACTIVE
 
 ---
 
 ## D-008 — Resolved Issues Rule
-**Decision:**  
+**Decision:**
 Previously solved technical problems should not be reintroduced as current truth unless they appear again.
 
-**Reason:**  
+**Reason:**
 Project discussions can repeat old issues even after they are fixed.
 Current truth must always be checked against the latest project state.
 
-**Status:**  
+**Status:**
 ACTIVE
 
 ---
 
 ## D-009 — Phase-Based Build Strategy
-**Decision:**  
+**Decision:**
 The project will progress in structured phases rather than trying to build all systems at once.
 
-**Phases:**  
+**Phases:**
 - Phase 1: Core Admin System
 - Phase 2: Automation Backbone
 - Phase 3: Autonomous Content & Growth Layer
 
-**Reason:**  
+**Reason:**
 The automation and AI layers depend on a stable operational backend first.
 
-**Status:**  
+**Status:**
 ACTIVE
 
 ---
 
 ## D-010 — Telegram-First Commerce Operation
-**Decision:**  
+**Decision:**
 The long-term operational model of the business will be Telegram-first.
 
-**Reason:**  
+**Reason:**
 The goal is to manage product intake and publishing from the phone in a fast and practical way.
 
-**Desired Flow:**  
+**Desired Flow:**
 Phone photo → Telegram bot → AI processing → product creation → website + Instagram + Shopier
 
-**Status:**  
+**Status:**
 ACTIVE
 
 ---
 
 ## D-011 — AI Product Image Workflow
-**Decision:**  
+**Decision:**
 Product image workflow should support enhancement and generation of additional product visuals while preserving product integrity.
 
-**Requirements:**  
+**Requirements:**
 - original product should remain accurate
 - background should not be incorrectly altered unless intentionally defined
 - AI should generate additional usable product views
 - final product should ideally have 3 images total
 
-**Status:**  
+**Status:**
 ACTIVE
 
 ---
 
 ## D-012 — Automated Multi-Channel Publishing
-**Decision:**  
+**Decision:**
 The system should be designed for automatic publishing across multiple channels.
 
-**Target Channels:**  
+**Target Channels:**
 - Website
 - Instagram
 - Shopier
 
-**Reason:**  
+**Reason:**
 The product publishing process should become centralized and low-friction.
 
-**Status:**  
+**Status:**
 ACTIVE
 
 ---
 
 ## D-013 — Autonomous Blog / CEO Content Layer
-**Decision:**  
+**Decision:**
 The system should later include an AI-supported blog/content layer.
 
-**Purpose:**  
+**Purpose:**
 - generate product-related definitions
 - produce blog content from product data
 - publish blog entries on site
 - support organic traffic generation
 
-**Status:**  
+**Status:**
 PLANNED-ACTIVE
 
 ---
@@ -1317,10 +1876,10 @@ Implement a central automation control plane that makes all automation decisions
 
 ## D-067 — Step 13: Channel Adapter Scaffolding
 
-**Decision:**  
+**Decision:**
 Implement a pure dispatch library (`src/lib/channelDispatch.ts`) that fires n8n webhook stubs for Instagram, Shopier, and Dolap channels. No real third-party API calls in this step — the adapter contract is established, and n8n will receive the full product payload to act on in future steps.
 
-**Reason:**  
+**Reason:**
 - Decouples the Payload layer from external API details (Instagram Graph API, Shopier API, Dolap API)
 - n8n is the right orchestration layer for external platform calls — Payload only dispatches the intent
 - Scaffold-first allows the full control flow (eligibility → dispatch → tracking) to be tested before real integrations exist
@@ -1335,10 +1894,10 @@ Implement a pure dispatch library (`src/lib/channelDispatch.ts`) that fires n8n 
 - Dispatch tracking stored in `sourceMeta.dispatchedChannels`, `lastDispatchedAt`, `dispatchNotes`
 - `AbortSignal.timeout(10_000)` on fetch calls to prevent hanging on slow webhooks
 
-**Scaffold mode behavior (no env var set):**  
+**Scaffold mode behavior (no env var set):**
 Logs full payload intent at INFO level with `SCAFFOLD —` prefix. Admin can see which channels would have been targeted. Zero errors — graceful no-op.
 
-**Adapter contract (`ChannelDispatchPayload`):**  
+**Adapter contract (`ChannelDispatchPayload`):**
 channel, productId, sku, title, price, originalPrice, brand, category, productFamily, productType, color, description, mediaUrls, channelTargets, triggerReason, dispatchTimestamp, meta (parseConfidence, autoDecision, telegramMessageId, source)
 
 **Deferred to future steps:**
@@ -1355,10 +1914,10 @@ channel, productId, sku, title, price, originalPrice, brand, category, productFa
 
 ## D-068 — Step 14: n8n Stub Workflows + Admin Dispatch Visibility
 
-**Decision:**  
+**Decision:**
 Add three importable n8n stub workflow JSON files (Instagram / Shopier / Dolap), a complete dispatch contract documentation file, dispatch status visibility in ReviewPanel, and a `forceRedispatch` field for admin-triggered manual re-dispatch.
 
-**Reason:**  
+**Reason:**
 - Stub workflows allow end-to-end testing of the dispatch chain without real third-party APIs
 - Dispatch visibility in ReviewPanel eliminates the "black box" problem — admin can see exactly what happened, which channels were eligible, which were dispatched, and why any were skipped
 - `forceRedispatch` satisfies the retry requirement cleanly: deliberate, one-shot, self-resetting
@@ -1404,7 +1963,7 @@ Add three importable n8n stub workflow JSON files (Instagram / Shopier / Dolap),
 
 ## D-069 — Step 15: E2E Verification Pass + Media URL Hardening
 
-**Decision:**  
+**Decision:**
 No new abstraction layers. Focus on verifying the existing dispatch chain and fixing one real bug: relative `/media/` paths in `extractMediaUrls()` were not accessible from the n8n VPS.
 
 **Findings from inspection pass:**
@@ -1691,19 +2250,19 @@ All 4 new channels are stub-only. Real n8n workflows with actual API calls are a
 ---
 
 ## D-084 — Step 17: Instagram Token Exchange Stores Credentials via n8n REST API
-**Decision:**  
+**Decision:**
 After completing the Meta OAuth flow, write `INSTAGRAM_ACCESS_TOKEN` and `INSTAGRAM_USER_ID` directly to n8n Variables via the n8n REST API (`/api/v1/variables`). Do NOT store tokens in Payload globals, Vercel env vars, or any DB column.
 
-**Reason:**  
-- The `channel-instagram-real.json` workflow already reads `$vars.INSTAGRAM_ACCESS_TOKEN` and `$vars.INSTAGRAM_USER_ID` — this is the single source of truth for n8n credential access.  
-- Writing to n8n Variables via REST API makes the token live immediately for all workflow executions without any manual n8n UI interaction.  
-- Payload globals/DB are not appropriate for secrets — they would be visible to any admin and require a new migration.  
+**Reason:**
+- The `channel-instagram-real.json` workflow already reads `$vars.INSTAGRAM_ACCESS_TOKEN` and `$vars.INSTAGRAM_USER_ID` — this is the single source of truth for n8n credential access.
+- Writing to n8n Variables via REST API makes the token live immediately for all workflow executions without any manual n8n UI interaction.
+- Payload globals/DB are not appropriate for secrets — they would be visible to any admin and require a new migration.
 - Vercel env vars cannot be written at runtime (require a redeploy).
 - The n8n Variables API is a stable, documented REST endpoint that fits the existing architecture.
 
-**Implementation:**  
-- `upsertN8nVariable(key, value)` helper in callback route: `GET /api/v1/variables` to find existing ID, then `PATCH` or `POST` accordingly.  
-- Required env vars: `N8N_API_KEY` (new), `N8N_BASE_URL` (new, defaults to `https://flow.uygunayakkabi.com`).  
+**Implementation:**
+- `upsertN8nVariable(key, value)` helper in callback route: `GET /api/v1/variables` to find existing ID, then `PATCH` or `POST` accordingly.
+- Required env vars: `N8N_API_KEY` (new), `N8N_BASE_URL` (new, defaults to `https://flow.uygunayakkabi.com`).
 - Route: `src/app/api/auth/instagram/callback/route.ts` (Step 17 rewrite).
 
 **Status:** ACTIVE — implemented 2026-03-19
@@ -3303,7 +3862,7 @@ v28-v42 added layers of pixel-manipulation post-processing (brightness normaliza
 ---
 
 ## D-128 — Image Pipeline v47: Slots 1-3 Locked — Confirmed Working
-**Decision:**  
+**Decision:**
 Lock slots 1-3 prompt definitions as confirmed working by operator.
 
 **Details:**
@@ -3314,17 +3873,17 @@ Lock slots 1-3 prompt definitions as confirmed working by operator.
 - v32 bitmap pixel font SN overlay restored and working on Vercel
 - v27 raw Gemini baseline preserved — NO post-processing
 
-**Constraint:**  
+**Constraint:**
 Do NOT modify slot 1-3 sceneInstructions, TASK_FRAMING_BLOCK, or overlayStockNumber without explicit operator approval.
 
-**Status:**  
+**Status:**
 ACTIVE — locked at commit 5cfcd4f (v47)
 
 
 ---
 
 ## D-129 — Image Pipeline v50: FULL BASELINE LOCKED — Operator Approved
-**Decision:**  
+**Decision:**
 Lock the ENTIRE image generation pipeline as the approved production baseline. No further changes without explicit operator approval.
 
 **Locked Components (commit e99e9cb):**
@@ -3346,7 +3905,7 @@ Lock the ENTIRE image generation pipeline as the approved production baseline. N
 | QC checks | LOCKED | Color match, brand fidelity, shot compliance (all Gemini Vision) |
 | Visual baseline | LOCKED | v27 raw Gemini output — NO post-processing |
 
-**Constraint:**  
+**Constraint:**
 Do NOT modify ANY of the above without explicit operator approval in a future task. This includes:
 - Slot ordering, slot prompts, slot camera angles
 - Background color mappings
@@ -3366,14 +3925,14 @@ Do NOT modify ANY of the above without explicit operator approval in a future ta
 - v49: ROOT CAUSE frame fix — background-color padding instead of white
 - v50: Green/blue/pink/beige color maps + slot 3 closer 3/4 angle
 
-**Status:**  
+**Status:**
 ACTIVE — PRODUCTION BASELINE LOCKED at commit e99e9cb (v50)
 
 
 ---
 
 ## D-130 — Content Architecture Audit + Production Plan
-**Decision:**  
+**Decision:**
 Audit the Geobot content system and define the production content architecture.
 
 **Current Reality (VERIFIED):**
@@ -3447,14 +4006,14 @@ Phase D — Content quality loop:
 - Operator review/edit flow for AI-generated content
 - Content regeneration on product update
 
-**Status:**  
+**Status:**
 ACTIVE — Architecture defined, implementation phases planned
 
 
 ---
 
 ## D-131 — Phase A: Storefront Content Wiring — IMPLEMENTED
-**Decision:**  
+**Decision:**
 Wire Geobot-generated content into the storefront product page.
 
 **Changes:**
@@ -3501,14 +4060,14 @@ Wire Geobot-generated content into the storefront product page.
 **Fallback Safety:**
 Every content field has graceful fallback: Geobot content → basic field → hidden. The page works identically to before if no Geobot content exists.
 
-**Status:**  
+**Status:**
 ACTIVE — Phase A complete
 
 
 ---
 
 ## D-132 — Phase B: Blog Frontend — IMPLEMENTED
-**Decision:**  
+**Decision:**
 Build the blog frontend to render Geobot-generated blog/article content.
 
 **New Routes:**
@@ -3554,14 +4113,14 @@ Build the blog frontend to render Geobot-generated blog/article content.
 **Operator workflow:**
 Geobot auto-creates BlogPosts as `draft`. Operator reviews in admin panel, sets status to `published` (and optionally sets `publishedAt`). Post then appears on `/blog`.
 
-**Status:**  
+**Status:**
 ACTIVE — Phase B complete
 
 ---
 
 ## D-133 — Phase C: Blog Discoverability — IMPLEMENTED
-**Date:** 2026-04-08  
-**Decision:**  
+**Date:** 2026-04-08
+**Decision:**
 Add visible Blog link to storefront navigation (desktop + mobile) and footer.
 
 **Implementation:**
@@ -3573,14 +4132,14 @@ Add visible Blog link to storefront navigation (desktop + mobile) and footer.
 **Files Changed:**
 - `src/app/(app)/UygunApp.jsx` — 3 insertion points (desktop nav, mobile nav, footer)
 
-**Status:**  
+**Status:**
 ACTIVE — Phase C complete, verified in production
 
 ---
 
 ## D-134 — Phase D: Channel Dispatch Geobot Wiring — IMPLEMENTED
-**Date:** 2026-04-08  
-**Decision:**  
+**Date:** 2026-04-08
+**Decision:**
 Wire Geobot-generated channel-specific content into the existing dispatch pipeline so downstream channels receive AI-generated copy instead of basic product descriptions.
 
 **Gap identified:**
@@ -3604,14 +4163,14 @@ All paths fall back to existing logic if Geobot content is absent. Zero risk to 
 - `src/lib/channelDispatch.ts` — type extension + payload builder + Instagram/Facebook caption preference
 - `src/lib/shopierSync.ts` — Shopier description preference chain
 
-**Status:**  
+**Status:**
 ACTIVE — Phase D complete
 
 ---
 
 ## D-135 — Phase G: Dry-Run Preview Mode for Channel Dispatch — IMPLEMENTED
-**Date:** 2026-04-08  
-**Decision:**  
+**Date:** 2026-04-08
+**Decision:**
 Implement a safe preview/dry-run mode for direct-publish channels so operators can verify the exact Geobot-derived caption/body that WOULD be posted, without making any public post.
 
 **Problem:**
@@ -3639,14 +4198,14 @@ No safe way to verify Geobot content integration without creating real public po
 - `src/lib/channelDispatch.ts` — `resolvePreviewCaption()` + dryRun option in orchestrator
 - `src/collections/Products.ts` — `previewDispatch` field + hook logic + Telegram notification
 
-**Status:**  
+**Status:**
 ACTIVE — Phase G complete
 
 ---
 
 ## D-136 — Phase I: Mentix Group Onboarding — Safe Group Filtering — IMPLEMENTED
-**Date:** 2026-04-08  
-**Decision:**  
+**Date:** 2026-04-08
+**Decision:**
 Add two safety gates to the Telegram bot so it can safely operate inside the Mentix group without reacting to background chatter.
 
 **Problem:**
@@ -3668,14 +4227,14 @@ The bot had NO chat-type filtering. Adding it to the Mentix group would cause it
 **Files Changed:**
 - `src/app/api/telegram/route.ts` — Two guard blocks after chatId/messageId extraction
 
-**Status:**  
+**Status:**
 ACTIVE — Phase I complete, extended by Phase K (D-137)
 
 ---
 
 ## D-137 — Phase K: @Mention + Reply-to-Bot Activation in Groups — IMPLEMENTED
-**Date:** 2026-04-08  
-**Decision:**  
+**Date:** 2026-04-08
+**Decision:**
 Extend group activation filter to support natural interaction patterns beyond slash commands.
 
 **Problem:**
@@ -3706,14 +4265,14 @@ Gate 2 (allowlisting) applies equally to all three activation types.
 **Files Changed:**
 - `src/app/api/telegram/route.ts` — Gate 1 block expanded (lines 1293-1319)
 
-**Status:**  
+**Status:**
 ACTIVE — Phase K complete, extended by Phase L (D-138)
 
 ---
 
 ## D-138 — Phase L: Mention Normalization for Group Command Routing — IMPLEMENTED
-**Date:** 2026-04-08  
-**Decision:**  
+**Date:** 2026-04-08
+**Decision:**
 Add a text normalization step after both safety gates pass in group chats, before command routing, so mention-prefixed commands behave identically to direct slash commands.
 
 **Problem:**
@@ -3740,14 +4299,14 @@ After both gates (activation + allowlisting) pass, in group chats only:
 **Files Changed:**
 - `src/app/api/telegram/route.ts` — Normalization block (lines 1352-1364), `text` const→let
 
-**Status:**  
+**Status:**
 ACTIVE — Phase L complete
 
 ---
 
 ## D-139 — Multi-Bot Support: Geo_bot (@Geeeeobot) Webhook Integration — IMPLEMENTED
-**Date:** 2026-04-08  
-**Decision:**  
+**Date:** 2026-04-08
+**Decision:**
 Add multi-bot support so Geo_bot (`@Geeeeobot`, ID `8728094008`) shares the same webhook handler as Uygunops_bot, differentiated by `?bot=geo` URL query parameter.
 
 **Problem:**
@@ -3776,14 +4335,14 @@ Geo_bot existed as a separate Telegram bot but had no webhook, no code support, 
 - `src/app/api/telegram/route.ts` — Multi-bot token resolution, dynamic BOT_ID/BOT_USERNAME_LC, getBotToken() pattern
 - Vercel env: `TELEGRAM_GEO_BOT_TOKEN` added to all environments
 
-**Status:**  
+**Status:**
 ACTIVE — Multi-bot operational
 
 ---
 
 ## D-140 — Phase N: Bot Role Separation (Geo_bot=Group, Uygunops=DM) — IMPLEMENTED
-**Date:** 2026-04-08  
-**Decision:**  
+**Date:** 2026-04-08
+**Decision:**
 Enforce a clean context separation between the two bots to prevent overlap and operator confusion. Geo_bot owns group context exclusively; Uygunops owns DM context exclusively.
 
 **Problem:**
@@ -3828,14 +4387,14 @@ Two surgical gates added to `route.ts`:
 **Files Changed:**
 - `src/app/api/telegram/route.ts` — Two Phase N gate blocks (messages + callbacks)
 
-**Status:**  
+**Status:**
 ACTIVE — Bot role separation enforced
 
 ---
 
 ## D-141 — Vercel Build Optimization: ignoreCommand for Docs-Only Commits — IMPLEMENTED
-**Date:** 2026-04-09  
-**Decision:**  
+**Date:** 2026-04-09
+**Decision:**
 Add a Vercel `ignoreCommand` that skips builds when only non-runtime files changed, reducing unnecessary build usage by ~40%.
 
 **Problem:**
@@ -3858,20 +4417,20 @@ Every push to main triggers a Vercel build, even for docs-only commits. 8 of las
 - `scripts/should-build.sh` (new)
 - `vercel.json` (added ignoreCommand)
 
-**Status:**  
+**Status:**
 ACTIVE
 
 ---
 
 ## D-142 — Phase O: Group Workflow Parity — Gate Fixes for Hashtags, Captions, STOCK — IMPLEMENTED
-**Date:** 2026-04-09  
-**Decision:**  
+**Date:** 2026-04-09
+**Decision:**
 Fix three gaps in the group activation gate (Phase I/K) that prevented Geo_bot from handling operator workflows with DM-equivalent parity in the Mentix group.
 
 **Problem:**
 Phase I/K gate only passed messages through if they were: (1) slash commands, (2) @mention of bot, or (3) reply-to-bot. This blocked legitimate operator workflows in group context:
 - `#gorsel 180` — hashtag trigger, not a slash command → blocked
-- Photo + `@Geeeeobot` in caption → mention in `caption_entities` not checked (only `entities`) → blocked  
+- Photo + `@Geeeeobot` in caption → mention in `caption_entities` not checked (only `entities`) → blocked
 - `STOCK SKU:...` — batch stock update, not a slash command → blocked
 
 **Fixes applied:**
@@ -3905,8 +4464,8 @@ Phase I/K gate only passed messages through if they were: (1) slash commands, (2
 | Real | /stok 180 | PROCESS | ✅ Full response |
 
 ## D-143 — Phase P: Group Wizard Session Isolation (chatId:userId keying) — IMPLEMENTED
-**Date:** 2026-04-09  
-**Decision:**  
+**Date:** 2026-04-09
+**Decision:**
 Refactor wizard session keying from `chatId`-only to `chatId:userId` so group-based wizard flows are isolated per operator.
 
 **Problem:**
@@ -3927,7 +4486,7 @@ In group context, `chatId` = group chat ID, shared by all members. The old `Map<
 - `src/lib/confirmationWizard.ts` — sessionKey helper, updated function signatures, WizardState.userId
 - `src/app/api/telegram/route.ts` — cbUserId/msgUserId variables, 36 call site updates
 
-**Commit:** `61a210c`  
+**Commit:** `61a210c`
 **Status:** VERIFIED (Phase Q validation 2026-04-09)
 
 **Phase Q Validation (2026-04-09):**
@@ -3949,12 +4508,12 @@ Dual-method validation — local unit tests + production webhook simulation.
 - User B (9999999999) temporarily added to allowlist for gate-bypass testing, then restored
 - No crashes, no 500s, no unhandled exceptions across full test sequence
 
-**Status:**  
+**Status:**
 ACTIVE — Group parity achieved
 
 ## D-144 — Phase R: Command Ownership Split (Ops Bot vs GeoBot) — IMPLEMENTED
-**Date:** 2026-04-09  
-**Decision:**  
+**Date:** 2026-04-09
+**Decision:**
 Add command-level ownership routing so each Telegram bot only handles its designated workflow domain. Wrong-bot commands get a clear Turkish redirect message instead of executing.
 
 **Ownership Model:**
@@ -3986,12 +4545,12 @@ Add command-level ownership routing so each Telegram bot only handles its design
 - 2 ops cmds on Uygunops: processed normally ✅
 - 3 geo cmds on GeoBot: processed normally ✅
 
-**Commit:** `37d9b52`  
+**Commit:** `37d9b52`
 **Status:** IMPLEMENTED
 
 ## D-145 — Phase S: GeoBot Visible Handoff (Operator Notifications) — IMPLEMENTED
-**Date:** 2026-04-09  
-**Decision:**  
+**Date:** 2026-04-09
+**Decision:**
 Make the two-bot workflow visible to operators. After Ops Bot confirms a product, GeoBot visibly takes over by sending notifications to the Mentix group. Content generation results (ready or failed) are also reported by GeoBot.
 
 **What Changed:**
@@ -4024,12 +4583,12 @@ Make the two-bot workflow visible to operators. After Ops Bot confirms a product
 - GeoBot can send to Mentix group ✅
 - 6 webhook routing tests (Phase R gates intact) ✅
 
-**Commit:** `41ae58d`  
+**Commit:** `41ae58d`
 **Status:** IMPLEMENTED
 
 ## D-146 — Phase T1: Title + Stock Code Wizard Steps + /confirm Nudge — IMPLEMENTED
-**Date:** 2026-04-09  
-**Decision:**  
+**Date:** 2026-04-09
+**Decision:**
 Improve the intake package quality before GeoBot handoff by collecting the real product title and operator's stock code during the confirmation wizard, and prompting the operator to start `/confirm` after image approval.
 
 **Problem:**
@@ -4073,12 +4632,12 @@ title → stockCode → category → productType → price → sizes → stock �
 - Short title rejection ✅
 - Phase R routing still intact ✅
 
-**Commit:** `bb8220e`  
+**Commit:** `bb8220e`
 **Status:** IMPLEMENTED
 
 ## D-147 — Phase T2: One-Tap Wizard Launch After Image Approval — IMPLEMENTED
-**Date:** 2026-04-09  
-**Decision:**  
+**Date:** 2026-04-09
+**Decision:**
 Replace the plain-text `/confirm` nudge after image approval with an inline keyboard button that launches the confirmation wizard in one tap.
 
 **Problem:**
@@ -4111,12 +4670,12 @@ Operators had to manually type `/confirm {id}` after approving images. Non-techn
 - Manual /confirm still works ✅
 - Invalid ID handled ✅
 
-**Commit:** `16ce89f`  
+**Commit:** `16ce89f`
 **Status:** IMPLEMENTED
 
 ## D-148 — Phase U: GeoBot One-Tap Post-Handoff Flow — IMPLEMENTED
-**Date:** 2026-04-09  
-**Decision:**  
+**Date:** 2026-04-09
+**Decision:**
 Make the GeoBot post-handoff workflow button-driven. After content generation, operators navigate through audit → activate via inline buttons instead of memorizing slash commands.
 
 **Changes:**
@@ -4147,15 +4706,15 @@ GeoBot handoff → "📋 İçerik Durumu" → (content ready) → "🔍 Audit Ba
 - Manual /content still works ✅
 - GeoBot keyboard send to Mentix group ✅
 
-**Commit:** `bf7e175`  
+**Commit:** `bf7e175`
 **Status:** IMPLEMENTED
 
 ---
 
 ## D-149 — Phase W: First Real Instagram Live Publish Validation — VERIFIED
 
-**Date:** 2026-04-09  
-**Decision:**  
+**Date:** 2026-04-09
+**Decision:**
 Execute the first real Instagram publish to validate the full external channel dispatch path end-to-end.
 
 **Method:**
@@ -4202,8 +4761,8 @@ Option C: Upload to external CDN (Cloudinary, already referenced in older code)
 
 ## D-150 — Phase W1: Automated Instagram Dispatch Reliability — IMPLEMENTED
 
-**Date:** 2026-04-09  
-**Decision:**  
+**Date:** 2026-04-09
+**Decision:**
 Fix the automated Instagram dispatch cold-start failure with a media URL pre-warm + retry strategy. No Vercel Blob migration needed.
 
 **Root Cause (from D-149):**
@@ -4235,15 +4794,15 @@ Instagram's Graph API container creation failed with error 9004/2207052 because 
 - Cloudinary CDN: Already referenced in older code but would add external dependency and migration effort.
 - Longer Graph API timeout: Not possible — Instagram controls the timeout on their end.
 
-**Commit:** `f0fd0eb`  
+**Commit:** `f0fd0eb`
 **Status:** IMPLEMENTED + PROD-VALIDATED
 
 ---
 
 ## D-151 — Phase X: Telegram Content Preview + Wrong-Bot Photo Redirect — IMPLEMENTED
 
-**Date:** 2026-04-09  
-**Decision:**  
+**Date:** 2026-04-09
+**Decision:**
 Fix two GeoBot operator UX gaps: (1) content not visible before publish, (2) photos sent to wrong bot get dead-end response.
 
 **Part A — Content Preview:**
@@ -4277,7 +4836,7 @@ Fix two GeoBot operator UX gaps: (1) content not visible before publish, (2) pho
 1. Content preview: readable channel-specific copy with next-step buttons (Audit, Yayına Al)
 2. Wrong-bot photo: clear explanation of which bot does what + where to send the photo
 
-**Commit:** `c50517f`  
+**Commit:** `c50517f`
 **Status:** IMPLEMENTED
 
 ---
@@ -7367,3 +7926,739 @@ Build a fully autonomous, separate Telegram bot (SupplierScout) that:
 - Extending Mentix/Uygunops: rejected — too much blast radius, separate concerns
 - Pure regex parser: rejected — Turkish supplier slang is too varied, Gemini NLP is correct tool
 - Manual approval per product: rejected — defeats the purpose (operator requirement: autonomous)
+
+## D-407
+
+**Title:** Fixed 5-slot generated-image contract (central registry, deterministic order, centering discipline)
+
+**Date:** 2026-07-07
+
+**Decision:**
+Introduce a single source of truth for the AI product-image slot system:
+`src/lib/imageSlotContract.ts`. It fixes exactly three things and deliberately
+leaves composition to the model/provider:
+
+FIXED:
+- The 5 slot types (keys): `front`, `side`, `top_pair`, `heel`, `material_detail`
+- The slot order (deterministic — index 0..4 in that order)
+- The visual centering/framing discipline (shared `CENTERING_FRAMING_BLOCK`
+  appended to every slot: product centered, no drift, consistent scale, aligned
+  set, consistent background/lighting/identity)
+
+NOT FIXED (operator rule): exact camera angles, degree values, strict camera
+geometry, exact crop. The previous EDITING_SCENES hardcoded 90° side profiles,
+toe-LEFT rejection, 18–25cm macro distances, 35–45° rear angles, etc. These
+geometry constraints were removed from the slot prompts; the model now chooses
+the best exact composition per slot inside the centering discipline.
+
+**Implementation:**
+- New `src/lib/imageSlotContract.ts` — SLOT_PROMPT_VERSION (`slotset-v1`),
+  GENERATED_SLOTS/KEYS/SCENES, buildSlotSceneInstructions, buildSlotMeta,
+  ordering/lookup helpers, and `validateSlotContract()`.
+- `src/lib/imageProviders.ts` — EDITING_SCENES now derives from
+  GENERATED_SCENES; SHOT_CRITERIA rewritten to the 5 new keys with loose
+  purpose/centering rules (no degrees); anchor sources + D-201 side-orientation
+  auto-fix remapped to the new `front`/`side`/`material_detail` keys.
+- `src/jobs/imageGenTask.ts` — slot names/labels come from the contract; captures
+  `sourceImageId` (primary reference media id); stores per-image slot metadata
+  (slotIndex, slotKey, promptVersion, productId, sourceImageId, mediaId) in the
+  job's existing `promptsUsed`/`providerResults` JSON — NO Payload schema change.
+- `src/lib/imageSlotContract.test.ts` + `test:image-slot-contract` in the safe
+  suite.
+
+**Preserved (unchanged):**
+- Generated images stay in `product.generativeGallery`, never `product.images`.
+- Operator preview/approve/regenerate flow (Telegram + admin) unchanged.
+- All safety locks preserved: LOCK_REMINDER (v50), TASK_FRAMING, identity lock,
+  MATERIAL_IDENTITY_LOCK, VISUAL_FACT_LOCK (D-355N), protected zones,
+  CANONICAL_PROHIBITIONS, ANTI_FRAME, STUDIO_STANDARD background/scale.
+
+**Boundary:** Local-only. Not committed, not pushed, not deployed. No schema
+push, no provider calls, no publish. `npm run validate` passes.
+
+**Rejected alternatives:**
+- First-class Payload metadata fields for slot data: rejected for now — would
+  require a schema push to prod (PAYLOAD_DB_PUSH). Metadata is stored in existing
+  JSON job fields instead; promote to real fields later with operator approval.
+- Keeping the old slot set (side/front/detail/material/rear): rejected — operator
+  requested the canonical front/side/top_pair/heel/material_detail contract.
+
+## D-408
+
+**Title:** Deterministic centering / scale lock for generated slots
+
+**Date:** 2026-07-07
+
+**Problem (operator-reported, from live Telegram output):** generated slots are
+inconsistently framed — the shoe is too close in one slot, too far in another,
+never equally centered. Prompt text ("shoe fills ~78% width, centered") does not
+reliably control the model's composition, so equality cannot be guaranteed at the
+prompt layer.
+
+**Decision:** Add a deterministic post-process that runs after generation and
+BEFORE the stock-number overlay: detect the product's bounding box against the
+known uniform ivory studio background, rescale it so the product's longer side
+occupies a FIXED fraction of the canvas (the slot's locked `frameCoverage`), and
+center it on a fresh ivory canvas. Every slot then shares the exact same scale +
+centering regardless of what the model framed. This is the real "lock" the
+operator asked for — pixel-level, not prompt-level.
+
+**Implementation:**
+- New `src/lib/imageCentering.ts` — `normalizeProductCentering()` + `detectSubjectBbox()`.
+  Pure sharp, deterministic, no provider calls. Safe fallbacks: returns the
+  original buffer on error, when no subject is detected, when detection is tiny
+  (noise), or when the shot already fills the frame (`skipIfCoverageAbove`, so a
+  tight material detail is left full-bleed).
+- `src/lib/imageSlotContract.ts` — each slot carries a locked `frameCoverage`
+  (full-shoe slots 0.82; `material_detail` 0.94 so it is normally skipped and
+  stays full-bleed) + `frameCoverageForIndex()`. `validateSlotContract()` checks it.
+- `src/jobs/imageGenTask.ts` — new Step 6a2 runs the centering lock over every
+  generated buffer (both providers) before the overlay.
+- New `src/lib/imageCentering.test.ts` (8 checks incl. the equality proof: a
+  too-close and a too-far shot normalize to the same scale) + `test:image-centering`
+  in the safe suite. Contract test extended for `frameCoverage`.
+
+**Boundary:** Local-only. Not committed/pushed/deployed. No schema push, no
+provider calls. `npm run validate` PASS. Takes effect on the live Telegram
+`#gorsel` flow only after operator-approved deploy.
+
+**Next (operator priority, not in this change):** speed up the preview/approval
+flow and remove redundant steps.
+
+**Rejected alternatives:**
+- Prompt-only centering (current STUDIO_STANDARD wording): rejected — it is what
+  produced the inconsistent framing in the first place; the model ignores it.
+- Background-removal (`@imgly/background-removal`): rejected for now — heavier and
+  less predictable server-side than thresholding against the known uniform ivory bg.
+
+## D-409
+
+**Title:** Faster preview — cut redundant Vision calls + slim approval keyboard
+
+**Date:** 2026-07-07
+
+**Problem (operator):** live Telegram generation hits provider rate-limits
+("The model provider is rate-limiting requests…") and the approval flow carries
+excess. Two causes: (1) too many Gemini Vision calls per run; (2) dead/confusing
+approval-keyboard branches.
+
+**Decision:**
+
+(a) Remove the per-slot **shot-compliance** Vision check from `generateByGeminiPro`.
+D-407 loosened composition (model chooses the shot) and D-408 makes centering
+deterministic, so verifying "angle" via Vision is redundant, contradicts the
+loose-composition rule, and was a major rate-limit / extra-regeneration cost.
+Retry now fires ONLY on real fidelity drift (colour, or brand zones when present).
+`checkShotCompliance` + `SHOT_CRITERIA` are retained (disabled, eslint-ignored)
+for easy re-enable. The OpenAI path (`generateByEditing`) already had no shot
+check. Colour check and (gated) brand-fidelity check are unchanged.
+
+Call reduction per standard 5-slot run: −5 shot checks on first pass, plus the
+retry generations + their colour/brand/shot re-checks that shot failures used to
+trigger. Fewer requests → fewer 429s and faster time-to-preview.
+
+(b) Slim the Telegram approval keyboard: remove the legacy `1+2 / 1+3 / 2+3`
+combo-button row and the `🌟 4-5 Gemini Pro Üret` up-sell row (both dead/confusing
+now that the standard pack always makes all 5 slots). Kept: ✅ Tümünü Onayla,
+per-image buttons (partial approval), 🔄 Yeniden Üret, ❌ Reddet. Partial approval
+also remains via the text command `onayla 1,3,5` (route.ts unchanged; the
+`imgpremium` handler stays as a harmless no-button path).
+
+**Boundary:** Local-only. Not committed/pushed/deployed. No schema push, no
+provider calls in tests. `npm run validate` PASS. Behaviour reaches the live
+`#gorsel` flow only after an operator-approved deploy.
+
+**Rejected alternatives:**
+- Parallelizing slots to go faster: rejected — it raises the burst rate and makes
+  rate-limiting worse. Sequential slots + fewer calls is the rate-limit-friendly fix.
+- Dropping the colour-drift check too: rejected — colour drift (black→brown) is a
+  real quality gate the operator relies on; kept.
+
+## D-410
+
+**Title:** Slot set revised — 3/4 hero replaces dead-on front (amends D-407)
+
+**Date:** 2026-07-07
+
+**Decision (operator delegated "do what's best"):** Revise the D-407 canonical
+slot set to the angles that convert best for shoe e-commerce:
+
+  0 hero_3q · 1 side · 2 top · 3 back · 4 detail
+
+Change vs D-407 (`front, side, top_pair, heel, material_detail`): the dead-on
+`front` slot is replaced by a THREE-QUARTER hero (`hero_3q`) — a shoe shot
+dead-on reads flat, while a 3/4 angle shows front + one side together and is the
+strongest, most dimensional catalog hero. The other three are the same concepts,
+renamed for clarity: `top_pair→top`, `heel→back`, `material_detail→detail`.
+
+`sole`/outsole was considered for slot 5 and rejected: the model would risk
+fabricating tread not present in the reference (explicitly forbidden by the
+NEVER-FABRICATE-UNSEEN-REGIONS rule). The safer visible-material `detail` is kept.
+
+**Implementation:** `imageSlotContract.ts` keys/labels/meanings/compositionIntent
+updated (hero_3q gets a three-quarter intent; still geometry-free per D-407, the
+model picks the exact composition, D-408 centers it). Downstream key references
+updated: anchors (`hero_3q`/`side` → `top`/`back`/`detail`), the detail
+special-case, and the (disabled) SHOT_CRITERIA keys. Contract test updated.
+
+**Boundary:** Local-only. Not committed/pushed/deployed. `npm run validate` PASS.
+
+## D-411
+
+**Title:** Brand-safety gate for AI image generation + hardware-consistency lock
+
+**Date:** 2026-07-07
+
+**Problem (operator, from real SN0088 output):** generated slots reproduce the
+real shoe's brand wordmark ("BOSS") and a metal logo plate, and the metal is
+rendered inconsistently across slots (metal in some, plain in others). Root: (1)
+`#gorsel` had NO brand-safety gate — protected-brand products generated
+trademarked imagery; (2) the pipeline's protectedZones logic actively PRESERVES
+brand marks; (3) hardware drifts because slots generate semi-independently.
+
+**Decision:**
+- **Part A (deterministic, tested):** new `src/lib/imageBrandGate.ts`
+  `evaluateImageBrandGate(product)` wraps `scanProductBrandSafety`. `imageGenTask`
+  now BLOCKS generation for protected-brand products (Step 2 gate, before any
+  provider/vision call — also saves rate-limit budget), marks the job failed with
+  a `brand_safety_block` reason, and tells the operator in Telegram. Mirrors
+  storyDispatch (D-381). Default is a hard block, consistent with the brand
+  cleanup governance (brand-named products → draft). Limit: text scan only — can't
+  catch a mark that appears ONLY in the photo. Covered by `test:image-brand-gate`.
+- **Part B (prompt hardening, live-verify only):** a HARDWARE CONSISTENCY line
+  added to `VISUAL_FACT_LOCK_BLOCK` — any real hardware must be identical (size,
+  shape, finish, position) in EVERY slot; never add in one and omit in another;
+  don't invent it. Only observable on a live #gorsel.
+
+**Boundary:** Local-only, NOT deployed (image system is currently rolled back on
+prod). `npm run validate` PASS. Part A is unit-verified now; Part B must be
+verified on real generation before any redeploy.
+
+**Open policy question for operator:** hard block vs. "generate but de-brand"
+(strip the wordmark/logo, render plain) — the latter is a prompt change,
+live-verify only, and conflicts with identity-preservation. Defaulted to block.
+
+## D-412
+
+**Title:** Fix second-shoe (anchor bleed) + detail sharpness; guard broken centering off
+
+**Date:** 2026-07-07
+
+**From the real SN0088 output defects (operator):**
+
+1. **Second/ghost shoe in slots 4 & 5 → anchor bleed. FIXED (structural).** The
+   D-355H/M logic fed the already-generated hero/side photos into the later slots
+   (top/back/detail) as ADDITIONAL reference images; Gemini often rendered that
+   second shoe into the scene. Removed all anchor-image feeding + capture in
+   `generateByGeminiPro` — every slot now uses only the ORIGINAL reference(s), so
+   a second shoe can no longer be composited. Material consistency now rests on the
+   prompt locks (identity / material / visual-fact / D-411 hardware consistency).
+
+2. **Close-up blur → detail slot prompt.** Added a SHARPNESS (tack-sharp crisp
+   macro, fine micro-detail, no soft/blurred close-up) clause to the `detail`
+   slot's compositionIntent. Prompt change — live-verify only.
+
+3. **Centering (D-408) → GUARDED OFF.** The colour-threshold detector was only
+   verified on synthetic images and skipped real Gemini output (frame borders /
+   gradient bg fooled it) — it shipped a regression once. The Step 6a2 centering
+   call in `imageGenTask` is now behind `IMAGE_CENTERING_ENABLED=1` (default OFF),
+   so the broken version can never ship. It must be REBUILT with real subject
+   segmentation (`@imgly/background-removal`, already a dep) or tuned + VERIFIED on
+   an actual generated image before re-enabling. Pending a real image file from
+   the operator.
+
+**Boundary:** Local-only, NOT deployed (prod image system remains rolled back).
+`npm run validate` PASS. Fix #1 is structural; #2 is live-verify; #3 is deferred
+until verified on real output. No redeploy until the bundle is verified live.
+
+## D-413
+
+**Title:** Crop-window centering + density bbox (fixes the frame the old centering created)
+
+**Date:** 2026-07-07 — DEPLOYED (`9dbc0c0`, `993c229`)
+
+Root cause found on real output: the old D-408 normalizer cropped the shoe bbox
+and composited it onto a FLAT ivory canvas; real studio backdrops are gradient,
+so the pasted crop rendered a visible rectangle — the "frame" artifact. Rewritten
+as a CROP-WINDOW: extract a square window centred on the shoe straight from the
+original (continuous gradient bg, edges copy-extended) → no seam, no frame.
+Second pass: DENSITY-based bbox (per-row/col subject-pixel projection profiles,
+span clearing 6% of axis peak) so soft shadow/jpeg noise no longer inflates or
+shifts the box → consistent centering + scale across slots. Verified on the
+operator's real generated images. `IMAGE_CENTERING_ENABLED=0` disables.
+Interim commits: `6c26607` (centering off while diagnosing), then re-enabled.
+
+## D-414
+
+**Title:** Slot 4 = rear three-quarter (dead-back retired)
+
+**Date:** 2026-07-07 — DEPLOYED (`bf53eed`)
+
+Operator: flat straight-on back looked static and over-emphasised rear brand
+logos. Slot 4 (`back`) now asks for a rear THREE-QUARTER (heel + one side,
+dimensional). Key unchanged; label/meaning/compositionIntent only.
+
+## D-415
+
+**Title:** Brand-safety gate REMOVED from image generation (operator decision)
+
+**Date:** 2026-07-07 — DEPLOYED (`53edf20`)
+
+Operator rule: "Eğer markalı ürün gönderiliyorsa markalı üretilecek demektir."
+Branded products are sent deliberately; image gen must not block on brand.
+The D-411 gate call was removed from imageGenTask. `imageBrandGate.ts` and
+`test:image-brand-gate` are RETAINED (library + tests pass) but NOT invoked —
+available if policy ever reverses. This supersedes D-411 Part A.
+
+## D-416 / D-417 / D-418
+
+**Title:** Pair slots evolution: mirror → duplicate → MODEL-GENERATED pair
+
+**Date:** 2026-07-07 — DEPLOYED (`493fbea`, `b1eca9d`, `65e1546`)
+
+Operator wants 2 slots showing both shoes. Three iterations on real output:
+- D-416 deterministic MIRROR pair (`493fbea`): rejected — mirroring flips text
+  ("SAMBA"/"adidas" backwards on one shoe).
+- D-417 deterministic DUPLICATE pair (`b1eca9d`): text correct but obvious
+  copy-paste look (identical shoes, same shadows) — operator rejected.
+- D-418 MODEL-GENERATED pair (`65e1546`, current): pair slots' compositionIntent
+  requests a matched left/right pair, and `PAIR_MODE_FINAL_BLOCK` (imageProviders)
+  is appended LAST to override the single-shoe/no-extra-shoe locks for those
+  images only. Natural pairs, readable text; trade-off: not pixel-identical.
+  `makePairShot` retained unused as fallback. Slot contract gained
+  `layout: 'single' | 'pair'` + `slotLayoutForIndex()`.
+
+## D-419 / D-419b
+
+**Title:** Side becomes Slot 1 (main image), background consistency, pair colour lock
+
+**Date:** 2026-07-07 — DEPLOYED (`d66bd32`, `d4ec174`)
+
+From real Asics output (operator):
+- SLOT ORDER: the main channel image must be a SINGLE side shot. Canonical order
+  is now `side(0, single, MAIN) · hero_3q(1, pair) · top(2, pair) · back(3) ·
+  detail(4)`. This supersedes the D-410 order.
+- BACKGROUND CONSISTENCY: new `normalizeBackground()` (imageCentering.ts)
+  white-balances each slot's studio bg toward one fixed ivory — median corner
+  sampling, gentle clamped per-channel gain, skips when the corner is not a
+  light background. D-419b: PARTIAL correction (strength 0.7, maxGain 1.15) so
+  it approaches the target without overshooting (one slot had come out too
+  bright). Runs in imageGenTask after centering, before the SN overlay.
+- PAIR COLOUR LOCK: the model pair once rendered two different colourways (one
+  tan, one grey); a COLOUR LOCK line was added to `PAIR_MODE_FINAL_BLOCK`.
+  Prompt-side, live-verified OK on the next real generation (operator confirmed).
+
+**Status after D-419b (operator-confirmed on real output):** pair colours
+consistent, backgrounds consistent, slot order correct, natural pairs with
+readable branding. The 5-slot system is working end-to-end in production.
+
+**Deploy note:** all image-system deploys today used the clean-worktree method
+(worktree from origin/main + only the intended files + tsc/eslint verify) because
+the working tree carries the uncommitted D-380..D-406 stack. package.json (test
+script wiring for `test:image-slot-contract` / `test:image-centering` /
+`test:image-brand-gate`) is LOCAL-ONLY — the deployed repo has the test files
+but not the npm scripts.
+
+## D-420
+
+**Title:** Image-system test scripts wired into deployed package.json
+
+**Date:** 2026-07-07 — DEPLOYED (`88f08b5`)
+
+The D-407..D-419b test FILES were on the remote but the npm scripts existed only
+locally. Surgical worktree edit of the clean origin/main package.json: added
+`test:image-slot-contract`, `test:image-centering`, `test:image-brand-gate` and
+chained them into `test:safe` after `test:image-quality` (+4 lines, nothing
+else). Verified in the worktree before push: JSON valid, all three suites pass
+(19+12+6). Anyone cloning the repo — and `npm run validate` — now exercises the
+image-system contract, centering/background logic, and the retained brand-gate
+library. Note: remote `test:safe` still reflects the pre-D-380 chain; the local
+stack's fuller chain reconciles whenever that stack goes through PR review.
+
+## D-421
+
+**Title:** Background normalization skipped on the detail slot
+
+**Date:** 2026-07-07 — DEPLOYED (`1582644`)
+
+`normalizeBackground` estimates the background from four corner patches. The
+detail slot is a tight macro where shoe material can cover the corners, so the
+sampler could mis-read light suede/leather as "background" and tint the product.
+The detail slot shows almost no background anyway; it is now skipped in
+imageGenTask (`getSlotByIndex(slotIndex)?.key === 'detail'`), while the other
+four slots keep the D-419 background unification. Closes the health-check
+monitoring item — no bg-drift path remains to watch.
+
+## D-422
+
+**Title:** Product Flow Snapshot operator checklist
+
+**Date:** 2026-07-12 - LOCAL ONLY, NOT DEPLOYED
+
+**Decision:** Extend the read-only Product Flow Snapshot with an operator
+checklist so a draft or blocked product shows the staged next workflow step in
+one place.
+
+**Why:** `/productflow` already summarized lifecycle, readiness, activation
+blockers, image QC, Shopier gate, dispatch state, channel/coherence drift, and
+next actions. In practice, an incomplete draft could still make the operator
+mentally connect several subsystems before knowing whether the next move was
+image QC, `/confirm`, `/content`, `/audit`, stock/target cleanup, `/activate`,
+or Shopier queueing. Phase 2 needs the product handoff to be faster and more
+obvious.
+
+**Implementation:**
+
+- `src/lib/productFlowSnapshot.ts` now adds `operatorChecklist` rows for
+  Photos/Image QC, confirmation, content, audit, price/size/stock, channel
+  targets, operator approval, and Shopier queue state when relevant.
+- `formatProductFlowSnapshot()` renders an `Operator Checklist` section for
+  Telegram `/productflow <sn-or-id>` and `/flow <sn-or-id>`.
+- `scripts/product-flow-runtime-smoke.ts` prints the same checklist for
+  `smoke:product-flow:read`.
+- `src/lib/productFlowSnapshot.test.ts` covers incomplete-draft command
+  guidance and ready activation handoff.
+
+**Guardrails:** Read-only diagnostics only. No product write, queue job,
+publish, external dispatch, provider call, Shopier call, SupplierScout
+activation, retired-channel activation, ad spend, deploy, commit, branch, push,
+or PR action was performed.
+
+**Validation:** `npm run test:product-flow-snapshot`, source-pack, Mentix skill,
+ops-runbook, runtime-smoke, release/PR governance, `npm run validate` with lint
+at 0 errors / 71 warnings, and `git diff --check` passed locally.
+
+## D-423
+
+**Title:** Product Flow Snapshot checklist dependency ordering
+
+**Date:** 2026-07-12 - LOCAL ONLY, NOT DEPLOYED
+
+**Decision:** Make the read-only Product Flow Snapshot operator checklist
+respect the workflow order before suggesting commands.
+
+**Why:** D-422 made the product handoff much clearer, but early drafts could
+still show content and audit commands before the product was confirmed. That
+could nudge the operator toward commands that the underlying product flow does
+not expect yet. Phase 2 needs the checklist to be not only visible, but ordered
+like the real workflow.
+
+**Implementation:**
+
+- `src/lib/productFlowSnapshot.ts` now treats confirmation as a prerequisite
+  for content checklist actions.
+- Audit checklist actions now wait for content readiness; pending content points
+  to `/content <ref> trigger`, and failed content points to
+  `/content <ref> retry`.
+- Telegram `/productflow <sn-or-id>`, `/flow <sn-or-id>`, and
+  `smoke:product-flow:read` inherit the behavior from the shared helper.
+- `src/lib/productFlowSnapshot.test.ts` covers early drafts, pending content,
+  failed content retry, and ready activation handoff.
+
+**Guardrails:** Read-only diagnostics only. No product write, queue job,
+publish, external dispatch, provider call, Shopier call, SupplierScout
+activation, retired-channel activation, ad spend, deploy, commit, branch, push,
+or PR action was performed.
+
+**Validation:** `npm run test:product-flow-snapshot`, source-pack, Mentix skill,
+ops-runbook, runtime-smoke, release/PR governance, `npm run typecheck`,
+`npm run lint` with 0 errors / 71 warnings, `git diff --check`, and full
+`npm run validate` passed locally.
+
+## D-424
+
+**Title:** Product Flow Snapshot primary operator step
+
+**Date:** 2026-07-12 - LOCAL ONLY, NOT DEPLOYED
+
+**Decision:** Add one `primaryOperatorStep` to the read-only Product Flow
+Snapshot, derived from the ordered operator checklist.
+
+**Why:** D-422/D-423 made the checklist visible and correctly ordered, but the
+operator still had to scan the full list to find the first step. Phase 2
+product loading needs the handoff to be faster: the snapshot should show the
+single next command/manual step first, then the full evidence checklist.
+
+**Implementation:**
+
+- `src/lib/productFlowSnapshot.ts` now derives `primaryOperatorStep` from the
+  ordered checklist, preferring `next`, then actionable `needs_work`, then
+  actionable `blocked`, then the first non-done manual step.
+- `formatProductFlowSnapshot()` renders the primary step before dispatch,
+  diagnostics, checklist, and next actions.
+- `scripts/product-flow-runtime-smoke.ts` prints the same primary step.
+- `src/lib/productFlowSnapshot.test.ts` covers ready activation, incomplete
+  drafts, content trigger/retry, Shopier handoff, and formatter output.
+
+**Guardrails:** Read-only diagnostics only. No product write, queue job,
+publish, external dispatch, provider call, Shopier call, SupplierScout
+activation, retired-channel activation, ad spend, deploy, commit, branch, push,
+or PR action was performed.
+
+**Validation:** `npm run test:product-flow-snapshot`, runtime-smoke governance,
+source-pack, Mentix skill, ops-runbook, release/PR governance,
+`npm run typecheck`, `npm run lint` with 0 errors / 71 warnings,
+`git diff --check`, and full `npm run validate` passed locally.
+
+## D-425
+
+**Title:** Load-plan product-flow handoff
+
+**Date:** 2026-07-12 - LOCAL ONLY, NOT DEPLOYED
+
+**Decision:** Add a read-only `/productflow <ref>` handoff to each first
+product worklist row in Product Loading Plan output.
+
+**Why:** D-424 made Product Flow Snapshot show the single primary operator step,
+but catalog loading still started from `/loadplan` rows that only showed the
+suggested fix command. The daily loading view should point operators into
+`/productflow` first, so they see the product-specific primary step and
+checklist before running manual follow-up commands.
+
+**Implementation:**
+
+- `src/lib/productLoadingPlan.ts` now adds `flowCommand` to `worklist` items.
+- `formatProductLoadingPlan()` renders the suggested action plus
+  `flow <code>/productflow <ref></code>`.
+- Telegram `/loadplan`, Telegram `/loadingplan`, and
+  `smoke:load-plan:read` inherit the same formatter behavior.
+- `src/lib/productLoadingPlan.test.ts` covers `flowCommand` values and
+  formatted output.
+
+**Guardrails:** Read-only planning only. No product write, queue job, publish,
+external dispatch, provider call, Shopier call, SupplierScout activation,
+retired-channel activation, ad spend, deploy, commit, branch, push, or PR action
+was performed.
+
+**Validation:** `npm run test:loading-plan`, release/PR/source-pack/ops
+governance, `npm run typecheck`, `npm run lint` with 0 errors / 71 warnings,
+`git diff --check`, and full `npm run validate` passed locally.
+
+## D-426
+
+**Title:** Operator Smoke Plan load-plan handoff alignment
+
+**Date:** 2026-07-12 - LOCAL ONLY, NOT DEPLOYED
+
+**Decision:** Make `/smokeplan` consume the D-425 load-plan product-flow
+handoff before provider diagnostics.
+
+**Why:** D-425 made `/loadplan` rows point to `/productflow <ref>`, but the
+safe live-smoke checklist still sent the operator through provider diagnostics
+before product-flow preflight. Catalog scale-up should start from the daily
+loading worklist, pick the first product through its flow command, then inspect
+provider readiness after the product-specific state is visible.
+
+**Implementation:**
+
+- `src/lib/operatorSmokePlan.ts` now places `smoke:product-flow:read` directly
+  after repo/Telegram `/loadplan`.
+- Telegram `/productflow <id-or-sn>` now follows that repo-side product-flow
+  smoke before provider diagnostics.
+- The product-flow runtime reason tells the operator to use the first
+  `/loadplan` worklist flow command.
+- `src/lib/operatorSmokePlan.test.ts` now asserts this D-425 handoff order and
+  formatter wording.
+
+**Guardrails:** Read-only checklist only. No product write, queue job, publish,
+redispatch, external dispatch, provider call, Shopier call, SupplierScout
+activation, retired-channel activation, ad spend, deploy, commit, branch, push,
+or PR action was performed.
+
+**Validation:** `npm run test:operator-smoke-plan`,
+release/PR/source-pack/ops governance, `npm run typecheck`, `npm run lint` with
+0 errors / 71 warnings, `git diff --check`, and full `npm run validate` passed
+locally.
+
+## D-427
+
+**Title:** Load-plan runtime product-flow handoff
+
+**Date:** 2026-07-12 - LOCAL ONLY, NOT DEPLOYED
+
+**Decision:** Add an exact repo-side product-flow smoke command to each Product
+Loading Plan first worklist row.
+
+**Why:** D-425 added the Telegram `/productflow <ref>` handoff and D-426 moved
+that handoff to the front of `/smokeplan`, but terminal operators still had to
+manually translate a worklist ref into
+`npm run smoke:product-flow:read -- --product=<ref> --confirm-read-only`.
+The runtime smoke should print the exact command so repo-side verification and
+Telegram reads use the same selected product.
+
+**Implementation:**
+
+- `src/lib/productLoadingPlan.ts` now adds `runtimeFlowCommand` to each
+  worklist row.
+- `formatProductLoadingPlan()` renders the Telegram flow command and the repo
+  smoke command together.
+- `scripts/load-plan-runtime-smoke.ts` prints `flow=` and `smoke=` lines for
+  each first product worklist item.
+- `src/lib/productLoadingPlan.test.ts` covers the new command shape and
+  formatted output.
+- `scripts/runtime-smoke-governance.ts` requires the runtime command handoff
+  surface.
+
+**Guardrails:** Read-only planning/preflight only. No product write, queue job,
+publish, redispatch, external dispatch, provider call, Shopier call,
+SupplierScout activation, retired-channel activation, ad spend, deploy, commit,
+branch, push, or PR action was performed.
+
+**Validation:** `npm run test:loading-plan`, `npm run test:runtime-smokes`,
+`npm run test:operator-smoke-plan`, release/PR/source-pack/ops governance,
+`npm run typecheck`, `npm run lint` with 0 errors / 71 warnings,
+`git diff --check`, and full `npm run validate` passed locally.
+
+## D-428
+
+**Title:** Shopier dashboard product-flow handoff
+
+**Date:** 2026-07-12 - LOCAL ONLY, NOT DEPLOYED
+
+**Decision:** Add Telegram and repo-side product-flow handoffs to each Shopier
+dashboard batch review sample row.
+
+**Why:** D-400 made `/shopier dashboard` useful before queueing by showing
+ready/blocked/queued/synced sample rows, and D-406 made `smoke:shopier:read`
+mirror those rows. After D-427, catalog loading rows had exact product-flow
+preflight commands, but Shopier dashboard rows still only showed a single
+manual next action. Queue decisions should see `/productflow <ref>` and the
+matching `smoke:product-flow:read` command before publish or retry work.
+
+**Implementation:**
+
+- `src/lib/shopierPublishControl.ts` now adds `flowCommand` and
+  `runtimeFlowCommand` to each `ShopierDashboardReviewRow`.
+- `formatShopierOperatorDashboard()` renders each row's existing `nextAction`,
+  Telegram `/productflow <ref>`, and exact repo command
+  `npm run smoke:product-flow:read -- --product=<ref> --confirm-read-only`.
+- `src/lib/shopierPublishControl.test.ts` covers the new row fields and
+  formatted dashboard output.
+- `scripts/runtime-smoke-governance.ts` now requires the Shopier smoke script
+  to preserve `flowCommand` and `runtimeFlowCommand` surfaces.
+
+**Guardrails:** Read-only visibility/preflight only. No product write, queue
+job, publish, redispatch, external dispatch, provider call, Shopier call,
+SupplierScout activation, retired-channel activation, ad spend, deploy, commit,
+branch, push, or PR action was performed.
+
+**Validation:** `npm run test:shopier-publish-control`,
+`npm run test:runtime-smokes`, `npm run test:source-pack`,
+`npm run test:local-release-candidate`, `npm run test:local-pr-review`,
+release/PR/source-pack governance, `npm run typecheck`, `npm run lint` with
+0 errors / 71 warnings, `git diff --check`, and full `npm run validate` passed
+locally.
+
+## D-429
+
+**Title:** Shopier preview product-flow handoff
+
+**Date:** 2026-07-12 - LOCAL ONLY, NOT DEPLOYED
+
+**Decision:** Add product-flow preflight handoffs to Shopier publish-ready and
+retry preview rows, and allow read-only previews without `SHOPIER_PAT` while
+keeping confirmed queue/retry actions credential-gated.
+
+**Why:** D-428 gave `/shopier dashboard` and `smoke:shopier:read` exact
+product-flow preflight commands before queue decisions. The actual
+`/shopier publish-ready` and `/shopier retry-errors` preview screens still
+required the operator to infer the same preflight path, and the Telegram route
+could stop at missing `SHOPIER_PAT` before showing read-only candidates. Preview
+visibility should not require credentials; only confirm should queue.
+
+**Implementation:**
+
+- `formatShopierBatchPlan()` now prints `/productflow <ref>` and exact
+  `npm run smoke:product-flow:read -- --product=<ref> --confirm-read-only`
+  handoffs for ready and blocked preview rows.
+- `formatShopierRetryPlan()` now prints the same handoffs for safe-retry and
+  blocked preview rows.
+- Confirmed batch/retry output omits these preflight rows after queueing.
+- Telegram `/shopier publish-ready` and `/shopier retry-errors` now render
+  previews without `SHOPIER_PAT`; their `confirm` forms remain blocked when
+  `SHOPIER_PAT` is missing.
+- `scripts/shopier-command-governance.ts` guards that PAT checks remain scoped
+  to `confirmed && !process.env.SHOPIER_PAT`.
+
+**Guardrails:** Read-only preview/preflight by default. No product write, queue
+job outside explicit confirm, publish, redispatch, external dispatch, provider
+call, direct Shopier call, SupplierScout activation, retired-channel activation,
+ad spend, deploy, commit, branch, push, or PR action was performed.
+
+**Validation:** `npm run test:shopier-publish-control`,
+`npm run test:shopier-commands`, `npm run test:source-pack`,
+`npm run test:local-release-candidate`, `npm run test:local-pr-review`,
+`npm run test:runtime-smokes`, `npm run typecheck`, `npm run lint` with
+0 errors / 71 warnings, `git diff --check`, and full `npm run validate` passed
+locally.
+
+## D-430
+
+**Title:** Operator smoke-plan Shopier handoff alignment
+
+**Date:** 2026-07-12 - LOCAL ONLY, NOT DEPLOYED
+
+**Decision:** Add a dedicated `/smokeplan` operator hold that points operators
+to the Shopier row product-flow handoffs before any Shopier confirm action.
+
+**Why:** D-428 and D-429 made `/shopier dashboard`, `/shopier publish-ready`,
+and `/shopier retry-errors` show `/productflow <ref>` plus exact repo
+`smoke:product-flow:read` commands. The safe live-smoke checklist should teach
+the same discipline instead of jumping from Shopier preview reads straight to
+the final queue/publish hold.
+
+**Implementation:**
+
+- `src/lib/operatorSmokePlan.ts` now inserts `shopier-flow-handoff` after the
+  Shopier dashboard/publish-ready/error/retry read step.
+- The hold tells operators to use `/productflow <ref>` plus
+  `npm run smoke:product-flow:read -- --product=<ref> --confirm-read-only`
+  from the Shopier preview rows.
+- The formatted plan title now reflects the latest local boundary as `Operator Live Smoke Plan (D-389/D-449)`.
+- `src/lib/operatorSmokePlan.test.ts` checks the new hold order, formatter
+  wording, and that unsafe queue/publish/redispatch/ad commands remain absent.
+
+**Guardrails:** Read-only checklist/handoff only. No product write, queue job,
+publish, redispatch, external dispatch, provider call, Shopier call,
+SupplierScout activation, retired-channel activation, ad spend, deploy, commit,
+branch, push, or PR action was performed.
+
+**Validation:** `npm run test:operator-smoke-plan`,
+`npm run test:source-pack`, `npm run test:local-release-candidate`,
+`npm run test:local-pr-review`, `npm run test:runtime-smokes`,
+`npm run typecheck`, `npm run lint` with 0 errors / 71 warnings,
+`git diff --check`, and full `npm run validate` passed locally.
+
+## D-431
+
+**Title:** Operator smoke-plan Shopier credential hold
+
+**Date:** 2026-07-12 - LOCAL ONLY, NOT DEPLOYED
+
+**Decision:** Add a dedicated `/smokeplan` operator hold for Shopier credential
+and webhook readiness before any Shopier confirm action.
+
+**Why:** D-430 made the live-smoke checklist pause on Shopier row product-flow
+handoffs, but the remaining real blocker is credential and webhook readiness.
+The operator should explicitly verify `SHOPIER_PAT`, webhook readiness, account
+permission, and quota/readiness outside chat before queueing publish-ready or
+retry work.
+
+**Implementation:**
+
+- `src/lib/operatorSmokePlan.ts` now inserts `shopier-credential-hold` after
+  `shopier-flow-handoff` and before the final queue/publish hold.
+- The hold tells operators to verify `SHOPIER_PAT`, Shopier webhook readiness,
+  account permission, and quota/readiness outside chat without pasting secrets.
+- `src/lib/operatorSmokePlan.test.ts` checks the hold order, formatter wording,
+  and that unsafe queue/publish/redispatch/ad commands remain absent.
+
+**Guardrails:** Read-only checklist/handoff only. No secret read, product write,
+queue job, publish, redispatch, external dispatch, provider call, Shopier call,
+SupplierScout activation, retired-channel activation, ad spend, deploy, commit,
+branch, push, or PR action was performed.
+
+**Validation:** `npm run test:operator-smoke-plan`, `npm run test:source-pack`,
+`npm run test:local-release-candidate`, `npm run test:local-pr-review`,
+`npm run test:runtime-smokes`, `npm run typecheck`, `npm run lint` with 0 errors
+/ 71 warnings, `git diff --check`, and full `npm run validate` passed locally.

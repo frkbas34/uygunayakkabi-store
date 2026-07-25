@@ -5,8 +5,6 @@
 import payload from "payload";
 import config from "./payload.config";
 
-const PLACEHOLDER = "/products/kahve-deri.jpg";
-
 const seedProducts = [
   {
     name: "Deri Runner — Çikolata",

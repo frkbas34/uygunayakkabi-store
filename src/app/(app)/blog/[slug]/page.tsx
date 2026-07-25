@@ -1,7 +1,9 @@
 import { getPayload } from '@/lib/payload'
+import Image from 'next/image'
 import { notFound } from 'next/navigation'
 import Link from 'next/link'
 import type { Metadata } from 'next'
+import { serializeJsonLd } from '@/lib/structuredData'
 
 export const dynamic = 'force-dynamic'
 
@@ -64,7 +66,12 @@ async function getPost(slug: string): Promise<BlogPostDoc | undefined> {
     const payload = await getPayload()
     const { docs } = await payload.find({
       collection: 'blog-posts',
-      where: { slug: { equals: slug } },
+      where: {
+        and: [
+          { slug: { equals: slug } },
+          { status: { equals: 'published' } },
+        ],
+      },
       depth: 2,
       limit: 1,
     })
@@ -205,7 +212,7 @@ export default async function BlogDetailPage({ params }: Props) {
     <>
       <script
         type="application/ld+json"
-        dangerouslySetInnerHTML={{ __html: JSON.stringify(articleJsonLd) }}
+        dangerouslySetInnerHTML={{ __html: serializeJsonLd(articleJsonLd) }}
       />
 
       <article className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
@@ -243,9 +250,12 @@ export default async function BlogDetailPage({ params }: Props) {
         {/* Featured image */}
         {featuredImageUrl && (
           <div className="mb-10 rounded-xl overflow-hidden bg-gray-100">
-            <img
+            <Image
               src={featuredImageUrl}
               alt={post.title}
+              width={1200}
+              height={675}
+              sizes="(max-width: 768px) 100vw, 768px"
               className="w-full h-auto object-cover max-h-96"
             />
           </div>
@@ -333,11 +343,13 @@ export default async function BlogDetailPage({ params }: Props) {
                     href={`/products/${product.slug}`}
                     className="group block"
                   >
-                    <div className="aspect-square rounded-lg overflow-hidden bg-gray-100 mb-2">
+                    <div className="relative aspect-square rounded-lg overflow-hidden bg-gray-100 mb-2">
                       {prodImage ? (
-                        <img
+                        <Image
                           src={prodImage}
                           alt={product.title || ''}
+                          fill
+                          sizes="(max-width: 640px) 50vw, 33vw"
                           className="w-full h-full object-cover group-hover:scale-105 transition-transform"
                         />
                       ) : (

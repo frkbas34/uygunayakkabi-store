@@ -46,7 +46,7 @@ export interface ScanField {
 export const BLOCKED_BRANDS: string[] = [
   'Louis Vuitton', 'LV', 'BOSS', 'Hugo Boss', 'New Balance', 'Nike', 'Adidas',
   'Puma', 'Jordan', 'Gucci', 'Prada', 'Dior', 'Chanel', 'Balenciaga', 'Versace',
-  'Fendi', 'Armani', 'Lacoste', 'Tommy Hilfiger', 'Calvin Klein', 'Vans', 'Converse',
+  'Fendi', 'Armani', 'Lacoste', 'Tommy Hilfiger', 'Calvin Klein', 'Vans', 'Converse', 'Camper',
   // D-344A: added missing third-party brands (Asics found live on storefront; rest per cleanup policy)
   'Asics', 'Reebok', 'Skechers', 'Loro Piana',
 ]

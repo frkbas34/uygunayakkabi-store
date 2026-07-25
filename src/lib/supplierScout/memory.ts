@@ -16,7 +16,7 @@
  */
 
 import type { Payload } from 'payload'
-import type { LanguageMemoryEntry, SellerMemoryEntry, CorrectionMemoryEntry } from './types'
+import type { SellerMemoryEntry, CorrectionMemoryEntry } from './types'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Language Memory

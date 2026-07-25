@@ -21,6 +21,7 @@ import { countUsableMediaRows } from './productMedia'
 import { resolveConfiguredTargets } from './productActivationGuard'
 import { buildProductUtmUrl } from './utmBuilder'
 import { evaluateImageQualityGate } from './imageQualityGate'
+import { isPublicStorefrontProduct, isStorefrontProductSafe } from './merchandising'
 
 export type AdReadinessLevel = 'ready' | 'review' | 'blocked'
 
@@ -73,12 +74,14 @@ export function evaluateAdReadiness(product: AdProduct): AdReadinessResult {
     const stock = summarizeProductStock(p as any)
     const targets = resolveConfiguredTargets(p as any)
     const brand = scanProductBrandSafety(p)
+    const storefrontSafe = isStorefrontProductSafe(p)
+    const adLandingPageAvailable = status === 'active' && slug !== null && isPublicStorefrontProduct(p)
 
     const checks: AdReadinessCheck[] = []
 
     // 1. Product page readiness — ad must point at a live, indexable page.
     checks.push(
-      status === 'active' && slug
+      adLandingPageAvailable
         ? { key: 'product_page', label: 'Ürün sayfası yayında', ok: true, detail: `status=active · /products/${slug}` }
         : {
             key: 'product_page',
@@ -86,7 +89,9 @@ export function evaluateAdReadiness(product: AdProduct): AdReadinessResult {
             ok: false,
             detail: status !== 'active'
               ? `Ürün aktif değil (status=${status}) — reklam taslak/gizli sayfaya gider`
-              : 'Slug yok — ürün linki üretilemez',
+              : !storefrontSafe
+                ? 'Storefront safety policy blocks this product page — ads cannot point to it'
+                : 'Slug yok — ürün linki üretilemez',
           },
     )
 
@@ -129,28 +134,30 @@ export function evaluateAdReadiness(product: AdProduct): AdReadinessResult {
 
     // 4. Working channel link — at least one configured channel + a resolvable product URL.
     checks.push(
-      slug && targets.length > 0
+      adLandingPageAvailable && targets.length > 0
         ? { key: 'channel_link', label: 'Çalışan kanal/ürün linki', ok: true, detail: `hedefler: ${targets.join(', ')}` }
         : {
             key: 'channel_link',
             label: 'Çalışan kanal/ürün linki',
             ok: false,
-            detail: !slug ? 'Slug yok — link üretilemez' : 'Yapılandırılmış aktif kanal hedefi yok',
+            detail: !adLandingPageAvailable
+              ? 'Public product page is unavailable — channel landing link cannot be used'
+              : 'Yapılandırılmış aktif kanal hedefi yok',
           },
     )
 
     // 5. UTM readiness — a slug means a tagged landing link can be built via /utm.
     checks.push(
-      slug
+      adLandingPageAvailable
         ? { key: 'utm_ready', label: 'UTM hazır', ok: true, detail: '/utm ile etiketli link üretilebilir' }
-        : { key: 'utm_ready', label: 'UTM hazır', ok: false, detail: 'Slug yok — UTM linki üretilemez' },
+        : { key: 'utm_ready', label: 'UTM hazır', ok: false, detail: 'Public product page is unavailable — UTM link cannot be generated' },
     )
 
     // 6. Lead visibility — an active product page renders the lead form + WhatsApp CTA.
     checks.push(
-      status === 'active'
+      adLandingPageAvailable
         ? { key: 'lead_visibility', label: 'Lead formu görünür', ok: true, detail: 'Aktif ürün sayfası talep formunu gösterir' }
-        : { key: 'lead_visibility', label: 'Lead formu görünür', ok: false, detail: 'Ürün aktif değil — lead formu görünmez' },
+        : { key: 'lead_visibility', label: 'Lead formu görünür', ok: false, detail: 'Public product page is unavailable — lead form cannot be reached' },
     )
 
     // 7. Brand safety — never advertise a protected-brand-infringing product (hard block).
@@ -182,7 +189,9 @@ export function evaluateAdReadiness(product: AdProduct): AdReadinessResult {
     const level: AdReadinessLevel =
       blockers.length > 0 ? 'blocked' : warnings.length > 0 ? 'review' : 'ready'
 
-    const sampleUtmUrl = slug ? buildProductUtmUrl(slug, 'instagram', 'social', 'manual_ads') : null
+    const sampleUtmUrl = adLandingPageAvailable && slug
+      ? buildProductUtmUrl(slug, 'instagram', 'social', 'manual_ads')
+      : null
 
     const summary =
       level === 'ready'
@@ -219,6 +228,35 @@ const LEVEL_LABEL: Record<AdReadinessLevel, string> = {
   blocked: 'REKLAM VERİLEMEZ',
 }
 
+function productRef(product: Record<string, any>): string {
+  const stockNumber = typeof product.stockNumber === 'string' && product.stockNumber.trim()
+    ? product.stockNumber.trim()
+    : null
+  return stockNumber ?? String(product.id ?? '?')
+}
+
+function adReadinessNextActions(product: Record<string, any>, result: AdReadinessResult): string[] {
+  const ref = productRef(product)
+  const actions: string[] = []
+  const mediaCheck = result.checks.find((check) => check.key === 'media_clean')
+
+  if (result.blockers.length > 0) {
+    actions.push(`<code>/productflow ${ref}</code> - inspect product blockers before any ad work.`)
+  }
+
+  if (mediaCheck && !mediaCheck.ok) {
+    actions.push(`<code>/imageplan ${ref}</code> - review image QC/regeneration options before ads.`)
+  }
+
+  if (result.level !== 'blocked') {
+    actions.push('<code>npm run test:storefront-trust</code> - confirm PDP conversion/trust guardrails before paid traffic.')
+    actions.push(`<code>/adpack ${ref} manual_ads</code> - prepare read-only copy and UTM drafts for operator review.`)
+    actions.push(`<code>/adreport week</code> - read UTM lead/order evidence after manual traffic starts.`)
+  }
+
+  return actions
+}
+
 /**
  * Format the ad-readiness checklist as a compact Telegram HTML message.
  * Output is informational only — it never publishes or spends.
@@ -243,5 +281,10 @@ export function formatAdReadinessMessage(product: AdProduct, result: AdReadiness
   }
 
   lines.push('', '<i>Bu bir kontrol listesidir — hiçbir reklam yayınlanmaz veya harcama yapılmaz. Yayını siz başlatırsınız.</i>')
+  const nextActions = adReadinessNextActions(p, result)
+  if (nextActions.length > 0) {
+    lines.push('', '<b>Next safe reads</b>', ...nextActions)
+  }
+
   return lines.join('\n')
 }

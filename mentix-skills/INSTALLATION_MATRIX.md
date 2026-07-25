@@ -1,162 +1,69 @@
-# Mentix Skill Stack — Installation Matrix
+# Mentix Skill Stack - Installation Matrix
 
-_Created: 2026-03-16_
-_Status: Current-truth sync required before VPS deployment_
+Created: 2026-03-16
+Last updated: 2026-07-24
 
----
+Status: Hermes is current. OpenClaw is historical/optional unless explicitly reactivated, and VPS state must be verified before any optional OpenClaw sync or live use.
 
-## 1. CURRENT STATE AUDIT
+## Verification Rule
 
-### What Already Exists
-| Component | Status | Location |
-|-----------|--------|----------|
-| mentix-intake skill | ✅ LIVE | VPS: `/home/furkan/.openclaw/skills/mentix-intake/SKILL.md` |
-| OpenClaw gateway | ✅ Running | VPS Docker, port 18789 |
-| Telegram bot (mentix_aibot) | ✅ Connected | OpenClaw Telegram channel |
-| n8n workflow engine | OPTIONAL / VERIFY | VPS Docker, `flow.uygunayakkabi.com`; no new n8n work until product flow is stable |
-| Payload CMS + automation API | ✅ LIVE | Vercel, `uygunayakkabi.com/admin` |
-| Storefront | ✅ LIVE | Vercel, `uygunayakkabi.com` |
-| PostgreSQL (Neon) | ✅ Running | Cloud-hosted |
-| Caddy reverse proxy | ✅ Running | VPS Docker |
-| Channel dispatch stubs | HISTORICAL / VERIFY | Do not add Dolap/Threads/n8n stubs; active channels are Website, Instagram, Facebook, X, Shopier |
-| Project memory docs | ✅ Maintained | Repo: `project-control/` |
+This matrix describes the expected repo-side skill set for optional OpenClaw reactivation. It must not be treated as proof that a skill is installed, loaded, or working on VPS OpenClaw.
 
-### Failed Previous Skill Installs
-| Skill | Reason | Impact |
-|-------|--------|--------|
-| clawhub | Homebrew not available on Ubuntu | Non-blocking |
-| github | npm DNS resolution failure (EAI_AGAIN) | Non-blocking |
-| gog | Same as above | Non-blocking |
-| xurl | Same as above | Non-blocking |
+Use `mentix-skills/OPENCLAW_VPS_VERIFICATION.md` before any copy, restart, or live Telegram/OpenClaw prompt. Until that verification is recorded, VPS install status is `VERIFY ON VPS`.
 
-### Identified Gaps
-- No monitoring/health check system
-- No structured memory system for operational learning
-- No security vetting process for new additions
-- No image processing pipeline
-- No content publishing workflow beyond channel stubs
-- No research/intelligence capability
-- No backend architectural advisory
-- No self-improvement/learning loop
+D-463 makes the output boundary explicit: these are repo templates for optional reactivation. Hermes/Mentix is current; no matrix row proves a live VPS skill. Product debugging remains read-only, content/research remains operator-reviewed drafting, backend work remains advisory, and only durable PII-light project decisions belong in repo control memory.
 
----
+## Current Architecture
 
-## 2. SKILL INSTALLATION MATRIX
+- Payload/Next is the source of truth and execution layer.
+- Hermes is the current agent-control layer.
+- OpenClaw is historical/optional unless explicitly reactivated.
+- n8n is optional glue only.
+- Active channels are Website, Instagram, Facebook, X, and Shopier.
+- Dolap and Threads are retired.
+- SupplierScout is dormant.
+- Business strategy is own-products-only.
+- Live-smoke planning starts with `/smokeplan`.
 
-| # | Skill | Purpose | Level | Install Status | Activation | Risk | Dependencies | Prerequisites |
-|---|-------|---------|-------|---------------|------------|------|--------------|---------------|
-| 1 | **skill-vetter** | Security/quality gateway for new skills | A | ✅ READY | Active immediately | LOW | None | None |
-| 2 | **browser-automation** | Web inspection, screenshot, verification | A | ✅ READY | Active (READ-ONLY) | LOW | None | Browser access from OpenClaw |
-| 3 | **sql-toolkit** | Database diagnostics and analysis | A | ✅ READY | Active (READ-FIRST) | MEDIUM | DATABASE_URI | DB credentials in OpenClaw env |
-| 4 | **agent-memory** | Structured operational memory | A | ✅ READY | Active immediately | LOW | Filesystem access | Data dir created on VPS |
-| 5 | **github-workflow** | Repo state, issues, PR support | A | ✅ READY | Active immediately | LOW | GitHub CLI or API | GitHub token or SSH key on VPS |
-| 6 | **uptime-kuma** | Service health monitoring | A | ✅ READY | Active immediately | LOW | HTTP access | None |
-| 7 | **eachlabs-image-edit** | Product image enhancement | B | ✅ READY | Controlled (approval-per-op) | MEDIUM | Image API key, Blob token | API credentials configured |
-| 8 | **upload-post** | Social media content drafting | B | ✅ READY | Controlled (draft-only) | MEDIUM | Channel API access | Channel integrations live |
-| 9 | **research-cog** | Market research, competitor intel | B | ✅ READY | Controlled (info-only) | LOW | Web search access | None |
-| 10 | **senior-backend** | Architecture & backend advisory | B | ✅ READY | Controlled (advisory-only) | LOW | Codebase access | None |
-| 11 | **learning-engine** | Self-observation, scoring, proposals | C | ✅ READY | Observe-only | LOW | agent-memory | Memory system active |
+## Expected Repo Skill Matrix
 
----
+| Skill | Purpose | Expected mode | VPS status | Risk | Notes |
+| --- | --- | --- | --- | --- | --- |
+| `mentix-intake` | Route Mentix requests to the right skill | Read-first | VERIFY ON VPS | Medium | Must route live-smoke planning to `/smokeplan` first. |
+| `product-flow-debugger` | Explain product visibility, readiness, and publishing blockers | Read-only diagnostics | VERIFY ON VPS | Low | Should use `/productflow` evidence shape. |
+| `agent-memory` | Store concise operational memory | Controlled writes | VERIFY ON VPS | Low | Durable architecture decisions still need source-pack updates. |
+| `skill-vetter` | Review new skills before activation | Advisory gate | VERIFY ON VPS | Low | Should run before adding new skills. |
+| `browser-automation` | Visual inspection and browser checks | Read-only by default | VERIFY ON VPS | Medium | Requires browser capability on VPS/container. |
+| `sql-toolkit` | Database diagnostics | Read-first | VERIFY ON VPS | Medium | Must not print secrets or mutate without approval. |
+| `github-workflow` | Repo, issue, and PR support | Advisory | VERIFY ON VPS | Low | Requires auth only if used. |
+| `uptime-kuma` | Service health visibility | Read-only | VERIFY ON VPS | Low | Optional monitoring helper. |
+| `eachlabs-image-edit` | Product image enhancement | Approval per operation | VERIFY ON VPS | Medium | Defer until image provider credentials and approval gates are confirmed. |
+| `upload-post` | Draft social/channel copy | Draft-only | VERIFY ON VPS | Medium | No auto-publish. Active channels only. |
+| `research-cog` | Market/product/SEO research | Informational only | VERIFY ON VPS | Low | No supplier sourcing; own-products-only. |
+| `senior-backend` | Architecture and backend advisory | Advisory only | VERIFY ON VPS | Low | Must keep Payload as source of truth. |
+| `learning-engine` | Observe and summarize repeated patterns | Observe-only | VERIFY ON VPS | Low | No auto-modification. |
 
-## 3. ACTIVATION LEVELS
+## Optional Deployment Order After Verification
 
-### LEVEL A — Active from Day One (6 skills)
-These skills are safe to enable immediately. They operate in read/inspect/diagnostic mode by default.
+1. Confirm the operator explicitly reactivated OpenClaw for the current task.
+2. Verify current VPS directory and logs with `OPENCLAW_VPS_VERIFICATION.md`.
+3. Sync only reviewed skills needed for the next operator workflow.
+4. Restart OpenClaw only after the copied set is known and approved.
+5. Test read-only Telegram prompts.
+6. Record observed results in project-control notes if the deployment decision changes.
 
-**Deployment order:**
-1. `agent-memory` — Foundation for all other skills to store/retrieve context
-2. `skill-vetter` — Gateway must be active before adding more skills
-3. `sql-toolkit` — Core diagnostic capability
-4. `github-workflow` — Development workflow support
-5. `uptime-kuma` — Health monitoring
-6. `browser-automation` — Visual verification
+## Read-Only Telegram Verification Prompts
 
-### LEVEL B — Installed but Controlled (4 skills)
-These skills are installed but operate with explicit approval gates on every action.
+- `@Mentix canli smoke planini goster` -> should answer that Telegram `/smokeplan` comes first.
+- `@Mentix bu urun neden gorunmuyor` -> should ask for a product ref or use `/productflow` evidence, not invent state.
+- `@Mentix shopier hazir mi` -> should mention shared Shopier/Web gate and stop before queueing.
+- `@Mentix dolap icin hazirla` -> should refuse because Dolap is retired.
+- `@Mentix supplierscout calistir` -> should refuse because SupplierScout is dormant.
 
-**Constraints:**
-- `eachlabs-image-edit` — Single image + user approval per operation
-- `upload-post` — Draft-only mode, no auto-publishing
-- `research-cog` — Informational output only, no automated actions
-- `senior-backend` — Advisory only, no auto-implementation
+## Open Questions
 
-### LEVEL C — Observe-First (1 skill)
-- `learning-engine` — Observe, log, score, summarize, propose. NEVER auto-modify.
-
----
-
-## 4. DEPLOYMENT PROCEDURE
-
-### Step 1: Copy skill files to VPS
-```bash
-# From local machine, copy skills to VPS
-scp -r mentix-skills/* furkan@VPS_IP:/home/furkan/.openclaw/skills/
-```
-
-### Step 2: Verify directory structure on VPS
-```bash
-ls -la /home/furkan/.openclaw/skills/
-# Should show: mentix-intake/ skill-vetter/ browser-automation/ sql-toolkit/
-#              agent-memory/ github-workflow/ uptime-kuma/ eachlabs-image-edit/
-#              upload-post/ research-cog/ senior-backend/ learning-engine/
-```
-
-### Step 3: Create agent-memory data directory
-```bash
-mkdir -p /home/furkan/.openclaw/skills/agent-memory/data/{incidents,patterns,knowledge,decisions,rewards}
-```
-
-### Step 4: Restart OpenClaw gateway
-```bash
-cd /opt/openclaw && docker compose restart
-```
-
-### Step 5: Verify skills loaded
-```bash
-# Check OpenClaw logs
-docker logs openclaw-openclaw-gateway-1 --tail 50
-```
-
-### Step 6: Test via Telegram
-Send a message to @mentix_aibot:
-- "Sağlık kontrolü yap" → should trigger uptime-kuma
-- "Veritabanı durumu" → should trigger sql-toolkit
-- "Repo durumu" → should trigger github-workflow
-
----
-
-## 5. RISK REGISTER
-
-| Risk | Severity | Mitigation |
-|------|----------|------------|
-| OpenClaw may not recognize all skills automatically | MEDIUM | Verify skill loading in gateway logs; may need openclaw.json update |
-| sql-toolkit needs DB credentials in OpenClaw env | MEDIUM | Add DATABASE_URI to OpenClaw's environment (docker-compose) |
-| browser-automation may lack headless browser on VPS | MEDIUM | May need Playwright/Puppeteer install in OpenClaw container |
-| GitHub skill needs auth token | LOW | Add GITHUB_TOKEN to OpenClaw environment |
-| Image edit requires EachLabs API setup | LOW | Deferred — Level B, not needed day one |
-| learning-engine storage may grow unbounded | LOW | Size limits defined in SKILL.md (1000 rewards, 200 patterns) |
-| OpenClaw gateway restart may disconnect Telegram | LOW | Re-pair if needed after restart |
-
----
-
-## 6. OPEN QUESTIONS
-
-1. **OpenClaw skill registration:** Does OpenClaw auto-discover SKILL.md files in the skills directory, or does each need to be registered in openclaw.json?
-2. **Environment variables:** Can OpenClaw skills access VPS environment variables (DATABASE_URI, GITHUB_TOKEN, etc.), or do they need to be in openclaw.json?
-3. **Browser access:** Does OpenClaw have headless browser capability for browser-automation, or does it need a separate tool (Playwright)?
-4. **Skill-to-skill communication:** Can OpenClaw skills invoke each other, or does each need to be triggered independently?
-5. **npm DNS issue:** Previous skill installs (clawhub, github) failed due to npm DNS. Has this been resolved?
-
----
-
-## 7. NEXT BEST ACTIONS
-
-1. **IMMEDIATE** — Run repo validation, including `npm run test:mentix-skills`
-2. **IMMEDIATE** — Verify the VPS skill directory before copying anything
-3. **IMMEDIATE** — Deploy only after OpenClaw/Mentix current-truth guardrails pass
-4. **SHORT-TERM** — Configure environment variables for sql-toolkit and github-workflow
-5. **SHORT-TERM** — Run E2E stub test (still pending from Step 16)
-6. **MEDIUM-TERM** — Set up Level B skills after Level A is confirmed working
-7. **MEDIUM-TERM** — Configure image processing API for eachlabs-image-edit
-8. **LATER** — Begin learning-engine data collection once other skills produce events
+1. Does OpenClaw auto-discover `SKILL.md` files in the skills directory, or does each need registration?
+2. Can OpenClaw skills access required environment variables without printing values?
+3. Does the VPS/container have browser support for browser-automation?
+4. Which repo skills are actually present on VPS today?
+5. Which read-only Telegram prompts pass after sync?

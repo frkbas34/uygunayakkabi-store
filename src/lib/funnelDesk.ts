@@ -315,6 +315,24 @@ function renderSourceBlock(r: FunnelSourceRow): string[] {
   return lines
 }
 
+function funnelNextActions(d: FunnelSnapshot): string[] {
+  const lines: string[] = []
+  const openLeadWork = d.totals.stages.new + d.totals.stages.contacted + d.totals.stages.follow_up
+  if (openLeadWork > 0) {
+    lines.push(`<code>/leadplan</code> - prioritize open funnel leads without writing leads.`)
+  }
+  if (d.totals.ordersConverted > 0 || d.directOrders.count > 0) {
+    lines.push(`<code>/orders</code> - review converted/direct order state before queue decisions.`)
+  }
+  if (
+    d.attributionDetail &&
+    (d.attributionDetail.topUtmSources.length > 0 || d.attributionDetail.topUtmCampaigns.length > 0)
+  ) {
+    lines.push(`<code>/adreport week</code> - compare UTM leads with related orders before ad decisions.`)
+  }
+  return lines
+}
+
 export function formatFunnelSnapshot(d: FunnelSnapshot): string {
   // Empty short-circuit
   const noActivity =
@@ -376,5 +394,10 @@ export function formatFunnelSnapshot(d: FunnelSnapshot): string {
   }
 
   lines.push(``, `<i>/leads · /orders · /business · /sales today</i>`)
+  const nextActions = funnelNextActions(d)
+  if (nextActions.length > 0) {
+    lines.push(``, `<b>Next safe reads</b>`, ...nextActions)
+  }
+
   return lines.join('\n')
 }

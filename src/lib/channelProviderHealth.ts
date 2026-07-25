@@ -1,5 +1,6 @@
 import type { AutomationSettingsSnapshot } from './automationDecision'
 import type { SupportedChannel } from './channelDispatch'
+import { resolveMetaProviderCredentials } from './metaProviderCredentials'
 
 export type ProviderHealthState = 'ready' | 'fallback' | 'disabled' | 'missing'
 
@@ -14,6 +15,7 @@ export type ChannelProviderHealth = {
 type EnvLike = Record<string, string | undefined>
 
 const EXTERNAL_CHANNELS: SupportedChannel[] = ['instagram', 'facebook', 'x', 'shopier']
+export const X_OAUTH_ENV_KEYS = ['X_API_KEY', 'X_API_SECRET', 'X_ACCESS_TOKEN', 'X_ACCESS_TOKEN_SECRET'] as const
 
 function hasValue(value: unknown): boolean {
   return typeof value === 'string' && value.trim().length > 0
@@ -21,6 +23,14 @@ function hasValue(value: unknown): boolean {
 
 function envHas(env: EnvLike, key: string): boolean {
   return hasValue(env[key])
+}
+
+export function missingXOAuthCredentials(env: EnvLike = process.env): string[] {
+  return X_OAUTH_ENV_KEYS.filter((key) => !envHas(env, key))
+}
+
+export function hasCompleteXOAuthCredentials(env: EnvLike = process.env): boolean {
+  return missingXOAuthCredentials(env).length === 0
 }
 
 function isGloballyDisabled(settings: AutomationSettingsSnapshot | null | undefined, channel: SupportedChannel): boolean {
@@ -58,12 +68,12 @@ function evaluateExternalChannelProvider(
 
   const webhookKey = channelWebhookKey(channel)
   const hasWebhook = envHas(env, webhookKey)
-  const instagramTokens = settings?.instagramTokens
+  const metaCredentials = resolveMetaProviderCredentials(settings, env)
 
   if (channel === 'instagram') {
     const directMissing = [
-      !hasValue(instagramTokens?.accessToken) ? 'AutomationSettings.instagramTokens.accessToken' : null,
-      !hasValue(instagramTokens?.userId) ? 'AutomationSettings.instagramTokens.userId' : null,
+      !metaCredentials.accessToken ? 'AutomationSettings.instagramTokens.accessToken' : null,
+      !metaCredentials.instagramUserId ? 'AutomationSettings.instagramTokens.userId' : null,
     ].filter((entry): entry is string => !!entry)
 
     if (directMissing.length === 0) {
@@ -79,8 +89,8 @@ function evaluateExternalChannelProvider(
 
   if (channel === 'facebook') {
     const directMissing = [
-      !hasValue(instagramTokens?.accessToken) ? 'AutomationSettings.instagramTokens.accessToken' : null,
-      !hasValue(instagramTokens?.facebookPageId) ? 'AutomationSettings.instagramTokens.facebookPageId' : null,
+      !metaCredentials.accessToken ? 'AutomationSettings.instagramTokens.accessToken' : null,
+      !metaCredentials.facebookPageId ? 'INSTAGRAM_PAGE_ID' : null,
     ].filter((entry): entry is string => !!entry)
 
     if (directMissing.length === 0) {
@@ -95,7 +105,7 @@ function evaluateExternalChannelProvider(
   }
 
   if (channel === 'x') {
-    const directMissing = ['X_API_KEY', 'X_API_SECRET', 'X_ACCESS_TOKEN', 'X_ACCESS_TOKEN_SECRET'].filter((key) => !envHas(env, key))
+    const directMissing = missingXOAuthCredentials(env)
 
     if (directMissing.length === 0) {
       return { channel, state: 'ready', mode: 'direct', missing: [], notes: ['X OAuth 1.0a credentials present'] }

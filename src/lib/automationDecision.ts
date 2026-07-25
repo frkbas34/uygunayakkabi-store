@@ -46,13 +46,13 @@ export type AutomationSettingsSnapshot = {
     autoGenerateExtraViews?: boolean | null
     enableTryOn?: boolean | null
   }
-  /** Instagram + Facebook OAuth tokens — written by /api/auth/instagram/callback + admin */
+  /** Instagram + Facebook OAuth tokens — written by /api/auth/instagram/callback. */
   instagramTokens?: {
     accessToken?: string | null
     userId?: string | null
     expiresAt?: string | null
     connectedAt?: string | null
-    /** Facebook Page numeric ID — set manually in AutomationSettings admin */
+    /** Legacy in-memory Facebook Page ID. Production resolves INSTAGRAM_PAGE_ID instead. */
     facebookPageId?: string | null
   }
   /** X (Twitter) OAuth 2.0 tokens — written by /api/auth/x/callback */

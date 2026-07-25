@@ -3,14 +3,14 @@
  *
  * Receives webhook events from Shopier and:
  *  1. Verifies HMAC-SHA256 signature (Shopier-Signature header)
- *  2. Responds 200 OK within 5 seconds (Shopier requirement)
+ *  2. Responds 2xx only after the event completes; verified processing failures return 5xx for retry
  *  3. Creates / updates Order documents in Payload CMS
  *  4. Sends Telegram notification for order/refund events
  *
  * Webhook verification (from official Shopier Node.js recipe):
  *   const hash = crypto.createHmac('sha256', webhookToken)
- *     .update(JSON.stringify(body)).digest('hex')
- *   Compare hash === req.headers['shopier-signature']
+ *     .update(rawRequestBody).digest('hex')
+ *   Compare with req.headers['shopier-signature'] in constant time
  *
  * Shopier headers:
  *   Shopier-Signature — HMAC-SHA256 hex digest
@@ -23,9 +23,24 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server'
-import crypto from 'crypto'
 import { getPayload } from 'payload'
 import configPromise from '@payload-config'
+import {
+  decrementStockForShopierOrder,
+  restoreStockForShopierRefund,
+  type ShopierOrderItem,
+} from '@/lib/shopierOrderStock'
+import {
+  applyShopierRefundRequest,
+  applyShopierRefundUpdate,
+  extractShopierRefundRequestInfo,
+  extractShopierRefundUpdateInfo,
+  type ShopierRefundLifecyclePayload,
+} from '@/lib/shopierRefundLifecycle'
+import { applyOrderStatus } from '@/lib/orderDesk'
+import { runPayloadTransaction } from '@/lib/payloadTransaction'
+import { verifyShopierWebhookSignature } from '@/lib/shopierWebhookSecurity'
+import { isPostgresUniqueViolation } from '@/lib/shopierOrderIdempotency'
 
 export async function POST(req: NextRequest) {
   const startMs = Date.now()
@@ -33,7 +48,6 @@ export async function POST(req: NextRequest) {
   try {
     // ── 1. Read body and headers ──────────────────────────────────────────────
     const rawBody = await req.text()
-    const body = JSON.parse(rawBody) as Record<string, unknown>
 
     const shopierSignature = req.headers.get('shopier-signature') ?? ''
     const shopierEvent = req.headers.get('shopier-event') ?? ''
@@ -49,33 +63,40 @@ export async function POST(req: NextRequest) {
     // ── 2. Verify signature ───────────────────────────────────────────────────
     // SHOPIER_WEBHOOK_TOKEN may be a single token or comma-separated list
     // (each webhook registration returns its own token, so we try all of them)
-    const webhookTokenEnv = process.env.SHOPIER_WEBHOOK_TOKEN
-    if (webhookTokenEnv) {
-      const tokens = webhookTokenEnv.split(',').map((t) => t.trim()).filter(Boolean)
-      const bodyStr = JSON.stringify(body)
-      const signatureValid = tokens.some((tok) =>
-        crypto.createHmac('sha256', tok).update(bodyStr).digest('hex') === shopierSignature,
+    // ── 3. Respond 200 OK quickly (Shopier requires <5s) ─────────────────────
+    const verification = verifyShopierWebhookSignature({
+      rawBody,
+      signature: shopierSignature,
+      tokenEnv: process.env.SHOPIER_WEBHOOK_TOKEN,
+    })
+    if (!verification.ok) {
+      console.warn(
+        `[webhook/shopier] signature rejected - reason=${verification.reason} ` +
+          `configuredTokens=${verification.tokenCount}`,
       )
-      if (!signatureValid) {
-        console.warn(
-          `[webhook/shopier] signature mismatch — tried ${tokens.length} token(s), ` +
-            `received=${shopierSignature.slice(0, 16)}...`,
-        )
-        return NextResponse.json({ error: 'Invalid signature' }, { status: 401 })
-      }
-    } else {
-      console.warn('[webhook/shopier] SHOPIER_WEBHOOK_TOKEN not set — skipping signature verification')
+      return NextResponse.json(
+        {
+          error:
+            verification.reason === 'missing_configuration'
+              ? 'Webhook verification is not configured'
+              : 'Invalid signature',
+        },
+        { status: verification.reason === 'missing_configuration' ? 503 : 401 },
+      )
     }
 
-    // ── 3. Respond 200 OK quickly (Shopier requires <5s) ─────────────────────
-    // Process heavy work after sending response via non-blocking pattern.
-    // In Next.js App Router, we can't truly send response then continue,
-    // so we keep processing light and fast.
+    let body: Record<string, unknown>
+    try {
+      body = JSON.parse(rawBody) as Record<string, unknown>
+    } catch {
+      return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 })
+    }
+
+    // Process each verified event before acknowledgement so a failed transaction
+    // receives Shopier's retry instead of a false success response.
 
     // ── 4. Process event ──────────────────────────────────────────────────────
-    const telegramChatId = process.env.SHOPIER_NOTIFY_CHAT_ID
-      ? parseInt(process.env.SHOPIER_NOTIFY_CHAT_ID, 10)
-      : null
+    const telegramChatId = process.env.SHOPIER_NOTIFY_CHAT_ID ? parseInt(process.env.SHOPIER_NOTIFY_CHAT_ID, 10) : null
 
     switch (shopierEvent) {
       case 'order.created': {
@@ -89,7 +110,7 @@ export async function POST(req: NextRequest) {
       }
 
       case 'order.addressUpdated': {
-        const orderId = body.id as string ?? '?'
+        const orderId = (body.id as string) ?? '?'
         console.log(`[webhook/shopier] order.addressUpdated — orderId=${orderId}`)
         break
       }
@@ -108,8 +129,8 @@ export async function POST(req: NextRequest) {
       case 'product.updated': {
         // Log product webhook events but don't take action
         // (we're the source of truth — Shopier product changes are informational)
-        const productId = body.id as string ?? '?'
-        const productTitle = body.title as string ?? '?'
+        const productId = (body.id as string) ?? '?'
+        const productTitle = (body.title as string) ?? '?'
         console.log(`[webhook/shopier] ${shopierEvent} — productId=${productId} title="${productTitle}"`)
         break
       }
@@ -125,29 +146,21 @@ export async function POST(req: NextRequest) {
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)
     console.error(`[webhook/shopier] error:`, message)
-    // Still return 200 to prevent Shopier from retrying on our parsing errors
-    return NextResponse.json({ ok: false, error: message }, { status: 200 })
+    // A verified, valid event that cannot complete its transaction must retry.
+    return NextResponse.json({ ok: false, error: 'Webhook processing failed' }, { status: 500 })
   }
 }
 
 // ── order.created ────────────────────────────────────────────────────────────
 
-async function handleOrderCreated(
-  body: Record<string, unknown>,
-  telegramChatId: number | null,
-): Promise<void> {
+async function handleOrderCreated(body: Record<string, unknown>, telegramChatId: number | null): Promise<void> {
   const shopierOrderId = String(body.id ?? '')
   const status = (body.status as string) ?? 'new'
   const shippingInfo = body.shippingInfo as Record<string, unknown> | undefined
   const firstName = (shippingInfo?.firstName as string) ?? ''
   const lastName = (shippingInfo?.lastName as string) ?? ''
   const phone = (shippingInfo?.phone as string) ?? ''
-  const address = [
-    shippingInfo?.address,
-    shippingInfo?.district,
-    shippingInfo?.city,
-    shippingInfo?.country,
-  ]
+  const address = [shippingInfo?.address, shippingInfo?.district, shippingInfo?.city, shippingInfo?.country]
     .filter(Boolean)
     .join(', ')
 
@@ -156,18 +169,18 @@ async function handleOrderCreated(
 
   const items = (body.items as Array<Record<string, unknown>>) ?? []
   const firstItem = items[0]
-  const firstItemTitle = (firstItem?.title as string) ?? ''
   const firstItemQty = (firstItem?.quantity as number) ?? 1
   const firstItemSize = (firstItem?.selectedOptions as string) ?? ''
 
-  const itemSummary = items
-    .map((item) => {
-      const title = (item.title as string) ?? '?'
-      const qty = (item.quantity as number) ?? 1
-      const opts = (item.selectedOptions as string) ?? ''
-      return `  • ${title}${opts ? ` [${opts}]` : ''} x${qty}`
-    })
-    .join('\n') || '  (ürün bilgisi yok)'
+  const itemSummary =
+    items
+      .map((item) => {
+        const title = (item.title as string) ?? '?'
+        const qty = (item.quantity as number) ?? 1
+        const opts = (item.selectedOptions as string) ?? ''
+        return `  • ${title}${opts ? ` [${opts}]` : ''} x${qty}`
+      })
+      .join('\n') || '  (ürün bilgisi yok)'
 
   try {
     const payload = await getPayload({ config: configPromise })
@@ -184,6 +197,7 @@ async function handleOrderCreated(
       return
     }
 
+    const stockMutation = await runPayloadTransaction(payload, async (req) => {
     // Try to find matching local product by Shopier product ID stored during sync
     // Field path: sourceMeta.shopierProductId (group field in Products collection)
     let localProductId: number | undefined
@@ -193,6 +207,7 @@ async function handleOrderCreated(
         collection: 'products',
         where: { 'sourceMeta.shopierProductId': { equals: shopierProductId } },
         limit: 1,
+        req,
       })
       if (productMatch.docs.length > 0) {
         localProductId = productMatch.docs[0].id as number
@@ -209,28 +224,43 @@ async function handleOrderCreated(
       .join('\n')
 
     await payload.create({
-      collection: 'orders',
-      data: {
-        customerName: `${firstName} ${lastName}`.trim() || 'Shopier Müşteri',
-        customerPhone: phone || 'Shopier',
-        customerAddress: address || undefined,
-        product: localProductId,
-        size: firstItemSize || undefined,
-        quantity: firstItemQty,
-        totalPrice,
-        status: 'new',
-        source: 'shopier',
-        shopierOrderId,
-        paymentMethod: 'online',
-        isPaid: true, // Shopier orders are pre-paid
-        notes: notesLines,
-      },
-    })
+        collection: 'orders',
+        req,
+        data: {
+          customerName: `${firstName} ${lastName}`.trim() || 'Shopier Müşteri',
+          customerPhone: phone || 'Shopier',
+          customerAddress: address || undefined,
+          product: localProductId,
+          size: firstItemSize || undefined,
+          quantity: firstItemQty,
+          totalPrice,
+          status: 'new',
+          source: 'shopier',
+          shopierOrderId,
+          paymentMethod: 'online',
+          isPaid: true, // Shopier orders are pre-paid
+          notes: notesLines,
+        },
+      })
 
     console.log(`[webhook/shopier] order.created — Payload Order created for shopierOrderId=${shopierOrderId}`)
 
     // ── Stock decrement + InventoryLog per item ────────────────────────────
-    const affectedProductIds = await decrementStockForOrder(payload, items, shopierOrderId)
+    const stockMutation = await decrementStockForShopierOrder(
+      payload,
+      items as ShopierOrderItem[],
+      shopierOrderId,
+      { req },
+    )
+    return stockMutation
+    })
+    for (const skipped of stockMutation.skippedItems) {
+      console.warn(
+        `[webhook/shopier] stock skipped - product=${skipped.shopierProductId ?? skipped.localProductId ?? '?'} ` +
+          `reason=${skipped.reason}`,
+      )
+    }
+    const affectedProductIds = stockMutation.affectedProductIds
 
     // ── Phase 9: Central stock reaction for each affected product ────────
     try {
@@ -238,9 +268,7 @@ async function handleOrderCreated(
       for (const pid of affectedProductIds) {
         const result = await reactToStockChange(payload, pid, 'shopier')
         if (result.reacted) {
-          console.log(
-            `[webhook/shopier] stockReaction — product=${pid} events=[${result.eventsEmitted.join(',')}]`,
-          )
+          console.log(`[webhook/shopier] stockReaction — product=${pid} events=[${result.eventsEmitted.join(',')}]`)
         }
       }
     } catch (stockErr) {
@@ -251,7 +279,14 @@ async function handleOrderCreated(
     }
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err)
+    if (isPostgresUniqueViolation(err)) {
+      console.warn(
+        `[webhook/shopier] order.created - duplicate local order for shopierOrderId=${shopierOrderId}; stock mutation skipped`,
+      )
+      return
+    }
     console.error(`[webhook/shopier] order.created — failed to create Payload Order: ${msg}`)
+    throw err
   }
 
   // Telegram notification
@@ -265,17 +300,21 @@ async function handleOrderCreated(
     `Ürünler:\n${itemSummary}`
 
   if (telegramChatId) {
-    await sendTelegramNotification(telegramChatId, msg)
+    try {
+      await sendTelegramNotification(telegramChatId, msg)
+    } catch (notificationError) {
+      console.error(
+        '[webhook/shopier] order.created - Telegram notification failed after the transaction committed:',
+        notificationError instanceof Error ? notificationError.message : String(notificationError),
+      )
+    }
   }
   console.log(`[webhook/shopier] order.created — orderId=${shopierOrderId} total=${totalPrice}`)
 }
 
 // ── order.fulfilled ──────────────────────────────────────────────────────────
 
-async function handleOrderFulfilled(
-  body: Record<string, unknown>,
-  telegramChatId: number | null,
-): Promise<void> {
+async function handleOrderFulfilled(body: Record<string, unknown>, telegramChatId: number | null): Promise<void> {
   const shopierOrderId = String(body.id ?? '')
 
   try {
@@ -287,12 +326,12 @@ async function handleOrderFulfilled(
     })
 
     if (existing.docs.length > 0) {
-      await payload.update({
-        collection: 'orders',
-        id: existing.docs[0].id as number,
-        data: { status: 'shipped' },
-      })
-      console.log(`[webhook/shopier] order.fulfilled — updated Order ${existing.docs[0].id} → shipped`)
+      const result = await applyOrderStatus(payload, existing.docs[0].id as number, 'ship', 'shopier_webhook')
+      if (result.ok) {
+        console.log(`[webhook/shopier] order.fulfilled - ${result.summary}`)
+      } else {
+        console.warn(`[webhook/shopier] order.fulfilled - ${result.summary}`)
+      }
     } else {
       console.warn(`[webhook/shopier] order.fulfilled — no local Order found for shopierOrderId=${shopierOrderId}`)
     }
@@ -310,104 +349,47 @@ async function handleOrderFulfilled(
 
 // ── refund.requested ─────────────────────────────────────────────────────────
 
-async function handleRefundRequested(
-  body: Record<string, unknown>,
-  telegramChatId: number | null,
-): Promise<void> {
-  const refundId = String(body.id ?? '?')
-  // refund body may contain orderId
-  const orderId = (body.orderId as string) ?? (body.order_id as string) ?? ''
+async function handleRefundRequested(body: Record<string, unknown>, telegramChatId: number | null): Promise<void> {
+  const info = extractShopierRefundRequestInfo(body)
 
-  if (orderId) {
+  if (info.orderId) {
     try {
       const payload = await getPayload({ config: configPromise })
-      const existing = await payload.find({
-        collection: 'orders',
-        where: { shopierOrderId: { equals: orderId } },
-        limit: 1,
-      })
-      if (existing.docs.length > 0) {
-        const order = existing.docs[0] as any
-        const currentNotes = (order.notes as string) ?? ''
-        await payload.update({
-          collection: 'orders',
-          id: order.id as number,
-          data: {
-            status: 'cancelled',
-            notes: `${currentNotes}\n\nİade talebi: ${refundId}`.trim(),
-          },
-        })
-        console.log(`[webhook/shopier] refund.requested — Order ${order.id} → cancelled`)
+      const requestResult = await applyShopierRefundRequest(payload as unknown as ShopierRefundLifecyclePayload, body)
+      console.log(`[webhook/shopier] refund.requested - ${requestResult.message}`)
 
-        // Phase 10: Restore stock on refund — increment product stock back
-        const productId = typeof order.product === 'object' ? order.product?.id : order.product
-        const qty = (order.quantity as number) ?? 1
-        const size = (order.size as string) ?? ''
-
-        if (productId && qty > 0) {
-          try {
-            // Increment product-level stockQuantity
-            const product = await payload.findByID({ collection: 'products', id: productId, depth: 0 })
-            if (product) {
-              const currentStock = (product.stockQuantity as number) ?? 0
-              await payload.update({
-                collection: 'products',
-                id: productId,
-                data: { stockQuantity: currentStock + qty },
-                context: { isDispatchUpdate: true },
-              })
-
-              // Create InventoryLog for stock restoration
-              await payload.create({
-                collection: 'inventory-logs',
-                data: {
-                  sku: (product.sku as string) ?? `product-${productId}`,
-                  size: size || 'N/A',
-                  change: qty,
-                  reason: `Shopier iade: ${refundId} (sipariş: ${orderId})`,
-                  source: 'shopier',
-                  timestamp: new Date().toISOString(),
-                },
-              })
-
-              // If size is specified, also increment variant stock
-              if (size) {
-                const { docs: variants } = await payload.find({
-                  collection: 'variants',
-                  where: {
-                    and: [
-                      { product: { equals: productId } },
-                      { size: { equals: size } },
-                    ],
-                  },
-                  limit: 1,
-                })
-                if (variants.length > 0) {
-                  const variant = variants[0]
-                  await payload.update({
-                    collection: 'variants',
-                    id: variant.id,
-                    data: { stock: ((variant.stock as number) ?? 0) + qty },
-                    context: { isDispatchUpdate: true },
-                  })
-                }
-              }
-
-              // Trigger central stock reaction (may trigger restock)
-              const { reactToStockChange } = await import('@/lib/stockReaction')
-              const stockResult = await reactToStockChange(payload, productId, 'shopier')
-              console.log(
-                `[webhook/shopier] refund stock restored — product=${productId} +${qty} ` +
-                  `events=[${stockResult.eventsEmitted.join(',')}]`,
-              )
-            }
-          } catch (stockErr) {
-            console.error(
-              `[webhook/shopier] refund stock restoration failed (non-blocking):`,
-              stockErr instanceof Error ? stockErr.message : String(stockErr),
+      if (requestResult.shouldRestoreStock && requestResult.order) {
+        // Phase 10: Restore stock on refund - increment product stock back once per refund request.
+        try {
+          const stockMutation = await restoreStockForShopierRefund(
+            payload,
+            requestResult.order,
+            info.refundId,
+            info.orderId,
+          )
+          for (const skipped of stockMutation.skippedItems) {
+            console.warn(
+              `[webhook/shopier] refund stock skipped - product=${skipped.localProductId ?? '?'} ` +
+                `reason=${skipped.reason}`,
             )
           }
+
+          const { reactToStockChange } = await import('@/lib/stockReaction')
+          for (const productId of stockMutation.affectedProductIds) {
+            const stockResult = await reactToStockChange(payload, productId, 'shopier')
+            console.log(
+              `[webhook/shopier] refund stock restored - product=${productId} ` +
+                `events=[${stockResult.eventsEmitted.join(',')}]`,
+            )
+          }
+        } catch (stockErr) {
+          console.error(
+            `[webhook/shopier] refund stock restoration failed (non-blocking):`,
+            stockErr instanceof Error ? stockErr.message : String(stockErr),
+          )
         }
+      } else {
+        console.log(`[webhook/shopier] refund.requested - stock restore skipped: outcome=${requestResult.outcome}`)
       }
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err)
@@ -415,97 +397,34 @@ async function handleRefundRequested(
     }
   }
 
-  const telegramMsg = `⚠️ Shopier iade talebi\nİade No: ${refundId}${orderId ? `\nSipariş: ${orderId}` : ''}`
+  const telegramMsg = `⚠️ Shopier iade talebi\nİade No: ${info.refundId}${info.orderId ? `\nSipariş: ${info.orderId}` : ''}`
   if (telegramChatId) {
     await sendTelegramNotification(telegramChatId, telegramMsg)
   }
-  console.log(`[webhook/shopier] refund.requested — refundId=${refundId}`)
+  console.log(`[webhook/shopier] refund.requested — refundId=${info.refundId}`)
 }
 
 // ── refund.updated ───────────────────────────────────────────────────────────
 
-async function handleRefundUpdated(
-  body: Record<string, unknown>,
-  telegramChatId: number | null,
-): Promise<void> {
-  const refundId = String(body.id ?? '?')
-  const refundStatus = (body.status as string) ?? '?'
+async function handleRefundUpdated(body: Record<string, unknown>, telegramChatId: number | null): Promise<void> {
+  const info = extractShopierRefundUpdateInfo(body)
 
-  const telegramMsg = `🔄 Shopier iade güncellendi\nİade No: ${refundId}\nDurum: ${refundStatus}`
+  try {
+    const payload = await getPayload({ config: configPromise })
+    const result = await applyShopierRefundUpdate(payload as unknown as ShopierRefundLifecyclePayload, body)
+    console.log(`[webhook/shopier] refund.updated - ${result.message}`)
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err)
+    console.error(`[webhook/shopier] refund.updated - failed to update local Order: ${msg}`)
+  }
+
+  const telegramMsg =
+    `🔄 Shopier iade güncellendi\nİade No: ${info.refundId}\nDurum: ${info.status}` +
+    (info.orderId ? `\nSipariş: ${info.orderId}` : '')
   if (telegramChatId) {
     await sendTelegramNotification(telegramChatId, telegramMsg)
   }
-  console.log(`[webhook/shopier] refund.updated — refundId=${refundId} status=${refundStatus}`)
-}
-
-// ── Stock decrement + InventoryLog per order item ────────────────────────────
-
-async function decrementStockForOrder(
-  payload: Awaited<ReturnType<typeof getPayload>>,
-  items: Array<Record<string, unknown>>,
-  shopierOrderId: string,
-): Promise<Array<number | string>> {
-  const affectedProductIds: Array<number | string> = []
-  for (const item of items) {
-    const shopierProductId = item.id ? String(item.id) : null
-    const qty = (item.quantity as number) ?? 1
-    const size = (item.selectedOptions as string) ?? 'N/A'
-
-    if (!shopierProductId) continue
-
-    try {
-      // Find local product by Shopier product ID
-      const productMatch = await payload.find({
-        collection: 'products',
-        where: { 'sourceMeta.shopierProductId': { equals: shopierProductId } },
-        limit: 1,
-      })
-
-      if (productMatch.docs.length === 0) {
-        console.warn(`[webhook/shopier] stock — no local product for shopierProductId=${shopierProductId}`)
-        continue
-      }
-
-      const product = productMatch.docs[0]
-      const productId = product.id as number
-      const sku = (product.sku as string) ?? `shopier-${shopierProductId}`
-      const currentStock = (product.stockQuantity as number) ?? 0
-      const newStock = Math.max(0, currentStock - qty)
-
-      // Decrement stock
-      await payload.update({
-        collection: 'products',
-        id: productId,
-        data: { stockQuantity: newStock },
-      })
-
-      // Create InventoryLog entry
-      await payload.create({
-        collection: 'inventory-logs',
-        data: {
-          sku,
-          size,
-          change: -qty,
-          reason: `Shopier sipariş: ${shopierOrderId}`,
-          source: 'shopier',
-          timestamp: new Date().toISOString(),
-        },
-      })
-
-      affectedProductIds.push(productId)
-
-      console.log(
-        `[webhook/shopier] stock — product ${productId} (${sku}) ` +
-          `stock: ${currentStock} → ${newStock} (−${qty}), InventoryLog created`,
-      )
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err)
-      console.error(`[webhook/shopier] stock — failed for shopierProductId=${shopierProductId}: ${msg}`)
-    }
-  }
-
-  // Return unique product IDs for stock reaction
-  return [...new Set(affectedProductIds)]
+  console.log(`[webhook/shopier] refund.updated — refundId=${info.refundId} status=${info.status}`)
 }
 
 // ── Telegram notification helper ────────────────────────────────────────────

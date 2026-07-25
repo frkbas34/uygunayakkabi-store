@@ -7,6 +7,7 @@ import {
   SUPPORTED_CHANNELS,
   dispatchProductToChannels,
   evaluateChannelEligibility,
+  hasPublicHttpsMediaUrl,
   type SupportedChannel,
 } from './channelDispatch'
 
@@ -59,6 +60,39 @@ const allEnabledSettings = {
     publishX: true,
     publishShopier: true,
   },
+}
+
+const X_ENV_KEYS = ['X_API_KEY', 'X_API_SECRET', 'X_ACCESS_TOKEN', 'X_ACCESS_TOKEN_SECRET', 'N8N_CHANNEL_X_WEBHOOK'] as const
+
+async function withEnvironment<T>(
+  values: Record<string, string | undefined>,
+  run: () => Promise<T>,
+): Promise<T> {
+  const previous = new Map<string, string | undefined>()
+  for (const [key, value] of Object.entries(values)) {
+    previous.set(key, process.env[key])
+    if (value === undefined) delete process.env[key]
+    else process.env[key] = value
+  }
+
+  try {
+    return await run()
+  } finally {
+    for (const [key, value] of previous) {
+      if (value === undefined) delete process.env[key]
+      else process.env[key] = value
+    }
+  }
+}
+
+async function withXEnvironment<T>(
+  values: Partial<Record<(typeof X_ENV_KEYS)[number], string>>,
+  run: () => Promise<T>,
+): Promise<T> {
+  return withEnvironment(
+    Object.fromEntries(X_ENV_KEYS.map((key) => [key, values[key]])),
+    run,
+  )
 }
 
 async function main() {
@@ -155,6 +189,180 @@ async function main() {
     const blocked = result.results.filter((r) => r.skippedReason?.includes('brand_safety_block'))
     assert.strictEqual(blocked.length, 4)
     assert.ok(blocked.every((r) => !r.eligible))
+  })
+
+  await check('direct Meta media selection accepts a later public HTTPS gallery image', () => {
+    assert.strictEqual(hasPublicHttpsMediaUrl(['http://local.test/first.jpg', 'https://cdn.example.test/second.jpg']), true)
+    assert.strictEqual(hasPublicHttpsMediaUrl(['/api/media/file/first.jpg', 'http://local.test/second.jpg']), false)
+  })
+
+  await check('Instagram direct publish uses a later public HTTPS image instead of falling back', async () => {
+    const originalFetch = globalThis.fetch
+    const calls: string[] = []
+    globalThis.fetch = async (input) => {
+      const url = String(input)
+      calls.push(url)
+      if (url === 'https://cdn.example.test/second.jpg') return new Response('', { status: 200 })
+      if (url.includes('/media_publish?')) return new Response(JSON.stringify({ id: 'ig-post-701' }), { status: 200 })
+      if (url.includes('/media?')) return new Response(JSON.stringify({ id: 'ig-container-701' }), { status: 200 })
+      throw new Error(`Unexpected Instagram fetch: ${url}`)
+    }
+
+    try {
+      const result = await dispatchProductToChannels(
+        product({
+          channelTargets: ['instagram'],
+          images: [
+            { image: { url: 'http://local.test/first.jpg' } },
+            { image: { url: 'https://cdn.example.test/second.jpg' } },
+          ],
+        }),
+        {
+          channelPublishing: { publishInstagram: true },
+          instagramTokens: { accessToken: 'ig-test-token', userId: 'ig-user-701' },
+        } as any,
+        'test:instagram-later-public-image',
+        { onlyChannels: ['instagram'] },
+      )
+      const instagram = result.results.find((entry) => entry.channel === 'instagram')
+
+      assert.strictEqual(instagram?.dispatched, true)
+      assert.strictEqual(instagram?.publishResult?.mediaUrl, 'https://cdn.example.test/second.jpg')
+      assert.ok(calls.some((url) => url.includes('graph.facebook.com')), 'expected Instagram direct Graph API calls')
+    } finally {
+      globalThis.fetch = originalFetch
+    }
+  })
+
+  await check('Facebook direct publish resolves its Page ID from INSTAGRAM_PAGE_ID', async () => {
+    const originalFetch = globalThis.fetch
+    const calls: string[] = []
+    globalThis.fetch = async (input) => {
+      const url = String(input)
+      calls.push(url)
+      if (url === 'https://cdn.example.test/second.jpg') return new Response('', { status: 200 })
+      if (url.includes('?fields=access_token,name,id&')) {
+        return new Response(JSON.stringify({ access_token: 'fb-page-token', name: 'Test Page', id: 'fb-page-701' }), { status: 200 })
+      }
+      if (url.includes('/photos?')) return new Response(JSON.stringify({ id: 'fb-post-701' }), { status: 200 })
+      throw new Error(`Unexpected Facebook fetch: ${url}`)
+    }
+
+    try {
+      await withEnvironment({ INSTAGRAM_PAGE_ID: 'fb-page-701' }, async () => {
+        const result = await dispatchProductToChannels(
+          product({
+            channelTargets: ['facebook'],
+            images: [
+              { image: { url: 'http://local.test/first.jpg' } },
+              { image: { url: 'https://cdn.example.test/second.jpg' } },
+            ],
+          }),
+          {
+            channelPublishing: { publishFacebook: true },
+            instagramTokens: { accessToken: 'fb-user-token' },
+          } as any,
+          'test:facebook-page-id-env',
+          { onlyChannels: ['facebook'] },
+        )
+        const facebook = result.results.find((entry) => entry.channel === 'facebook')
+
+        assert.strictEqual(facebook?.dispatched, true)
+        assert.strictEqual(facebook?.publishResult?.mediaUrl, 'https://cdn.example.test/second.jpg')
+        assert.ok(calls.some((url) => url.includes('graph.facebook.com')), 'expected Facebook direct Graph API calls')
+      })
+    } finally {
+      globalThis.fetch = originalFetch
+    }
+  })
+
+  await check('Meta dispatch refuses unusable media before an optional fallback can run', async () => {
+    await withEnvironment({
+      N8N_CHANNEL_INSTAGRAM_WEBHOOK: 'https://fallback.example.test/instagram',
+      N8N_CHANNEL_FACEBOOK_WEBHOOK: 'https://fallback.example.test/facebook',
+    }, async () => {
+      const originalFetch = globalThis.fetch
+      const calls: string[] = []
+      globalThis.fetch = async (input) => {
+        calls.push(String(input))
+        throw new Error('Meta media preflight must prevent all fetch calls')
+      }
+
+      try {
+        const result = await dispatchProductToChannels(
+          product({
+            channelTargets: ['instagram', 'facebook'],
+            images: [{ image: { url: 'http://local.test/only-image.jpg' } }],
+          }),
+          {
+            channelPublishing: { publishInstagram: true, publishFacebook: true },
+            instagramTokens: {
+              accessToken: 'meta-test-token',
+              userId: 'ig-user-701',
+              facebookPageId: 'fb-page-701',
+            },
+          } as any,
+          'test:meta-no-public-media',
+        )
+
+        const metaResults = result.results.filter((entry) => entry.channel === 'instagram' || entry.channel === 'facebook')
+        assert.strictEqual(metaResults.length, 2)
+        assert.ok(metaResults.every((entry) => entry.dispatched === false && entry.webhookConfigured === true))
+        assert.ok(metaResults.every((entry) => /public HTTPS media URL/.test(entry.error ?? '')))
+        assert.deepStrictEqual(calls, [])
+      } finally {
+        globalThis.fetch = originalFetch
+      }
+    })
+  })
+
+  await check('partial X OAuth configuration uses the optional webhook fallback instead of direct publish', async () => {
+    await withXEnvironment({
+      X_ACCESS_TOKEN: 'partial-x-token',
+      N8N_CHANNEL_X_WEBHOOK: 'https://fallback.example.test/x',
+    }, async () => {
+      const originalFetch = globalThis.fetch
+      const calls: string[] = []
+      globalThis.fetch = async (input) => {
+        calls.push(String(input))
+        return new Response(JSON.stringify({ received: true, channel: 'x' }), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        })
+      }
+
+      try {
+        const result = await dispatchProductToChannels(
+          product(),
+          allEnabledSettings as any,
+          'test:x-partial-fallback',
+          { onlyChannels: ['x'] },
+        )
+        const x = result.results.find((entry) => entry.channel === 'x')
+
+        assert.strictEqual(x?.dispatched, true)
+        assert.strictEqual(x?.webhookConfigured, true)
+        assert.deepStrictEqual(calls, ['https://fallback.example.test/x'])
+      } finally {
+        globalThis.fetch = originalFetch
+      }
+    })
+  })
+
+  await check('partial X OAuth configuration without a fallback records the missing credential names', async () => {
+    await withXEnvironment({ X_ACCESS_TOKEN: 'partial-x-token' }, async () => {
+      const result = await dispatchProductToChannels(
+        product(),
+        allEnabledSettings as any,
+        'test:x-partial-no-fallback',
+        { onlyChannels: ['x'] },
+      )
+      const x = result.results.find((entry) => entry.channel === 'x')
+
+      assert.strictEqual(x?.dispatched, false)
+      assert.match(x?.error ?? '', /X_API_KEY/)
+      assert.match(x?.error ?? '', /X_ACCESS_TOKEN_SECRET/)
+    })
   })
 
   console.log(`\nchannelDispatch: ${passed} checks passed${process.exitCode ? ' - WITH FAILURES' : ' - ALL OK'}`)

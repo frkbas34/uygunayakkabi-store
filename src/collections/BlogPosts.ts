@@ -1,5 +1,7 @@
 import type { CollectionConfig } from 'payload'
 
+import { evaluateBlogPublishingPreflight } from '../lib/blogPublishingPreflight'
+
 // Turkish slug generator (same as Products.ts)
 function toSlug(text: string): string {
   return text
@@ -27,6 +29,26 @@ export const BlogPosts: CollectionConfig = {
           data.slug = toSlug(data.title)
         }
         return data
+      },
+    ],
+    beforeChange: [
+      ({ data, originalDoc }) => {
+        const nextData = (data ?? {}) as Record<string, unknown>
+        const candidate = {
+          ...(originalDoc ?? {}),
+          ...nextData,
+        } as Record<string, unknown>
+        const isPublishing = candidate.status === 'published' && originalDoc?.status !== 'published'
+
+        if (!isPublishing) return nextData
+
+        const preflight = evaluateBlogPublishingPreflight(candidate)
+        if (preflight.blockers.length > 0) {
+          throw new Error(`Blog publication blocked: ${preflight.blockers.join(' ')}`)
+        }
+
+        if (!candidate.publishedAt) nextData.publishedAt = new Date().toISOString()
+        return nextData
       },
     ],
   },

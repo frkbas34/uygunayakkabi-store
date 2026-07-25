@@ -31,6 +31,11 @@ export type ChannelDispatchOverviewRow = DispatchChannelResultLike & {
   hasResult: boolean
 }
 
+export type ChannelDispatchOverviewOptions = {
+  websitePublished?: boolean
+  websiteUnavailableReason?: string
+}
+
 export const CHANNEL_DISPATCH_STATE_LABELS: Record<ChannelDispatchState, string> = {
   published: 'Published',
   queued: 'Queued',
@@ -133,6 +138,7 @@ export function summarizeChannelDispatchResult(result: DispatchChannelResultLike
 export function buildChannelDispatchOverview(
   activeTargets: readonly string[] = [],
   results: readonly DispatchChannelResultLike[] = [],
+  options: ChannelDispatchOverviewOptions = {},
 ): ChannelDispatchOverviewRow[] {
   const latestByChannel = new Map<string, DispatchChannelResultLike>()
 
@@ -150,15 +156,30 @@ export function buildChannelDispatchOverview(
 
   const rows: ChannelDispatchOverviewRow[] = orderedTargets.map((channel) => {
     const existing = latestByChannel.get(channel)
-    if (existing) return { ...existing, hasResult: true }
+    if (existing) {
+      if (channel === 'website' && options.websitePublished === false) {
+        return {
+          ...existing,
+          eligible: false,
+          dispatched: false,
+          webhookConfigured: true,
+          skippedReason: options.websiteUnavailableReason ?? 'Website visibility is not currently public.',
+          hasResult: true,
+        }
+      }
+      return { ...existing, hasResult: true }
+    }
 
     if (channel === 'website') {
+      const websitePublished = options.websitePublished !== false
       return {
         channel,
-        eligible: true,
-        dispatched: true,
+        eligible: websitePublished,
+        dispatched: websitePublished,
         webhookConfigured: true,
-        skippedReason: 'native-website',
+        skippedReason: websitePublished
+          ? 'native-website'
+          : options.websiteUnavailableReason ?? 'Website visibility is not currently public.',
         hasResult: false,
       }
     }

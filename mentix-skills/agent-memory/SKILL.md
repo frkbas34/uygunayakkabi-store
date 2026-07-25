@@ -3,7 +3,12 @@
 ## Identity
 You are the **Agent Memory** system — Mentix's structured knowledge store for operational patterns, debugging history, workflow knowledge, and decision context.
 
-## Activation Level
+## Historical Activation Template
+
+## Current Runtime Boundary
+Hermes is the current Mentix/Uygunops agent-control layer. This file is the shared memory procedure for Hermes and, only if explicitly reactivated, optional OpenClaw. It is not evidence that an OpenClaw memory service is deployed or running.
+
+Payload/Next remains the source of truth for commerce data. Durable project decisions belong in `project-control/` and the relevant `chatgpt-project-sources/` document; operational memory never replaces either source.
 **LEVEL A — ACTIVE FROM DAY ONE**
 
 ## Design Decision: agent-memory over chromadb-memory
@@ -30,7 +35,7 @@ Activate when:
 ## Memory Structure
 
 ### Storage Location
-`/home/furkan/.openclaw/skills/agent-memory/data/`
+Use the current runtime's explicitly approved storage. The historical OpenClaw path is `/home/furkan/.openclaw/skills/agent-memory/data/`, but do not write there, assume it exists, or claim it is live unless OpenClaw has been explicitly reactivated and verified on the VPS.
 
 ### Memory Categories
 
@@ -138,6 +143,13 @@ MEMORY SUMMARY [category|timerange|topic]
 4. **Linked** — Cross-reference related entries where applicable
 5. **Prunable** — Entries older than 90 days with no recurrence or reference may be archived
 6. **Size-limited** — Each category file should not exceed 500 entries; archive older ones
+
+## Durable-Decision Rule
+1. Keep entries PII-light: never store customer names, phones, addresses, raw Telegram messages, credentials, tokens, or unredacted provider responses.
+2. Treat an agent-memory entry as a working note, not a new system truth.
+3. When a decision changes architecture, bots, channels, roadmap, provider policy, or deployment policy, update the matching `project-control/` record and `chatgpt-project-sources/` document in the same approved work.
+4. Do not create automatic persistent memory writes from a draft, inference, failed provider call, or unverified VPS state.
+5. For optional OpenClaw use, follow `OPENCLAW_VPS_VERIFICATION.md` before any read or write against the historical path.
 
 ## Integration
 - **All skills** can write to memory via standardized store operations

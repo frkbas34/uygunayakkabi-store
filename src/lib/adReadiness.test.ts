@@ -77,6 +77,20 @@ check('draft + brand + no media/stock is blocked', () => {
   assert.strictEqual(r.sampleUtmUrl, null) // no slug
 })
 
+check('active protected-brand products cannot produce public ad landing or UTM links', () => {
+  const r = evaluateAdReadiness({
+    ...readyProduct,
+    title: 'Nike Gunluk Ayakkabi',
+    brand: 'Nike',
+    slug: 'nike-gunluk-ayakkabi-sn0104',
+  })
+  assert.strictEqual(r.level, 'blocked')
+  for (const key of ['product_page', 'channel_link', 'utm_ready', 'lead_visibility']) {
+    assert.strictEqual(r.checks.find((check) => check.key === key)?.ok, false, key)
+  }
+  assert.strictEqual(r.sampleUtmUrl, null)
+})
+
 check('single-stock + risky claim is review (warnings, no blockers)', () => {
   const r = evaluateAdReadiness(reviewProduct)
   assert.strictEqual(r.level, 'review')
@@ -104,8 +118,42 @@ check('formatter returns Turkish HTML with level label + sample link', () => {
   const r = evaluateAdReadiness(readyProduct)
   const msg = formatAdReadinessMessage(readyProduct, r)
   assert.ok(msg.includes('REKLAMA HAZIR'))
+  assert.ok(msg.includes('Next safe reads'))
+  assert.ok(msg.includes('npm run test:storefront-trust'))
+  assert.ok(msg.includes('/adpack 101 manual_ads'))
+  assert.ok(msg.includes('/adreport week'))
+  assert.ok(!msg.includes('/productflow 101'))
+  assert.ok(!msg.includes('/imageplan 101'))
+  assert.ok(!msg.includes('/shopier publish-ready confirm'))
+  assert.ok(!msg.includes('/adlaunch'))
   assert.ok(msg.includes('Örnek UTM linki'))
   assert.ok(msg.includes('hiçbir reklam yayınlanmaz'))
+})
+
+check('blocked formatter points to productflow and imageplan without adpack', () => {
+  const r = evaluateAdReadiness(blockedProduct)
+  const msg = formatAdReadinessMessage(blockedProduct, r)
+  assert.ok(msg.includes('Next safe reads'))
+  assert.ok(msg.includes('/productflow 102'))
+  assert.ok(msg.includes('/imageplan 102'))
+  assert.ok(!msg.includes('npm run test:storefront-trust'))
+  assert.ok(!msg.includes('/adpack 102 manual_ads'))
+  assert.ok(!msg.includes('/adreport week'))
+  assert.ok(!msg.includes('/shopier publish-ready confirm'))
+  assert.ok(!msg.includes('/adlaunch'))
+})
+
+check('review formatter allows read-only adpack and adreport follow-up', () => {
+  const r = evaluateAdReadiness(reviewProduct)
+  const msg = formatAdReadinessMessage(reviewProduct, r)
+  assert.ok(msg.includes('Next safe reads'))
+  assert.ok(msg.includes('npm run test:storefront-trust'))
+  assert.ok(msg.includes('/adpack 103 manual_ads'))
+  assert.ok(msg.includes('/adreport week'))
+  assert.ok(!msg.includes('/productflow 103'))
+  assert.ok(!msg.includes('/imageplan 103'))
+  assert.ok(!msg.includes('/shopier publish-ready confirm'))
+  assert.ok(!msg.includes('/adlaunch'))
 })
 
 console.log(`\nadReadiness: ${passed} checks passed${process.exitCode ? ' - WITH FAILURES' : ' - ALL OK'}`)

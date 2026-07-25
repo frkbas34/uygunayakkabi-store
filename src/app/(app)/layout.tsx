@@ -2,6 +2,8 @@ import type { Metadata } from "next";
 import "../globals.css";
 import { Providers } from "./providers";
 
+/* eslint-disable @next/next/no-page-custom-font -- This App Router layout owns the shared external font stylesheet. */
+
 export const metadata: Metadata = {
   // D-294: base for resolving relative canonical/OG URLs across all (app) routes.
   metadataBase: new URL("https://uygunayakkabi.com"),
@@ -21,7 +23,7 @@ export default function FrontendLayout({
         <link rel="preconnect" href="https://fonts.googleapis.com" />
         <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
         <link
-          href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800;900&family=Playfair+Display:ital,wght@0,600;0,700;1,600;1,700&display=swap"
+          href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=Outfit:wght@300;400;500;600;700;800;900&family=Playfair+Display:ital,wght@0,600;0,700;1,600;1,700&display=swap"
           rel="stylesheet"
         />
       </head>

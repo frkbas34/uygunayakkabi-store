@@ -1,6 +1,13 @@
 /**
  * imagePromptBuilder — Step 24
  *
+ * ⚠️ LEGACY / NOT THE GENERATION PATH (D-407).
+ * The live image-generation pipeline builds its prompts from the central
+ * 5-slot contract in `imageSlotContract.ts` (consumed by imageProviders.ts as
+ * EDITING_SCENES). This text-to-image concept builder is retained for reference
+ * only and is NOT the source of truth for slot types/order. Do not add new slot
+ * logic here — extend `imageSlotContract.ts` instead.
+ *
  * Builds 5 concept-based image generation prompts for a product.
  * Each prompt targets a different visual angle optimized for e-commerce.
  *

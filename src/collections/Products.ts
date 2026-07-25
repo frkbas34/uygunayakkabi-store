@@ -179,13 +179,8 @@ export const Products: CollectionConfig = {
         try {
           const settings = await fetchAutomationSettings(req.payload)
 
-          // D-188b: Inject Facebook Page ID from env var.
-          // Cannot store in AutomationSettings DB — Neon push:true doesn't auto-create
-          // the column, causing errorMissingColumn on every findGlobal() call.
-          if (settings?.instagramTokens && process.env.INSTAGRAM_PAGE_ID) {
-            settings.instagramTokens.facebookPageId = process.env.INSTAGRAM_PAGE_ID
-          }
-
+          // D-500: Facebook Page ID lives in INSTAGRAM_PAGE_ID because
+          // AutomationSettings cannot safely persist its removed DB column.
           // Re-fetch the product at depth=1 so that relationship fields
           // (especially images[].image.url) are populated with full objects
           // instead of bare IDs.  The afterChange `doc` is depth=0 by default.

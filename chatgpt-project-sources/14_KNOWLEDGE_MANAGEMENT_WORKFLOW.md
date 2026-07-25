@@ -1,6 +1,6 @@
 # Knowledge Management Workflow
 
-Last updated: 2026-06-21
+Last updated: 2026-07-24
 
 ## Recommended Tool Split
 
@@ -8,19 +8,21 @@ Last updated: 2026-06-21
 - ChatGPT Project: use this source pack for current context.
 - GitHub/repo: code, commits, branches, PRs, issues.
 - Payload admin: products, orders, stock, content.
-- OpenClaw/Mentix: operator assistant and skills.
+- Hermes/Mentix: current operator assistant and skills.
+- OpenClaw: historical/optional skill host only if explicitly reactivated.
 - n8n: optional workflow glue.
 
 ## Obsidian
 
-Obsidian exists in the repo but is not fully organized yet.
+The root vault notes are the compact project control center:
 
-Recommended setup:
+- `00_HOME.md`: entry point and daily control loop.
+- `01_CURRENT_TRUTH.md`: architecture, channels, release, and approval gates.
+- `02_MASTER_ROADMAP.md`: phase status and safe next work.
+- `03_BOT_OWNERSHIP.md`: Payload/Next, Hermes/Mentix, GeoBot, OpenClaw, n8n, and SupplierScout ownership.
+- `04_ACTIVE_DECISIONS.md`: durable business, channel, and operating decisions.
 
-- One active vault.
-- `00_HOME.md`.
-- Bases for decisions, roadmap, bugs, bots, integrations.
-- Templates for decision, bug, integration, and handoff notes.
+Keep richer historical material in `project-control/` and this source pack. Do not use Obsidian as a credential store, customer database, or proof that an optional service is deployed.
 
 ## ChatGPT Project Sources
 
@@ -49,3 +51,10 @@ Add or maintain:
 
 Those files should match the current truth in this folder.
 
+## D-463 Durable Skill Memory Rule
+
+Mentix/Hermes may retain only durable, PII-light project decisions in `project-control/` and the relevant document in this source pack. Do not treat product/customer data, raw Telegram messages, credentials, unverified VPS state, failed provider output, or agent drafts as durable system memory. OpenClaw skill files are optional templates unless reactivated and verified; they are not a second source of truth.
+
+## D-465 Obsidian Control Rule
+
+When architecture, bot, channel, roadmap, or approval-gate truth changes, update the root Obsidian control note and the matching source-pack document in the same local change. `npm run test:obsidian-control` protects the five root notes against the old OpenClaw-current wording and checks their shared Payload/Hermes/n8n/channel/SupplierScout truth. It is included in `npm run validate`.

@@ -138,7 +138,7 @@ export const AutomationSettings: GlobalConfig = {
           admin: {
             description:
               'Facebook Sayfa yayını aktif. Meta Graph API v21 Page Post. ' +
-              'Aynı Instagram OAuth token\'ı kullanır, facebookPageId env\'den inject edilir.',
+              'Aynı Instagram OAuth token\'ını kullanır; Facebook Page ID deployment ortamındaki INSTAGRAM_PAGE_ID değerinden okunur.',
           },
         },
       ],
@@ -243,8 +243,8 @@ export const AutomationSettings: GlobalConfig = {
         // D-188b: facebookPageId removed from schema — Neon push:true
         // doesn't auto-create the column, causing errorMissingColumn on every
         // findGlobal() call (breaks ALL group message handling).
-        // Facebook Page ID is injected from INSTAGRAM_PAGE_ID env var at the
-        // Products.ts afterChange call site instead.
+        // Facebook Page ID is resolved from INSTAGRAM_PAGE_ID by the shared
+        // direct-dispatch/provider-health helper instead.
       ],
     },
     // ── X (Twitter) Token Storage — REMOVED (D-195c) ──────────────

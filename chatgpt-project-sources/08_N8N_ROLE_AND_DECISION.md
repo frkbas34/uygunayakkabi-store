@@ -1,10 +1,12 @@
 # n8n Role And Decision
 
-Last updated: 2026-06-30
+Last updated: 2026-07-24
 
 ## Current Position
 
 n8n is optional glue, not the main project brain.
+
+Current default: direct Payload/Next product flow. Active-channel dispatch is also direct-first when provider requirements are configured: Instagram, Facebook, and X use app-side provider adapters, while Shopier is queued through the Payload jobs layer. n8n is an explicit compatibility fallback only when a named webhook is configured and verified; it is frozen for new work until a specific operator need proves that a small bridge is useful.
 
 Current validation guard:
 
@@ -28,13 +30,13 @@ This keeps n8n optional, checks the allowed active-channel workflow inventory, v
 - Adding retired channel workflows.
 - Duplicating direct app publishing paths without a reason.
 
-## Current Decision Needed
+## Current Decision
 
-Choose one:
+The default is now Option B. Do not create or repair an n8n intake flow merely because it exists historically.
 
-### Option A: Keep Intake Bridge
+### Option A: Optional Intake Bridge (only with a verified current need)
 
-OpenClaw/Mentix -> n8n -> Payload.
+Hermes/Mentix or optional OpenClaw -> n8n -> Payload.
 
 Pros:
 
@@ -46,9 +48,9 @@ Cons:
 - More moving parts.
 - Can become stale or hidden.
 
-### Option B: Simplify Intake
+### Option B: Direct Payload/Next Intake (current default)
 
-OpenClaw/Mentix -> Payload directly.
+Hermes/Mentix or optional OpenClaw -> Payload directly.
 
 Pros:
 
@@ -61,9 +63,9 @@ Cons:
 - Requires some implementation cleanup.
 - Less visual workflow UI.
 
-## Recommended Direction
+## Operating Rule
 
-Keep n8n only if the current intake workflow is actively useful. Otherwise simplify to direct Payload calls.
+Keep n8n only if a current operator workflow cannot be handled cleanly in Payload/Next and the bridge has a named owner, input/output contract, failure path, and manual fallback. Otherwise keep the intake direct to Payload/Next.
 
 Do not invest in new n8n channel workflows until product intake and publishing reliability are stable.
 

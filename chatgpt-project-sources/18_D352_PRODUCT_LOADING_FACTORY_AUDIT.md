@@ -1,6 +1,6 @@
 # D-352A Product Loading Factory Audit
 
-Last updated: 2026-07-02
+Last updated: 2026-07-03
 
 ## Result
 
@@ -18,14 +18,14 @@ Payload remains the source of truth. Active channels remain Website, Instagram, 
 
 The system is safe enough for controlled single-product or small-batch loading, but it is not ready for sustained 30-50 products/day.
 
-Main remaining reason: single-product readiness is strong, D-353/D-354 provide read-only catalog/category visibility, D-355 structured Image QC is implemented, D-356A adds a guarded Shopier/Web queue path plus read-only `/shopier dashboard`, first-pass `/shopier errors` triage, `/shopier retry-errors` safe retry preview, and `npm run smoke:shopier:read` read-only runtime smoke support, D-356B adds a read-only Payload admin Shopier Queue Gate for the current product, and Phase 2/3 now has `/productflow` plus `npm run smoke:product-flow:read` for read-only per-product flow diagnostics. D-355 DB schema drift is resolved as of the 2026-07-02 read-only schema smoke. Sustained 30-50 products/day still needs live operator smoke of the Telegram product-flow/Shopier commands, Shopier credentials verified before queueing, and retry/error visibility proven in operator use.
+Main remaining reason: single-product readiness is strong, D-353/D-354 provide read-only catalog/category visibility, D-387 adds `/loadplan` as a combined daily loading/fix plan, D-388 adds `npm run smoke:load-plan:read -- --confirm-read-only` for real-Payload load-plan preflight, D-389 adds `/smokeplan` as the safe live-smoke checklist, D-425 makes `/loadplan` worklist rows point to `/productflow <ref>` before manual follow-up, D-427 also prints the exact `npm run smoke:product-flow:read -- --product=<ref> --confirm-read-only` command for the same product, D-355 structured Image QC is implemented, D-356A adds a guarded Shopier/Web queue path plus read-only `/shopier dashboard`, first-pass `/shopier errors` triage, `/shopier retry-errors` safe retry preview, and `npm run smoke:shopier:read` read-only runtime smoke support, D-356B adds a read-only Payload admin Shopier Queue Gate for the current product, D-400 adds a read-only Shopier dashboard batch review sample, D-428 adds `/productflow <ref>` and exact `smoke:product-flow:read -- --product=<ref> --confirm-read-only` handoffs to those Shopier dashboard rows, D-429 adds the same handoffs to `/shopier publish-ready` and `/shopier retry-errors` previews while keeping confirm credential-gated, D-430 makes `/smokeplan` pause on those Shopier row handoffs before any Shopier confirm action, D-431 makes `/smokeplan` pause again for credential/webhook readiness before final queue approval, and Phase 2/3 now has `/productflow` plus `npm run smoke:product-flow:read` for read-only per-product flow diagnostics. D-355 DB schema drift is resolved as of the 2026-07-02 read-only schema smoke. Sustained 30-50 products/day still needs live operator smoke of the Telegram product-flow/Shopier commands, Shopier credentials verified before queueing, and retry/error visibility proven in operator use.
 
 ## Bottlenecks
 
 - Operator confirmation still collects price, category, size/stock, brand, and channel targets.
 - AI image generation now targets a stronger studio pack, and Image QC has structured PASS/REVIEW/FAIL tracking. Operators still need to visually judge generated images before approving PASS.
 - Content and audit are useful, but can slow batch listing unless "listable product" and "fully enriched product" are separated.
-- Category fill targets now have a read-only strategy report (`/categoryfill [limit]`), but the operator still needs to load/finish products against those targets.
+- Category fill targets now have a read-only strategy report (`/categoryfill [limit]`) and a combined read-only daily loading plan (`/loadplan [limit]`), but the operator still needs to load/finish products against those targets.
 - Batch activation exists, and Shopier batch queueing now has a preview/confirm guard plus read-only dashboard, first-pass error triage, safe retry preview/confirm, and per-product admin gate visibility. Broader batch publishing should still wait for live smoke and any operator-visibility polish found necessary.
 
 ## Most Likely Blockers
@@ -46,4 +46,4 @@ D-353 Bulk Product QA is now implemented read-only via `src/lib/catalogQa.ts`, `
 
 Use it before loading larger batches to see status/source/category distribution, derived lifecycle, missing-field counts, readiness blockers, image-QC pending/rejected, content/audit pending, Shopier queue/error/sync state, brand-safety blocked, draft age, and last updated time.
 
-Next focus is continuing D-356 Shopier/Web Publish Batch Control: live-smoke `/productflow`, `/shopier dashboard`, `/shopier publish-ready`, `/shopier errors`, and `/shopier retry-errors`, verify Shopier credentials before any queueing, then decide whether a broader admin batch review surface is needed beyond the per-product Shopier gate. Do not add broad batch mutation/publish or ads until this is operator-safe.
+Next focus is using `/smokeplan` to guide the live-smoke order, then `smoke:load-plan:read` and `/loadplan` for the daily catalog loading/fix order, using each worklist row's exact `smoke:product-flow:read -- --product=<ref> --confirm-read-only` and `/productflow <ref>` handoffs before manual fixes. D-426 makes `/smokeplan` run that worklist-selected product-flow preflight before provider diagnostics. Then continue D-356 Shopier/Web Publish Batch Control: live-smoke `/productflow`, `/shopier dashboard`, `/shopier publish-ready`, `/shopier errors`, and `/shopier retry-errors`, using the D-428/D-429 dashboard and preview row product-flow handoffs before queue/retry decisions, the D-430 `/smokeplan` handoff hold before any confirm action, and the D-431 credential/webhook hold before queue approval; verify Shopier credentials before any confirm queueing, then decide whether the Telegram dashboard batch review sample is enough or a broader Payload admin batch review surface is still needed. Do not add broad batch mutation/publish or ads until this is operator-safe.

@@ -91,7 +91,6 @@ export function trackEvent(name: TrackEventName, payload: TrackPayload = {}): vo
     //    consent/KVKK decision. For now there is intentionally no external dispatch. ──
 
     if (debugEnabled()) {
-      // eslint-disable-next-line no-console
       console.debug('[track]', name, enriched)
     }
   } catch {

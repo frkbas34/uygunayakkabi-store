@@ -220,10 +220,11 @@ async function getReadOnlyPayload() {
   const { Brands } = unwrapModule(await import('../src/collections/Brands'))
   const { Categories } = unwrapModule(await import('../src/collections/Categories'))
   const { BlogPosts } = unwrapModule(await import('../src/collections/BlogPosts'))
+  const { BotEvents } = unwrapModule(await import('../src/collections/BotEvents'))
 
   const databaseUri = process.env.DATABASE_URI!
   const config = payloadMod.buildConfig({
-    collections: [Products, Variants, MediaCollection, Brands, Categories, BlogPosts],
+    collections: [Products, Variants, MediaCollection, Brands, Categories, BlogPosts, BotEvents],
     db: dbMod.postgresAdapter({
       pool: {
         connectionString: databaseUri,
@@ -267,6 +268,7 @@ function printSnapshot(snapshot: Awaited<ReturnType<typeof buildProductFlowSnaps
   console.log('Product Flow Snapshot')
   console.log(`  id: ${String(snapshot.productId ?? '(missing)')}`)
   console.log(`  ref: ${snapshot.ref}`)
+  console.log(`  commandRef: ${snapshot.commandRef}`)
   console.log(`  title: ${snapshot.title}`)
   console.log(`  status: ${snapshot.status}`)
   console.log(`  lifecycle: ${snapshot.lifecycleLabel} (${snapshot.lifecycle})`)
@@ -278,12 +280,21 @@ function printSnapshot(snapshot: Awaited<ReturnType<typeof buildProductFlowSnaps
   console.log(`  coherenceIssues: ${snapshot.coherenceIssues.length}`)
   console.log(`  shopierIntent: ${formatBool(snapshot.shopier.hasIntent)}`)
   console.log(`  shopierGate: ${snapshot.shopier.gate.label} - ${snapshot.shopier.gate.detail}`)
+  console.log(`  checklistSummary: done ${snapshot.checklistSummary.done}/${snapshot.checklistSummary.total}, next ${snapshot.checklistSummary.next}, blocked ${snapshot.checklistSummary.blocked}, needsWork ${snapshot.checklistSummary.needs_work}`)
+  console.log(`  dispatchSummary: published ${snapshot.channels.dispatchSummary.published}/${snapshot.channels.dispatchSummary.total}, queued ${snapshot.channels.dispatchSummary.queued}, failed ${snapshot.channels.dispatchSummary.failed}, blocked ${snapshot.channels.dispatchSummary.blocked}, notConfigured ${snapshot.channels.dispatchSummary.not_configured}, unrecorded ${snapshot.channels.dispatchSummary.unrecorded}`)
+  if (snapshot.operatorLinks.adminUrl || snapshot.operatorLinks.productUrl) {
+    console.log(`  adminUrl: ${snapshot.operatorLinks.adminUrl ?? '(missing)'}`)
+    console.log(`  productUrl: ${snapshot.operatorLinks.productUrl ?? '(not public)'}`)
+  }
+  if (snapshot.primaryOperatorStep) {
+    console.log(`  primaryOperatorStep: ${snapshot.primaryOperatorStep.label} - ${snapshot.primaryOperatorStep.detail}${snapshot.primaryOperatorStep.command ? ` -> ${snapshot.primaryOperatorStep.command}` : ''}`)
+  }
   console.log('')
 
   if (snapshot.channels.dispatch.length > 0) {
     console.log('Dispatch')
     for (const row of snapshot.channels.dispatch) {
-      console.log(`  - ${row.channel}: ${row.label}${row.reason ? ` (${row.reason})` : ''}`)
+      console.log(`  - ${row.channel}: ${row.label}${row.reason ? ` (${row.reason})` : ''}${row.nextAction ? ` -> ${row.nextAction}` : ''}`)
     }
     console.log('')
   }
@@ -305,6 +316,14 @@ function printSnapshot(snapshot: Awaited<ReturnType<typeof buildProductFlowSnaps
     for (const issue of snapshot.channels.issues) console.log(`  - channel: ${issue}`)
     for (const issue of snapshot.coherenceIssues) {
       console.log(`  - ${issue.severity} ${issue.field}: expected ${issue.expected}, got ${issue.actual}`)
+    }
+    console.log('')
+  }
+
+  if (snapshot.operatorChecklist.length > 0) {
+    console.log('Operator checklist')
+    for (const item of snapshot.operatorChecklist) {
+      console.log(`  - ${item.state} ${item.label}: ${item.detail}${item.command ? ` -> ${item.command}` : ''}`)
     }
     console.log('')
   }
@@ -361,9 +380,23 @@ async function main(): Promise<void> {
       return
     }
 
+    const provenanceEvents = await payload.find({
+      collection: 'bot-events',
+      where: {
+        and: [
+          { eventType: { equals: 'brand_safety.provenance_reviewed' } },
+          { product: { equals: product.id } },
+        ],
+      },
+      limit: 100,
+      depth: 0,
+      sort: '-createdAt',
+    })
+
     const snapshot = await buildProductFlowSnapshot(product, {
       resolveStockSnapshot: (id, productLevelStock) =>
         getStockSnapshot(payload, id, productLevelStock),
+      provenanceEvents: provenanceEvents.docs as any[],
     })
 
     printSnapshot(snapshot)

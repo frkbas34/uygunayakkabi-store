@@ -1,4 +1,12 @@
 import type { CollectionConfig } from 'payload'
+import {
+  reserveProductStockForOrder,
+  reserveVariantStockForOrder,
+} from '@/lib/orderStockReservation'
+
+type OrderAfterChangeArgs = Parameters<
+  NonNullable<NonNullable<CollectionConfig['hooks']>['afterChange']>[number]
+>[0]
 
 export const Orders: CollectionConfig = {
   slug: 'orders',
@@ -17,17 +25,19 @@ export const Orders: CollectionConfig = {
         return data
       },
     ],
+    // D-484: keep stock reservation ahead of the noncritical new-order alert.
     afterChange: [
       // ── D-247: Fire-and-forget new-order Telegram alert ──────────────────
       // Universal — fires for every create regardless of source — EXCEPT
       // when source==='telegram' (operator already saw the /convert response
       // message from D-244, double-notifying would be noise).
       // Stock decrement lives in the next entry — separate concern.
-      async ({ doc, operation, req }) => {
+      async ({ doc, operation, req }: OrderAfterChangeArgs) => {
         if (operation !== 'create') return doc
         if (req?.context?.isDispatchUpdate) return doc
         const source = (doc as any).source
-        if (source === 'telegram') return doc
+        // Shopier sends its own alert after the order-and-stock transaction commits.
+        if (source === 'telegram' || source === 'shopier') return doc
         // Fire-and-forget — never block order persistence.
         void (async () => {
           try {
@@ -39,14 +49,14 @@ export const Orders: CollectionConfig = {
         })()
         return doc
       },
-      // Phase 10: Decrement stock + trigger stock reaction for non-Shopier orders.
+      // D-484: Atomically reserve stock + trigger stock reaction for non-Shopier orders.
       // Shopier orders already handle stock in their webhook — this covers website/manual/phone orders.
-      async ({ doc, operation, req }) => {
+      async ({ doc, operation, req }: OrderAfterChangeArgs) => {
         // Only on create (new order), not on status updates
         if (operation !== 'create') return doc
         // Skip if this is already handled by dispatch (e.g. Shopier webhook creates order + decrements stock separately)
         if (req?.context?.isDispatchUpdate) return doc
-        // Skip Shopier orders — their stock is handled in the webhook's decrementStockForOrder
+        // Skip Shopier orders — their stock is handled by shopierOrderStock via the webhook.
         if ((doc as any).source === 'shopier') return doc
 
         const productRef = (doc as any).product
@@ -56,60 +66,73 @@ export const Orders: CollectionConfig = {
 
         if (!productId || qty <= 0) return doc
 
-        try {
-          const payload = req.payload
+        const payload = req.payload
 
-          // Decrement product-level stockQuantity
-          const product = await payload.findByID({ collection: 'products', id: productId, depth: 0 })
-          if (!product) return doc
+        // A product reference must result in an atomic stock mutation. Throwing
+        // lets Payload roll back the parent order create transaction.
+        const product = await payload.findByID({
+          collection: 'products',
+          id: productId,
+          depth: 0,
+          req,
+        })
+        if (!product) {
+          throw new Error(`Cannot decrement stock: product ${productId} was not found.`)
+        }
 
-          const currentStock = (product.stockQuantity as number) ?? 0
-          const newStock = Math.max(0, currentStock - qty)
+        const { docs: variants } = await payload.find({
+          collection: 'variants',
+          where: { product: { equals: productId } },
+          limit: 200,
+          depth: 0,
+          req,
+        })
 
-          await payload.update({
-            collection: 'products',
-            id: productId,
-            data: { stockQuantity: newStock },
-            context: { isDispatchUpdate: true },
-          })
-
-          // If size is specified, also decrement variant stock
-          if (size) {
-            const { docs: variants } = await payload.find({
-              collection: 'variants',
-              where: {
-                and: [
-                  { product: { equals: productId } },
-                  { size: { equals: size } },
-                ],
-              },
-              limit: 1,
-            })
-            if (variants.length > 0) {
-              const variant = variants[0]
-              const vStock = (variant.stock as number) ?? 0
-              await payload.update({
-                collection: 'variants',
-                id: variant.id,
-                data: { stock: Math.max(0, vStock - qty) },
-                context: { isDispatchUpdate: true },
-              })
-            }
+        if (variants.length > 0) {
+          if (!size) {
+            throw new Error(`Cannot decrement stock: product ${productId} requires a size selection.`)
           }
 
-          // Create InventoryLog
-          await payload.create({
-            collection: 'inventory-logs',
-            data: {
+          const variant = variants.find((candidate: any) => String(candidate.size) === String(size))
+          if (!variant) {
+            throw new Error(`Cannot decrement stock: no variant for size ${size}.`)
+          }
+
+          // Reserve the aggregate first to serialize every size against the
+          // product total, then reserve the selected size. A failed second
+          // reservation throws and Payload rolls the first SQL write back.
+          const productReserved = await reserveProductStockForOrder(payload, productId, qty, req)
+          if (!productReserved) {
+            throw new Error(`Cannot decrement stock: product ${productId} has insufficient stock.`)
+          }
+
+          const variantReserved = await reserveVariantStockForOrder(payload, variant.id as string | number, qty, req)
+          if (!variantReserved) {
+            throw new Error(`Cannot decrement stock: size ${size} has insufficient stock.`)
+          }
+        } else {
+          const productReserved = await reserveProductStockForOrder(payload, productId, qty, req)
+          if (!productReserved) {
+            throw new Error(`Cannot decrement stock: product ${productId} has insufficient stock.`)
+          }
+        }
+
+        // Create InventoryLog
+        await payload.create({
+          collection: 'inventory-logs',
+          data: {
               sku: (product.sku as string) ?? `product-${productId}`,
               size: size || 'N/A',
               change: -qty,
               reason: `Sipariş: ${(doc as any).orderNumber ?? doc.id} (kaynak: ${(doc as any).source ?? 'unknown'})`,
               source: (doc as any).source === 'telegram' ? 'telegram' : 'system',
               timestamp: new Date().toISOString(),
-            },
-          })
+          },
+          req,
+        })
 
+        // Lifecycle notifications are advisory. Stock writes above remain fail-closed.
+        try {
           // Trigger central stock reaction
           const { reactToStockChange } = await import('@/lib/stockReaction')
           const result = await reactToStockChange(payload, productId, 'system', req)
@@ -119,14 +142,14 @@ export const Orders: CollectionConfig = {
           )
         } catch (err) {
           console.error(
-            `[Orders.afterChange] stock decrement failed (non-blocking):`,
+            `[Orders.afterChange] stock reaction failed (non-blocking):`,
             err instanceof Error ? err.message : String(err),
           )
         }
 
         return doc
       },
-    ],
+    ].reverse(),
   },
   fields: [
     // ── Sipariş Numarası ──────────────────────────────────────
@@ -222,10 +245,8 @@ export const Orders: CollectionConfig = {
     // ── D-244: Lead Provenance ────────────────────────────────
     // Linked when this order was created via /convert <lead-id> from
     // the Lead Desk (D-241). Optional — leaves direct-website orders
-    // untouched. Neon DDL required (push:true silently skips, see
-    // feedback_push_true_drift.md):
-    //   ALTER TABLE orders ADD COLUMN IF NOT EXISTS related_inquiry_id
-    //     integer REFERENCES customer_inquiries(id) ON DELETE SET NULL;
+    // untouched. The deployed relationship is a D-491 deployment
+    // prerequisite; request paths never create or alter its schema.
     {
       name: 'relatedInquiry',
       type: 'relationship',
@@ -241,7 +262,7 @@ export const Orders: CollectionConfig = {
       name: 'shopierOrderId',
       type: 'text',
       label: 'Shopier Sipariş ID',
-      unique: false,
+      unique: true,
       admin: {
         position: 'sidebar',
         description: 'Shopier\'den gelen sipariş IDsi — otomatik doldurulur',

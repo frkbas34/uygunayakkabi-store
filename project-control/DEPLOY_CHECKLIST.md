@@ -1,7 +1,13 @@
-# DEPLOY CHECKLIST — Uygunayakkabi
+# Historical Deploy Checklist (Reference Only)
 
 _Production deployment readiness checklist_
-_Last updated: 2026-04-04 (D-115 — hardcoded secret fixed, env truth pass)_
+_Last updated: 2026-07-24 (historical checklist quarantined; use the current ops runbook)_
+
+## Current Override
+
+This is a historical reference, not an executable deployment procedure. Do not rely on its old schema, provider, feature-status, or environment-variable assertions. Use `project-control/DEPLOYMENT_OPS_RUNBOOK.md` together with `project-control/LOCAL_RELEASE_CANDIDATE.md` and `project-control/LOCAL_PR_REVIEW_PACKAGE.md` for every current deployment decision.
+
+Current guardrails: Payload/Next is the source of truth; active channels are Website, Instagram, Facebook, X, and Shopier; n8n is optional fallback glue; Dolap and Threads are retired; SupplierScout is dormant. Do not run `push: true`, confirmed schema DDL, live provider probes, or deployment steps from this historical file without the explicit operator approval and current runbook checks.
 
 ---
 
@@ -59,12 +65,12 @@ _Last updated: 2026-04-04 (D-115 — hardcoded secret fixed, env truth pass)_
 - [ ] `CRON_SECRET` — Bearer token for `/api/payload-jobs/run`
 - [ ] Vercel Cron or GitHub Actions configured for 5-min job execution
 
-### Optional / Feature-Specific
+### Historical Optional / Feature-Specific
 
 - [ ] `ANTHROPIC_API_KEY` — Claude API for Telegram NLP
 - [ ] `AUTOMATION_SECRET` — `/api/automation/products` auth
 - [ ] `GENERATE_API_KEY_SECRET` — one-time API key generation endpoint auth
-- [ ] `N8N_CHANNEL_*_WEBHOOK` — n8n channel webhooks (7 channels)
+- [ ] `N8N_CHANNEL_*_WEBHOOK` — four optional fallback webhooks for Instagram, Facebook, X, and Shopier
 - [ ] `SHOPIER_NOTIFY_CHAT_ID` — Shopier order Telegram alerts
 
 ---

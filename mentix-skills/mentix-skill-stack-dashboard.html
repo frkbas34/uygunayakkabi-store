@@ -118,21 +118,21 @@
 
 <div class="header">
   <h1>Mentix Intelligence Layer</h1>
-  <div class="subtitle">Full Skill Stack &mdash; Architecture &amp; Activation Dashboard</div>
-  <div class="date">Designed 2026-03-16 &bull; Pending VPS Deployment</div>
+  <div class="subtitle">Historical Optional OpenClaw Skill Template</div>
+  <div class="date">Current runtime: Hermes/Mentix on the operator PC &bull; OpenClaw: verify before any reactivation</div>
 </div>
 
 <!-- Stats -->
 <div class="stats-row">
   <div class="stat-card stat-green"><div class="num">12</div><div class="label">Total Skills</div></div>
-  <div class="stat-card stat-blue"><div class="num">6</div><div class="label">Level A &mdash; Active</div></div>
-  <div class="stat-card stat-yellow"><div class="num">4</div><div class="label">Level B &mdash; Controlled</div></div>
-  <div class="stat-card stat-purple"><div class="num">1</div><div class="label">Level C &mdash; Observe</div></div>
+  <div class="stat-card stat-blue"><div class="num">0</div><div class="label">OpenClaw Skills Proven Live</div></div>
+  <div class="stat-card stat-yellow"><div class="num">4</div><div class="label">Controlled Template Skills</div></div>
+  <div class="stat-card stat-purple"><div class="num">1</div><div class="label">Observe-Only Template</div></div>
 </div>
 
 <!-- LEVEL A -->
 <div class="level-section">
-  <div class="section-title green">Level A &mdash; Active from Day One</div>
+  <div class="section-title green">Historical Optional Template &mdash; Level A</div>
   <div class="skills-grid">
 
     <div class="skill-card level-a">
@@ -342,21 +342,22 @@
 
 <!-- Existing Live Skill -->
 <div class="level-section">
-  <div class="section-title green">Already Live on VPS</div>
+  <div class="section-title green">VPS State: Verify Before Optional Use</div>
   <div class="skills-grid">
     <div class="skill-card level-a">
       <div class="skill-header">
         <div class="skill-icon">&#128230;</div>
         <div class="skill-name">mentix-intake</div>
-        <span class="skill-mode mode-active">LIVE</span>
+        <span class="skill-mode mode-controlled">VERIFY ON VPS</span>
       </div>
-      <div class="skill-desc">Product intake from Telegram. Parses captions (photo + text), sends structured payload to n8n webhook for product creation in Payload CMS.</div>
+      <div class="skill-desc">Product intake from Telegram. Parses captions (photo + text) and routes toward the app-side Payload draft workflow. n8n is optional glue only when deliberately configured.</div>
       <div class="skill-perms">
         <span class="perm perm-allow">parse caption</span>
-        <span class="perm perm-allow">POST to n8n</span>
+        <span class="perm perm-allow">Payload draft guidance</span>
+        <span class="perm perm-warn">n8n optional glue</span>
         <span class="perm perm-allow">respond in TR</span>
       </div>
-      <div class="skill-risk"><span class="risk-dot risk-low"></span> Production &bull; VPS: /home/furkan/.openclaw/skills/mentix-intake/</div>
+      <div class="skill-risk"><span class="risk-dot risk-low"></span> Expected path only &bull; no current VPS proof</div>
     </div>
   </div>
 </div>
@@ -365,14 +366,15 @@
 <div class="flow-section">
   <div class="flow-title">Mentix Data Flow &amp; Decision Architecture</div>
   <div class="flow-diagram">
-    <div class="flow-node primary">&#128241; Telegram Group Message</div>
+    <div class="flow-node primary">&#128241; Telegram Operator Message</div>
     <div class="flow-arrow">&#8595;</div>
-    <div class="flow-node primary">&#129302; OpenClaw Gateway (mentix_aibot)</div>
+    <div class="flow-node primary">&#129302; Hermes/Mentix (current) &bull; OpenClaw only if reactivated</div>
     <div class="flow-arrow">&#8595;</div>
     <div class="flow-node success">&#127919; Skill Router (intent detection)</div>
     <div class="flow-arrow">&#8595;</div>
     <div class="flow-branch">
       <div class="flow-node" style="border-color:#34d399;color:#6ee7b7;">mentix-intake</div>
+      <div class="flow-node" style="border-color:#34d399;color:#6ee7b7;">product-flow-debugger</div>
       <div class="flow-node" style="border-color:#34d399;color:#6ee7b7;">sql-toolkit</div>
       <div class="flow-node" style="border-color:#34d399;color:#6ee7b7;">uptime-kuma</div>
       <div class="flow-node" style="border-color:#34d399;color:#6ee7b7;">github-workflow</div>
@@ -387,7 +389,7 @@
       <div class="flow-node" style="font-size:11px;">HIGH risk &#8594; escalate</div>
     </div>
     <div class="flow-arrow">&#8595;</div>
-    <div class="flow-node purple">&#129504; agent-memory (store outcome)</div>
+    <div class="flow-node purple">&#129504; PII-light agent-memory procedure (optional template)</div>
     <div class="flow-arrow">&#8595;</div>
     <div class="flow-node purple">&#129302; learning-engine (observe + score)</div>
   </div>
@@ -449,14 +451,15 @@
 
 <!-- Deployment -->
 <div class="deploy-section">
-  <div class="deploy-title">&#128640; Deployment Steps (VPS Operator Actions)</div>
+  <div class="deploy-title">&#128640; Optional Reactivation Steps (operator-approved only)</div>
   <div class="deploy-steps">
-    <div class="deploy-step"><span>Copy skills to VPS: <span class="deploy-cmd">scp -r mentix-skills/* furkan@VPS:/home/furkan/.openclaw/skills/</span></span></div>
+    <div class="deploy-step"><span>First run <span class="deploy-cmd">OPENCLAW_VPS_VERIFICATION.md</span>; do not copy, restart, or live-test before explicit reactivation approval.</span></div>
+    <div class="deploy-step"><span>After approval only, copy reviewed skills to VPS: <span class="deploy-cmd">scp -r mentix-skills/&lt;skill-name&gt; furkan@VPS:/home/furkan/.openclaw/skills/</span></span></div>
     <div class="deploy-step"><span>Create memory dirs: <span class="deploy-cmd">mkdir -p /home/furkan/.openclaw/skills/agent-memory/data/{incidents,patterns,knowledge,decisions,rewards}</span></span></div>
     <div class="deploy-step"><span>Add env vars to OpenClaw Docker: <span class="deploy-cmd">DATABASE_URI</span> and <span class="deploy-cmd">GITHUB_TOKEN</span></span></div>
     <div class="deploy-step"><span>Restart gateway: <span class="deploy-cmd">cd /opt/openclaw && docker compose restart</span></span></div>
     <div class="deploy-step"><span>Verify skill recognition in logs: <span class="deploy-cmd">docker logs openclaw-openclaw-gateway-1 --tail 50</span></span></div>
-    <div class="deploy-step"><span>Test Level A skills via Telegram (one by one)</span></div>
+    <div class="deploy-step"><span>Test Level A skills via Telegram (one by one), including live-smoke guidance pointing to <span class="deploy-cmd">/smokeplan</span> first</span></div>
   </div>
 </div>
 

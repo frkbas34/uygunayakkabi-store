@@ -19,10 +19,13 @@
  *     so the operator can restore stock explicitly via D-234 if needed.
  */
 
+import { isPublicStorefrontProduct } from './merchandising'
+
 const LIST_LIMIT = 10
 
 export type OrderStatus = 'new' | 'confirmed' | 'shipped' | 'delivered' | 'cancelled'
 export type OrderAction = 'ship' | 'deliver' | 'cancel'
+export type OrderStatusSource = 'telegram_command' | 'telegram_button' | 'shopier_webhook'
 
 const ACTION_TO_STATUS: Record<OrderAction, OrderStatus> = {
   ship: 'shipped',
@@ -45,6 +48,9 @@ export interface OrderEntry {
   productId: number | null
   productSn: string | null
   productTitle: string | null
+  productBrand: string | null
+  productSlug: string | null
+  productStatus: string | null
   size: string | null
   quantity: number | null
   totalPrice: number | null
@@ -58,6 +64,13 @@ export interface OrderEntry {
   relatedInquiryId: number | null
   createdAt: string
   updatedAt: string
+}
+
+export interface OrderOperatorLinks {
+  orderAdminUrl: string
+  productAdminUrl: string | null
+  leadAdminUrl: string | null
+  productUrl: string | null
 }
 
 export interface OrderStatusResult {
@@ -115,17 +128,30 @@ function statusEmoji(s: OrderStatus | string | null | undefined): string {
   }
 }
 
+function getSiteBaseUrl(): string {
+  const raw =
+    process.env.NEXT_PUBLIC_SITE_URL ||
+    process.env.VERCEL_PROJECT_PRODUCTION_URL ||
+    process.env.VERCEL_URL ||
+    'https://www.uygunayakkabi.com'
+  const withProtocol = raw.startsWith('http://') || raw.startsWith('https://') ? raw : `https://${raw}`
+  return withProtocol.replace(/\/+$/, '')
+}
+
 function normalizeOrder(doc: any): OrderEntry {
   const product = (() => {
-    if (!doc.product) return { id: null, sn: null, title: null }
+    if (!doc.product) return { id: null, sn: null, title: null, brand: null, slug: null, status: null }
     if (typeof doc.product === 'object') {
       return {
         id: doc.product.id ?? null,
         sn: (doc.product.stockNumber as string) ?? null,
         title: (doc.product.title as string) ?? null,
+        brand: (doc.product.brand as string) ?? null,
+        slug: (doc.product.slug as string) ?? null,
+        status: (doc.product.status as string) ?? null,
       }
     }
-    return { id: doc.product as number, sn: null, title: null }
+    return { id: doc.product as number, sn: null, title: null, brand: null, slug: null, status: null }
   })()
   const rel = doc.relatedInquiry ?? doc.relatedInquiryId
   const relId = (() => {
@@ -143,6 +169,9 @@ function normalizeOrder(doc: any): OrderEntry {
     productId: product.id,
     productSn: product.sn,
     productTitle: product.title,
+    productBrand: product.brand,
+    productSlug: product.slug,
+    productStatus: product.status,
     size: doc.size ?? null,
     quantity: toNumber(doc.quantity) ?? 1,
     totalPrice: toNumber(doc.totalPrice),
@@ -294,7 +323,7 @@ export async function applyOrderStatus(
   payload: any,
   orderId: number | string,
   action: OrderAction,
-  source: 'telegram_command' | 'telegram_button' = 'telegram_command',
+  source: OrderStatusSource = 'telegram_command',
 ): Promise<OrderStatusResult> {
   let doc: any
   try {
@@ -447,6 +476,43 @@ export async function applyOrderStatus(
 
 // ── Formatters ───────────────────────────────────────────────────────────────
 
+export function buildOrderOperatorLinks(o: OrderEntry): OrderOperatorLinks {
+  const baseUrl = getSiteBaseUrl()
+  const productSlug = o.productSlug?.trim()
+
+  return {
+    orderAdminUrl: `${baseUrl}/admin/collections/orders/${encodeURIComponent(String(o.id))}`,
+    productAdminUrl: o.productId === null || o.productId === undefined
+      ? null
+      : `${baseUrl}/admin/collections/products/${encodeURIComponent(String(o.productId))}`,
+    leadAdminUrl: o.relatedInquiryId === null || o.relatedInquiryId === undefined
+      ? null
+      : `${baseUrl}/admin/collections/customer-inquiries/${encodeURIComponent(String(o.relatedInquiryId))}`,
+    productUrl: productSlug && isPublicStorefrontProduct({
+      title: o.productTitle,
+      brand: o.productBrand,
+      status: o.productStatus,
+    })
+      ? `${baseUrl}/products/${encodeURIComponent(productSlug)}`
+      : null,
+  }
+}
+
+function formatOrderOperatorLinks(o: OrderEntry): string {
+  const links = buildOrderOperatorLinks(o)
+  const parts = [`<a href="${escapeHtml(links.orderAdminUrl)}">order admin</a>`]
+  if (links.productAdminUrl) {
+    parts.push(`<a href="${escapeHtml(links.productAdminUrl)}">product admin</a>`)
+  }
+  if (links.leadAdminUrl) {
+    parts.push(`<a href="${escapeHtml(links.leadAdminUrl)}">lead admin</a>`)
+  }
+  if (links.productUrl) {
+    parts.push(`<a href="${escapeHtml(links.productUrl)}">PDP</a>`)
+  }
+  return `Links: ${parts.join(' / ')}`
+}
+
 export function formatOrderLine(o: OrderEntry): string {
   const tag = `<code>${o.orderNumber}</code>`
   const who = escapeHtml(o.customerName).slice(0, 22) || '—'
@@ -456,7 +522,7 @@ export function formatOrderLine(o: OrderEntry): string {
     if (o.status === 'shipped' && o.shippedAt) return `kargo ${fmtDate(o.shippedAt)}`
     return fmtDate(o.createdAt)
   })()
-  return `${statusEmoji(o.status)} ${tag} · ${who}${product}${amt}\n   <i>${when}</i>`
+  return `${statusEmoji(o.status)} ${tag} · ${who}${product}${amt}\n   <i>${when}</i>\n   ${formatOrderOperatorLinks(o)}`
 }
 
 export function formatOpenOrdersList(d: Awaited<ReturnType<typeof getOpenOrders>>): string {
@@ -532,6 +598,7 @@ export function formatOrderCard(o: OrderEntry): string {
   if (o.deliveredAt) lines.push(`🏠 Teslim: ${fmtDate(o.deliveredAt)}`)
   lines.push(`🌐 Kaynak: ${o.source}`)
   if (o.relatedInquiryId) lines.push(`🆔 Lead: <code>L#${o.relatedInquiryId}</code> · /lead ${o.relatedInquiryId}`)
+  lines.push(``, formatOrderOperatorLinks(o))
   return lines.join('\n')
 }
 
@@ -587,7 +654,7 @@ export function formatNewOrderAlert(o: OrderEntry): string {
   if (o.totalPrice) lines.push(`💵 Tutar: <b>${o.totalPrice}</b> ₺` + (o.isPaid ? ' · ✅ ödendi' : ''))
   lines.push(`🌐 ${o.source}`)
   if (o.relatedInquiryId) lines.push(`🆔 Lead: <code>L#${o.relatedInquiryId}</code>`)
-  lines.push(``, `<i>Detay: /order ${o.id}</i>`)
+  lines.push(``, formatOrderOperatorLinks(o), `<i>Detay: /order ${o.id}</i>`)
   return lines.join('\n')
 }
 

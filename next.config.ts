@@ -1,9 +1,14 @@
 import { withPayload } from "@payloadcms/next/withPayload";
+import path from "node:path";
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
   typescript: { ignoreBuildErrors: true },
   serverExternalPackages: ["graphql"],
+  // D-469: avoid parent-lockfile workspace inference during local builds.
+  turbopack: {
+    root: path.resolve(__dirname),
+  },
   // D-194: SPA client routes — rewrite to home page so the SPA handles them.
   // Both /ayakkabilar and /yardim are client-rendered SPA views (App reads
   // window.location.pathname on mount); without a rewrite a direct load / refresh

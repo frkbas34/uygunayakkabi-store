@@ -77,6 +77,22 @@ export async function getBusinessSnapshot(payload: any): Promise<BusinessSnapsho
   }
 }
 
+function businessNextActions(s: BusinessSnapshot): string[] {
+  const actions: string[] = []
+  if (s.leadsTotalStale > 0 || s.leadsTotalOpen > 0) {
+    actions.push('<code>/leadplan</code> - open/stale lead follow-up')
+  }
+  if (s.ordersStaleShipped > 0) {
+    actions.push('<code>/orderreminders</code> - stale shipped orders')
+  } else if (s.ordersTotalOpen > 0) {
+    actions.push('<code>/orders</code> - open order queue')
+  }
+  if (s.stockSoldout > 0 || s.stockLowStock > 0) {
+    actions.push('<code>/inbox stock</code> - sold-out and low-stock products')
+  }
+  return actions
+}
+
 /**
  * Render a concise grouped business snapshot. Keep it operator-grade
  * and short — counts only, no item lists. Empty-state shortcut when
@@ -135,6 +151,12 @@ export function formatBusinessSnapshot(s: BusinessSnapshot): string {
   if (urgencyBits.length > 0) {
     lines.push(``, `<b>⚠️ Aciliyet</b>`)
     for (const bit of urgencyBits) lines.push(`  • ${bit}`)
+  }
+
+  const nextActions = businessNextActions(s)
+  if (nextActions.length > 0) {
+    lines.push(``, `<b>Next safe reads</b>`)
+    for (const action of nextActions) lines.push(`  • ${action}`)
   }
 
   lines.push(

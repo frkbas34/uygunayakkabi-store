@@ -46,6 +46,7 @@ export interface SiteSettings {
     showFreeShippingBanner: boolean;
   };
   trustBadges: {
+    enabled: boolean;
     monthlyCustomers: string;
     totalProducts: string;
     satisfactionRate: string;

@@ -2,7 +2,7 @@
  * stockReaction.ts — Phase 9 Central Stock-Change Reaction Logic
  *
  * Single entry point for reacting to stock changes from ANY source:
- * - Shopier webhooks (order.created → product-level stockQuantity decrement)
+ * - Shopier webhooks (order.created/refund.requested → variant or product-level stock mutation)
  * - Telegram STOCK commands (variant-level stock update)
  * - Admin UI manual edits (variant or product-level)
  * - Future: website order flow
@@ -88,6 +88,7 @@ export async function getStockSnapshot(
   payload: any,
   productId: number | string,
   productLevelStock?: number | null,
+  req?: any,
 ): Promise<StockSnapshot> {
   // Fetch all variants for this product
   const { docs: variants } = await payload.find({
@@ -95,6 +96,7 @@ export async function getStockSnapshot(
     where: { product: { equals: productId } },
     limit: 200,
     depth: 0,
+    req,
   })
 
   const variantDetails: VariantStock[] = variants.map((v: any) => ({
@@ -224,6 +226,7 @@ export async function reactToStockChange(
         collection: 'products',
         id: productOrId,
         depth: 0,
+        req,
       })
     }
 
@@ -232,7 +235,7 @@ export async function reactToStockChange(
     }
 
     // 2. Compute stock snapshot
-    const snapshot = await getStockSnapshot(payload, product.id, product.stockQuantity)
+    const snapshot = await getStockSnapshot(payload, product.id, product.stockQuantity, req)
 
     // 3. Compute transition
     const transition = computeTransition(product, snapshot)
@@ -247,15 +250,13 @@ export async function reactToStockChange(
     if (!stateChanged && !sellableChanged && !statusNeedsChange) {
       // No reaction needed — stock changed but state didn't
       // Still emit stock.changed for audit trail
-      await emitStockChanged(payload, product.id, snapshot, source)
+      await emitStockChanged(payload, product.id, snapshot, source, req)
       eventsEmitted.push('stock.changed')
       return { reacted: false, snapshot, transition, eventsEmitted }
     }
 
     // 5. Build update data
-    const updateReq = req
-      ? { ...req, context: { ...(req.context ?? {}), isDispatchUpdate: true } }
-      : { context: { isDispatchUpdate: true } }
+    const updateContext = { ...(req?.context ?? {}), isDispatchUpdate: true }
 
     const updateData: Record<string, unknown> = {}
 
@@ -320,7 +321,8 @@ export async function reactToStockChange(
         collection: 'products',
         id: product.id,
         data: updateData,
-        req: updateReq,
+        context: updateContext,
+        req,
       })
     } catch (updateErr) {
       const updateMsg = updateErr instanceof Error ? updateErr.message : String(updateErr)
@@ -340,16 +342,16 @@ export async function reactToStockChange(
     )
 
     // 7. Emit BotEvents
-    await emitStockChanged(payload, product.id, snapshot, source)
+    await emitStockChanged(payload, product.id, snapshot, source, req)
     eventsEmitted.push('stock.changed')
 
     if (transition.isSoldoutTransition) {
-      await emitProductSoldout(payload, product.id, snapshot, source)
+      await emitProductSoldout(payload, product.id, snapshot, source, req)
       eventsEmitted.push('product.soldout')
     }
 
     if (transition.isRestockTransition) {
-      await emitProductRestocked(payload, product.id, snapshot, source)
+      await emitProductRestocked(payload, product.id, snapshot, source, req)
       eventsEmitted.push('product.restocked')
     }
 
@@ -373,6 +375,7 @@ async function emitStockChanged(
   productId: number | string,
   snapshot: StockSnapshot,
   source: string,
+  req?: any,
 ): Promise<void> {
   try {
     await payload.create({
@@ -393,6 +396,7 @@ async function emitStockChanged(
         notes: `Stock changed via ${source}. Effective: ${snapshot.effectiveStock}`,
         processedAt: new Date().toISOString(),
       },
+      req,
     })
   } catch (err) {
     console.error(`[stockReaction] BotEvent stock.changed failed:`, err instanceof Error ? err.message : String(err))
@@ -404,6 +408,7 @@ async function emitProductSoldout(
   productId: number | string,
   snapshot: StockSnapshot,
   source: string,
+  req?: any,
 ): Promise<void> {
   try {
     await payload.create({
@@ -422,6 +427,7 @@ async function emitProductSoldout(
         notes: `Product soldout. All stock depleted via ${source}. Product page stays live, removed from merchandising sections.`,
         processedAt: new Date().toISOString(),
       },
+      req,
     })
   } catch (err) {
     console.error(`[stockReaction] BotEvent product.soldout failed:`, err instanceof Error ? err.message : String(err))
@@ -433,6 +439,7 @@ async function emitProductRestocked(
   productId: number | string,
   snapshot: StockSnapshot,
   source: string,
+  req?: any,
 ): Promise<void> {
   try {
     await payload.create({
@@ -451,6 +458,7 @@ async function emitProductRestocked(
         notes: `Product restocked via ${source}. Effective stock: ${snapshot.effectiveStock}. Re-eligible for merchandising sections.`,
         processedAt: new Date().toISOString(),
       },
+      req,
     })
   } catch (err) {
     console.error(`[stockReaction] BotEvent product.restocked failed:`, err instanceof Error ? err.message : String(err))

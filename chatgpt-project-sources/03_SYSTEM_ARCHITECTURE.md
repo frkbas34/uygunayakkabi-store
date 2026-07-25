@@ -1,6 +1,6 @@
 # System Architecture
 
-Last updated: 2026-06-21
+Last updated: 2026-07-25
 
 ## Core Stack
 
@@ -10,7 +10,8 @@ Last updated: 2026-06-21
 - Vercel hosting and cron
 - Vercel Blob for media when configured
 - Telegram bots for operator interface
-- OpenClaw for agent/skill layer
+- Hermes for the current agent-control layer
+- OpenClaw retained as historical/optional skill infrastructure unless explicitly reactivated
 - n8n for optional workflow glue
 - Shopier for external checkout/sales bridge
 
@@ -51,17 +52,24 @@ Central publish readiness remains a 6-dimension signal in `src/lib/publishReadin
 ## Publishing Paths
 
 - Website: active products render natively.
-- Instagram: direct Graph API if tokens/image are valid.
-- Facebook: direct Graph API if token/page ID/image are valid.
-- X: direct API path via configured credentials.
+- Instagram: direct Graph API if tokens and any gallery image are publicly
+  reachable over HTTPS.
+- Facebook: direct Graph API if token/page ID and any gallery image are
+  publicly reachable over HTTPS.
+- X: direct API path only with all four OAuth 1.0a values (`X_API_KEY`,
+  `X_API_SECRET`, `X_ACCESS_TOKEN`, `X_ACCESS_TOKEN_SECRET`); otherwise the
+  optional `N8N_CHANNEL_X_WEBHOOK` fallback may be used. Partial OAuth never
+  attempts a direct API call.
 - Shopier: Payload jobs queue.
 - n8n: optional fallback/scaffold path, not the main active publishing engine.
 
+StoryJobs are non-blocking and do not replace channel dispatch. Story dispatch now runs the same brand-safety scan before job creation; protected-brand products record a failed story status instead of queueing a future social/story job.
+
 ## Agent Split
 
-The app executes commerce workflows. OpenClaw/Mentix should reason, diagnose, draft, and help the operator.
+The app executes commerce workflows. Hermes/Mentix should reason, diagnose, draft, and help the operator.
 
-Do not let OpenClaw, n8n, and the app all compete as the system of record.
+Do not let Hermes, optional OpenClaw, n8n, and the app all compete as the system of record. Payload/Next remains the execution and data layer.
 
 ## Current Risk
 

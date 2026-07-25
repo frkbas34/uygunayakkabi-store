@@ -5,6 +5,7 @@
 import assert from 'node:assert'
 import {
   buildShopierErrorEntries,
+  buildShopierDashboardReviewRows,
   buildShopierDashboardSummary,
   buildShopierRetryPlan,
   evaluateShopierPublishControl,
@@ -92,6 +93,24 @@ async function main() {
     assert.strictEqual(result.ok, true)
     assert.deepStrictEqual(result.blockers, [])
     assert.strictEqual(result.readinessScore, '6/6')
+    assert.strictEqual(result.operatorLinks.adminUrl, 'https://www.uygunayakkabi.com/admin/collections/products/901')
+    assert.strictEqual(result.operatorLinks.productUrl, 'https://www.uygunayakkabi.com/products/siyah-tokali-loafer-sn0901')
+  })
+
+  await check('operator links keep draft products admin-only', () => {
+    const result = evaluateShopierPublishControl(readyProduct({ status: 'draft' }))
+    assert.strictEqual(result.operatorLinks.adminUrl, 'https://www.uygunayakkabi.com/admin/collections/products/901')
+    assert.strictEqual(result.operatorLinks.productUrl, null)
+  })
+
+  await check('operator links keep storefront-blocked brand products admin-only', () => {
+    const result = evaluateShopierPublishControl(readyProduct({
+      title: 'Nike Tokali Loafer',
+      slug: 'nike-tokali-loafer-sn0901',
+      brand: 'Nike',
+    }))
+    assert.strictEqual(result.operatorLinks.adminUrl, 'https://www.uygunayakkabi.com/admin/collections/products/901')
+    assert.strictEqual(result.operatorLinks.productUrl, null)
   })
 
   await check('Shopier intent detects target or publish flag', () => {
@@ -200,12 +219,39 @@ async function main() {
 
   await check('batch preview explains confirm requirement and blocked sample', () => {
     const ready = evaluateShopierPublishControl(readyProduct())
-    const blocked = evaluateShopierPublishControl(readyProduct({ status: 'draft' }))
+    const blocked = evaluateShopierPublishControl(readyProduct({
+      id: 902,
+      stockNumber: 'SN0902',
+      slug: 'draft-loafer-sn0902',
+      status: 'draft',
+    }))
     const message = formatShopierBatchPlan([ready, blocked])
 
     assert.ok(message.includes('/shopier publish-ready confirm'), message)
     assert.ok(message.includes('Ready to queue: 1'), message)
     assert.ok(message.includes('Blocked: 1'), message)
+    assert.ok(message.includes('Flow: <code>/productflow SN0901</code>'), message)
+    assert.ok(message.includes('Smoke: <code>npm run smoke:product-flow:read -- --product=SN0901 --confirm-read-only</code>'), message)
+    assert.ok(message.includes('Links: <a href="https://www.uygunayakkabi.com/admin/collections/products/901">admin</a> / <a href="https://www.uygunayakkabi.com/products/siyah-tokali-loafer-sn0901">PDP</a>'), message)
+    assert.ok(message.includes('Links: <a href="https://www.uygunayakkabi.com/admin/collections/products/902">admin</a>'), message)
+    assert.ok(!message.includes('https://www.uygunayakkabi.com/products/draft-loafer-sn0902'), message)
+
+    const missingCredentialMessage = formatShopierBatchPlan([ready, blocked], { shopierPatConfigured: false })
+    assert.ok(missingCredentialMessage.includes('SHOPIER_PAT configured: no'), missingCredentialMessage)
+    assert.ok(missingCredentialMessage.includes('Preview only. Configure SHOPIER_PAT before <code>/shopier publish-ready confirm</code>.'), missingCredentialMessage)
+
+    const configuredCredentialMessage = formatShopierBatchPlan([ready, blocked], { shopierPatConfigured: true })
+    assert.ok(configuredCredentialMessage.includes('SHOPIER_PAT configured: yes'), configuredCredentialMessage)
+    assert.ok(configuredCredentialMessage.includes('Verify Shopier webhook/account/quota outside chat before <code>/shopier publish-ready confirm</code>.'), configuredCredentialMessage)
+
+    const confirmedMessage = formatShopierBatchPlan([ready, blocked], {
+      confirmed: true,
+      queued: 1,
+      shopierPatConfigured: false,
+    })
+    assert.ok(!confirmedMessage.includes('Smoke: <code>npm run smoke:product-flow:read'), confirmedMessage)
+    assert.ok(!confirmedMessage.includes('Links:'), confirmedMessage)
+    assert.ok(!confirmedMessage.includes('Credential hold:'), confirmedMessage)
   })
 
   await check('Shopier error summary classifies retryable, data, and config issues', () => {
@@ -273,6 +319,27 @@ async function main() {
     assert.ok(message.includes('/shopier retry-errors confirm'), message)
     assert.ok(message.includes('Safe to retry: 1'), message)
     assert.ok(message.includes('Blocked: 3'), message)
+    assert.ok(message.includes('Flow: <code>/productflow SN0920</code>'), message)
+    assert.ok(message.includes('Smoke: <code>npm run smoke:product-flow:read -- --product=SN0920 --confirm-read-only</code>'), message)
+    assert.ok(message.includes('Links: <a href="https://www.uygunayakkabi.com/admin/collections/products/920">admin</a> / <a href="https://www.uygunayakkabi.com/products/siyah-tokali-loafer-sn0901">PDP</a>'), message)
+    assert.ok(message.includes('Links: <a href="https://www.uygunayakkabi.com/admin/collections/products/921">admin</a> / <a href="https://www.uygunayakkabi.com/products/siyah-tokali-loafer-sn0901">PDP</a>'), message)
+
+    const missingCredentialMessage = formatShopierRetryPlan(plan, { shopierPatConfigured: false })
+    assert.ok(missingCredentialMessage.includes('SHOPIER_PAT configured: no'), missingCredentialMessage)
+    assert.ok(missingCredentialMessage.includes('Preview only. Configure SHOPIER_PAT before <code>/shopier retry-errors confirm</code>.'), missingCredentialMessage)
+
+    const configuredCredentialMessage = formatShopierRetryPlan(plan, { shopierPatConfigured: true })
+    assert.ok(configuredCredentialMessage.includes('SHOPIER_PAT configured: yes'), configuredCredentialMessage)
+    assert.ok(configuredCredentialMessage.includes('Verify Shopier webhook/account/quota outside chat before <code>/shopier retry-errors confirm</code>.'), configuredCredentialMessage)
+
+    const confirmedMessage = formatShopierRetryPlan(plan, {
+      confirmed: true,
+      queued: 1,
+      shopierPatConfigured: false,
+    })
+    assert.ok(!confirmedMessage.includes('Smoke: <code>npm run smoke:product-flow:read'), confirmedMessage)
+    assert.ok(!confirmedMessage.includes('Links:'), confirmedMessage)
+    assert.ok(!confirmedMessage.includes('Credential hold:'), confirmedMessage)
   })
 
   await check('empty Shopier error summary is explicit', () => {
@@ -325,6 +392,48 @@ async function main() {
     assert.ok(message.includes('/shopier publish-ready confirm'), message)
     assert.ok(message.includes('/shopier retry-errors confirm'), message)
     assert.ok(message.includes('Configure SHOPIER_PAT'), message)
+  })
+
+  await check('operator dashboard shows a read-only batch review sample', () => {
+    const publishEvaluations = [
+      evaluateShopierPublishControl(readyProduct({ id: 940, stockNumber: 'SN0940' })),
+      evaluateShopierPublishControl(readyProduct({
+        id: 941,
+        stockNumber: 'SN0941',
+        imageQuality: { status: 'review' },
+      })),
+      evaluateShopierPublishControl(readyProduct({
+        id: 942,
+        stockNumber: 'SN0942',
+        sourceMeta: { shopierSyncStatus: 'queued' },
+      })),
+    ]
+
+    const rows = buildShopierDashboardReviewRows(publishEvaluations)
+    assert.deepStrictEqual(rows.map((row) => row.state), ['ready', 'blocked', 'queued'])
+    assert.strictEqual(rows[0].nextAction, '/shopier publish-ready')
+    assert.strictEqual(rows[0].flowCommand, '/productflow SN0940')
+    assert.strictEqual(rows[0].runtimeFlowCommand, 'npm run smoke:product-flow:read -- --product=SN0940 --confirm-read-only')
+    assert.strictEqual(rows[0].operatorLinks.adminUrl, 'https://www.uygunayakkabi.com/admin/collections/products/940')
+    assert.strictEqual(rows[0].operatorLinks.productUrl, 'https://www.uygunayakkabi.com/products/siyah-tokali-loafer-sn0901')
+    assert.strictEqual(rows[1].nextAction, '/imageqc SN0941')
+    assert.strictEqual(rows[1].flowCommand, '/productflow SN0941')
+    assert.strictEqual(rows[1].runtimeFlowCommand, 'npm run smoke:product-flow:read -- --product=SN0941 --confirm-read-only')
+    assert.strictEqual(rows[1].operatorLinks.adminUrl, 'https://www.uygunayakkabi.com/admin/collections/products/941')
+    assert.strictEqual(rows[2].nextAction, '/productflow SN0942')
+    assert.strictEqual(rows[2].flowCommand, '/productflow SN0942')
+    assert.strictEqual(rows[2].runtimeFlowCommand, 'npm run smoke:product-flow:read -- --product=SN0942 --confirm-read-only')
+
+    const summary = buildShopierDashboardSummary(publishEvaluations, [])
+    const message = formatShopierOperatorDashboard(summary, { reviewRows: rows, shopierPatConfigured: false })
+    assert.ok(message.includes('Batch review sample'), message)
+    assert.ok(message.includes('SN0940'), message)
+    assert.ok(message.includes('/shopier publish-ready'), message)
+    assert.ok(message.includes('/imageqc SN0941'), message)
+    assert.ok(message.includes('/productflow SN0942'), message)
+    assert.ok(message.includes('Flow: <code>/productflow SN0940</code>'), message)
+    assert.ok(message.includes('Smoke: <code>npm run smoke:product-flow:read -- --product=SN0940 --confirm-read-only</code>'), message)
+    assert.ok(message.includes('Links: <a href="https://www.uygunayakkabi.com/admin/collections/products/940">admin</a> / <a href="https://www.uygunayakkabi.com/products/siyah-tokali-loafer-sn0901">PDP</a>'), message)
   })
 
   console.log(`\nshopierPublishControl: ${passed} checks passed${process.exitCode ? ' - WITH FAILURES' : ' - ALL OK'}`)

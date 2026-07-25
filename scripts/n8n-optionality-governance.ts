@@ -80,17 +80,35 @@ function assertOptionalityDocs(): void {
     'source-pack n8n freeze',
   )
   assertIncludes(
+    read('chatgpt-project-sources/08_N8N_ROLE_AND_DECISION.md'),
+    'Current default: direct Payload/Next product flow.',
+    'source-pack direct Payload/Next default',
+  )
+  assertIncludes(
     read('chatgpt-project-sources/04_BOTS_AND_AUTOMATIONS.md'),
     'Status: optional glue.',
     'bot source-pack n8n status',
   )
+  const openQuestions = read('project-control/OPEN_QUESTIONS.md')
+  assertIncludes(
+    openQuestions,
+    'Current decision: direct Payload/Next is the default product flow and n8n is',
+    'project-control n8n default',
+  )
+  assertIncludes(openQuestions, 'optional, frozen glue.', 'project-control n8n freeze')
 }
 
 function assertDispatchFallbackIsOptional(): void {
   const dispatch = read('src/lib/channelDispatch.ts')
-  assertIncludes(dispatch, 'Env vars (all optional', 'channel dispatch optional env vars')
+  assertIncludes(dispatch, 'Optional n8n fallback env vars', 'channel dispatch optional env vars')
   assertIncludes(dispatch, 'Returns result with dispatched=false, webhookConfigured=false', 'channel dispatch scaffold fallback')
   assertIncludes(dispatch, 'Does NOT throw', 'channel dispatch scaffold no-throw fallback')
+  assertIncludes(dispatch, 'Instagram, Facebook, and X use direct provider paths', 'channel dispatch direct-first boundary')
+  assertIncludes(dispatch, 'optional n8n fallback', 'channel dispatch fallback boundary')
+  assertIncludes(dispatch, 'publishInstagramDirectly', 'Instagram direct adapter')
+  assertIncludes(dispatch, 'publishFacebookDirectly', 'Facebook direct adapter')
+  assertIncludes(dispatch, 'publishXDirectly', 'X direct adapter')
+  assertIncludes(dispatch, 'process.env.SHOPIER_PAT', 'Shopier Payload job boundary')
 
   const contract = read('n8n-workflows/CHANNEL_DISPATCH_CONTRACT.md')
   assertIncludes(

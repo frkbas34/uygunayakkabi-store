@@ -1,334 +1,230 @@
-# OPERATOR RUNBOOK — Uygunayakkabi Daily Operations
+# UygunAyakkabi Operator Runbook
 
-_Last updated: 2026-04-06 (Phase 21 — Post Instagram/Facebook dispatch validation)_
+Last updated: 2026-07-25
 
----
+This is the daily operator guide. It describes the current local product and
+diagnostic workflow. It is not deployment approval, proof of provider health,
+or permission to queue, publish, spend, or change production data without an
+operator decision.
 
-## 1. DAILY OPERATOR FLOW (Recommended Order)
+## Operating Boundaries
 
-### Morning Routine
+- Payload/Next is the source of truth for products, media, orders, leads,
+  stock, publishing state, bot events, and jobs.
+- Hermes is the current agent-control layer. Mentix/Uygunops is the Telegram
+  operator interface. OpenClaw is historical/optional unless explicitly
+  reactivated.
+- Sell and upload our own products only.
+- Active channels: Website, Instagram, Facebook, X, Shopier.
+- Dolap and Threads are retired. SupplierScout is dormant.
+- n8n is optional glue only. Do not build or activate an n8n workflow as part
+  of normal daily operation.
+- Shopier remains the checkout bridge. Website-native checkout is deferred.
 
-1. **System Health Check** — `/diagnostics` in Telegram
-   - Confirms DB connectivity, env vars, recent activity
-   - If anything looks wrong: stop, investigate, do not proceed
+## First Principle
 
-2. **Check Telegram for Overnight Alerts**
-   - Stock alerts (⚠️ low stock, 🔴 soldout, 🔄 restocked)
-   - Dispatch results (Instagram/Facebook post confirmations or errors)
+Read current Payload evidence before taking an action. A product being active
+or a command being available does not prove that every external channel,
+provider, webhook, or Shopier operation is ready or completed.
 
-3. **Review New Intake Products**
-   - Products created from Telegram photo intake appear as drafts
-   - Run `/pipeline <id>` on new products to see their lifecycle state
+Use `/productflow <id-or-sn>` as the product-level source of operator truth.
+It includes readiness, lifecycle, Image QC, brand safety, Shopier queue state,
+dispatch state, coherence warnings, links, and the next recommended step.
 
-### Core Pipeline Work (repeat per product)
+## Daily Read-Only Sequence
 
-4. **Visual Approval** — Review image generation previews
-   - If images exist: approve via inline keyboard buttons ✅ or reject ❌
-   - If no images: trigger with `#gorsel <id>` → wait → approve/reject
-   - NEVER skip visual approval — it gates the entire pipeline
+1. Start in Telegram with `/smokeplan`.
+   Follow its order. The plan starts with local read-only checks and verifies
+   Telegram access before any live Telegram read.
+2. Run the catalog planning checks selected by the plan:
 
-5. **Confirmation Wizard** — `/confirm <id>`
-   - Only works after visual approval (visualStatus=approved)
-   - Collects: category → productType → price → sizes → stock → brand → channel targets
-   - Review summary carefully before clicking "Onayla"
+   ```powershell
+   npm run smoke:load-plan:read -- --confirm-read-only
+   npm run test:telegram-access
+   npm run smoke:brand-safety:read -- --confirm-read-only
+   npm run smoke:image-qc-plan:read -- --confirm-read-only
+   ```
 
-6. **Content Generation** — Auto-triggers after confirmation
-   - Wait ~30s for AI to generate commerce + discovery packs
-   - Check status: `/content <id>`
-   - If failed or partial: `/content <id> retry`
+   Then read `/loadplan`, `/brandplan`, and `/imageqcplan` in Telegram. The
+   Image QC queue is read-only and routes protected-brand rows back to
+   provenance review before any image work.
+3. Select a product from the worklist and inspect it before changing it:
 
-7. **Audit** — Auto-triggers after content is ready
-   - Check: `/audit <id>`
-   - If needs revision: fix the underlying issue, then `/audit <id> run`
+   ```powershell
+   npm run smoke:product-flow:read -- --product=<id-or-sn> --confirm-read-only
+   npm run smoke:image-plan:read -- --product=<id-or-sn> --confirm-read-only
+   ```
 
-8. **Activation** — `/activate <id>`
-   - Only works when 6/6 publish readiness dimensions pass
-   - Triggers: channel dispatch (Instagram, Facebook), homepage inclusion, Shopier sync
-   - After activation: product is LIVE
+   Then use `/productflow <id-or-sn>` and `/imageplan <id-or-sn>`.
+4. Before relying on channels or providers, run:
 
-### Afternoon / As Needed
+   ```powershell
+   npm run smoke:provider-health:read -- --confirm-read-only
+   ```
 
-9. **Homepage Check** — Visit https://www.uygunayakkabi.com
-   - Verify new products appear in "Yeni" section
-   - Check merchandising sections look correct
+   Then read `/diagnostics`. Provider health reports configured readiness only;
+   it does not call a provider or prove a live publish.
 
-10. **Stock Management** — As orders come in
-    - Monitor stock alerts in Telegram
-    - Restock: update variant stock via admin panel or `STOCK SKU:` command
-    - System auto-handles: low_stock alerts, soldout transitions, restock recovery
+   Meta setup rule: Instagram OAuth stores the access token and Instagram
+   Business Account ID in Payload AutomationSettings. Facebook direct posting
+   reads its Page ID only from deployment env `INSTAGRAM_PAGE_ID`; do not add
+   or edit a `facebookPageId` field in Payload. Record key names, never values.
+5. Review operational state before catalog, follow-up, or manual advertising
+   decisions:
 
----
+   ```powershell
+   npm run smoke:business-funnel:read -- --period=week --confirm-read-only
+   npm run smoke:lead-followup:read -- --confirm-read-only
+   ```
 
-## 2. COMMAND-BY-COMMAND REFERENCE
+   Then read `/business`, `/funnel week`, and `/leadplan`.
+6. Before considering manual paid traffic, run the storefront checks in the
+   smoke plan, then use `/adready <id-or-sn>` and `/adreport week`. These are
+   decision support only. They never create campaigns, pixels, posts, API
+   calls, or spend.
+7. Review Shopier only after the preceding evidence is clear. See the Shopier
+   section below.
 
-### Product Lifecycle Commands
+Stop when a read identifies a blocker. Fix the blocker or record the decision;
+do not skip ahead by forcing an unrelated command.
 
-| Command | When to Use | Example |
-|---------|-------------|---------|
-| `/pipeline <id>` | Check full lifecycle status (13 stages) | `/pipeline 180` |
-| `#gorsel <id>` | Trigger AI image generation | `#gorsel 180` |
-| `/confirm <id>` | Start confirmation wizard (after visual approval) | `/confirm 180` |
-| `/confirm <id> force` | Re-confirm already-confirmed product | `/confirm 180 force` |
-| `/confirm_cancel` | Cancel active wizard | `/confirm_cancel` |
-| `/content <id>` | Check content generation status | `/content 180` |
-| `/content <id> trigger` | Manually trigger content generation | `/content 180 trigger` |
-| `/content <id> retry` | Retry failed/partial content | `/content 180 retry` |
-| `/audit <id>` | Check audit status | `/audit 180` |
-| `/audit <id> run` | Force run/re-run audit | `/audit 180 run` |
-| `/activate <id>` | Activate publish-ready product | `/activate 180` |
+## Product Workflow
 
-### Stock Commands
+### Inspect Before Changing
 
-| Command | When to Use | Example |
-|---------|-------------|---------|
-| `/stok <id>` | Check stock levels and variant breakdown | `/stok 180` |
-| `STOCK SKU: ...` | Batch update stock (multi-line format) | See format below |
+Use `/productflow <id-or-sn>` first. Follow its ordered primary step. Common
+read-only supporting commands are:
 
-**Stock update format:**
-```
-STOCK SKU: ABC-123
-38 +5
-39 -2
-41 +10
-```
+| Command | Purpose |
+| --- | --- |
+| `/pipeline <id-or-sn>` | Legacy lifecycle view; use Product Flow for the fuller current view. |
+| `/imageqc <id-or-sn>` | Inspect Image QC evidence. |
+| `/imageplan <id-or-sn>` | See safe review, preview, rejection, or regeneration guidance. |
+| `/imageqcplan [limit]` | Read batch Image QC triage; open the row-provided Image Plan before any QC or generation action. |
+| `/brandplan` | Review protected-brand remediation priorities without edits. |
+| `/brandreview <id-or-sn> ...` | Preview provenance review; confirmation only records an audit event. |
+| `/content <id>` | Read content state or use explicit trigger/retry when Product Flow directs it. |
+| `/audit <id>` | Read audit state or run an explicit audit after its prerequisites are met. |
 
-### Merchandising Commands
+### Deliberate Write Steps
 
-| Command | When to Use | Example |
-|---------|-------------|---------|
-| `/merch preview` | Show all homepage section summaries | `/merch preview` |
-| `/merch status <id>` | Check product's merchandising state | `/merch status 180` |
-| `/merch popular add <id>` | Mark as manually popular | `/merch popular add 180` |
-| `/merch popular remove <id>` | Remove popular flag | `/merch popular remove 180` |
-| `/merch deal add <id>` | Mark as deal/fırsat | `/merch deal add 180` |
-| `/merch deal remove <id>` | Remove deal flag | `/merch deal remove 180` |
-| `/merch bestseller pin <id>` | Pin to best sellers | `/merch bestseller pin 180` |
+These commands can write data, queue work, or call an enabled provider. Run
+them only after the relevant read-only evidence and human review:
 
-### Channel & Dispatch Commands
+| Command | Effect and hold |
+| --- | --- |
+| `#gorsel <id>` | Requests image generation. Review preview and Image QC before use. |
+| `/confirm <id>` | Starts/continues the product confirmation wizard. Verify category, price, sizes, stock, brand, and channel intent. |
+| `/content <id> trigger` or `retry` | Queues/retries content work only after confirmation supports it. |
+| `/audit <id> run` | Runs/re-runs audit after content is available. |
+| `/activate <id>` | Changes product state only when readiness passes. It does not prove every external channel was published. Review the resulting Product Flow and dispatch state. |
+| `/stok <id>` or approved admin stock edit | Changes stock only after the product and variant are checked. |
 
-| Command | When to Use | Example |
-|---------|-------------|---------|
-| `/shopier publish <id>` | Queue product for Shopier sync | `/shopier publish 180` |
-| `/shopier status <id>` | Check Shopier sync status | `/shopier status 180` |
+Protected-brand matches are hard blockers for activation. Do not use a manual
+override to bypass them. `/brandreview` records evidence only; it does not
+rewrite product text, clear a block, stop a sale, or publish a product.
 
-**Redispatch (Instagram/Facebook):**
-No direct Telegram command. To re-trigger dispatch:
-1. Open admin panel: `https://www.uygunayakkabi.com/admin/collections/products/<id>`
-2. In "Source Meta" section, check "Force Redispatch" checkbox
-3. Save — dispatch fires automatically on save
+## Images And Claims
 
-### Story Commands
+- Originals and approved generated images stay separate. Do not replace an
+  original silently.
+- Treat Image QC REVIEW or FAIL as a reason to inspect `/imageplan`, not a
+  reason to publish.
+- Use `/imageqcplan` before batch image work. It does not record QC or start
+  generation, and protected-brand rows stay in provenance review first.
+- For a protected-brand product, `/productflow` and `/imageplan` must lead with
+  preview-first `/brandreview <id-or-sn> needs-evidence`; do not perform Image
+  QC, generation, activation, Shopier, redispatch, or ad work first.
+- After a confirmed provenance review, re-run those reads. They show the latest
+  recorded evidence, copy-fix, or keep-excluded next step but never remove the
+  protected-brand safety block.
+- Keep product claims supported by product facts and operator evidence. Do not
+  invent brand, material, health, performance, provenance, or discount claims.
+- AI assistance drafts content and images; an operator owns approval.
 
-| Command | When to Use | Example |
-|---------|-------------|---------|
-| `/story <id>` | Create story job | `/story 180` |
-| `/restory <id>` | Retry story | `/restory 180` |
-| `/targets <id>` | Show story platform targets | `/targets 180` |
-| `/approve_story <jobId>` | Approve pending story | `/approve_story abc123` |
-| `/reject_story <jobId>` | Reject story job | `/reject_story abc123` |
+## Shopier Queue And Retry
 
-**Note:** Telegram Bot API does not support story publishing yet. Story jobs can be queued and approved but actual publishing is blocked pending API support.
+Shopier controls are preview-first. Read these before any confirmation:
 
-### System Commands
-
-| Command | When to Use |
-|---------|-------------|
-| `/diagnostics` | System health check (DB, env vars, counts) |
-
----
-
-## 3. PRODUCT LIFECYCLE — PIPELINE STAGES
-
-```
-INTAKE (Telegram photo) → Draft created
-    ↓
-IMAGE GENERATION (#gorsel) → AI generates product images
-    ↓
-VISUAL APPROVAL (inline buttons) → Operator approves/rejects images
-    ↓
-CONFIRMATION WIZARD (/confirm) → Category, price, sizes, stock, brand, targets
-    ↓
-CONTENT GENERATION (auto) → AI commerce pack + discovery pack (SEO article)
-    ↓
-AUDIT (auto) → 4-dimension quality check
-    ↓
-ACTIVATION (/activate) → Product goes LIVE
-    ↓
-CHANNEL DISPATCH (auto) → Instagram, Facebook, Shopier, etc.
-    ↓
-HOMEPAGE (auto) → Appears in "Yeni" section for 7 days
-    ↓
-STOCK LIFECYCLE (ongoing) → in_stock → low_stock → sold_out → restocked
+```text
+/shopier dashboard
+/shopier publish-ready
+/shopier errors
+/shopier retry-errors
 ```
 
-**Key Pipeline States:**
+For every row that may be queued or retried, run the displayed product-flow
+handoffs first:
 
-| Stage | visualStatus | confirmStatus | contentStatus | auditStatus | workflowStatus |
-|-------|-------------|---------------|---------------|-------------|----------------|
-| After intake | pending | pending | pending | not_required | draft |
-| After image gen | preview/approved | pending | pending | not_required | visual_ready |
-| After confirm | approved | confirmed | pending | pending | content_pending |
-| After content | approved | confirmed | ready | pending | content_ready |
-| After audit | approved | confirmed | ready | approved | publish_ready |
-| After activate | approved | confirmed | ready | approved | active |
-
----
-
-## 4. WHAT HAPPENS AUTOMATICALLY (No Operator Action Needed)
-
-These fire without any command:
-
-| Trigger | What Happens |
-|---------|-------------|
-| Product status draft → active | Channel dispatch (IG, FB, Shopier), story job creation |
-| Confirmation completed | Content generation auto-triggers (commerce + discovery packs) |
-| Content generation complete | Audit auto-triggers (4-dimension quality check) |
-| Variant stock changes | Stock state recalculated, Telegram alerts sent |
-| New order (non-Shopier) | Stock decremented, inventory log created, stock state updated |
-| Shopier refund | Stock restored, inventory log created |
-| Product sold out | Status → soldout, removed from merchandising, alert sent |
-| Product restocked | Status → active, re-included in merchandising, alert sent |
-
----
-
-## 5. EXCEPTION HANDLING & TROUBLESHOOTING
-
-### Image Generation Failed
-- Check `/pipeline <id>` → Visual stage
-- Common cause: Gemini API rate limit or timeout
-- Fix: Wait 60s, then `#gorsel <id>` again
-
-### Content Generation Failed
-- Check: `/content <id>` for error details
-- Common cause: Gemini output too long or malformed
-- Fix: `/content <id> retry` (retries preserve existing partial packs)
-
-### Audit Shows "needs_revision"
-- Check `/audit <id>` for specific dimension failures
-- Common causes: no linked blog, meta description too long, missing highlights
-- Fix: Address the underlying issue in admin panel, then `/audit <id> run`
-
-### Activation Fails (Not Publish-Ready)
-- `/activate <id>` will tell you exactly which dimensions are missing
-- Fix each blocker in order, then retry `/activate <id>`
-- Most common: missing content (run `/content <id> trigger`) or missing audit (run `/audit <id> run`)
-
-### Instagram/Facebook Dispatch Failed
-- Check admin panel → product → Source Meta → Dispatch Notes
-- Common causes:
-  - **Token expired:** Instagram token expires 2026-05-21. Must refresh before then.
-  - **Image URL 404:** Transient — retry with forceRedispatch
-  - **Rate limit:** Wait 60 minutes, retry
-- Fix: Set `sourceMeta.forceRedispatch = true` in admin panel and save
-
-### Shopier Sync Failed
-- Check `/shopier status <id>` for error
-- Common causes: Invalid product data, Shopier API down
-- Fix: `/shopier republish <id>` to retry
-
-### Stock Alert — Low Stock (⚠️)
-- Not urgent but needs attention within 24h
-- Check `/stok <id>` for variant breakdown
-- Restock via admin panel or `STOCK SKU:` command
-
-### Stock Alert — Sold Out (🔴)
-- Product automatically removed from merchandising
-- Product page stays live with "Tükendi" badge
-- Restock: update variant stock → system auto-recovers to active
-
----
-
-## 6. CRITICAL WARNINGS — NEVER SKIP THESE
-
-### ⛔ NEVER skip visual approval
-The entire pipeline gates on `visualStatus=approved`. Confirmation, content generation, and audit all require approved visuals. There is no bypass.
-
-### ⛔ NEVER activate without checking /pipeline
-Activation is irreversible in practice — the product goes live on Instagram, Facebook, and the website immediately. Always verify all 6 dimensions are green before activating.
-
-### ⛔ NEVER manually edit dispatch fields in the database
-`sourceMeta.dispatchedChannels`, `sourceMeta.dispatchNotes`, `sourceMeta.lastDispatchedAt` — these are written by the system. Manual edits will desync state.
-
-### ⛔ NEVER change product status directly to "active" via admin panel
-Always use `/activate <id>` via Telegram. Direct status changes skip the dispatch hook and merchandising setup. The product will be "active" but without Instagram/Facebook posts and without proper merchandising dates.
-
-### ⛔ NEVER delete media files from Vercel Blob
-Product images are referenced by ID in the database. Deleting them causes 404s on Instagram/Facebook posts and the storefront.
-
-### ⛔ Instagram token expires 2026-05-21
-The long-lived Instagram access token will stop working on this date. Before then, re-authenticate via `/api/auth/instagram/initiate` or the admin panel OAuth flow. Set a calendar reminder for 2026-05-14 (one week before).
-
-### ⛔ Facebook Page must stay ACTIVATED
-If the Facebook Page "UygunAyakkabı" is deactivated in Meta Business Suite, ALL Instagram and Facebook dispatch will fail silently. If dispatch stops working, check page status first.
-
-### ⛔ Database schema changes require manual DDL
-`push:true` does NOT work in production (Neon/Vercel). Any new collection, field, or index must be applied manually via SQL. See `MIGRATION_NOTES.md` for procedure.
-
----
-
-## 7. BOT RESPONSIBILITIES
-
-### UygunOps Bot (Telegram)
-The single bot handles everything:
-- Product intake (photo → draft product)
-- Image generation orchestration
-- Confirmation wizard
-- Content and audit management
-- Activation and dispatch monitoring
-- Stock alerts and merchandising
-- System diagnostics
-
-### Automated Systems (No Bot Interaction)
-- **Channel Dispatch:** Fires automatically on product activation (afterChange hook)
-- **Stock Reactions:** Fire automatically on variant/order changes
-- **Content Generation:** Fires automatically after confirmation
-- **Audit:** Fires automatically after content is ready
-- **Homepage Merchandising:** Resolved server-side on every page load
-
----
-
-## 8. DAILY CHECKLIST
-
-```
-□ Run /diagnostics — system healthy
-□ Check Telegram for overnight stock alerts
-□ Review new intake products (/pipeline for each)
-□ Approve/reject image previews for pending products
-□ Run /confirm wizard for approved products
-□ Verify content generated (auto ~30s after confirm)
-□ Verify audit passed (auto ~15s after content)
-□ /activate products that are publish-ready
-□ Spot-check homepage (new products visible?)
-□ Spot-check Instagram/Facebook (posts published?)
-□ Handle any stock alerts (restock if needed)
+```text
+/productflow <ref>
+npm run smoke:product-flow:read -- --product=<ref> --confirm-read-only
 ```
 
----
+Then verify `SHOPIER_PAT`, webhook URL/token, account permissions, and quota
+outside Telegram. Do not paste secrets into chat. The D-481 unique order-ID
+index is applied and read-only verified in the configured database; it does not
+replace a separate operator-approved live webhook delivery smoke.
 
-## 9. KEY NUMBERS & THRESHOLDS
+Only after the evidence, credential verification, and explicit operator
+approval may an operator use a `confirm` form of `/shopier publish-ready` or
+`/shopier retry-errors`, or a single `/shopier publish|republish <id>` command.
+Those paths queue work; they are not proof of a successful Shopier API result.
+Read `/shopier dashboard`, `/shopier status <id>`, and Product Flow afterward.
 
-| Parameter | Value | Notes |
-|-----------|-------|-------|
-| Low stock threshold | ≤ 3 units | Triggers ⚠️ alert |
-| Soldout threshold | 0 units | Triggers 🔴 alert, removes from merchandising |
-| "Yeni" window | 7 days | Products appear in "Yeni" section for 7 days after activation |
-| Instagram token expiry | 2026-05-21 | Must refresh before this date |
-| Content gen timeout | ~30-60s | Gemini Flash generates both packs |
-| Audit timeout | ~15-30s | Runs after content is ready |
-| Dispatch timeout | ~20s per channel | Instagram (container + publish), Facebook (token exchange + post) |
-| Telegram message limit | 4096 chars | Long messages are truncated |
+Before any live webhook testing, run the local preflight:
 
----
+```powershell
+npm run test:shopier-webhook-local
+```
 
-## 10. QUICK REFERENCE — PRODUCT STATUS MEANINGS
+## Leads, Orders, And Stock
 
-| Status | Visible? | Sellable? | Action Needed? |
-|--------|----------|-----------|----------------|
-| `draft` | No | No | Continue pipeline (visual → confirm → content → audit → activate) |
-| `active` | Yes | Yes | Monitor stock, check dispatch results |
-| `soldout` | Yes (with badge) | No | Restock to recover |
-| `archived` | No | No | None (removed from circulation) |
+Start from safe reads:
 
----
+| Command | Purpose |
+| --- | --- |
+| `/business` | Owner-level lead, order, revenue, and stock urgency summary. |
+| `/funnel [week|month]` | Attribution and funnel summary. |
+| `/leadplan` or `/followupplan` | Prioritized manual lead follow-up suggestions. |
+| `/inbox leads`, `/inbox orders`, `/orders`, `/order <id>` | Desk views with Payload admin links. |
+| `/orderreminders` | Order follow-up visibility. |
 
-_This runbook reflects the production system as of Phase 20A validation. Instagram and Facebook direct dispatch are confirmed working. The visual-first pipeline is the standard operating model._
+`/ship <id>`, `/deliver <id>`, and `/cancelorder <id>` are state-changing
+operator actions. Verify the order first. Delivered orders cannot be cancelled
+through Telegram. A manual cancellation does not restore stock automatically;
+use the approved restock process when stock must return.
+
+## Ads, Stories, And Publishing
+
+- `/adready`, `/adpack`, and `/adreport` are manual, operator-controlled
+  support. There is no autonomous ad spend.
+- Story jobs remain governed by protected-brand safety. Do not assume a story
+  job means a social platform post occurred.
+- The Website is the native storefront. Instagram, Facebook, X, and Shopier
+  each have independent provider, dispatch, and error state. Review that state
+  instead of assuming activation publishes all targets.
+
+## Escalation And Release Work
+
+For deployment, rollback, environment inventory, webhooks, cron/job runners,
+schema changes, commit, branch, push, or PR steps, use
+`project-control/DEPLOYMENT_OPS_RUNBOOK.md`. It has separate approval gates.
+
+Do not perform any of the following from this daily guide without an explicit
+operator request:
+
+- apply additional DDL or schema migrations;
+- deploy, roll back, change environment values, or register webhooks/cron;
+- stage, commit, push, create a branch, or open a PR;
+- run live provider probes, external dispatch, queue work, or live webhook
+  smoke beyond the explicit approval boundary;
+- activate SupplierScout, Dolap, Threads, optional OpenClaw, or a new n8n flow;
+- create campaigns, pixels, CAPI integrations, or ad spend.
+
+## Handoff Notes
+
+Record material roadmap, architecture, bot, channel, or approval changes in
+the existing `chatgpt-project-sources` documents so the manually uploaded
+ChatGPT Project source pack stays current. Keep the pack at 20 Markdown
+documents or fewer.

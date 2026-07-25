@@ -429,11 +429,14 @@ export async function approveAndActivateProduct(
   await recordPublishDecision(payload, productId, 'approved', source, sourceBot)
 
   const { evaluatePublishReadiness } = await import('./publishReadiness')
+  const { scanProductBrandSafety } = await import('./brandSafety')
   const readiness = evaluatePublishReadiness(product as any)
   const failedDimensions = readiness.dimensions.filter((dimension) => !dimension.passed)
+  const brandSafety = scanProductBrandSafety(product as any)
   const manualOverride =
     readiness.level !== 'ready' &&
     failedDimensions.length > 0 &&
+    brandSafety.safe &&
     failedDimensions.every((dimension) => dimension.name === 'visuals' || dimension.name === 'audit')
   if (readiness.level !== 'ready' && !manualOverride) {
     return {

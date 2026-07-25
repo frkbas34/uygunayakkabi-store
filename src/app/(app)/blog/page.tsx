@@ -1,4 +1,5 @@
 import { getPayload } from '@/lib/payload'
+import Image from 'next/image'
 import Link from 'next/link'
 import type { Metadata } from 'next'
 
@@ -96,10 +97,12 @@ export default async function BlogListingPage() {
                 <article className="flex gap-6 items-start p-4 -mx-4 rounded-xl hover:bg-gray-50 transition-colors">
                   {/* Thumbnail */}
                   {imageUrl && (
-                    <div className="w-32 h-24 flex-shrink-0 rounded-lg overflow-hidden bg-gray-100">
-                      <img
+                    <div className="relative w-32 h-24 flex-shrink-0 rounded-lg overflow-hidden bg-gray-100">
+                      <Image
                         src={imageUrl}
                         alt={post.title}
+                        fill
+                        sizes="128px"
                         className="w-full h-full object-cover"
                       />
                     </div>

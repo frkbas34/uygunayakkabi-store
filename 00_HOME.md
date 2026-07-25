@@ -1,51 +1,44 @@
 # UygunAyakkabi Project Home
 
-Last updated: 2026-06-23
+Last updated: 2026-07-25
 
-This is the Obsidian entry note for the project.
+This is the Obsidian entry point for the project. Read these five root notes
+before changing architecture, bots, channels, or roadmap priorities.
 
-## Current Truth
+## System Snapshot
 
-UygunAyakkabi is a Telegram-first, AI-assisted commerce system for our own products only.
+- UygunAyakkabi is a Telegram-first, AI-assisted commerce system for our own products only.
+- Payload/Next is the source of truth and execution layer.
+- Hermes is the current agent-control layer; Mentix/Uygunops is the Telegram operator identity.
+- OpenClaw is historical/optional until explicitly reactivated and verified.
+- n8n is optional fallback glue, not the default workflow path.
 
-Active channels:
+## Current Focus
 
-- Website
-- Instagram
-- Facebook
-- X
-- Shopier
+1. Resolve protected-brand catalog blockers through `/brandplan`; protected-brand matches cannot be manually activated, then scale verified own products with image QC and controlled publishing.
+2. Keep the active storefront and Shopier bridge trustworthy before ads.
+3. Keep direct X publishing behind the complete OAuth requirement, and all
+   Meta dispatch behind at least one public HTTPS gallery image.
+4. Run database or live-integration checks only with operator approval.
 
-Retired or dormant:
-
-- Dolap retired
-- Threads retired
-- SupplierScout dormant
-- n8n optional glue
-
-## Main Sources
+## Control Notes
 
 - [[01_CURRENT_TRUTH]]
 - [[02_MASTER_ROADMAP]]
 - [[03_BOT_OWNERSHIP]]
 - [[04_ACTIVE_DECISIONS]]
-- `chatgpt-project-sources/`
-- `AGENTS.md`
-- `CLAUDE.md`
+- [ChatGPT source pack](chatgpt-project-sources/00_INDEX_AND_UPLOAD_GUIDE.md)
+- [Master plan completion audit](chatgpt-project-sources/19_MASTER_PLAN_COMPLETION_AUDIT.md)
+- [Daily operator runbook](project-control/OPERATOR_RUNBOOK.md)
+- [Deployment and release runbook](project-control/DEPLOYMENT_OPS_RUNBOOK.md)
+- [Codex guidance](AGENTS.md)
+- [Claude guidance](CLAUDE.md)
 
-## Current Build Focus
+## Daily Control Loop
 
-1. Keep validation usable.
-2. Keep project control docs synced.
-3. Continue Phase 2 product workflow polish.
-4. Smoke-test live admin and Telegram operator paths with the operator present.
-
-## Validation
-
-```powershell
-npm run validate
-```
-
-The command should pass before feature work is considered ready.
-
-Latest verified state: `npm run validate` passes on 2026-06-23 with lint warnings only. Product `359` also passes the read-only activation smoke.
+1. Read the current truth and active decisions.
+2. For operations, start with `/smokeplan` and follow its read-only sequence.
+3. Run `npm run validate` before considering a local change ready.
+4. Update the matching ChatGPT source-pack note whenever architecture, bot,
+   channel, or roadmap truth changes.
+5. Do not treat local code as deployed or provider-ready without live evidence.

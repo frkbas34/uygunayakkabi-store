@@ -114,6 +114,19 @@ check('overview creates visible rows for website and unrecorded external targets
   assert.strictEqual(instagramSummary.canRedispatch, true)
 })
 
+check('overview blocks website when product visibility is not public', () => {
+  const rows = buildChannelDispatchOverview(['website'], [], {
+    websitePublished: false,
+    websiteUnavailableReason: 'Website visibility requires active or sold-out status (status=draft).',
+  })
+  const website = rows[0]
+  assert.ok(website)
+  const summary = summarizeChannelDispatchResult(website)
+  assert.strictEqual(summary.state, 'blocked')
+  assert.strictEqual(summary.reason, 'Website visibility requires active or sold-out status (status=draft).')
+  assert.strictEqual(summary.canRedispatch, false)
+})
+
 check('overview prefers latest result note and keeps historical non-target notes', () => {
   const rows = buildChannelDispatchOverview(['website', 'x'], [
     result({ channel: 'x', error: 'old error', timestamp: 'old' }),

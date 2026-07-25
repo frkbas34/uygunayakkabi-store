@@ -111,6 +111,53 @@ function assertDecisionDocs(): void {
     'Dolap and Threads are not part of the project anymore.',
     'source-pack retirement decision',
   )
+  assertIncludes(
+    read('project-control/OPEN_QUESTIONS.md'),
+    'Dolap and Threads are retired and must not be reintroduced.',
+    'project-control retirement decision',
+  )
+}
+
+function assertMemoryLockRetirements(): void {
+  for (const filePath of ['project-control/MEMORY_LOCK.md', 'project-control/exports/MEMORY_LOCK.md']) {
+    const text = read(filePath)
+    assertIncludes(
+      text,
+      'CURRENT ACTIVE CHANNELS: Website/Instagram/Facebook/X/Shopier; Dolap/Threads retired',
+      `${filePath} active-channel memory lock`,
+    )
+    assert.ok(
+      !/\b(?:Dolap|Threads|X\/Threads\/Dolap)\s+scaffold(?:ed|s)?\b/i.test(text),
+      `${filePath} must not describe retired channels as scaffolded`,
+    )
+    assert.ok(
+      !/\b(?:Dolap|Threads)\b[^\n|]*(?:planned|active|future development|remaining channel)/i.test(text),
+      `${filePath} must not describe retired channels as planned/active work`,
+    )
+  }
+}
+
+function assertMemoryLockCurrentControlTruth(): void {
+  for (const filePath of ['project-control/MEMORY_LOCK.md', 'project-control/exports/MEMORY_LOCK.md']) {
+    const text = read(filePath)
+    assertIncludes(text, 'Payload/Next is the current execution layer', `${filePath} Payload/Next control truth`)
+    assertIncludes(text, 'Hermes is the current agent-control layer', `${filePath} Hermes control truth`)
+    assertIncludes(text, 'OpenClaw is historical/optional', `${filePath} OpenClaw control truth`)
+    assertIncludes(text, 'n8n is optional glue', `${filePath} n8n control truth`)
+    assertIncludes(text, 'SupplierScout is dormant', `${filePath} SupplierScout control truth`)
+    assert.ok(
+      !text.includes('Live Telegram → OpenClaw → n8n → Payload pipeline'),
+      `${filePath} must not present the retired OpenClaw/n8n pipeline as current`,
+    )
+    assert.ok(
+      !text.includes('**AI Agent**: OpenClaw at'),
+      `${filePath} must not present OpenClaw as the current agent`,
+    )
+    assert.ok(
+      !text.includes('**Workflow**: n8n at'),
+      `${filePath} must not present n8n as a required workflow`,
+    )
+  }
 }
 
 assertNoRetiredChannelsInActiveCode()
@@ -118,5 +165,7 @@ assertNoRetiredWorkflowStubs()
 assertPackageScriptsDoNotActivateRetiredChannels()
 assertSourceOfTruth()
 assertDecisionDocs()
+assertMemoryLockRetirements()
+assertMemoryLockCurrentControlTruth()
 
-console.log('retiredChannelGovernance: active code, workflows, scripts, and docs checked - ALL OK')
+console.log('retiredChannelGovernance: active code, workflows, scripts, memory locks, and docs checked - ALL OK')

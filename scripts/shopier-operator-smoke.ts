@@ -15,6 +15,7 @@ import { existsSync, readFileSync } from 'node:fs'
 import path from 'node:path'
 
 import {
+  buildShopierDashboardReviewRows,
   buildShopierDashboardSummary,
   buildShopierRetryPlan,
   evaluateShopierPublishControl,
@@ -335,7 +336,9 @@ async function main(): Promise<void> {
     const publishEvaluations = publishCandidates.map((product) => evaluateShopierPublishControl(product))
 
     console.log('Read-only /shopier publish-ready preview')
-    console.log(formatShopierBatchPlan(publishEvaluations))
+    console.log(formatShopierBatchPlan(publishEvaluations, {
+      shopierPatConfigured: Boolean(process.env.SHOPIER_PAT),
+    }))
     console.log('')
 
     const errorRes = await payload.find({
@@ -348,9 +351,15 @@ async function main(): Promise<void> {
     const errorProducts = errorRes.docs as Record<string, any>[]
 
     console.log('Read-only /shopier dashboard preview')
+    // Keep this runtime smoke aligned with Telegram /shopier dashboard's batch review sample,
+    // including D-428 flowCommand/runtimeFlowCommand handoffs.
+    const reviewRows = buildShopierDashboardReviewRows(publishEvaluations)
     console.log(formatShopierOperatorDashboard(
       buildShopierDashboardSummary(publishEvaluations, errorProducts),
-      { shopierPatConfigured: Boolean(process.env.SHOPIER_PAT) },
+      {
+        shopierPatConfigured: Boolean(process.env.SHOPIER_PAT),
+        reviewRows,
+      },
     ))
     console.log('')
 
@@ -359,7 +368,9 @@ async function main(): Promise<void> {
     console.log('')
 
     console.log('Read-only /shopier retry-errors preview')
-    console.log(formatShopierRetryPlan(buildShopierRetryPlan(errorProducts)))
+    console.log(formatShopierRetryPlan(buildShopierRetryPlan(errorProducts), {
+      shopierPatConfigured: Boolean(process.env.SHOPIER_PAT),
+    }))
     console.log('')
     console.log('Smoke result: read-only Shopier previews completed. No writes, jobs, dispatches, or Shopier calls were performed.')
   } finally {

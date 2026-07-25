@@ -29,6 +29,7 @@ const mdFiles = readdirSync('chatgpt-project-sources').filter((name) => name.end
 for (const phrase of [
   'D-398 Local PR review package',
   'Status: PR #6 merged the reviewed `codex/master-build-plan-d500` stack into',
+  'PR #7 merged the D-501 follow-up as `8adfd1b`.',
   'Proposed PR Title',
   'Scope Summary',
   'D-399 loading-plan first product worklist',

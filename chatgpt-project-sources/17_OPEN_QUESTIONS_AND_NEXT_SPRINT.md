@@ -4,13 +4,15 @@ Last updated: 2026-07-25
 
 ## Post-Merge Storefront Correction
 
-D-501 is an uncommitted local mobile PDP correction. A read-only 390px
+D-501 is deployed through PR #7 as `8adfd1b`. A read-only 390px
 production smoke found the deployed Classic Loafer PDP at 440px document width:
 the fixed 40/60 CTA controls added content-box padding outside their flex
 basis. The homepage had no document overflow. Both controls now use
 `boxSizing: 'border-box'` and `minWidth: 0`; `npm run test:storefront-trust`,
-`npm run typecheck`, and `npm run lint` pass. An approved deploy and repeat
-390px PDP smoke are required before Phase 6 storefront conversion is complete.
+`npm run typecheck`, `npm run lint`, full validation, and build pass. Vercel
+completed Production deployment successfully and desktop public smoke passed.
+Repeat the exact 390px PDP smoke from a device-capable browser before Phase 6
+storefront conversion is fully mobile-verified.
 No provider, Shopier, Telegram, n8n, Payload, SupplierScout, retired-channel,
 or ad action occurred.
 
@@ -38,9 +40,9 @@ not another schema apply.
 
 ## Latest Approved Read-Only Readiness Result
 
-The approved 2026-07-25 read-only smoke sequence found a 100/127 catalog
-sample with zero ready products, 13 protected-brand blockers, 28 failed and 26
-pending Image-QC records, and 84 stale drafts. `SN0111` is an active legacy
+The latest approved 2026-07-25 read-only smoke sequence found a 100/128 catalog
+sample with zero ready products, 12 protected-brand blockers, 28 failed and 25
+pending Image-QC records, and 83 stale drafts. `SN0111` is an active legacy
 Camper record with a public-storefront block, Image-QC review, prior Facebook
 publish state, a recorded X credits-depleted failure, and Shopier history; no
 state was changed. Configured-environment provider health is Website ready,
@@ -599,7 +601,7 @@ Latest local boundary: D-498.
 The current local boundary supersedes D-497. The local release/PR range is
 `D-380-D-406 plus D-422-D-498`. The read-only brand remediation queue now
 counts provenance state and gives one next safe step per protected-brand row.
-The 2026-07-25 approved sample contains 13 blockers, all unreviewed; 9 have
+The latest 2026-07-25 approved sample contains 12 blockers, all unreviewed; 8 have
 stored external dispatch history and require manual remote-state verification
 before any cleanup decision. Next: review evidence and external state outside
 chat, then explicitly confirm an appropriate `/brandreview` record only when
@@ -612,7 +614,7 @@ Latest local boundary: D-499.
 The current local boundary supersedes D-498. The local release/PR range is
 `D-380-D-406 plus D-422-D-499`. The read-only Image QC queue gives batch
 visibility before any generation or QC decision. The approved 2026-07-25 sample
-contains 55 queue records: 13 protected-brand rows routed back to provenance
+contains 54 queue records: 12 protected-brand rows routed back to provenance
 review, 28 QC failures, and 14 pending decisions. Next: resolve protected-brand
 provenance, then inspect the non-brand failed/decision rows with the row-provided
 Image Plan reads before any explicit QC or generation action.
@@ -620,7 +622,7 @@ Image Plan reads before any explicit QC or generation action.
 The D-499 per-product diagnostic alignment closes one ordering gap: protected-
 brand `/productflow` and `/imageplan` now offer only preview-first provenance
 review while the hard gate remains unresolved. Next: make real provenance and
-remote-state decisions for the 13 protected-brand records, then work only the
+remote-state decisions for the 12 protected-brand records, then work only the
 non-brand Image QC backlog.
 
 Once a decision is confirmed, re-run `/productflow` or `/imageplan`: the latest
@@ -629,7 +631,7 @@ copy correction, or exclusion. It never removes the protected-brand gate.
 
 ### D-500 Meta Provider Configuration Unification Update
 
-The deployed release boundary is D-500. D-501 is the current local follow-up.
+The deployed release boundary includes D-501 through PR #7.
 
 The deployed release boundary superseded D-499. The completed release/PR range is
 `D-380-D-406 plus D-422-D-500`. Direct Facebook dispatch and provider health
@@ -644,11 +646,12 @@ separate approval before any live probe, queue, or post.
 
 Latest local boundary: D-501.
 
-The current local follow-up is D-501, outside the already-deployed D-500
-release range. A read-only 390px production smoke found the Classic Loafer PDP
+The deployed D-501 follow-up closes the code correction outside the original
+D-500 release range. A read-only 390px production smoke found the Classic Loafer PDP
 at 440px document width while the homepage remained within its viewport. The
 fixed CTA's 40/60 flex children used content-box padding; both now use
 `boxSizing: 'border-box'` and `minWidth: 0`. `test:storefront-trust`, typecheck,
-and lint pass locally. The next required evidence is a new approved deployment
-and clean 390px PDP smoke; no provider, Shopier, Telegram, n8n, Payload, or ad
-action is part of this correction.
+and lint pass locally. PR #7 merged `8adfd1b`, Vercel completed Production
+deployment successfully, and desktop public smoke passed. The next required
+evidence is a clean 390px PDP smoke from a device-capable browser; no provider,
+Shopier, Telegram, n8n, Payload, or ad action is part of this correction.

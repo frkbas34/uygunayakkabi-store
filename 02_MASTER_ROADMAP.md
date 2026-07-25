@@ -163,9 +163,11 @@ live-post evidence remain operator work.
 
 ## D-501 Mobile PDP CTA Overflow Guard
 
-Phase 6 mobile storefront smoke found the deployed Classic Loafer PDP at 440px
-document width on a 390px viewport. The fixed 40/60 CTA bar added content-box
-padding outside both flex bases. D-501 applies `boxSizing: 'border-box'` and
+Phase 6 mobile storefront smoke found the Classic Loafer PDP at 440px document
+width on a 390px viewport. The fixed 40/60 CTA bar added content-box padding
+outside both flex bases. D-501 applies `boxSizing: 'border-box'` and
 `minWidth: 0` to both controls, and `test:storefront-trust` now guards that
-contract. Typecheck and lint pass locally. Deploy and repeat the 390px PDP
-smoke before treating storefront conversion as mobile-ready.
+contract. PR #7 merged the correction as `8adfd1b` and Vercel completed its
+Production deployment successfully. Desktop public smoke passes; repeat the
+exact 390px PDP smoke from a device-capable browser before treating storefront
+conversion as fully mobile-verified.

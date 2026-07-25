@@ -1,12 +1,33 @@
 ﻿# PROJECT STATE — Uygunayakkabi
 
-_Last updated: 2026-07-25 (D-501 mobile PDP CTA overflow correction, D-500 Meta provider configuration unification, approved read-only provider-health evidence, and verified Vercel Production deployment.)_
+_Last updated: 2026-07-25 (D-501 deployed through PR #7, desktop public smoke passed, exact 390px re-smoke pending.)_
 
-## D-501 mobile PDP CTA overflow correction - 2026-07-25 (LOCAL CODE/DOCS, not deployed)
+## Approved Read-Only Operational Refresh - 2026-07-25
+
+- The 100/128 catalog sample has 12 protected-brand blockers, 28 failed and 25
+  pending Image-QC records, and 83 stale drafts. All protected-brand rows lack
+  provenance decisions; eight have stored external-dispatch history that needs
+  manual remote-state verification before any decision.
+- Provider health is Website/Facebook ready, Instagram disabled, X/Shopier
+  missing requirements; Gemini text/image are ready and reverse-search providers
+  are unconfigured. Shopier has no queue/error/retry candidates and no
+  `SHOPIER_PAT` in the smoke environment.
+- There are six stale open leads, no open orders, no seven-day funnel activity,
+  one sold-out product, and one low-stock product. These read-only checks made no
+  writes, queues, dispatches, provider calls, Shopier calls, or ad actions.
+- Focused flow evidence for legacy `SN0111` (product `448`) shows historical
+  `active` status plus Facebook published, Shopier queued/synced, and X
+  credits-depleted failure state. Current Website visibility and activation are
+  blocked by Camper brand safety and Image-QC review; only manual
+  `/brandreview SN0111 needs-evidence` is appropriate before any cleanup.
+- Full `npm run validate` passed after this operational refresh and source-pack
+  update: typecheck, lint, and the complete safe suite are green.
+
+## D-501 mobile PDP CTA overflow correction - 2026-07-25 (PRODUCTION DEPLOYED, exact 390px re-smoke pending)
 
 - Read-only 390px production smoke found the Classic Loafer PDP at 440px document width: the fixed mobile CTA used a 40/60 flex split plus content-box padding, creating 50px of horizontal overflow. The homepage remained at 385px document width with no horizontal overflow.
 - Both fixed CTA controls now use `boxSizing: 'border-box'` and `minWidth: 0`, so their padding remains inside the 40/60 split. `scripts/storefront-trust-governance.ts` asserts that contract alongside existing PDP conversion requirements.
-- `npm run test:storefront-trust`, `npm run typecheck`, `npm run lint`, and `git diff --check` pass. This correction has not been deployed; repeat the 390px PDP smoke after an approved release. It makes no Payload write, provider call, Shopier call, Telegram action, n8n action, SupplierScout activation, retired-channel activation, or ad action.
+- PR #7 merged D-501 as `8adfd1b`; Vercel completed Production deployment successfully. `npm run test:storefront-trust`, `npm run typecheck`, `npm run lint`, full `npm run validate`, `npm run build`, and `git diff --check` pass. Public desktop smoke confirmed the homepage/PDP, Shopier/WhatsApp CTAs, and no browser errors. Repeat the exact 390px PDP smoke from a device-capable browser. It makes no Payload write, provider call, Shopier call, Telegram action, n8n action, SupplierScout activation, retired-channel activation, or ad action.
 
 ## D-500 Meta provider configuration unification - 2026-07-25 (LOCAL CODE/DOCS, configured read passed, source release deployed)
 

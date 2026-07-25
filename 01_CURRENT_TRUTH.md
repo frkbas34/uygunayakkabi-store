@@ -27,17 +27,37 @@ Last updated: 2026-07-25
 - Canonical lifecycle: `draft`, `needs_review`, `ready_to_publish`, `active`, `sold_out`.
 - Activation remains gated by media, price, sellable stock, target alignment,
   readiness, and brand safety.
-- D-500 is the deployed release boundary. Full `npm run validate` and `npm run build`
+- D-500 is the deployed master-build boundary. Full `npm run validate` and `npm run build`
   passed after the D-500 Meta-provider configuration alignment; the approved
   readiness reads are PII-light and read-only. PR #6 merged the reviewed stack
   into `main`, and Vercel Production deployment
   `dpl_5L6CXiNjKBiqS8sp7DAuRabcG1cj` is Ready. Public homepage and PDP smoke
   checks pass; this is not proof of live provider readiness.
-- D-501 is the current uncommitted local storefront correction. The deployed PDP at a
-  390px viewport has 440px document width because its fixed mobile CTA adds
-  padding outside a 40/60 flex split. Both controls now use `border-box` and
-  `minWidth: 0`; `test:storefront-trust`, typecheck, and lint pass. Deploy and
-  repeat the mobile smoke before treating Phase 6 as complete.
+- D-501 was merged through PR #7 as commit `8adfd1b`; Vercel completed the
+  Production deployment successfully. It fixes the 390px PDP overflow caused by
+  content-box padding outside the fixed CTA's 40/60 split using `border-box` and
+  `minWidth: 0`. `test:storefront-trust`, typecheck, lint, full validation, and
+  build pass; the public desktop smoke has Shopier/WhatsApp CTAs and no browser
+  errors. Repeat the exact 390px smoke from a device-capable browser before
+  treating Phase 6 as fully mobile-verified.
+- Latest approved read-only refresh (2026-07-25): the 100/128 product sample
+  has 12 protected-brand blockers, 28 failed and 25 pending Image-QC records,
+  and 83 stale drafts. All 12 protected-brand rows lack a provenance decision;
+  eight have stored external-dispatch history requiring manual remote-state
+  verification. There are six stale open leads, no open orders, no seven-day
+  funnel activity, no Shopier queue/error/retry candidates, and no `SHOPIER_PAT`
+  in the smoke environment. Website and Facebook are ready, Instagram is
+  disabled, X and Shopier are missing requirements; Gemini text/image are ready
+  while reverse-search providers are unconfigured. These reads made no writes,
+  queues, dispatches, provider calls, Shopier calls, or ad actions.
+- Focused flow evidence for legacy `SN0111` (product `448`) confirms the hard
+  safety gate: it is still historically `active`, but Website visibility and
+  activation are blocked by Camper brand safety and Image-QC review. Stored
+  dispatch history is Facebook published, Shopier queued/synced, and X failed
+  for depleted credits. The only safe next action is manual external-state and
+  provenance verification through `/brandreview SN0111 needs-evidence`.
+- Full `npm run validate` passed after this operational refresh and source-pack
+  update: typecheck, lint, and the complete safe suite are green.
 - The storefront announcement bar is part of the fixed header, and `Camper`
   is included in the shared protected-brand hard gate across activation and
   public storefront eligibility.

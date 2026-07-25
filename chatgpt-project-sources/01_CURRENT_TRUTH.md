@@ -29,6 +29,28 @@ stale leads and returned only PII-light operator actions; it performed no
 writes, messages, queues, provider calls, Shopier calls, schema pushes, or ad
 action.
 
+Latest approved read-only operational refresh (2026-07-25): the 100/128
+catalog sample has 12 protected-brand blockers, 28 failed and 25 pending
+Image-QC records, and 83 stale drafts. All 12 protected-brand rows have no
+provenance decision; eight have stored external-dispatch history requiring
+manual remote-state verification. Business/Funnel reads show six stale open
+leads, no open orders, and no seven-day funnel activity. Shopier has no
+publish/error/retry candidates and `SHOPIER_PAT` is absent. Website and Facebook
+are ready, Instagram is disabled, X and Shopier are missing requirements; Gemini
+text/image are ready while no reverse-search provider is configured. These
+read-only checks made no writes, queues, dispatches, provider calls, Shopier
+calls, or ad actions.
+
+Focused product-flow evidence for legacy `SN0111` (product `448`) confirms the
+hard safety gate: it remains historically `active`, but Website visibility and
+activation are blocked by Camper brand safety and Image-QC review. Stored
+dispatch history is Facebook published, Shopier queued/synced, and X failed for
+depleted credits. The only safe next action is manual external-state and
+provenance verification through `/brandreview SN0111 needs-evidence`.
+
+Full `npm run validate` passed after this operational refresh and source-pack
+update: typecheck, lint, and the complete safe suite are green.
+
 Brand remediation external-exposure visibility (D-497): `/brandplan` and
 `smoke:brand-safety:read` now display recorded Facebook, Instagram, X, and
 Shopier dispatch notes as `published`, `queued`, or `failed`. Website is
@@ -339,10 +361,12 @@ PDP smoke checks pass. This is not proof of production provider credentials,
 account permissions, quotas, webhook delivery, or a real dispatch.
 
 D-501 mobile PDP CTA overflow correction: a read-only 390px production smoke
-found the deployed Classic Loafer PDP at 440px document width, due to
-content-box padding outside its fixed 40/60 mobile CTA flex split. The homepage
-had no document overflow. The local fix applies `boxSizing: 'border-box'` and
-`minWidth: 0` to both CTA controls; `test:storefront-trust`, typecheck, and
-lint pass. It is not deployed. Repeat the 390px PDP smoke after an approved
-release; this local correction does not call providers, Shopier, Telegram, or
-n8n and does not write Payload data.
+found the Classic Loafer PDP at 440px document width, due to content-box padding
+outside its fixed 40/60 mobile CTA flex split. The homepage had no document
+overflow. PR #7 merged the correction as `8adfd1b`, and Vercel completed its
+Production deployment successfully. Both CTA controls use `boxSizing:
+'border-box'` and `minWidth: 0`; `test:storefront-trust`, typecheck, lint, full
+validation, and build pass. Public desktop smoke confirms the Shopier and
+WhatsApp CTAs with no browser errors. Repeat the exact 390px PDP smoke from a
+device-capable browser before declaring Phase 6 fully mobile-verified; D-501
+does not call providers, Shopier, Telegram, or n8n and does not write Payload data.

@@ -5,12 +5,15 @@ Last updated: 2026-07-25
 ## D-398 Local PR review package
 
 Status: PR #6 merged the reviewed `codex/master-build-plan-d500` stack into
-`main`; Vercel Production deployment `dpl_5L6CXiNjKBiqS8sp7DAuRabcG1cj` is Ready.
+`main`; PR #7 merged the D-501 follow-up as `8adfd1b`. Both Vercel Production
+deployments completed successfully. Vercel Production deployment `dpl_5L6CXiNjKBiqS8sp7DAuRabcG1cj` is Ready.
 
-This file records the completed D-500 review package. D-501 is a separate,
-unreviewed local mobile-PDP correction and is not covered by this package. It is not permission to deploy,
-run live Telegram commands, queue Shopier jobs, call providers, sync optional
-OpenClaw, activate SupplierScout, revive retired channels, or spend on ads.
+This file records the completed D-500 review package and the completed D-501
+follow-up review. The public desktop smoke passes; an exact 390px re-smoke from
+a device-capable browser remains an operational evidence item. This archive is
+not permission to deploy, run live Telegram commands, queue Shopier jobs, call
+providers, sync optional OpenClaw, activate SupplierScout, revive retired
+channels, or spend on ads.
 
 ## Proposed PR Title
 

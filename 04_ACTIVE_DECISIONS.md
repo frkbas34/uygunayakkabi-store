@@ -21,6 +21,10 @@ Last updated: 2026-07-24
   Production deployment `dpl_5L6CXiNjKBiqS8sp7DAuRabcG1cj` is Ready and a
   public homepage/PDP smoke passed. Live operator and integration evidence
   remain separate approval-gated work.
+- PR #7 merged D-501 (`8adfd1b`) and Vercel completed its Production deployment.
+  The public desktop storefront smoke passes with Shopier/WhatsApp CTAs and no
+  browser errors. Repeat the exact 390px PDP smoke from a device-capable browser
+  before calling Phase 6 fully mobile-verified.
 - Hermes/Mentix is the current agent-control and Telegram operator layer.
 - OpenClaw is optional/history until explicitly reactivated and verified.
 - Its legacy VPS sync requires both `--reactivate-openclaw` and

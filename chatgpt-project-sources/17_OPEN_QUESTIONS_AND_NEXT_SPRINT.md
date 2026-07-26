@@ -5,7 +5,7 @@ Current as of 2026-07-26. This is a prioritized decision list, not a milestone l
 ## P0 — Telegram and image correctness
 
 1. Define a fail-closed production policy for webhook secret, DM/group allowlists, and callback actions. Callback payload ownership must not substitute for operator authorization.
-2. Make Payload schema push fail closed. Authenticated Vercel evidence proves `PAYLOAD_DB_PUSH` is absent in preview and production while the current config interprets absence as true. The same pooled Neon `DATABASE_URI` spans development, preview, and production scopes. Do not authorize expansion or push until explicit false is proven for every production/preview build/runtime path.
+2. Remediate the Payload schema-push production control plane. Local code is now fail closed, but authenticated Vercel evidence still shows `PAYLOAD_DB_PUSH` absent in preview and production, and the serving runtime still has the old fail-open expression. Prove explicit false, redeploy/restart the old runtime under it, verify effective behavior, and prove no schema push occurred before any expansion or local-chain push.
 3. Remove the rejected protected-brand generation helper/test and brand-first generation advice without weakening claims, approval, activation, publishing, advertising, Shopier, or dispatch guards.
 4. Define cleanup ownership and recoverability for rejected, regenerated, failed-save, partial-approval, and otherwise orphaned generated Media.
 
@@ -50,4 +50,4 @@ Current as of 2026-07-26. This is a prioritized decision list, not a milestone l
 
 ## Exact recommended next task
 
-**MAKE PAYLOAD SCHEMA PUSH FAIL CLOSED V1**: change the configuration and environment governance so absence can never enable Payload schema push; prove explicit `PAYLOAD_DB_PUSH=false` for local validation, CI, Vercel preview build/runtime, Vercel production build/runtime, read-only smokes, and controlled migration processes. Do not apply production schema, push the lineage chain, deploy, promote, or run live smokes in that task.
+**PRODUCTION PAYLOAD SCHEMA PUSH CONTROL-PLANE REMEDIATION V1**: set and prove explicit `PAYLOAD_DB_PUSH=false` for Vercel preview and production, redeploy or restart the current old runtime under that control, verify effective fail-closed behavior, and prove no automatic schema push occurred. Do not apply the lineage migration, push the local runtime chain, begin production expansion, call providers, or run write-producing smokes in that task.

@@ -110,6 +110,7 @@ for (const command of [
   'npm run test:lead-conversion-schema',
   'npm run test:image-slot-lineage-schema',
   'npm run test:image-slot-lineage-helper',
+  'npm run test:payload-db-push-policy',
   'npm run smoke:activation:read -- --product=<id> --confirm-read-only',
   'npm run smoke:product-flow:read -- --product=<id-or-sn> --confirm-read-only',
   'npm run smoke:imageqc:schema -- --confirm-read-only',
@@ -144,6 +145,8 @@ for (const command of [
 for (const envName of [
   'DATABASE_URI',
   'IMAGE_SLOT_LINEAGE_DATABASE_URI',
+  'PAYLOAD_DB_PUSH',
+  'PAYLOAD_DB_PUSH_LOCAL_CONFIRM',
   'PAYLOAD_SECRET',
   'NEXT_PUBLIC_SERVER_URL',
   'TELEGRAM_BOT_TOKEN',

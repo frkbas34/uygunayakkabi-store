@@ -14,6 +14,10 @@ Production expansion may **not** be separately authorized from this pre-flight. 
 
 After that change is reviewed and safely configured, the remaining Neon target, backup/PITR, dedicated read-only gate, schema-fingerprint, workload, and deployment-hold evidence below must still be supplied before an expansion task can be authorized.
 
+### Local remediation checkpoint (2026-07-26)
+
+The fail-closed code remediation was implemented locally after this evidence was captured. The pure policy now treats missing, empty, and exact `false` as disabled; rejects invalid values; and permits exact `true` only in doubly confirmed local development outside Vercel, CI, builds, tests, production, and read-only operations. It resolves before PostgreSQL adapter construction. This does not change the pre-flight evidence or primary production classification: the serving production runtime still contains the old expression, Vercel preview/production still lack explicit `PAYLOAD_DB_PUSH=false`, and no push, deployment, Vercel mutation, database connection, or schema application occurred. The next task is **PRODUCTION PAYLOAD SCHEMA PUSH CONTROL-PLANE REMEDIATION V1**; production expansion remains blocked afterward until every other gate in this report is proven.
+
 ## 1. Git preflight
 
 | Check | Result |

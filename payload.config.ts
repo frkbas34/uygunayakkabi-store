@@ -38,10 +38,12 @@ import { HomepageMerchandisingSettings } from "./src/globals/HomepageMerchandisi
 import { SupplierScoutSettings } from "./src/globals/SupplierScoutSettings";
 import { shopierSyncTask } from "./src/jobs/shopierSyncTask";
 import { imageGenTask } from "./src/jobs/imageGenTask";
+import { resolvePayloadDbPushPolicy } from "./src/lib/payloadDbPushPolicy";
 
 
 const filename = fileURLToPath(import.meta.url);
 const dirname = path.dirname(filename);
+const payloadDbPushPolicy = resolvePayloadDbPushPolicy();
 
 export default buildConfig({
   plugins: [
@@ -150,10 +152,9 @@ export default buildConfig({
       // to avoid pg-connection-string deprecation warning
       ssl: process.env.DATABASE_URI?.includes('neon.tech') ? { rejectUnauthorized: false } : undefined,
     },
-    // Şema değişikliklerini otomatik uygular (dev için ideal).
-    // Local'de güvenli önizleme için PAYLOAD_DB_PUSH=false ile kapatılabilir;
-    // ayarlanmazsa production'daki davranış aynen korunur (true).
-    push: process.env.PAYLOAD_DB_PUSH !== "false",
+    // Fail closed by default. Automatic push is available only through the
+    // resolver's explicit, doubly confirmed local-development exception.
+    push: payloadDbPushPolicy.enabled,
   }),
   editor: lexicalEditor(),
   secret: process.env.PAYLOAD_SECRET!,

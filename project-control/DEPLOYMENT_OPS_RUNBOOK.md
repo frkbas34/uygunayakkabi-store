@@ -1,6 +1,6 @@
 # Deployment And Ops Runbook
 
-Last updated: 2026-07-25
+Last updated: 2026-07-26
 
 This is the current Phase 9 deploy, rollback, env, webhook, cron, job-runner, and PR workflow runbook for UygunAyakkabi.
 
@@ -57,6 +57,7 @@ The safe suite includes current governance checks:
 - `npm run test:operator-smoke-plan`
 - `npm run test:image-qc-remediation-plan`
 - `npm run test:image-regeneration-plan`
+- `npm run test:payload-db-push-policy`
 
 `npm run test:openclaw-vps-verification` is a standalone optional OpenClaw
 reactivation check, not part of the normal `test:safe` chain while Hermes/Mentix
@@ -108,6 +109,8 @@ Review env var names and presence without printing secret values.
 Core app:
 
 - `DATABASE_URI`
+- `PAYLOAD_DB_PUSH` (safe value: exact `false`; missing/empty is also disabled in the new local policy)
+- `PAYLOAD_DB_PUSH_LOCAL_CONFIRM` (local development exception only; never configure in Vercel or CI)
 - `PAYLOAD_SECRET`
 - `NEXT_PUBLIC_SERVER_URL`
 - `BLOB_READ_WRITE_TOKEN`
@@ -183,10 +186,16 @@ target, current provider-native backup, pre-migration schema fingerprint, and
 operator approval before the confirmed form. The confirmed process requires
 an explicit `IMAGE_SLOT_LINEAGE_DATABASE_URI`; it never falls back to
 `DATABASE_URI`, and the two must not resolve to the same host/port/database.
-Keep `PAYLOAD_DB_PUSH=false` in
-Codex, CI, preview, production, read-only smokes, and the Payload process used
-around migration operations. The configured default-on behavior is not an
-approved production migration mechanism. If rollback is required, roll back
+The new local policy resolves before the PostgreSQL adapter is constructed.
+Missing, empty, or exact `false` disables automatic push; other non-empty values
+are rejected. Exact `true` is accepted only for `NODE_ENV=development` outside
+Vercel, CI, builds, tests, and read-only operations, and only with
+`PAYLOAD_DB_PUSH_LOCAL_CONFIRM=ALLOW_LOCAL_SCHEMA_MUTATION`. Keep explicit
+`PAYLOAD_DB_PUSH=false` in Codex, CI, preview, production, read-only smokes, and
+controlled migration processes. Normal schema changes use governed migrations.
+Production still runs the old fail-open code and Vercel still lacks the flag;
+that control plane must be separately remediated and the old runtime restarted
+before production can be considered safe. If rollback is required, roll back
 runtime first and retain the harmless nullable columns; column removal is a
 later separately approved contract migration.
 

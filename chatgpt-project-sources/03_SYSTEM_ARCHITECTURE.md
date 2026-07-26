@@ -2,7 +2,7 @@
 
 ## Execution boundary
 
-Next.js 16.2 canary and Payload 3.79 run one application. PostgreSQL is the database, Vercel Blob is production media storage when configured, and Payload jobs persist queued work. Payload schema push defaults on unless `PAYLOAD_DB_PUSH=false`; read-only runtime smokes force it off where applicable.
+Next.js 16.2 canary and Payload 3.79 run one application. PostgreSQL is the database, Vercel Blob is production media storage when configured, and Payload jobs persist queued work. The new local pure policy resolves before the PostgreSQL adapter: missing, empty, and exact `false` disable Payload schema push; invalid values fail; and exact `true` requires an explicit second confirmation in local development and is forbidden in Vercel, CI, production, builds, tests, and read-only operations. Production still serves the old fail-open config until separately remediated and redeployed.
 
 The repository has no Payload migration manifest or proven pre-activation Vercel migration stage. It uses reviewed SQL plus guarded, dry-run-by-default apply helpers. Image Slot Lineage V1 therefore follows expand-first rollout: add seven nullable/default-free columns while the old runtime is active, verify, deploy the new runtime, and retain the columns during runtime rollback. Automatic Payload schema push is not the production migration mechanism.
 

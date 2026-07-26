@@ -795,7 +795,9 @@ Phase 6 storefront conversion correction. A read-only 390px production smoke
 found the live Classic Loafer PDP at 440px document width: its fixed mobile CTA
 used a 40/60 flex split but added content-box padding outside each basis. Both
 controls now use `boxSizing: 'border-box'` and `minWidth: 0`, keeping their
-padding inside the split. `test:storefront-trust`, typecheck, and lint cover
-the local correction. It changes no Payload data and makes no provider,
-Shopier, Telegram, n8n, SupplierScout, retired-channel, or ad action. Deploy
-and repeat the 390px PDP smoke before treating Phase 6 as complete.
+padding inside the split. PR #7 merged the correction as `8adfd1b`, and Vercel
+completed its Production deployment successfully. `test:storefront-trust`,
+typecheck, lint, full validation, and build pass; desktop public smoke passes.
+It changes no Payload data and makes no provider, Shopier, Telegram, n8n,
+SupplierScout, retired-channel, or ad action. Repeat the exact 390px PDP smoke
+from a device-capable browser before treating Phase 6 as fully mobile-verified.

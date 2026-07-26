@@ -581,8 +581,9 @@ actions without a separate operator approval.
 
 The deployed PDP mobile smoke at a 390px viewport found the fixed 40/60 CTA
 bar expanding the document to 440px because both controls added padding outside
-their flex basis. D-501 is local-only: both controls now use `boxSizing:
-'border-box'` and `minWidth: 0`, and `test:storefront-trust` guards that
-contract. It must be deployed and re-smoked before Phase 6 storefront
-conversion can be considered complete. It does not call providers, Shopier,
-Telegram, n8n, or make a data write.
+their flex basis. PR #7 merged D-501 as `8adfd1b`, and Vercel completed its
+Production deployment successfully. Both controls use `boxSizing: 'border-box'`
+and `minWidth: 0`, and `test:storefront-trust` guards that contract. Desktop
+public smoke passes; repeat the exact 390px check from a device-capable browser
+before Phase 6 can be considered fully mobile-verified. D-501 does not call
+providers, Shopier, Telegram, n8n, or make a data write.

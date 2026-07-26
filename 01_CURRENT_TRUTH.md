@@ -38,8 +38,9 @@ Last updated: 2026-07-25
   content-box padding outside the fixed CTA's 40/60 split using `border-box` and
   `minWidth: 0`. `test:storefront-trust`, typecheck, lint, full validation, and
   build pass; the public desktop smoke has Shopier/WhatsApp CTAs and no browser
-  errors. Repeat the exact 390px smoke from a device-capable browser before
-  treating Phase 6 as fully mobile-verified.
+  errors. A user-supplied Chrome DevTools responsive `390 x 844` production
+  screenshot visually confirms that the fixed controls fit within the viewport
+  with no visible horizontal overflow. This verifies the D-501 mobile CTA fix.
 - Latest approved read-only refresh (2026-07-25): the 100/128 product sample
   has 12 protected-brand blockers, 28 failed and 25 pending Image-QC records,
   and 83 stale drafts. All 12 protected-brand rows lack a provenance decision;

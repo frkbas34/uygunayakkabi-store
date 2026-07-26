@@ -1,6 +1,6 @@
 ﻿# PROJECT STATE — Uygunayakkabi
 
-_Last updated: 2026-07-25 (D-501 deployed through PR #7, desktop public smoke passed, exact 390px re-smoke pending.)_
+_Last updated: 2026-07-26 (D-501 deployed through PR #7; desktop and Chrome DevTools 390px visual smokes passed.)_
 
 ## Approved Read-Only Operational Refresh - 2026-07-25
 
@@ -23,11 +23,11 @@ _Last updated: 2026-07-25 (D-501 deployed through PR #7, desktop public smoke pa
 - Full `npm run validate` passed after this operational refresh and source-pack
   update: typecheck, lint, and the complete safe suite are green.
 
-## D-501 mobile PDP CTA overflow correction - 2026-07-25 (PRODUCTION DEPLOYED, exact 390px re-smoke pending)
+## D-501 mobile PDP CTA overflow correction - 2026-07-26 (PRODUCTION DEPLOYED, mobile visual smoke passed)
 
 - Read-only 390px production smoke found the Classic Loafer PDP at 440px document width: the fixed mobile CTA used a 40/60 flex split plus content-box padding, creating 50px of horizontal overflow. The homepage remained at 385px document width with no horizontal overflow.
 - Both fixed CTA controls now use `boxSizing: 'border-box'` and `minWidth: 0`, so their padding remains inside the 40/60 split. `scripts/storefront-trust-governance.ts` asserts that contract alongside existing PDP conversion requirements.
-- PR #7 merged D-501 as `8adfd1b`; Vercel completed Production deployment successfully. `npm run test:storefront-trust`, `npm run typecheck`, `npm run lint`, full `npm run validate`, `npm run build`, and `git diff --check` pass. Public desktop smoke confirmed the homepage/PDP, Shopier/WhatsApp CTAs, and no browser errors. Repeat the exact 390px PDP smoke from a device-capable browser. It makes no Payload write, provider call, Shopier call, Telegram action, n8n action, SupplierScout activation, retired-channel activation, or ad action.
+- PR #7 merged D-501 as `8adfd1b`; Vercel completed Production deployment successfully. `npm run test:storefront-trust`, `npm run typecheck`, `npm run lint`, full `npm run validate`, `npm run build`, and `git diff --check` pass. Public desktop smoke confirmed the homepage/PDP, Shopier/WhatsApp CTAs, and no browser errors. A user-supplied Chrome DevTools responsive `390 x 844` production screenshot visually confirms the fixed controls fit within the viewport without visible horizontal overflow. It makes no Payload write, provider call, Shopier call, Telegram action, n8n action, SupplierScout activation, retired-channel activation, or ad action.
 
 ## D-500 Meta provider configuration unification - 2026-07-25 (LOCAL CODE/DOCS, configured read passed, source release deployed)
 

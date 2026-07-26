@@ -594,6 +594,7 @@ bar expanding the document to 440px because both controls added padding outside
 their flex basis. PR #7 merged D-501 as `8adfd1b`, and Vercel completed its
 Production deployment successfully. Both controls use `boxSizing: 'border-box'`
 and `minWidth: 0`, and `test:storefront-trust` guards that contract. Desktop
-public smoke passes; repeat the exact 390px check from a device-capable browser
-before Phase 6 can be considered fully mobile-verified. D-501 does not call
+public smoke passes, and a Chrome DevTools responsive `390 x 844` production
+screenshot visually confirms the fixed controls fit with no visible horizontal
+overflow. D-501 does not call
 providers, Shopier, Telegram, n8n, or make a data write.

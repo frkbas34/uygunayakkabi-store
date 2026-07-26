@@ -18,9 +18,9 @@ before changing architecture, bots, channels, or roadmap priorities.
 1. The D-380-D-500 master-build stack is merged through PR #6, and D-501 was
    merged through PR #7 (`8adfd1b`). Vercel completed the D-501 Production
    deployment successfully. The public desktop homepage/PDP smoke passes with
-   Shopier and WhatsApp CTAs and no browser errors. The original 390px overflow
-   is guarded in code; repeat that exact viewport smoke from a device-capable
-   browser before declaring Phase 6 fully mobile-verified.
+   Shopier and WhatsApp CTAs and no browser errors. A Chrome DevTools responsive
+   `390 x 844` production screenshot now visually confirms the fixed controls
+   fit inside the viewport without visible horizontal overflow.
 2. Resolve protected-brand catalog blockers through `/brandplan`; protected-brand matches cannot be manually activated, then scale verified own products with image QC and controlled publishing.
 3. Keep the active storefront and Shopier bridge trustworthy before ads.
 4. Keep direct X publishing behind the complete OAuth requirement, and all

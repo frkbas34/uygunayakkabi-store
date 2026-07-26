@@ -53,6 +53,7 @@ for (const phrase of [
   'SupplierScout is dormant.',
   'D-500 is the deployed master-build boundary.',
   'D-501 was merged through PR #7 as commit `8adfd1b`;',
+  'Chrome DevTools responsive',
   'X direct publishing requires all four OAuth 1.0a values.',
   'Direct Instagram/Facebook dispatch scans the complete gallery for public',
   'If no public HTTPS media exists, Instagram/Facebook fail with a clear media',

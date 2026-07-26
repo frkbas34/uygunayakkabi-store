@@ -367,6 +367,7 @@ overflow. PR #7 merged the correction as `8adfd1b`, and Vercel completed its
 Production deployment successfully. Both CTA controls use `boxSizing:
 'border-box'` and `minWidth: 0`; `test:storefront-trust`, typecheck, lint, full
 validation, and build pass. Public desktop smoke confirms the Shopier and
-WhatsApp CTAs with no browser errors. Repeat the exact 390px PDP smoke from a
-device-capable browser before declaring Phase 6 fully mobile-verified; D-501
-does not call providers, Shopier, Telegram, or n8n and does not write Payload data.
+WhatsApp CTAs with no browser errors. A user-supplied Chrome DevTools responsive
+`390 x 844` production screenshot visually confirms the fixed controls fit
+within the viewport without visible horizontal overflow; D-501 does not call
+providers, Shopier, Telegram, or n8n and does not write Payload data.

@@ -168,6 +168,6 @@ width on a 390px viewport. The fixed 40/60 CTA bar added content-box padding
 outside both flex bases. D-501 applies `boxSizing: 'border-box'` and
 `minWidth: 0` to both controls, and `test:storefront-trust` now guards that
 contract. PR #7 merged the correction as `8adfd1b` and Vercel completed its
-Production deployment successfully. Desktop public smoke passes; repeat the
-exact 390px PDP smoke from a device-capable browser before treating storefront
-conversion as fully mobile-verified.
+Production deployment successfully. Desktop public smoke passes, and a Chrome
+DevTools responsive `390 x 844` production screenshot visually confirms the
+fixed controls fit within the viewport without visible horizontal overflow.

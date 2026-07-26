@@ -5,7 +5,7 @@ Current as of 2026-07-26. This is a prioritized decision list, not a milestone l
 ## P0 — Telegram and image correctness
 
 1. Define a fail-closed production policy for webhook secret, DM/group allowlists, and callback actions. Callback payload ownership must not substitute for operator authorization.
-2. Rehearse the guarded Image Slot Lineage V1 expansion on a provably isolated non-production PostgreSQL target, then obtain separate approval for expand-first production rollout before releasing committed foundation `58b2eaf`; no schema application or deployment has occurred.
+2. Review and checkpoint the corrected Image Slot Lineage V1 migration and Attempt 1/2 evidence. The guarded helper is now the sole transaction owner and the complete strict-isolation WSL schema harness passes rollback, apply, compatibility, five-slot, idempotency, runtime-first rollback, and cleanup. `FULL_APPLICATION_COMPATIBILITY_NOT_PROVEN`; no application/production database, push, or deployment occurred.
 3. Remove the rejected protected-brand generation helper/test and brand-first generation advice without weakening claims, approval, activation, publishing, advertising, Shopier, or dispatch guards.
 4. Define cleanup ownership and recoverability for rejected, regenerated, failed-save, partial-approval, and otherwise orphaned generated Media.
 
@@ -48,4 +48,4 @@ Current as of 2026-07-26. This is a prioritized decision list, not a milestone l
 
 ## Exact recommended next task
 
-Run **NON-PRODUCTION IMAGE SLOT LINEAGE MIGRATION REHEARSAL V1**: provision or identify a provably isolated non-production PostgreSQL target, capture the baseline fingerprint, apply and verify the guarded expansion with `PAYLOAD_DB_PUSH=false`, test old/new compatibility and runtime-first rollback, and return operator evidence without touching production. Generated Media retention design follows after this deployment gate is proven.
+**CHECKPOINT CORRECTED LINEAGE MIGRATION AND REHEARSAL EVIDENCE**: review and commit only the corrected governed SQL/helper/tests, reusable strict-isolation harness and compatibility artifacts, preserved Attempt 1 failure, Attempt 2 pass, and synchronized current-truth documentation. Do not push, deploy, or apply production schema in the checkpoint task.

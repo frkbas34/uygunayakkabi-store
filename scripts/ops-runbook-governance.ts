@@ -109,6 +109,7 @@ for (const command of [
   'npm run test:lead-status-schema',
   'npm run test:lead-conversion-schema',
   'npm run test:image-slot-lineage-schema',
+  'npm run test:image-slot-lineage-helper',
   'npm run smoke:activation:read -- --product=<id> --confirm-read-only',
   'npm run smoke:product-flow:read -- --product=<id-or-sn> --confirm-read-only',
   'npm run smoke:imageqc:schema -- --confirm-read-only',
@@ -142,6 +143,7 @@ for (const command of [
 
 for (const envName of [
   'DATABASE_URI',
+  'IMAGE_SLOT_LINEAGE_DATABASE_URI',
   'PAYLOAD_SECRET',
   'NEXT_PUBLIC_SERVER_URL',
   'TELEGRAM_BOT_TOKEN',
@@ -160,6 +162,12 @@ for (const envName of [
 ]) {
   assertIncludes(runbook, envName, 'deployment ops runbook env inventory')
 }
+
+assertIncludes(runbook, 'THE GUARDED APPLY PROCESS', 'lineage migration transaction owner')
+assertIncludes(runbook, '--single-transaction', 'lineage manual transaction owner')
+assertIncludes(runbook, '06191F196144259FB1992245B29849AA9353645E2160A03FC13B2F3F654961E2', 'current lineage SQL hash')
+assertIncludes(runbook, '45963EF7FF50CDB99F3ED95BFE2E1F86D456CA99C95A7A5B325B47D3200518AC', 'superseded lineage SQL hash')
+assertIncludes(runbook, 'This is not full Payload application compatibility', 'schema-harness limitation')
 
 for (const phrase of [
   '# Historical Deploy Checklist (Reference Only)',
@@ -222,6 +230,9 @@ assertIncludes(opsSourcePack, 'test:image-qc-remediation-plan', 'source-pack bat
 assertIncludes(opsSourcePack, 'test:lead-status-schema', 'source-pack lead-status schema validation')
 assertIncludes(opsSourcePack, 'test:lead-conversion-schema', 'source-pack lead-conversion schema validation')
 assertIncludes(opsSourcePack, 'test:image-slot-lineage-schema', 'source-pack image-slot lineage schema validation')
+assertIncludes(opsSourcePack, 'test:image-slot-lineage-helper', 'source-pack lineage transaction fixture validation')
+assertIncludes(opsSourcePack, 'SCHEMA_HARNESS_REHEARSAL_PASS', 'source-pack lineage rehearsal result')
+assertIncludes(opsSourcePack, 'FULL_APPLICATION_COMPATIBILITY_NOT_PROVEN', 'source-pack lineage rehearsal limitation')
 assertIncludes(opsSourcePack, 'project-control/DEPLOY_CHECKLIST.md` as historical reference only', 'source-pack historical deploy checklist quarantine')
 
 console.log('opsRunbookGovernance: deploy, rollback, env, webhook, cron, PR, and source-pack checks - ALL OK')

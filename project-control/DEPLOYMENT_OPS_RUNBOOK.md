@@ -162,20 +162,38 @@ columns are expanded and verified. The canonical zero-downtime plan is
 the old runtime is active, verify, deploy the new runtime, then verify again.
 Do not backfill or drop columns during this rollout.
 
+The corrected migration uses one transaction owner: `THE GUARDED APPLY PROCESS
+OWNS THE TRANSACTION`. Current SQL SHA-256 is
+`06191F196144259FB1992245B29849AA9353645E2160A03FC13B2F3F654961E2`; the
+superseded Attempt 1 hash is
+`45963EF7FF50CDB99F3ED95BFE2E1F86D456CA99C95A7A5B325B47D3200518AC`.
+The SQL file contains no transaction controls. The helper owns begin,
+verification, commit, and failure rollback. Manual `psql` use must specify
+`--single-transaction`; do not wrap the artifact in a second transaction model.
+
 ```powershell
 npm run test:image-slot-lineage-schema
+npm run test:image-slot-lineage-helper
 npm run db:image-slot-lineage:apply -- --dry-run --print-sql
 npm run db:image-slot-lineage:apply -- --apply --confirm-apply-image-slot-lineage-schema-v1
 ```
 
 The apply helper does not connect in its default/dry-run mode. Confirm the
 target, current provider-native backup, pre-migration schema fingerprint, and
-operator approval before the confirmed form. Keep `PAYLOAD_DB_PUSH=false` in
+operator approval before the confirmed form. The confirmed process requires
+an explicit `IMAGE_SLOT_LINEAGE_DATABASE_URI`; it never falls back to
+`DATABASE_URI`, and the two must not resolve to the same host/port/database.
+Keep `PAYLOAD_DB_PUSH=false` in
 Codex, CI, preview, production, read-only smokes, and the Payload process used
 around migration operations. The configured default-on behavior is not an
 approved production migration mechanism. If rollback is required, roll back
 runtime first and retain the harmless nullable columns; column removal is a
 later separately approved contract migration.
+
+The disposable WSL PostgreSQL schema harness passed rollback, guarded apply,
+exact schema checks, old/new compatibility, five-slot round trips, idempotency,
+runtime-first rollback, strict task-database CONNECT isolation, and cleanup.
+This is not full Payload application compatibility and did not touch production.
 
 D-355 Image QC drift has a guarded repair helper:
 

@@ -2,10 +2,9 @@
 --
 -- This migration is intentionally nullable, default-free, index-free, and
 -- foreign-key-free. Historical image jobs and Media records require no
--- backfill. Run only through the guarded apply helper after backup evidence,
--- target verification, and operator approval.
-
-BEGIN;
+-- backfill. This file is a transaction body: the guarded apply process must
+-- open, commit, or roll back the single transaction after target verification
+-- and operator approval. Manual psql use requires --single-transaction.
 
 -- Fail quickly instead of waiting indefinitely for an ACCESS EXCLUSIVE lock.
 SET LOCAL lock_timeout = '5s';
@@ -21,5 +20,3 @@ ALTER TABLE public.media
   ADD COLUMN IF NOT EXISTS generation_lineage_job_id varchar,
   ADD COLUMN IF NOT EXISTS generation_lineage_attempt_id varchar,
   ADD COLUMN IF NOT EXISTS generation_lineage_slot_id varchar;
-
-COMMIT;

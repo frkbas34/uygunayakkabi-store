@@ -14,10 +14,15 @@
 import { createHash } from 'node:crypto'
 import { existsSync, readFileSync } from 'node:fs'
 import path from 'node:path'
+import { pathToFileURL } from 'node:url'
 
 import { Client } from 'pg'
 
 const SQL_PATH = path.join(process.cwd(), 'scripts', 'sql', 'image-slot-lineage-schema-v1.sql')
+
+export const SUPERSEDED_SQL_SHA256 = '45963ef7ff50cdb99f3ed95bfe2e1f86d456ca99c95a7a5b325b47d3200518ac'
+export const EXPECTED_SQL_SHA256 = '06191f196144259fb1992245b29849aa9353645e2160a03fc13b2f3f654961e2'
+export const TARGET_DATABASE_URI_ENV = 'IMAGE_SLOT_LINEAGE_DATABASE_URI'
 
 const EXPECTED_COLUMNS = [
   { table: 'image_generation_jobs', column: 'generation_contract_version', dataType: 'character varying', udtName: 'varchar' },
@@ -38,36 +43,56 @@ type ColumnInfo = {
   column_default: string | null
 }
 
-function loadEnvFiles(): string[] {
-  const loaded: string[] = []
-  for (const fileName of ['.env.local', '.env']) {
-    const filePath = path.join(process.cwd(), fileName)
-    if (!existsSync(filePath)) continue
-    for (const line of readFileSync(filePath, 'utf8').split(/\r?\n/)) {
-      const trimmed = line.trim()
-      const match = /^([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)$/.exec(trimmed)
-      if (!match || trimmed.startsWith('#')) continue
-      let value = match[2].trim()
-      if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) {
-        value = value.slice(1, -1)
-      }
-      if (process.env[match[1]] === undefined) process.env[match[1]] = value
-    }
-    loaded.push(fileName)
-  }
-  return loaded
-}
-
 function readSql(): string {
   if (!existsSync(SQL_PATH)) throw new Error(`Missing SQL plan: ${SQL_PATH}`)
   return readFileSync(SQL_PATH, 'utf8')
+}
+
+function sqlSha256(sql: string): string {
+  return createHash('sha256').update(sql).digest('hex')
+}
+
+function verifySqlHash(sql: string): void {
+  const actual = sqlSha256(sql)
+  if (actual !== EXPECTED_SQL_SHA256) {
+    throw new Error(`Blocked by SQL hash mismatch: expected ${EXPECTED_SQL_SHA256}, received ${actual}.`)
+  }
+}
+
+function connectionIdentity(uri: string, label: string): string {
+  try {
+    const parsed = new URL(uri)
+    if (parsed.protocol !== 'postgres:' && parsed.protocol !== 'postgresql:') {
+      throw new Error('unsupported protocol')
+    }
+    const database = decodeURIComponent(parsed.pathname.replace(/^\/+/, ''))
+    if (!parsed.hostname || !database) throw new Error('missing host or database')
+    return `${parsed.hostname.toLowerCase()}|${parsed.port || '5432'}|${database}`
+  } catch {
+    throw new Error(`${label} must be a valid PostgreSQL URI with a host and database name.`)
+  }
+}
+
+export function assertDedicatedTarget(targetDatabaseUri: string, applicationDatabaseUri?: string): void {
+  const targetIdentity = connectionIdentity(targetDatabaseUri, TARGET_DATABASE_URI_ENV)
+  if (
+    applicationDatabaseUri &&
+    connectionIdentity(applicationDatabaseUri, 'DATABASE_URI') === targetIdentity
+  ) {
+    throw new Error(`${TARGET_DATABASE_URI_ENV} resolves to the configured application database.`)
+  }
+}
+
+function redactErrorMessage(error: unknown): string {
+  const message = error instanceof Error ? error.message : String(error)
+  return message.replace(/postgres(?:ql)?:\/\/[^\s]+/gi, '[REDACTED_DATABASE_URI]')
 }
 
 function printPlan(sql: string): void {
   console.log('Image Slot Lineage Schema V1')
   console.log(`SQL file: ${SQL_PATH}`)
   console.log(`SQL bytes: ${Buffer.byteLength(sql, 'utf8')}`)
-  console.log(`SQL sha256: ${createHash('sha256').update(sql).digest('hex').slice(0, 16)}`)
+  console.log(`SQL sha256: ${sqlSha256(sql)}`)
   console.log('Planned change: seven nullable, default-free columns across image_generation_jobs and media.')
   console.log('No index, foreign key, backfill, data conversion, or destructive operation is included.')
 }
@@ -115,17 +140,43 @@ function verifySchema(rows: ColumnInfo[], requireAll: boolean): string[] {
   return problems
 }
 
+export async function executeMigrationTransaction(client: Client, sql: string): Promise<void> {
+  await client.query('BEGIN')
+  try {
+    await client.query(sql)
+
+    const after = await readSchema(client)
+    const postApplyProblems = verifySchema(after, true)
+    if (postApplyProblems.length > 0) {
+      throw new Error(`DDL verification failed: ${postApplyProblems.join('; ')}`)
+    }
+
+    await client.query('COMMIT')
+  } catch (error) {
+    try {
+      await client.query('ROLLBACK')
+    } catch (rollbackError) {
+      throw new AggregateError(
+        [error, rollbackError],
+        'Migration failed and the caller-owned transaction could not be rolled back safely.',
+      )
+    }
+    throw error
+  }
+}
+
 async function main(): Promise<void> {
   const args = new Set(process.argv.slice(2))
   const apply = args.has('--apply')
   const confirmed = args.has('--confirm-apply-image-slot-lineage-schema-v1')
   const dryRun = args.has('--dry-run')
   const printSql = args.has('--print-sql')
-  const sql = readSql()
 
   if (!apply && !confirmed) {
-    printPlan(sql)
-    if (printSql) console.log(`\n${sql.trim()}`)
+    const dryRunSql = readSql()
+    verifySqlHash(dryRunSql)
+    printPlan(dryRunSql)
+    if (printSql) console.log(`\n${dryRunSql.trim()}`)
     console.log('Dry-run only: no database connection opened and no DDL executed.')
     return
   }
@@ -136,21 +187,33 @@ async function main(): Promise<void> {
     return
   }
 
-  const loaded = loadEnvFiles()
-  const databaseUri = process.env.DATABASE_URI
-  if (!databaseUri) {
-    console.error('Missing required env var: DATABASE_URI')
+  const targetDatabaseUri = process.env[TARGET_DATABASE_URI_ENV]?.trim()
+  if (!targetDatabaseUri) {
+    console.error(`Missing required explicit env var: ${TARGET_DATABASE_URI_ENV}`)
     process.exitCode = 2
     return
   }
 
+  const applicationDatabaseUri = process.env.DATABASE_URI?.trim()
+  try {
+    assertDedicatedTarget(targetDatabaseUri, applicationDatabaseUri)
+  } catch (error) {
+    console.error(`Refusing apply: ${redactErrorMessage(error)}`)
+    process.exitCode = 2
+    return
+  }
+
+  const sql = readSql()
+  verifySqlHash(sql)
+
   printPlan(sql)
-  console.log(`Env files loaded: ${loaded.length > 0 ? loaded.join(', ') : 'none'}`)
+  console.log(`Target variable: ${TARGET_DATABASE_URI_ENV} (value redacted)`)
+  console.log('Transaction owner: guarded apply helper')
   console.log('Target identity, backup completion, and operator approval must be verified outside this helper.')
 
   const client = new Client({
-    connectionString: databaseUri,
-    ssl: databaseUri.includes('neon.tech') ? { rejectUnauthorized: false } : undefined,
+    connectionString: targetDatabaseUri,
+    ssl: targetDatabaseUri.includes('neon.tech') ? { rejectUnauthorized: false } : undefined,
   })
   await client.connect()
   try {
@@ -162,21 +225,19 @@ async function main(): Promise<void> {
       )
     }
 
-    await client.query(sql)
+    await executeMigrationTransaction(client, sql)
 
-    const after = await readSchema(client)
-    const postApplyProblems = verifySchema(after, true)
-    if (postApplyProblems.length > 0) {
-      throw new Error(`DDL completed but verification failed: ${postApplyProblems.join('; ')}`)
-    }
-
+    console.log('Transaction outcome: COMMIT')
     console.log('Schema result: PASS — all seven columns have the expected nullable, default-free types.')
   } finally {
     await client.end()
   }
 }
 
-void main().catch((error) => {
-  console.error(error instanceof Error ? error.message : error)
-  process.exit(1)
-})
+const entryPoint = process.argv[1]
+if (entryPoint && import.meta.url === pathToFileURL(path.resolve(entryPoint)).href) {
+  void main().catch((error) => {
+    console.error(redactErrorMessage(error))
+    process.exit(1)
+  })
+}

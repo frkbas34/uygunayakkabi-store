@@ -1,8 +1,8 @@
 # Image Slot Lineage Schema Migration and Zero-Downtime Rollout Plan V1
 
-Status: `DEPLOYMENT_BLOCKED_PENDING_REVIEWED_SCHEMA_MIGRATION`
+Status: `DEPLOYMENT_BLOCKED_PENDING_PRODUCTION_EXPANSION_APPROVAL`
 
-Prepared: 2026-07-26. This is a local design and static-validation artifact. No database migration, backfill, deployment, push, provider call, or production Telegram call was performed.
+Prepared: 2026-07-26. The corrected artifact has passed a complete disposable local WSL PostgreSQL schema-harness rehearsal. No application/production database migration, deployment, push, provider call, or production Telegram call was performed.
 
 ## Current blocker
 
@@ -13,6 +13,12 @@ The new runtime must not be activated against the old schema. The zero-downtime 
 `EXPAND SCHEMA FIRST -> VERIFY -> DEPLOY NEW RUNTIME -> VERIFY -> LATER CONTRACT/CLEANUP IF NEEDED`
 
 ## Migration-system architecture audit
+
+Transaction-owner decision: `THE GUARDED APPLY PROCESS OWNS THE TRANSACTION`. The SQL file is a transaction body with `SET LOCAL` timeouts and additive DDL only. It contains no `BEGIN`, `COMMIT`, or `ROLLBACK`. The helper verifies the pinned hash, opens one transaction, executes and verifies the exact artifact, commits only on success, and rolls back on failure. Manual `psql` execution must use `--single-transaction` or one approved equivalent wrapper; no second ownership model is supported.
+
+- Superseded Attempt 1 SQL SHA-256: `45963EF7FF50CDB99F3ED95BFE2E1F86D456CA99C95A7A5B325B47D3200518AC`.
+- Current corrected SQL SHA-256: `06191F196144259FB1992245B29849AA9353645E2160A03FC13B2F3F654961E2`.
+- The hash changed only because transaction controls and ownership comments changed; the same seven nullable, default-free, index-free, FK-free `IF NOT EXISTS` additions remain.
 
 - Runtime: Next.js `16.2.0-canary.81`, Payload `3.79.0`, `@payloadcms/db-postgres` `3.79.0`, Drizzle ORM `0.44.7`, PostgreSQL.
 - Payload adapter: `postgresAdapter()` in `payload.config.ts`, using `DATABASE_URI` and conditional Neon TLS configuration.
@@ -84,6 +90,7 @@ Artifacts:
 - `scripts/sql/image-slot-lineage-schema-v1.sql`
 - `scripts/image-slot-lineage-schema-apply.ts`
 - `scripts/image-slot-lineage-schema-governance.ts`
+- `scripts/image-slot-lineage-schema-apply.test.ts`
 
 Static review/dry run:
 
@@ -92,29 +99,34 @@ npm run test:image-slot-lineage-schema
 npm run db:image-slot-lineage:apply -- --dry-run --print-sql
 ```
 
-The dry run does not load environment files, open a database connection, or execute DDL. The following apply form is documented for a later, separately approved operation only:
+The dry run verifies the current SQL hash but does not load environment files, open a database connection, or execute DDL. The following apply form is documented for a later, separately approved operation only. `IMAGE_SLOT_LINEAGE_DATABASE_URI` must be provided explicitly by the approved operation; the helper never falls back to `DATABASE_URI`, rejects the same host/port/database identity when `DATABASE_URI` is present, and redacts URI-shaped errors.
 
 ```powershell
 npm run db:image-slot-lineage:apply -- --apply --confirm-apply-image-slot-lineage-schema-v1
 ```
 
-The helper blocks missing base tables and incompatible pre-existing columns, then verifies all seven types, nullability, and lack of defaults after execution. It cannot prove target identity or backup completion; those are operator gates.
+The helper blocks missing base tables and incompatible pre-existing columns, then begins one transaction, executes the exact hash-pinned SQL body, verifies all seven types/nullability/defaults inside that transaction, and commits only after success. Any statement or verification failure triggers rollback. It cannot prove provider/account target identity or backup completion; those remain operator gates.
+
+Manual `psql` use must make transaction ownership explicit:
+
+```powershell
+$env:PGPASSFILE = '<protected-approved-secret-file>'
+psql --single-transaction --set ON_ERROR_STOP=1 --file scripts/sql/image-slot-lineage-schema-v1.sql --host <approved-host> --port <approved-port> --username <approved-role> --dbname <approved-database>
+```
+
+Never pass the application `DATABASE_URI` to this command.
 
 There is no migration manifest/order validator in the current repository. This artifact must be recorded in the operator's deployment evidence as the schema prerequisite for commit `58b2eaf`. No down SQL is supplied because the safe supported rollback is runtime-first and non-destructive. Column removal, if ever useful, is a later contract migration requiring separate approval and dependency evidence.
 
 ## Non-production validation
 
-Result: `NON_PRODUCTION_DATABASE_REQUIRED`.
+Result: `SCHEMA_HARNESS_REHEARSAL_PASS`.
 
-No configured database was treated as non-production. Docker is unavailable on this workstation, and the repository does not identify a safe disposable database. Consequently:
+Attempt 1 with hash `45963…18AC` failed because the SQL artifact's embedded `COMMIT` ended the caller-owned rollback transaction. That failure and successful cleanup remain preserved in `project-control/IMAGE_SLOT_LINEAGE_NONPROD_REHEARSAL_V1.md`.
 
-- no database connection was opened;
-- no before/after database schema was captured;
-- no DDL was applied;
-- no runtime database smoke or rollback drill was run;
-- validation is static only.
+Attempt 2 used PostgreSQL 18.4 in Ubuntu WSL on loopback/socket only. A fresh database revoked PUBLIC CONNECT and allowed only its non-superuser owner plus `postgres`. The corrected caller-owned rollback drill restored the exact baseline; the guarded helper applied and verified the expansion; old-shape and new-lineage operations, all five semantic slots, idempotency, and runtime-first rollback passed; cleanup restored the default-only cluster and unchanged ACLs on other databases.
 
-Before production approval, prove an isolated target by provider/project identity rather than its name, use credentials scoped to that target, record only redacted target metadata, set `PAYLOAD_DB_PUSH=false`, capture the pre-migration schema, apply the guarded artifact, verify exact metadata, exercise old-runtime-compatible reads, exercise new-runtime metadata writes with fixtures, and rehearse runtime rollback while retaining the columns.
+This is schema-harness evidence only. `FULL_APPLICATION_COMPATIBILITY_NOT_PROVEN` remains, and no application/production database was accessed.
 
 ## Automatic schema-push policy
 
@@ -194,16 +206,16 @@ Explicit operator approval is required for each of the following: selecting a no
 
 ## Unresolved decisions and remaining risks
 
-- A safe non-production database must be provided and independently proven.
+- A reusable local-only WSL schema harness is proven; a production target still requires independent provider/account identity and backup evidence.
 - Current production database identity, backup/PITR capability, connection role, and maintenance procedure require operator verification.
 - GitHub/Vercel automatic deployment, promotion behavior, build environment values, and concurrent-instance behavior require operator verification.
 - Default-on Payload schema push remains a configuration footgun until a separately reviewed fail-closed change is made.
-- `ALTER TABLE` still requires brief locks; table size, traffic, and lock contention were not measured without a database connection.
+- `ALTER TABLE` still requires brief locks; the disposable harness proved bounded behavior but not production table size, traffic, or contention.
 - The repository lacks a first-class ordered migration manifest and automated pre-activation runner.
 - A build success against a stale database remains non-evidence because existing application fallbacks can hide read errors.
 
 ## Release decision and next task
 
-Commit `58b2eaf2c035b0c94e7a7ce664f1a3b2f87db177` must **not** be pushed yet. A push may trigger an unproven automatic deployment, the database expansion is not applied, automatic schema push defaults on, and no non-production rehearsal has passed.
+Commits `58b2eaf2c035b0c94e7a7ce664f1a3b2f87db177` and `b806c7706b6f679de0cc1522f37b71e902b7d58f` are technically schema-harness rehearsed against the corrected artifact, but must **not** be pushed yet. A push may trigger an unproven automatic deployment; no application/production expansion, backup, or deployment approval exists; and automatic Payload schema push still defaults on.
 
-Exact next task: **NON-PRODUCTION IMAGE SLOT LINEAGE MIGRATION REHEARSAL V1** — provision or identify a provably isolated non-production PostgreSQL target, capture the baseline fingerprint, apply and verify the guarded expansion with `PAYLOAD_DB_PUSH=false`, test old/new compatibility and runtime-first rollback, and return operator evidence without touching production.
+Exact next task: **CHECKPOINT CORRECTED LINEAGE MIGRATION AND REHEARSAL EVIDENCE** — review and commit only the corrected governed SQL/helper/tests, reusable harness artifacts, Attempt 1/2 evidence, and synchronized current-truth documentation. Do not push, deploy, or apply production schema in that checkpoint task.

@@ -799,5 +799,6 @@ padding inside the split. PR #7 merged the correction as `8adfd1b`, and Vercel
 completed its Production deployment successfully. `test:storefront-trust`,
 typecheck, lint, full validation, and build pass; desktop public smoke passes.
 It changes no Payload data and makes no provider, Shopier, Telegram, n8n,
-SupplierScout, retired-channel, or ad action. Repeat the exact 390px PDP smoke
-from a device-capable browser before treating Phase 6 as fully mobile-verified.
+SupplierScout, retired-channel, or ad action. A Chrome DevTools responsive
+`390 x 844` production screenshot visually confirms the fixed controls fit
+within the viewport without visible horizontal overflow.

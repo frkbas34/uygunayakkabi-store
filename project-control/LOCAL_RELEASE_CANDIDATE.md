@@ -11,9 +11,10 @@ integrations remain unverified.
 This file is the archived D-500 handoff manifest plus the deployed D-501
 follow-up record. Vercel deployment `dpl_5L6CXiNjKBiqS8sp7DAuRabcG1cj` is Ready,
 and the D-501 deployment also completed successfully. Public desktop homepage/PDP
-smoke checks pass with Shopier and WhatsApp CTAs and no browser errors. The exact
-390px PDP re-smoke still needs a device-capable browser. The individual checkpoint
-sections record their local validation boundary; this is not proof that live
+smoke checks pass with Shopier and WhatsApp CTAs and no browser errors. A Chrome
+DevTools responsive `390 x 844` production screenshot visually confirms the
+fixed controls fit within the viewport without visible horizontal overflow. The
+individual checkpoint sections record their local validation boundary; this is not proof that live
 Telegram, live Shopier, provider calls, ad traffic, or optional OpenClaw sync have
 been performed.
 

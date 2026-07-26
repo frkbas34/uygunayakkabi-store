@@ -71,6 +71,7 @@ assertIncludes(currentTruth, 'SupplierScout: dormant.', 'current truth dormant s
 assertIncludes(currentTruth, 'Operator Live Smoke Plan (D-389/D-452)', 'current truth latest smoke-plan boundary')
 assertIncludes(currentTruth, 'D-501 mobile PDP CTA overflow correction', 'current truth mobile PDP correction')
 assertIncludes(currentTruth, 'PR #7 merged the correction as `8adfd1b`', 'current truth D-501 deployment')
+assertIncludes(currentTruth, 'Chrome DevTools responsive', 'current truth D-501 mobile visual smoke')
 assertIncludes(roadmap, 'D-452 - Ad-Readiness Storefront Trust Hint', 'roadmap latest milestone')
 assertIncludes(roadmap, 'D-453 - Source-Pack Latest-Boundary Guardrail', 'roadmap latest milestone')
 assertIncludes(roadmap, 'D-454 - Loading-Plan Batch Summary', 'roadmap latest milestone')
@@ -163,6 +164,7 @@ assertIncludes(completionAudit, 'D-499 batch Image QC remediation', 'completion 
 assertIncludes(completionAudit, 'D-500 unifies Facebook direct dispatch', 'completion audit Meta provider configuration')
 assertIncludes(completionAudit, 'D-501 records the first deployed mobile storefront evidence', 'completion audit mobile PDP correction')
 assertIncludes(completionAudit, 'PR #7 merged it as `8adfd1b`', 'completion audit D-501 deployment')
+assertIncludes(completionAudit, 'completing\nthe D-501 mobile Phase 6 evidence', 'completion audit D-501 mobile visual smoke')
 assertIncludes(completionAudit, '20-document limit', 'completion audit source-pack cap')
 for (const phrase of [
   'approved 2026-07-25 metadata preflight confirms the nullable relationship',

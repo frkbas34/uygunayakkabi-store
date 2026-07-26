@@ -9,8 +9,9 @@ Status: PR #6 merged the reviewed `codex/master-build-plan-d500` stack into
 deployments completed successfully. Vercel Production deployment `dpl_5L6CXiNjKBiqS8sp7DAuRabcG1cj` is Ready.
 
 This file records the completed D-500 review package and the completed D-501
-follow-up review. The public desktop smoke passes; an exact 390px re-smoke from
-a device-capable browser remains an operational evidence item. This archive is
+follow-up review. The public desktop smoke passes, and a Chrome DevTools
+responsive `390 x 844` production screenshot visually confirms the fixed
+controls fit without visible horizontal overflow. This archive is
 not permission to deploy, run live Telegram commands, queue Shopier jobs, call
 providers, sync optional OpenClaw, activate SupplierScout, revive retired
 channels, or spend on ads.

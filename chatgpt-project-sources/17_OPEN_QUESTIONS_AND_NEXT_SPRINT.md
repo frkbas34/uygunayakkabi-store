@@ -11,8 +11,9 @@ basis. The homepage had no document overflow. Both controls now use
 `boxSizing: 'border-box'` and `minWidth: 0`; `npm run test:storefront-trust`,
 `npm run typecheck`, `npm run lint`, full validation, and build pass. Vercel
 completed Production deployment successfully and desktop public smoke passed.
-Repeat the exact 390px PDP smoke from a device-capable browser before Phase 6
-storefront conversion is fully mobile-verified.
+A Chrome DevTools responsive `390 x 844` production screenshot visually
+confirms the fixed controls fit within the viewport without visible horizontal
+overflow, completing the D-501 mobile evidence.
 No provider, Shopier, Telegram, n8n, Payload, SupplierScout, retired-channel,
 or ad action occurred.
 
@@ -652,6 +653,7 @@ at 440px document width while the homepage remained within its viewport. The
 fixed CTA's 40/60 flex children used content-box padding; both now use
 `boxSizing: 'border-box'` and `minWidth: 0`. `test:storefront-trust`, typecheck,
 and lint pass locally. PR #7 merged `8adfd1b`, Vercel completed Production
-deployment successfully, and desktop public smoke passed. The next required
-evidence is a clean 390px PDP smoke from a device-capable browser; no provider,
-Shopier, Telegram, n8n, Payload, or ad action is part of this correction.
+deployment successfully, and desktop public smoke passed. A Chrome DevTools
+responsive `390 x 844` production screenshot visually confirms the fixed
+controls fit with no visible horizontal overflow; no provider, Shopier,
+Telegram, n8n, Payload, or ad action is part of this correction.

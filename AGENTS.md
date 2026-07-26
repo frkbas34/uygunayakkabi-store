@@ -20,6 +20,11 @@ Do not reintroduce Dolap or Threads. They are retired.
 
 SupplierScout is dormant. Do not activate it, add cron for it, register its webhook, or build around supplier products unless the user explicitly reverses the decision.
 
+The protected-brand catalog backlog is deferred by the operator as of 2026-07-26.
+Do not automatically rewrite, unpublish, archive, redispatch, or remove those
+records. Existing brand-safety, storefront, activation, and dispatch guards stay
+enforced until the operator explicitly reopens the review.
+
 ## Architecture Boundaries
 
 - Next/Payload executes product, storefront, publishing, jobs, and database workflows.

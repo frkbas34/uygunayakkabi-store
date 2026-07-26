@@ -2,6 +2,22 @@
 
 Last updated: 2026-07-25
 
+## Deferred Catalog Safety Backlog
+
+2026-07-26 operator decision: defer protected-brand provenance review and any
+associated catalog cleanup until explicitly reopened. Keep all current hard
+brand-safety guards, public-storefront exclusions, activation refusals, and
+dispatch blocks. Do not automatically rewrite, unpublish, archive, redispatch,
+or remove protected-brand records.
+
+## Provider Setup Confirmation
+
+2026-07-26 operator confirmation: Shopier and provider setup is already complete
+in the production accounts. Local smoke output may still show missing credentials
+because production secrets are intentionally absent from the repository. Do not
+repeat setup work; only collect live delivery evidence during an operator-approved
+publish or order test.
+
 ## Post-Merge Storefront Correction
 
 D-501 is deployed through PR #7 as `8adfd1b`. A read-only 390px

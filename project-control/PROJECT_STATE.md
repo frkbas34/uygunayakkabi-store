@@ -2,6 +2,22 @@
 
 _Last updated: 2026-07-26 (D-501 deployed through PR #7; desktop and Chrome DevTools 390px visual smokes passed.)_
 
+## Operator Decision - 2026-07-26 (Protected-Brand Backlog Deferred)
+
+- The operator is satisfied with the current protected-brand backlog state and
+  defers provenance review and catalog cleanup until explicitly reopened.
+- Do not automatically rewrite, unpublish, archive, redispatch, or remove any
+  protected-brand record. Existing brand-safety, public-storefront, activation,
+  and dispatch guards remain enforced.
+
+## Operator Confirmation - 2026-07-26 (External Setup Complete)
+
+- Shopier and provider setup is already complete in the production accounts.
+  Local smoke output can still show missing credentials because the repository
+  does not store production secrets.
+- Do not repeat credential setup work. Collect live delivery evidence only when
+  an operator-approved publish or order test is needed.
+
 ## Approved Read-Only Operational Refresh - 2026-07-25
 
 - The 100/128 catalog sample has 12 protected-brand blockers, 28 failed and 25

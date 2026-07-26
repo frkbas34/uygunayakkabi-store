@@ -12,6 +12,8 @@ The local V1 correctness foundation uses `image-slot-contract/v1` and the unchan
 
 Complete new runs retain the existing five-slot preview order. New approval buttons carry semantic slot IDs; numeric and historical positional actions use an explicit compatibility projection. Complete legacy records map only when unambiguous. Partial legacy records stay readable but use slot-unknown labels rather than invented lineage. Regeneration still reuses the current job record, but each execution appends a new attempt snapshot and preserves stored `visualFacts`; normalized attempt collections and targeted regeneration remain future work.
 
+The committed runtime is not deployment-ready against the old schema. `project-control/IMAGE_SLOT_LINEAGE_SCHEMA_MIGRATION_PLAN_V1.md` defines the additive seven-column PostgreSQL expansion, guarded SQL, and expand-first rollout. No database migration or non-production rehearsal has occurred; `NON_PRODUCTION_DATABASE_REQUIRED` remains the release gate.
+
 Protected-brand classification must never block generation. The active task already bypasses the unused blocking helper. Brand safety still applies to claims, operator approval, activation, publishing, advertising, Shopier, and external dispatch. Visible-mark checks inside the provider path are reference-fidelity evaluators, not classification gates.
 
 Known bottlenecks:

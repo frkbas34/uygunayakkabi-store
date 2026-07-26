@@ -108,6 +108,7 @@ for (const command of [
   'npm run test:order-stock-transaction',
   'npm run test:lead-status-schema',
   'npm run test:lead-conversion-schema',
+  'npm run test:image-slot-lineage-schema',
   'npm run smoke:activation:read -- --product=<id> --confirm-read-only',
   'npm run smoke:product-flow:read -- --product=<id-or-sn> --confirm-read-only',
   'npm run smoke:imageqc:schema -- --confirm-read-only',
@@ -131,6 +132,8 @@ for (const command of [
   'npm run db:wizard-sessions:apply -- --apply --confirm-apply-d489-wizard-sessions-schema',
   'npm run db:lead-status-enum:apply -- --apply --confirm-apply-d490-lead-status-enum',
   'npm run db:lead-conversion-schema:apply -- --apply --confirm-apply-d491-order-lead-relationship',
+  'npm run db:image-slot-lineage:apply -- --dry-run --print-sql',
+  'npm run db:image-slot-lineage:apply -- --apply --confirm-apply-image-slot-lineage-schema-v1',
   'npm run db:shopier-order-id-unique:apply -- --apply --confirm-apply-d481-shopier-order-id-unique',
   'bash scripts/vps-deploy.sh --reactivate-openclaw --confirm-vps-sync',
 ]) {
@@ -218,6 +221,7 @@ assertIncludes(opsSourcePack, 'test:image-regeneration-plan', 'source-pack image
 assertIncludes(opsSourcePack, 'test:image-qc-remediation-plan', 'source-pack batch Image QC validation')
 assertIncludes(opsSourcePack, 'test:lead-status-schema', 'source-pack lead-status schema validation')
 assertIncludes(opsSourcePack, 'test:lead-conversion-schema', 'source-pack lead-conversion schema validation')
+assertIncludes(opsSourcePack, 'test:image-slot-lineage-schema', 'source-pack image-slot lineage schema validation')
 assertIncludes(opsSourcePack, 'project-control/DEPLOY_CHECKLIST.md` as historical reference only', 'source-pack historical deploy checklist quarantine')
 
 console.log('opsRunbookGovernance: deploy, rollback, env, webhook, cron, PR, and source-pack checks - ALL OK')

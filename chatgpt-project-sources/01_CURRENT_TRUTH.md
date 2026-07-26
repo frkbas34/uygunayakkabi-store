@@ -34,7 +34,7 @@ The operator rejected the earlier protected-brand image-generation gate recommen
 
 The 2026-07-26 audit passed `npm run typecheck`, `npm run lint`, `npm run validate`, `npm run build`, `npm run test:ad-performance`, `npm run test:openclaw-vps-verification`, and `npm run test:shopier-webhook-local`.
 
-At this implementation task's preflight, the canonical checkout was clean on `main` at `d83230224f4068c99c97e5b6c3d08f3e23e49725`, exactly matched `origin/main`, and was `0/0` ahead/behind after a fresh fetch. The retained governance transfer stash, pre-existing stash, and `codex/backup-main-pre-governance-20260726-8a9cfcb` backup branch were unchanged. The metadata/slot foundation is currently an uncommitted, undeployed local change.
+At the schema-plan preflight, the canonical checkout was clean on local `main` at committed foundation `58b2eaf2c035b0c94e7a7ce664f1a3b2f87db177`; `origin/main` remained `d83230224f4068c99c97e5b6c3d08f3e23e49725`, so local `main` was `1/0` ahead/behind. The retained governance transfer stash, pre-existing stash, and `codex/backup-main-pre-governance-20260726-8a9cfcb` branch were unchanged. The foundation is committed locally but unpushed and undeployed.
 
 ## Current blockers
 
@@ -45,3 +45,5 @@ At this implementation task's preflight, the canonical checkout was clean on `ma
 - The current job is still reused by regeneration; each execution gets a new immutable attempt record, but a complete normalized attempt-history subsystem and targeted regeneration are not implemented.
 - The Telegram route is a 7,820-line monolith with command ownership, callbacks, reads, and mutations in one handler.
 - Local environment readiness is not production provider readiness.
+- Deployment is blocked pending the reviewed seven-column Image Slot Lineage expansion. The guarded SQL and zero-downtime plan exist locally, but no non-production rehearsal or database apply occurred; `NON_PRODUCTION_DATABASE_REQUIRED`.
+- Payload schema push currently defaults on when `PAYLOAD_DB_PUSH` is absent. Codex, CI, Vercel preview/production, read-only smokes, and controlled migrations must explicitly use `PAYLOAD_DB_PUSH=false`; a future fail-closed config change needs separate review.

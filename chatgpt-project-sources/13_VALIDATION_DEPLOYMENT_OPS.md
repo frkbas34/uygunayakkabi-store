@@ -1,6 +1,6 @@
 # Validation, Deployment, and Operations
 
-Current as of 2026-07-26. Latest deployed feature boundary: D-501. At the Pure Metadata Contracts task preflight, local `main` and `origin/main` both resolved to `d83230224f4068c99c97e5b6c3d08f3e23e49725` with a clean worktree and `0/0` divergence. The current metadata/slot implementation is local and uncommitted; no deployment or production schema application was performed.
+Current as of 2026-07-26. Latest deployed feature boundary: D-501. At the schema-plan preflight, local `main` was the committed foundation `58b2eaf2c035b0c94e7a7ce664f1a3b2f87db177`; `origin/main` remained `d83230224f4068c99c97e5b6c3d08f3e23e49725`, so local was `1/0` ahead/behind. The foundation is unpushed and undeployed; no production schema application was performed.
 
 ## Local validation layers
 
@@ -11,7 +11,11 @@ Current as of 2026-07-26. Latest deployed feature boundary: D-501. At the Pure M
 
 The local image correctness suite is `npm run test:image-generation-contracts`. It uses mocks/fixtures only and covers semantic registry invariants, immutable execution IDs, middle-slot provider failure, middle-slot Media-save failure, complete success, legacy compatibility, malformed metadata, safe failure redaction, and prompt/provider/transform/policy stability. It is included in `test:safe` and makes no provider, Telegram, Payload database, Blob, Shopier, publishing, or production call.
 
-The local production build compiles with the additive fields, but its static product read currently falls back because the configured database does not yet contain the new nullable Media-lineage columns. A reviewed schema migration/application is therefore a deployment prerequisite; none was generated or applied in this task.
+The local production build compiles with the additive fields, but its static product read currently falls back because the configured database does not yet contain the new nullable Media-lineage columns. A reviewed schema migration/application is therefore a deployment prerequisite. `project-control/IMAGE_SLOT_LINEAGE_SCHEMA_MIGRATION_PLAN_V1.md`, `scripts/sql/image-slot-lineage-schema-v1.sql`, and the guarded apply helper now define the expansion; none was applied. Docker is unavailable and no safe target is proven, so `NON_PRODUCTION_DATABASE_REQUIRED` remains.
+
+Static schema validation is `npm run test:image-slot-lineage-schema`; SQL review is `npm run db:image-slot-lineage:apply -- --dry-run --print-sql`. The confirmed apply form is reserved for a separately approved, independently verified target. The supported rollout is expand/verify under the old runtime, deploy/verify the new runtime, and roll back runtime first while retaining nullable columns.
+
+Payload schema push currently defaults on if `PAYLOAD_DB_PUSH` is absent. Codex validation, CI, Vercel preview/production, read-only smokes, builds, and controlled migration operations must explicitly set `PAYLOAD_DB_PUSH=false`; automatic runtime/build push is not an approved production migration path.
 
 The 2026-07-26 audit passed typecheck, lint, validate, build, `test:ad-performance`, `test:openclaw-vps-verification`, and `test:shopier-webhook-local`. The build used the SiteSettings fallback; this is not proof of production configuration health.
 
@@ -54,7 +58,7 @@ The operator plan uses load-plan-selected product-flow runtime and Telegram chec
 - Historical soak quarantine: `project-control/HISTORICAL_SOAK_SCRIPTS.md`; governance uses historical soak-script governance assertions in `npm run test:soak-scripts`.
 - Shopier command gate: `npm run test:shopier-commands`.
 - Product diagnostics: `npm run test:product-flow-snapshot`, `npm run test:image-regeneration-plan`, and `npm run test:image-qc-remediation-plan`.
-- Schema governance: `npm run test:lead-status-schema` and `npm run test:lead-conversion-schema`.
+- Schema governance: `npm run test:lead-status-schema`, `npm run test:lead-conversion-schema`, and `npm run test:image-slot-lineage-schema`.
 - `project-control/DEPLOY_CHECKLIST.md` as historical reference only; it is not proof of the current deployment.
 
 `project-control/OPENCLAW_VPS_VERIFICATION.md` is not the canonical file. The optional checklist is `mentix-skills/OPENCLAW_VPS_VERIFICATION.md`, verified by `npm run test:openclaw-vps-verification`. OpenClaw synchronization requires both `--reactivate-openclaw` and `--confirm-vps-sync`.

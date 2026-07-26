@@ -156,6 +156,27 @@ Dormant/retired guard:
 
 Payload schema changes must be understood before deploy. Do not rely on production auto-push.
 
+The committed Image Slot Lineage V1 runtime is blocked until its seven nullable
+columns are expanded and verified. The canonical zero-downtime plan is
+`project-control/IMAGE_SLOT_LINEAGE_SCHEMA_MIGRATION_PLAN_V1.md`. Expand while
+the old runtime is active, verify, deploy the new runtime, then verify again.
+Do not backfill or drop columns during this rollout.
+
+```powershell
+npm run test:image-slot-lineage-schema
+npm run db:image-slot-lineage:apply -- --dry-run --print-sql
+npm run db:image-slot-lineage:apply -- --apply --confirm-apply-image-slot-lineage-schema-v1
+```
+
+The apply helper does not connect in its default/dry-run mode. Confirm the
+target, current provider-native backup, pre-migration schema fingerprint, and
+operator approval before the confirmed form. Keep `PAYLOAD_DB_PUSH=false` in
+Codex, CI, preview, production, read-only smokes, and the Payload process used
+around migration operations. The configured default-on behavior is not an
+approved production migration mechanism. If rollback is required, roll back
+runtime first and retain the harmless nullable columns; column removal is a
+later separately approved contract migration.
+
 D-355 Image QC drift has a guarded repair helper:
 
 ```powershell

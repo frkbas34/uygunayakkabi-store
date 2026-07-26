@@ -4,6 +4,8 @@
 
 Next.js 16.2 canary and Payload 3.79 run one application. PostgreSQL is the database, Vercel Blob is production media storage when configured, and Payload jobs persist queued work. Payload schema push defaults on unless `PAYLOAD_DB_PUSH=false`; read-only runtime smokes force it off where applicable.
 
+The repository has no Payload migration manifest or proven pre-activation Vercel migration stage. It uses reviewed SQL plus guarded, dry-run-by-default apply helpers. Image Slot Lineage V1 therefore follows expand-first rollout: add seven nullable/default-free columns while the old runtime is active, verify, deploy the new runtime, and retain the columns during runtime rollback. Automatic Payload schema push is not the production migration mechanism.
+
 ## Main flows
 
 ```text

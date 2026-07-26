@@ -20,7 +20,7 @@ Dolap and Threads are retired. SupplierScout is dormant. The protected-brand cat
 
 Next/Payload executes commerce workflows. Telegram is the primary operator workspace. Hermes is the current agent-control layer; Mentix/Uygunops is the Telegram-facing operator identity. OpenClaw is historical/optional unless explicitly reactivated. n8n is optional fallback glue, not the default workflow. Shopier remains the checkout/sales bridge; website-native checkout is deferred.
 
-The deployed integration boundary includes PR #6 (catalog/release hardening through D-500) and PR #7 (D-501 mobile PDP CTA overflow correction). `origin/main` also contains later documentation merge commits. Deployment evidence does not prove current provider credentials, quotas, OAuth permissions, Telegram webhook delivery, or Shopier webhook delivery.
+Authenticated Vercel evidence proves the current production aliases still serve commit `8adfd1b955baf534da2b20595e6cdd2a407438fe` through READY deployment `dpl_517iJaUxzSifu7F6jJgHoo12B1kv`. A push to `main` creates a production-target deployment directly; the `d832302` governance deployment was created automatically but canceled by the repository's ignored-build step, so it did not replace the serving runtime. Deployment evidence does not prove current provider credentials, quotas, OAuth permissions, Telegram webhook delivery, or Shopier webhook delivery.
 
 ## Current focus
 
@@ -34,7 +34,7 @@ The operator rejected the earlier protected-brand image-generation gate recommen
 
 The 2026-07-26 audit passed `npm run typecheck`, `npm run lint`, `npm run validate`, `npm run build`, `npm run test:ad-performance`, `npm run test:openclaw-vps-verification`, and `npm run test:shopier-webhook-local`.
 
-At the schema-plan preflight, the canonical checkout was clean on local `main` at committed foundation `58b2eaf2c035b0c94e7a7ce664f1a3b2f87db177`; `origin/main` remained `d83230224f4068c99c97e5b6c3d08f3e23e49725`, so local `main` was `1/0` ahead/behind. The retained governance transfer stash, pre-existing stash, and `codex/backup-main-pre-governance-20260726-8a9cfcb` branch were unchanged. The foundation is committed locally but unpushed and undeployed.
+At the production-expansion pre-flight, the canonical checkout was clean on local `main` at `832f972c14ae29a14be083dac1cf89ba23238406`; `origin/main` remained `d83230224f4068c99c97e5b6c3d08f3e23e49725`, so local `main` was `3/0` ahead/behind. The exact outgoing chain is durable runtime foundation `58b2eaf`, governed migration plan `b806c77`, and corrected transaction/rehearsal evidence `832f972`. The retained governance transfer stash, pre-existing stash, and `codex/backup-main-pre-governance-20260726-8a9cfcb` branch were unchanged. All three commits remain unpushed and undeployed.
 
 ## Current blockers
 
@@ -45,5 +45,6 @@ At the schema-plan preflight, the canonical checkout was clean on local `main` a
 - The current job is still reused by regeneration; each execution gets a new immutable attempt record, but a complete normalized attempt-history subsystem and targeted regeneration are not implemented.
 - The Telegram route is a 7,820-line monolith with command ownership, callbacks, reads, and mutations in one handler.
 - Local environment readiness is not production provider readiness.
-- Deployment is blocked pending the reviewed seven-column Image Slot Lineage expansion. The guarded SQL and zero-downtime plan exist locally, but no non-production rehearsal or database apply occurred; `NON_PRODUCTION_DATABASE_REQUIRED`.
-- Payload schema push currently defaults on when `PAYLOAD_DB_PUSH` is absent. Codex, CI, Vercel preview/production, read-only smokes, and controlled migrations must explicitly use `PAYLOAD_DB_PUSH=false`; a future fail-closed config change needs separate review.
+- The corrected strict-isolation WSL schema-harness rehearsal passed with SQL hash `06191F19…961E2`; this proves the governed transaction/compatibility harness, not full application or production compatibility. No application or production database was changed.
+- Production pre-flight result: `PRODUCTION_PREFLIGHT_FAIL_SCHEMA_PUSH_UNSAFE`. Authenticated Vercel metadata proves `PAYLOAD_DB_PUSH` is absent in preview and production, while Payload interprets absence as true. One pooled Neon `DATABASE_URI` in `eu-central-1` is shared across development, preview, and production scopes. The production Neon project/branch, PostgreSQL major version, backup/PITR state, dedicated read-only metadata role, and seven-column fingerprint remain unproven.
+- Exact next task: `MAKE PAYLOAD SCHEMA PUSH FAIL CLOSED V1`. Production expansion, push, and deployment remain unauthorized.

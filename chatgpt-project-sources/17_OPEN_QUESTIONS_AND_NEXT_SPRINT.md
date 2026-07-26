@@ -5,7 +5,7 @@ Current as of 2026-07-26. This is a prioritized decision list, not a milestone l
 ## P0 — Telegram and image correctness
 
 1. Define a fail-closed production policy for webhook secret, DM/group allowlists, and callback actions. Callback payload ownership must not substitute for operator authorization.
-2. Review and checkpoint the corrected Image Slot Lineage V1 migration and Attempt 1/2 evidence. The guarded helper is now the sole transaction owner and the complete strict-isolation WSL schema harness passes rollback, apply, compatibility, five-slot, idempotency, runtime-first rollback, and cleanup. `FULL_APPLICATION_COMPATIBILITY_NOT_PROVEN`; no application/production database, push, or deployment occurred.
+2. Make Payload schema push fail closed. Authenticated Vercel evidence proves `PAYLOAD_DB_PUSH` is absent in preview and production while the current config interprets absence as true. The same pooled Neon `DATABASE_URI` spans development, preview, and production scopes. Do not authorize expansion or push until explicit false is proven for every production/preview build/runtime path.
 3. Remove the rejected protected-brand generation helper/test and brand-first generation advice without weakening claims, approval, activation, publishing, advertising, Shopier, or dispatch guards.
 4. Define cleanup ownership and recoverability for rejected, regenerated, failed-save, partial-approval, and otherwise orphaned generated Media.
 
@@ -45,7 +45,9 @@ Current as of 2026-07-26. This is a prioritized decision list, not a milestone l
 - Which drift dimensions may eventually block preview, and which must remain advisory to the human operator?
 - What pack completeness and generated-Media retention policy should apply after partial slot failure or targeted regeneration?
 - When should the protected-brand catalog review backlog reopen?
+- Is preview intentionally allowed to use the same Neon target as production, or must it be isolated before the lineage runtime is pushed?
+- Who will supply and approve the Neon project/branch, PostgreSQL version, backup/PITR recovery point, direct migration endpoint, and dedicated read-only metadata-role evidence?
 
 ## Exact recommended next task
 
-**CHECKPOINT CORRECTED LINEAGE MIGRATION AND REHEARSAL EVIDENCE**: review and commit only the corrected governed SQL/helper/tests, reusable strict-isolation harness and compatibility artifacts, preserved Attempt 1 failure, Attempt 2 pass, and synchronized current-truth documentation. Do not push, deploy, or apply production schema in the checkpoint task.
+**MAKE PAYLOAD SCHEMA PUSH FAIL CLOSED V1**: change the configuration and environment governance so absence can never enable Payload schema push; prove explicit `PAYLOAD_DB_PUSH=false` for local validation, CI, Vercel preview build/runtime, Vercel production build/runtime, read-only smokes, and controlled migration processes. Do not apply production schema, push the lineage chain, deploy, promote, or run live smokes in that task.

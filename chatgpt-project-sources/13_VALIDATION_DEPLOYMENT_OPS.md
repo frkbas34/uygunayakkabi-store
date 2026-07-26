@@ -1,6 +1,6 @@
 # Validation, Deployment, and Operations
 
-Current as of 2026-07-26. Latest deployed feature boundary: D-501. At the corrected schema-rehearsal preflight, local `main` was `b806c7706b6f679de0cc1522f37b71e902b7d58f`; `origin/main` remained `d83230224f4068c99c97e5b6c3d08f3e23e49725`, so local was `2/0` ahead/behind. The lineage foundation is unpushed and undeployed; no application/production schema application was performed.
+Current as of 2026-07-26. Latest deployed feature boundary: D-501. Authenticated deployment evidence shows production still serves `8adfd1b955baf534da2b20595e6cdd2a407438fe` through READY Vercel deployment `dpl_517iJaUxzSifu7F6jJgHoo12B1kv`. Local `main` is `832f972c14ae29a14be083dac1cf89ba23238406`; `origin/main` remains `d83230224f4068c99c97e5b6c3d08f3e23e49725`, so local is `3/0` ahead/behind. The lineage runtime and migration chain is unpushed and undeployed; no application/production schema application was performed.
 
 ## Local validation layers
 
@@ -20,6 +20,10 @@ The corrected evidence set passed `test:image-slot-lineage-schema`, `test:image-
 Static schema validation is `npm run test:image-slot-lineage-schema`; transaction rollback fixture validation is `npm run test:image-slot-lineage-helper`; SQL review is `npm run db:image-slot-lineage:apply -- --dry-run --print-sql`. Confirmed apply requires explicit `IMAGE_SLOT_LINEAGE_DATABASE_URI`, never falls back to `DATABASE_URI`, and remains reserved for a separately approved independently verified target. Manual `psql` requires `--single-transaction`. The supported rollout is expand/verify under the old runtime, deploy/verify the new runtime, and roll back runtime first while retaining nullable columns.
 
 Payload schema push currently defaults on if `PAYLOAD_DB_PUSH` is absent. Codex validation, CI, Vercel preview/production, read-only smokes, builds, and controlled migration operations must explicitly set `PAYLOAD_DB_PUSH=false`; automatic runtime/build push is not an approved production migration path.
+
+The production-expansion pre-flight is `PRODUCTION_PREFLIGHT_FAIL_SCHEMA_PUSH_UNSAFE`. Authenticated Vercel metadata proves `PAYLOAD_DB_PUSH` is absent from preview and production, so the checked-in config interprets it as true whenever full Payload config initializes. The single encrypted `DATABASE_URI` record spans development, preview, and production; secret-safe parsing identifies a pooled Neon endpoint in `eu-central-1`, but Neon project/branch, PostgreSQL major version, backup/PITR, a direct migration endpoint, the dedicated read-only metadata gate, and the seven-column production fingerprint remain unproven. The current old production runtime contains no lineage-field references. `project-control/IMAGE_SLOT_LINEAGE_PRODUCTION_PREFLIGHT_V1.md` is the canonical evidence package. Exact next task: `MAKE PAYLOAD SCHEMA PUSH FAIL CLOSED V1`.
+
+Main pushes create Vercel production-target deployments directly. The `d832302` governance deployment was automatically created and then canceled by the ignored-build step, so GitHub's successful `Canceled by Ignored Build Step` status is not deployment of that commit. The runtime-bearing local chain changes `src/**`/`package.json` and would proceed to a production build if pushed. Production expansion, push, deployment, promotion, and live smoke remain unauthorized.
 
 The 2026-07-26 audit passed typecheck, lint, validate, build, `test:ad-performance`, `test:openclaw-vps-verification`, and `test:shopier-webhook-local`. The build used the SiteSettings fallback; this is not proof of production configuration health.
 

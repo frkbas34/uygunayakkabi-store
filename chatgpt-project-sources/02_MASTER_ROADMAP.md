@@ -5,7 +5,7 @@ This roadmap reflects the 2026-07-26 Telegram-first, image-first operator decisi
 ## P0 — security and image correctness
 
 1. Characterize all Telegram message and callback authorization paths, then make production webhook, DM, group, and callback access fail closed while preserving an explicit local-development policy.
-2. Characterize every image entry point and fix per-slot result lineage so partial generation or Media-save failure cannot mislabel a later slot.
+2. Review and release the local `image-slot-contract/v1` correctness foundation; no production schema application or deployment has occurred.
 3. Remove rejected protected-brand generation restrictions and blocking assertions. Preserve brand safety for claims, human approval, activation, publishing, advertising, Shopier, and external dispatch.
 4. Define recoverable retention for rejected, regenerated, failed-save, and partially approved generated Media.
 5. Verify production database/provider/webhook state only with separate operator approval. Local tests and environment-name checks are not provider proof.
@@ -13,8 +13,8 @@ This roadmap reflects the 2026-07-26 Telegram-first, image-first operator decisi
 ## P1 — image platform foundation
 
 1. Complete and operator-review the Golden Product Set from `project-control/GOLDEN_PRODUCT_SET_V1.md`. The local corpus has 1 draft candidate, 0 approved products, and 0 loafers; acquire the remaining 35 original sources, including all 12 loafers, without using generated/hero/screenshot/production-only media as truth.
-2. Independently of the still-blocked visual-quality corpus gate, implement **Pure Metadata Contracts and Durable Slot Identity Foundation** when separately authorized: canonical slot IDs, non-positional failure-preserving slot records, immutable attempt IDs, versioned contracts, and legacy compatibility with no prompt/camera/slot-purpose/provider changes.
-3. Introduce immutable image attempts and structured per-slot results, provider usage, warnings, retries, transforms, and evaluator lineage.
+2. Move the additive job-JSON attempt foundation into normalized immutable attempt/slot persistence when separately authorized, without reinterpreting historical partial records.
+3. Add provider usage/cost/timing, structured retry, transform, evaluator, checkpoint, and cancellation lineage.
 4. Bind Telegram task receipts and progress to exact durable jobs; unify image deduplication across photo, hashtag, command, and callback entry points.
 5. Make image approval, rejection, and regeneration state-checked and idempotent, with targeted slot regeneration preserving history.
 6. Add provider adapters, capability metadata, normalized timeouts/errors/usage, and budget policies without replacing the current provider.

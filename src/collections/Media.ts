@@ -62,6 +62,36 @@ export const MediaCollection: CollectionConfig = {
       admin: { position: 'sidebar' },
     },
     {
+      name: 'generationLineage',
+      type: 'group',
+      label: 'AI Generation Lineage',
+      admin: {
+        description: 'Optional semantic lineage for newly generated Media; historical records remain valid without it',
+      },
+      fields: [
+        {
+          name: 'contractVersion',
+          type: 'text',
+          admin: { readOnly: true },
+        },
+        {
+          name: 'jobId',
+          type: 'text',
+          admin: { readOnly: true },
+        },
+        {
+          name: 'attemptId',
+          type: 'text',
+          admin: { readOnly: true },
+        },
+        {
+          name: 'slotId',
+          type: 'text',
+          admin: { readOnly: true },
+        },
+      ],
+    },
+    {
       name: 'altText',
       type: 'text',
       label: 'Alt Metin (SEO)',

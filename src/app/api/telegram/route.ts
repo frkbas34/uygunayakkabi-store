@@ -9,6 +9,10 @@ import {
 } from '@/lib/automationDecision'
 import { evaluateChannelProviderHealth, formatChannelProviderHealthLine } from '@/lib/channelProviderHealth'
 import { evaluateTelegramDmAccess, DM_REFUSAL_MESSAGE } from '@/lib/telegramAccess'
+import {
+  resolveApprovalCandidates,
+  selectApprovalMediaIds,
+} from '@/lib/imageGenerationContracts'
 
 // ── Vercel function timeout ────────────────────────────────────────────────────
 // Image polling loop runs up to 120s. OpenAI gpt-image-1 typically 15-40s.
@@ -526,18 +530,28 @@ async function approveImageGenJob(
     }
   }
 
-  // Determine which IDs to approve
-  let approvedMediaIds: number[]
-  if (slotsStr === 'all' || !slotsStr) {
-    approvedMediaIds = allMediaIds
-  } else {
-    // Parse "1,2,4" → [0, 1, 3] (convert to 0-based indices)
-    const slotIndices = slotsStr
-      .split(/[,\s]+/)
-      .map((s) => parseInt(s.trim()) - 1)
-      .filter((i) => i >= 0 && i < allMediaIds.length)
-    approvedMediaIds = slotIndices.map((i) => allMediaIds[i]).filter(Boolean)
+  const candidateResolution = resolveApprovalCandidates({
+    generationAttempts: jobDoc.generationAttempts,
+    activeAttemptId: jobDoc.activeAttemptId,
+    legacyMediaIds: allMediaIds,
+    promptsUsed: jobDoc.promptsUsed,
+  })
+  if (!candidateResolution.ok) {
+    console.error(
+      `[telegram/approveImageGenJob] semantic metadata invalid — job=${jobId}: ${candidateResolution.error}`,
+    )
+    await sendTelegramMessage(
+      chatId,
+      `⚠️ Görsel slot metadatası doğrulanamadı; güvenli onay için iş kaydını inceleyin.\n<code>Job: ${jobId}</code>`,
+    )
+    return
   }
+
+  // New attempts select stable slot IDs/display order. Historical records retain
+  // their positional behavior through the explicit legacy projection.
+  const approvedMediaIds = selectApprovalMediaIds(candidateResolution.candidates, slotsStr)
+    .map((id) => typeof id === 'number' ? id : Number(id))
+    .filter((id): id is number => Number.isFinite(id))
 
   if (approvedMediaIds.length === 0) {
     console.error(
@@ -749,13 +763,20 @@ async function regenImageGenJob(
   //   provider='gemini-pro'  → re-queue image-gen with gemini-pro
   //   provider='openai'      → re-queue image-gen with gemini-pro (redirected during debug phase)
   let currentStage = 'standard'
+  let visualFacts: string | undefined
   try {
-    const prompts = JSON.parse((jobDoc.promptsUsed as string) || '{}')
+    const prompts = JSON.parse((jobDoc.promptsUsed as string) || '{}') as {
+      stage?: unknown
+      visualFacts?: unknown
+    }
     currentStage    = (prompts.stage    as string) || 'standard'
+    visualFacts = typeof prompts.visualFacts === 'string' && prompts.visualFacts.trim()
+      ? prompts.visualFacts
+      : undefined
   } catch {
     // ignore parse errors — default to standard + gemini-pro
   }
-  const stageLabel    = currentStage === 'premium' ? 'Premium (4-5)' : 'Standart (1-3)'
+  const stageLabel    = currentStage === 'premium' ? 'Premium (4-5)' : 'Standart (1-5)'
   // v19 Gemini-only: all providers display as Gemini Pro
   const providerLabel = '✨ Gemini Pro'
 
@@ -776,7 +797,7 @@ async function regenImageGenJob(
   // v18 Gemini-only debug phase: ALL regens use Gemini Pro regardless of original provider
   await payload.jobs.queue({
     task: 'image-gen',
-    input: { jobId, stage: currentStage, provider: 'gemini-pro' },
+    input: { jobId, stage: currentStage, provider: 'gemini-pro', visualFacts },
     overrideAccess: true,
   })
 

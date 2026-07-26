@@ -1,6 +1,6 @@
 # Validation, Deployment, and Operations
 
-Current as of 2026-07-26. Latest deployed feature boundary: D-501. The current checkout remains one merged documentation commit behind `origin/main`; no deployment was performed during this audit.
+Current as of 2026-07-26. Latest deployed feature boundary: D-501. At the Pure Metadata Contracts task preflight, local `main` and `origin/main` both resolved to `d83230224f4068c99c97e5b6c3d08f3e23e49725` with a clean worktree and `0/0` divergence. The current metadata/slot implementation is local and uncommitted; no deployment or production schema application was performed.
 
 ## Local validation layers
 
@@ -8,6 +8,10 @@ Current as of 2026-07-26. Latest deployed feature boundary: D-501. The current c
 2. Repository governance and behavior checks: `npm run test:safe`.
 3. Full local verification: `npm run validate`.
 4. Production-shaped compile: `npm run build`.
+
+The local image correctness suite is `npm run test:image-generation-contracts`. It uses mocks/fixtures only and covers semantic registry invariants, immutable execution IDs, middle-slot provider failure, middle-slot Media-save failure, complete success, legacy compatibility, malformed metadata, safe failure redaction, and prompt/provider/transform/policy stability. It is included in `test:safe` and makes no provider, Telegram, Payload database, Blob, Shopier, publishing, or production call.
+
+The local production build compiles with the additive fields, but its static product read currently falls back because the configured database does not yet contain the new nullable Media-lineage columns. A reviewed schema migration/application is therefore a deployment prerequisite; none was generated or applied in this task.
 
 The 2026-07-26 audit passed typecheck, lint, validate, build, `test:ad-performance`, `test:openclaw-vps-verification`, and `test:shopier-webhook-local`. The build used the SiteSettings fallback; this is not proof of production configuration health.
 

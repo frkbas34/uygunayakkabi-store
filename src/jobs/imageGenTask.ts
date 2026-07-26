@@ -25,11 +25,25 @@
 import type { TaskConfig } from 'payload'
 // D-407: central 5-slot contract — slot keys/labels/order + per-image metadata.
 import {
-  GENERATED_SLOT_KEYS,
-  GENERATED_SLOTS,
+  IMAGE_SLOT_CONTRACT_VERSION,
   SLOT_PROMPT_VERSION,
   buildSlotMeta,
+  getSlotByKey,
 } from '../lib/imageSlotContract'
+import {
+  adaptLegacyProviderOutput,
+  createImageGenerationAttempt,
+  finishImageGenerationAttempt,
+  markAttemptSlotsGenerating,
+  markAttemptSlotsSkipped,
+  persistGeneratedSlotEnvelopes,
+  requestedSlotIdsForStage,
+  safeImageFailureSummary,
+  serializeSlotEnvelopes,
+  upsertGenerationAttemptHistory,
+  type ImageGenerationAttemptMetadata,
+  type ImageSlotExecutionEnvelope,
+} from '../lib/imageGenerationContracts'
 
 export const imageGenTask: TaskConfig<{
   input: { jobId: string; stage?: string; provider?: string; visualFacts?: string }
@@ -86,11 +100,20 @@ export const imageGenTask: TaskConfig<{
     // path that (re)generates only slots 4-5 for older or partial jobs.
     // stage: 'standard' → slots 1-5 (default for #gorsel) | 'premium' → slots 4-5
     const stage = (input.stage || 'standard') as 'standard' | 'premium'
-    const sceneIndices = stage === 'premium' ? [3, 4] : [0, 1, 2, 3, 4]
+    const requestedSlotIds = requestedSlotIdsForStage(stage)
+    const sceneIndices = requestedSlotIds.map((slotId) => {
+      const slot = getSlotByKey(slotId)
+      if (!slot) throw new Error(`Canonical slot bulunamadı: ${slotId}`)
+      return slot.displayOrder
+    })
     // provider: 'openai' (default, gpt-image-1 edit) | 'gemini-pro' (Gemini image gen)
     // v19 Gemini-only: default provider is gemini-pro (was 'openai' before v19)
     const provider = (input.provider || 'gemini-pro') as 'openai' | 'gemini-pro'
     const payload = req.payload
+    let attemptMetadata: ImageGenerationAttemptMetadata = createImageGenerationAttempt({
+      jobId,
+      requestedSlotIds,
+    })
 
     console.log(`[imageGenTask v14] start — jobId=${jobId} stage=${stage} provider=${provider} sceneIndices=[${sceneIndices}]`)
 
@@ -114,13 +137,24 @@ export const imageGenTask: TaskConfig<{
 
     const productId = typeof productRef === 'object' ? productRef.id : productRef
 
-    await payload.update({
-      collection: 'image-generation-jobs',
-      id: jobId,
-      data: {
-        status: 'generating',
-        generationStartedAt: new Date().toISOString(),
-      },
+    let attemptHistory = upsertGenerationAttemptHistory(jobDoc.generationAttempts, attemptMetadata)
+    const persistAttemptMetadata = async (data: Record<string, unknown> = {}) => {
+      attemptHistory = upsertGenerationAttemptHistory(attemptHistory, attemptMetadata)
+      await payload.update({
+        collection: 'image-generation-jobs',
+        id: jobId,
+        data: {
+          generationContractVersion: IMAGE_SLOT_CONTRACT_VERSION,
+          activeAttemptId: attemptMetadata.attemptId,
+          generationAttempts: attemptHistory,
+          ...data,
+        },
+      })
+    }
+
+    await persistAttemptMetadata({
+      status: 'generating',
+      generationStartedAt: attemptMetadata.startedAt,
     })
 
     // ── Step 2: Fetch product details ────────────────────────────────────────
@@ -249,14 +283,11 @@ export const imageGenTask: TaskConfig<{
         'Ürün fotoğrafı bulunamadı — görsel üretimi için ürüne bir fotoğraf eklenmeli. ' +
         'Önce Telegram\'dan fotoğraf gönderin, ardından #gorsel komutunu kullanın.'
 
-      await payload.update({
-        collection: 'image-generation-jobs',
-        id: jobId,
-        data: {
-          status: 'failed',
-          errorMessage: msg,
-          generationCompletedAt: new Date().toISOString(),
-        },
+      attemptMetadata = markAttemptSlotsSkipped(attemptMetadata, 'input_unavailable', msg)
+      await persistAttemptMetadata({
+        status: 'failed',
+        errorMessage: msg,
+        generationCompletedAt: attemptMetadata.completedAt,
       })
 
       if (telegramChatId) {
@@ -290,18 +321,18 @@ export const imageGenTask: TaskConfig<{
           (validation.rejectionReason ? `: ${validation.rejectionReason}` : '') +
           `. Lütfen ürün fotoğrafı gönderin.`
 
-        await payload.update({
-          collection: 'image-generation-jobs',
-          id: jobId,
-          data: {
-            status: 'failed',
-            errorMessage: rejectionMsg,
-            generationCompletedAt: new Date().toISOString(),
-            providerResults: JSON.stringify({
-              rejected: true,
-              reason: validation.rejectionReason,
-            }),
-          },
+        attemptMetadata = markAttemptSlotsSkipped(attemptMetadata, 'input_rejected', rejectionMsg)
+        await persistAttemptMetadata({
+          status: 'failed',
+          errorMessage: rejectionMsg,
+          generationCompletedAt: attemptMetadata.completedAt,
+          providerResults: JSON.stringify({
+            contractVersion: IMAGE_SLOT_CONTRACT_VERSION,
+            attemptId: attemptMetadata.attemptId,
+            rejected: true,
+            reason: safeImageFailureSummary(validation.rejectionReason, 'Reference validation rejected the input.'),
+            slotResults: attemptMetadata.slots,
+          }),
         })
 
         if (telegramChatId) {
@@ -367,12 +398,14 @@ export const imageGenTask: TaskConfig<{
     // ── Step 6: STEP C — Image Generation (provider-routed) ─────────────────
     // v14: provider='openai' → generateByEditing (gpt-image-1, default, unchanged)
     //      provider='gemini-pro' → generateByGeminiPro (Gemini image gen, optional)
-    // D-407: slot names/labels come from the central 5-slot contract.
-    // Canonical order (index → key): 0 front · 1 side · 2 top_pair · 3 heel · 4 material_detail
-    const ALL_SLOT_NAMES  = GENERATED_SLOT_KEYS as readonly string[]
-    const ALL_SLOT_LABELS = GENERATED_SLOTS.map((s) => s.label)
-    const slotNames  = sceneIndices.map((i) => ALL_SLOT_NAMES[i])
-    const slotLabels = sceneIndices.map((i) => ALL_SLOT_LABELS[i])
+    // Slot identity comes from the canonical semantic registry. Display order is
+    // presentation metadata only and is never reconstructed from a result index.
+    const requestedSlots = requestedSlotIds.map((slotId) => {
+      const slot = getSlotByKey(slotId)
+      if (!slot) throw new Error(`Canonical slot bulunamadı: ${slotId}`)
+      return slot
+    })
+    const slotNames = requestedSlots.map((slot) => slot.slotId)
 
     const pipelineLabel = provider === 'gemini-pro'
       ? `gemini-pro-image-v14:${process.env.GEMINI_IMAGE_GEN_MODEL || 'gemini-2.5-flash-image'}`
@@ -387,29 +420,29 @@ export const imageGenTask: TaskConfig<{
 
     // D-407: per-image slot-contract metadata (slotIndex, slotKey, promptVersion,
     // productId, sourceImageId). mediaId is filled in after the media docs exist.
-    const slotContractMeta = sceneIndices.map((slotIndex) =>
-      buildSlotMeta({ slotIndex, productId, sourceImageId, mediaId: null }),
+    const slotContractMeta = requestedSlots.map((slot) =>
+      buildSlotMeta({ slotIndex: slot.displayOrder, productId, sourceImageId, mediaId: null }),
     )
 
-    await payload.update({
-      collection: 'image-generation-jobs',
-      id: jobId,
-      data: {
-        promptsUsed: JSON.stringify({
-          pipeline: pipelineLabel,
-          provider,           // explicit provider field — recovered by regenImageGenJob
-          stage,
-          mode: `${mode} (cosmetic)`,
-          identityLock: identityLockMeta,
-          slots: slotNames,
-          // D-407: fixed 5-slot contract metadata
-          promptVersion: SLOT_PROMPT_VERSION,
-          slotContract: slotContractMeta,
-        }),
-      },
+    attemptMetadata = markAttemptSlotsGenerating(attemptMetadata)
+    await persistAttemptMetadata({
+      promptsUsed: JSON.stringify({
+        pipeline: pipelineLabel,
+        provider,           // explicit provider field — recovered by regenImageGenJob
+        stage,
+        mode: `${mode} (cosmetic)`,
+        identityLock: identityLockMeta,
+        visualFacts: input.visualFacts?.trim() || null,
+        slots: slotNames,
+        contractVersion: IMAGE_SLOT_CONTRACT_VERSION,
+        attemptId: attemptMetadata.attemptId,
+        // D-407: fixed 5-slot contract metadata
+        promptVersion: SLOT_PROMPT_VERSION,
+        slotContract: slotContractMeta,
+      }),
     })
 
-    let generatedBuffers: Buffer[] = []
+    let slotEnvelopes: ImageSlotExecutionEnvelope<Buffer>[] = attemptMetadata.slots.map((slot) => ({ ...slot }))
     let providerResultsSummary: unknown[] = []
     let slotLogsSummary: unknown[] = []
 
@@ -434,7 +467,12 @@ export const imageGenTask: TaskConfig<{
         productId, // D-233: stable per-product background variant
         input.visualFacts, // D-355N: operator-verified product facts (visual fact lock)
       )
-      generatedBuffers = buffers
+      slotEnvelopes = adaptLegacyProviderOutput({
+        attempt: attemptMetadata,
+        provider,
+        buffers,
+        slotLogs,
+      })
       slotLogsSummary = slotLogs
       providerResultsSummary = results.map((r) => ({
         provider: r.provider,
@@ -443,37 +481,57 @@ export const imageGenTask: TaskConfig<{
         errors: r.errors,
       }))
 
-      console.log(`[imageGenTask v14] generated ${generatedBuffers.length} images via ${provider}`)
+      attemptMetadata = {
+        ...attemptMetadata,
+        slots: serializeSlotEnvelopes(slotEnvelopes),
+      }
+      await persistAttemptMetadata()
+
+      const generatedCount = slotEnvelopes.filter((slot) => slot.status === 'generated').length
+      console.log(`[imageGenTask v14] generated ${generatedCount} images via ${provider}`)
     } catch (err) {
       const errMsg = err instanceof Error ? err.message : String(err)
       console.error(`[imageGenTask v14] generation error (${provider}):`, errMsg)
-      providerResultsSummary = [{ provider, error: errMsg }]
+      providerResultsSummary = [{ provider, error: safeImageFailureSummary(err, 'Provider execution failed.') }]
+      slotEnvelopes = adaptLegacyProviderOutput({
+        attempt: attemptMetadata,
+        provider,
+        buffers: [],
+        slotLogs: [],
+      })
+      attemptMetadata = {
+        ...attemptMetadata,
+        slots: serializeSlotEnvelopes(slotEnvelopes),
+      }
+      await persistAttemptMetadata()
     }
 
-    if (generatedBuffers.length === 0) {
+    if (!slotEnvelopes.some((slot) => slot.status === 'generated' && slot.output !== undefined)) {
       const providerLabel = provider === 'gemini-pro' ? 'Gemini Pro' : 'OpenAI'
 
       // Extract first real API error from slot logs for diagnostic display
       const firstSlotError = (slotLogsSummary as Array<{ rejectionReason?: string }>)
         .find((s) => s.rejectionReason)?.rejectionReason || null
-      const apiErrorSummary = firstSlotError
-        ? firstSlotError.slice(0, 200)
-        : ((providerResultsSummary[0] as { error?: string } | undefined)?.error || null)
+      const rawApiErrorSummary = firstSlotError
+        || ((providerResultsSummary[0] as { error?: string } | undefined)?.error || null)
+      const apiErrorSummary = rawApiErrorSummary
+        ? safeImageFailureSummary(rawApiErrorSummary, 'Provider execution failed.')
+        : null
 
       const msg = `${providerLabel} görsel üretimi başarısız — 0 görsel üretildi.`
 
-      await payload.update({
-        collection: 'image-generation-jobs',
-        id: jobId,
-        data: {
-          status: 'failed',
-          errorMessage: apiErrorSummary ? `${msg} API: ${apiErrorSummary}` : msg,
-          generationCompletedAt: new Date().toISOString(),
-          providerResults: JSON.stringify({
-            summary: providerResultsSummary,
-            slotLogs: slotLogsSummary,
-          }),
-        },
+      attemptMetadata = finishImageGenerationAttempt(attemptMetadata, serializeSlotEnvelopes(slotEnvelopes))
+      await persistAttemptMetadata({
+        status: 'failed',
+        errorMessage: apiErrorSummary ? `${msg} API: ${apiErrorSummary}` : msg,
+        generationCompletedAt: attemptMetadata.completedAt,
+        providerResults: JSON.stringify({
+          contractVersion: IMAGE_SLOT_CONTRACT_VERSION,
+          attemptId: attemptMetadata.attemptId,
+          summary: providerResultsSummary,
+          slotLogs: slotLogsSummary,
+          slotResults: attemptMetadata.slots,
+        }),
       })
 
       if (telegramChatId) {
@@ -510,42 +568,51 @@ export const imageGenTask: TaskConfig<{
     // as one group and centers the pair. Runs before the stock-number overlay.
     if (process.env.IMAGE_CENTERING_ENABLED !== '0') {
       const { normalizeProductCentering, normalizeBackground } = await import('../lib/imageCentering')
-      const { frameCoverageForIndex, getSlotByIndex } = await import('../lib/imageSlotContract')
+      const { frameCoverageForIndex } = await import('../lib/imageSlotContract')
       let centered = 0, bgFixed = 0
-      for (let i = 0; i < generatedBuffers.length; i++) {
+      for (let i = 0; i < slotEnvelopes.length; i++) {
+        const envelope = slotEnvelopes[i]
+        if (envelope.status !== 'generated' || !envelope.output) continue
         try {
-          const slotIndex = sceneIndices[i]
-          const b0 = generatedBuffers[i]
-          const b1 = await normalizeProductCentering(b0, { coverage: frameCoverageForIndex(slotIndex) })
+          const slot = getSlotByKey(envelope.slotId)
+          if (!slot) throw new Error(`Unknown semantic slot: ${envelope.slotId}`)
+          const b0 = envelope.output
+          const b1 = await normalizeProductCentering(b0, { coverage: frameCoverageForIndex(slot.displayOrder) })
           if (b1 !== b0) centered++
           // D-419: unify the studio background tone across all slots.
           // D-421: EXCEPT the detail slot — a macro close-up can cover the corners
           // with shoe material, so corner sampling could mis-read the "background"
           // and tint the product. Detail shows almost no bg anyway; skip it.
-          const isDetail = getSlotByIndex(slotIndex)?.key === 'detail'
+          const isDetail = envelope.slotId === 'detail'
           const b2 = isDetail ? b1 : await normalizeBackground(b1)
           if (b2 !== b1) bgFixed++
-          generatedBuffers[i] = b2
+          slotEnvelopes[i] = { ...envelope, output: b2 }
         } catch (err) {
-          console.warn(`[imageGenTask D-408/D-419] centering/bg skipped for buffer ${i}:`, err instanceof Error ? err.message : err)
+          const warning = safeImageFailureSummary(err, 'Deterministic post-processing was skipped.')
+          slotEnvelopes[i] = { ...envelope, warnings: [...envelope.warnings, `postprocess_failed:${warning}`] }
+          console.warn(`[imageGenTask D-408/D-419] centering/bg skipped for slot ${envelope.slotId}:`, warning)
         }
       }
-      console.log(`[imageGenTask D-408/D-419] ${centered} centered + ${bgFixed} bg-normalized / ${generatedBuffers.length} slots`)
+      console.log(`[imageGenTask D-408/D-419] ${centered} centered + ${bgFixed} bg-normalized / ${slotEnvelopes.length} slots`)
     }
 
     // ── Step 6b: Overlay stockNumber on each generated image ──────────────
     // Deterministic post-process — NOT prompt-based. Uses sharp composite
     // to render the stock number in the bottom-right corner of every image.
     if (stockNumber) {
-      for (let i = 0; i < generatedBuffers.length; i++) {
+      for (let i = 0; i < slotEnvelopes.length; i++) {
+        const envelope = slotEnvelopes[i]
+        if (envelope.status !== 'generated' || !envelope.output) continue
         try {
-          generatedBuffers[i] = await overlayStockNumber(generatedBuffers[i], stockNumber)
+          slotEnvelopes[i] = { ...envelope, output: await overlayStockNumber(envelope.output, stockNumber) }
         } catch (err) {
-          console.warn(`[imageGenTask] overlay failed for buffer ${i}:`, err)
+          const warning = safeImageFailureSummary(err, 'Stock-number overlay was skipped.')
+          slotEnvelopes[i] = { ...envelope, warnings: [...envelope.warnings, `overlay_failed:${warning}`] }
+          console.warn(`[imageGenTask] overlay failed for slot ${envelope.slotId}:`, warning)
           // Keep original buffer if overlay fails — don't lose the image
         }
       }
-      console.log(`[imageGenTask] stockNumber "${stockNumber}" overlaid on ${generatedBuffers.length} images`)
+      console.log(`[imageGenTask] stockNumber "${stockNumber}" overlay completed for semantic slot envelopes`)
     }
 
     // ── Step 7: Save each buffer as a Media document ────────────────────────
@@ -553,75 +620,109 @@ export const imageGenTask: TaskConfig<{
     // 'enhanced' = cleaned/improved original. 'generated' = AI-created output.
     // NOT attached to product.images — held in job.generatedImages until approved.
     // On approval: written to product.generativeGallery (marketing lane), NOT product.images.
-    // slotNames/slotLabels already computed above (filtered by stage)
-    const mediaIds: number[] = []
-    const mediaUrls: string[] = []
+    slotEnvelopes = await persistGeneratedSlotEnvelopes({
+      slots: slotEnvelopes,
+      persist: async (envelope) => {
+        const slot = getSlotByKey(envelope.slotId)
+        if (!slot) throw new Error(`Unknown semantic slot: ${envelope.slotId}`)
+        const buf = envelope.output
+        const concept = envelope.slotId
+        const label = slot.operatorLabel
+        const filename = `ai-${productId}-${concept}-${attemptMetadata.attemptId}-${slot.displayOrder}.jpg`
 
-    for (let i = 0; i < generatedBuffers.length; i++) {
-      const buf = generatedBuffers[i]
-      const concept = slotNames[i] || `image-${i}`
-      const label = slotLabels[i] || `Görsel ${i + 1}`
-      const filename = `ai-${productId}-${concept}-${Date.now()}-${i}.jpg`
-
-      // Upscale ~2x (cap long side at 2048px) for crisp product-page zoom ("Büyüt").
-      // sharp is already a dependency; runs on Node/Vercel, no GPU. Falls back to the
-      // original buffer on any error so it can never break image saving.
-      let outBuf = buf
-      try {
-        // eslint-disable-next-line @typescript-eslint/no-require-imports
-        const sharp = require('sharp') as typeof import('sharp')
-        const meta = await sharp(buf).metadata()
-        const w = meta.width ?? 0
-        const h = meta.height ?? 0
-        const longSide = Math.max(w, h)
-        const scale = longSide > 0 ? Math.min(2, 2048 / longSide) : 1
-        if (scale > 1.01) {
-          outBuf = await sharp(buf)
-            .resize(Math.round(w * scale), Math.round(h * scale), { kernel: 'lanczos3' })
-            .sharpen()
-            .jpeg({ quality: 90 })
-            .toBuffer()
-          console.log(`[imageGenTask] upscaled ${concept} ${w}x${h} -> ${Math.round(w*scale)}x${Math.round(h*scale)} (${buf.length}b -> ${outBuf.length}b)`)
+        // Upscale ~2x (cap long side at 2048px) for crisp product-page zoom ("Büyüt").
+        // This existing deterministic behavior remains unchanged and fails soft.
+        let outBuf = buf
+        try {
+          // eslint-disable-next-line @typescript-eslint/no-require-imports
+          const sharp = require('sharp') as typeof import('sharp')
+          const meta = await sharp(buf).metadata()
+          const w = meta.width ?? 0
+          const h = meta.height ?? 0
+          const longSide = Math.max(w, h)
+          const scale = longSide > 0 ? Math.min(2, 2048 / longSide) : 1
+          if (scale > 1.01) {
+            outBuf = await sharp(buf)
+              .resize(Math.round(w * scale), Math.round(h * scale), { kernel: 'lanczos3' })
+              .sharpen()
+              .jpeg({ quality: 90 })
+              .toBuffer()
+            console.log(`[imageGenTask] upscaled ${concept} ${w}x${h} -> ${Math.round(w*scale)}x${Math.round(h*scale)} (${buf.length}b -> ${outBuf.length}b)`)
+          }
+        } catch (error) {
+          const warning = safeImageFailureSummary(error, 'Upscaling was skipped.')
+          envelope.warnings.push(`upscale_failed:${warning}`)
+          console.warn(`[imageGenTask] upscale skipped (${concept}):`, warning)
+          outBuf = buf
         }
-      } catch (e) {
-        console.warn(`[imageGenTask] upscale skipped (${concept}):`, e instanceof Error ? e.message : e)
-        outBuf = buf
-      }
 
-      try {
-        const media = await payload.create({
-          collection: 'media',
-          data: {
-            altText: `${productTitle} — ${label} (AI)`,
-            product: productId,
-            type: 'generated',
-          },
-          file: {
-            data: outBuf,
-            mimetype: 'image/jpeg',
-            name: filename,
-            size: outBuf.length,
-          },
-        })
-        mediaIds.push(media.id as number)
-        mediaUrls.push((media.url as string) || '')
-        console.log(`[imageGenTask v14] saved media=${media.id} ${concept} ${buf.length}b url=${media.url}`)
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err)
-        console.error(`[imageGenTask v14] media save failed (${concept}): ${msg}`)
-        mediaUrls.push('') // keep index alignment
+        try {
+          const media = await payload.create({
+            collection: 'media',
+            data: {
+              altText: `${productTitle} — ${label} (AI)`,
+              product: productId,
+              type: 'generated',
+              generationLineage: {
+                contractVersion: IMAGE_SLOT_CONTRACT_VERSION,
+                jobId: String(jobId),
+                attemptId: attemptMetadata.attemptId,
+                slotId: envelope.slotId,
+              },
+            },
+            file: {
+              data: outBuf,
+              mimetype: 'image/jpeg',
+              name: filename,
+              size: outBuf.length,
+            },
+          })
+          console.log(`[imageGenTask v14] saved media=${media.id} ${concept} ${buf.length}b url=${media.url}`)
+          return { mediaId: media.id as number, mediaUrl: (media.url as string) || '' }
+        } catch (error) {
+          console.error(`[imageGenTask v14] media save failed (${concept}): ${safeImageFailureSummary(error, 'Media save failed.')}`)
+          throw error
+        }
+      },
+    })
+
+    attemptMetadata = finishImageGenerationAttempt(attemptMetadata, serializeSlotEnvelopes(slotEnvelopes))
+    await persistAttemptMetadata()
+
+    const persistedSlots = slotEnvelopes
+      .filter((slot) => slot.status === 'persisted' && slot.output && slot.mediaId != null)
+      .sort((a, b) => a.displayOrder - b.displayOrder)
+    const mediaIds = persistedSlots.map((slot) => Number(slot.mediaId)).filter(Number.isFinite)
+    const mediaUrls = attemptMetadata.slots.map((slot) => slot.mediaUrl || '')
+
+    if (persistedSlots.length === 0) {
+      const msg = 'Üretilen görseller Media kaydına alınamadı — önizleme oluşturulmadı.'
+      await persistAttemptMetadata({
+        status: 'failed',
+        errorMessage: msg,
+        generationCompletedAt: attemptMetadata.completedAt,
+        providerResults: JSON.stringify({
+          contractVersion: IMAGE_SLOT_CONTRACT_VERSION,
+          attemptId: attemptMetadata.attemptId,
+          summary: providerResultsSummary,
+          slotLogs: slotLogsSummary,
+          slotResults: attemptMetadata.slots,
+        }),
+      })
+      if (telegramChatId) {
+        await sendTelegramNotification(telegramChatId, `❌ <b>Görsel kaydı başarısız</b>\n\n${msg}`)
       }
+      throw new Error(msg)
     }
 
     // ── Build per-slot icon array (ARRAY not string — avoids emoji indexing bugs) ─
     // v12: ⚠️ also shown when brandFidelityPass=false (brand zones drifted)
     // v20: ⚠️ also shown when shotCompliancePass=false (angle drift detected)
-    const slotIconArr: string[] = (slotLogsSummary as Array<{ success?: boolean; colorCheckPass?: boolean; brandFidelityPass?: boolean; shotCompliancePass?: boolean }>)
-      .map((s) => {
-        if (s.success === false) return '❌'
-        if (s.colorCheckPass === false || s.brandFidelityPass === false || s.shotCompliancePass === false) return '⚠️'
-        return '✅'
-      })
+    const slotIconArr: string[] = attemptMetadata.slots.map((slot) => {
+      if (slot.status !== 'persisted') return '❌'
+      if (slot.warnings.length > 0 || slot.provider?.colorCheckPass === false || slot.provider?.brandFidelityPass === false || slot.provider?.shotCompliancePass === false) return '⚠️'
+      return '✅'
+    })
     // Joined string for approval keyboard summary only
     const slotIconsJoined = slotIconArr.join('')
 
@@ -635,21 +736,21 @@ export const imageGenTask: TaskConfig<{
       // separate messages). Falls back to individual sendPhoto if album fails.
 
       console.log(
-        `[imageGenTask v25] step8 — sending ${generatedBuffers.length} photos as album to chatId=${telegramChatId}` +
-        ` mediaIds=${mediaIds.join(',')} bufSizes=${generatedBuffers.map((b) => b?.length ?? 'null').join(',')}`,
+        `[imageGenTask v25] step8 — sending ${persistedSlots.length} photos as album to chatId=${telegramChatId}` +
+        ` mediaIds=${mediaIds.join(',')} slots=${persistedSlots.map((slot) => slot.slotId).join(',')}`,
       )
 
       // Build album items — filter out missing/empty buffers
       const albumItems: Array<{ buf: Buffer; caption: string; filename: string }> = []
-      for (let i = 0; i < generatedBuffers.length; i++) {
-        const buf = generatedBuffers[i]
+      for (const envelope of persistedSlots) {
+        const buf = envelope.output
         if (!buf || buf.length === 0) {
-          console.warn(`[imageGenTask v25] step8 — skipping slot ${i + 1}: buffer missing or empty`)
+          console.warn(`[imageGenTask v25] step8 — skipping slot ${envelope.slotId}: buffer missing or empty`)
           continue
         }
-        const slotLabel = slotLabels[i] || `Görsel ${i + 1}`
-        const slotIcon = slotIconArr[i] || '✅'
-        const filename = `${slotNames[i] || `slot-${i}`}.jpg`
+        const slotLabel = envelope.operatorLabel
+        const slotIcon = slotIconArr[envelope.displayOrder] || '✅'
+        const filename = `${envelope.slotId}.jpg`
         const caption = `${slotIcon} <b>${slotLabel}</b> — ${providerDisplayLabel}`
         albumItems.push({ buf, caption, filename })
       }
@@ -674,7 +775,11 @@ export const imageGenTask: TaskConfig<{
       await sendApprovalKeyboard(
         telegramChatId,
         jobId,
-        mediaIds.length,
+        persistedSlots.map((slot) => ({
+          slotId: slot.slotId,
+          displayOrder: slot.displayOrder,
+          operatorLabel: slot.operatorLabel,
+        })),
         productTitle,
         slotIconsJoined,
         identityLockMeta.mainColor as string | undefined,
@@ -689,11 +794,18 @@ export const imageGenTask: TaskConfig<{
     // This comes AFTER the Telegram sends so a DB error cannot block delivery.
     // Falls back to 'review' if 'preview' is not yet in the Postgres enum
     // (can happen when push: true migration hasn't added new enum values yet).
+    attemptHistory = upsertGenerationAttemptHistory(attemptHistory, attemptMetadata)
     const jobUpdateData = {
       generatedImages: mediaIds,
       imageCount: mediaIds.length,
       generationCompletedAt: new Date().toISOString(),
+      generationContractVersion: IMAGE_SLOT_CONTRACT_VERSION,
+      activeAttemptId: attemptMetadata.attemptId,
+      generationAttempts: attemptHistory,
       providerResults: JSON.stringify({
+        contractVersion: IMAGE_SLOT_CONTRACT_VERSION,
+        attemptId: attemptMetadata.attemptId,
+        attemptStatus: attemptMetadata.status,
         pipeline: pipelineLabel,
         provider,                // v14: actual provider used
         mode: `${mode} (cosmetic)`,
@@ -718,10 +830,14 @@ export const imageGenTask: TaskConfig<{
         slotLogs: slotLogsSummary,
         identityLock: identityLockMeta,
         mediaUrls,
+        slotResults: attemptMetadata.slots,
         // D-407: final per-image slot-contract metadata, now with the saved media
         // IDs paired to each slot (slotIndex/slotKey/promptVersion/productId/sourceImageId).
         promptVersion: SLOT_PROMPT_VERSION,
-        slotContract: slotContractMeta.map((m, i) => ({ ...m, mediaId: mediaIds[i] ?? null })),
+        slotContract: slotContractMeta.map((metadata) => ({
+          ...metadata,
+          mediaId: attemptMetadata.slots.find((slot) => slot.slotId === metadata.slotKey)?.mediaId ?? null,
+        })),
       }),
       jobTitle: provider === 'gemini-pro'
         ? `${productTitle} — Gemini Pro (${mediaIds.length} görsel)`
@@ -967,7 +1083,7 @@ async function sendTelegramMediaGroup(
 async function sendApprovalKeyboard(
   chatId: string,
   jobId: string,
-  imageCount: number,
+  approvalSlots: Array<{ slotId: string; displayOrder: number; operatorLabel: string }>,
   productTitle: string,
   slotIcons: string,
   mainColor?: string,
@@ -980,16 +1096,15 @@ async function sendApprovalKeyboard(
   const colorLine    = mainColor     ? `\n🎨 Renk kilidi: <b>${mainColor}</b>`  : ''
   const providerLine = providerLabel ? `\n🤖 Provider: <b>${providerLabel}</b>` : ''
   const isStandard = stage !== 'premium'
-  // D-355B: the standard pack is now up to 5 slots — label reflects the real count.
-  const stageLabel = isStandard ? `Slot 1-${imageCount}` : 'Slot 4-5'
+  const imageCount = approvalSlots.length
+  const stageLabel = isStandard ? `5 slot planı · ${imageCount} hazır` : `Slot 4-5 · ${imageCount} hazır`
 
   // ── Build per-image individual buttons ──────────────────────────────────
-  // Uses 1-based slotsStr format that approveImageGenJob() already handles.
-  // Button labels show the real slot number (1-3 for standard, 4-5 for premium).
-  const slotOffset = isStandard ? 0 : 3 // premium slots start at 4 in the 5-slot system
-  const individualButtons = Array.from({ length: imageCount }, (_, i) => ({
-    text: `📷 Görsel ${slotOffset + i + 1}`,
-    callback_data: `imgapprove:${jobId}:${i + 1}`,
+  // New callbacks carry the stable semantic slot ID. Legacy numeric callbacks
+  // and text commands remain supported by the compatibility adapter.
+  const individualButtons = approvalSlots.map((slot) => ({
+    text: `📷 Görsel ${slot.displayOrder + 1}`,
+    callback_data: `imgapprove:${jobId}:${slot.slotId}`,
   }))
 
   // D-409: legacy 1+2/1+3/2+3 combo buttons removed (dead for the 5-image pack).
@@ -1010,7 +1125,7 @@ async function sendApprovalKeyboard(
   const keyboard: Array<Array<{ text: string; callback_data: string }>> = []
 
   // Row 1: Approve all
-  const allLabel = isStandard ? `✅ Tümünü Onayla (1-${imageCount})` : '✅ Tümünü Onayla (4-5)'
+  const allLabel = `✅ Tümünü Onayla (${imageCount})`
   keyboard.push([{ text: allLabel, callback_data: `imgapprove:${jobId}:all` }])
 
   // Row 2: per-image buttons for partial approval (Telegram wraps as needed)

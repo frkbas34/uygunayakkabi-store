@@ -8,21 +8,24 @@ The standard stage requests five slots: side, hero three-quarter pair, top pair,
 
 Generated Media is previewed in Telegram and remains separate from original media. Approval appends selected records to `generativeGallery`. Explicit Image QC PASS is required before generated media is publishable.
 
+The local V1 correctness foundation uses `image-slot-contract/v1` and the unchanged semantic IDs `side`, `hero_3q`, `top`, `back`, and `detail`. Each execution creates a new immutable `iga_…` attempt ID and pre-creates one slot result per requested ID. The current provider functions remain unchanged; an orchestration adapter binds their semantic slot logs to compact success buffers, so a middle provider failure cannot relabel later outputs. Media persistence receives the envelope's job, attempt, contract, and slot identity. A Media-save failure marks that exact slot, remains in attempt metadata, and is excluded from Telegram preview/approval without compacting later slot identity.
+
+Complete new runs retain the existing five-slot preview order. New approval buttons carry semantic slot IDs; numeric and historical positional actions use an explicit compatibility projection. Complete legacy records map only when unambiguous. Partial legacy records stay readable but use slot-unknown labels rather than invented lineage. Regeneration still reuses the current job record, but each execution appends a new attempt snapshot and preserves stored `visualFacts`; normalized attempt collections and targeted regeneration remain future work.
+
 Protected-brand classification must never block generation. The active task already bypasses the unused blocking helper. Brand safety still applies to claims, operator approval, activation, publishing, advertising, Shopier, and external dispatch. Visible-mark checks inside the provider path are reference-fidelity evaluators, not classification gates.
 
 Known bottlenecks:
 
-- Partial slot or Media-save failure can compact results and associate a later image with the wrong slot metadata.
 - A clean five-slot run uses roughly 13 serial provider calls and can rise toward 33 with visible-zone checks and one retry per slot; most calls lack explicit timeouts.
 - Provider functions share a shape but there is no formal capability adapter, normalized error/usage model, or cost/latency budget.
 - Prompt blocks overlap and are not independently versioned; camera authority and pair-shot comments disagree with runtime behavior.
 - Comments and labels disagree about three-slot versus five-slot output and the default provider.
 - Rejected/regenerated/partially approved previews can leave orphan Media.
-- Approval/regeneration is positional, reuses jobs, and does not preserve immutable attempt history.
+- The additive attempt history is stored as structured job JSON rather than normalized attempt/slot collections; regeneration still reuses jobs, and complete targeted-regeneration/history UX is not implemented.
 - `imagePromptBuilder.ts` is legacy and is not the active prompt path.
 - Automatic fidelity checks and deterministic post-processing reduce defects but do not replace human QC.
 
-The proposed evolution separates orchestration, provider adapters, versioned prompt modules, durable slot results, deterministic transforms, evaluators, immutable attempts, Media retention, and Telegram task presentation. Future style packs, profiles, quality scores, and evaluation loops build on that lineage. No prompt, camera, slot, or provider redesign has been implemented.
+The proposed evolution continues with normalized attempt/slot persistence, Media retention, provider adapters, versioned prompt modules, deterministic transform/evaluator lineage, and Telegram task presentation. Future style packs, profiles, quality scores, and evaluation loops build on that lineage. No prompt, camera, slot-purpose, slot-count, provider, or visual-quality redesign has been implemented.
 
 `project-control/IMAGE_GENERATION_BLUEPRINT_V1.md` is the canonical target technical specification for future implementation. Current code and dated audits remain authoritative for current behavior.
 

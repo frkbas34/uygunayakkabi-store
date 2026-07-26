@@ -262,6 +262,35 @@ export const ImageGenerationJobs: CollectionConfig = {
         description: 'AI tarafından üretilen görseller — beğendiklerinizi ürüne ekleyin',
       },
     },
+    // Additive V1 lineage foundation. Historical records remain nullable and
+    // continue to read through the explicit legacy projection.
+    {
+      name: 'generationContractVersion',
+      type: 'text',
+      label: 'Generation Contract Version',
+      admin: {
+        readOnly: true,
+        description: 'Semantic slot/result contract used by new executions',
+      },
+    },
+    {
+      name: 'activeAttemptId',
+      type: 'text',
+      label: 'Active Generation Attempt ID',
+      admin: {
+        readOnly: true,
+        description: 'Immutable execution-attempt identity; separate from the job ID',
+      },
+    },
+    {
+      name: 'generationAttempts',
+      type: 'json',
+      label: 'Generation Attempts (V1)',
+      admin: {
+        readOnly: true,
+        description: 'Append-preserving semantic slot results for new executions',
+      },
+    },
     // ── Prompts used ──────────────────────────────────────────────────────────
     {
       name: 'promptsUsed',

@@ -32,6 +32,9 @@
 // ─────────────────────────────────────────────────────────────────────────────
 export const SLOT_PROMPT_VERSION = 'slotset-v1'
 
+/** Metadata can evolve without changing prompt text or slot purpose. */
+export const IMAGE_SLOT_CONTRACT_VERSION = 'image-slot-contract/v1' as const
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Canonical slot keys — FIXED order. Index === position in the generated set.
 // ─────────────────────────────────────────────────────────────────────────────
@@ -46,6 +49,20 @@ export const GENERATED_SLOT_KEYS = [
 export type SlotKey = (typeof GENERATED_SLOT_KEYS)[number]
 
 export type SlotDefinition = {
+  /** Stable semantic identity. Array position is never authoritative. */
+  slotId: SlotKey
+  /** Durable metadata contract used by attempts, results, and Media lineage. */
+  contractVersion: typeof IMAGE_SLOT_CONTRACT_VERSION
+  /** Operator presentation order; separate from semantic identity. */
+  displayOrder: number
+  /** Current provider-neutral purpose identifier. */
+  purposeIdentifier: SlotKey
+  /** Operator-facing terminology retained unchanged. */
+  operatorLabel: string
+  /** Explicit aliases for historical readers; positional legacy is handled separately. */
+  legacyAliases: readonly string[]
+  /** Stages that currently request this slot. */
+  activeStages: readonly ('standard' | 'premium')[]
   /** Deterministic position in the generated set (0..4). */
   index: number
   /** Canonical machine key — stable, used in metadata + filenames. */
@@ -97,6 +114,13 @@ export const GENERATED_SLOTS: readonly SlotDefinition[] = [
     // must be a SINGLE side-profile shoe (not the pair hero).
     index: 0,
     key: 'side',
+    slotId: 'side',
+    contractVersion: IMAGE_SLOT_CONTRACT_VERSION,
+    displayOrder: 0,
+    purposeIdentifier: 'side',
+    operatorLabel: 'Slot 1 — Yan (Side) — ANA',
+    legacyAliases: [],
+    activeStages: ['standard'],
     label: 'Slot 1 — Yan (Side) — ANA',
     meaning: 'Side presentation, single shoe — the main channel/hero image.',
     compositionIntent:
@@ -108,6 +132,13 @@ export const GENERATED_SLOTS: readonly SlotDefinition[] = [
   {
     index: 1,
     key: 'hero_3q',
+    slotId: 'hero_3q',
+    contractVersion: IMAGE_SLOT_CONTRACT_VERSION,
+    displayOrder: 1,
+    purposeIdentifier: 'hero_3q',
+    operatorLabel: 'Slot 2 — 3/4 Hero (Çift)',
+    legacyAliases: [],
+    activeStages: ['standard'],
     label: 'Slot 2 — 3/4 Hero (Çift)',
     meaning: 'Three-quarter matched pair — both shoes at a 3/4 angle.',
     compositionIntent:
@@ -120,6 +151,13 @@ export const GENERATED_SLOTS: readonly SlotDefinition[] = [
   {
     index: 2,
     key: 'top',
+    slotId: 'top',
+    contractVersion: IMAGE_SLOT_CONTRACT_VERSION,
+    displayOrder: 2,
+    purposeIdentifier: 'top',
+    operatorLabel: 'Slot 3 — Üstten (Top)',
+    legacyAliases: [],
+    activeStages: ['standard'],
     label: 'Slot 3 — Üstten (Top)',
     meaning: 'Top overview — the product seen from above (opening, topline, closure).',
     compositionIntent:
@@ -135,6 +173,13 @@ export const GENERATED_SLOTS: readonly SlotDefinition[] = [
     // emphasises rear brand logos). Changed to a rear THREE-QUARTER angle — the
     // heel + one side together, dimensional and premium. Key stays 'back'.
     key: 'back',
+    slotId: 'back',
+    contractVersion: IMAGE_SLOT_CONTRACT_VERSION,
+    displayOrder: 3,
+    purposeIdentifier: 'back',
+    operatorLabel: 'Slot 4 — Arka 3/4 (Rear)',
+    legacyAliases: [],
+    activeStages: ['standard', 'premium'],
     label: 'Slot 4 — Arka 3/4 (Rear)',
     meaning: 'Rear three-quarter — heel and one side visible together (dimensional, not a flat dead-back).',
     compositionIntent:
@@ -147,6 +192,13 @@ export const GENERATED_SLOTS: readonly SlotDefinition[] = [
   {
     index: 4,
     key: 'detail',
+    slotId: 'detail',
+    contractVersion: IMAGE_SLOT_CONTRACT_VERSION,
+    displayOrder: 4,
+    purposeIdentifier: 'detail',
+    operatorLabel: 'Slot 5 — Malzeme Detayı (Detail)',
+    legacyAliases: [],
+    activeStages: ['standard', 'premium'],
     label: 'Slot 5 — Malzeme Detayı (Detail)',
     meaning: 'Close detail of material / stitching / texture / sole edge.',
     compositionIntent:
@@ -160,6 +212,9 @@ export const GENERATED_SLOTS: readonly SlotDefinition[] = [
     layout: 'single',
   },
 ] as const
+
+/** Canonical provider-neutral registry. No second slot list is maintained. */
+export const IMAGE_SLOT_REGISTRY = GENERATED_SLOTS
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Scene instruction builder — turns a slot definition into an
@@ -310,6 +365,18 @@ export function validateSlotContract(): { ok: boolean; errors: string[] } {
   // Deterministic canonical order + valid, unique keys
   const seen = new Set<string>()
   GENERATED_SLOTS.forEach((slot, i) => {
+    if (slot.slotId !== slot.key || slot.purposeIdentifier !== slot.key) {
+      errors.push(`slot "${slot.key}" semantic identity does not match its canonical key`)
+    }
+    if (slot.contractVersion !== IMAGE_SLOT_CONTRACT_VERSION) {
+      errors.push(`slot "${slot.key}" has contract version "${slot.contractVersion}"`)
+    }
+    if (slot.displayOrder !== i) {
+      errors.push(`slot "${slot.key}" has non-deterministic displayOrder ${slot.displayOrder}`)
+    }
+    if (slot.operatorLabel !== slot.label) {
+      errors.push(`slot "${slot.key}" operator label drifted from its public label`)
+    }
     if (slot.index !== i) {
       errors.push(`slot at position ${i} has non-deterministic index ${slot.index}`)
     }

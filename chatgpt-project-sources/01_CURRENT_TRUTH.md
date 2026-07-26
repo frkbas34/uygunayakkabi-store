@@ -24,7 +24,9 @@ The deployed integration boundary includes PR #6 (catalog/release hardening thro
 
 ## Current focus
 
-Telegram-first commerce is the immediate engineering direction. Operator flow, intake, commands, image generation, approvals, publishing, diagnostics, long-running task visibility, summaries, and productivity are evaluated through Telegram first. Image generation is the highest-priority subsystem; current work is analysis and architecture before any prompt, camera, slot, or provider redesign.
+Telegram-first commerce is the immediate engineering direction. Operator flow, intake, commands, image generation, approvals, publishing, diagnostics, long-running task visibility, summaries, and productivity are evaluated through Telegram first. Image generation is the highest-priority subsystem.
+
+The local runtime now has the Pure Metadata Contracts and Durable Slot Identity V1 foundation. `image-slot-contract/v1` assigns stable semantic IDs to the unchanged five slots, creates one immutable `iga_…` attempt ID per execution, persists one failure-preserving record per requested slot before provider work, associates new generated Media with job/attempt/slot lineage, and projects complete legacy jobs into the existing preview/approval order. Partial legacy records remain readable but are labeled slot-unknown instead of guessed. Provider bytes are wrapped at the orchestration boundary; prompts, cameras, slot purposes/count, provider selection, deterministic transforms, and visual quality behavior were not redesigned.
 
 The operator rejected the earlier protected-brand image-generation gate recommendation. Image generation must work for every product with a valid reference input. Brand classification remains relevant to product/authenticity claims, human approval, activation, publishing, advertising, Shopier, and external dispatch, but must never prevent AI image generation.
 
@@ -32,14 +34,14 @@ The operator rejected the earlier protected-brand image-generation gate recommen
 
 The 2026-07-26 audit passed `npm run typecheck`, `npm run lint`, `npm run validate`, `npm run build`, `npm run test:ad-performance`, `npm run test:openclaw-vps-verification`, and `npm run test:shopier-webhook-local`.
 
-The checkout was clean and tracked its feature branch exactly at the audit boundary, but it was not on `main`. The checked-out commit was merged into `origin/main`; local `main` diverged with one local-only documentation commit and was 28 commits behind the fetched remote. Old recovery and cleanup branches, one stash, and many unreachable objects remain.
+At this implementation task's preflight, the canonical checkout was clean on `main` at `d83230224f4068c99c97e5b6c3d08f3e23e49725`, exactly matched `origin/main`, and was `0/0` ahead/behind after a fresh fetch. The retained governance transfer stash, pre-existing stash, and `codex/backup-main-pre-governance-20260726-8a9cfcb` backup branch were unchanged. The metadata/slot foundation is currently an uncommitted, undeployed local change.
 
 ## Current blockers
 
 - Telegram webhook verification and empty allowlists can fail open.
 - Telegram callback actions are handled before the message-path allowlist checks and need the same fail-closed authorization boundary.
-- Partial image-slot and Media-save success can be associated with the wrong positional slot metadata.
 - Rejected, regenerated, and partially approved image jobs leave generated Media records for manual cleanup.
-- Image attempts, provider usage, per-slot results, retries, and long-running progress are not durably modeled.
+- Attempt/slot identity now has an additive JSON history foundation on the current job, but normalized attempt/slot collections, provider usage/cost/timing, transform/evaluator lineage, checkpoints, cancellation, and long-running progress remain future layers.
+- The current job is still reused by regeneration; each execution gets a new immutable attempt record, but a complete normalized attempt-history subsystem and targeted regeneration are not implemented.
 - The Telegram route is a 7,820-line monolith with command ownership, callbacks, reads, and mutations in one handler.
 - Local environment readiness is not production provider readiness.

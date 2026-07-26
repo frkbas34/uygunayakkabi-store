@@ -25,6 +25,15 @@ Last updated: 2026-07-24
   The public desktop storefront smoke passes with Shopier/WhatsApp CTAs and no
   browser errors. A Chrome DevTools responsive `390 x 844` production screenshot
   visually confirms the fixed controls fit without visible horizontal overflow.
+- 2026-07-26 operator decision: defer the protected-brand catalog backlog and
+  manual provenance review until explicitly reopened. Keep all existing
+  brand-safety, storefront, activation, and dispatch guards in force; do not
+  automatically rewrite, unpublish, archive, redispatch, or remove any record.
+- 2026-07-26 operator confirmation: external Shopier/provider setup is already
+  complete in the production accounts. Do not repeat credential setup work. The
+  repository's local smoke environment may still report missing values because it
+  must not contain production secrets; collect live delivery evidence only when
+  a real operator-approved publish or order test is needed.
 - Hermes/Mentix is the current agent-control and Telegram operator layer.
 - OpenClaw is optional/history until explicitly reactivated and verified.
 - Its legacy VPS sync requires both `--reactivate-openclaw` and

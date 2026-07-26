@@ -34,6 +34,11 @@ Inactive:
 
 Do not add Dolap/Threads UI, parser targets, n8n stubs, prompts, or task items.
 
+The protected-brand catalog backlog is deferred by the operator as of 2026-07-26.
+Do not automatically rewrite, unpublish, archive, redispatch, or remove those
+records. Existing brand-safety, storefront, activation, and dispatch guards stay
+enforced until the operator explicitly reopens the review.
+
 ## n8n Position
 
 n8n is optional glue. Keep it frozen unless the user explicitly asks for n8n work or a current workflow clearly depends on it.

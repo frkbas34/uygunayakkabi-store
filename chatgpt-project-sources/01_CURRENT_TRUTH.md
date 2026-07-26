@@ -6,6 +6,17 @@ Last updated: 2026-07-25
 
 UygunAyakkabi is a Telegram-first, AI-assisted commerce system for selling and uploading our own products only.
 
+2026-07-26 operator decision: the protected-brand catalog backlog and manual
+provenance review are deferred until explicitly reopened. Existing brand-safety,
+storefront, activation, and dispatch guards remain in force; no record may be
+automatically rewritten, unpublished, archived, redispatched, or removed.
+
+2026-07-26 operator confirmation: external Shopier/provider setup is already
+complete in the production accounts. Local read-only smoke results can still
+show missing credentials because the repository must not hold production secrets.
+Do not repeat setup work; collect live delivery evidence only during an
+operator-approved publish or order test.
+
 Payload is the source of truth. Products, media, orders, leads, stock, bot events, AI jobs, and publishing status should resolve back to Payload data.
 
 Agent-control layer (2026-07-07): Hermes is the current agent-control layer for UygunAyakkabı/Mentix operations (installed on the operator's main PC, already in the Telegram group). Mentix/Uygunops is the Telegram-facing commerce operator identity/interface. Payload/Next remains the source of truth and execution layer. OpenClaw is historical/optional unless explicitly reactivated. Its legacy VPS sync exits before any write or restart unless the operator supplies both `--reactivate-openclaw` and `--confirm-vps-sync` after recording read-only VPS verification evidence. D-489 keeps Telegram confirmation handling schema-free with pre-provisioned `public.wizard_sessions` storage, D-490 keeps missing lead-status enum values as a safe no-write result, and D-491 blocks lead conversion before an order write when its deployed `related_inquiry_id` relationship is incomplete. Each has a separate guarded schema workflow.

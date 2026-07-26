@@ -6,6 +6,8 @@ Next.js 16.2 canary and Payload 3.79 run one application. PostgreSQL is the data
 
 The repository has no Payload migration manifest or proven pre-activation Vercel migration stage. It uses reviewed SQL plus guarded, dry-run-by-default apply helpers. Image Slot Lineage V1 therefore follows expand-first rollout: add seven nullable/default-free columns while the old runtime is active, verify, deploy the new runtime, and retain the columns during runtime rollback. Automatic Payload schema push is not the production migration mechanism.
 
+The production database topology is now control-plane proven: Vercel Development, Preview, and Production share one pooled Neon connection record mapped to the single production/default branch, while Neon exposes a direct non-pooled mode for the same primary compute. The branch runs PostgreSQL 17, autoscaling 0.25 to 2 CU with 5-minute scale-to-zero, and has a rolling 6-hour PITR window on the current plan. Production migration work must use the proven direct endpoint, never the pooled runtime URI. The V2 catalog-only transaction classified the current production schema as `ALL_SEVEN_COLUMNS_ABSENT` and rolled back; no expansion has occurred.
+
 ## Main flows
 
 ```text

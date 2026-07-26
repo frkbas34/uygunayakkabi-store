@@ -5,7 +5,7 @@ Current as of 2026-07-26. This is a prioritized decision list, not a milestone l
 ## P0 — Telegram and image correctness
 
 1. Define a fail-closed production policy for webhook secret, DM/group allowlists, and callback actions. Callback payload ownership must not substitute for operator authorization.
-2. Run Production Image Slot Lineage Expansion Pre-flight V2. Schema-push control-plane remediation passed, but Neon project/branch identity, PostgreSQL version, direct migration endpoint, backup/PITR evidence, dedicated read-only access, and the seven-column production fingerprint remain unproven.
+2. Separately authorize and run `APPLY PRODUCTION IMAGE SLOT LINEAGE EXPANSION V1`. V2 proved the Neon production/default target, PostgreSQL 17.10, the direct endpoint, a rolling 6-hour PITR window and current recovery point, strict read-only catalog access, and `ALL_SEVEN_COLUMNS_ABSENT`. Refresh every gate and the recovery point immediately before DDL; keep the old runtime active.
 3. Remove the rejected protected-brand generation helper/test and brand-first generation advice without weakening claims, approval, activation, publishing, advertising, Shopier, or dispatch guards.
 4. Define cleanup ownership and recoverability for rejected, regenerated, failed-save, partial-approval, and otherwise orphaned generated Media.
 
@@ -46,8 +46,8 @@ Current as of 2026-07-26. This is a prioritized decision list, not a milestone l
 - What pack completeness and generated-Media retention policy should apply after partial slot failure or targeted regeneration?
 - When should the protected-brand catalog review backlog reopen?
 - Is preview intentionally allowed to use the same Neon target as production, or must it be isolated before the lineage runtime is pushed?
-- Who will supply and approve the Neon project/branch, PostgreSQL version, backup/PITR recovery point, direct migration endpoint, and dedicated read-only metadata-role evidence?
+- Who will approve the exact production target fingerprint, fresh PITR recovery point, low-traffic writer hold, apply operator, verification operator, and rollback operator for the separately authorized expansion?
 
 ## Exact recommended next task
 
-**PRODUCTION IMAGE SLOT LINEAGE EXPANSION PRE-FLIGHT V2**: re-run the expansion readiness gate with the schema-push control-plane blocker cleared; prove Neon project/branch identity, PostgreSQL version, direct migration endpoint, backup/PITR recovery evidence, dedicated read-only metadata access, and the seven-column production fingerprint. Do not apply schema, push the lineage chain, deploy local code, call providers, or run write-producing smokes during pre-flight.
+**APPLY PRODUCTION IMAGE SLOT LINEAGE EXPANSION V1**: refresh the V2 control-plane, direct-target, schema, workload, and rolling recovery-point gates; obtain explicit production DDL approval; apply the reviewed hash through the guarded direct-endpoint helper once; verify the exact seven-column shape while keeping the old runtime active. Do not push or deploy the lineage runtime in the expansion task.

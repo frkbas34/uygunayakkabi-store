@@ -5,7 +5,7 @@ Current as of 2026-07-26. This is a prioritized decision list, not a milestone l
 ## P0 — Telegram and image correctness
 
 1. Define a fail-closed production policy for webhook secret, DM/group allowlists, and callback actions. Callback payload ownership must not substitute for operator authorization.
-2. Remediate the Payload schema-push production control plane. Local code is now fail closed, but authenticated Vercel evidence still shows `PAYLOAD_DB_PUSH` absent in preview and production, and the serving runtime still has the old fail-open expression. Prove explicit false, redeploy/restart the old runtime under it, verify effective behavior, and prove no schema push occurred before any expansion or local-chain push.
+2. Run Production Image Slot Lineage Expansion Pre-flight V2. Schema-push control-plane remediation passed, but Neon project/branch identity, PostgreSQL version, direct migration endpoint, backup/PITR evidence, dedicated read-only access, and the seven-column production fingerprint remain unproven.
 3. Remove the rejected protected-brand generation helper/test and brand-first generation advice without weakening claims, approval, activation, publishing, advertising, Shopier, or dispatch guards.
 4. Define cleanup ownership and recoverability for rejected, regenerated, failed-save, partial-approval, and otherwise orphaned generated Media.
 
@@ -50,4 +50,4 @@ Current as of 2026-07-26. This is a prioritized decision list, not a milestone l
 
 ## Exact recommended next task
 
-**PRODUCTION PAYLOAD SCHEMA PUSH CONTROL-PLANE REMEDIATION V1**: set and prove explicit `PAYLOAD_DB_PUSH=false` for Vercel preview and production, redeploy or restart the current old runtime under that control, verify effective fail-closed behavior, and prove no automatic schema push occurred. Do not apply the lineage migration, push the local runtime chain, begin production expansion, call providers, or run write-producing smokes in that task.
+**PRODUCTION IMAGE SLOT LINEAGE EXPANSION PRE-FLIGHT V2**: re-run the expansion readiness gate with the schema-push control-plane blocker cleared; prove Neon project/branch identity, PostgreSQL version, direct migration endpoint, backup/PITR recovery evidence, dedicated read-only metadata access, and the seven-column production fingerprint. Do not apply schema, push the lineage chain, deploy local code, call providers, or run write-producing smokes during pre-flight.

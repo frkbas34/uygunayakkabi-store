@@ -1,76 +1,50 @@
 # System Architecture
 
-Last updated: 2026-07-25
+## Execution boundary
 
-## Core Stack
+Next.js 16.2 canary and Payload 3.79 run one application. PostgreSQL is the database, Vercel Blob is production media storage when configured, and Payload jobs persist queued work. Payload schema push defaults on unless `PAYLOAD_DB_PUSH=false`; read-only runtime smokes force it off where applicable.
 
-- Next.js storefront and API routes
-- Payload CMS admin and data model
-- Neon/Postgres through Payload adapter
-- Vercel hosting and cron
-- Vercel Blob for media when configured
-- Telegram bots for operator interface
-- Hermes for the current agent-control layer
-- OpenClaw retained as historical/optional skill infrastructure unless explicitly reactivated
-- n8n for optional workflow glue
-- Shopier for external checkout/sales bridge
+## Main flows
 
-## Source Of Truth
+```text
+Telegram operator / Admin / Storefront APIs
+                    |
+                    v
+          Next.js route handlers
+                    |
+                    v
+        Payload collections/globals
+          |                  |
+          v                  v
+   PostgreSQL + media    Payload jobs
+                             |
+                    image-gen / shopier-sync
+```
 
-Payload is the source of truth.
+Telegram is the primary operator workspace for intake, commands, diagnostics, task feedback, previews, and explicit decisions. Payload remains the durable authority for every state transition; Telegram is not a second database.
 
-Important collections and globals include:
+Website visibility is native: an eligible active/sold-out Payload product is rendered directly. Instagram, Facebook, and X dispatch use direct provider adapters when fully configured, with optional n8n fallback. Shopier publishing uses `shopier-sync` jobs and the shared readiness gate.
 
-- Products
-- Variants
-- Media
-- Orders
-- CustomerInquiries
-- InventoryLogs
-- BotEvents
-- ImageGenerationJobs
-- ProductIntelligenceReports
-- StoryJobs
-- AutomationSettings
-- SiteSettings
-- HomepageMerchandisingSettings
+## Registered collections
 
-SupplierScout collections remain registered but are dormant.
+Core collections: users, products, variants, brands, categories, media, customer inquiries, inventory logs, orders, banners, blog posts, image-generation jobs, bot events, story jobs, and Product Intelligence reports.
 
-## Product Activation Flow
+SupplierScout collections remain registered for dormant-data compatibility. Registration does not authorize SupplierScout activation.
 
-1. Product enters Payload from admin, Telegram, or automation endpoint.
-2. Product gets normalized: slug, SKU, status, stock, media, channels.
-3. Readiness, audit, and safety layers determine whether publish is appropriate.
-4. Activation triggers channel dispatch through app code.
-5. Dispatch writes result notes back to product `sourceMeta`.
+Globals: Site Settings, Automation Settings, Homepage Merchandising Settings, and dormant SupplierScout Settings.
 
-Top-level product `status` remains the storefront switch: `draft`, `active`, `soldout`. The richer roadmap lifecycle is derived in `src/lib/productLifecycle.ts`: `draft`, `needs_review`, `ready_to_publish`, `active`, `sold_out`. This avoids a schema migration while giving operators and agents a shared vocabulary.
+## Jobs and scheduling
 
-Central publish readiness remains a 6-dimension signal in `src/lib/publishReadiness.ts`, but the dimensions now align more closely with Payload activation: usable media rows, valid price, positive stock or variant stock, active target channels only, and brand safety inside the audit/safety dimension.
+`image-gen` loads reference media, extracts identity facts, generates five sequential slot previews through Gemini by default, evaluates selected fidelity checks, post-processes output, creates preview Media, and returns the decision to Telegram. Approval attaches selected records to `Products.generativeGallery`; downstream Image QC and publishing guards remain separate.
 
-## Publishing Paths
+`shopier-sync` performs guarded Shopier synchronization. `vercel.json` invokes `/api/payload-jobs/run` every 30 minutes. The GitHub Actions schedule is disabled; workflow dispatch remains manual.
 
-- Website: active products render natively.
-- Instagram: direct Graph API if tokens and any gallery image are publicly
-  reachable over HTTPS.
-- Facebook: direct Graph API if token/page ID and any gallery image are
-  publicly reachable over HTTPS.
-- X: direct API path only with all four OAuth 1.0a values (`X_API_KEY`,
-  `X_API_SECRET`, `X_ACCESS_TOKEN`, `X_ACCESS_TOKEN_SECRET`); otherwise the
-  optional `N8N_CHANNEL_X_WEBHOOK` fallback may be used. Partial OAuth never
-  attempts a direct API call.
-- Shopier: Payload jobs queue.
-- n8n: optional fallback/scaffold path, not the main active publishing engine.
+Protected-brand classification is not part of image-generation eligibility. It remains a downstream concern for claims, human approval, activation, publishing, advertising, Shopier, and external dispatch.
 
-StoryJobs are non-blocking and do not replace channel dispatch. Story dispatch now runs the same brand-safety scan before job creation; protected-brand products record a failed story status instead of queueing a future social/story job.
+## Proposed direction
 
-## Agent Split
+The proposed architecture adds a Telegram gateway with uniform authorization, a typed command/callback registry, durable task receipts, and an image orchestrator separated into provider adapters, versioned prompt modules, durable slot results, deterministic transforms, evaluators, and immutable attempts. This is architecture only; the current runtime has not been redesigned.
 
-The app executes commerce workflows. Hermes/Mentix should reason, diagnose, draft, and help the operator.
+## Control layers
 
-Do not let Hermes, optional OpenClaw, n8n, and the app all compete as the system of record. Payload/Next remains the execution and data layer.
-
-## Current Risk
-
-The repo has historical docs and generated files that can mislead agents. This source pack should be treated as current truth.
+Payload/Next owns data and execution. Telegram is the operator interface. Hermes/Mentix assists reasoning and operator support. OpenClaw is optional history. n8n is optional transport fallback. None of the agent layers is a second product database or autonomous publisher.

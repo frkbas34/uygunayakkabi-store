@@ -1,0 +1,37 @@
+{
+  "inventoryVersion": "gps-missing-source-requirements-v1.0.0",
+  "corpusVersion": "gps-v1.0.0-draft.1",
+  "targetProductCount": 36,
+  "currentMaterializedCount": 1,
+  "missingProductCount": 35,
+  "operatorActionRequired": true,
+  "intakeRules": [
+    "Supply original references for products owned by the operator and intended for the catalog or benchmark.",
+    "Use repository-safe local files; do not provide production URLs, signed URLs, Telegram exports, customer media, or credentials.",
+    "For each product, provide product linkage, usage-right confirmation, family candidate if known, and whether marks or hardware are intentional.",
+    "Prefer lateral, medial, top, rear, outsole, and pair views where available; missing views must remain explicit unknowns.",
+    "Do not substitute generated output, approved generated output, rejected generated output, screenshots, previews, or temporary frames."
+  ],
+  "existingCandidateReview": {
+    "corpusProductId": "gpsv1-0001",
+    "requiredConfirmations": [
+      "The file is an original non-generated product reference",
+      "The depicted product belongs to the operator's own catalog",
+      "Internal benchmark use is permitted",
+      "The proposed sneaker_lifestyle family is correct",
+      "Any visible markings, material claims, and color facts the operator wants locked"
+    ]
+  },
+  "requirements": [
+    { "family": "loafer", "target": 12, "current": 0, "missing": 12, "examplesRequired": ["plain hardware-free", "penny strap", "tassel or ornamented", "operator-verified bit or buckle", "thick sole", "thin sole", "rounded toe", "square or elongated toe", "visible apron seam", "subtle seam construction", "sparse-reference confusion case", "loafer versus mule, moccasin, slipper, or formal-lace-up boundary"], "priority": "highest" },
+    { "family": "sneaker_lifestyle", "target": 4, "current": 1, "missing": 3, "examplesRequired": ["high-top or ankle-height lifestyle sneaker", "multi-color panel topology", "marking-free simple silhouette"], "priority": "normal" },
+    { "family": "sports_shoe", "target": 3, "current": 0, "missing": 3, "examplesRequired": ["running sole morphology", "training shoe", "specialized or ambiguous sports sole"], "priority": "normal" },
+    { "family": "formal_lace_up", "target": 3, "current": 0, "missing": 3, "examplesRequired": ["Oxford evidence", "Derby evidence", "brogue or no-brogue boundary"], "priority": "normal" },
+    { "family": "boot", "target": 3, "current": 0, "missing": 3, "examplesRequired": ["ambiguous generic boot", "ankle boot", "high-shaft boot"], "priority": "normal" },
+    { "family": "open_footwear", "target": 3, "current": 0, "missing": 3, "examplesRequired": ["sandal", "slipper", "mule or backless confusion case"], "priority": "normal" },
+    { "family": "heel_or_flat", "target": 2, "current": 0, "missing": 2, "examplesRequired": ["heel geometry", "flat opening geometry"], "priority": "normal" },
+    { "family": "casual_closed_shoe", "target": 2, "current": 0, "missing": 2, "examplesRequired": ["simple casual closed shoe", "hybrid or ambiguous construction"], "priority": "normal" },
+    { "family": "children_shoe", "target": 2, "current": 0, "missing": 2, "examplesRequired": ["child routing with clear base morphology", "scale-ambiguous child reference"], "priority": "normal" },
+    { "family": "unknown_adversarial", "target": 2, "current": 0, "missing": 2, "examplesRequired": ["occluded or multi-product original", "reflection, shadow, or inadequate-region confusion"], "priority": "normal" }
+  ]
+}

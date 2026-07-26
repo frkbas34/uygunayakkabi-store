@@ -1,0 +1,289 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "urn:uygunayakkabi:gps:v1:annotation",
+  "title": "Golden Product Set V1 product annotation",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion", "corpusVersion", "corpusProductId", "annotationVersion", "status",
+    "changeReason", "sourceReference", "classification", "referenceSufficiencyMap",
+    "productIdentityFingerprint", "lockedFactSet", "facts", "explicitUnknowns",
+    "prohibitedAssumptions", "sourceQualityFindings", "expectedGenerationRisks",
+    "expectedConsistencyChecks", "expectedSlotRisks", "loaferSpecific", "operatorNotes",
+    "annotationProvenance", "review", "createdAt", "updatedAt"
+  ],
+  "properties": {
+    "schemaVersion": { "const": "gps-annotation-schema-v1.0.0" },
+    "corpusVersion": { "type": "string", "pattern": "^gps-v1\\.[0-9]+\\.[0-9]+-(draft|review|approved)\\.[0-9]+$" },
+    "corpusProductId": { "type": "string", "pattern": "^gpsv1-[0-9]{4}$" },
+    "annotationVersion": { "type": "string", "pattern": "^1\\.[0-9]+\\.[0-9]+$" },
+    "status": { "enum": ["draft", "needs_review", "reviewed", "disputed", "approved", "superseded"] },
+    "changeReason": { "type": "string", "minLength": 10 },
+    "sourceReference": { "$ref": "#/$defs/sourceReference" },
+    "classification": {
+      "type": "object", "additionalProperties": false,
+      "required": ["productFamily", "familyConfidence", "confusionCandidates", "inclusionSignals", "exclusionSignals", "state", "provenance"],
+      "properties": {
+        "productFamily": { "$ref": "#/$defs/family" },
+        "familyConfidence": { "type": "number", "minimum": 0, "maximum": 1 },
+        "confusionCandidates": { "type": "array", "items": { "$ref": "#/$defs/family" }, "uniqueItems": true },
+        "inclusionSignals": { "type": "array", "minItems": 1, "items": { "type": "string" } },
+        "exclusionSignals": { "type": "array", "items": { "type": "string" } },
+        "state": { "$ref": "#/$defs/factState" },
+        "provenance": { "$ref": "#/$defs/provenanceLayer" }
+      }
+    },
+    "referenceSufficiencyMap": {
+      "type": "object", "additionalProperties": false,
+      "required": ["mapVersion", "overallReadiness", "regions"],
+      "properties": {
+        "mapVersion": { "const": "gps-reference-sufficiency-v1.0.0" },
+        "overallReadiness": { "enum": ["sufficient", "limited", "insufficient", "needs_operator_review"] },
+        "regions": {
+          "type": "array", "minItems": 15,
+          "items": {
+            "type": "object", "additionalProperties": false,
+            "required": ["region", "visibility", "evidenceReferenceIds", "viewpointLimitations", "absenceCanBeEstablished", "confidence", "conflicts"],
+            "properties": {
+              "region": { "enum": ["toe", "vamp", "opening", "heel_back", "medial_side", "lateral_side", "sole_edge", "outsole", "seams", "hardware", "ornaments", "material_regions", "color_regions", "pair_handedness", "overall_silhouette"] },
+              "visibility": { "enum": ["clearly_visible", "partially_visible", "occluded", "ambiguous", "not_visible", "contradicted_by_another_source", "operator_confirmed_despite_limited_visibility", "not_applicable"] },
+              "evidenceReferenceIds": { "type": "array", "items": { "type": "string", "pattern": "^gpsref-[0-9]{4}$" }, "uniqueItems": true },
+              "viewpointLimitations": { "type": "array", "items": { "type": "string" } },
+              "absenceCanBeEstablished": { "type": "boolean" },
+              "confidence": { "type": "number", "minimum": 0, "maximum": 1 },
+              "conflicts": { "type": "array", "items": { "type": "string" } }
+            }
+          }
+        }
+      }
+    },
+    "productIdentityFingerprint": {
+      "type": "object", "additionalProperties": false,
+      "required": ["fingerprintVersion", "status", "digest", "components", "criticalUnknowns"],
+      "properties": {
+        "fingerprintVersion": { "const": "gps-pif-v1.0.0" },
+        "status": { "enum": ["draft_not_authoritative", "operator_reviewed", "operator_approved", "disputed"] },
+        "digest": { "type": ["string", "null"], "pattern": "^sha256:[a-f0-9]{64}$" },
+        "components": { "type": "array", "items": { "$ref": "#/$defs/fact" }, "minItems": 1 },
+        "criticalUnknowns": { "type": "array", "minItems": 1, "items": { "type": "string" } }
+      }
+    },
+    "lockedFactSet": {
+      "type": "object", "additionalProperties": false,
+      "required": ["lockSetVersion", "status", "lockedFacts", "criticalUnknowns", "prohibitedAssumptions", "lockedBy", "lockedAt"],
+      "properties": {
+        "lockSetVersion": { "const": "gps-locked-facts-v1.0.0" },
+        "status": { "enum": ["candidate_unlocked", "operator_locked", "disputed", "superseded"] },
+        "lockedFacts": { "type": "array", "items": { "$ref": "#/$defs/fact" } },
+        "criticalUnknowns": { "type": "array", "minItems": 1, "items": { "type": "string" } },
+        "prohibitedAssumptions": { "type": "array", "minItems": 1, "items": { "type": "string" } },
+        "lockedBy": { "type": ["string", "null"] },
+        "lockedAt": { "type": ["string", "null"], "format": "date-time" }
+      }
+    },
+    "facts": {
+      "type": "object", "additionalProperties": false,
+      "required": ["material", "color", "silhouette", "toe", "vamp", "openingCollar", "heelBack", "soleOutsole", "seamApron", "closure", "hardware", "ornament", "pattern", "visibleAsymmetries"],
+      "properties": {
+        "material": { "$ref": "#/$defs/factList" }, "color": { "$ref": "#/$defs/factList" },
+        "silhouette": { "$ref": "#/$defs/factList" }, "toe": { "$ref": "#/$defs/factList" },
+        "vamp": { "$ref": "#/$defs/factList" }, "openingCollar": { "$ref": "#/$defs/factList" },
+        "heelBack": { "$ref": "#/$defs/factList" }, "soleOutsole": { "$ref": "#/$defs/factList" },
+        "seamApron": { "$ref": "#/$defs/factList" }, "closure": { "$ref": "#/$defs/factList" },
+        "hardware": { "$ref": "#/$defs/factList" }, "ornament": { "$ref": "#/$defs/factList" },
+        "pattern": { "$ref": "#/$defs/factList" }, "visibleAsymmetries": { "$ref": "#/$defs/factList" }
+      }
+    },
+    "explicitUnknowns": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/unknown" } },
+    "prohibitedAssumptions": { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 5 } },
+    "sourceQualityFindings": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/finding" } },
+    "expectedGenerationRisks": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/risk" } },
+    "expectedConsistencyChecks": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/check" } },
+    "expectedSlotRisks": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/slotRisk" } },
+    "loaferSpecific": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/loaferSpecific" }] },
+    "operatorNotes": { "type": "array", "items": { "type": "string" } },
+    "annotationProvenance": {
+      "type": "object", "additionalProperties": false,
+      "required": ["createdBy", "actorType", "method", "sourceEvidence", "humanAuthority"],
+      "properties": {
+        "createdBy": { "type": "string", "minLength": 3 },
+        "actorType": { "enum": ["machine", "human_operator", "repository_audit"] },
+        "method": { "type": "string", "minLength": 5 },
+        "sourceEvidence": { "type": "array", "minItems": 1, "items": { "type": "string" } },
+        "humanAuthority": { "type": "boolean" }
+      }
+    },
+    "review": {
+      "type": "object", "additionalProperties": false,
+      "required": ["currentStatus", "reviewerId", "reviewerActorType", "reviewedAt", "approvedAt", "approvalReason", "history"],
+      "properties": {
+        "currentStatus": { "enum": ["draft", "needs_review", "reviewed", "disputed", "approved", "superseded"] },
+        "reviewerId": { "type": ["string", "null"] },
+        "reviewerActorType": { "type": ["string", "null"], "enum": ["human_operator", null] },
+        "reviewedAt": { "type": ["string", "null"], "format": "date-time" },
+        "approvedAt": { "type": ["string", "null"], "format": "date-time" },
+        "approvalReason": { "type": ["string", "null"] },
+        "history": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/revision" } }
+      }
+    },
+    "createdAt": { "type": "string", "format": "date-time" },
+    "updatedAt": { "type": "string", "format": "date-time" }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "status": { "enum": ["reviewed", "approved"] } } },
+      "then": {
+        "properties": {
+          "review": {
+            "properties": {
+              "reviewerId": { "type": "string", "minLength": 3 },
+              "reviewerActorType": { "const": "human_operator" },
+              "reviewedAt": { "type": "string", "format": "date-time" }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "status": { "const": "approved" } } },
+      "then": {
+        "properties": {
+          "annotationProvenance": {
+            "properties": { "humanAuthority": { "const": true } }
+          },
+          "review": {
+            "properties": {
+              "approvedAt": { "type": "string", "format": "date-time" },
+              "approvalReason": { "type": "string", "minLength": 10 }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "classification": {
+            "properties": { "productFamily": { "const": "loafer" } }
+          }
+        }
+      },
+      "then": {
+        "properties": { "loaferSpecific": { "$ref": "#/$defs/loaferSpecific" } }
+      },
+      "else": {
+        "properties": { "loaferSpecific": { "type": "null" } }
+      }
+    }
+  ],
+  "$defs": {
+    "family": { "enum": ["loafer", "sneaker_lifestyle", "sports_shoe", "formal_lace_up", "boot", "open_footwear", "heel_or_flat", "casual_closed_shoe", "children_shoe", "unknown_adversarial"] },
+    "factState": { "enum": ["verified", "inferred", "contested", "uncertain", "unknown", "rejected", "not_applicable"] },
+    "provenanceLayer": { "enum": ["directly_visible", "payload_asserted", "machine_inferred", "operator_confirmed", "operator_locked", "profile_default", "prohibited_assumption", "unknown", "disputed"] },
+    "sourceReference": {
+      "type": "object", "additionalProperties": false,
+      "required": ["referenceId", "repositoryRelativePath", "contentHash", "sourceType", "sourceOriginality", "originalityReviewStatus", "sanitizationStatus", "reviewStatus"],
+      "properties": {
+        "referenceId": { "type": "string", "pattern": "^gpsref-[0-9]{4}$" },
+        "repositoryRelativePath": { "type": "string", "pattern": "^(?![A-Za-z]:)(?!/)(?!.*\\.\\.).+" },
+        "contentHash": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+        "sourceType": { "const": "repository_product_asset" },
+        "sourceOriginality": { "const": "original_reference" },
+        "originalityReviewStatus": { "enum": ["needs_operator_confirmation", "operator_confirmed"] },
+        "sanitizationStatus": { "enum": ["reviewed_no_action", "sanitized_copy", "needs_review"] },
+        "reviewStatus": { "enum": ["draft", "needs_review", "reviewed", "disputed", "approved", "superseded"] }
+      }
+    },
+    "fact": {
+      "type": "object", "additionalProperties": false,
+      "required": ["factId", "path", "value", "state", "provenance", "confidence", "evidenceReferenceIds", "operatorConfirmed", "notes"],
+      "properties": {
+        "factId": { "type": "string", "pattern": "^fact-[a-z0-9.-]+$" },
+        "path": { "type": "string", "pattern": "^[a-z][a-zA-Z0-9.]+$" },
+        "value": { "type": ["string", "number", "boolean", "null"] },
+        "state": { "$ref": "#/$defs/factState" },
+        "provenance": { "$ref": "#/$defs/provenanceLayer" },
+        "confidence": { "type": "number", "minimum": 0, "maximum": 1 },
+        "evidenceReferenceIds": { "type": "array", "items": { "type": "string", "pattern": "^gpsref-[0-9]{4}$" }, "uniqueItems": true },
+        "operatorConfirmed": { "type": "boolean" },
+        "notes": { "type": "string" }
+      }
+    },
+    "factList": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/fact" } },
+    "unknown": {
+      "type": "object", "additionalProperties": false,
+      "required": ["path", "reason", "identityCritical", "requiredEvidence"],
+      "properties": {
+        "path": { "type": "string" }, "reason": { "type": "string", "minLength": 5 },
+        "identityCritical": { "type": "boolean" }, "requiredEvidence": { "type": "string", "minLength": 5 }
+      }
+    },
+    "finding": {
+      "type": "object", "additionalProperties": false,
+      "required": ["code", "severity", "finding", "evidenceReferenceIds"],
+      "properties": {
+        "code": { "type": "string", "pattern": "^[A-Z][A-Z0-9_]+$" },
+        "severity": { "enum": ["info", "low", "medium", "high"] },
+        "finding": { "type": "string", "minLength": 5 },
+        "evidenceReferenceIds": { "type": "array", "items": { "type": "string", "pattern": "^gpsref-[0-9]{4}$" } }
+      }
+    },
+    "risk": {
+      "type": "object", "additionalProperties": false,
+      "required": ["failureCode", "likelihood", "reason", "advisoryOnly"],
+      "properties": {
+        "failureCode": { "type": "string", "pattern": "^(ID|PACK|QUAL)_[A-Z0-9_]+$" },
+        "likelihood": { "enum": ["low", "medium", "high"] },
+        "reason": { "type": "string", "minLength": 5 },
+        "advisoryOnly": { "const": true }
+      }
+    },
+    "check": {
+      "type": "object", "additionalProperties": false,
+      "required": ["checkId", "dimension", "expectation", "evidenceBasis", "blockingPolicy"],
+      "properties": {
+        "checkId": { "type": "string", "pattern": "^check-[a-z0-9.-]+$" },
+        "dimension": { "type": "string" }, "expectation": { "type": "string" },
+        "evidenceBasis": { "enum": ["source_supported", "operator_required", "unknown_do_not_score"] },
+        "blockingPolicy": { "const": "not_defined_v1" }
+      }
+    },
+    "slotRisk": {
+      "type": "object", "additionalProperties": false,
+      "required": ["slotPurposeKey", "riskCodes", "reason"],
+      "properties": {
+        "slotPurposeKey": { "enum": ["side", "hero_three_quarter_pair", "top_pair", "rear_three_quarter", "detail"] },
+        "riskCodes": { "type": "array", "minItems": 1, "items": { "type": "string", "pattern": "^(ID|PACK|QUAL)_[A-Z0-9_]+$" }, "uniqueItems": true },
+        "reason": { "type": "string", "minLength": 5 }
+      }
+    },
+    "loaferSpecific": {
+      "type": "object", "additionalProperties": false,
+      "required": ["familyIdentity", "toeGeometry", "vampLength", "openingShape", "apronSeam", "heelBackConstruction", "soleProfile", "soleThickness", "ornamentTopology", "hardwarePresence", "stitchedLoopMetalRisk", "conversionRisks", "handedness", "pairSymmetry", "scaleFramingStability"],
+      "properties": {
+        "familyIdentity": { "$ref": "#/$defs/fact" }, "toeGeometry": { "$ref": "#/$defs/fact" },
+        "vampLength": { "$ref": "#/$defs/fact" }, "openingShape": { "$ref": "#/$defs/fact" },
+        "apronSeam": { "$ref": "#/$defs/fact" }, "heelBackConstruction": { "$ref": "#/$defs/fact" },
+        "soleProfile": { "$ref": "#/$defs/fact" }, "soleThickness": { "$ref": "#/$defs/fact" },
+        "ornamentTopology": { "$ref": "#/$defs/fact" }, "hardwarePresence": { "$ref": "#/$defs/fact" },
+        "stitchedLoopMetalRisk": { "type": "string" }, "conversionRisks": { "type": "array", "items": { "enum": ["mule", "slipper", "moccasin", "formal_lace_up"] }, "uniqueItems": true },
+        "handedness": { "$ref": "#/$defs/fact" }, "pairSymmetry": { "$ref": "#/$defs/fact" },
+        "scaleFramingStability": { "type": "string" }
+      }
+    },
+    "revision": {
+      "type": "object", "additionalProperties": false,
+      "required": ["annotationVersion", "status", "actorId", "actorType", "timestamp", "changeReason", "supersedesVersion", "reversible"],
+      "properties": {
+        "annotationVersion": { "type": "string", "pattern": "^1\\.[0-9]+\\.[0-9]+$" },
+        "status": { "enum": ["draft", "needs_review", "reviewed", "disputed", "approved", "superseded"] },
+        "actorId": { "type": "string", "minLength": 3 },
+        "actorType": { "enum": ["machine", "human_operator", "repository_audit"] },
+        "timestamp": { "type": "string", "format": "date-time" },
+        "changeReason": { "type": "string", "minLength": 10 },
+        "supersedesVersion": { "type": ["string", "null"] },
+        "reversible": { "const": true }
+      }
+    }
+  }
+}

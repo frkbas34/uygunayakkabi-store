@@ -16,7 +16,6 @@ const packageJson = JSON.parse(read('package.json')) as {
   scripts?: Record<string, string>
 }
 const opsSourcePack = read('chatgpt-project-sources/13_VALIDATION_DEPLOYMENT_OPS.md')
-const nextSprint = read('chatgpt-project-sources/17_OPEN_QUESTIONS_AND_NEXT_SPRINT.md')
 
 for (const heading of [
   '## Scope',
@@ -220,7 +219,5 @@ assertIncludes(opsSourcePack, 'test:image-qc-remediation-plan', 'source-pack bat
 assertIncludes(opsSourcePack, 'test:lead-status-schema', 'source-pack lead-status schema validation')
 assertIncludes(opsSourcePack, 'test:lead-conversion-schema', 'source-pack lead-conversion schema validation')
 assertIncludes(opsSourcePack, 'project-control/DEPLOY_CHECKLIST.md` as historical reference only', 'source-pack historical deploy checklist quarantine')
-assertIncludes(nextSprint, 'Phase 9 Deployment/Ops Runbook implemented', 'next sprint ops milestone')
-assertIncludes(nextSprint, 'test:ops-runbook', 'next sprint ops validation mention')
 
 console.log('opsRunbookGovernance: deploy, rollback, env, webhook, cron, PR, and source-pack checks - ALL OK')

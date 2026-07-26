@@ -1,0 +1,108 @@
+{
+  "schemaVersion": "gps-manifest-schema-v1.0.0",
+  "corpusVersion": "gps-v1.0.0-draft.1",
+  "selectionVersion": "gps-selection-v1.0.0",
+  "annotationSchemaVersion": "gps-annotation-schema-v1.0.0",
+  "taxonomyVersion": "gps-failure-taxonomy-v1.0.0",
+  "createdAt": "2026-07-26T12:00:00+03:00",
+  "status": "blocked_missing_source_references",
+  "targetProductCount": 36,
+  "targetLoaferCount": 12,
+  "materializedProductCount": 1,
+  "operatorApprovedProductCount": 0,
+  "calibrationHoldoutPolicy": {
+    "decision": "adopt_when_target_is_materialized",
+    "targetCalibrationCount": 24,
+    "targetHoldoutCount": 12,
+    "targetCalibrationLoafers": 8,
+    "targetHoldoutLoafers": 4,
+    "currentHoldoutVisibility": "no_holdout_materialized"
+  },
+  "targetDistribution": [
+    { "family": "loafer", "count": 12 },
+    { "family": "sneaker_lifestyle", "count": 4 },
+    { "family": "sports_shoe", "count": 3 },
+    { "family": "formal_lace_up", "count": 3 },
+    { "family": "boot", "count": 3 },
+    { "family": "open_footwear", "count": 3 },
+    { "family": "heel_or_flat", "count": 2 },
+    { "family": "casual_closed_shoe", "count": 2 },
+    { "family": "children_shoe", "count": 2 },
+    { "family": "unknown_adversarial", "count": 2 }
+  ],
+  "currentDistribution": [
+    { "family": "loafer", "count": 0 },
+    { "family": "sneaker_lifestyle", "count": 1 },
+    { "family": "sports_shoe", "count": 0 },
+    { "family": "formal_lace_up", "count": 0 },
+    { "family": "boot", "count": 0 },
+    { "family": "open_footwear", "count": 0 },
+    { "family": "heel_or_flat", "count": 0 },
+    { "family": "casual_closed_shoe", "count": 0 },
+    { "family": "children_shoe", "count": 0 },
+    { "family": "unknown_adversarial", "count": 0 }
+  ],
+  "readiness": {
+    "schemasValid": true,
+    "referencesOriginalAndSanitized": false,
+    "loaferRepresentationSufficient": false,
+    "annotationProvenancePresent": true,
+    "unknownsExplicit": true,
+    "duplicateLeakagePass": true,
+    "initialReviewSubsetOperatorReviewed": false,
+    "deterministicTestUsable": false
+  },
+  "layerBContract": {
+    "implemented": false,
+    "identityTruthAuthority": "never",
+    "futureRequiredFields": [
+      "attemptId",
+      "providerId",
+      "providerVersion",
+      "promptProfileVersion",
+      "slotId",
+      "slotContractVersion",
+      "generatedMediaReference",
+      "evaluatorOutput",
+      "operatorDecision",
+      "rejectionReasons",
+      "driftAssessment",
+      "cost",
+      "latencyMs"
+    ]
+  },
+  "products": [
+    {
+      "corpusProductId": "gpsv1-0001",
+      "annotationPath": "annotations/gpsv1-0001.json",
+      "subset": "calibration",
+      "family": "sneaker_lifestyle",
+      "reviewStatus": "needs_review",
+      "sourceReference": {
+        "referenceId": "gpsref-0001",
+        "repositoryRelativePath": "public/products/kahve-deri.jpg",
+        "sourceType": "repository_product_asset",
+        "sourceOriginality": "original_reference",
+        "originalityReviewStatus": "needs_operator_confirmation",
+        "contentHash": "sha256:cf5d4f1442cbeb27d1757ce8887af3e78cd070093a42c252e0f12dcec2f5d418",
+        "byteLength": 68906,
+        "detectedMediaType": "image/webp",
+        "filenameExtensionMismatch": true,
+        "sanitizationStatus": "reviewed_no_action",
+        "reviewStatus": "needs_review",
+        "inclusionJustification": "Sole tracked asset under public/products introduced by a commit explicitly describing real-image product integration; retained only as a draft calibration candidate until the operator confirms product linkage, rights, and originality.",
+        "provenance": {
+          "acquisitionType": "tracked_repository_asset",
+          "introducedCommit": "9474c54d2d4aed2027dd3b7d62b7201acdeef4ec",
+          "introducedCommitSubject": "Ürün listesine gerçek resim entegrasyonu ve 5'li grid güncellemesi",
+          "productLinkageEvidence": [
+            "Repository path is public/products/kahve-deri.jpg",
+            "Introduction commit describes real-image product integration",
+            "Git history records the asset as a newly added product image"
+          ],
+          "rightsStatus": "unknown_requires_operator_confirmation"
+        }
+      }
+    }
+  ]
+}

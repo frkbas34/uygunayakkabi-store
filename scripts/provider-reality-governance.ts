@@ -81,7 +81,7 @@ assertIncludes(aiSourcePack, 'project-control/PROVIDER_REALITY_AUDIT.md', 'sourc
 assertIncludes(aiSourcePack, 'local env readiness is not production provider readiness', 'source-pack AI provider audit boundary')
 assertIncludes(opsSourcePack, 'test:provider-reality', 'source-pack ops validation')
 assertIncludes(opsSourcePack, 'project-control/PROVIDER_REALITY_AUDIT.md', 'source-pack ops provider audit pointer')
-assertIncludes(opsSourcePack, 'Latest documented feature boundary: D-500.', 'source-pack ops latest boundary')
+assertIncludes(opsSourcePack, 'Latest deployed feature boundary: D-501.', 'source-pack ops latest boundary')
 assertIncludes(opsSourcePack, 'D-495 remains the active Meta safety rule', 'source-pack ops Meta media preflight boundary')
 assertIncludes(opsSourcePack, 'secret-safe Operator Evidence', 'source-pack provider evidence record')
 assertIncludes(nextSprint, 'D-403 provider reality audit', 'next sprint provider audit milestone')

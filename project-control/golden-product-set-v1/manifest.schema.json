@@ -1,0 +1,159 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "urn:uygunayakkabi:gps:v1:manifest",
+  "title": "Golden Product Set V1 manifest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "corpusVersion",
+    "selectionVersion",
+    "annotationSchemaVersion",
+    "taxonomyVersion",
+    "createdAt",
+    "status",
+    "targetProductCount",
+    "targetLoaferCount",
+    "materializedProductCount",
+    "operatorApprovedProductCount",
+    "calibrationHoldoutPolicy",
+    "targetDistribution",
+    "currentDistribution",
+    "readiness",
+    "layerBContract",
+    "products"
+  ],
+  "properties": {
+    "schemaVersion": { "const": "gps-manifest-schema-v1.0.0" },
+    "corpusVersion": { "type": "string", "pattern": "^gps-v1\\.[0-9]+\\.[0-9]+-(draft|review|approved)\\.[0-9]+$" },
+    "selectionVersion": { "type": "string", "pattern": "^gps-selection-v1\\.[0-9]+\\.[0-9]+$" },
+    "annotationSchemaVersion": { "const": "gps-annotation-schema-v1.0.0" },
+    "taxonomyVersion": { "const": "gps-failure-taxonomy-v1.0.0" },
+    "createdAt": { "type": "string", "format": "date-time" },
+    "status": {
+      "enum": [
+        "blocked_missing_source_references",
+        "structurally_complete_awaiting_review",
+        "implementation_bootstrap_ready",
+        "regression_enforcement_ready",
+        "superseded"
+      ]
+    },
+    "targetProductCount": { "const": 36 },
+    "targetLoaferCount": { "const": 12 },
+    "materializedProductCount": { "type": "integer", "minimum": 0, "maximum": 36 },
+    "operatorApprovedProductCount": { "type": "integer", "minimum": 0, "maximum": 36 },
+    "calibrationHoldoutPolicy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["decision", "targetCalibrationCount", "targetHoldoutCount", "targetCalibrationLoafers", "targetHoldoutLoafers", "currentHoldoutVisibility"],
+      "properties": {
+        "decision": { "const": "adopt_when_target_is_materialized" },
+        "targetCalibrationCount": { "const": 24 },
+        "targetHoldoutCount": { "const": 12 },
+        "targetCalibrationLoafers": { "const": 8 },
+        "targetHoldoutLoafers": { "const": 4 },
+        "currentHoldoutVisibility": { "const": "no_holdout_materialized" }
+      }
+    },
+    "targetDistribution": { "$ref": "#/$defs/distribution" },
+    "currentDistribution": { "$ref": "#/$defs/distribution" },
+    "readiness": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schemasValid", "referencesOriginalAndSanitized", "loaferRepresentationSufficient", "annotationProvenancePresent", "unknownsExplicit", "duplicateLeakagePass", "initialReviewSubsetOperatorReviewed", "deterministicTestUsable"],
+      "properties": {
+        "schemasValid": { "type": "boolean" },
+        "referencesOriginalAndSanitized": { "type": "boolean" },
+        "loaferRepresentationSufficient": { "type": "boolean" },
+        "annotationProvenancePresent": { "type": "boolean" },
+        "unknownsExplicit": { "type": "boolean" },
+        "duplicateLeakagePass": { "type": "boolean" },
+        "initialReviewSubsetOperatorReviewed": { "type": "boolean" },
+        "deterministicTestUsable": { "type": "boolean" }
+      }
+    },
+    "layerBContract": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["implemented", "identityTruthAuthority", "futureRequiredFields"],
+      "properties": {
+        "implemented": { "const": false },
+        "identityTruthAuthority": { "const": "never" },
+        "futureRequiredFields": {
+          "type": "array",
+          "uniqueItems": true,
+          "minItems": 10,
+          "items": { "enum": ["attemptId", "providerId", "providerVersion", "promptProfileVersion", "slotId", "slotContractVersion", "generatedMediaReference", "evaluatorOutput", "operatorDecision", "rejectionReasons", "driftAssessment", "cost", "latencyMs"] }
+        }
+      }
+    },
+    "products": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/product" }
+    }
+  },
+  "$defs": {
+    "family": {
+      "enum": ["loafer", "sneaker_lifestyle", "sports_shoe", "formal_lace_up", "boot", "open_footwear", "heel_or_flat", "casual_closed_shoe", "children_shoe", "unknown_adversarial"]
+    },
+    "distribution": {
+      "type": "array",
+      "minItems": 10,
+      "maxItems": 10,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["family", "count"],
+        "properties": {
+          "family": { "$ref": "#/$defs/family" },
+          "count": { "type": "integer", "minimum": 0, "maximum": 36 }
+        }
+      }
+    },
+    "sourceReference": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["referenceId", "repositoryRelativePath", "sourceType", "sourceOriginality", "originalityReviewStatus", "contentHash", "byteLength", "detectedMediaType", "sanitizationStatus", "reviewStatus", "inclusionJustification", "provenance"],
+      "properties": {
+        "referenceId": { "type": "string", "pattern": "^gpsref-[0-9]{4}$" },
+        "repositoryRelativePath": { "type": "string", "pattern": "^(?![A-Za-z]:)(?!/)(?!.*\\.\\.).+" },
+        "sourceType": { "const": "repository_product_asset" },
+        "sourceOriginality": { "const": "original_reference" },
+        "originalityReviewStatus": { "enum": ["needs_operator_confirmation", "operator_confirmed"] },
+        "contentHash": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+        "byteLength": { "type": "integer", "minimum": 1 },
+        "detectedMediaType": { "enum": ["image/jpeg", "image/png", "image/webp"] },
+        "filenameExtensionMismatch": { "type": "boolean" },
+        "sanitizationStatus": { "enum": ["reviewed_no_action", "sanitized_copy", "needs_review", "rejected_privacy"] },
+        "reviewStatus": { "enum": ["draft", "needs_review", "reviewed", "disputed", "approved", "superseded"] },
+        "inclusionJustification": { "type": "string", "minLength": 20 },
+        "provenance": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["acquisitionType", "introducedCommit", "introducedCommitSubject", "productLinkageEvidence", "rightsStatus"],
+          "properties": {
+            "acquisitionType": { "const": "tracked_repository_asset" },
+            "introducedCommit": { "type": "string", "pattern": "^[a-f0-9]{40}$" },
+            "introducedCommitSubject": { "type": "string", "minLength": 1 },
+            "productLinkageEvidence": { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 3 } },
+            "rightsStatus": { "enum": ["unknown_requires_operator_confirmation", "operator_confirmed_internal_use"] }
+          }
+        }
+      }
+    },
+    "product": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["corpusProductId", "annotationPath", "subset", "family", "reviewStatus", "sourceReference"],
+      "properties": {
+        "corpusProductId": { "type": "string", "pattern": "^gpsv1-[0-9]{4}$" },
+        "annotationPath": { "type": "string", "pattern": "^annotations/gpsv1-[0-9]{4}\\.json$" },
+        "subset": { "enum": ["calibration", "holdout"] },
+        "family": { "$ref": "#/$defs/family" },
+        "reviewStatus": { "enum": ["draft", "needs_review", "reviewed", "disputed", "approved", "superseded"] },
+        "sourceReference": { "$ref": "#/$defs/sourceReference" }
+      }
+    }
+  }
+}

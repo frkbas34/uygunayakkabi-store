@@ -1,0 +1,202 @@
+{
+  "schemaVersion": "gps-annotation-schema-v1.0.0",
+  "corpusVersion": "gps-v1.0.0-draft.1",
+  "corpusProductId": "gpsv1-0001",
+  "annotationVersion": "1.0.0",
+  "status": "needs_review",
+  "changeReason": "Initial evidence-conservative annotation from repository provenance, metadata inspection, and direct visual inspection.",
+  "sourceReference": {
+    "referenceId": "gpsref-0001",
+    "repositoryRelativePath": "public/products/kahve-deri.jpg",
+    "contentHash": "sha256:cf5d4f1442cbeb27d1757ce8887af3e78cd070093a42c252e0f12dcec2f5d418",
+    "sourceType": "repository_product_asset",
+    "sourceOriginality": "original_reference",
+    "originalityReviewStatus": "needs_operator_confirmation",
+    "sanitizationStatus": "reviewed_no_action",
+    "reviewStatus": "needs_review"
+  },
+  "classification": {
+    "productFamily": "sneaker_lifestyle",
+    "familyConfidence": 0.91,
+    "confusionCandidates": ["sports_shoe", "casual_closed_shoe"],
+    "inclusionSignals": [
+      "Low-top closed upper",
+      "Visible lace closure",
+      "Panelled casual sneaker construction",
+      "Relatively flat rubber-like sole profile"
+    ],
+    "exclusionSignals": [
+      "No operator-confirmed intended-use metadata",
+      "No medial, outsole, or pair view"
+    ],
+    "state": "inferred",
+    "provenance": "machine_inferred"
+  },
+  "referenceSufficiencyMap": {
+    "mapVersion": "gps-reference-sufficiency-v1.0.0",
+    "overallReadiness": "needs_operator_review",
+    "regions": [
+      { "region": "toe", "visibility": "clearly_visible", "evidenceReferenceIds": ["gpsref-0001"], "viewpointLimitations": ["Lateral profile limits exact toe-box width"], "absenceCanBeEstablished": false, "confidence": 0.88, "conflicts": [] },
+      { "region": "vamp", "visibility": "partially_visible", "evidenceReferenceIds": ["gpsref-0001"], "viewpointLimitations": ["Laces obscure the centerline"], "absenceCanBeEstablished": false, "confidence": 0.75, "conflicts": [] },
+      { "region": "opening", "visibility": "clearly_visible", "evidenceReferenceIds": ["gpsref-0001"], "viewpointLimitations": ["Interior depth is not visible"], "absenceCanBeEstablished": false, "confidence": 0.86, "conflicts": [] },
+      { "region": "heel_back", "visibility": "partially_visible", "evidenceReferenceIds": ["gpsref-0001"], "viewpointLimitations": ["Rear seam and center back are not directly shown"], "absenceCanBeEstablished": false, "confidence": 0.68, "conflicts": [] },
+      { "region": "medial_side", "visibility": "not_visible", "evidenceReferenceIds": [], "viewpointLimitations": ["Single lateral view only"], "absenceCanBeEstablished": false, "confidence": 0, "conflicts": [] },
+      { "region": "lateral_side", "visibility": "clearly_visible", "evidenceReferenceIds": ["gpsref-0001"], "viewpointLimitations": [], "absenceCanBeEstablished": true, "confidence": 0.96, "conflicts": [] },
+      { "region": "sole_edge", "visibility": "clearly_visible", "evidenceReferenceIds": ["gpsref-0001"], "viewpointLimitations": ["Exact physical thickness cannot be measured without scale"], "absenceCanBeEstablished": true, "confidence": 0.92, "conflicts": [] },
+      { "region": "outsole", "visibility": "not_visible", "evidenceReferenceIds": [], "viewpointLimitations": ["Underside is outside the viewpoint"], "absenceCanBeEstablished": false, "confidence": 0, "conflicts": [] },
+      { "region": "seams", "visibility": "clearly_visible", "evidenceReferenceIds": ["gpsref-0001"], "viewpointLimitations": ["Medial and rear seam paths are unknown"], "absenceCanBeEstablished": false, "confidence": 0.9, "conflicts": [] },
+      { "region": "hardware", "visibility": "ambiguous", "evidenceReferenceIds": ["gpsref-0001"], "viewpointLimitations": ["Eyelet material cannot be resolved confidently"], "absenceCanBeEstablished": false, "confidence": 0.42, "conflicts": [] },
+      { "region": "ornaments", "visibility": "partially_visible", "evidenceReferenceIds": ["gpsref-0001"], "viewpointLimitations": ["Only lateral upper is shown"], "absenceCanBeEstablished": false, "confidence": 0.62, "conflicts": [] },
+      { "region": "material_regions", "visibility": "clearly_visible", "evidenceReferenceIds": ["gpsref-0001"], "viewpointLimitations": ["Material composition cannot be authenticated visually"], "absenceCanBeEstablished": false, "confidence": 0.84, "conflicts": [] },
+      { "region": "color_regions", "visibility": "clearly_visible", "evidenceReferenceIds": ["gpsref-0001"], "viewpointLimitations": ["No calibrated color target or lighting metadata"], "absenceCanBeEstablished": false, "confidence": 0.89, "conflicts": [] },
+      { "region": "pair_handedness", "visibility": "not_visible", "evidenceReferenceIds": [], "viewpointLimitations": ["Only one shoe is shown"], "absenceCanBeEstablished": false, "confidence": 0, "conflicts": [] },
+      { "region": "overall_silhouette", "visibility": "clearly_visible", "evidenceReferenceIds": ["gpsref-0001"], "viewpointLimitations": ["Top-view width and rear symmetry are unavailable"], "absenceCanBeEstablished": false, "confidence": 0.91, "conflicts": [] }
+    ]
+  },
+  "productIdentityFingerprint": {
+    "fingerprintVersion": "gps-pif-v1.0.0",
+    "status": "draft_not_authoritative",
+    "digest": null,
+    "components": [
+      { "factId": "fact-family.candidate", "path": "family.candidate", "value": "sneaker_lifestyle", "state": "inferred", "provenance": "machine_inferred", "confidence": 0.91, "evidenceReferenceIds": ["gpsref-0001"], "operatorConfirmed": false, "notes": "Requires operator family confirmation." },
+      { "factId": "fact-silhouette.lowtop", "path": "silhouette.height", "value": "low_top", "state": "inferred", "provenance": "directly_visible", "confidence": 0.92, "evidenceReferenceIds": ["gpsref-0001"], "operatorConfirmed": false, "notes": "Visible in lateral profile." },
+      { "factId": "fact-closure.laces", "path": "closure.primary", "value": "laces", "state": "inferred", "provenance": "directly_visible", "confidence": 0.98, "evidenceReferenceIds": ["gpsref-0001"], "operatorConfirmed": false, "notes": "Visible but not operator-confirmed." },
+      { "factId": "fact-color.brown", "path": "color.dominant", "value": "brown", "state": "inferred", "provenance": "directly_visible", "confidence": 0.9, "evidenceReferenceIds": ["gpsref-0001"], "operatorConfirmed": false, "notes": "Lighting is not color-calibrated." },
+      { "factId": "fact-upper.panelled", "path": "silhouette.upperTopology", "value": "multi_panel", "state": "inferred", "provenance": "directly_visible", "confidence": 0.9, "evidenceReferenceIds": ["gpsref-0001"], "operatorConfirmed": false, "notes": "Only lateral topology is supported." }
+    ],
+    "criticalUnknowns": ["medial panel topology", "outsole tread", "pair handedness", "rear center construction", "authenticated material composition"]
+  },
+  "lockedFactSet": {
+    "lockSetVersion": "gps-locked-facts-v1.0.0",
+    "status": "candidate_unlocked",
+    "lockedFacts": [],
+    "criticalUnknowns": ["medial panel topology", "outsole tread", "pair handedness", "rear center construction", "authenticated material composition"],
+    "prohibitedAssumptions": ["Do not infer medial-side details from the lateral side", "Do not invent outsole tread", "Do not convert visible texture into authenticated material claims", "Do not assume a matched pair or handedness"],
+    "lockedBy": null,
+    "lockedAt": null
+  },
+  "facts": {
+    "material": [
+      { "factId": "fact-material.appearance", "path": "material.visibleAppearance", "value": "mixed smooth suede_like and perforated regions", "state": "inferred", "provenance": "directly_visible", "confidence": 0.78, "evidenceReferenceIds": ["gpsref-0001"], "operatorConfirmed": false, "notes": "Appearance only; composition and authenticity remain unknown." }
+    ],
+    "color": [
+      { "factId": "fact-color.relationship", "path": "color.visibleRelationship", "value": "brown upper with lighter tan sole edge", "state": "inferred", "provenance": "directly_visible", "confidence": 0.89, "evidenceReferenceIds": ["gpsref-0001"], "operatorConfirmed": false, "notes": "No calibrated lighting." }
+    ],
+    "silhouette": [
+      { "factId": "fact-silhouette.profile", "path": "silhouette.profile", "value": "low_top closed casual sneaker", "state": "inferred", "provenance": "machine_inferred", "confidence": 0.9, "evidenceReferenceIds": ["gpsref-0001"], "operatorConfirmed": false, "notes": "Family and use remain operator-reviewable." }
+    ],
+    "toe": [
+      { "factId": "fact-toe.shape", "path": "toe.visibleShape", "value": "rounded", "state": "inferred", "provenance": "directly_visible", "confidence": 0.84, "evidenceReferenceIds": ["gpsref-0001"], "operatorConfirmed": false, "notes": "Exact top-view width is unknown." }
+    ],
+    "vamp": [
+      { "factId": "fact-vamp.coverage", "path": "vamp.coverage", "value": "lace_obscured", "state": "uncertain", "provenance": "directly_visible", "confidence": 0.65, "evidenceReferenceIds": ["gpsref-0001"], "operatorConfirmed": false, "notes": "Centerline is not fully visible." }
+    ],
+    "openingCollar": [
+      { "factId": "fact-opening.shape", "path": "opening.visibleShape", "value": "padded_low_collar", "state": "inferred", "provenance": "directly_visible", "confidence": 0.84, "evidenceReferenceIds": ["gpsref-0001"], "operatorConfirmed": false, "notes": "Interior depth is unknown." }
+    ],
+    "heelBack": [
+      { "factId": "fact-heelback.center", "path": "heelBack.centerConstruction", "value": null, "state": "unknown", "provenance": "unknown", "confidence": 0, "evidenceReferenceIds": [], "operatorConfirmed": false, "notes": "Rear center is not directly shown." }
+    ],
+    "soleOutsole": [
+      { "factId": "fact-sole.edge", "path": "sole.edgeProfile", "value": "light_tan_flat_profile", "state": "inferred", "provenance": "directly_visible", "confidence": 0.87, "evidenceReferenceIds": ["gpsref-0001"], "operatorConfirmed": false, "notes": "Outsole tread and measurements are unknown." }
+    ],
+    "seamApron": [
+      { "factId": "fact-seam.lateral", "path": "seam.lateralTopology", "value": "multi_panel_visible_stitching", "state": "inferred", "provenance": "directly_visible", "confidence": 0.88, "evidenceReferenceIds": ["gpsref-0001"], "operatorConfirmed": false, "notes": "Medial and rear seam paths are unknown." }
+    ],
+    "closure": [
+      { "factId": "fact-closure.primary", "path": "closure.primary", "value": "laces", "state": "inferred", "provenance": "directly_visible", "confidence": 0.98, "evidenceReferenceIds": ["gpsref-0001"], "operatorConfirmed": false, "notes": "Visible in source." }
+    ],
+    "hardware": [
+      { "factId": "fact-hardware.eyelets", "path": "hardware.eyeletMaterial", "value": null, "state": "unknown", "provenance": "unknown", "confidence": 0.2, "evidenceReferenceIds": ["gpsref-0001"], "operatorConfirmed": false, "notes": "Image does not establish whether eyelets contain metal hardware." }
+    ],
+    "ornament": [
+      { "factId": "fact-ornament.presence", "path": "ornament.presence", "value": null, "state": "unknown", "provenance": "unknown", "confidence": 0.3, "evidenceReferenceIds": ["gpsref-0001"], "operatorConfirmed": false, "notes": "Only one side is shown; absence cannot be established globally." }
+    ],
+    "pattern": [
+      { "factId": "fact-pattern.perforation", "path": "pattern.lateralPerforation", "value": "visible_perforated_panel", "state": "inferred", "provenance": "directly_visible", "confidence": 0.91, "evidenceReferenceIds": ["gpsref-0001"], "operatorConfirmed": false, "notes": "Pattern extent on unseen regions is unknown." }
+    ],
+    "visibleAsymmetries": [
+      { "factId": "fact-asymmetry.pair", "path": "visibleAsymmetries.pair", "value": null, "state": "unknown", "provenance": "unknown", "confidence": 0, "evidenceReferenceIds": [], "operatorConfirmed": false, "notes": "A pair is not visible." }
+    ]
+  },
+  "explicitUnknowns": [
+    { "path": "material.composition", "reason": "Visual appearance cannot authenticate material composition", "identityCritical": true, "requiredEvidence": "Operator-confirmed product specification or material label" },
+    { "path": "medialSide.topology", "reason": "Medial side is not visible", "identityCritical": true, "requiredEvidence": "Clear medial-side original reference" },
+    { "path": "outsole.tread", "reason": "Outsole is outside the frame", "identityCritical": true, "requiredEvidence": "Clear outsole original reference" },
+    { "path": "pair.handedness", "reason": "Only one shoe is shown", "identityCritical": true, "requiredEvidence": "Pair or explicit left/right original reference" },
+    { "path": "source.rightsAndProductLinkage", "reason": "Repository history does not prove ownership or current catalog linkage", "identityCritical": true, "requiredEvidence": "Operator confirmation of rights, originality, and product linkage" }
+  ],
+  "prohibitedAssumptions": [
+    "Do not treat suede-like appearance as authenticated suede",
+    "Do not mirror lateral panel topology onto the medial side",
+    "Do not invent outsole tread or rear-center construction",
+    "Do not infer paired symmetry or handedness from one shoe",
+    "Do not promote this annotation to approved without human review"
+  ],
+  "sourceQualityFindings": [
+    { "code": "SOURCE_SINGLE_VIEW", "severity": "medium", "finding": "One lateral product view supports visible-side morphology but not medial, outsole, rear-center, or pair evidence.", "evidenceReferenceIds": ["gpsref-0001"] },
+    { "code": "SOURCE_FORMAT_EXTENSION_MISMATCH", "severity": "low", "finding": "File content is WebP while the repository filename ends in .jpg; the manifest declares this explicitly.", "evidenceReferenceIds": ["gpsref-0001"] },
+    { "code": "SOURCE_PROVENANCE_REVIEW", "severity": "high", "finding": "Git provenance supports product-asset use but rights, own-product linkage, and non-generated originality still require operator confirmation.", "evidenceReferenceIds": ["gpsref-0001"] },
+    { "code": "SOURCE_PRIVACY_CLEAR", "severity": "info", "finding": "Direct visual and metadata review found no person, customer identifier, credential, private path, EXIF, or GPS payload.", "evidenceReferenceIds": ["gpsref-0001"] }
+  ],
+  "expectedGenerationRisks": [
+    { "failureCode": "ID_MATERIAL_ZONE_DRIFT", "likelihood": "high", "reason": "Mixed material-looking panels may merge or migrate across the upper.", "advisoryOnly": true },
+    { "failureCode": "ID_SEAM_PATH_DRIFT", "likelihood": "high", "reason": "Multi-panel lateral stitching is identity-relevant and unseen sides are unsupported.", "advisoryOnly": true },
+    { "failureCode": "ID_COLOR_BLOCK_DRIFT", "likelihood": "medium", "reason": "Brown tonal regions and light sole edge can be flattened or recolored.", "advisoryOnly": true },
+    { "failureCode": "ID_HARDWARE_INVENTION", "likelihood": "medium", "reason": "Eyelet material is ambiguous and must not become decorative metal hardware.", "advisoryOnly": true },
+    { "failureCode": "PACK_PAIR_INCONSISTENCY", "likelihood": "high", "reason": "The source contains one shoe, so generated pair symmetry has no direct reference support.", "advisoryOnly": true }
+  ],
+  "expectedConsistencyChecks": [
+    { "checkId": "check-family.stable", "dimension": "family", "expectation": "All outcomes remain a low-top lace-up sneaker candidate.", "evidenceBasis": "source_supported", "blockingPolicy": "not_defined_v1" },
+    { "checkId": "check-panel.lateral", "dimension": "panel_topology", "expectation": "Visible lateral panel and perforation relationships remain coherent across supported viewpoints.", "evidenceBasis": "source_supported", "blockingPolicy": "not_defined_v1" },
+    { "checkId": "check-medial.unknown", "dimension": "medial_side", "expectation": "Evaluator must not reward a particular unseen medial design.", "evidenceBasis": "unknown_do_not_score", "blockingPolicy": "not_defined_v1" },
+    { "checkId": "check-outsole.unknown", "dimension": "outsole", "expectation": "Evaluator must not treat invented tread as source fidelity.", "evidenceBasis": "unknown_do_not_score", "blockingPolicy": "not_defined_v1" },
+    { "checkId": "check-review.originality", "dimension": "source_originality", "expectation": "Operator confirms rights and own-product linkage before approval.", "evidenceBasis": "operator_required", "blockingPolicy": "not_defined_v1" }
+  ],
+  "expectedSlotRisks": [
+    { "slotPurposeKey": "side", "riskCodes": ["ID_SEAM_PATH_DRIFT", "ID_MATERIAL_ZONE_DRIFT"], "reason": "The supported lateral topology should remain stable." },
+    { "slotPurposeKey": "hero_three_quarter_pair", "riskCodes": ["PACK_PAIR_INCONSISTENCY", "ID_HANDEDNESS_INCONSISTENCY"], "reason": "Pair and depth relationships are unsupported by the single source." },
+    { "slotPurposeKey": "top_pair", "riskCodes": ["PACK_PAIR_INCONSISTENCY", "ID_TOE_SHAPE_DRIFT"], "reason": "Top width and pair symmetry are not directly evidenced." },
+    { "slotPurposeKey": "rear_three_quarter", "riskCodes": ["ID_HEEL_BACK_DRIFT", "ID_SEAM_PATH_DRIFT"], "reason": "Rear-center and medial construction are unknown." },
+    { "slotPurposeKey": "detail", "riskCodes": ["QUAL_STITCHING_AS_HARDWARE", "QUAL_MISLEADING_DETAIL"], "reason": "Fine stitching and perforation may be misread as hardware or ornament." }
+  ],
+  "loaferSpecific": null,
+  "operatorNotes": [
+    "Confirm that this is an original reference for an owned catalog product and that internal benchmark use is permitted.",
+    "Confirm or correct the sneaker_lifestyle family before locking any facts.",
+    "Supply medial, outsole, rear, and pair references if available; otherwise preserve those regions as unknown."
+  ],
+  "annotationProvenance": {
+    "createdBy": "codex-local-corpus-audit",
+    "actorType": "repository_audit",
+    "method": "Git provenance, deterministic file metadata, content hash, and direct visual inspection",
+    "sourceEvidence": [
+      "public/products/kahve-deri.jpg",
+      "Git commit 9474c54d2d4aed2027dd3b7d62b7201acdeef4ec",
+      "SHA-256 and image metadata inspection"
+    ],
+    "humanAuthority": false
+  },
+  "review": {
+    "currentStatus": "needs_review",
+    "reviewerId": null,
+    "reviewerActorType": null,
+    "reviewedAt": null,
+    "approvedAt": null,
+    "approvalReason": null,
+    "history": [
+      {
+        "annotationVersion": "1.0.0",
+        "status": "needs_review",
+        "actorId": "codex-local-corpus-audit",
+        "actorType": "repository_audit",
+        "timestamp": "2026-07-26T12:00:00+03:00",
+        "changeReason": "Initial evidence-conservative draft; no human approval or locked facts asserted.",
+        "supersedesVersion": null,
+        "reversible": true
+      }
+    ]
+  },
+  "createdAt": "2026-07-26T12:00:00+03:00",
+  "updatedAt": "2026-07-26T12:00:00+03:00"
+}

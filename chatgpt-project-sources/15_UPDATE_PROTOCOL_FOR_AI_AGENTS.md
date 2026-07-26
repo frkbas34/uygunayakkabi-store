@@ -1,60 +1,28 @@
-# Update Protocol For Codex And Claude
+# Update Protocol for AI Agents
 
-Last updated: 2026-07-24
+Current as of 2026-07-26.
 
-## Rule
+## Before acting
 
-When a material project decision changes, update this source pack in the same branch or work session.
+1. Read `AGENTS.md` and the relevant source-pack/runbook files.
+2. Inspect git status and preserve user changes.
+3. Read the actual code and focused tests for the requested surface.
+4. Distinguish local evidence from production evidence.
 
-## Material Changes
+## While acting
 
-Update this folder when changing:
+- Payload/Next remains the product and commerce source of truth.
+- Hermes/Mentix is the current operator-control layer.
+- Keep Website, Instagram, Facebook, X, and Shopier active; do not revive Dolap or Threads.
+- Keep SupplierScout dormant unless the operator reverses that decision.
+- Treat n8n as optional glue and OpenClaw as historical/optional.
+- Do not bypass shared product, brand, Image QC, public-media, Shopier, stock, or confirmation gates.
+- Never execute an action based on confidence; require the appropriate explicit approval.
+- Content approval is only approval of copy.
 
-- active channels
-- retired/dormant systems
-- roadmap phases
-- bot ownership
-- Hermes/Mentix skills and optional OpenClaw reactivation notes
-- n8n role
-- product workflow
-- publishing architecture
-- validation/deploy process
-- major open questions
+## After a change
 
-## Files To Update First
-
-- `01_CURRENT_TRUTH.md`
-- `02_MASTER_ROADMAP.md`
-- `04_BOTS_AND_AUTOMATIONS.md`
-- `17_OPEN_QUESTIONS_AND_NEXT_SPRINT.md`
-
-## Style Rules
-
-- Keep files concise.
-- Prefer current truth over history.
-- Do not add secrets.
-- Do not paste raw transcripts.
-- Do not exceed 20 documents in this folder without removing or merging old files. The pack is currently at that limit, so update an existing file unless one is deliberately retired.
-- If a historical fact matters, summarize it briefly and link to the repo file outside this source pack.
-
-## Agent Behavior
-
-Codex and Claude should:
-
-1. Read this folder before planning major changes.
-2. Treat it as the ChatGPT Project source set.
-3. Update it after architecture or roadmap changes.
-4. Avoid reintroducing Dolap, Threads, or SupplierScout activation unless the user explicitly reverses the decision.
-5. When the change affects project control truth, update the matching root Obsidian note (`00_HOME.md` through `04_ACTIVE_DECISIONS.md`) in the same work session.
-
-## Manual Refresh Process
-
-After this folder changes:
-
-1. User manually uploads/refreshes these files in ChatGPT Project.
-2. ChatGPT Project should treat this folder as the current source of truth.
-3. Old uploaded sources should be removed if they conflict with this pack.
-
-## Mechanical Guard
-
-`npm run test:source-pack` checks the source-pack document count, required files, active channel truth, retirement decisions, and selected active control artifacts. `npm run test:obsidian-control` checks the five root Obsidian control notes. `npm run validate` includes both guards.
+1. Run focused tests, then typecheck/lint/validate/build in proportion to risk.
+2. Update current documentation without copying milestone ledgers.
+3. Report what passed, what was not run, and what requires operator evidence.
+4. Do not commit, push, deploy, call providers, or run live smokes unless explicitly requested.

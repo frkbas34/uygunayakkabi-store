@@ -1,49 +1,31 @@
-# D-352A Product Loading Factory Audit
+# Catalog Loading Factory Audit
 
-Last updated: 2026-07-03
+Current as of 2026-07-26. The filename is retained for source-pack compatibility; this describes the current loading factory, not only milestone D-352.
 
-## Result
+## Current path
 
-D-352A is a documentation/analysis checkpoint for Phase 10 catalog scale-up. It audits the current product loading flow before scaling to 30-50 products/day.
+Telegram intake creates/updates Payload products, verifies images and product identity, confirms operator intent, generates content, runs audit/readiness checks, captures price/size/stock/channel targets, obtains explicit activation approval, and uses guarded channel/Shopier job paths.
 
-Full repo note: `project-control/D-352A_PRODUCT_LOADING_FACTORY_AUDIT.md`.
+`/loadplan` and `/loadingplan` combine Catalog QA and Category Fill into a read-only priority plan. Worklist rows hand off to `/productflow <ref>` and the exact read-only product-flow runtime smoke.
 
-## Current Flow
+## Implemented strengths
 
-Telegram/admin upload -> Payload draft -> original media attached -> optional AI 5-image studio pack -> generated images approved into `generativeGallery` -> confirmation wizard -> content/GEO/audit -> readiness check -> operator activation -> dispatch tracking.
+- ProductFlow Snapshot exposes lifecycle, readiness, activation blockers, Image QC, Shopier gate, dispatch, coherence, links, and one primary next step.
+- Dependency ordering prevents impossible content/audit suggestions.
+- Shopier dashboard and previews reuse shared gate evaluation and product-flow handoffs.
+- Protected-brand activation/public/claims/dispatch gates remain enforced.
+- Structured Image QC is represented in schema and diagnostics.
 
-Payload remains the source of truth. Active channels remain Website, Instagram, Facebook, X, and Shopier. Dolap/Threads stay retired. SupplierScout stays dormant. n8n stays optional glue only.
+## Blocking gaps
 
-## Audit Finding
+- Partial image generation or Media-save failure can misalign later buffers with positional slot metadata.
+- Generated-media rejection/regeneration does not have automatic lifecycle cleanup.
+- Telegram message and callback authorization are not one fail-closed boundary.
+- Telegram command ownership, long-running tasks, and handlers are concentrated in one very large route.
+- Live provider and database readiness is unproven by this local audit.
 
-The system is safe enough for controlled single-product or small-batch loading, but it is not ready for sustained 30-50 products/day.
+Protected-brand classification is deliberately not a loading or image-generation gate. It remains enforced at claims, approval, activation, public storefront, Shopier, advertising, and external dispatch boundaries.
 
-Main remaining reason: single-product readiness is strong, D-353/D-354 provide read-only catalog/category visibility, D-387 adds `/loadplan` as a combined daily loading/fix plan, D-388 adds `npm run smoke:load-plan:read -- --confirm-read-only` for real-Payload load-plan preflight, D-389 adds `/smokeplan` as the safe live-smoke checklist, D-425 makes `/loadplan` worklist rows point to `/productflow <ref>` before manual follow-up, D-427 also prints the exact `npm run smoke:product-flow:read -- --product=<ref> --confirm-read-only` command for the same product, D-355 structured Image QC is implemented, D-356A adds a guarded Shopier/Web queue path plus read-only `/shopier dashboard`, first-pass `/shopier errors` triage, `/shopier retry-errors` safe retry preview, and `npm run smoke:shopier:read` read-only runtime smoke support, D-356B adds a read-only Payload admin Shopier Queue Gate for the current product, D-400 adds a read-only Shopier dashboard batch review sample, D-428 adds `/productflow <ref>` and exact `smoke:product-flow:read -- --product=<ref> --confirm-read-only` handoffs to those Shopier dashboard rows, D-429 adds the same handoffs to `/shopier publish-ready` and `/shopier retry-errors` previews while keeping confirm credential-gated, D-430 makes `/smokeplan` pause on those Shopier row handoffs before any Shopier confirm action, D-431 makes `/smokeplan` pause again for credential/webhook readiness before final queue approval, and Phase 2/3 now has `/productflow` plus `npm run smoke:product-flow:read` for read-only per-product flow diagnostics. D-355 DB schema drift is resolved as of the 2026-07-02 read-only schema smoke. Sustained 30-50 products/day still needs live operator smoke of the Telegram product-flow/Shopier commands, Shopier credentials verified before queueing, and retry/error visibility proven in operator use.
+## Safe scaling rule
 
-## Bottlenecks
-
-- Operator confirmation still collects price, category, size/stock, brand, and channel targets.
-- AI image generation now targets a stronger studio pack, and Image QC has structured PASS/REVIEW/FAIL tracking. Operators still need to visually judge generated images before approving PASS.
-- Content and audit are useful, but can slow batch listing unless "listable product" and "fully enriched product" are separated.
-- Category fill targets now have a read-only strategy report (`/categoryfill [limit]`) and a combined read-only daily loading plan (`/loadplan [limit]`), but the operator still needs to load/finish products against those targets.
-- Batch activation exists, and Shopier batch queueing now has a preview/confirm guard plus read-only dashboard, first-pass error triage, safe retry preview/confirm, and per-product admin gate visibility. Broader batch publishing should still wait for live smoke and any operator-visibility polish found necessary.
-
-## Most Likely Blockers
-
-- missing price
-- missing category
-- missing usable original or generated media
-- missing sellable size/stock
-- missing active channel target
-- missing stock number
-- confirmation/content/audit not complete
-- brand-safety block
-- image-QC pending or failed
-
-## Next Step
-
-D-353 Bulk Product QA is now implemented read-only via `src/lib/catalogQa.ts`, `src/lib/catalogQa.test.ts`, and the Telegram operator command `/catalogqa [limit]`.
-
-Use it before loading larger batches to see status/source/category distribution, derived lifecycle, missing-field counts, readiness blockers, image-QC pending/rejected, content/audit pending, Shopier queue/error/sync state, brand-safety blocked, draft age, and last updated time.
-
-Next focus is using `/smokeplan` to guide the live-smoke order, then `smoke:load-plan:read` and `/loadplan` for the daily catalog loading/fix order, using each worklist row's exact `smoke:product-flow:read -- --product=<ref> --confirm-read-only` and `/productflow <ref>` handoffs before manual fixes. D-426 makes `/smokeplan` run that worklist-selected product-flow preflight before provider diagnostics. Then continue D-356 Shopier/Web Publish Batch Control: live-smoke `/productflow`, `/shopier dashboard`, `/shopier publish-ready`, `/shopier errors`, and `/shopier retry-errors`, using the D-428/D-429 dashboard and preview row product-flow handoffs before queue/retry decisions, the D-430 `/smokeplan` handoff hold before any confirm action, and the D-431 credential/webhook hold before queue approval; verify Shopier credentials before any confirm queueing, then decide whether the Telegram dashboard batch review sample is enough or a broader Payload admin batch review surface is still needed. Do not add broad batch mutation/publish or ads until this is operator-safe.
+Scale catalog loading after P0 security and image-correctness gaps are resolved or explicitly risk-accepted. Continue preview-first, read-only operator diagnostics before confirmed queue, publish, redispatch, provider, or ad actions.

@@ -1,0 +1,98 @@
+{
+  "inventoryVersion": "gps-candidate-inventory-v1.0.0",
+  "generatedAt": "2026-07-26T12:00:00+03:00",
+  "scanScope": "Repository-local raster images outside node_modules, .git, and the primary .next build output",
+  "candidateCount": 8,
+  "provisionalQualifyingCount": 1,
+  "operatorApprovedCount": 0,
+  "candidates": [
+    {
+      "path": "public/products/kahve-deri.jpg",
+      "sha256": "cf5d4f1442cbeb27d1757ce8887af3e78cd070093a42c252e0f12dcec2f5d418",
+      "bytes": 68906,
+      "width": 1300,
+      "height": 1950,
+      "detectedFormat": "webp",
+      "candidateFamily": "sneaker_lifestyle",
+      "disposition": "materialized_needs_operator_review",
+      "reason": "Tracked product-path asset introduced by a real-image integration commit; no generated provenance, screenshot framing, PII, or EXIF found. Rights, own-product linkage, and originality still require human confirmation."
+    },
+    {
+      "path": "public/hero/hero-monk.jpg",
+      "sha256": "0313e1b2d0cdfda26262a9116c8feafad6d7982d98c6ef10e11d8bbc838b7ac7",
+      "bytes": 182687,
+      "width": 1600,
+      "height": 2000,
+      "detectedFormat": "jpeg",
+      "candidateFamily": "loafer",
+      "disposition": "excluded_unverified_hero_asset",
+      "reason": "Used as storefront decoration; no product-record linkage, rights note, or original-reference provenance. Visible branding also requires operator verification."
+    },
+    {
+      "path": "public/hero/hero-pennyloafer.jpg",
+      "sha256": "031ce20c0fdef22f06ebd0467ca69ef65418a9398cc6ba677c87a14acad93a94",
+      "bytes": 220640,
+      "width": 1600,
+      "height": 1066,
+      "detectedFormat": "jpeg",
+      "candidateFamily": "loafer",
+      "disposition": "excluded_unverified_hero_asset",
+      "reason": "Storefront lifestyle decoration with visible third-party brand text and no owned-product linkage or rights provenance."
+    },
+    {
+      "path": "public/hero/hero-side-cognac.jpg",
+      "sha256": "dab25333d0ecb0fc36df7279386688d184018d48f765188a4e1d728907fac882",
+      "bytes": 127143,
+      "width": 1600,
+      "height": 902,
+      "detectedFormat": "jpeg",
+      "candidateFamily": "formal_lace_up",
+      "disposition": "excluded_unverified_hero_asset",
+      "reason": "Storefront decoration with no product-record linkage, source rights, or original-reference provenance."
+    },
+    {
+      "path": "public/hero/hero-side-loafer.jpg",
+      "sha256": "2ebdc9f9b51e8ce40a89c765a977ed5ce0df407769d0b3e4ccaf3e27db396f9d",
+      "bytes": 136820,
+      "width": 1600,
+      "height": 2400,
+      "detectedFormat": "jpeg",
+      "candidateFamily": "loafer",
+      "disposition": "excluded_unverified_hero_asset",
+      "reason": "Storefront decoration with no product-record linkage, source rights, or original-reference provenance."
+    },
+    {
+      "path": "public/hero/hero-side-wingtip.jpg",
+      "sha256": "c711d115307be9313dc673ebe99f497f9e8d7b53f0a3ec8b304a66df5e1279d2",
+      "bytes": 174104,
+      "width": 1600,
+      "height": 1066,
+      "detectedFormat": "jpeg",
+      "candidateFamily": "formal_lace_up",
+      "disposition": "excluded_unverified_hero_asset",
+      "reason": "Storefront decoration with no product-record linkage or original-reference provenance; visible insole branding needs rights review."
+    },
+    {
+      "path": "public/hero/hero-suedegold.jpg",
+      "sha256": "edbc8fa0e32653a7bdb94291df9c0cd672c560dc30de91d0d53ff730b1cf3942",
+      "bytes": 97071,
+      "width": 1600,
+      "height": 954,
+      "detectedFormat": "jpeg",
+      "candidateFamily": "loafer",
+      "disposition": "excluded_unverified_hero_asset",
+      "reason": "Visually useful bit-loafer example but only linked as storefront decoration; source rights and owned-product linkage are undocumented."
+    },
+    {
+      "path": "public/hero/hero-suede-side.jpg",
+      "sha256": "8de3a83011aed0b3c34095aca2d7d1e398b03b9d608045bbe5dcadf72e7554fd",
+      "bytes": 101476,
+      "width": 1600,
+      "height": 2400,
+      "detectedFormat": "jpeg",
+      "candidateFamily": "loafer",
+      "disposition": "excluded_unverified_hero_asset",
+      "reason": "Lifestyle storefront decoration includes a person and has no product-record linkage, rights note, or original-reference provenance."
+    }
+  ]
+}

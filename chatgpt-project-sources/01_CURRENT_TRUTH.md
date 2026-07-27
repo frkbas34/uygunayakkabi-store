@@ -1,6 +1,6 @@
 # Current Truth
 
-Verified 2026-07-26 from the checkout, a fresh `origin` fetch, package scripts, local validation, and the operator's subsequent strategic decision.
+Verified 2026-07-27 from the checkout, fresh `origin` metadata, local validation, authenticated control-plane checks, and passive production verification.
 
 ## Product and scope
 
@@ -20,13 +20,13 @@ Dolap and Threads are retired. SupplierScout is dormant. The protected-brand cat
 
 Next/Payload executes commerce workflows. Telegram is the primary operator workspace. Hermes is the current agent-control layer; Mentix/Uygunops is the Telegram-facing operator identity. OpenClaw is historical/optional unless explicitly reactivated. n8n is optional fallback glue, not the default workflow. Shopier remains the checkout/sales bridge; website-native checkout is deferred.
 
-Authenticated Vercel remediation evidence proves Production, Preview, and Development each have exact `PAYLOAD_DB_PUSH=false` and one shared pooled `DATABASE_URI` record now uses a restricted replacement runtime role. Production aliases serve READY deployment `dpl_7Qo8AUvrTcs4RbThdyaG6TGzEiCf`; READY deployment `dpl_8LtCEGe3ssrwGcf47grCwz3WQWZR` is the replacement-credential rollback candidate. Both are Vercel Redeploy results from unchanged old commit `8adfd1b955baf534da2b20595e6cdd2a407438fe`, not local workspace deployments. The reviewed Image Slot Lineage expansion is `ALL_SEVEN_COLUMNS_PRESENT_COMPATIBLE`; storefront/admin checks and passive logs remain healthy.
+Authenticated Vercel evidence proves Production, Preview, and Development each have exact `PAYLOAD_DB_PUSH=false` and the shared pooled `DATABASE_URI` uses the restricted replacement runtime role. Production aliases serve READY remote-Git deployment `dpl_EtChj9RhyqpAuy3M7C18BdX24Mnz` at exact durable-runtime commit `e0b60f6c83f6fa6d59dd6647558eca6883acb341`. READY old-runtime deployments `dpl_7Qo8AUvrTcs4RbThdyaG6TGzEiCf` and `dpl_8LtCEGe3ssrwGcf47grCwz3WQWZR` remain rollback candidates. The production Image Slot Lineage schema is `ALL_SEVEN_COLUMNS_PRESENT_COMPATIBLE`; storefront/admin checks and passive logs are healthy.
 
 ## Current focus
 
 Telegram-first commerce is the immediate engineering direction. Operator flow, intake, commands, image generation, approvals, publishing, diagnostics, long-running task visibility, summaries, and productivity are evaluated through Telegram first. Image generation is the highest-priority subsystem.
 
-The local runtime now has the Pure Metadata Contracts and Durable Slot Identity V1 foundation. `image-slot-contract/v1` assigns stable semantic IDs to the unchanged five slots, creates one immutable `iga_…` attempt ID per execution, persists one failure-preserving record per requested slot before provider work, associates new generated Media with job/attempt/slot lineage, and projects complete legacy jobs into the existing preview/approval order. Partial legacy records remain readable but are labeled slot-unknown instead of guessed. Provider bytes are wrapped at the orchestration boundary; prompts, cameras, slot purposes/count, provider selection, deterministic transforms, and visual quality behavior were not redesigned.
+The production runtime now has the Pure Metadata Contracts and Durable Slot Identity V1 foundation. `image-slot-contract/v1` assigns stable semantic IDs to the unchanged five slots, creates one immutable `iga_…` attempt ID per execution, persists one failure-preserving record per requested slot before provider work, associates new generated Media with job/attempt/slot lineage, and projects complete legacy jobs into the existing preview/approval order. Partial legacy records remain readable but are labeled slot-unknown instead of guessed. Provider bytes are wrapped at the orchestration boundary; prompts, cameras, slot purposes/count, provider selection, deterministic transforms, and visual quality behavior were not redesigned.
 
 The operator rejected the earlier protected-brand image-generation gate recommendation. Image generation must work for every product with a valid reference input. Brand classification remains relevant to product/authenticity claims, human approval, activation, publishing, advertising, Shopier, and external dispatch, but must never prevent AI image generation.
 
@@ -49,5 +49,5 @@ Credential replacement evidence is recorded in `project-control/NEON_CREDENTIAL_
 - Local environment readiness is not production provider readiness.
 - The corrected strict-isolation WSL schema-harness rehearsal passed with SQL hash `06191F19…961E2`; this proves the governed transaction/compatibility harness, not full application or production compatibility. No application or production database was changed.
 - Schema-push control-plane remediation remains `PRODUCTION_PAYLOAD_SCHEMA_PUSH_CONTROL_PLANE_SAFE`. One pooled Neon `DATABASE_URI` still spans development, preview, and production scopes; it now uses the restricted replacement runtime role. The sharing remains an isolation decision for later review.
-- Expansion classification: `PRODUCTION_EXPANSION_APPLIED_ROLLOUT_BLOCKED` is superseded by `NEON_CREDENTIAL_REPLACEMENT_PASS`. Production schema remains `ALL_SEVEN_COLUMNS_PRESENT_COMPATIBLE`; the credential exception is closed and unchanged-old-runtime health is renewed.
-- Exact next task: `PUSH AND DEPLOY DURABLE IMAGE SLOT IDENTITY RUNTIME V1`. The durable runtime is still unpushed and undeployed and needs its own explicit push/deployment authorization.
+- Expansion and credential blockers are superseded by `DURABLE_SLOT_RUNTIME_DEPLOYMENT_PASS`. Production schema remains `ALL_SEVEN_COLUMNS_PRESENT_COMPATIBLE`; exact commit `e0b60f6` is active while both old-runtime rollback deployments remain READY.
+- Exact next task: `CONTROLLED PRODUCTION DURABLE SLOT IDENTITY SMOKE V1`. Provider and end-to-end image workflow behavior is not yet production-smoke-proven.

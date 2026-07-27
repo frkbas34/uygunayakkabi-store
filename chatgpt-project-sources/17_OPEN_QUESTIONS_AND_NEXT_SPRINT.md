@@ -5,7 +5,7 @@ Current as of 2026-07-26. This is a prioritized decision list, not a milestone l
 ## P0 — Telegram and image correctness
 
 1. Define a fail-closed production policy for webhook secret, DM/group allowlists, and callback actions. Callback payload ownership must not substitute for operator authorization.
-2. Push and deploy the Durable Image Slot Identity runtime under a separate explicit authorization. The exact seven-column migration is `ALL_SEVEN_COLUMNS_PRESENT_COMPATIBLE`; credential replacement is `NEON_CREDENTIAL_REPLACEMENT_PASS`; the exposed and former active owner credentials fail; and two replacement-credential deployments of the unchanged old runtime are READY. The local durable runtime remains unpushed and undeployed.
+2. Run `CONTROLLED PRODUCTION DURABLE SLOT IDENTITY SMOKE V1` under separate explicit authorization. Deployment `dpl_EtChj9RhyqpAuy3M7C18BdX24Mnz` serves exact durable-runtime commit `e0b60f6`, passive health passes, and the schema remains `ALL_SEVEN_COLUMNS_PRESENT_COMPATIBLE`; provider and end-to-end image workflow behavior is not yet production-smoke-proven.
 3. Remove the rejected protected-brand generation helper/test and brand-first generation advice without weakening claims, approval, activation, publishing, advertising, Shopier, or dispatch guards.
 4. Define cleanup ownership and recoverability for rejected, regenerated, failed-save, partial-approval, and otherwise orphaned generated Media.
 
@@ -45,10 +45,9 @@ Current as of 2026-07-26. This is a prioritized decision list, not a milestone l
 - Which drift dimensions may eventually block preview, and which must remain advisory to the human operator?
 - What pack completeness and generated-Media retention policy should apply after partial slot failure or targeted regeneration?
 - When should the protected-brand catalog review backlog reopen?
-- Is preview intentionally allowed to use the same Neon target as production, or must it be isolated before the lineage runtime is pushed?
-- Who will approve the exact production target fingerprint, fresh PITR recovery point, low-traffic writer hold, apply operator, verification operator, and rollback operator for the separately authorized expansion?
+- Is preview intentionally allowed to use the same Neon target as production, or should it be isolated before broader runtime smoke and iteration?
 - When should Preview/Development database isolation replace the intentionally shared pooled production target now that the runtime credential is least-privilege?
 
 ## Exact recommended next task
 
-**PUSH AND DEPLOY DURABLE IMAGE SLOT IDENTITY RUNTIME V1**: under a new explicit authorization, push the reviewed local runtime chain, deploy it against the already compatible seven-column schema and restricted replacement database credential, verify the durable identity path and Telegram/operator health, and retain the nullable columns plus the unchanged-old-runtime rollback deployment. Do not combine this evidence checkpoint with runtime implementation or any unrelated cleanup.
+**CONTROLLED PRODUCTION DURABLE SLOT IDENTITY SMOKE V1**: under a new explicit authorization, exercise the smallest end-to-end durable attempt/slot path against the deployed `e0b60f6` runtime, prove exact job/attempt/slot lineage and Telegram/operator presentation, avoid publishing or external dispatch, and retain the nullable columns plus READY old-runtime rollback deployments. Do not combine the smoke with prompt, camera, provider, quality, or unrelated implementation changes.

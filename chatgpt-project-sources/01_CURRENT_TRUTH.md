@@ -20,7 +20,7 @@ Dolap and Threads are retired. SupplierScout is dormant. The protected-brand cat
 
 Next/Payload executes commerce workflows. Telegram is the primary operator workspace. Hermes is the current agent-control layer; Mentix/Uygunops is the Telegram-facing operator identity. OpenClaw is historical/optional unless explicitly reactivated. n8n is optional fallback glue, not the default workflow. Shopier remains the checkout/sales bridge; website-native checkout is deferred.
 
-Authenticated Vercel remediation evidence proves Production, Preview, and Development each have exact `PAYLOAD_DB_PUSH=false`. Production aliases serve READY deployment `dpl_3YCzMcvfLu4jJmTW8caJRncuftxY`, still on old commit `8adfd1b955baf534da2b20595e6cdd2a407438fe`. The reviewed Image Slot Lineage expansion has now committed to production while this old runtime stayed active. Independent catalog verification classifies the schema as `ALL_SEVEN_COLUMNS_PRESENT_COMPATIBLE`; narrow storefront/admin checks and passive logs remained healthy.
+Authenticated Vercel remediation evidence proves Production, Preview, and Development each have exact `PAYLOAD_DB_PUSH=false` and one shared pooled `DATABASE_URI` record now uses a restricted replacement runtime role. Production aliases serve READY deployment `dpl_7Qo8AUvrTcs4RbThdyaG6TGzEiCf`; READY deployment `dpl_8LtCEGe3ssrwGcf47grCwz3WQWZR` is the replacement-credential rollback candidate. Both are Vercel Redeploy results from unchanged old commit `8adfd1b955baf534da2b20595e6cdd2a407438fe`, not local workspace deployments. The reviewed Image Slot Lineage expansion is `ALL_SEVEN_COLUMNS_PRESENT_COMPATIBLE`; storefront/admin checks and passive logs remain healthy.
 
 ## Current focus
 
@@ -36,6 +36,8 @@ The 2026-07-26 audit passed `npm run typecheck`, `npm run lint`, `npm run valida
 
 Production expansion evidence is recorded in `project-control/IMAGE_SLOT_LINEAGE_PRODUCTION_EXPANSION_V1.md`. Immediately before DDL, the approved fingerprint and `ALL_SEVEN_COLUMNS_ABSENT` classification matched, the writer/lock gate was clear, and the rolling 6-hour PITR marker was current. The guarded helper committed the exact seven-column migration once in 1,307 ms. A separate strict read-only transaction produced post-expansion fingerprint `144383bd...e5b1`, found zero target indexes/FKs and no unrelated column-schema change, and rolled back. No application rows, Git push, or runtime deployment occurred.
 
+Credential replacement evidence is recorded in `project-control/NEON_CREDENTIAL_REPLACEMENT_V1.md`. The transcript value was a stale migration/control-plane credential for the same retained owner role, not the active Vercel password. A new non-superuser runtime login has explicit public-schema DML/sequence access, no managed-role membership, no elevated role attributes, and no ownership. Only Vercel `DATABASE_URI` changed across Production, Preview, and Development; unrelated environment metadata was unchanged. Neon’s managed owner cannot be set `NOLOGIN`, so its password was reset and discarded through the signed-in control plane. The exposed and former active owner credentials now fail with `28P01`; replacement direct/pooled access and both unchanged-runtime deployments remain healthy.
+
 ## Current blockers
 
 - Telegram webhook verification and empty allowlists can fail open.
@@ -46,6 +48,6 @@ Production expansion evidence is recorded in `project-control/IMAGE_SLOT_LINEAGE
 - The Telegram route is a 7,820-line monolith with command ownership, callbacks, reads, and mutations in one handler.
 - Local environment readiness is not production provider readiness.
 - The corrected strict-isolation WSL schema-harness rehearsal passed with SQL hash `06191F19…961E2`; this proves the governed transaction/compatibility harness, not full application or production compatibility. No application or production database was changed.
-- Schema-push control-plane remediation remains `PRODUCTION_PAYLOAD_SCHEMA_PUSH_CONTROL_PLANE_SAFE`. One pooled Neon `DATABASE_URI` still spans development, preview, and production scopes; the sharing is now proven and remains an isolation decision for later review.
-- Expansion classification: `PRODUCTION_EXPANSION_APPLIED_ROLLOUT_BLOCKED`; production schema classification: `ALL_SEVEN_COLUMNS_PRESENT_COMPATIBLE`. The schema and old runtime passed, but direct connection material appeared once in the private task transcript and was not rotated because rotation was outside the authorization. Runtime rollout remains blocked pending separately authorized credential remediation and renewed production-health approval.
-- Exact next task: `DIAGNOSE POST-EXPANSION PRODUCTION HEALTH`. No runtime push or deployment is authorized by the expansion checkpoint.
+- Schema-push control-plane remediation remains `PRODUCTION_PAYLOAD_SCHEMA_PUSH_CONTROL_PLANE_SAFE`. One pooled Neon `DATABASE_URI` still spans development, preview, and production scopes; it now uses the restricted replacement runtime role. The sharing remains an isolation decision for later review.
+- Expansion classification: `PRODUCTION_EXPANSION_APPLIED_ROLLOUT_BLOCKED` is superseded by `NEON_CREDENTIAL_REPLACEMENT_PASS`. Production schema remains `ALL_SEVEN_COLUMNS_PRESENT_COMPATIBLE`; the credential exception is closed and unchanged-old-runtime health is renewed.
+- Exact next task: `PUSH AND DEPLOY DURABLE IMAGE SLOT IDENTITY RUNTIME V1`. The durable runtime is still unpushed and undeployed and needs its own explicit push/deployment authorization.

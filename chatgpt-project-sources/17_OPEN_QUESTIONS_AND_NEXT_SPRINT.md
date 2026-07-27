@@ -5,7 +5,7 @@ Current as of 2026-07-26. This is a prioritized decision list, not a milestone l
 ## P0 — Telegram and image correctness
 
 1. Define a fail-closed production policy for webhook secret, DM/group allowlists, and callback actions. Callback payload ownership must not substitute for operator authorization.
-2. Diagnose the post-expansion production boundary. The exact seven-column migration committed and verifies as `ALL_SEVEN_COLUMNS_PRESENT_COMPATIBLE`; the old runtime stayed healthy. Runtime rollout is blocked until the direct-connection credential that appeared once in the private task transcript is separately rotated and the Vercel/Neon/runtime gates are renewed.
+2. Push and deploy the Durable Image Slot Identity runtime under a separate explicit authorization. The exact seven-column migration is `ALL_SEVEN_COLUMNS_PRESENT_COMPATIBLE`; credential replacement is `NEON_CREDENTIAL_REPLACEMENT_PASS`; the exposed and former active owner credentials fail; and two replacement-credential deployments of the unchanged old runtime are READY. The local durable runtime remains unpushed and undeployed.
 3. Remove the rejected protected-brand generation helper/test and brand-first generation advice without weakening claims, approval, activation, publishing, advertising, Shopier, or dispatch guards.
 4. Define cleanup ownership and recoverability for rejected, regenerated, failed-save, partial-approval, and otherwise orphaned generated Media.
 
@@ -47,8 +47,8 @@ Current as of 2026-07-26. This is a prioritized decision list, not a milestone l
 - When should the protected-brand catalog review backlog reopen?
 - Is preview intentionally allowed to use the same Neon target as production, or must it be isolated before the lineage runtime is pushed?
 - Who will approve the exact production target fingerprint, fresh PITR recovery point, low-traffic writer hold, apply operator, verification operator, and rollback operator for the separately authorized expansion?
-- Who will authorize Neon credential rotation and the corresponding Vercel target update before runtime rollout?
+- When should Preview/Development database isolation replace the intentionally shared pooled production target now that the runtime credential is least-privilege?
 
 ## Exact recommended next task
 
-**DIAGNOSE POST-EXPANSION PRODUCTION HEALTH**: preserve the compatible seven-column expansion and the healthy old runtime; review the recorded connection-handling exception, obtain separate credential-rotation authority, renew the Vercel/Neon/runtime gates, and decide whether the durable runtime can proceed to a separately authorized push/deployment task. Do not drop columns or deploy while the rollout block remains.
+**PUSH AND DEPLOY DURABLE IMAGE SLOT IDENTITY RUNTIME V1**: under a new explicit authorization, push the reviewed local runtime chain, deploy it against the already compatible seven-column schema and restricted replacement database credential, verify the durable identity path and Telegram/operator health, and retain the nullable columns plus the unchanged-old-runtime rollback deployment. Do not combine this evidence checkpoint with runtime implementation or any unrelated cleanup.

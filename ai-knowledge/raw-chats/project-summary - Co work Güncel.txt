@@ -391,7 +391,7 @@ Added Telegram bot env vars (currently empty, user needs to fill):
 TELEGRAM_BOT_TOKEN=
 TELEGRAM_WEBHOOK_SECRET=
 TELEGRAM_CHAT_ID=
-Database: DATABASE_URI=postgresql://neondb_owner:npg_Z0jMdR1kOxvV@ep-green-cherry-alkvsl14-pooler.c-3.eu-central-1.aws.neon.tech/neondb?sslmode=require**src/app/(payload)/admin/importMap.js** (auto-generated, different from importMap.ts)
+Database: DATABASE_URI=[REDACTED_NEON_DATABASE_URI] (auto-generated, different from importMap.ts)
 Only has CollectionCards — this is what Payload auto-generated when it ranOur importMap.ts is more complete and is the one used by (payload)/layout.tsx**next.config.ts**
 Has images.unsplash.com in remotePatterns (added previously)serverExternalPackages: ['graphql']**src/app/api/telegram/route.ts** (already existed in repo)
 Full Telegram webhook handler for product creation (photo + caption format) and stock updates (STOCK SKU: command)**src/lib/telegram.ts** (already existed in repo)

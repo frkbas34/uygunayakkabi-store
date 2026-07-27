@@ -5,7 +5,7 @@ Current as of 2026-07-26. This is a prioritized decision list, not a milestone l
 ## P0 — Telegram and image correctness
 
 1. Define a fail-closed production policy for webhook secret, DM/group allowlists, and callback actions. Callback payload ownership must not substitute for operator authorization.
-2. Separately authorize and run `APPLY PRODUCTION IMAGE SLOT LINEAGE EXPANSION V1`. V2 proved the Neon production/default target, PostgreSQL 17.10, the direct endpoint, a rolling 6-hour PITR window and current recovery point, strict read-only catalog access, and `ALL_SEVEN_COLUMNS_ABSENT`. Refresh every gate and the recovery point immediately before DDL; keep the old runtime active.
+2. Diagnose the post-expansion production boundary. The exact seven-column migration committed and verifies as `ALL_SEVEN_COLUMNS_PRESENT_COMPATIBLE`; the old runtime stayed healthy. Runtime rollout is blocked until the direct-connection credential that appeared once in the private task transcript is separately rotated and the Vercel/Neon/runtime gates are renewed.
 3. Remove the rejected protected-brand generation helper/test and brand-first generation advice without weakening claims, approval, activation, publishing, advertising, Shopier, or dispatch guards.
 4. Define cleanup ownership and recoverability for rejected, regenerated, failed-save, partial-approval, and otherwise orphaned generated Media.
 
@@ -47,7 +47,8 @@ Current as of 2026-07-26. This is a prioritized decision list, not a milestone l
 - When should the protected-brand catalog review backlog reopen?
 - Is preview intentionally allowed to use the same Neon target as production, or must it be isolated before the lineage runtime is pushed?
 - Who will approve the exact production target fingerprint, fresh PITR recovery point, low-traffic writer hold, apply operator, verification operator, and rollback operator for the separately authorized expansion?
+- Who will authorize Neon credential rotation and the corresponding Vercel target update before runtime rollout?
 
 ## Exact recommended next task
 
-**APPLY PRODUCTION IMAGE SLOT LINEAGE EXPANSION V1**: refresh the V2 control-plane, direct-target, schema, workload, and rolling recovery-point gates; obtain explicit production DDL approval; apply the reviewed hash through the guarded direct-endpoint helper once; verify the exact seven-column shape while keeping the old runtime active. Do not push or deploy the lineage runtime in the expansion task.
+**DIAGNOSE POST-EXPANSION PRODUCTION HEALTH**: preserve the compatible seven-column expansion and the healthy old runtime; review the recorded connection-handling exception, obtain separate credential-rotation authority, renew the Vercel/Neon/runtime gates, and decide whether the durable runtime can proceed to a separately authorized push/deployment task. Do not drop columns or deploy while the rollout block remains.

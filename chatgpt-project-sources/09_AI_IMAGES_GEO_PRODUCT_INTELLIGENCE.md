@@ -16,6 +16,8 @@ The committed runtime is not deployment-ready against the old schema. `project-c
 
 Protected-brand classification must never block generation. The active task already bypasses the unused blocking helper. Brand safety still applies to claims, operator approval, activation, publishing, advertising, Shopier, and external dispatch. Visible-mark checks inside the provider path are reference-fidelity evaluators, not classification gates.
 
+Production expansion update: the governed helper committed the exact reviewed seven-column SQL once while the old runtime stayed active. Independent catalog verification produced fingerprint `144383bd...e5b1`, classified `ALL_SEVEN_COLUMNS_PRESENT_COMPATIBLE`, and found no target indexes/FKs or unrelated column-schema change. Production, Preview, and Development remain exact `PAYLOAD_DB_PUSH=false`. The local durable runtime is still undeployed; rollout is blocked by the credential-handling exception in `project-control/IMAGE_SLOT_LINEAGE_PRODUCTION_EXPANSION_V1.md`, not by the production schema shape. This paragraph supersedes the earlier pre-expansion status above.
+
 Known bottlenecks:
 
 - A clean five-slot run uses roughly 13 serial provider calls and can rise toward 33 with visible-zone checks and one retry per slot; most calls lack explicit timeouts.

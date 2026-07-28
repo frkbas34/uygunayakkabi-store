@@ -5,9 +5,9 @@ This roadmap reflects the 2026-07-26 Telegram-first, image-first operator decisi
 ## P0 — security and image correctness
 
 1. Characterize all Telegram message and callback authorization paths, then make production webhook, DM, group, and callback access fail closed while preserving an explicit local-development policy.
-2. Run the controlled production `image-slot-contract/v1` smoke on the documented clean fixture only under separate live authorization; schema expansion and runtime deployment are complete, but provider and end-to-end behavior are not yet smoke-proven.
+2. Design the additive lifecycle/hold/event contract and recoverable-quarantine foundation. The policy census is complete, but no quarantine, restore, cleanup batch, tombstone, or physical worker exists.
 3. Remove rejected protected-brand generation restrictions and blocking assertions. Preserve brand safety for claims, human approval, activation, publishing, advertising, Shopier, and external dispatch.
-4. Define recoverable retention for rejected, regenerated, failed-save, and partially approved generated Media. Read-only triage now identifies 43 legacy preview sets pending exact operator decisions and one invalid-reference failure-evidence set; none is deletion-approved.
+4. Obtain explicit operator decisions for retention durations, evidence-release ownership, quarantine visibility, restore guarantees, and exact-manifest authorization. The Balanced proposal is not enforced; current quarantine and physical-cleanup candidate counts are both zero.
 5. Verify production database/provider/webhook state only with separate operator approval. Local tests and environment-name checks are not provider proof.
 
 ## P1 — image platform foundation

@@ -16,6 +16,8 @@ Complete new runs retain the existing five-slot preview order. New approval butt
 
 `project-control/CONTROLLED_PRODUCTION_DURABLE_SLOT_IDENTITY_SMOKE_V1.md` records the first controlled end-to-end production proof. Product 349 / `SN0117` used the real private Uygunops DM and produced exactly one Job 428, one immutable attempt, five first-attempt successes, and generated Media 1951-1955 with exact semantic lineage. The clean path used 18 derived model calls: validation, identity extraction, five generations, five color checks, five visible-identity checks, and side orientation. The private album and keyboard succeeded. Exact manual rejection made the job terminal without a second attempt, post-rejection provider call, gallery attachment, publishing, Shopier action, or evidence deletion. Structural result: `COMPLETE_FIVE_SLOT_SUCCESS`; primary result: `CONTROLLED_DURABLE_SLOT_SMOKE_PASS`.
 
+`generated-media-retention/v1` now separates logical, relationship, retention, physical, and evidence state. The pure classifier recognizes permanent assets, pending decisions, rejected/superseded recoverable outputs, failure/smoke evidence, orphan review, legacy manual review, and post-quarantine candidates; every path returns `physicalDeleteAuthorization=false`. The production census covers 527 generated Media and 127 jobs, with 513 historical Media missing complete V1 lineage, 136 manual-review records, and zero quarantine or physical-cleanup candidates. The next layer is a separately designed additive recoverable-quarantine foundation, not cleanup execution.
+
 Protected-brand classification must never block generation. The active task already bypasses the unused blocking helper. Brand safety still applies to claims, operator approval, activation, publishing, advertising, Shopier, and external dispatch. Visible-mark checks inside the provider path are reference-fidelity evaluators, not classification gates.
 
 Production deployment update: the governed expansion remains `ALL_SEVEN_COLUMNS_PRESENT_COMPATIBLE`. Pre/post-deploy strict read-only transactions found all seven exact columns, zero target indexes/FKs, and an unchanged full two-table catalog hash. Production, Preview, and Development remain exact `PAYLOAD_DB_PUSH=false`; the former credential still fails and the replacement credential works. `project-control/DURABLE_IMAGE_SLOT_IDENTITY_RUNTIME_DEPLOYMENT_V1.md` records `DURABLE_SLOT_RUNTIME_DEPLOYMENT_PASS`.
@@ -26,7 +28,7 @@ Known bottlenecks:
 - Provider functions share a shape but there is no formal capability adapter, normalized error/usage model, or cost/latency budget.
 - Prompt blocks overlap and are not independently versioned; camera authority and pair-shot comments disagree with runtime behavior.
 - Comments and labels disagree about three-slot versus five-slot output and the default provider.
-- Rejected/regenerated/partially approved previews can leave orphan Media.
+- Rejected/regenerated/partially approved previews can leave retained Media without persisted lifecycle or supersession decisions; the V1 policy fails these closed and no cleanup automation is enabled.
 - The additive attempt history is stored as structured job JSON rather than normalized attempt/slot collections; regeneration still reuses jobs, and complete targeted-regeneration/history UX is not implemented.
 - `imagePromptBuilder.ts` is legacy and is not the active prompt path.
 - Automatic fidelity checks and deterministic post-processing reduce defects but do not replace human QC.

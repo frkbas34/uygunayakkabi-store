@@ -1,6 +1,6 @@
 # Open Questions and Next Sprint
 
-Current as of 2026-07-26. This is a prioritized decision list, not a milestone ledger.
+Current as of 2026-07-28. This is a prioritized decision list, not a milestone ledger.
 
 ## P0 — Telegram and image correctness
 
@@ -8,6 +8,7 @@ Current as of 2026-07-26. This is a prioritized decision list, not a milestone l
 2. Run `CONTROLLED PRODUCTION DURABLE SLOT IDENTITY SMOKE V1` under separate explicit authorization. Deployment `dpl_EtChj9RhyqpAuy3M7C18BdX24Mnz` serves exact durable-runtime commit `e0b60f6`, passive health passes, and the schema remains `ALL_SEVEN_COLUMNS_PRESENT_COMPATIBLE`; provider and end-to-end image workflow behavior is not yet production-smoke-proven.
 3. Remove the rejected protected-brand generation helper/test and brand-first generation advice without weakening claims, approval, activation, publishing, advertising, Shopier, or dispatch guards.
 4. Define cleanup ownership and recoverability for rejected, regenerated, failed-save, partial-approval, and otherwise orphaned generated Media.
+5. Run `CATALOG MANUAL REVIEW AND ACTIVE IMAGE-JOB RETENTION TRIAGE V1`: 12 conclusive noise/empty drafts are safely archived, but 62 products remain manual review, including 44 active/preview-like jobs and 13 exact-content reference groups. Start with invalid-reference product 406 and do not cancel jobs or detach Media without separate authorization.
 
 ## P1 — image platform and Telegram UX
 
@@ -50,4 +51,4 @@ Current as of 2026-07-26. This is a prioritized decision list, not a milestone l
 
 ## Exact recommended next task
 
-**CONTROLLED PRODUCTION DURABLE SLOT IDENTITY SMOKE V1**: under a new explicit authorization, exercise the smallest end-to-end durable attempt/slot path against the deployed `e0b60f6` runtime, prove exact job/attempt/slot lineage and Telegram/operator presentation, avoid publishing or external dispatch, and retain the nullable columns plus READY old-runtime rollback deployments. Do not combine the smoke with prompt, camera, provider, quality, or unrelated implementation changes.
+**CATALOG MANUAL REVIEW AND ACTIVE IMAGE-JOB RETENTION TRIAGE V1**: under a new explicit authorization, read-only classify the 44 active/preview-like jobs and 13 duplicate-reference groups, beginning with invalid-reference product 406; define canonical-product and Media/job retention decisions and stop before any cancellation, detachment, hard deletion, provider call, or image generation. After that gate, resume `CONTROLLED PRODUCTION DURABLE SLOT IDENTITY SMOKE V1` only with separate live authorization and one of the five documented clean fixtures.

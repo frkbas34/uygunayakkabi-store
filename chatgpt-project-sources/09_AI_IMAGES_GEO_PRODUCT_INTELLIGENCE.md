@@ -39,6 +39,8 @@ The proposed evolution continues with normalized attempt/slot persistence, Media
 
 `project-control/GOLDEN_PRODUCT_SET_V1.md` and `project-control/golden-product-set-v1/` now materialize the local corpus contracts, inventories, failure taxonomy, review protocol, schemas, validator, and one evidence-conservative draft lifestyle-sneaker annotation. Readiness is blocked: 1 draft candidate, 0 operator-approved products, and 0 loafers against the 36-product/12-loafer target. Generated outcomes remain a separate future archive and never define product identity.
 
+`project-control/CATALOG_CLEANUP_AND_IMAGE_TEST_ENVIRONMENT_V1.md` records a separate production-safe development fixture set, not a substitute for the Golden Product Set. Products 334/SN0008, 337/SN0011, 349/`BOS-MPVYVL8Q`, 343/SN0017, and 366/SN0037 are accessible non-public drafts with original references, no active image job, and no pending publish/Shopier action. They cover three loafers, one sneaker, open footwear, and a difficult hand-held retail scene. This documentation-only designation does not authorize provider calls or generation.
+
 ## Product Intelligence and GEO
 
 Product Intelligence can analyze product images/text, use Gemini, optionally perform reverse search through Google Vision, DataForSEO, or SerpAPI, and generate SEO/GEO packs. Missing providers fail soft and must lower confidence honestly.

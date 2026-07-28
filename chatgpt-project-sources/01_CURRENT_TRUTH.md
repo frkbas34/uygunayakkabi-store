@@ -1,6 +1,6 @@
 # Current Truth
 
-Verified 2026-07-27 from the checkout, fresh `origin` metadata, local validation, authenticated control-plane checks, and passive production verification.
+Verified 2026-07-28 from the checkout, fresh `origin` metadata, local validation, authenticated control-plane checks, passive production verification, and the governed catalog cleanup.
 
 ## Product and scope
 
@@ -30,6 +30,8 @@ The production runtime now has the Pure Metadata Contracts and Durable Slot Iden
 
 The operator rejected the earlier protected-brand image-generation gate recommendation. Image generation must work for every product with a valid reference input. Brand classification remains relevant to product/authenticity claims, human approval, activation, publishing, advertising, Shopier, and external dispatch, but must never prevent AI image generation.
 
+The production catalog contains 129 products. A complete dependency and first-reference audit classified 30 `KEEP_ACTIVE`, 20 `KEEP_DRAFT`, 5 `IMAGE_TEST_FIXTURE_CANDIDATE`, 12 `QUARANTINE_CANDIDATE`, 0 `HARD_DELETE_CANDIDATE`, and 62 `MANUAL_REVIEW_REQUIRED`. Twelve conclusive noise/empty drafts are now workflow-archived and homepage-hidden while remaining draft; six stale visual states backed only by terminal jobs were corrected from `generating` to `rejected`. No product, Media, job, order, inquiry, or lineage record was deleted. The five-product documentation-governed test set is 334/SN0008, 337/SN0011, 349/`BOS-MPVYVL8Q`, 343/SN0017, and 366/SN0037; designation does not authorize generation.
+
 ## Verified health boundary
 
 The 2026-07-26 audit passed `npm run typecheck`, `npm run lint`, `npm run validate`, `npm run build`, `npm run test:ad-performance`, `npm run test:openclaw-vps-verification`, and `npm run test:shopier-webhook-local`.
@@ -50,4 +52,5 @@ Credential replacement evidence is recorded in `project-control/NEON_CREDENTIAL_
 - The corrected strict-isolation WSL schema-harness rehearsal passed with SQL hash `06191F19…961E2`; this proves the governed transaction/compatibility harness, not full application or production compatibility. No application or production database was changed.
 - Schema-push control-plane remediation remains `PRODUCTION_PAYLOAD_SCHEMA_PUSH_CONTROL_PLANE_SAFE`. One pooled Neon `DATABASE_URI` still spans development, preview, and production scopes; it now uses the restricted replacement runtime role. The sharing remains an isolation decision for later review.
 - Expansion and credential blockers are superseded by `DURABLE_SLOT_RUNTIME_DEPLOYMENT_PASS`. Production schema remains `ALL_SEVEN_COLUMNS_PRESENT_COMPATIBLE`; exact commit `e0b60f6` is active while both old-runtime rollback deployments remain READY.
-- Exact next task: `CONTROLLED PRODUCTION DURABLE SLOT IDENTITY SMOKE V1`. Provider and end-to-end image workflow behavior is not yet production-smoke-proven.
+- Paused live task: `CONTROLLED PRODUCTION DURABLE SLOT IDENTITY SMOKE V1`. Provider and end-to-end image workflow behavior is not yet production-smoke-proven; do not resume it during catalog triage.
+- Catalog cleanup leaves 44 products with active/preview-like image jobs and 13 byte-identical reference groups. Exact next catalog task: `CATALOG MANUAL REVIEW AND ACTIVE IMAGE-JOB RETENTION TRIAGE V1`, beginning with invalid-reference product 406; do not cancel jobs, detach Media, or resume the production smoke without separate authorization.

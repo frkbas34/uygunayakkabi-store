@@ -64,6 +64,7 @@
     "test:image-regeneration-plan": "tsx src/lib/imageRegenerationPlan.test.ts",
     "test:image-slot-contract": "tsx src/lib/imageSlotContract.test.ts",
     "test:image-generation-contracts": "tsx src/lib/imageGenerationContracts.test.ts",
+    "test:visual-quality-fast-track": "tsx scripts/visual-quality-fast-track-governance.ts",
     "test:generated-media-retention-policy": "tsx src/lib/generatedMediaRetentionPolicy.test.ts",
     "test:generated-media-retention-dry-run": "tsx scripts/generated-media-retention-dry-run-governance.ts",
     "dryrun:generated-media-retention": "tsx scripts/generated-media-retention-dry-run.ts",

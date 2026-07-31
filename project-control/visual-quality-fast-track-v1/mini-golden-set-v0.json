@@ -1,0 +1,228 @@
+{
+  "schemaVersion": "visual-quality-mini-golden-set/v0",
+  "capturedAt": "2026-08-01T01:35:00+03:00",
+  "scope": {
+    "productCount": 5,
+    "evaluatedBaselinePackCount": 3,
+    "newProductionAttemptCount": 2,
+    "imageBinariesStoredInGit": false
+  },
+  "sourcePolicy": "Production Media identifiers are private project-control evidence. Visual facts describe only what was directly visible in the reviewed originals; unknown regions remain unknown.",
+  "fixtures": [
+    {
+      "productId": 349,
+      "stockNumber": "SN0117",
+      "sku": "BOS-MPVYVL8Q",
+      "role": "primary_black_suede_loafer",
+      "lifecycleAtCapture": {
+        "status": "draft",
+        "public": false,
+        "sellable": false,
+        "visualStatus": "rejected"
+      },
+      "referenceMediaIds": [1377, 1378, 1379],
+      "referenceValidation": {
+        "usable": true,
+        "originalMediaOnly": true,
+        "notScreenshot": true,
+        "httpStatus": 200,
+        "views": ["front_three_quarter", "side", "top"],
+        "sufficiency": "high"
+      },
+      "visualTruth": {
+        "productFamily": "closed-back loafer",
+        "dominantColor": "black",
+        "materialAppearance": "fine black suede with black lining",
+        "silhouette": "low-profile elongated loafer with closed heel and low white sole",
+        "toeShape": "softly squared rounded toe",
+        "vampLength": "long vamp with a raised central tongue/apron element",
+        "openingShape": "long low oval opening with a closed back",
+        "heelBackForm": "closed, low, lightly structured heel counter",
+        "soleProfile": "low flat white sole with a shallow heel notch",
+        "seamApronStructure": "continuous apron seam around the toe with contrasting light stitch detail",
+        "hardware": "none visible",
+        "ornament": "embroidered BOSS wordmark and paired outlined rectangular motif on the vamp",
+        "visibleUnknownRegions": ["outsole tread", "direct rear seam alignment"],
+        "categoryConfusionRisk": ["mule", "slipper", "moccasin"],
+        "loaferRiskNotes": {
+          "loaferVsMule": "Back must remain closed.",
+          "vampProportion": "Long vamp and raised central element are identity-critical.",
+          "apronSeam": "Toe apron must remain continuous and retain its path.",
+          "strapTasselHardwareTopology": "No tassel or metal hardware; preserve only the embroidered wordmark and twin motif.",
+          "openingBackConstruction": "Low oval opening and closed structured back.",
+          "soleThickness": "Low white sole, not a platform or dress heel.",
+          "toeGeometry": "Soft square-round profile, neither sharply pointed nor broad moccasin."
+        }
+      },
+      "qualityComparisonSuitability": "primary",
+      "baseline": {
+        "jobId": 428,
+        "attemptId": "iga_dea1a935-683e-45b9-b876-8c8e3b74162a",
+        "mediaIds": [1951, 1952, 1953, 1954, 1955]
+      }
+    },
+    {
+      "productId": 334,
+      "stockNumber": "SN0008",
+      "role": "navy_moc_toe_category_confusion_control",
+      "lifecycleAtCapture": {
+        "status": "draft",
+        "public": false,
+        "sellable": false,
+        "visualStatus": "rejected"
+      },
+      "referenceMediaIds": [1315],
+      "referenceValidation": {
+        "usable": true,
+        "originalMediaOnly": true,
+        "notScreenshot": true,
+        "httpStatus": 200,
+        "views": ["side_three_quarter"],
+        "sufficiency": "medium_low"
+      },
+      "visualTruth": {
+        "productFamily": "lace-up moc-toe casual shoe",
+        "dominantColor": "navy blue",
+        "materialAppearance": "matte suede or nubuck-like upper",
+        "silhouette": "closed-back low shoe with apron toe and thick rounded black sole",
+        "toeShape": "broad rounded moc toe",
+        "vampLength": "medium-long apron vamp interrupted by a short lace facing",
+        "openingShape": "closed lace-up opening",
+        "heelBackForm": "closed low heel",
+        "soleProfile": "thick black rounded wedge-like sole",
+        "seamApronStructure": "prominent moc-toe apron seam",
+        "hardware": "dark metal eyelets",
+        "ornament": "none visible",
+        "visibleUnknownRegions": ["top opening geometry", "direct rear", "outsole tread", "opposite side"],
+        "categoryConfusionRisk": ["loafer", "boat shoe", "wallabee", "moccasin"],
+        "classificationNote": "The fixture was historically called a blue loafer, but the reviewed source visibly has laces and eyelets and must not be scored as a literal loafer."
+      },
+      "qualityComparisonSuitability": "baseline_and_taxonomy_control",
+      "baseline": {
+        "jobId": 429,
+        "attemptId": "iga_b5de1c30-9815-436b-b0cb-61eb5d252714",
+        "mediaIds": [1956, 1957, 1958, 1959, 1960]
+      }
+    },
+    {
+      "productId": 337,
+      "stockNumber": "SN0011",
+      "role": "tan_moccasin_loafer_control_not_generated",
+      "lifecycleAtCapture": {
+        "status": "draft",
+        "public": false,
+        "sellable": false,
+        "visualStatus": "approved"
+      },
+      "referenceMediaIds": [1327],
+      "referenceValidation": {
+        "usable": true,
+        "originalMediaOnly": true,
+        "notScreenshot": true,
+        "httpStatus": 200,
+        "views": ["side"],
+        "sufficiency": "medium_low"
+      },
+      "visualTruth": {
+        "productFamily": "tan moccasin or boat-shoe hybrid",
+        "dominantColor": "tan brown",
+        "materialAppearance": "suede-like upper with pale rope trim",
+        "silhouette": "low closed-back moccasin on a thick wrapped platform sole",
+        "toeShape": "broad rounded moc toe",
+        "vampLength": "medium apron vamp",
+        "openingShape": "wide low opening with decorative or functional rope lacing",
+        "heelBackForm": "closed low heel",
+        "soleProfile": "thick light-colored jute-wrapped platform with a thin dark outsole",
+        "seamApronStructure": "high-contrast white apron stitching",
+        "hardware": "none visible",
+        "ornament": "rope lacing around vamp and quarter",
+        "visibleUnknownRegions": ["top opening", "direct rear", "outsole tread", "opposite side"],
+        "categoryConfusionRisk": ["loafer", "moccasin", "boat shoe", "espadrille", "slipper"]
+      },
+      "qualityComparisonSuitability": "source_truth_control_only",
+      "baseline": null
+    },
+    {
+      "productId": 343,
+      "stockNumber": "SN0017",
+      "role": "adversarial_retail_scene_slip_on_sneaker",
+      "lifecycleAtCapture": {
+        "status": "draft",
+        "public": false,
+        "sellable": false,
+        "visualStatus": "rejected"
+      },
+      "referenceMediaIds": [1348],
+      "referenceValidation": {
+        "usable": true,
+        "originalMediaOnly": true,
+        "notScreenshot": true,
+        "httpStatus": 200,
+        "views": ["side"],
+        "sufficiency": "medium_low"
+      },
+      "visualTruth": {
+        "productFamily": "slip-on athletic walking shoe",
+        "dominantColor": "light grey and off-white",
+        "materialAppearance": "breathable mesh upper with smooth synthetic overlays",
+        "silhouette": "low closed slip-on sneaker with rounded toe and heel pull tab",
+        "toeShape": "rounded athletic toe with smooth protective cap",
+        "vampLength": "continuous mesh vamp with a small instep overlay",
+        "openingShape": "elasticated low slip-on opening",
+        "heelBackForm": "closed heel with pull tab",
+        "soleProfile": "thick sculpted white cushioning sole with repeated side cavities and grey tread",
+        "seamApronStructure": "curved side overlay and toe-cap seam; no apron",
+        "hardware": "none visible",
+        "ornament": "none visible",
+        "visibleUnknownRegions": ["top vamp patch shape", "direct rear", "outsole tread", "opposite side"],
+        "categoryConfusionRisk": ["loafer", "water shoe", "medical walking shoe"],
+        "adversarialSceneRisk": "Hand, chair, floor, boxes, and unrelated formal shoes are visible around the target."
+      },
+      "qualityComparisonSuitability": "baseline_and_scene_isolation_control",
+      "baseline": {
+        "jobId": 430,
+        "attemptId": "iga_b1a52f31-60d5-4362-ab81-493aa10c5519",
+        "mediaIds": [1961, 1962, 1963, 1964, 1965]
+      }
+    },
+    {
+      "productId": 366,
+      "stockNumber": "SN0037",
+      "role": "open_footwear_sandal_control_not_generated",
+      "lifecycleAtCapture": {
+        "status": "draft",
+        "public": false,
+        "sellable": false,
+        "visualStatus": "rejected"
+      },
+      "referenceMediaIds": [1439],
+      "referenceValidation": {
+        "usable": true,
+        "originalMediaOnly": true,
+        "notScreenshot": true,
+        "httpStatus": 200,
+        "views": ["top_three_quarter_pair"],
+        "sufficiency": "medium"
+      },
+      "visualTruth": {
+        "productFamily": "two-strap open sandal",
+        "dominantColor": "white upper with tan footbed",
+        "materialAppearance": "smooth strap material, cork-like mid-layer, suede-like footbed",
+        "silhouette": "open toe and open heel sandal with two broad straps",
+        "toeShape": "broad anatomical open toe",
+        "vampLength": "not applicable; two independent straps",
+        "openingShape": "fully open heel and toe",
+        "heelBackForm": "no heel counter",
+        "soleProfile": "moderately thick contoured cork footbed over a ridged light outsole",
+        "seamApronStructure": "no apron seam",
+        "hardware": "two rectangular metal-tone buckles per sandal",
+        "ornament": "printed footbed/strap branding and attached retail tag",
+        "visibleUnknownRegions": ["full outsole tread", "underside", "unobscured medial straps"],
+        "categoryConfusionRisk": ["closed clog", "single-strap slide", "closed shoe"],
+        "adversarialSceneRisk": "Pair overlap, hand, tag, and branded box can contaminate identity extraction."
+      },
+      "qualityComparisonSuitability": "source_truth_control_only",
+      "baseline": null
+    }
+  ]
+}

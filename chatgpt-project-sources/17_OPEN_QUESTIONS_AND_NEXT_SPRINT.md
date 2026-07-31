@@ -1,11 +1,11 @@
 # Open Questions and Next Sprint
 
-Current as of 2026-07-28. This is a prioritized decision list, not a milestone ledger.
+Current as of 2026-07-29. This is a prioritized decision list, not a milestone ledger.
 
 ## P0 — Telegram and image correctness
 
 1. Define a fail-closed production policy for webhook secret, DM/group allowlists, and callback actions. Callback payload ownership must not substitute for operator authorization.
-2. Design `GENERATED MEDIA RECOVERABLE QUARANTINE FOUNDATION V1`: additive lifecycle/hold/events, exact immutable manifest, recoverable visibility semantics, and restore contract. Policy/census V1 is complete; zero quarantine or physical-cleanup candidates exist and no deletion is approved.
+2. Plan and rehearse the additive quarantine schema on a disposable non-production database. The local pure foundation now defines the independent contradiction gate, manifest V2, relationship fingerprint V2, proposal/authorization/expiry/invalidation states, immutable event/receipt history, revalidation, Legacy Evidence Bridge, and restore proposals. Unknown current-schema evidence remains manual review; no production schema or writer exists, and no mutation or deletion is approved.
 3. Remove the rejected protected-brand generation helper/test and brand-first generation advice without weakening claims, approval, activation, publishing, advertising, Shopier, or dispatch guards.
 4. Convert the controlled-smoke limitations into future runtime requirements: persist Telegram preview/keyboard receipts, bind callbacks to immutable attempts, retain BotEvent/source evidence, and normalize provider usage, latency, retry, and cost records.
 5. Reconcile the 44 stale legacy previews only through exact-job operator decisions, then separately review the 35 quarantine recommendations. Preserve all job/Media provenance, do not infer product equivalence from byte identity, and leave the two ambiguous duplicate groups and two no-image products in manual review.
@@ -53,4 +53,4 @@ Current as of 2026-07-28. This is a prioritized decision list, not a milestone l
 
 ## Exact recommended next task
 
-**GENERATED MEDIA RECOVERABLE QUARANTINE FOUNDATION V1**: design the additive lifecycle/hold/event contract, exact immutable batch manifest, reversible quarantine state, restoration preconditions, and operator preview/authorization boundary. Preserve all 527 generated Media; do not quarantine, detach, delete, reconcile stale previews, or enable a physical worker in the foundation task.
+**GENERATED MEDIA QUARANTINE SCHEMA MIGRATION AND NON-PRODUCTION REHEARSAL V1**: turn the approved pure schema contract into reviewed additive SQL, prove rollback/idempotency/legacy compatibility on a fresh disposable database, and keep every writer disabled. Preserve all 527 generated Media; do not apply production schema, quarantine, detach, delete, reconcile stale previews, or enable a physical worker.

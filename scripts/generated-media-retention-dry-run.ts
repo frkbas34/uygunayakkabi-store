@@ -64,7 +64,26 @@ type JobRow = QueryResultRow & {
   lineage_media_count: string | number
 }
 
-interface PrivateDetail {
+export interface GeneratedMediaRetentionDatabaseFacts {
+  productImagesRelationship: boolean
+  productGenerativeGalleryRelationship: boolean
+  publicProductUsage: boolean
+  externalPublishingUsage: boolean
+  shopierUsage: boolean
+  imageQcOrBusinessAssetHold: boolean
+  jobStatus: string | null
+  orderDependency: 'unknown'
+  durableBusinessDependency: boolean
+  campaignOrAdUsage: 'unknown'
+  stalePreviewAwaitingDecision: 'unknown'
+  operatorHold: 'unknown'
+  legalHold: 'unknown'
+  auditHold: 'unknown'
+  lineageConsistent: boolean | 'unknown'
+  blobObjectState: 'ambiguous'
+}
+
+export interface GeneratedMediaRetentionPrivateDetail {
   mediaId: number
   productId: number | null
   jobId: number | null
@@ -72,6 +91,8 @@ interface PrivateDetail {
   slotId: string | null
   createdAt: string
   bytes: number
+  retentionEvidence: GeneratedMediaRetentionEvidence
+  databaseFacts: GeneratedMediaRetentionDatabaseFacts
   decision: GeneratedMediaRetentionDecision
 }
 
@@ -280,9 +301,14 @@ export function buildGeneratedMediaRetentionReport(
   mediaRows: MediaRow[],
   jobRows: JobRow[],
   now: string,
-): { report: GeneratedMediaRetentionDryRunReport; privateDetails: PrivateDetail[] } {
+): { report: GeneratedMediaRetentionDryRunReport; privateDetails: GeneratedMediaRetentionPrivateDetail[] } {
   const privateDetails = mediaRows.map((row) => {
     const evidence = normalizeEvidence(row, now)
+    const externalPublishingUsage = row.workflow_publish_status === 'published'
+      || Boolean(row.merchandising_published_at)
+      || Boolean(row.dispatched_channels && row.dispatched_channels !== '[]')
+    const explicitJobId = row.lineage_job_id ? String(row.lineage_job_id) : null
+    const relatedJobId = row.related_job_id === null ? null : String(row.related_job_id)
     return {
       mediaId: row.media_id,
       productId: row.product_id,
@@ -291,6 +317,27 @@ export function buildGeneratedMediaRetentionReport(
       slotId: row.slot_id,
       createdAt: evidence.createdAt,
       bytes: numberValue(row.filesize),
+      retentionEvidence: evidence,
+      databaseFacts: {
+        productImagesRelationship: row.original_attached,
+        productGenerativeGalleryRelationship: row.gallery_attached,
+        publicProductUsage: row.product_status === 'active',
+        externalPublishingUsage,
+        shopierUsage: Boolean(row.shopier_product_id),
+        imageQcOrBusinessAssetHold: row.gallery_attached && Boolean(row.image_qc_status),
+        jobStatus: row.job_status,
+        orderDependency: 'unknown',
+        durableBusinessDependency: row.original_attached || row.gallery_attached || row.product_status === 'active' || externalPublishingUsage || Boolean(row.shopier_product_id),
+        campaignOrAdUsage: 'unknown',
+        stalePreviewAwaitingDecision: 'unknown',
+        operatorHold: 'unknown',
+        legalHold: 'unknown',
+        auditHold: 'unknown',
+        lineageConsistent: explicitJobId && relatedJobId ? explicitJobId === relatedJobId : 'unknown',
+        // Metadata proves only that a record points at a plausible object. The
+        // proposal layer requires independent object verification.
+        blobObjectState: 'ambiguous',
+      },
       decision: classifyGeneratedMediaRetention(evidence, GENERATED_MEDIA_RETENTION_PROFILES.balanced),
     }
   })
@@ -369,6 +416,18 @@ export async function runGeneratedMediaRetentionDryRun(
   args = process.argv.slice(2),
   connectionString = process.env.DATABASE_URI,
 ): Promise<GeneratedMediaRetentionDryRunReport> {
+  const { report, privateDetails } = await runGeneratedMediaRetentionReadOnlySnapshot(args, connectionString)
+  if (args.includes('--private-details')) {
+    console.error(JSON.stringify({ policyVersion: report.policyVersion, privateDetails }, null, 2))
+  }
+  console.log(JSON.stringify(report, null, 2))
+  return report
+}
+
+export async function runGeneratedMediaRetentionReadOnlySnapshot(
+  args = process.argv.slice(2),
+  connectionString = process.env.DATABASE_URI,
+): Promise<{ report: GeneratedMediaRetentionDryRunReport; privateDetails: GeneratedMediaRetentionPrivateDetail[] }> {
   if (!args.includes(REQUIRED_CONFIRMATION)) {
     throw new Error(`Refusing production census without ${REQUIRED_CONFIRMATION}.`)
   }
@@ -408,12 +467,7 @@ export async function runGeneratedMediaRetentionDryRun(
       client.query<JobRow>(JOB_CENSUS_SQL),
     ])
     const now = new Date().toISOString()
-    const { report, privateDetails } = buildGeneratedMediaRetentionReport(media.rows, jobs.rows, now)
-    if (args.includes('--private-details')) {
-      console.error(JSON.stringify({ policyVersion: report.policyVersion, privateDetails }, null, 2))
-    }
-    console.log(JSON.stringify(report, null, 2))
-    return report
+    return buildGeneratedMediaRetentionReport(media.rows, jobs.rows, now)
   } finally {
     try {
       await client.query('ROLLBACK')

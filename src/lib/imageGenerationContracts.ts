@@ -73,6 +73,16 @@ export type ImageGenerationAttemptMetadata = {
   slots: ImageSlotResult[]
   startedAt: string
   completedAt?: string
+  /** Existing JSON metadata carrier; absent for the unchanged default profile. */
+  qualityProfile?: string
+  productFamily?: string
+  identityAnchorHash?: string
+  profileContractVersions?: {
+    profile: string
+    identityAnchor: string
+    framing: string
+    familyLock: string | null
+  }
 }
 
 export type LegacySlotProjection = {

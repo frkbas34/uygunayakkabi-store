@@ -17,6 +17,7 @@
 
 import { PRODUCT_PRESERVATION_PROHIBITIONS } from './productPreservation'
 import { LOCK_REMINDER_BLOCK } from './imageLockReminder'
+import { buildOptionalVisualLockV0PromptBlock, type VisualLockV0Context } from './imageVisualLockV0'
 // D-407: central 5-slot contract — single source of truth for slot types, order,
 // and the centering/framing discipline. EDITING_SCENES is now derived from it.
 import { GENERATED_SCENES, getSlotByKey } from './imageSlotContract'
@@ -1295,6 +1296,7 @@ export async function generateByEditing(
   _additionalImages?: Array<{ data: Buffer; mime: string }>, // reserved — OpenAI path uses only primary ref
   productId?: string | number, // D-233: stable per-product background variant
   visualFacts?: string | null, // D-355N: operator-verified product facts (visual fact lock override)
+  visualLock?: VisualLockV0Context, // opt-in only; omitted default produces the byte-identical prompt
 ): Promise<{ results: ProviderResult[]; buffers: Buffer[]; slotLogs: SlotLog[] }> {
   // Filter scenes to run — default is all 5
   const scenes = sceneIndices
@@ -1417,7 +1419,8 @@ export async function generateByEditing(
       //   4. sceneText — camera angle, framing, background, lighting
       //   5. CANONICAL_PROHIBITIONS_BLOCK — 11 canonical prohibitions from productPreservation.ts
       const isPairSlot = getSlotByKey(scene.name)?.layout === 'pair'
-      const fullPrompt = LOCK_REMINDER_BLOCK + TASK_FRAMING_BLOCK + identityLock.promptBlock + zoneBlock + sceneText + STUDIO_STANDARD_BLOCK + materialDirectives(identityLock.material, identityLock.visualNotes) + MATERIAL_IDENTITY_LOCK_BLOCK + buildVisualFactLock(visualFacts) + CANONICAL_PROHIBITIONS_BLOCK + ANTI_FRAME_FINAL_BLOCK + (isPairSlot ? PAIR_MODE_FINAL_BLOCK : '')
+      const visualLockBlock = buildOptionalVisualLockV0PromptBlock(visualLock, scene.name)
+      const fullPrompt = LOCK_REMINDER_BLOCK + TASK_FRAMING_BLOCK + identityLock.promptBlock + zoneBlock + sceneText + STUDIO_STANDARD_BLOCK + materialDirectives(identityLock.material, identityLock.visualNotes) + MATERIAL_IDENTITY_LOCK_BLOCK + buildVisualFactLock(visualFacts) + visualLockBlock + CANONICAL_PROHIBITIONS_BLOCK + ANTI_FRAME_FINAL_BLOCK + (isPairSlot ? PAIR_MODE_FINAL_BLOCK : '')
 
       const slotLog: SlotLog = {
         slot: scene.name,
@@ -1709,6 +1712,7 @@ export async function generateByGeminiPro(
   additionalImages?: Array<{ data: Buffer; mime: string }>,
   productId?: string | number, // D-233: stable per-product background variant
   visualFacts?: string | null, // D-355N: operator-verified product facts (visual fact lock override)
+  visualLock?: VisualLockV0Context, // opt-in only; omitted default produces the byte-identical prompt
 ): Promise<{ results: ProviderResult[]; buffers: Buffer[]; slotLogs: SlotLog[] }> {
   const scenes = sceneIndices
     ? EDITING_SCENES.filter((_, i) => sceneIndices.includes(i))
@@ -1823,7 +1827,8 @@ export async function generateByGeminiPro(
 
       // Same 5-block prompt structure as generateByEditing
       const isPairSlot = getSlotByKey(scene.name)?.layout === 'pair'
-      const fullPrompt = LOCK_REMINDER_BLOCK + TASK_FRAMING_BLOCK + multiRefFraming + identityLock.promptBlock + zoneBlock + sceneText + STUDIO_STANDARD_BLOCK + materialDirectives(identityLock.material, identityLock.visualNotes) + MATERIAL_IDENTITY_LOCK_BLOCK + buildVisualFactLock(visualFacts) + CANONICAL_PROHIBITIONS_BLOCK + ANTI_FRAME_FINAL_BLOCK + (isPairSlot ? PAIR_MODE_FINAL_BLOCK : '')
+      const visualLockBlock = buildOptionalVisualLockV0PromptBlock(visualLock, scene.name)
+      const fullPrompt = LOCK_REMINDER_BLOCK + TASK_FRAMING_BLOCK + multiRefFraming + identityLock.promptBlock + zoneBlock + sceneText + STUDIO_STANDARD_BLOCK + materialDirectives(identityLock.material, identityLock.visualNotes) + MATERIAL_IDENTITY_LOCK_BLOCK + buildVisualFactLock(visualFacts) + visualLockBlock + CANONICAL_PROHIBITIONS_BLOCK + ANTI_FRAME_FINAL_BLOCK + (isPairSlot ? PAIR_MODE_FINAL_BLOCK : '')
 
       // D-412: every slot uses only the ORIGINAL reference image(s) (primary base +
       // any real operator-supplied extra angles of the SAME shoe). No generated

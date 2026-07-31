@@ -10,6 +10,10 @@ import {
 import { evaluateChannelProviderHealth, formatChannelProviderHealthLine } from '@/lib/channelProviderHealth'
 import { evaluateTelegramDmAccess, DM_REFUSAL_MESSAGE } from '@/lib/telegramAccess'
 import {
+  parseVisualLockV0Command,
+  visualLockV0RejectionMessage,
+} from '@/lib/imageVisualLockV0'
+import {
   resolveApprovalCandidates,
   selectApprovalMediaIds,
 } from '@/lib/imageGenerationContracts'
@@ -764,15 +768,21 @@ async function regenImageGenJob(
   //   provider='openai'      → re-queue image-gen with gemini-pro (redirected during debug phase)
   let currentStage = 'standard'
   let visualFacts: string | undefined
+  let qualityProfile: string | undefined
+  let productFamily: string | undefined
   try {
     const prompts = JSON.parse((jobDoc.promptsUsed as string) || '{}') as {
       stage?: unknown
       visualFacts?: unknown
+      qualityProfile?: unknown
+      productFamily?: unknown
     }
     currentStage    = (prompts.stage    as string) || 'standard'
     visualFacts = typeof prompts.visualFacts === 'string' && prompts.visualFacts.trim()
       ? prompts.visualFacts
       : undefined
+    qualityProfile = typeof prompts.qualityProfile === 'string' ? prompts.qualityProfile : undefined
+    productFamily = typeof prompts.productFamily === 'string' ? prompts.productFamily : undefined
   } catch {
     // ignore parse errors — default to standard + gemini-pro
   }
@@ -797,7 +807,13 @@ async function regenImageGenJob(
   // v18 Gemini-only debug phase: ALL regens use Gemini Pro regardless of original provider
   await payload.jobs.queue({
     task: 'image-gen',
-    input: { jobId, stage: currentStage, provider: 'gemini-pro', visualFacts },
+    input: {
+      jobId,
+      stage: currentStage,
+      provider: 'gemini-pro',
+      visualFacts,
+      ...(qualityProfile && productFamily ? { qualityProfile, productFamily } : {}),
+    },
     overrideAccess: true,
   })
 
@@ -2690,6 +2706,7 @@ export async function POST(req: NextRequest) {
     const messageId: number = message.message_id
     const chatType: string = message.chat?.type || 'private' // 'private' | 'group' | 'supergroup'
     const isGroupChat = chatType === 'group' || chatType === 'supergroup'
+    let dmAccessReason: 'allowlisted' | 'open-allowlist' | 'denied' = 'denied'
     // Phase P: operator userId for wizard session isolation in groups
     const msgUserId: number | undefined = message.from?.id
 
@@ -2869,6 +2886,7 @@ export async function POST(req: NextRequest) {
           senderId: String(message.from?.id || ''),
           allowedRaw: (telegramSettings?.allowedUserIds as string) || '',
         })
+        dmAccessReason = dmAccess.reason
         if (!dmAccess.allowed) {
           console.log(`[telegram/dm] User ${String(message.from?.id || '')} not in allowlist — refusing DM in chat ${chatId}`)
           await sendTelegramMessage(chatId, DM_REFUSAL_MESSAGE)
@@ -3589,6 +3607,17 @@ export async function POST(req: NextRequest) {
     //      (admin URL, inline keyboard callback_data, "ID: N", "#gorsel N")
     //   B) Explicit: "#gorsel 42" or "#gorsel 42 #premium"
     //   C) Inline button: imagegen:{productId}:geminipro (handled in callback section above)
+    const visualLockCommand = parseVisualLockV0Command({
+      text,
+      chatType,
+      botRole: botParam === 'geo' ? 'geo' : 'uygunops',
+      dmAccessReason,
+    })
+    if (visualLockCommand.kind === 'rejected') {
+      await sendTelegramMessage(chatId, visualLockV0RejectionMessage(visualLockCommand.reason))
+      return NextResponse.json({ ok: true })
+    }
+
     const isGorselTrigger =
       /#gorsel/i.test(text) ||
       /bunu\s+g[oö]rsel\s+[uü]ret/i.test(text) ||
@@ -3608,12 +3637,12 @@ export async function POST(req: NextRequest) {
 
       // ── Find product ID (v26 — auto-resolve from context) ──────────────────
       // Priority: 1) reply-to message context  2) explicit ID in command text
-      let gorselProductId: number | null = resolveProductFromReply(
-        message.reply_to_message as Record<string, unknown> | undefined,
-      )
+      let gorselProductId: number | null = visualLockCommand.kind === 'accepted'
+        ? visualLockCommand.productId
+        : resolveProductFromReply(message.reply_to_message as Record<string, unknown> | undefined)
 
       // Fallback: explicit ID in the command — "#gorsel 42" or "#gorsel 42 #premium"
-      if (!gorselProductId) {
+      if (!gorselProductId && visualLockCommand.kind === 'default') {
         const idMatch = text.match(/#gorsel\s+(\d+)/i)
         if (idMatch) gorselProductId = parseInt(idMatch[1])
       }
@@ -3684,7 +3713,15 @@ export async function POST(req: NextRequest) {
 
       await payload.jobs.queue({
         task: 'image-gen',
-        input: { jobId: String(jobDoc.id), stage: 'standard', provider: 'gemini-pro' },
+        input: {
+          jobId: String(jobDoc.id),
+          stage: 'standard',
+          provider: 'gemini-pro',
+          ...(visualLockCommand.kind === 'accepted' ? {
+            qualityProfile: visualLockCommand.qualityProfile,
+            productFamily: visualLockCommand.family,
+          } : {}),
+        },
         overrideAccess: true,
       })
 

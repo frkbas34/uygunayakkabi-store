@@ -44,9 +44,22 @@ import {
   type ImageGenerationAttemptMetadata,
   type ImageSlotExecutionEnvelope,
 } from '../lib/imageGenerationContracts'
+import {
+  buildProductIdentityAnchorV0,
+  resolveVisualLockV0TaskSelection,
+  VISUAL_LOCK_V0_COMMAND_PROFILE,
+  VISUAL_LOCK_V0_PROFILE_VERSION,
+} from '../lib/imageVisualLockV0'
 
 export const imageGenTask: TaskConfig<{
-  input: { jobId: string; stage?: string; provider?: string; visualFacts?: string }
+  input: {
+    jobId: string
+    stage?: string
+    provider?: string
+    visualFacts?: string
+    qualityProfile?: string
+    productFamily?: string
+  }
   output: {
     success: boolean
     mediaIds: string
@@ -62,6 +75,8 @@ export const imageGenTask: TaskConfig<{
     { name: 'stage', type: 'text' },    // 'standard' (slots 1-3) | 'premium' (slots 4-5)
     { name: 'provider', type: 'text' }, // 'openai' (default) | 'gemini-pro'
     { name: 'visualFacts', type: 'text' }, // D-355N: operator-verified product facts injected into every slot prompt
+    { name: 'qualityProfile', type: 'text' }, // Existing task-input JSON; no collection/schema field.
+    { name: 'productFamily', type: 'text' }, // Explicit operator choice; no automatic V0 classification.
   ],
 
   outputSchema: [
@@ -110,10 +125,18 @@ export const imageGenTask: TaskConfig<{
     // v19 Gemini-only: default provider is gemini-pro (was 'openai' before v19)
     const provider = (input.provider || 'gemini-pro') as 'openai' | 'gemini-pro'
     const payload = req.payload
+    const visualLockSelection = resolveVisualLockV0TaskSelection(input)
     let attemptMetadata: ImageGenerationAttemptMetadata = createImageGenerationAttempt({
       jobId,
       requestedSlotIds,
     })
+    if (visualLockSelection) {
+      attemptMetadata = {
+        ...attemptMetadata,
+        qualityProfile: VISUAL_LOCK_V0_PROFILE_VERSION,
+        productFamily: visualLockSelection.family,
+      }
+    }
 
     console.log(`[imageGenTask v14] start — jobId=${jobId} stage=${stage} provider=${provider} sceneIndices=[${sceneIndices}]`)
 
@@ -400,6 +423,27 @@ export const imageGenTask: TaskConfig<{
     //      provider='gemini-pro' → generateByGeminiPro (Gemini image gen, optional)
     // Slot identity comes from the canonical semantic registry. Display order is
     // presentation metadata only and is never reconstructed from a result index.
+    const visualLockContext = visualLockSelection
+      ? buildProductIdentityAnchorV0({
+          family: visualLockSelection.family,
+          identityEvidence: identityLock,
+          operatorVisualFacts: input.visualFacts,
+        })
+      : undefined
+    if (visualLockContext) {
+      attemptMetadata = {
+        ...attemptMetadata,
+        identityAnchorHash: visualLockContext.identityAnchorHash,
+        profileContractVersions: {
+          profile: visualLockContext.profileVersion,
+          identityAnchor: visualLockContext.identityAnchorVersion,
+          framing: visualLockContext.framingVersion,
+          familyLock: visualLockContext.familyLockVersion,
+        },
+      }
+      await persistAttemptMetadata()
+    }
+
     const requestedSlots = requestedSlotIds.map((slotId) => {
       const slot = getSlotByKey(slotId)
       if (!slot) throw new Error(`Canonical slot bulunamadı: ${slotId}`)
@@ -436,6 +480,17 @@ export const imageGenTask: TaskConfig<{
         slots: slotNames,
         contractVersion: IMAGE_SLOT_CONTRACT_VERSION,
         attemptId: attemptMetadata.attemptId,
+        ...(visualLockContext ? {
+          qualityProfile: VISUAL_LOCK_V0_COMMAND_PROFILE,
+          profileVersion: visualLockContext.profileVersion,
+          productFamily: visualLockContext.family,
+          visualLock: {
+            identityAnchorVersion: visualLockContext.identityAnchorVersion,
+            identityAnchorHash: visualLockContext.identityAnchorHash,
+            framingVersion: visualLockContext.framingVersion,
+            familyLockVersion: visualLockContext.familyLockVersion,
+          },
+        } : {}),
         // D-407: fixed 5-slot contract metadata
         promptVersion: SLOT_PROMPT_VERSION,
         slotContract: slotContractMeta,
@@ -466,6 +521,7 @@ export const imageGenTask: TaskConfig<{
         additionalReferenceImages.length > 0 ? additionalReferenceImages : undefined,
         productId, // D-233: stable per-product background variant
         input.visualFacts, // D-355N: operator-verified product facts (visual fact lock)
+        visualLockContext,
       )
       slotEnvelopes = adaptLegacyProviderOutput({
         attempt: attemptMetadata,

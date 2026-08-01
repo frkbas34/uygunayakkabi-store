@@ -1,0 +1,272 @@
+{
+  "schemaVersion": "visual-lock-v0-1-product-349-retry/v1",
+  "capturedAt": "2026-08-01T07:25:43+03:00",
+  "classification": "VISUAL_LOCK_V0_1_RETRY_PASS_COMPLETE_NONPASS_EVIDENCE",
+  "deployment": {
+    "commit": "02dd5424af365393ac5f1b6f8e63e0a4cea3ec24",
+    "deploymentId": "dpl_DUPn2TvBRYdWKVMHnLcHLMZysRLz",
+    "source": "remote-git",
+    "status": "READY",
+    "payloadDbPush": false,
+    "schemaPushOccurred": false,
+    "rootHttpStatus": 200,
+    "helpHttpStatus": 200,
+    "adminHttpStatus": 200,
+    "criticalOrHttp5xxLogs": 0
+  },
+  "authorization": {
+    "maximumProduct349Attempts": 1,
+    "maximumTotalAttempts": 1,
+    "actualProduct349Attempts": 1,
+    "actualProduct343Attempts": 0,
+    "actualTotalAttempts": 1,
+    "regenerationAuthorized": false,
+    "regenerationOccurred": false,
+    "secondCommandOccurred": false
+  },
+  "command": {
+    "text": "#gorsel 349 --profile=visual-lock-v0.1 --family=loafer",
+    "path": "private Uygunops DM",
+    "operatorApproximateTime": "2026-08-01T07:16:00+03:00",
+    "jobCreatedAt": "2026-08-01T04:16:16.229Z"
+  },
+  "product": {
+    "id": 349,
+    "stockNumber": "SN0117",
+    "sku": "BOS-MPVYVL8Q",
+    "family": "loafer",
+    "statusBefore": "draft",
+    "statusAfter": "draft",
+    "visualStatusBefore": "rejected",
+    "visualStatusAfter": "rejected",
+    "workflowStatusBefore": "visual_pending",
+    "workflowStatusAfter": "visual_pending",
+    "confirmationStatusBefore": "pending",
+    "confirmationStatusAfter": "pending",
+    "publishStatusBefore": "not_requested",
+    "publishStatusAfter": "not_requested",
+    "sellableBefore": false,
+    "sellableAfter": false,
+    "originalMediaIdsBefore": [1377, 1378, 1379],
+    "originalMediaIdsAfter": [1377, 1378, 1379],
+    "generatedGalleryBefore": 0,
+    "generatedGalleryAfter": 0,
+    "shopierOccurred": false,
+    "publishingOccurred": false,
+    "advertisingOccurred": false,
+    "activationOccurred": false,
+    "dispatchOccurred": false
+  },
+  "job": {
+    "id": 434,
+    "status": "failed",
+    "createdAt": "2026-08-01T04:16:16.229Z",
+    "startedAt": "2026-08-01T04:16:19.793Z",
+    "completedAt": "2026-08-01T04:17:49.272Z",
+    "updatedAt": "2026-08-01T04:17:49.646Z",
+    "imageCount": 0,
+    "generatedImageCount": 0,
+    "activeOrPreviewJobCountAfter": 0,
+    "runtimeExecutionEvidence": {
+      "running": 1,
+      "new": 1,
+      "retrying": 0,
+      "activeWorkerAfter": false
+    }
+  },
+  "attempt": {
+    "id": "iga_e305fc42-8f55-47c5-8c77-3cbcadb34035",
+    "status": "failed",
+    "count": 1,
+    "startedAt": "2026-08-01T04:16:19.793Z",
+    "completedAt": "2026-08-01T04:17:49.272Z",
+    "contractVersion": "image-slot-contract/v1",
+    "profile": "visual-lock/v0.1",
+    "family": "loafer",
+    "identityAnchorHash": "65d5ff36e17a5ba5b6bc05c4d44177c5ea3110dab5b194a0ca5cbeff899c5dd3",
+    "contractVersions": {
+      "profile": "visual-lock/v0.1",
+      "identityAnchor": "product-identity-anchor/v0",
+      "framing": "visual-framing-lock/v0",
+      "familyLock": "loafer-identity-lock/v0",
+      "componentTopology": "component-topology-lock/v0.1",
+      "evaluator": "visual-quality-evaluator/v0.1",
+      "geometryGate": "visual-geometry-gate/v0.1"
+    },
+    "requestedSlotIds": ["side", "hero_3q", "top", "back", "detail"]
+  },
+  "providerCalls": {
+    "referenceValidation": {
+      "model": "gemini-2.5-flash",
+      "count": 1,
+      "result": "valid_low_confidence_fallback_after_malformed_json"
+    },
+    "identityExtraction": {
+      "model": "gemini-2.5-flash",
+      "count": 1,
+      "result": "completed"
+    },
+    "slotGeneration": {
+      "model": "gemini-2.5-flash-image",
+      "count": 5,
+      "transientBuffersReturned": 5
+    },
+    "visualQualityEvaluation": {
+      "model": "gemini-2.5-flash",
+      "count": 5,
+      "result": "unknown_provider_response_incomplete"
+    },
+    "total": 12,
+    "generationRetries": 0,
+    "regenerations": 0
+  },
+  "slots": [
+    {
+      "slotId": "side",
+      "status": "provider_failed",
+      "providerAttempts": 1,
+      "evaluatorStatus": "unknown",
+      "evaluatorReasonCodes": ["provider_response_incomplete"],
+      "orientationResult": { "status": "unknown", "detectedView": "unknown" },
+      "topologyResult": { "status": "unknown" },
+      "occupancyPercent": 83.854,
+      "horizontalCenterOffsetPercent": 0.26,
+      "verticalCenterOffsetPercent": 16.667,
+      "maximumCenterOffsetPercent": 16.667,
+      "clippingState": "fail",
+      "geometryStatus": "fail",
+      "geometryReasonCodes": ["occupancy_above_82", "center_offset_above_3", "clipping_detected"],
+      "mediaId": null
+    },
+    {
+      "slotId": "hero_3q",
+      "status": "provider_failed",
+      "providerAttempts": 1,
+      "evaluatorStatus": "unknown",
+      "evaluatorReasonCodes": ["provider_response_incomplete"],
+      "orientationResult": { "status": "unknown", "detectedView": "unknown" },
+      "topologyResult": { "status": "unknown" },
+      "occupancyPercent": 83.333,
+      "horizontalCenterOffsetPercent": 0.26,
+      "verticalCenterOffsetPercent": 0,
+      "maximumCenterOffsetPercent": 0.26,
+      "clippingState": "pass",
+      "geometryStatus": "fail",
+      "geometryReasonCodes": ["occupancy_above_82"],
+      "mediaId": null
+    },
+    {
+      "slotId": "top",
+      "status": "provider_failed",
+      "providerAttempts": 1,
+      "evaluatorStatus": "unknown",
+      "evaluatorReasonCodes": ["provider_response_incomplete"],
+      "orientationResult": { "status": "unknown", "detectedView": "unknown" },
+      "topologyResult": { "status": "unknown" },
+      "occupancyPercent": 82.552,
+      "horizontalCenterOffsetPercent": 0,
+      "verticalCenterOffsetPercent": 0.391,
+      "maximumCenterOffsetPercent": 0.391,
+      "clippingState": "pass",
+      "geometryStatus": "fail",
+      "geometryReasonCodes": ["occupancy_above_82"],
+      "mediaId": null
+    },
+    {
+      "slotId": "back",
+      "status": "provider_failed",
+      "providerAttempts": 1,
+      "evaluatorStatus": "unknown",
+      "evaluatorReasonCodes": ["provider_response_incomplete"],
+      "orientationResult": { "status": "unknown", "detectedView": "unknown" },
+      "topologyResult": { "status": "unknown" },
+      "occupancyPercent": 84.635,
+      "horizontalCenterOffsetPercent": 0.13,
+      "verticalCenterOffsetPercent": 0.13,
+      "maximumCenterOffsetPercent": 0.13,
+      "clippingState": "pass",
+      "geometryStatus": "fail",
+      "geometryReasonCodes": ["occupancy_above_82"],
+      "mediaId": null
+    },
+    {
+      "slotId": "detail",
+      "status": "provider_failed",
+      "providerAttempts": 1,
+      "evaluatorStatus": "unknown",
+      "evaluatorReasonCodes": ["provider_response_incomplete"],
+      "orientationResult": { "status": "unknown", "detectedView": "unknown" },
+      "topologyResult": { "status": "unknown" },
+      "occupancyPercent": 100,
+      "horizontalCenterOffsetPercent": 0,
+      "verticalCenterOffsetPercent": 0,
+      "maximumCenterOffsetPercent": 0,
+      "clippingState": "fail",
+      "geometryStatus": "pass",
+      "geometryReasonCodes": ["detail_slot_exempt"],
+      "mediaId": null
+    }
+  ],
+  "pack": {
+    "occupancyMinimumPercent": 82.552,
+    "occupancyMaximumPercent": 84.635,
+    "occupancySpreadPercent": 2.083,
+    "requiredEvaluatorCompleteness": "unknown",
+    "orientationGateStatus": "unknown",
+    "topologyGateStatus": "unknown",
+    "geometryGateStatus": "fail",
+    "qualityGateStatus": "fail",
+    "reasonCodes": [
+      "provider_response_incomplete",
+      "occupancy_above_82",
+      "center_offset_above_3",
+      "clipping_detected",
+      "detail_slot_exempt",
+      "required_evaluator_incomplete",
+      "orientation_gate_unknown",
+      "topology_gate_unknown"
+    ],
+    "completeSlotEvidencePersisted": true,
+    "completePackEvidencePersisted": true,
+    "deterministicGeometryPersisted": true
+  },
+  "persistenceBoundary": {
+    "jobMediaCount": 0,
+    "productMediaCountBefore": 10,
+    "productMediaCountAfter": 10,
+    "blobObjectCountBefore": 40,
+    "blobObjectCountAfter": 40,
+    "blobCanonicalHashBefore": "8504ceaa6afce144c28938e2f98fc70bfb5a7758cbd790cea157498f0e05b213",
+    "blobCanonicalHashAfter": "8504ceaa6afce144c28938e2f98fc70bfb5a7758cbd790cea157498f0e05b213",
+    "telegramImagePreviewCount": 0,
+    "approvalKeyboardCount": 0,
+    "galleryAttachmentCount": 0,
+    "automaticRetryCount": 0,
+    "regenerationCount": 0,
+    "transientBuffersDiscarded": true,
+    "orphanedMedia": false,
+    "orphanedBlobObject": false
+  },
+  "qualityComparison": {
+    "baselineJobId": 428,
+    "baselineScore": 3.4,
+    "visualLockV0JobId": 431,
+    "visualLockV0Score": 3.8,
+    "visualLockV01JobId": 434,
+    "visualLockV01Score": null,
+    "visualComparisonAvailable": false,
+    "reason": "The non-pass created no preview or Media; visual scoring would not be evidence-based."
+  },
+  "product343": {
+    "attemptCreated": false,
+    "providerCalls": 0,
+    "postCommandJobs": 0,
+    "runOccurred": false
+  },
+  "decision": {
+    "classification": "VISUAL_LOCK_V0_1_RETRY_PASS_COMPLETE_NONPASS_EVIDENCE",
+    "reason": "The combined gate failed with complete deterministic slot and pack evidence, all terminal states finalized safely, and no generated asset crossed the persistence boundary.",
+    "nextHypothesis": "The strict evaluator response contract remains the primary blocker; all five evaluator calls returned incomplete evidence, while deterministic geometry independently found required-slot over-occupancy and a vertically displaced, clipped side slot.",
+    "exactNextTask": "VISUAL LOCK V0.1 — EVALUATOR RESPONSE CONTRACT HARDENING V1"
+  }
+}

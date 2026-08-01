@@ -30,6 +30,7 @@ export type ImageSlotFailure = {
     | 'input_rejected'
     | 'provider_failed'
     | 'empty_provider_response'
+    | 'quality_gate_failed'
     | 'media_save_failed'
     | 'internal_error'
   summary: string
@@ -43,6 +44,21 @@ export type ImageSlotProviderMetadata = {
   brandFidelityScore?: string
   shotCompliancePass?: boolean
   detectedShot?: string
+  qualityEvaluatorVersion?: string
+  qualityEvaluatorState?: 'pass' | 'fail' | 'unknown'
+  qualityEvaluatorReasonCodes?: string[]
+  colorEvaluatorState?: 'pass' | 'fail' | 'unknown'
+  componentTopologyEvaluatorState?: 'pass' | 'fail' | 'unknown'
+  orientationEvaluatorState?: 'pass' | 'fail' | 'unknown'
+  geometryGateVersion?: string
+  geometryGateState?: 'pass' | 'fail' | 'unknown'
+  geometryGateReasonCodes?: string[]
+  geometryMeasurement?: {
+    occupancyPercent: number
+    centerOffsetXPercent: number
+    centerOffsetYPercent: number
+    maximumCenterOffsetPercent: number
+  } | null
 }
 
 export type ImageSlotResult = {
@@ -82,6 +98,16 @@ export type ImageGenerationAttemptMetadata = {
     identityAnchor: string
     framing: string
     familyLock: string | null
+    componentTopology?: string
+    evaluator?: string
+    geometryGate?: string
+  }
+  qualityGateSummary?: {
+    state: 'pass' | 'fail' | 'unknown'
+    evaluatorVersion: string
+    geometryGateVersion: string
+    occupancySpreadPercent: number | null
+    reasonCodes: string[]
   }
 }
 
@@ -111,6 +137,12 @@ type LegacyProviderSlotLog = {
   brandFidelityScore?: unknown
   shotCompliancePass?: unknown
   detectedShot?: unknown
+  qualityEvaluatorVersion?: unknown
+  qualityEvaluatorState?: unknown
+  qualityEvaluatorReasonCodes?: unknown
+  colorEvaluatorState?: unknown
+  componentTopologyEvaluatorState?: unknown
+  orientationEvaluatorState?: unknown
   rejectionReason?: unknown
 }
 
@@ -216,6 +248,8 @@ export function markAttemptSlotsSkipped(
 }
 
 function providerMetadata(log: LegacyProviderSlotLog, fallbackProvider: string): ImageSlotProviderMetadata {
+  const triState = (value: unknown): value is 'pass' | 'fail' | 'unknown' =>
+    value === 'pass' || value === 'fail' || value === 'unknown'
   return {
     provider: typeof log.provider === 'string' ? log.provider : fallbackProvider,
     attempts: typeof log.attempts === 'number' && log.attempts > 0 ? log.attempts : 1,
@@ -224,6 +258,14 @@ function providerMetadata(log: LegacyProviderSlotLog, fallbackProvider: string):
     ...(typeof log.brandFidelityScore === 'string' ? { brandFidelityScore: log.brandFidelityScore } : {}),
     ...(typeof log.shotCompliancePass === 'boolean' ? { shotCompliancePass: log.shotCompliancePass } : {}),
     ...(typeof log.detectedShot === 'string' ? { detectedShot: log.detectedShot.slice(0, 120) } : {}),
+    ...(typeof log.qualityEvaluatorVersion === 'string' ? { qualityEvaluatorVersion: log.qualityEvaluatorVersion.slice(0, 120) } : {}),
+    ...(triState(log.qualityEvaluatorState) ? { qualityEvaluatorState: log.qualityEvaluatorState } : {}),
+    ...(Array.isArray(log.qualityEvaluatorReasonCodes) ? {
+      qualityEvaluatorReasonCodes: log.qualityEvaluatorReasonCodes.filter((value): value is string => typeof value === 'string').map((value) => value.slice(0, 120)),
+    } : {}),
+    ...(triState(log.colorEvaluatorState) ? { colorEvaluatorState: log.colorEvaluatorState } : {}),
+    ...(triState(log.componentTopologyEvaluatorState) ? { componentTopologyEvaluatorState: log.componentTopologyEvaluatorState } : {}),
+    ...(triState(log.orientationEvaluatorState) ? { orientationEvaluatorState: log.orientationEvaluatorState } : {}),
   }
 }
 

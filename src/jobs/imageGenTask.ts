@@ -45,11 +45,14 @@ import {
   type ImageSlotExecutionEnvelope,
 } from '../lib/imageGenerationContracts'
 import {
-  buildProductIdentityAnchorV0,
-  resolveVisualLockV0TaskSelection,
-  VISUAL_LOCK_V0_COMMAND_PROFILE,
-  VISUAL_LOCK_V0_PROFILE_VERSION,
-} from '../lib/imageVisualLockV0'
+  buildVisualLockContext,
+  combineVisualQualityGateV01,
+  evaluateVisualGeometryMeasurementV01,
+  evaluateVisualGeometryPackV01,
+  isVisualLockV01Context,
+  measureVisualGeometryV01,
+  resolveVisualLockTaskSelection,
+} from '../lib/imageVisualLockV01'
 
 export const imageGenTask: TaskConfig<{
   input: {
@@ -125,7 +128,7 @@ export const imageGenTask: TaskConfig<{
     // v19 Gemini-only: default provider is gemini-pro (was 'openai' before v19)
     const provider = (input.provider || 'gemini-pro') as 'openai' | 'gemini-pro'
     const payload = req.payload
-    const visualLockSelection = resolveVisualLockV0TaskSelection(input)
+    const visualLockSelection = resolveVisualLockTaskSelection(input)
     let attemptMetadata: ImageGenerationAttemptMetadata = createImageGenerationAttempt({
       jobId,
       requestedSlotIds,
@@ -133,7 +136,7 @@ export const imageGenTask: TaskConfig<{
     if (visualLockSelection) {
       attemptMetadata = {
         ...attemptMetadata,
-        qualityProfile: VISUAL_LOCK_V0_PROFILE_VERSION,
+        qualityProfile: visualLockSelection.profileVersion,
         productFamily: visualLockSelection.family,
       }
     }
@@ -424,8 +427,8 @@ export const imageGenTask: TaskConfig<{
     // Slot identity comes from the canonical semantic registry. Display order is
     // presentation metadata only and is never reconstructed from a result index.
     const visualLockContext = visualLockSelection
-      ? buildProductIdentityAnchorV0({
-          family: visualLockSelection.family,
+      ? buildVisualLockContext({
+          selection: visualLockSelection,
           identityEvidence: identityLock,
           operatorVisualFacts: input.visualFacts,
         })
@@ -439,6 +442,11 @@ export const imageGenTask: TaskConfig<{
           identityAnchor: visualLockContext.identityAnchorVersion,
           framing: visualLockContext.framingVersion,
           familyLock: visualLockContext.familyLockVersion,
+          ...(isVisualLockV01Context(visualLockContext) ? {
+            componentTopology: visualLockContext.componentTopologyVersion,
+            evaluator: visualLockContext.evaluatorVersion,
+            geometryGate: visualLockContext.geometryGateVersion,
+          } : {}),
         },
       }
       await persistAttemptMetadata()
@@ -481,7 +489,7 @@ export const imageGenTask: TaskConfig<{
         contractVersion: IMAGE_SLOT_CONTRACT_VERSION,
         attemptId: attemptMetadata.attemptId,
         ...(visualLockContext ? {
-          qualityProfile: VISUAL_LOCK_V0_COMMAND_PROFILE,
+          qualityProfile: visualLockSelection?.profile,
           profileVersion: visualLockContext.profileVersion,
           productFamily: visualLockContext.family,
           visualLock: {
@@ -489,6 +497,12 @@ export const imageGenTask: TaskConfig<{
             identityAnchorHash: visualLockContext.identityAnchorHash,
             framingVersion: visualLockContext.framingVersion,
             familyLockVersion: visualLockContext.familyLockVersion,
+            ...(isVisualLockV01Context(visualLockContext) ? {
+              componentTopologyVersion: visualLockContext.componentTopologyVersion,
+              componentTopologyHash: visualLockContext.componentTopologyHash,
+              evaluatorVersion: visualLockContext.evaluatorVersion,
+              geometryGateVersion: visualLockContext.geometryGateVersion,
+            } : {}),
           },
         } : {}),
         // D-407: fixed 5-slot contract metadata
@@ -655,6 +669,65 @@ export const imageGenTask: TaskConfig<{
     // ── Step 6b: Overlay stockNumber on each generated image ──────────────
     // Deterministic post-process — NOT prompt-based. Uses sharp composite
     // to render the stock number in the bottom-right corner of every image.
+    // Visual Lock V0.1 is fail-closed as a complete pack. Geometry is measured
+    // after deterministic normalization and before badge, Media, or preview work.
+    if (isVisualLockV01Context(visualLockContext)) {
+      const geometryResults = []
+      for (let i = 0; i < slotEnvelopes.length; i++) {
+        const envelope = slotEnvelopes[i]
+        const measurement = envelope.status === 'generated' && envelope.output
+          ? await measureVisualGeometryV01(envelope.output)
+          : null
+        const geometry = evaluateVisualGeometryMeasurementV01(envelope.slotId, measurement)
+        geometryResults.push(geometry)
+        slotEnvelopes[i] = {
+          ...envelope,
+          provider: envelope.provider ? {
+            ...envelope.provider,
+            geometryGateVersion: geometry.version,
+            geometryGateState: geometry.state,
+            geometryGateReasonCodes: geometry.reasonCodes,
+            geometryMeasurement: geometry.measurement,
+          } : envelope.provider,
+        }
+      }
+
+      const geometryPack = evaluateVisualGeometryPackV01(geometryResults)
+      const evaluatorStates = slotEnvelopes.map((slot) => slot.provider?.qualityEvaluatorState ?? 'unknown')
+      const qualityState = combineVisualQualityGateV01(evaluatorStates, geometryPack.state)
+      const reasonCodes = [...new Set([
+        ...slotEnvelopes.flatMap((slot) => slot.provider?.qualityEvaluatorReasonCodes ?? []),
+        ...geometryPack.reasonCodes,
+      ])]
+
+      attemptMetadata = {
+        ...attemptMetadata,
+        qualityGateSummary: {
+          state: qualityState,
+          evaluatorVersion: visualLockContext.evaluatorVersion,
+          geometryGateVersion: visualLockContext.geometryGateVersion,
+          occupancySpreadPercent: geometryPack.occupancySpreadPercent,
+          reasonCodes,
+        },
+      }
+
+      if (qualityState !== 'pass') {
+        const summary = safeImageFailureSummary(
+          `Visual Lock V0.1 quality gate ${qualityState}: ${reasonCodes.join(',') || 'evidence_unavailable'}`,
+          'Visual Lock V0.1 quality evidence did not pass.',
+        )
+        slotEnvelopes = slotEnvelopes.map((slot) => ({
+          ...slot,
+          status: 'provider_failed',
+          output: undefined,
+          failure: { code: 'quality_gate_failed', summary },
+        }))
+      }
+
+      attemptMetadata = { ...attemptMetadata, slots: serializeSlotEnvelopes(slotEnvelopes) }
+      await persistAttemptMetadata()
+    }
+
     if (stockNumber) {
       for (let i = 0; i < slotEnvelopes.length; i++) {
         const envelope = slotEnvelopes[i]

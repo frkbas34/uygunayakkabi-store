@@ -10,9 +10,9 @@ import {
 import { evaluateChannelProviderHealth, formatChannelProviderHealthLine } from '@/lib/channelProviderHealth'
 import { evaluateTelegramDmAccess, DM_REFUSAL_MESSAGE } from '@/lib/telegramAccess'
 import {
-  parseVisualLockV0Command,
-  visualLockV0RejectionMessage,
-} from '@/lib/imageVisualLockV0'
+  parseVisualLockCommand,
+  visualLockRejectionMessage,
+} from '@/lib/imageVisualLockV01'
 import {
   resolveApprovalCandidates,
   selectApprovalMediaIds,
@@ -3607,14 +3607,14 @@ export async function POST(req: NextRequest) {
     //      (admin URL, inline keyboard callback_data, "ID: N", "#gorsel N")
     //   B) Explicit: "#gorsel 42" or "#gorsel 42 #premium"
     //   C) Inline button: imagegen:{productId}:geminipro (handled in callback section above)
-    const visualLockCommand = parseVisualLockV0Command({
+    const visualLockCommand = parseVisualLockCommand({
       text,
       chatType,
       botRole: botParam === 'geo' ? 'geo' : 'uygunops',
       dmAccessReason,
     })
     if (visualLockCommand.kind === 'rejected') {
-      await sendTelegramMessage(chatId, visualLockV0RejectionMessage(visualLockCommand.reason))
+      await sendTelegramMessage(chatId, visualLockRejectionMessage(visualLockCommand.reason))
       return NextResponse.json({ ok: true })
     }
 

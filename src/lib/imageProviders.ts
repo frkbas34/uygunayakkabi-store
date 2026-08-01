@@ -17,10 +17,20 @@
 
 import { PRODUCT_PRESERVATION_PROHIBITIONS } from './productPreservation'
 import { LOCK_REMINDER_BLOCK } from './imageLockReminder'
-import { buildOptionalVisualLockV0PromptBlock, type VisualLockV0Context } from './imageVisualLockV0'
+import {
+  buildOptionalVisualLockPromptBlock,
+  buildVisualQualityEvaluatorPromptV01,
+  isVisualLockV01Context,
+  parseVisualQualityEvaluatorV01,
+  unknownVisualQualityEvaluatorResultV01,
+  type VisualLockContext,
+  type VisualLockV01Context,
+  type VisualQualityEvaluatorResultV01,
+  type VisualQualityTriState,
+} from './imageVisualLockV01'
 // D-407: central 5-slot contract — single source of truth for slot types, order,
 // and the centering/framing discipline. EDITING_SCENES is now derived from it.
-import { GENERATED_SCENES, getSlotByKey } from './imageSlotContract'
+import { GENERATED_SCENES, getSlotByKey, type SlotKey } from './imageSlotContract'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Shared canonical prohibitions — injected into EVERY generation prompt
@@ -457,6 +467,12 @@ export type SlotLog = {
   /** v20: shot composition compliance check */
   shotCompliancePass?: boolean
   detectedShot?: string
+  qualityEvaluatorVersion?: string
+  qualityEvaluatorState?: VisualQualityTriState
+  qualityEvaluatorReasonCodes?: string[]
+  colorEvaluatorState?: VisualQualityTriState
+  componentTopologyEvaluatorState?: VisualQualityTriState
+  orientationEvaluatorState?: VisualQualityTriState
   rejectionReason?: string
 }
 
@@ -994,6 +1010,69 @@ async function checkBrandFidelity(
   }
 }
 
+/**
+ * V0.1 strict evaluator. Unlike the retained default/V0 compatibility checks,
+ * every transport, provider, response, and parse failure is UNKNOWN and blocks
+ * the opt-in slot. It never asks the generation provider for a retry.
+ */
+async function checkVisualQualityV01(
+  generatedImage: Buffer,
+  context: VisualLockV01Context,
+  slotId: SlotKey,
+  apiKey: string,
+): Promise<VisualQualityEvaluatorResultV01> {
+  const visionModel = 'gemini-2.5-flash'
+  try {
+    const response = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/${visionModel}:generateContent?key=${apiKey}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{ parts: [
+            { inlineData: { mimeType: 'image/jpeg', data: generatedImage.toString('base64') } },
+            { text: buildVisualQualityEvaluatorPromptV01(context, slotId) },
+          ] }],
+          generationConfig: { responseMimeType: 'application/json', maxOutputTokens: 600 },
+        }),
+        signal: AbortSignal.timeout(20_000),
+      },
+    )
+    if (!response.ok) return unknownVisualQualityEvaluatorResultV01(`provider_http_${response.status}`)
+    const data = await response.json().catch(() => null)
+    const candidate = data?.candidates?.[0]
+    if (candidate?.finishReason !== 'STOP') {
+      return unknownVisualQualityEvaluatorResultV01('provider_response_incomplete')
+    }
+    const text = candidate?.content?.parts?.[0]?.text
+    if (typeof text !== 'string' || !text.trim()) {
+      return unknownVisualQualityEvaluatorResultV01('provider_response_missing')
+    }
+    return parseVisualQualityEvaluatorV01(text, slotId)
+  } catch (error) {
+    const code = error instanceof Error && error.name === 'TimeoutError'
+      ? 'provider_timeout'
+      : 'provider_error'
+    return unknownVisualQualityEvaluatorResultV01(code)
+  }
+}
+
+function applyVisualQualityV01ToSlotLog(
+  slotLog: SlotLog,
+  result: VisualQualityEvaluatorResultV01,
+): void {
+  slotLog.qualityEvaluatorVersion = result.version
+  slotLog.qualityEvaluatorState = result.state
+  slotLog.qualityEvaluatorReasonCodes = result.reasonCodes
+  slotLog.colorEvaluatorState = result.color.state
+  slotLog.componentTopologyEvaluatorState = result.topology.state
+  slotLog.orientationEvaluatorState = result.orientation.state
+  slotLog.colorCheckPass = result.color.state === 'pass'
+  slotLog.detectedColor = result.color.detectedColor
+  slotLog.shotCompliancePass = result.orientation.state === 'pass'
+  slotLog.detectedShot = result.orientation.detectedView
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Step D3 — Per-Slot Shot Compliance Check (v20)
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1296,7 +1375,7 @@ export async function generateByEditing(
   _additionalImages?: Array<{ data: Buffer; mime: string }>, // reserved — OpenAI path uses only primary ref
   productId?: string | number, // D-233: stable per-product background variant
   visualFacts?: string | null, // D-355N: operator-verified product facts (visual fact lock override)
-  visualLock?: VisualLockV0Context, // opt-in only; omitted default produces the byte-identical prompt
+  visualLock?: VisualLockContext, // opt-in only; omitted default produces the byte-identical prompt
 ): Promise<{ results: ProviderResult[]; buffers: Buffer[]; slotLogs: SlotLog[] }> {
   // Filter scenes to run — default is all 5
   const scenes = sceneIndices
@@ -1419,7 +1498,7 @@ export async function generateByEditing(
       //   4. sceneText — camera angle, framing, background, lighting
       //   5. CANONICAL_PROHIBITIONS_BLOCK — 11 canonical prohibitions from productPreservation.ts
       const isPairSlot = getSlotByKey(scene.name)?.layout === 'pair'
-      const visualLockBlock = buildOptionalVisualLockV0PromptBlock(visualLock, scene.name)
+      const visualLockBlock = buildOptionalVisualLockPromptBlock(visualLock, scene.name)
       const fullPrompt = LOCK_REMINDER_BLOCK + TASK_FRAMING_BLOCK + identityLock.promptBlock + zoneBlock + sceneText + STUDIO_STANDARD_BLOCK + materialDirectives(identityLock.material, identityLock.visualNotes) + MATERIAL_IDENTITY_LOCK_BLOCK + buildVisualFactLock(visualFacts) + visualLockBlock + CANONICAL_PROHIBITIONS_BLOCK + ANTI_FRAME_FINAL_BLOCK + (isPairSlot ? PAIR_MODE_FINAL_BLOCK : '')
 
       const slotLog: SlotLog = {
@@ -1439,7 +1518,17 @@ export async function generateByEditing(
       if (rawBuf) {
         const jpegBuf = await sharp(rawBuf).jpeg({ quality: 92 }).toBuffer()
 
-        if (geminiKey) {
+        if (isVisualLockV01Context(visualLock)) {
+          const quality = geminiKey
+            ? await checkVisualQualityV01(jpegBuf, visualLock, scene.name, geminiKey)
+            : unknownVisualQualityEvaluatorResultV01('evaluator_unavailable')
+          applyVisualQualityV01ToSlotLog(slotLog, quality)
+          if (quality.state === 'pass') {
+            finalBuf = jpegBuf
+          } else {
+            slotLog.rejectionReason = `visual_quality_${quality.state}:${quality.reasonCodes.join(',') || 'evidence_blocked'}`
+          }
+        } else if (geminiKey) {
           // ── Step D1: Color check ─────────────────────────────────────────
           const colorCheck = await checkColorMatch(jpegBuf, mainColor, geminiKey)
           slotLog.colorCheckPass = colorCheck.match
@@ -1526,6 +1615,8 @@ export async function generateByEditing(
           // No Gemini key — skip all fidelity checks, accept image
           finalBuf = jpegBuf
         }
+      } else if (isVisualLockV01Context(visualLock)) {
+        slotLog.rejectionReason = 'visual_quality_unknown:empty_provider_response'
       } else {
         // Generation returned null — simple null retry (no fidelity check on null)
         console.warn(`[generateByEditing v12] ✗ ${scene.name} null on attempt 1 — retrying`)
@@ -1712,7 +1803,7 @@ export async function generateByGeminiPro(
   additionalImages?: Array<{ data: Buffer; mime: string }>,
   productId?: string | number, // D-233: stable per-product background variant
   visualFacts?: string | null, // D-355N: operator-verified product facts (visual fact lock override)
-  visualLock?: VisualLockV0Context, // opt-in only; omitted default produces the byte-identical prompt
+  visualLock?: VisualLockContext, // opt-in only; omitted default produces the byte-identical prompt
 ): Promise<{ results: ProviderResult[]; buffers: Buffer[]; slotLogs: SlotLog[] }> {
   const scenes = sceneIndices
     ? EDITING_SCENES.filter((_, i) => sceneIndices.includes(i))
@@ -1827,7 +1918,7 @@ export async function generateByGeminiPro(
 
       // Same 5-block prompt structure as generateByEditing
       const isPairSlot = getSlotByKey(scene.name)?.layout === 'pair'
-      const visualLockBlock = buildOptionalVisualLockV0PromptBlock(visualLock, scene.name)
+      const visualLockBlock = buildOptionalVisualLockPromptBlock(visualLock, scene.name)
       const fullPrompt = LOCK_REMINDER_BLOCK + TASK_FRAMING_BLOCK + multiRefFraming + identityLock.promptBlock + zoneBlock + sceneText + STUDIO_STANDARD_BLOCK + materialDirectives(identityLock.material, identityLock.visualNotes) + MATERIAL_IDENTITY_LOCK_BLOCK + buildVisualFactLock(visualFacts) + visualLockBlock + CANONICAL_PROHIBITIONS_BLOCK + ANTI_FRAME_FINAL_BLOCK + (isPairSlot ? PAIR_MODE_FINAL_BLOCK : '')
 
       // D-412: every slot uses only the ORIGINAL reference image(s) (primary base +
@@ -1856,10 +1947,19 @@ export async function generateByGeminiPro(
 
         const jpegBuf = await sharp(rawBuf).jpeg({ quality: 92 }).toBuffer()
 
-        // Step D1: Color check
-        const colorCheck = await checkColorMatch(jpegBuf, mainColor, geminiKey)
-        slotLog.colorCheckPass = colorCheck.match
-        slotLog.detectedColor  = colorCheck.detectedColor
+        if (isVisualLockV01Context(visualLock)) {
+          const quality = await checkVisualQualityV01(jpegBuf, visualLock, scene.name, geminiKey)
+          applyVisualQualityV01ToSlotLog(slotLog, quality)
+          if (quality.state === 'pass') {
+            finalBuf = jpegBuf
+          } else {
+            slotLog.rejectionReason = `visual_quality_${quality.state}:${quality.reasonCodes.join(',') || 'evidence_blocked'}`
+          }
+        } else {
+          // Step D1: Color check
+          const colorCheck = await checkColorMatch(jpegBuf, mainColor, geminiKey)
+          slotLog.colorCheckPass = colorCheck.match
+          slotLog.detectedColor  = colorCheck.detectedColor
 
         // Step D2: Brand fidelity check
         let brandCheck: BrandFidelityResult | null = null
@@ -1920,8 +2020,9 @@ export async function generateByGeminiPro(
           if (warnings.length > 0) slotLog.rejectionReason = warnings.join('; ')
 
           finalBuf = retryJpeg
-        } else {
-          finalBuf = jpegBuf
+          } else {
+            finalBuf = jpegBuf
+          }
         }
       } catch (slotErr) {
         // API error or generation block — capture the real reason per slot
@@ -1935,7 +2036,7 @@ export async function generateByGeminiPro(
         // D-201 / D-407: Orientation auto-fix for the SIDE slot — toe must point
         // LEFT. This is a post-process alignment (keeps the side shot consistent
         // across the set), not a hardcoded prompt geometry.
-        if (scene.name === 'side' && geminiKey) {
+        if (scene.name === 'side' && geminiKey && !isVisualLockV01Context(visualLock)) {
           try {
             const orientation = await checkShoeOrientation(finalBuf, geminiKey)
             if (orientation === 'right') {

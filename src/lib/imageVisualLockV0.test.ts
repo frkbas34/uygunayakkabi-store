@@ -252,7 +252,7 @@ check('22 Visual Lock adds no provider, fetch, validation, or extraction call', 
 check('23 profile, family, versions, and anchor hash persist in existing task and job metadata', () => {
   const task = readFileSync(new URL('../jobs/imageGenTask.ts', import.meta.url), 'utf8')
   const route = readFileSync(new URL('../app/api/telegram/route.ts', import.meta.url), 'utf8')
-  assert.match(task, /qualityProfile: VISUAL_LOCK_V0_COMMAND_PROFILE/)
+  assert.match(task, /qualityProfile: visualLockSelection\?\.profile/)
   assert.match(task, /productFamily: visualLockContext\.family/)
   assert.match(task, /identityAnchorHash: visualLockContext\.identityAnchorHash/)
   assert.match(route, /qualityProfile: visualLockCommand\.qualityProfile/)

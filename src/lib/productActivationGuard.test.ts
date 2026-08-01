@@ -347,6 +347,28 @@ async function main() {
     })
   })
 
+  await check('Products beforeChange keeps scoped visual-status updates field-local', async () => {
+    const hook = activationHook()
+    const data: ProductActivationDocument = {
+      workflow: { workflowStatus: 'visual_pending', visualStatus: 'rejected' },
+    }
+
+    await hook({
+      data,
+      originalDoc: {
+        ...completeProduct,
+        channelTargets: ['website'],
+        channels: { publishWebsite: true, publishInstagram: true },
+      },
+      operation: 'update',
+      req: { ...fakeReqWithVariants(), context: { isVisualStatusUpdate: true } },
+    })
+
+    assert.equal(data.channelTargets, undefined)
+    assert.equal(data.channels, undefined)
+    assert.deepStrictEqual(data.workflow, { workflowStatus: 'visual_pending', visualStatus: 'rejected' })
+  })
+
   await check('Products beforeChange normalizes direct sold-out saves', async () => {
     const hook = activationHook()
     const data: ProductActivationDocument = { status: 'soldout' }

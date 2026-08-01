@@ -3,9 +3,12 @@ import { createHash } from 'node:crypto'
 import { readFileSync } from 'node:fs'
 
 import { GENERATED_SCENES } from './imageSlotContract'
+import { blockImageSlotEnvelopesForQualityGate, createImageGenerationAttempt } from './imageGenerationContracts'
 import {
   buildVisualLockV01Context,
+  buildVisualLockV01FailureWorkflow,
   buildVisualLockV01PromptFixture,
+  buildVisualQualityGateSummaryV01,
   combineVisualQualityGateV01,
   COMPONENT_TOPOLOGY_LOCK_V01_VERSION,
   evaluateVisualGeometryMeasurementV01,
@@ -118,15 +121,19 @@ check('10 only true_rear can pass the back evaluator', () => {
 })
 
 check('11 per-slot geometry gates exact occupancy and centering boundaries', () => {
-  assert.equal(evaluateVisualGeometryMeasurementV01('side', { occupancyPercent: 72, centerOffsetXPercent: 3, centerOffsetYPercent: 0, maximumCenterOffsetPercent: 3 }).state, 'pass')
-  assert.equal(evaluateVisualGeometryMeasurementV01('side', { occupancyPercent: 82, centerOffsetXPercent: 0, centerOffsetYPercent: 3, maximumCenterOffsetPercent: 3 }).state, 'pass')
-  assert.equal(evaluateVisualGeometryMeasurementV01('side', { occupancyPercent: 71.999, centerOffsetXPercent: 0, centerOffsetYPercent: 0, maximumCenterOffsetPercent: 0 }).state, 'fail')
+  assert.equal(evaluateVisualGeometryMeasurementV01('side', { occupancyPercent: 72, centerOffsetXPercent: 3, centerOffsetYPercent: 0, maximumCenterOffsetPercent: 3, clippingDetected: false }).state, 'pass')
+  assert.equal(evaluateVisualGeometryMeasurementV01('side', { occupancyPercent: 82, centerOffsetXPercent: 0, centerOffsetYPercent: 3, maximumCenterOffsetPercent: 3, clippingDetected: false }).state, 'pass')
+  assert.equal(evaluateVisualGeometryMeasurementV01('side', { occupancyPercent: 71.999, centerOffsetXPercent: 0, centerOffsetYPercent: 0, maximumCenterOffsetPercent: 0, clippingDetected: false }).state, 'fail')
+  const clipped = evaluateVisualGeometryMeasurementV01('side', { occupancyPercent: 76, centerOffsetXPercent: 0, centerOffsetYPercent: 0, maximumCenterOffsetPercent: 0, clippingDetected: true })
+  assert.equal(clipped.state, 'fail')
+  assert.equal(clipped.clippingState, 'fail')
+  assert.ok(clipped.reasonCodes.includes('clipping_detected'))
   assert.equal(evaluateVisualGeometryMeasurementV01('side', null).state, 'unknown')
   assert.equal(evaluateVisualGeometryMeasurementV01('detail', null).applicable, false)
 })
 
 check('12 pack spread is fail-closed and capped at eight points', () => {
-  const result = (slotId: 'side' | 'hero_3q' | 'top' | 'back', occupancyPercent: number) => evaluateVisualGeometryMeasurementV01(slotId, { occupancyPercent, centerOffsetXPercent: 0, centerOffsetYPercent: 0, maximumCenterOffsetPercent: 0 })
+  const result = (slotId: 'side' | 'hero_3q' | 'top' | 'back', occupancyPercent: number) => evaluateVisualGeometryMeasurementV01(slotId, { occupancyPercent, centerOffsetXPercent: 0, centerOffsetYPercent: 0, maximumCenterOffsetPercent: 0, clippingDetected: false })
   assert.equal(evaluateVisualGeometryPackV01([result('side', 72), result('hero_3q', 80), result('top', 76), result('back', 78)]).state, 'pass')
   assert.equal(evaluateVisualGeometryPackV01([result('side', 72), result('hero_3q', 81), result('top', 76), result('back', 78)]).state, 'fail')
   assert.equal(evaluateVisualGeometryPackV01([result('side', 72)]).state, 'unknown')
@@ -159,17 +166,103 @@ check('16 V0.1 prompt fixture digest is pinned', () => {
   assert.equal(digest, '71cd5e3d009864e0ae82947b636082aac0005e249c3b27aad9acc09439c6c243')
 })
 
-check('17 runtime wiring blocks non-pass evidence before Media persistence', () => {
+check('17 complete non-pass evidence remains inspectable before persistence authorization', () => {
+  const occupancy = { side: 72, hero_3q: 76, top: 78, back: 80, detail: 90 } as const
+  const geometry = GENERATED_SCENES.map((scene) => evaluateVisualGeometryMeasurementV01(scene.name, {
+    occupancyPercent: occupancy[scene.name],
+    centerOffsetXPercent: 1,
+    centerOffsetYPercent: 2,
+    maximumCenterOffsetPercent: 2,
+    clippingDetected: false,
+  }))
+  const geometryPack = evaluateVisualGeometryPackV01(geometry)
+  const summary = buildVisualQualityGateSummaryV01({
+    context,
+    geometryPack,
+    slots: GENERATED_SCENES.map((scene, index) => ({
+      slotId: scene.name,
+      evaluatorStatus: 'unknown',
+      evaluatorReasonCodes: ['provider_response_incomplete'],
+      orientationStatus: 'unknown',
+      detectedView: 'unknown',
+      topologyStatus: 'unknown',
+      geometry: geometry[index],
+    })),
+  })
+  assert.equal(summary.slotResults.length, 5)
+  assert.equal(summary.packResults.qualityGateStatus, 'unknown')
+  assert.equal(summary.packResults.geometryGateStatus, 'pass')
+  assert.equal(summary.packResults.occupancyMinimumPercent, 72)
+  assert.equal(summary.packResults.occupancyMaximumPercent, 80)
+  assert.equal(summary.packResults.occupancySpreadPercent, 8)
+  assert.equal(summary.packResults.requiredEvaluatorCompleteness, 'unknown')
+  assert.ok(summary.packResults.reasonCodes.includes('provider_response_incomplete'))
+  assert.ok(summary.slotResults.every((slot) => slot.geometryStatus === 'pass' && slot.occupancyPercent !== null))
+
+  const incompletePass = buildVisualQualityGateSummaryV01({
+    context,
+    geometryPack,
+    slots: GENERATED_SCENES.slice(0, 4).map((scene, index) => ({
+      slotId: scene.name,
+      evaluatorStatus: 'pass',
+      evaluatorReasonCodes: [],
+      orientationStatus: 'pass',
+      detectedView: scene.name,
+      topologyStatus: 'pass',
+      geometry: geometry[index],
+    })),
+  })
+  assert.equal(incompletePass.packResults.requiredEvaluatorCompleteness, 'unknown')
+  assert.equal(incompletePass.packResults.qualityGateStatus, 'unknown')
+})
+
+check('18 failure workflow clears only active visual state and preserves every sibling field', () => {
+  const current = { workflowStatus: 'visual_pending', visualStatus: 'generating', confirmationStatus: 'pending' }
+  assert.deepEqual(buildVisualLockV01FailureWorkflow(current), { ...current, visualStatus: 'rejected' })
+  assert.equal(buildVisualLockV01FailureWorkflow({ ...current, visualStatus: 'approved' }), null)
+  assert.equal(current.visualStatus, 'generating')
+})
+
+check('19 runtime wiring retains transient bytes through evidence and drops them before Media', () => {
+  const attempt = createImageGenerationAttempt({
+    jobId: 'fixture',
+    requestedSlotIds: GENERATED_SCENES.map((scene) => scene.name),
+    attemptId: 'iga_visual_lock_v01_fixture',
+  })
+  const blocked = blockImageSlotEnvelopesForQualityGate({
+    state: 'unknown',
+    reasonCodes: ['provider_response_incomplete'],
+    slots: attempt.slots.map((slot) => ({
+      ...slot,
+      status: 'generated' as const,
+      output: Buffer.from(slot.slotId),
+      provider: {
+        provider: 'fixture',
+        attempts: 1,
+        qualityEvaluatorState: 'unknown' as const,
+        geometryGateState: 'pass' as const,
+      },
+    })),
+  })
+  assert.ok(blocked.every((slot) => slot.status === 'provider_failed'))
+  assert.ok(blocked.every((slot) => slot.output === undefined))
+  assert.ok(blocked.every((slot) => slot.failure?.code === 'quality_gate_failed'))
+  assert.ok(blocked.every((slot) => slot.provider?.qualityEvaluatorState === 'unknown' && slot.provider.geometryGateState === 'pass'))
+
   const provider = readFileSync(new URL('./imageProviders.ts', import.meta.url), 'utf8')
+  const contracts = readFileSync(new URL('./imageGenerationContracts.ts', import.meta.url), 'utf8')
   const task = readFileSync(new URL('../jobs/imageGenTask.ts', import.meta.url), 'utf8')
   const route = readFileSync(new URL('../app/api/telegram/route.ts', import.meta.url), 'utf8')
   assert.match(provider, /if \(isVisualLockV01Context\(visualLock\)\)/)
-  assert.match(provider, /quality\.state === 'pass'/)
+  assert.match(provider, /finalBuf = jpegBuf[\s\S]*quality\.state !== 'pass'/)
   assert.match(provider, /unknownVisualQualityEvaluatorResultV01\('evaluator_unavailable'\)/)
   assert.match(task, /measureVisualGeometryV01\(envelope\.output\)/)
+  assert.match(task, /buildVisualQualityGateSummaryV01/)
   assert.match(task, /if \(qualityState !== 'pass'\)/)
-  assert.match(task, /code: 'quality_gate_failed'/)
-  assert.ok(task.indexOf("code: 'quality_gate_failed'") < task.indexOf('persistGeneratedSlotEnvelopes({'))
+  assert.match(task, /blockImageSlotEnvelopesForQualityGate/)
+  assert.match(contracts, /code: 'quality_gate_failed'/)
+  assert.match(task, /buildVisualLockV01FailureWorkflow/)
+  assert.ok(task.lastIndexOf('blockImageSlotEnvelopesForQualityGate({') < task.indexOf('persistGeneratedSlotEnvelopes({'))
   assert.match(route, /parseVisualLockCommand/)
 })
 

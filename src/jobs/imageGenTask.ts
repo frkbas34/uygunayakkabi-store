@@ -32,6 +32,7 @@ import {
 } from '../lib/imageSlotContract'
 import {
   adaptLegacyProviderOutput,
+  blockImageSlotEnvelopesForQualityGate,
   createImageGenerationAttempt,
   finishImageGenerationAttempt,
   markAttemptSlotsGenerating,
@@ -46,12 +47,14 @@ import {
 } from '../lib/imageGenerationContracts'
 import {
   buildVisualLockContext,
-  combineVisualQualityGateV01,
+  buildVisualLockV01FailureWorkflow,
+  buildVisualQualityGateSummaryV01,
   evaluateVisualGeometryMeasurementV01,
   evaluateVisualGeometryPackV01,
   isVisualLockV01Context,
   measureVisualGeometryV01,
   resolveVisualLockTaskSelection,
+  type VisualGeometryGateResultV01,
 } from '../lib/imageVisualLockV01'
 
 export const imageGenTask: TaskConfig<{
@@ -672,7 +675,7 @@ export const imageGenTask: TaskConfig<{
     // Visual Lock V0.1 is fail-closed as a complete pack. Geometry is measured
     // after deterministic normalization and before badge, Media, or preview work.
     if (isVisualLockV01Context(visualLockContext)) {
-      const geometryResults = []
+      const geometryResults: VisualGeometryGateResultV01[] = []
       for (let i = 0; i < slotEnvelopes.length; i++) {
         const envelope = slotEnvelopes[i]
         const measurement = envelope.status === 'generated' && envelope.output
@@ -686,6 +689,7 @@ export const imageGenTask: TaskConfig<{
             ...envelope.provider,
             geometryGateVersion: geometry.version,
             geometryGateState: geometry.state,
+            geometryClippingState: geometry.clippingState,
             geometryGateReasonCodes: geometry.reasonCodes,
             geometryMeasurement: geometry.measurement,
           } : envelope.provider,
@@ -693,39 +697,101 @@ export const imageGenTask: TaskConfig<{
       }
 
       const geometryPack = evaluateVisualGeometryPackV01(geometryResults)
-      const evaluatorStates = slotEnvelopes.map((slot) => slot.provider?.qualityEvaluatorState ?? 'unknown')
-      const qualityState = combineVisualQualityGateV01(evaluatorStates, geometryPack.state)
-      const reasonCodes = [...new Set([
-        ...slotEnvelopes.flatMap((slot) => slot.provider?.qualityEvaluatorReasonCodes ?? []),
-        ...geometryPack.reasonCodes,
-      ])]
+      const qualityGateSummary = buildVisualQualityGateSummaryV01({
+        context: visualLockContext,
+        geometryPack,
+        slots: slotEnvelopes.map((slot, index) => ({
+          slotId: slot.slotId,
+          evaluatorStatus: slot.provider?.qualityEvaluatorState ?? 'unknown',
+          evaluatorReasonCodes: slot.provider?.qualityEvaluatorReasonCodes ?? ['evaluator_result_missing'],
+          orientationStatus: slot.provider?.orientationEvaluatorState ?? 'unknown',
+          detectedView: slot.provider?.detectedShot ?? 'unknown',
+          topologyStatus: slot.provider?.componentTopologyEvaluatorState ?? 'unknown',
+          geometry: geometryResults[index],
+        })),
+      })
+      const qualityState = qualityGateSummary.packResults.qualityGateStatus
+      const reasonCodes = qualityGateSummary.packResults.reasonCodes
 
       attemptMetadata = {
         ...attemptMetadata,
-        qualityGateSummary: {
-          state: qualityState,
-          evaluatorVersion: visualLockContext.evaluatorVersion,
-          geometryGateVersion: visualLockContext.geometryGateVersion,
-          occupancySpreadPercent: geometryPack.occupancySpreadPercent,
-          reasonCodes,
-        },
+        qualityGateSummary,
       }
 
       if (qualityState !== 'pass') {
-        const summary = safeImageFailureSummary(
-          `Visual Lock V0.1 quality gate ${qualityState}: ${reasonCodes.join(',') || 'evidence_unavailable'}`,
-          'Visual Lock V0.1 quality evidence did not pass.',
-        )
-        slotEnvelopes = slotEnvelopes.map((slot) => ({
-          ...slot,
-          status: 'provider_failed',
-          output: undefined,
-          failure: { code: 'quality_gate_failed', summary },
-        }))
+        slotEnvelopes = blockImageSlotEnvelopesForQualityGate({
+          slots: slotEnvelopes,
+          state: qualityState,
+          reasonCodes,
+        })
       }
 
       attemptMetadata = { ...attemptMetadata, slots: serializeSlotEnvelopes(slotEnvelopes) }
       await persistAttemptMetadata()
+
+      if (qualityState !== 'pass') {
+        const msg = safeImageFailureSummary(
+          `Visual Lock V0.1 quality gate ${qualityState}: ${reasonCodes.join(',') || 'evidence_unavailable'}`,
+          'Visual Lock V0.1 quality evidence did not pass.',
+        )
+        attemptMetadata = finishImageGenerationAttempt(attemptMetadata, serializeSlotEnvelopes(slotEnvelopes))
+        await persistAttemptMetadata({
+          status: 'failed',
+          errorMessage: msg,
+          generationCompletedAt: attemptMetadata.completedAt,
+          providerResults: JSON.stringify({
+            contractVersion: IMAGE_SLOT_CONTRACT_VERSION,
+            attemptId: attemptMetadata.attemptId,
+            attemptStatus: attemptMetadata.status,
+            summary: providerResultsSummary,
+            slotLogs: slotLogsSummary,
+            slotResults: attemptMetadata.slots,
+            qualityGateSummary: attemptMetadata.qualityGateSummary,
+          }),
+        })
+
+        try {
+          const currentProduct = await payload.findByID({
+            collection: 'products',
+            id: productId,
+            depth: 0,
+          }) as Record<string, unknown>
+          const workflow = (currentProduct.workflow ?? {}) as Record<string, unknown>
+          const failedWorkflow = buildVisualLockV01FailureWorkflow(workflow)
+          if (failedWorkflow) {
+            await payload.update({
+              collection: 'products',
+              id: productId,
+              data: { workflow: failedWorkflow },
+              context: { isDispatchUpdate: true, isVisualStatusUpdate: true },
+            })
+          }
+        } catch (error) {
+          const finalizationError = safeImageFailureSummary(error, 'Product visual failure state could not be finalized.')
+          await persistAttemptMetadata({
+            status: 'failed',
+            errorMessage: `${msg} Product finalization: ${finalizationError}`,
+            generationCompletedAt: attemptMetadata.completedAt,
+          })
+          throw new Error(`${msg} Product finalization: ${finalizationError}`)
+        }
+
+        if (telegramChatId) {
+          await sendTelegramNotification(
+            telegramChatId,
+            `âŒ <b>GÃ¶rsel kalite kontrolÃ¼ geÃ§ilemedi</b>\n\n` +
+            `V0.1 sonucu <code>${qualityState}</code> olarak kaydedildi. GÃ¶rsel veya Ã¶nizleme oluÅŸturulmadÄ±.`,
+          )
+        }
+
+        return {
+          output: {
+            success: false,
+            mediaIds: '',
+            error: msg,
+          },
+        }
+      }
     }
 
     if (stockNumber) {

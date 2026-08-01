@@ -354,6 +354,7 @@ export type VisualGeometryMeasurementV01 = {
   centerOffsetXPercent: number
   centerOffsetYPercent: number
   maximumCenterOffsetPercent: number
+  clippingDetected: boolean
 }
 
 export type VisualGeometryGateResultV01 = {
@@ -361,6 +362,7 @@ export type VisualGeometryGateResultV01 = {
   slotId: SlotKey
   applicable: boolean
   state: VisualQualityTriState
+  clippingState: VisualQualityTriState
   measurement: VisualGeometryMeasurementV01 | null
   reasonCodes: string[]
 }
@@ -370,20 +372,47 @@ export function evaluateVisualGeometryMeasurementV01(
   measurement: VisualGeometryMeasurementV01 | null,
 ): VisualGeometryGateResultV01 {
   if (slotId === 'detail') {
-    return { version: VISUAL_GEOMETRY_GATE_V01_VERSION, slotId, applicable: false, state: 'pass', measurement, reasonCodes: ['detail_slot_exempt'] }
+    return {
+      version: VISUAL_GEOMETRY_GATE_V01_VERSION,
+      slotId,
+      applicable: false,
+      state: 'pass',
+      clippingState: measurement ? (measurement.clippingDetected ? 'fail' : 'pass') : 'unknown',
+      measurement,
+      reasonCodes: ['detail_slot_exempt'],
+    }
   }
-  if (!measurement || !Object.values(measurement).every(Number.isFinite)) {
-    return { version: VISUAL_GEOMETRY_GATE_V01_VERSION, slotId, applicable: true, state: 'unknown', measurement: null, reasonCodes: ['geometry_measurement_unavailable'] }
+  if (
+    !measurement
+    || ![
+      measurement.occupancyPercent,
+      measurement.centerOffsetXPercent,
+      measurement.centerOffsetYPercent,
+      measurement.maximumCenterOffsetPercent,
+    ].every(Number.isFinite)
+    || typeof measurement.clippingDetected !== 'boolean'
+  ) {
+    return {
+      version: VISUAL_GEOMETRY_GATE_V01_VERSION,
+      slotId,
+      applicable: true,
+      state: 'unknown',
+      clippingState: 'unknown',
+      measurement: null,
+      reasonCodes: ['geometry_measurement_unavailable'],
+    }
   }
   const reasonCodes: string[] = []
   if (measurement.occupancyPercent < 72) reasonCodes.push('occupancy_below_72')
   if (measurement.occupancyPercent > 82) reasonCodes.push('occupancy_above_82')
   if (measurement.maximumCenterOffsetPercent > 3) reasonCodes.push('center_offset_above_3')
+  if (measurement.clippingDetected) reasonCodes.push('clipping_detected')
   return {
     version: VISUAL_GEOMETRY_GATE_V01_VERSION,
     slotId,
     applicable: true,
     state: reasonCodes.length > 0 ? 'fail' : 'pass',
+    clippingState: measurement.clippingDetected ? 'fail' : 'pass',
     measurement,
     reasonCodes,
   }
@@ -392,6 +421,8 @@ export function evaluateVisualGeometryMeasurementV01(
 export type VisualGeometryPackGateV01 = {
   version: typeof VISUAL_GEOMETRY_GATE_V01_VERSION
   state: VisualQualityTriState
+  occupancyMinimumPercent: number | null
+  occupancyMaximumPercent: number | null
   occupancySpreadPercent: number | null
   reasonCodes: string[]
 }
@@ -412,19 +443,159 @@ export function evaluateVisualGeometryPackV01(results: readonly VisualGeometryGa
   const bySlot = new Map(results.map((result) => [result.slotId, result]))
   const full = FULL_PRODUCT_SLOTS.map((slotId) => bySlot.get(slotId))
   if (full.some((result) => !result || result.state === 'unknown' || !result.measurement)) {
-    return { version: VISUAL_GEOMETRY_GATE_V01_VERSION, state: 'unknown', occupancySpreadPercent: null, reasonCodes: ['pack_geometry_incomplete'] }
+    const knownOccupancy = full
+      .map((result) => result?.measurement?.occupancyPercent)
+      .filter((value): value is number => typeof value === 'number' && Number.isFinite(value))
+    return {
+      version: VISUAL_GEOMETRY_GATE_V01_VERSION,
+      state: 'unknown',
+      occupancyMinimumPercent: knownOccupancy.length > 0 ? Math.min(...knownOccupancy) : null,
+      occupancyMaximumPercent: knownOccupancy.length > 0 ? Math.max(...knownOccupancy) : null,
+      occupancySpreadPercent: null,
+      reasonCodes: ['pack_geometry_incomplete'],
+    }
   }
   const known = full as VisualGeometryGateResultV01[]
   const occupancy = known.map((result) => result.measurement!.occupancyPercent)
-  const spread = Number((Math.max(...occupancy) - Math.min(...occupancy)).toFixed(3))
+  const minimum = Math.min(...occupancy)
+  const maximum = Math.max(...occupancy)
+  const spread = Number((maximum - minimum).toFixed(3))
   const reasonCodes = known.flatMap((result) => result.reasonCodes)
   if (spread > 8) reasonCodes.push('occupancy_spread_above_8')
   return {
     version: VISUAL_GEOMETRY_GATE_V01_VERSION,
     state: known.some((result) => result.state === 'fail') || spread > 8 ? 'fail' : 'pass',
+    occupancyMinimumPercent: minimum,
+    occupancyMaximumPercent: maximum,
     occupancySpreadPercent: spread,
     reasonCodes: [...new Set(reasonCodes)],
   }
+}
+
+export type VisualQualitySlotEvidenceV01 = {
+  slotId: SlotKey
+  evaluatorStatus: VisualQualityTriState
+  evaluatorReasonCodes: string[]
+  orientationStatus: VisualQualityTriState
+  detectedView: string
+  topologyStatus: VisualQualityTriState
+  geometry: VisualGeometryGateResultV01
+}
+
+export type VisualQualityGateSummaryV01 = {
+  profile: typeof VISUAL_LOCK_V01_PROFILE_VERSION
+  family: VisualLockV0Family
+  identityAnchorHash: string
+  topologyContractVersion: typeof COMPONENT_TOPOLOGY_LOCK_V01_VERSION
+  evaluatorContractVersion: typeof VISUAL_QUALITY_EVALUATOR_V01_VERSION
+  geometryGateVersion: typeof VISUAL_GEOMETRY_GATE_V01_VERSION
+  slotResults: Array<{
+    slot: SlotKey
+    evaluatorStatus: VisualQualityTriState
+    evaluatorReasonCodes: string[]
+    orientationResult: { status: VisualQualityTriState; detectedView: string }
+    topologyResult: { status: VisualQualityTriState }
+    occupancyPercent: number | null
+    horizontalCenterOffsetPercent: number | null
+    verticalCenterOffsetPercent: number | null
+    maximumCenterOffsetPercent: number | null
+    clippingState: VisualQualityTriState
+    geometryStatus: VisualQualityTriState
+    geometryReasonCodes: string[]
+  }>
+  packResults: {
+    occupancyMinimumPercent: number | null
+    occupancyMaximumPercent: number | null
+    occupancySpreadPercent: number | null
+    requiredEvaluatorCompleteness: VisualQualityTriState
+    orientationGateStatus: VisualQualityTriState
+    topologyGateStatus: VisualQualityTriState
+    geometryGateStatus: VisualQualityTriState
+    qualityGateStatus: VisualQualityTriState
+    reasonCodes: string[]
+  }
+}
+
+function combineTriStates(states: readonly VisualQualityTriState[]): VisualQualityTriState {
+  if (states.length === 0) return 'unknown'
+  if (states.includes('fail')) return 'fail'
+  if (states.includes('unknown')) return 'unknown'
+  return 'pass'
+}
+
+export function buildVisualQualityGateSummaryV01(params: {
+  context: VisualLockV01Context
+  slots: readonly VisualQualitySlotEvidenceV01[]
+  geometryPack: VisualGeometryPackGateV01
+}): VisualQualityGateSummaryV01 {
+  const slotById = new Map(params.slots.map((slot) => [slot.slotId, slot]))
+  const ordered = GENERATED_SLOT_KEYS.map((slotId) => slotById.get(slotId)).filter((slot): slot is VisualQualitySlotEvidenceV01 => Boolean(slot))
+  const evaluatorStates = ordered.map((slot) => slot.evaluatorStatus)
+  const requiredEvaluatorCompleteness: VisualQualityTriState = ordered.length === GENERATED_SLOT_KEYS.length
+    && evaluatorStates.every((state) => state === 'pass' || state === 'fail')
+    ? 'pass'
+    : 'unknown'
+  const orientationGateStatus = ordered.length === GENERATED_SLOT_KEYS.length
+    ? combineTriStates(ordered.map((slot) => slot.orientationStatus))
+    : 'unknown'
+  const topologyGateStatus = ordered.length === GENERATED_SLOT_KEYS.length
+    ? combineTriStates(ordered.map((slot) => slot.topologyStatus))
+    : 'unknown'
+  const qualityGateStatus = combineVisualQualityGateV01(
+    [...evaluatorStates, requiredEvaluatorCompleteness],
+    params.geometryPack.state,
+  )
+  const reasonCodes = [...new Set([
+    ...ordered.flatMap((slot) => slot.evaluatorReasonCodes),
+    ...ordered.flatMap((slot) => slot.geometry.reasonCodes),
+    ...params.geometryPack.reasonCodes,
+    ...(requiredEvaluatorCompleteness === 'unknown' ? ['required_evaluator_incomplete'] : []),
+    ...(orientationGateStatus === 'unknown' ? ['orientation_gate_unknown'] : []),
+    ...(topologyGateStatus === 'unknown' ? ['topology_gate_unknown'] : []),
+    ...(params.geometryPack.state === 'unknown' ? ['geometry_gate_unknown'] : []),
+  ])]
+
+  return {
+    profile: params.context.profileVersion,
+    family: params.context.family,
+    identityAnchorHash: params.context.identityAnchorHash,
+    topologyContractVersion: params.context.componentTopologyVersion,
+    evaluatorContractVersion: params.context.evaluatorVersion,
+    geometryGateVersion: params.context.geometryGateVersion,
+    slotResults: ordered.map((slot) => ({
+      slot: slot.slotId,
+      evaluatorStatus: slot.evaluatorStatus,
+      evaluatorReasonCodes: [...slot.evaluatorReasonCodes],
+      orientationResult: { status: slot.orientationStatus, detectedView: slot.detectedView },
+      topologyResult: { status: slot.topologyStatus },
+      occupancyPercent: slot.geometry.measurement?.occupancyPercent ?? null,
+      horizontalCenterOffsetPercent: slot.geometry.measurement?.centerOffsetXPercent ?? null,
+      verticalCenterOffsetPercent: slot.geometry.measurement?.centerOffsetYPercent ?? null,
+      maximumCenterOffsetPercent: slot.geometry.measurement?.maximumCenterOffsetPercent ?? null,
+      clippingState: slot.geometry.clippingState,
+      geometryStatus: slot.geometry.state,
+      geometryReasonCodes: [...slot.geometry.reasonCodes],
+    })),
+    packResults: {
+      occupancyMinimumPercent: params.geometryPack.occupancyMinimumPercent,
+      occupancyMaximumPercent: params.geometryPack.occupancyMaximumPercent,
+      occupancySpreadPercent: params.geometryPack.occupancySpreadPercent,
+      requiredEvaluatorCompleteness,
+      orientationGateStatus,
+      topologyGateStatus,
+      geometryGateStatus: params.geometryPack.state,
+      qualityGateStatus,
+      reasonCodes,
+    },
+  }
+}
+
+export function buildVisualLockV01FailureWorkflow(
+  workflow: Record<string, unknown>,
+): Record<string, unknown> | null {
+  const visualStatus = workflow.visualStatus
+  if (visualStatus !== 'generating' && visualStatus !== 'pending') return null
+  return { ...workflow, visualStatus: 'rejected' }
 }
 
 type Fit = [number, number, number, number, number, number]
@@ -529,6 +700,7 @@ export async function measureVisualGeometryV01(input: Buffer): Promise<VisualGeo
       centerOffsetXPercent: Number(centerOffsetXPercent.toFixed(3)),
       centerOffsetYPercent: Number(centerOffsetYPercent.toFixed(3)),
       maximumCenterOffsetPercent: Number(Math.max(centerOffsetXPercent, centerOffsetYPercent).toFixed(3)),
+      clippingDetected: minX === 0 || minY === 0 || maxX === info.width - 1 || maxY === info.height - 1,
     }
   } catch {
     return null

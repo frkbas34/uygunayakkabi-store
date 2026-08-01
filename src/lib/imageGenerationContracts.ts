@@ -8,6 +8,7 @@ import {
   isValidSlotKey,
   type SlotKey,
 } from './imageSlotContract'
+import type { VisualQualityGateSummaryV01 } from './imageVisualLockV01'
 
 export type ImageGenerationContractVersion = typeof IMAGE_SLOT_CONTRACT_VERSION
 export type ImageSlotId = SlotKey
@@ -52,12 +53,14 @@ export type ImageSlotProviderMetadata = {
   orientationEvaluatorState?: 'pass' | 'fail' | 'unknown'
   geometryGateVersion?: string
   geometryGateState?: 'pass' | 'fail' | 'unknown'
+  geometryClippingState?: 'pass' | 'fail' | 'unknown'
   geometryGateReasonCodes?: string[]
   geometryMeasurement?: {
     occupancyPercent: number
     centerOffsetXPercent: number
     centerOffsetYPercent: number
     maximumCenterOffsetPercent: number
+    clippingDetected: boolean
   } | null
 }
 
@@ -102,13 +105,7 @@ export type ImageGenerationAttemptMetadata = {
     evaluator?: string
     geometryGate?: string
   }
-  qualityGateSummary?: {
-    state: 'pass' | 'fail' | 'unknown'
-    evaluatorVersion: string
-    geometryGateVersion: string
-    occupancySpreadPercent: number | null
-    reasonCodes: string[]
-  }
+  qualityGateSummary?: VisualQualityGateSummaryV01
 }
 
 export type LegacySlotProjection = {
@@ -333,6 +330,26 @@ export function adaptLegacyProviderOutput<TOutput>(params: {
           log ? 'Provider did not produce an image for this slot.' : 'Provider returned no semantic result for this slot.',
         ),
       },
+    }
+  })
+}
+
+export function blockImageSlotEnvelopesForQualityGate<TOutput>(params: {
+  slots: readonly ImageSlotExecutionEnvelope<TOutput>[]
+  state: 'fail' | 'unknown'
+  reasonCodes: readonly string[]
+}): ImageSlotExecutionEnvelope<TOutput>[] {
+  const summary = safeImageFailureSummary(
+    `Visual Lock V0.1 quality gate ${params.state}: ${params.reasonCodes.join(',') || 'evidence_unavailable'}`,
+    'Visual Lock V0.1 quality evidence did not pass.',
+  )
+  return params.slots.map((slot) => {
+    if (slot.status !== 'generated') return { ...slot, output: undefined }
+    return {
+      ...slot,
+      status: 'provider_failed',
+      output: undefined,
+      failure: { code: 'quality_gate_failed', summary },
     }
   })
 }

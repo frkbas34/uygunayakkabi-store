@@ -34,13 +34,16 @@ export const Products: CollectionConfig = {
       // storefront and may trigger external dispatch, so incomplete products
       // are blocked before activation.
       async ({ data, originalDoc, operation, req }) => {
-        const channelShape = mergeActivationProduct(
-          data as ProductActivationDocument,
-          originalDoc as ProductActivationDocument,
-        )
-        const normalizedChannelSelection = normalizeProductChannelSelection(channelShape)
-        data.channelTargets = normalizedChannelSelection.channelTargets
-        data.channels = normalizedChannelSelection.channels
+        const isScopedVisualStatusUpdate = (req.context as Record<string, unknown> | undefined)?.isVisualStatusUpdate === true
+        if (!isScopedVisualStatusUpdate) {
+          const channelShape = mergeActivationProduct(
+            data as ProductActivationDocument,
+            originalDoc as ProductActivationDocument,
+          )
+          const normalizedChannelSelection = normalizeProductChannelSelection(channelShape)
+          data.channelTargets = normalizedChannelSelection.channelTargets
+          data.channels = normalizedChannelSelection.channels
+        }
 
         if ((operation === 'create' || operation === 'update') && data.status === 'soldout') {
           const soldOutProduct = mergeActivationProduct(

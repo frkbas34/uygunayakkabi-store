@@ -1,0 +1,144 @@
+{
+  "schemaVersion": "visual-lock-v0-1-pilot-results/v1",
+  "capturedAt": "2026-08-01T04:57:23+03:00",
+  "deployment": {
+    "commit": "3982aa380058ef712a1ebe4070387a37f110907f",
+    "deploymentId": "dpl_8rDWHLFHTofGMd3t7Pwh5CBBMYKS",
+    "source": "remote-git",
+    "status": "READY",
+    "payloadDbPush": false,
+    "schemaPushOccurred": false,
+    "rootHttpStatus": 200,
+    "helpHttpStatus": 200,
+    "adminHttpStatus": 200,
+    "criticalOrHttp5xxLogs": 0
+  },
+  "authorization": {
+    "maximumProduct349Attempts": 1,
+    "maximumProduct343Attempts": 1,
+    "maximumTotalAttempts": 2,
+    "actualProduct349Attempts": 1,
+    "actualProduct343Attempts": 0,
+    "actualTotalAttempts": 1,
+    "regenerationAuthorized": false,
+    "regenerationOccurred": false,
+    "stage2Authorized": false,
+    "earlyStopRespected": true
+  },
+  "product349": {
+    "productId": 349,
+    "stockNumber": "SN0117",
+    "family": "loafer",
+    "command": "#gorsel 349 --profile=visual-lock-v0.1 --family=loafer",
+    "operatorApproximateTime": "2026-08-01T04:50:00+03:00",
+    "jobCreatedAt": "2026-08-01T01:50:40.996Z",
+    "jobCompletedAt": "2026-08-01T01:52:14.888Z",
+    "jobId": 433,
+    "attemptId": "iga_98993577-7914-422f-a446-0491da984e34",
+    "payloadExecutionId": 530,
+    "jobStatus": "failed",
+    "attemptStatus": "failed",
+    "payloadExecution": {
+      "processing": false,
+      "hasError": true,
+      "totalTried": 1,
+      "executionLogState": "failed",
+      "executionLogCompletedAt": "2026-08-01T01:52:16.317Z",
+      "retryEligible": false
+    },
+    "profile": "visual-lock/v0.1",
+    "commandProfile": "visual-lock-v0.1",
+    "identityAnchorHash": "2da9006103bfef444fe2f30d8eb6ae2f44eb81322a66bdf92d7546a4a8441e5d",
+    "componentTopologyHash": "7a02d9cbaa9dc95a8b0435e7385637438459a06617ac26039e0c2396d3c840db",
+    "contractVersions": {
+      "slot": "image-slot-contract/v1",
+      "profile": "visual-lock/v0.1",
+      "identityAnchor": "product-identity-anchor/v0",
+      "framing": "visual-framing-lock/v0",
+      "familyLock": "loafer-identity-lock/v0",
+      "componentTopology": "component-topology-lock/v0.1",
+      "evaluator": "visual-quality-evaluator/v0.1",
+      "geometryGate": "visual-geometry-gate/v0.1"
+    },
+    "requestedSlotIds": ["side", "hero_3q", "top", "back", "detail"],
+    "providerCalls": {
+      "referenceValidation": 1,
+      "identityExtraction": 1,
+      "slotGeneration": 5,
+      "visualQualityEvaluation": 5,
+      "total": 12,
+      "generationRetries": 0
+    },
+    "gate": {
+      "derivedCombinedState": "unknown",
+      "reasonCodes": ["provider_response_incomplete"],
+      "qualityGateSummaryPersisted": false,
+      "geometryGateVersionDeclared": true,
+      "geometryResultsPersisted": false,
+      "occupancySpreadPersisted": false,
+      "evaluatorEvidenceSufficient": true,
+      "completePackEvidenceSufficient": false
+    },
+    "slots": [
+      { "slotId": "side", "status": "provider_failed", "attempts": 1, "qualityEvaluatorState": "unknown", "colorEvaluatorState": "unknown", "componentTopologyEvaluatorState": "unknown", "orientationEvaluatorState": "unknown", "detectedShot": "unknown", "reasonCodes": ["provider_response_incomplete"], "geometryGateState": null, "geometryMeasurement": null, "mediaId": null },
+      { "slotId": "hero_3q", "status": "provider_failed", "attempts": 1, "qualityEvaluatorState": "unknown", "colorEvaluatorState": "unknown", "componentTopologyEvaluatorState": "unknown", "orientationEvaluatorState": "unknown", "detectedShot": "unknown", "reasonCodes": ["provider_response_incomplete"], "geometryGateState": null, "geometryMeasurement": null, "mediaId": null },
+      { "slotId": "top", "status": "provider_failed", "attempts": 1, "qualityEvaluatorState": "unknown", "colorEvaluatorState": "unknown", "componentTopologyEvaluatorState": "unknown", "orientationEvaluatorState": "unknown", "detectedShot": "unknown", "reasonCodes": ["provider_response_incomplete"], "geometryGateState": null, "geometryMeasurement": null, "mediaId": null },
+      { "slotId": "back", "status": "provider_failed", "attempts": 1, "qualityEvaluatorState": "unknown", "colorEvaluatorState": "unknown", "componentTopologyEvaluatorState": "unknown", "orientationEvaluatorState": "unknown", "detectedShot": "unknown", "reasonCodes": ["provider_response_incomplete"], "geometryGateState": null, "geometryMeasurement": null, "mediaId": null },
+      { "slotId": "detail", "status": "provider_failed", "attempts": 1, "qualityEvaluatorState": "unknown", "colorEvaluatorState": "unknown", "componentTopologyEvaluatorState": "unknown", "orientationEvaluatorState": "unknown", "detectedShot": "unknown", "reasonCodes": ["provider_response_incomplete"], "geometryGateState": null, "geometryMeasurement": null, "mediaId": null }
+    ],
+    "persistence": {
+      "mediaCount": 0,
+      "blobObjectCountForAttempt": 0,
+      "telegramPreviewCount": 0,
+      "approvalKeyboardCount": 0,
+      "galleryAttachmentCount": 0,
+      "activeOrPreviewJobCount": 0,
+      "orphanedMedia": false,
+      "orphanedBlobObject": false
+    },
+    "productState": {
+      "statusBefore": "draft",
+      "statusAfter": "draft",
+      "visualStatusBefore": "rejected",
+      "visualStatusAfter": "generating",
+      "visualStatusTerminallyConsistent": false,
+      "confirmationStatusBefore": "pending",
+      "confirmationStatusAfter": "pending",
+      "publishStatusBefore": "not_requested",
+      "publishStatusAfter": "not_requested",
+      "sellableBefore": false,
+      "sellableAfter": false,
+      "generatedGalleryBefore": 0,
+      "generatedGalleryAfter": 0,
+      "shopierOccurred": false,
+      "publishingOccurred": false,
+      "adOperationOccurred": false,
+      "activationOccurred": false,
+      "dispatchOccurred": false
+    },
+    "comparison": {
+      "baselineJobId": 428,
+      "baselineScore": 3.4,
+      "visualLockV0JobId": 431,
+      "visualLockV0Score": 3.8,
+      "visualLockV01Score": null,
+      "visualComparisonAvailable": false,
+      "reason": "V0.1 persisted no Media or preview, so visual scoring is invalid."
+    }
+  },
+  "product343": {
+    "productId": 343,
+    "stockNumber": "SN0017",
+    "attemptCreated": false,
+    "providerCalls": 0,
+    "reasonSkipped": "Product 349 did not preserve complete structured gate evidence and retained stale generating product state."
+  },
+  "decision": {
+    "classification": "VISUAL_LOCK_V0_1_PILOT_FAIL_EVIDENCE_PERSISTENCE",
+    "fullPass": false,
+    "stage2Run": false,
+    "reason": "Fail-closed handling prevented unverified output from reaching Media or preview, but the attempt omitted qualityGateSummary and all geometry evidence, and product visualStatus was not terminally finalized.",
+    "nextHypothesis": "Preserve evaluator-blocked transient buffers only through non-persisting pack geometry and summary evaluation, then discard them before Media whenever the combined gate is not pass.",
+    "exactNextTask": "VISUAL LOCK V0.1 — FAILURE EVIDENCE FINALIZATION PATCH"
+  }
+}

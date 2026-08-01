@@ -12,7 +12,7 @@ Current as of 2026-08-01. This is a prioritized decision list, not a milestone l
 
 ## P1 — image platform and Telegram UX
 
-1. Implement the narrow V0.1 hypothesis from `VISUAL_LOCK_V0_AB_PILOT_PARTIAL`: evaluator parse/unavailability must be `unknown` or fail closed, orientation evaluation must work, framing must be measured, `back` must be true rear, and source-supported component topology must persist. Keep V0 opt-in and do not rerun production without separate authorization.
+1. Patch the V0.1 failure finalization exposed by Product 349 Job 433: evaluator-unknown must remain blocked, but transient buffers must survive only long enough to persist geometry and a pack-level quality summary before being discarded; the terminal failure path must also clear stale product `generating` state. Do not run Product 343 or another production attempt without separate authorization.
 2. Complete and operator-review `project-control/GOLDEN_PRODUCT_SET_V1.md`: confirm the one draft source and acquire 35 missing repository-safe originals, including all 12 loafers. Do not use generated outcomes, hero decoration, screenshots, or production-only media as Layer A truth.
 3. Evolve the additive job-JSON attempt snapshots into normalized immutable attempt/slot records when separately authorized; preserve the new semantic contract and refuse ambiguous legacy backfills.
 4. Add provider usage/timing/cost, structured retries, transforms, evaluators, checkpoints, cancellation, and recovery to those normalized records.
@@ -54,4 +54,4 @@ Current as of 2026-08-01. This is a prioritized decision list, not a milestone l
 
 ## Exact recommended next task
 
-**VISUAL LOCK V0.1 — EVIDENCE-DRIVEN QUALITY ITERATION**: keep the profile opt-in, correct evaluator truth handling and orientation availability, add measured framing/true-rear gates, and preserve source-supported component topology. Do not run another production attempt until the implementation is separately reviewed and authorized.
+**VISUAL LOCK V0.1 — FAILURE EVIDENCE FINALIZATION PATCH**: preserve complete evaluator/geometry/pack evidence and terminal product state for blocked V0.1 attempts without persisting Media, sending a preview, retrying, or weakening the fail-closed gate.

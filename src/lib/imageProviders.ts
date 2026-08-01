@@ -21,7 +21,7 @@ import {
   buildOptionalVisualLockPromptBlock,
   buildVisualQualityEvaluatorPromptV01,
   isVisualLockV01Context,
-  parseVisualQualityEvaluatorV01,
+  normalizeVisualQualityProviderResponseV01,
   unknownVisualQualityEvaluatorResultV01,
   type VisualLockContext,
   type VisualLockV01Context,
@@ -1040,15 +1040,7 @@ async function checkVisualQualityV01(
     )
     if (!response.ok) return unknownVisualQualityEvaluatorResultV01(`provider_http_${response.status}`)
     const data = await response.json().catch(() => null)
-    const candidate = data?.candidates?.[0]
-    if (candidate?.finishReason !== 'STOP') {
-      return unknownVisualQualityEvaluatorResultV01('provider_response_incomplete')
-    }
-    const text = candidate?.content?.parts?.[0]?.text
-    if (typeof text !== 'string' || !text.trim()) {
-      return unknownVisualQualityEvaluatorResultV01('provider_response_missing')
-    }
-    return parseVisualQualityEvaluatorV01(text, slotId)
+    return normalizeVisualQualityProviderResponseV01(data, slotId)
   } catch (error) {
     const code = error instanceof Error && error.name === 'TimeoutError'
       ? 'provider_timeout'

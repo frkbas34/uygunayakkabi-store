@@ -13,6 +13,7 @@ import {
   COMPONENT_TOPOLOGY_LOCK_V01_VERSION,
   evaluateVisualGeometryMeasurementV01,
   evaluateVisualGeometryPackV01,
+  normalizeVisualQualityProviderResponseV01,
   parseVisualLockCommand,
   parseVisualQualityEvaluatorV01,
   resolveVisualLockTaskSelection,
@@ -118,6 +119,84 @@ check('10 only true_rear can pass the back evaluator', () => {
   const mismatch = parseVisualQualityEvaluatorV01(JSON.stringify({ color: { state: 'pass', detectedColor: 'grey', evidence: 'grey upper' }, topology: { state: 'pass', evidence: 'patch retained' }, orientation: { state: 'pass', detectedView: 'rear_three_quarter', evidence: 'side face visible' } }), 'back')
   assert.equal(mismatch.state, 'fail')
   assert.ok(mismatch.reasonCodes.includes('back_not_true_rear'))
+})
+
+const completeEvaluatorPayload = {
+  color: { state: 'pass', detectedColor: 'light grey', evidence: 'light grey mesh upper is visible' },
+  topology: { state: 'pass', evidence: 'instep patch and curved side overlay are retained' },
+  orientation: { state: 'pass', detectedView: 'true_rear', evidence: 'heel is shown straight-on and symmetrically' },
+}
+
+function providerEnvelope(text: string, finishReason: string = 'STOP'): unknown {
+  return { candidates: [{ finishReason, content: { parts: [{ text }] } }] }
+}
+
+check('10a complete valid provider response preserves pass and fail for STOP or MAX_TOKENS', () => {
+  const pass = normalizeVisualQualityProviderResponseV01(
+    providerEnvelope(JSON.stringify(completeEvaluatorPayload), 'MAX_TOKENS'),
+    'back',
+  )
+  assert.equal(pass.state, 'pass')
+
+  const fail = normalizeVisualQualityProviderResponseV01(providerEnvelope(JSON.stringify({
+    ...completeEvaluatorPayload,
+    topology: { state: 'fail', evidence: 'source-supported instep patch is absent' },
+  })), 'back')
+  assert.equal(fail.state, 'fail')
+  assert.ok(fail.reasonCodes.includes('component_topology_failed'))
+})
+
+check('10b partial provider response remains unknown', () => {
+  const result = normalizeVisualQualityProviderResponseV01(
+    providerEnvelope('{"color":{"state":"pass"', 'MAX_TOKENS'),
+    'back',
+  )
+  assert.equal(result.state, 'unknown')
+  assert.deepEqual(result.reasonCodes, ['malformed_response'])
+})
+
+check('10c malformed provider response remains unknown', () => {
+  const result = normalizeVisualQualityProviderResponseV01(providerEnvelope('not json'), 'back')
+  assert.equal(result.state, 'unknown')
+  assert.deepEqual(result.reasonCodes, ['malformed_response'])
+})
+
+check('10d provider error remains unknown', () => {
+  const result = normalizeVisualQualityProviderResponseV01({ error: { code: 503 } }, 'back')
+  assert.equal(result.state, 'unknown')
+  assert.deepEqual(result.reasonCodes, ['provider_error'])
+})
+
+check('10e unsupported provider and evaluator status values remain unknown', () => {
+  const unsupportedFinish = normalizeVisualQualityProviderResponseV01(
+    providerEnvelope(JSON.stringify(completeEvaluatorPayload), 'SAFETY'),
+    'back',
+  )
+  assert.equal(unsupportedFinish.state, 'unknown')
+  assert.deepEqual(unsupportedFinish.reasonCodes, ['provider_response_incomplete'])
+
+  const unsupportedState = normalizeVisualQualityProviderResponseV01(providerEnvelope(JSON.stringify({
+    ...completeEvaluatorPayload,
+    color: { state: 'yes', detectedColor: 'light grey', evidence: 'visible' },
+  })), 'back')
+  assert.equal(unsupportedState.state, 'unknown')
+  assert.ok(unsupportedState.reasonCodes.includes('color_unsupported_state'))
+})
+
+check('10f missing required provider or evaluator fields remain unknown', () => {
+  const missingText = normalizeVisualQualityProviderResponseV01(
+    { candidates: [{ finishReason: 'STOP', content: { parts: [{}] } }] },
+    'back',
+  )
+  assert.equal(missingText.state, 'unknown')
+  assert.deepEqual(missingText.reasonCodes, ['provider_response_missing'])
+
+  const missingTopology = normalizeVisualQualityProviderResponseV01(providerEnvelope(JSON.stringify({
+    color: completeEvaluatorPayload.color,
+    orientation: completeEvaluatorPayload.orientation,
+  })), 'back')
+  assert.equal(missingTopology.state, 'unknown')
+  assert.ok(missingTopology.reasonCodes.includes('topology_missing'))
 })
 
 check('11 per-slot geometry gates exact occupancy and centering boundaries', () => {

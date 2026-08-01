@@ -335,6 +335,49 @@ export function parseVisualQualityEvaluatorV01(raw: string, slotId: SlotKey): Vi
   }
 }
 
+/**
+ * Normalize the exact Gemini generateContent envelope used by the V0.1
+ * evaluator. MAX_TOKENS is allowed to reach the strict payload parser because
+ * Gemini may return a complete JSON value with that finish reason. Truncated
+ * output still fails closed when JSON parsing or required-field validation
+ * fails. Every other finish reason remains unsupported for this contract.
+ */
+export function normalizeVisualQualityProviderResponseV01(
+  response: unknown,
+  slotId: SlotKey,
+): VisualQualityEvaluatorResultV01 {
+  if (!response || typeof response !== 'object') {
+    return unknownVisualQualityEvaluatorResultV01('provider_response_missing')
+  }
+
+  const envelope = response as { error?: unknown; candidates?: unknown }
+  if (envelope.error !== undefined) {
+    return unknownVisualQualityEvaluatorResultV01('provider_error')
+  }
+  if (!Array.isArray(envelope.candidates) || !envelope.candidates[0] || typeof envelope.candidates[0] !== 'object') {
+    return unknownVisualQualityEvaluatorResultV01('provider_response_missing')
+  }
+
+  const candidate = envelope.candidates[0] as { finishReason?: unknown; content?: unknown }
+  if (candidate.finishReason !== 'STOP' && candidate.finishReason !== 'MAX_TOKENS') {
+    return unknownVisualQualityEvaluatorResultV01('provider_response_incomplete')
+  }
+  if (!candidate.content || typeof candidate.content !== 'object') {
+    return unknownVisualQualityEvaluatorResultV01('provider_response_missing')
+  }
+
+  const parts = (candidate.content as { parts?: unknown }).parts
+  if (!Array.isArray(parts) || !parts[0] || typeof parts[0] !== 'object') {
+    return unknownVisualQualityEvaluatorResultV01('provider_response_missing')
+  }
+  const text = (parts[0] as { text?: unknown }).text
+  if (typeof text !== 'string' || !text.trim()) {
+    return unknownVisualQualityEvaluatorResultV01('provider_response_missing')
+  }
+
+  return parseVisualQualityEvaluatorV01(text, slotId)
+}
+
 export function buildVisualQualityEvaluatorPromptV01(context: VisualLockV01Context, slotId: SlotKey): string {
   return (
     `Evaluate this generated shoe image under ${VISUAL_QUALITY_EVALUATOR_V01_VERSION}.\n` +

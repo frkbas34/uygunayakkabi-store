@@ -1,0 +1,870 @@
+{
+  "schemaVersion": "visual-lock-v0-ab-results/v1",
+  "capturedAt": "2026-08-01T03:05:00+03:00",
+  "reviewGuide": "project-control/visual-quality-fast-track-v1/review-guide.md",
+  "deployment": {
+    "commit": "f15b8eb166750e17f6113ef02e50ed95d5b7244b",
+    "deploymentId": "dpl_8RHb5Lwf18tXmrWjkABUxocmeGcZ",
+    "source": "remote-git",
+    "status": "READY",
+    "payloadDbPush": false,
+    "defaultProfileChanged": false
+  },
+  "measurementMethod": {
+    "name": "normalized-background foreground bounding box",
+    "canvas": "384x384 analysis raster",
+    "backgroundModel": "quadratic RGB surface fitted to border samples",
+    "foregroundThreshold": 30,
+    "watermarkRegionExcluded": true,
+    "detailSlotExcludedFromFullProductSpread": true,
+    "interpretation": "supporting framing evidence; full-resolution human review remains authoritative"
+  },
+  "packs": [
+    {
+      "productId": 349,
+      "stockNumber": "SN0117",
+      "family": "loafer",
+      "baseline": {
+        "jobId": 428,
+        "attemptId": "iga_dea1a935-683e-45b9-b876-8c8e3b74162a",
+        "packMean": 3.4,
+        "mediaIds": [1951, 1952, 1953, 1954, 1955]
+      },
+      "visualLockV0": {
+        "jobId": 431,
+        "attemptId": "iga_6731aedf-83ce-4ac7-9652-a92babe3f2cd",
+        "profile": "visual-lock/v0",
+        "commandProfile": "visual-lock-v0",
+        "identityAnchorHash": "1036e51ea8a59c8910443ef83af75a9f39eb9755f4aaee6eb98b53e0f34c1ba3",
+        "identityAnchorVersion": "product-identity-anchor/v0",
+        "framingVersion": "visual-framing-lock/v0",
+        "familyLockVersion": "loafer-identity-lock/v0",
+        "terminalStatus": "rejected",
+        "attemptDurationSeconds": 102.527,
+        "provider": "gemini-pro-image:gemini-2.5-flash-image",
+        "providerCalls": {
+          "referenceValidation": 1,
+          "identityExtraction": 1,
+          "slotGeneration": 5,
+          "colorEvaluation": 5,
+          "visibleIdentityEvaluation": 5,
+          "sideOrientationEvaluation": 1,
+          "total": 18,
+          "generationRetries": 0
+        },
+        "mediaIds": [1966, 1967, 1968, 1969, 1970],
+        "slots": [
+          {
+            "slotId": "side",
+            "mediaId": 1966,
+            "scores": {
+              "sameProductAsReference": 4,
+              "sameProductAcrossAllFiveSlots": 4,
+              "silhouettePreservation": 4,
+              "categoryPreservation": 5,
+              "materialPreservation": 4,
+              "colorPreservation": 5,
+              "hardwareOrnamentPreservation": 3,
+              "seamConstructionPreservation": 4,
+              "toeGeometry": 4,
+              "vampLength": 4,
+              "openingShape": 4,
+              "heelBackGeometry": 4,
+              "soleThickness": 4,
+              "productScale": 4,
+              "centering": 5,
+              "canvasOccupancy": 4,
+              "orientationConsistency": 5,
+              "perspectiveConsistency": 5
+            },
+            "failures": [
+              {
+                "dimension": "hardwareOrnamentPreservation",
+                "codes": ["IDENTITY_DRIFT"],
+                "observation": "The BOSS wordmark and twin motif are visibly larger and differently placed than in the source references."
+              }
+            ]
+          },
+          {
+            "slotId": "hero_3q",
+            "mediaId": 1967,
+            "scores": {
+              "sameProductAsReference": 3,
+              "sameProductAcrossAllFiveSlots": 3,
+              "silhouettePreservation": 3,
+              "categoryPreservation": 5,
+              "materialPreservation": 4,
+              "colorPreservation": 5,
+              "hardwareOrnamentPreservation": 3,
+              "seamConstructionPreservation": 3,
+              "toeGeometry": 3,
+              "vampLength": 3,
+              "openingShape": 4,
+              "heelBackGeometry": 4,
+              "soleThickness": 4,
+              "productScale": 2,
+              "centering": 2,
+              "canvasOccupancy": 2,
+              "orientationConsistency": 4,
+              "perspectiveConsistency": 4
+            },
+            "failures": [
+              {
+                "dimension": "sameProductAsReference",
+                "codes": ["IDENTITY_DRIFT"],
+                "observation": "The pair retains the loafer category but changes vamp, toe, and ornament proportions."
+              },
+              {
+                "dimension": "sameProductAcrossAllFiveSlots",
+                "codes": ["IDENTITY_DRIFT"],
+                "observation": "Only one shoe carries the full wordmark-plus-motif treatment and the pair does not match the side slot exactly."
+              },
+              {
+                "dimension": "silhouettePreservation",
+                "codes": ["SILHOUETTE_DRIFT"],
+                "observation": "The pair is shorter and boxier than the elongated source silhouette."
+              },
+              {
+                "dimension": "hardwareOrnamentPreservation",
+                "codes": ["IDENTITY_DRIFT"],
+                "observation": "Wordmark and twin-motif topology differ between the two shoes."
+              },
+              {
+                "dimension": "seamConstructionPreservation",
+                "codes": ["SEAM_PATH_DRIFT"],
+                "observation": "Apron seam placement differs between pair members and the side slot."
+              },
+              {
+                "dimension": "toeGeometry",
+                "codes": ["TOE_GEOMETRY_DRIFT"],
+                "observation": "The pair toes are broader and more rectangular than the source."
+              },
+              {
+                "dimension": "vampLength",
+                "codes": ["VAMP_LENGTH_DRIFT"],
+                "observation": "Vamp length and height are not locked to the side slot."
+              },
+              {
+                "dimension": "productScale",
+                "codes": ["SCALE_INCONSISTENT"],
+                "observation": "The pair footprint is materially smaller than the other complete-product slots."
+              },
+              {
+                "dimension": "centering",
+                "codes": ["CENTERING_INCONSISTENT"],
+                "observation": "The measured horizontal center is 10.5% right of canvas center."
+              },
+              {
+                "dimension": "canvasOccupancy",
+                "codes": ["SCALE_INCONSISTENT"],
+                "observation": "Measured complete-product occupancy is 62.2%, below the 72-82% V0 target."
+              }
+            ]
+          },
+          {
+            "slotId": "top",
+            "mediaId": 1968,
+            "scores": {
+              "sameProductAsReference": 3,
+              "sameProductAcrossAllFiveSlots": 3,
+              "silhouettePreservation": 3,
+              "categoryPreservation": 5,
+              "materialPreservation": 4,
+              "colorPreservation": 5,
+              "hardwareOrnamentPreservation": 3,
+              "seamConstructionPreservation": 3,
+              "toeGeometry": 3,
+              "vampLength": 3,
+              "openingShape": 3,
+              "heelBackGeometry": 3,
+              "soleThickness": 3,
+              "productScale": 4,
+              "centering": 4,
+              "canvasOccupancy": 4,
+              "orientationConsistency": 5,
+              "perspectiveConsistency": 4
+            },
+            "failures": [
+              {
+                "dimension": "sameProductAsReference",
+                "codes": ["IDENTITY_DRIFT"],
+                "observation": "The top pair preserves the category but changes shoe width, apron proportion, and ornament placement."
+              },
+              {
+                "dimension": "sameProductAcrossAllFiveSlots",
+                "codes": ["IDENTITY_DRIFT"],
+                "observation": "The top silhouettes and ornament layout do not match the side and hero slots exactly."
+              },
+              {
+                "dimension": "silhouettePreservation",
+                "codes": ["SILHOUETTE_DRIFT"],
+                "observation": "Top-view width and taper differ from the source top reference."
+              },
+              {
+                "dimension": "hardwareOrnamentPreservation",
+                "codes": ["IDENTITY_DRIFT"],
+                "observation": "Wordmark and motif placement vary from the source and hero pair."
+              },
+              {
+                "dimension": "seamConstructionPreservation",
+                "codes": ["SEAM_PATH_DRIFT"],
+                "observation": "The apron outline is redrawn as a longer narrow loop."
+              },
+              {
+                "dimension": "toeGeometry",
+                "codes": ["TOE_GEOMETRY_DRIFT"],
+                "observation": "Toe width and curvature differ from the source top reference."
+              },
+              {
+                "dimension": "vampLength",
+                "codes": ["VAMP_LENGTH_DRIFT"],
+                "observation": "Vamp-to-opening proportion changes from the source."
+              },
+              {
+                "dimension": "openingShape",
+                "codes": ["OPENING_SHAPE_DRIFT"],
+                "observation": "The openings are longer and narrower than the source."
+              },
+              {
+                "dimension": "heelBackGeometry",
+                "codes": ["HEEL_BACK_DRIFT"],
+                "observation": "Heel taper remains synthesized and does not reconcile fully with the source views."
+              },
+              {
+                "dimension": "soleThickness",
+                "codes": ["SOLE_THICKNESS_DRIFT"],
+                "observation": "The visible white perimeter varies in width and does not match the side profile uniformly."
+              }
+            ]
+          },
+          {
+            "slotId": "back",
+            "mediaId": 1969,
+            "scores": {
+              "sameProductAsReference": 3,
+              "sameProductAcrossAllFiveSlots": 4,
+              "silhouettePreservation": 4,
+              "categoryPreservation": 5,
+              "materialPreservation": 4,
+              "colorPreservation": 5,
+              "hardwareOrnamentPreservation": 4,
+              "seamConstructionPreservation": 4,
+              "toeGeometry": 3,
+              "vampLength": 3,
+              "openingShape": 3,
+              "heelBackGeometry": 4,
+              "soleThickness": 4,
+              "productScale": 4,
+              "centering": 5,
+              "canvasOccupancy": 4,
+              "orientationConsistency": 2,
+              "perspectiveConsistency": 3
+            },
+            "failures": [
+              {
+                "dimension": "sameProductAsReference",
+                "codes": ["IDENTITY_DRIFT"],
+                "observation": "The shoe is substantially more coherent than baseline back, but the unseen heel and opening remain synthesized."
+              },
+              {
+                "dimension": "toeGeometry",
+                "codes": ["TOE_GEOMETRY_DRIFT"],
+                "observation": "The toe is mostly obscured and cannot prove pack consistency."
+              },
+              {
+                "dimension": "vampLength",
+                "codes": ["VAMP_LENGTH_DRIFT"],
+                "observation": "The raised vamp is partly obscured and differs from the side silhouette."
+              },
+              {
+                "dimension": "openingShape",
+                "codes": ["OPENING_SHAPE_DRIFT"],
+                "observation": "Opening depth is not supported by a direct source rear view."
+              },
+              {
+                "dimension": "orientationConsistency",
+                "codes": ["ORIENTATION_INCONSISTENT"],
+                "observation": "The slot is rear three-quarter, not the required true heel-centered rear view."
+              },
+              {
+                "dimension": "perspectiveConsistency",
+                "codes": ["PERSPECTIVE_INCONSISTENT"],
+                "observation": "The oblique close perspective differs materially from the other complete-product slots."
+              }
+            ]
+          },
+          {
+            "slotId": "detail",
+            "mediaId": 1970,
+            "scores": {
+              "sameProductAsReference": 4,
+              "sameProductAcrossAllFiveSlots": 4,
+              "silhouettePreservation": 4,
+              "categoryPreservation": 5,
+              "materialPreservation": 4,
+              "colorPreservation": 5,
+              "hardwareOrnamentPreservation": 3,
+              "seamConstructionPreservation": 4,
+              "toeGeometry": 4,
+              "vampLength": 4,
+              "openingShape": 3,
+              "heelBackGeometry": 3,
+              "soleThickness": 4,
+              "productScale": 5,
+              "centering": 4,
+              "canvasOccupancy": 5,
+              "orientationConsistency": 5,
+              "perspectiveConsistency": 5
+            },
+            "failures": [
+              {
+                "dimension": "hardwareOrnamentPreservation",
+                "codes": ["IDENTITY_DRIFT"],
+                "observation": "The enlarged wordmark and motif differ in scale from the source."
+              },
+              {
+                "dimension": "openingShape",
+                "codes": ["OPENING_SHAPE_DRIFT"],
+                "observation": "The complete opening is outside the detail crop and cannot be verified."
+              },
+              {
+                "dimension": "heelBackGeometry",
+                "codes": ["HEEL_BACK_DRIFT"],
+                "observation": "Heel and back geometry are outside the detail crop."
+              }
+            ]
+          }
+        ],
+        "packScores": {
+          "crossSlotCoherence": 4,
+          "duplicateRedundantImagery": 4,
+          "usefulnessOfSlotPurpose": 3,
+          "professionalSetAppearance": 4,
+          "severeArtifactCount": 4
+        },
+        "packFailures": [
+          {
+            "dimension": "usefulnessOfSlotPurpose",
+            "codes": ["ORIENTATION_INCONSISTENT"],
+            "observation": "The back slot is a rear-three-quarter substitute rather than a true rear view."
+          }
+        ],
+        "loaferAddendum": {
+          "scores": {
+            "noMuleConversion": 5,
+            "noSlipperConversion": 5,
+            "noMoccasinDrift": 4,
+            "noOxfordFormalLaceConversion": 5,
+            "noInventedTasselStrapMetal": 3,
+            "toeStability": 4,
+            "vampStability": 3,
+            "openingStability": 3,
+            "apronSeamStability": 3,
+            "soleProfileStability": 4,
+            "trueRearOrientation": 2
+          },
+          "failures": [
+            {
+              "dimension": "noInventedTasselStrapMetal",
+              "codes": ["IDENTITY_DRIFT"],
+              "observation": "No new tassel, strap, metal, or laces appear, but wordmark/motif topology is not identical across the pack."
+            },
+            {
+              "dimension": "vampStability",
+              "codes": ["VAMP_LENGTH_DRIFT"],
+              "observation": "Vamp proportion still changes across side, pair, top, and rear-three-quarter views."
+            },
+            {
+              "dimension": "openingStability",
+              "codes": ["OPENING_SHAPE_DRIFT"],
+              "observation": "Opening length and taper are not locked across the top and oblique slots."
+            },
+            {
+              "dimension": "apronSeamStability",
+              "codes": ["SEAM_PATH_DRIFT"],
+              "observation": "Apron seam path and contrast remain variable."
+            },
+            {
+              "dimension": "trueRearOrientation",
+              "codes": ["ORIENTATION_INCONSISTENT"],
+              "observation": "The back slot is not a true rear view."
+            }
+          ]
+        },
+        "packMean": 3.8,
+        "strongestSlot": "side",
+        "weakestSlot": "back",
+        "sameShoeAcrossFive": "improved_but_ornament_vamp_and_apron_not_locked",
+        "professionallyCoherent": false,
+        "framing": {
+          "baselineFullProductOccupancyPercent": {
+            "side": 81.8,
+            "hero_3q": 65.9,
+            "top": 77.1,
+            "back": 84.4
+          },
+          "v0FullProductOccupancyPercent": {
+            "side": 83.3,
+            "hero_3q": 62.2,
+            "top": 82.8,
+            "back": 83.9
+          },
+          "baselineSpreadPercentagePoints": 18.5,
+          "v0SpreadPercentagePoints": 21.7,
+          "v0MaximumAbsoluteCenterOffsetPercent": 10.5,
+          "targetSpreadPass": false,
+          "targetCenterPass": false
+        }
+      },
+      "delta": {
+        "packMean": 0.4,
+        "crossSlotCoherence": 1,
+        "professionalSetAppearance": 1,
+        "severeArtifactCount": 1,
+        "occupancySpreadPercentagePoints": 3.2
+      },
+      "findings": {
+        "improvements": [
+          "The baseline back-slot severe geometry/slipper artifact is removed.",
+          "Category, black suede appearance, closed back, white sole, and loafer topology remain stable.",
+          "No mule, slipper, Oxford, lace-up, tassel, strap, or metal conversion occurs."
+        ],
+        "regressions": [
+          "Hero occupancy and horizontal centering are worse than baseline.",
+          "Full-product occupancy spread increases rather than contracts."
+        ],
+        "unchangedLimitations": [
+          "The back slot remains rear three-quarter instead of true rear.",
+          "Wordmark/motif, vamp, opening, and apron seam topology remain inconsistent."
+        ]
+      }
+    },
+    {
+      "productId": 343,
+      "stockNumber": "SN0017",
+      "family": "generic",
+      "baseline": {
+        "jobId": 430,
+        "attemptId": "iga_b1a52f31-60d5-4362-ab81-493aa10c5519",
+        "packMean": 3.8,
+        "mediaIds": [1961, 1962, 1963, 1964, 1965]
+      },
+      "visualLockV0": {
+        "jobId": 432,
+        "attemptId": "iga_b3e22d29-e68f-48c1-a6ad-e01182117242",
+        "profile": "visual-lock/v0",
+        "commandProfile": "visual-lock-v0",
+        "identityAnchorHash": "2732314f69f7e2cc741bf95e080f7232e6f713a2fbce4b0dd5b25f366c589abe",
+        "identityAnchorVersion": "product-identity-anchor/v0",
+        "framingVersion": "visual-framing-lock/v0",
+        "familyLockVersion": null,
+        "terminalStatus": "rejected",
+        "attemptDurationSeconds": 76.566,
+        "provider": "gemini-pro-image:gemini-2.5-flash-image",
+        "providerCalls": {
+          "referenceValidation": 1,
+          "identityExtraction": 1,
+          "slotGeneration": 5,
+          "colorEvaluation": 5,
+          "visibleIdentityEvaluation": 0,
+          "sideOrientationEvaluation": 1,
+          "total": 13,
+          "generationRetries": 0
+        },
+        "mediaIds": [1971, 1972, 1973, 1974, 1975],
+        "slots": [
+          {
+            "slotId": "side",
+            "mediaId": 1971,
+            "scores": {
+              "sameProductAsReference": 4,
+              "sameProductAcrossAllFiveSlots": 3,
+              "silhouettePreservation": 4,
+              "categoryPreservation": 5,
+              "materialPreservation": 4,
+              "colorPreservation": 5,
+              "hardwareOrnamentPreservation": 4,
+              "seamConstructionPreservation": 4,
+              "toeGeometry": 4,
+              "vampLength": 3,
+              "openingShape": 4,
+              "heelBackGeometry": 4,
+              "soleThickness": 4,
+              "productScale": 4,
+              "centering": 5,
+              "canvasOccupancy": 5,
+              "orientationConsistency": 5,
+              "perspectiveConsistency": 5
+            },
+            "failures": [
+              {
+                "dimension": "sameProductAcrossAllFiveSlots",
+                "codes": ["IDENTITY_DRIFT"],
+                "observation": "The instep patch, pull tab, side overlay, opening, and cavity layout change elsewhere in the V0 pack."
+              },
+              {
+                "dimension": "vampLength",
+                "codes": ["VAMP_LENGTH_DRIFT"],
+                "observation": "The instep patch and vamp proportion are not preserved in the top slot."
+              }
+            ]
+          },
+          {
+            "slotId": "hero_3q",
+            "mediaId": 1972,
+            "scores": {
+              "sameProductAsReference": 4,
+              "sameProductAcrossAllFiveSlots": 3,
+              "silhouettePreservation": 4,
+              "categoryPreservation": 5,
+              "materialPreservation": 4,
+              "colorPreservation": 5,
+              "hardwareOrnamentPreservation": 4,
+              "seamConstructionPreservation": 3,
+              "toeGeometry": 4,
+              "vampLength": 3,
+              "openingShape": 3,
+              "heelBackGeometry": 4,
+              "soleThickness": 4,
+              "productScale": 4,
+              "centering": 5,
+              "canvasOccupancy": 5,
+              "orientationConsistency": 4,
+              "perspectiveConsistency": 4
+            },
+            "failures": [
+              {
+                "dimension": "sameProductAcrossAllFiveSlots",
+                "codes": ["IDENTITY_DRIFT"],
+                "observation": "The pair retains the instep patch that disappears in the top slot."
+              },
+              {
+                "dimension": "seamConstructionPreservation",
+                "codes": ["SEAM_PATH_DRIFT"],
+                "observation": "Toe-cap, instep-patch, and side-overlay seams differ from side and top."
+              },
+              {
+                "dimension": "vampLength",
+                "codes": ["VAMP_LENGTH_DRIFT"],
+                "observation": "The instep patch sits farther forward than the visible source evidence."
+              },
+              {
+                "dimension": "openingShape",
+                "codes": ["OPENING_SHAPE_DRIFT"],
+                "observation": "Pair openings are deeper and rounder than the source side view."
+              }
+            ]
+          },
+          {
+            "slotId": "top",
+            "mediaId": 1973,
+            "scores": {
+              "sameProductAsReference": 2,
+              "sameProductAcrossAllFiveSlots": 2,
+              "silhouettePreservation": 3,
+              "categoryPreservation": 5,
+              "materialPreservation": 4,
+              "colorPreservation": 5,
+              "hardwareOrnamentPreservation": 4,
+              "seamConstructionPreservation": 2,
+              "toeGeometry": 3,
+              "vampLength": 2,
+              "openingShape": 3,
+              "heelBackGeometry": 3,
+              "soleThickness": 3,
+              "productScale": 4,
+              "centering": 5,
+              "canvasOccupancy": 5,
+              "orientationConsistency": 5,
+              "perspectiveConsistency": 4
+            },
+            "failures": [
+              {
+                "dimension": "sameProductAsReference",
+                "codes": ["IDENTITY_DRIFT"],
+                "observation": "The visible instep patch and curved side overlay are absent from the top pair."
+              },
+              {
+                "dimension": "sameProductAcrossAllFiveSlots",
+                "codes": ["IDENTITY_DRIFT"],
+                "observation": "The top pair conflicts directly with the side and hero construction."
+              },
+              {
+                "dimension": "silhouettePreservation",
+                "codes": ["SILHOUETTE_DRIFT"],
+                "observation": "The top pair is more seamless, uniform, and symmetric than source evidence supports."
+              },
+              {
+                "dimension": "seamConstructionPreservation",
+                "codes": ["SEAM_PATH_DRIFT"],
+                "observation": "Source-supported patch and overlay seams are removed."
+              },
+              {
+                "dimension": "toeGeometry",
+                "codes": ["TOE_GEOMETRY_DRIFT"],
+                "observation": "Toe-cap boundaries and curvature change from the side and hero slots."
+              },
+              {
+                "dimension": "vampLength",
+                "codes": ["VAMP_LENGTH_DRIFT"],
+                "observation": "The top becomes one uninterrupted knit vamp with no source-supported patch."
+              },
+              {
+                "dimension": "openingShape",
+                "codes": ["OPENING_SHAPE_DRIFT"],
+                "observation": "Openings are long and sharply bounded relative to the source."
+              },
+              {
+                "dimension": "heelBackGeometry",
+                "codes": ["HEEL_BACK_DRIFT"],
+                "observation": "Heel width and pull-tab placement remain synthesized from an unseen angle."
+              },
+              {
+                "dimension": "soleThickness",
+                "codes": ["SOLE_THICKNESS_DRIFT"],
+                "observation": "The top perimeter does not preserve the source cavity and sidewall rhythm."
+              }
+            ]
+          },
+          {
+            "slotId": "back",
+            "mediaId": 1974,
+            "scores": {
+              "sameProductAsReference": 3,
+              "sameProductAcrossAllFiveSlots": 4,
+              "silhouettePreservation": 3,
+              "categoryPreservation": 5,
+              "materialPreservation": 4,
+              "colorPreservation": 5,
+              "hardwareOrnamentPreservation": 4,
+              "seamConstructionPreservation": 3,
+              "toeGeometry": 3,
+              "vampLength": 3,
+              "openingShape": 3,
+              "heelBackGeometry": 3,
+              "soleThickness": 3,
+              "productScale": 4,
+              "centering": 5,
+              "canvasOccupancy": 5,
+              "orientationConsistency": 5,
+              "perspectiveConsistency": 5
+            },
+            "failures": [
+              {
+                "dimension": "sameProductAsReference",
+                "codes": ["IDENTITY_DRIFT"],
+                "observation": "The true rear is plausible, but the heel strip, opening, and pull tab are not established by the source view."
+              },
+              {
+                "dimension": "silhouettePreservation",
+                "codes": ["SILHOUETTE_DRIFT"],
+                "observation": "Rear width and height are synthesized from side-only evidence."
+              },
+              {
+                "dimension": "seamConstructionPreservation",
+                "codes": ["SEAM_PATH_DRIFT"],
+                "observation": "A centered heel strip and stitch path are newly synthesized."
+              },
+              {
+                "dimension": "toeGeometry",
+                "codes": ["TOE_GEOMETRY_DRIFT"],
+                "observation": "The toe is hidden and cannot verify cross-slot geometry."
+              },
+              {
+                "dimension": "vampLength",
+                "codes": ["VAMP_LENGTH_DRIFT"],
+                "observation": "The vamp is hidden and cannot verify cross-slot geometry."
+              },
+              {
+                "dimension": "openingShape",
+                "codes": ["OPENING_SHAPE_DRIFT"],
+                "observation": "Opening depth is unsupported by a rear source."
+              },
+              {
+                "dimension": "heelBackGeometry",
+                "codes": ["HEEL_BACK_DRIFT"],
+                "observation": "The heel counter and pull-tab topology remain inferred rather than observed."
+              },
+              {
+                "dimension": "soleThickness",
+                "codes": ["SOLE_THICKNESS_DRIFT"],
+                "observation": "Rear outsole and cavity geometry do not have source support."
+              }
+            ]
+          },
+          {
+            "slotId": "detail",
+            "mediaId": 1975,
+            "scores": {
+              "sameProductAsReference": 4,
+              "sameProductAcrossAllFiveSlots": 3,
+              "silhouettePreservation": 4,
+              "categoryPreservation": 5,
+              "materialPreservation": 4,
+              "colorPreservation": 5,
+              "hardwareOrnamentPreservation": 4,
+              "seamConstructionPreservation": 3,
+              "toeGeometry": 3,
+              "vampLength": 3,
+              "openingShape": 3,
+              "heelBackGeometry": 3,
+              "soleThickness": 3,
+              "productScale": 5,
+              "centering": 4,
+              "canvasOccupancy": 5,
+              "orientationConsistency": 5,
+              "perspectiveConsistency": 5
+            },
+            "failures": [
+              {
+                "dimension": "sameProductAcrossAllFiveSlots",
+                "codes": ["IDENTITY_DRIFT"],
+                "observation": "The detail mesh and toe-cap seam do not resolve the top-slot loss of the instep patch."
+              },
+              {
+                "dimension": "seamConstructionPreservation",
+                "codes": ["SEAM_PATH_DRIFT"],
+                "observation": "The enlarged toe-cap seam differs from the source and other slots."
+              },
+              {
+                "dimension": "toeGeometry",
+                "codes": ["TOE_GEOMETRY_DRIFT"],
+                "observation": "Only a cropped toe region is visible."
+              },
+              {
+                "dimension": "vampLength",
+                "codes": ["VAMP_LENGTH_DRIFT"],
+                "observation": "Full vamp proportion is outside the crop."
+              },
+              {
+                "dimension": "openingShape",
+                "codes": ["OPENING_SHAPE_DRIFT"],
+                "observation": "The opening is outside the crop."
+              },
+              {
+                "dimension": "heelBackGeometry",
+                "codes": ["HEEL_BACK_DRIFT"],
+                "observation": "The heel is outside the crop."
+              },
+              {
+                "dimension": "soleThickness",
+                "codes": ["SOLE_THICKNESS_DRIFT"],
+                "observation": "The enlarged cavity pattern does not prove the complete sole rhythm."
+              }
+            ]
+          }
+        ],
+        "packScores": {
+          "crossSlotCoherence": 3,
+          "duplicateRedundantImagery": 4,
+          "usefulnessOfSlotPurpose": 5,
+          "professionalSetAppearance": 4,
+          "severeArtifactCount": 4
+        },
+        "packFailures": [
+          {
+            "dimension": "crossSlotCoherence",
+            "codes": ["PACK_INCOHERENT", "SEAM_PATH_DRIFT"],
+            "observation": "The top pair drops the instep patch and side overlay retained by the side and hero slots."
+          }
+        ],
+        "packMean": 4.0,
+        "strongestSlot": "side",
+        "weakestSlot": "top",
+        "sameShoeAcrossFive": "yes_at_category_level_but_topology_not_locked",
+        "professionallyCoherent": true,
+        "framing": {
+          "baselineFullProductOccupancyPercent": {
+            "side": 82.3,
+            "hero_3q": 82.3,
+            "top": 82.8,
+            "back": 85.7
+          },
+          "v0FullProductOccupancyPercent": {
+            "side": 81.8,
+            "hero_3q": 82.0,
+            "top": 81.0,
+            "back": 82.3
+          },
+          "baselineSpreadPercentagePoints": 3.4,
+          "v0SpreadPercentagePoints": 1.3,
+          "v0MaximumAbsoluteCenterOffsetPercent": 1.2,
+          "targetSpreadPass": true,
+          "targetCenterPass": true
+        }
+      },
+      "delta": {
+        "packMean": 0.2,
+        "crossSlotCoherence": 0,
+        "professionalSetAppearance": 0,
+        "severeArtifactCount": 0,
+        "occupancySpreadPercentagePoints": -2.1
+      },
+      "findings": {
+        "improvements": [
+          "Back becomes a true heel-centered rear view.",
+          "Full-product framing is highly consistent and passes both V0 framing targets.",
+          "The adversarial retail background remains fully isolated."
+        ],
+        "regressions": [
+          "The top pair removes the visible instep patch and curved side-overlay construction.",
+          "The generic identity anchor remains too coarse to preserve component topology."
+        ],
+        "unchangedLimitations": [
+          "Pull-tab, opening, toe-cap, and sole-cavity geometry remain synthesized from one side reference.",
+          "Cross-slot component coherence remains 3/5."
+        ]
+      }
+    }
+  ],
+  "operationalEvidence": {
+    "exactlyTwoAuthorizedAttempts": true,
+    "additionalAttemptCreated": false,
+    "allTenSlotsPersistedWithExactLineage": true,
+    "telegramPrivatePreviewDelivered": true,
+    "bothJobsRejected": true,
+    "regenerationOccurred": false,
+    "approvalOccurred": false,
+    "newGalleryAttachmentOccurred": false,
+    "product343LegacyGalleryBaseline": [1349, 1350, 1351],
+    "product343LegacyGalleryUnchanged": true,
+    "product349GalleryCount": 0,
+    "publishingOccurred": false,
+    "shopierOccurred": false,
+    "adOperationOccurred": false,
+    "botEventCreated": false,
+    "productionHealth": {
+      "rootHttpStatus": 200,
+      "helpHttpStatus": 200,
+      "adminHttpStatus": 200,
+      "criticalOrHttp5xxLogs": 0
+    }
+  },
+  "runtimeWarnings": [
+    {
+      "code": "EVALUATOR_STRUCTURED_OUTPUT_PARSE_FAIL_OPEN",
+      "observation": "Multiple color and visible-identity evaluator responses were malformed JSON, yet persisted slot metadata reports pass. Human-visible contradiction therefore remains authoritative."
+    },
+    {
+      "code": "SIDE_ORIENTATION_EVALUATOR_UNAVAILABLE",
+      "observation": "The side-orientation evaluator returned HTTP 404 and the runtime logged orientation unknown as acceptable. No retry or flip occurred."
+    }
+  ],
+  "decision": {
+    "classification": "VISUAL_LOCK_V0_AB_PILOT_PARTIAL",
+    "fullPass": false,
+    "loaferOnlyPass": false,
+    "reason": "V0 improves loafer pack coherence and generic rear/framing behavior, but the loafer back orientation and framing targets fail, ornament/component topology still drifts, and the generic top view loses source-supported construction.",
+    "defaultEnablementRecommended": false,
+    "keepOptInOnly": true
+  },
+  "visualLockV01Recommendation": [
+    "Keep Visual Lock opt-in and do not change the default #gorsel path.",
+    "Fail evaluator state closed or mark it unknown when structured color, identity, or orientation output cannot be parsed; never persist a synthetic pass.",
+    "Repair the side-orientation evaluator endpoint/model contract and distinguish unknown from compliant.",
+    "Add a measured post-generation framing gate for 72-82% occupancy, no more than eight percentage points pack spread, and at most 3% center offset.",
+    "Add a true-rear compliance gate for the back slot before preview.",
+    "Carry source-supported component topology explicitly: loafer wordmark/motif/apron/vamp and generic instep patch/side overlay/pull tab/sole-cavity rhythm.",
+    "Re-run the same two-product A/B only after V0.1 is separately implemented and authorized."
+  ]
+}

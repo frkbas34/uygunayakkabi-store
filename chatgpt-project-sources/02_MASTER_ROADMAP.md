@@ -12,13 +12,14 @@ This roadmap reflects the 2026-07-26 Telegram-first, image-first operator decisi
 
 ## P1 — image platform foundation
 
-1. Complete and operator-review the Golden Product Set from `project-control/GOLDEN_PRODUCT_SET_V1.md`. The local corpus has 1 draft candidate, 0 approved products, and 0 loafers; acquire the remaining 35 original sources, including all 12 loafers, without using generated/hero/screenshot/production-only media as truth.
-2. Move the additive job-JSON attempt foundation into normalized immutable attempt/slot persistence when separately authorized, without reinterpreting historical partial records.
-3. Add provider usage/cost/timing, structured retry, transform, evaluator, checkpoint, and cancellation lineage.
-4. Bind Telegram task receipts and progress to exact durable jobs; unify image deduplication across photo, hashtag, command, and callback entry points.
-5. Make image approval, rejection, and regeneration state-checked and idempotent, with targeted slot regeneration preserving history.
-6. Add provider adapters, capability metadata, normalized timeouts/errors/usage, and budget policies without replacing the current provider.
-7. Split prompt assembly into versioned modules without changing prompt content.
+1. Iterate Visual Lock V0 from the controlled partial result: make malformed/unavailable evaluator output fail closed or `unknown`, repair orientation evaluation, enforce measured framing and true-rear gates, and preserve source-supported component topology. Keep the profile opt-in until the same A/B pair passes.
+2. Complete and operator-review the Golden Product Set from `project-control/GOLDEN_PRODUCT_SET_V1.md`. The local corpus has 1 draft candidate, 0 approved products, and 0 loafers; acquire the remaining 35 original sources, including all 12 loafers, without using generated/hero/screenshot/production-only media as truth.
+3. Move the additive job-JSON attempt foundation into normalized immutable attempt/slot persistence when separately authorized, without reinterpreting historical partial records.
+4. Add provider usage/cost/timing, structured retry, transform, evaluator, checkpoint, and cancellation lineage.
+5. Bind Telegram task receipts and progress to exact durable jobs; unify image deduplication across photo, hashtag, command, and callback entry points.
+6. Make image approval, rejection, and regeneration state-checked and idempotent, with targeted slot regeneration preserving history.
+7. Add provider adapters, capability metadata, normalized timeouts/errors/usage, and budget policies without replacing the current provider.
+8. Split prompt assembly into versioned modules without changing prompt content.
 
 ## P2 — Telegram platform
 

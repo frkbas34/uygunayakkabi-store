@@ -716,5 +716,29 @@
       "ORIENTATION_INCONSISTENT",
       "PACK_INCOHERENT"
     ]
-  }
+  },
+  "comparisonArtifacts": [
+    {
+      "profile": "visual-lock/v0",
+      "artifact": "project-control/visual-quality-fast-track-v1/visual-lock-v0-ab-results.json",
+      "classification": "VISUAL_LOCK_V0_AB_PILOT_PARTIAL",
+      "defaultProfileChanged": false,
+      "productDeltas": [
+        {
+          "productId": 349,
+          "family": "loafer",
+          "baselinePackMean": 3.4,
+          "visualLockV0PackMean": 3.8,
+          "delta": 0.4
+        },
+        {
+          "productId": 343,
+          "family": "generic",
+          "baselinePackMean": 3.8,
+          "visualLockV0PackMean": 4.0,
+          "delta": 0.2
+        }
+      ]
+    }
+  ]
 }

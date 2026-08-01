@@ -8,6 +8,8 @@ The standard stage requests five slots: side, hero three-quarter pair, top pair,
 
 Generated Media is previewed in Telegram and remains separate from original media. Approval appends selected records to `generativeGallery`. Explicit Image QC PASS is required before generated media is publishable.
 
+Visual Lock V0 is deployed as the explicit `visual-lock/v0` private-DM profile for `loafer` and `generic`; ordinary `#gorsel <id>` remains unchanged. The controlled Product 349/Product 343 A/B result is `VISUAL_LOCK_V0_AB_PILOT_PARTIAL`: pack means improved by +0.4 and +0.2 respectively, but the loafer missed true-rear, occupancy-spread, centering, and component-topology gates, while the generic top view lost source-supported construction. Both exact previews were rejected with no gallery or downstream mutation, so the profile remains opt-in.
+
 The deployed V1 correctness foundation uses `image-slot-contract/v1` and the unchanged semantic IDs `side`, `hero_3q`, `top`, `back`, and `detail`. Each execution creates a new immutable `iga_…` attempt ID and pre-creates one slot result per requested ID. The current provider functions remain unchanged; an orchestration adapter binds their semantic slot logs to compact success buffers, so a middle provider failure cannot relabel later outputs. Media persistence receives the envelope's job, attempt, contract, and slot identity. A Media-save failure marks that exact slot, remains in attempt metadata, and is excluded from Telegram preview/approval without compacting later slot identity.
 
 Complete new runs retain the existing five-slot preview order. New approval buttons carry semantic slot IDs; numeric and historical positional actions use an explicit compatibility projection. Complete legacy records map only when unambiguous. Partial legacy records stay readable but use slot-unknown labels rather than invented lineage. Regeneration still reuses the current job record, but each execution appends a new attempt snapshot and preserves stored `visualFacts`; normalized attempt collections and targeted regeneration remain future work.
@@ -32,8 +34,9 @@ Known bottlenecks:
 - The additive attempt history is stored as structured job JSON rather than normalized attempt/slot collections; regeneration still reuses jobs, and complete targeted-regeneration/history UX is not implemented.
 - `imagePromptBuilder.ts` is legacy and is not the active prompt path.
 - Automatic fidelity checks and deterministic post-processing reduce defects but do not replace human QC.
+- Malformed structured evaluator output can currently be persisted as pass, and the side-orientation evaluator was unavailable during the pilot while runtime treated the result as acceptable. V0.1 must preserve `unknown` or fail closed instead of synthesizing evaluator truth.
 
-The proposed evolution continues with normalized attempt/slot persistence, Media retention, provider adapters, versioned prompt modules, deterministic transform/evaluator lineage, and Telegram task presentation. Future style packs, profiles, quality scores, and evaluation loops build on that lineage. No prompt, camera, slot-purpose, slot-count, provider, or visual-quality redesign has been implemented.
+The proposed evolution continues with evidence-truth evaluator handling, measured framing/true-rear gates, source-supported component topology, normalized attempt/slot persistence, Media retention, provider adapters, versioned prompt modules, deterministic transform/evaluator lineage, and Telegram task presentation. Future style packs, profiles, quality scores, and evaluation loops build on that lineage. Visual Lock V0 is the first narrow opt-in profile, not a default-path redesign.
 
 `project-control/IMAGE_GENERATION_BLUEPRINT_V1.md` is the canonical target technical specification for future implementation. Current code and dated audits remain authoritative for current behavior.
 

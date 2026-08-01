@@ -1,6 +1,6 @@
 # Open Questions and Next Sprint
 
-Current as of 2026-07-29. This is a prioritized decision list, not a milestone ledger.
+Current as of 2026-08-01. This is a prioritized decision list, not a milestone ledger.
 
 ## P0 — Telegram and image correctness
 
@@ -12,13 +12,14 @@ Current as of 2026-07-29. This is a prioritized decision list, not a milestone l
 
 ## P1 — image platform and Telegram UX
 
-1. Complete and operator-review `project-control/GOLDEN_PRODUCT_SET_V1.md`: confirm the one draft source and acquire 35 missing repository-safe originals, including all 12 loafers. Do not use generated outcomes, hero decoration, screenshots, or production-only media as Layer A truth.
-2. Evolve the additive job-JSON attempt snapshots into normalized immutable attempt/slot records when separately authorized; preserve the new semantic contract and refuse ambiguous legacy backfills.
-3. Add provider usage/timing/cost, structured retries, transforms, evaluators, checkpoints, cancellation, and recovery to those normalized records.
-4. Bind Telegram task receipts and progress to exact jobs; unify deduplication across all image entry points.
-5. Introduce a typed command/callback registry, then split the 7,820-line route without changing operator behavior.
-6. Resolve `.env.example` drift: stale Claid/Luma entries, Gemini model comments, missing DataForSEO text-depth configuration, and obsolete three-scene language.
-7. Correct jobs/cron comments so they match the Vercel 30-minute schedule and manual GitHub workflow.
+1. Implement the narrow V0.1 hypothesis from `VISUAL_LOCK_V0_AB_PILOT_PARTIAL`: evaluator parse/unavailability must be `unknown` or fail closed, orientation evaluation must work, framing must be measured, `back` must be true rear, and source-supported component topology must persist. Keep V0 opt-in and do not rerun production without separate authorization.
+2. Complete and operator-review `project-control/GOLDEN_PRODUCT_SET_V1.md`: confirm the one draft source and acquire 35 missing repository-safe originals, including all 12 loafers. Do not use generated outcomes, hero decoration, screenshots, or production-only media as Layer A truth.
+3. Evolve the additive job-JSON attempt snapshots into normalized immutable attempt/slot records when separately authorized; preserve the new semantic contract and refuse ambiguous legacy backfills.
+4. Add provider usage/timing/cost, structured retries, transforms, evaluators, checkpoints, cancellation, and recovery to those normalized records.
+5. Bind Telegram task receipts and progress to exact jobs; unify deduplication across all image entry points.
+6. Introduce a typed command/callback registry, then split the 7,820-line route without changing operator behavior.
+7. Resolve `.env.example` drift: stale Claid/Luma entries, Gemini model comments, missing DataForSEO text-depth configuration, and obsolete three-scene language.
+8. Correct jobs/cron comments so they match the Vercel 30-minute schedule and manual GitHub workflow.
 
 ## P2 — repository hygiene after product risks
 
@@ -53,4 +54,4 @@ Current as of 2026-07-29. This is a prioritized decision list, not a milestone l
 
 ## Exact recommended next task
 
-**GENERATED MEDIA QUARANTINE SCHEMA MIGRATION AND NON-PRODUCTION REHEARSAL V1**: turn the approved pure schema contract into reviewed additive SQL, prove rollback/idempotency/legacy compatibility on a fresh disposable database, and keep every writer disabled. Preserve all 527 generated Media; do not apply production schema, quarantine, detach, delete, reconcile stale previews, or enable a physical worker.
+**VISUAL LOCK V0.1 — EVIDENCE-DRIVEN QUALITY ITERATION**: keep the profile opt-in, correct evaluator truth handling and orientation availability, add measured framing/true-rear gates, and preserve source-supported component topology. Do not run another production attempt until the implementation is separately reviewed and authorized.

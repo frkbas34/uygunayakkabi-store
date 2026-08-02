@@ -2,12 +2,14 @@ import assert from 'node:assert/strict'
 import { createHash } from 'node:crypto'
 import { readFileSync } from 'node:fs'
 
-import { GENERATED_SCENES } from './imageSlotContract'
+import { GENERATED_SCENES, GENERATED_SLOT_KEYS } from './imageSlotContract'
 import { blockImageSlotEnvelopesForQualityGate, createImageGenerationAttempt } from './imageGenerationContracts'
 import {
   buildVisualLockV01Context,
   buildVisualLockV01FailureWorkflow,
+  buildVisualLockV01AngleContractPrompt,
   buildVisualLockV01PromptFixture,
+  buildVisualQualityEvaluatorPromptV01,
   buildVisualQualityGateSummaryV01,
   combineVisualQualityGateV01,
   COMPONENT_TOPOLOGY_LOCK_V01_VERSION,
@@ -18,6 +20,8 @@ import {
   parseVisualQualityEvaluatorV01,
   resolveVisualLockTaskSelection,
   VISUAL_GEOMETRY_GATE_V01_VERSION,
+  VISUAL_LOCK_V01_ANGLE_CONTRACTS,
+  VISUAL_LOCK_V01_ANGLE_CONTRACT_VERSION,
   VISUAL_LOCK_V01_PROFILE_VERSION,
   VISUAL_QUALITY_EVALUATOR_V01_VERSION,
 } from './imageVisualLockV01'
@@ -42,6 +46,11 @@ const evidence = {
   visualNotes: 'no visible metal; repeated sole cavity rhythm',
 }
 const context = buildVisualLockV01Context({ family: 'generic', identityEvidence: evidence })
+const completeEvaluatorPayload = {
+  color: { state: 'pass', detectedColor: 'light grey', evidence: 'light grey mesh upper is visible' },
+  topology: { state: 'pass', evidence: 'instep patch and curved side overlay are retained' },
+  orientation: { state: 'pass', detectedView: 'true_rear', evidence: 'heel is shown straight-on and symmetrically' },
+}
 
 check('1 default and V0 prompt digests remain unchanged', () => {
   const defaultDigest = createHash('sha256').update(JSON.stringify(GENERATED_SCENES.map((scene) => scene.sceneInstructions))).digest('hex')
@@ -90,13 +99,95 @@ check('6 every V0.1 prompt carries all explicit contract versions and topology',
     assert.match(prompt, /component-topology-lock\/v0\.1/)
     assert.match(prompt, /visual-quality-evaluator\/v0\.1/)
     assert.match(prompt, /visual-geometry-gate\/v0\.1/)
+    assert.match(prompt, /visual-angle-contract\/v1/)
     assert.ok(prompt.includes(context.componentTopologyHash))
   }
 })
 
 check('7 back prompt requires true rear and forbids rear-three-quarter', () => {
-  assert.match(buildVisualLockV01PromptFixture(context)[3], /true straight rear/i)
-  assert.match(buildVisualLockV01PromptFixture(context)[3], /rear-three-quarter view is forbidden/i)
+  assert.match(buildVisualLockV01PromptFixture(context)[3], /true-rear/i)
+  assert.match(buildVisualLockV01PromptFixture(context)[3], /FORBIDDEN SUBSTITUTIONS: rear-three-quarter view/i)
+})
+
+check('7a canonical slot order is preserved and every slot has one distinct exact angle contract', () => {
+  assert.deepEqual(GENERATED_SLOT_KEYS, ['side', 'hero_3q', 'top', 'back', 'detail'])
+  assert.deepEqual(
+    GENERATED_SLOT_KEYS.map((slotId) => VISUAL_LOCK_V01_ANGLE_CONTRACTS[slotId].semanticMeaning),
+    ['side', 'hero_three_quarter', 'top', 'true_rear', 'material_detail'],
+  )
+  assert.equal(new Set(GENERATED_SLOT_KEYS.map(buildVisualLockV01AngleContractPrompt)).size, 5)
+})
+
+check('7b generation and evaluator prompts share the exact canonical slot contract', () => {
+  for (const slotId of GENERATED_SLOT_KEYS) {
+    const canonical = buildVisualLockV01AngleContractPrompt(slotId)
+    assert.ok(buildVisualLockV01PromptFixture(context)[GENERATED_SLOT_KEYS.indexOf(slotId)].includes(canonical))
+    assert.ok(buildVisualQualityEvaluatorPromptV01(context, slotId).includes(canonical))
+  }
+})
+
+check('7c hero_3q cannot silently use side, front, top, or rear-three-quarter', () => {
+  const contract = VISUAL_LOCK_V01_ANGLE_CONTRACTS.hero_3q
+  assert.deepEqual(contract.azimuth, { targetDegrees: 40, toleranceDegrees: 5 })
+  assert.deepEqual(contract.elevation, { targetDegrees: 12, toleranceDegrees: 3 })
+  assert.match(buildVisualLockV01AngleContractPrompt('hero_3q'), /toe and outer side both clearly visible/i)
+  for (const detectedView of ['side', 'front', 'top', 'rear_three_quarter']) {
+    const result = parseVisualQualityEvaluatorV01(JSON.stringify({
+      color: { state: 'pass', detectedColor: 'light grey', evidence: 'visible' },
+      topology: { state: 'pass', evidence: 'source topology retained' },
+      orientation: { state: 'pass', detectedView, evidence: 'clearly visible semantic view' },
+    }), 'hero_3q')
+    assert.equal(result.orientation.state, 'fail')
+  }
+})
+
+check('7d side, top, and back encode their exact numeric and visual angle boundaries', () => {
+  assert.deepEqual(VISUAL_LOCK_V01_ANGLE_CONTRACTS.side.azimuth, { targetDegrees: 90, toleranceDegrees: 2 })
+  assert.deepEqual(VISUAL_LOCK_V01_ANGLE_CONTRACTS.side.elevation, { targetDegrees: 0, toleranceDegrees: 2 })
+  assert.match(buildVisualLockV01AngleContractPrompt('side'), /strict outer-side lateral profile/i)
+  assert.match(buildVisualLockV01AngleContractPrompt('side'), /heel-to-toe baseline approximately horizontal/i)
+
+  assert.equal(VISUAL_LOCK_V01_ANGLE_CONTRACTS.top.azimuth, null)
+  assert.deepEqual(VISUAL_LOCK_V01_ANGLE_CONTRACTS.top.elevation, { targetDegrees: 90, toleranceDegrees: 2 })
+  assert.match(buildVisualLockV01AngleContractPrompt('top'), /toe pointing toward 12 o'clock/i)
+  assert.match(buildVisualLockV01AngleContractPrompt('top'), /top-oblique view/i)
+
+  assert.deepEqual(VISUAL_LOCK_V01_ANGLE_CONTRACTS.back.azimuth, { targetDegrees: 180, toleranceDegrees: 2 })
+  assert.deepEqual(VISUAL_LOCK_V01_ANGLE_CONTRACTS.back.elevation, { targetDegrees: 5, toleranceDegrees: 2 })
+  assert.match(buildVisualLockV01AngleContractPrompt('back'), /left and right side visibility minimal and approximately symmetric/i)
+  assert.match(buildVisualLockV01AngleContractPrompt('back'), /visible vamp/i)
+})
+
+check('7e detail keeps its durable slot ID but receives material_detail semantics and the only crop permission', () => {
+  const detail = VISUAL_LOCK_V01_ANGLE_CONTRACTS.detail
+  assert.equal(detail.slotId, 'detail')
+  assert.equal(detail.semanticMeaning, 'material_detail')
+  assert.equal(detail.expectedDetectedView, 'material_detail')
+  assert.deepEqual(detail.azimuth, { targetDegrees: 40, toleranceDegrees: 5 })
+  assert.deepEqual(detail.elevation, { targetDegrees: 25, toleranceDegrees: 5 })
+  assert.deepEqual(GENERATED_SLOT_KEYS.filter((slotId) => VISUAL_LOCK_V01_ANGLE_CONTRACTS[slotId].intentionalCropAllowed), ['detail'])
+  assert.ok(GENERATED_SLOT_KEYS.filter((slotId) => slotId !== 'detail').every((slotId) => VISUAL_LOCK_V01_ANGLE_CONTRACTS[slotId].entireShoeRequired))
+  assert.match(buildVisualLockV01AngleContractPrompt('detail'), /detached material swatch/i)
+  assert.match(buildVisualLockV01AngleContractPrompt('detail'), /never create a pair/i)
+})
+
+check('7f a clear angle failure is fail while incomplete or unsupported angle evidence is unknown', () => {
+  const clearFailure = parseVisualQualityEvaluatorV01(JSON.stringify({
+    color: { state: 'pass', detectedColor: 'light grey', evidence: 'visible' },
+    topology: { state: 'pass', evidence: 'source topology retained' },
+    orientation: { state: 'fail', detectedView: 'side', evidence: 'strict lateral profile instead of hero three-quarter' },
+  }), 'hero_3q')
+  assert.equal(clearFailure.state, 'fail')
+  assert.equal(clearFailure.orientation.state, 'fail')
+
+  for (const raw of [
+    '{}',
+    '{bad',
+    JSON.stringify({ color: completeEvaluatorPayload.color, topology: completeEvaluatorPayload.topology }),
+    JSON.stringify({ ...completeEvaluatorPayload, orientation: { state: 'pass', detectedView: 'fish_eye', evidence: 'unsupported' } }),
+  ]) {
+    assert.equal(parseVisualQualityEvaluatorV01(raw, 'hero_3q').state, 'unknown')
+  }
 })
 
 check('8 malformed, missing, unsupported, and incomplete evaluator output are unknown', () => {
@@ -120,12 +211,6 @@ check('10 only true_rear can pass the back evaluator', () => {
   assert.equal(mismatch.state, 'fail')
   assert.ok(mismatch.reasonCodes.includes('back_not_true_rear'))
 })
-
-const completeEvaluatorPayload = {
-  color: { state: 'pass', detectedColor: 'light grey', evidence: 'light grey mesh upper is visible' },
-  topology: { state: 'pass', evidence: 'instep patch and curved side overlay are retained' },
-  orientation: { state: 'pass', detectedView: 'true_rear', evidence: 'heel is shown straight-on and symmetrically' },
-}
 
 function providerEnvelope(text: string, finishReason: string = 'STOP'): unknown {
   return { candidates: [{ finishReason, content: { parts: [{ text }] } }] }
@@ -238,11 +323,12 @@ check('15 V0.1 profile versions are exact', () => {
   assert.equal(COMPONENT_TOPOLOGY_LOCK_V01_VERSION, 'component-topology-lock/v0.1')
   assert.equal(VISUAL_QUALITY_EVALUATOR_V01_VERSION, 'visual-quality-evaluator/v0.1')
   assert.equal(VISUAL_GEOMETRY_GATE_V01_VERSION, 'visual-geometry-gate/v0.1')
+  assert.equal(VISUAL_LOCK_V01_ANGLE_CONTRACT_VERSION, 'visual-angle-contract/v1')
 })
 
 check('16 V0.1 prompt fixture digest is pinned', () => {
   const digest = createHash('sha256').update(JSON.stringify(buildVisualLockV01PromptFixture(context))).digest('hex')
-  assert.equal(digest, '71cd5e3d009864e0ae82947b636082aac0005e249c3b27aad9acc09439c6c243')
+  assert.equal(digest, '529633f7eaa9b7b0dde86c20c693659bb3edeacda8484edb8111e85dc55e335f')
 })
 
 check('17 complete non-pass evidence remains inspectable before persistence authorization', () => {
@@ -335,6 +421,7 @@ check('19 runtime wiring retains transient bytes through evidence and drops them
   assert.match(provider, /if \(isVisualLockV01Context\(visualLock\)\)/)
   assert.match(provider, /finalBuf = jpegBuf[\s\S]*quality\.state !== 'pass'/)
   assert.match(provider, /unknownVisualQualityEvaluatorResultV01\('evaluator_unavailable'\)/)
+  assert.equal((provider.match(/!isVisualLockV01Context\(visualLock\) && getSlotByKey\(scene\.name\)\?\.layout === 'pair'/g) ?? []).length, 2)
   assert.match(task, /measureVisualGeometryV01\(envelope\.output\)/)
   assert.match(task, /buildVisualQualityGateSummaryV01/)
   assert.match(task, /if \(qualityState !== 'pass'\)/)

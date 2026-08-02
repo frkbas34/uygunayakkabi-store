@@ -1489,7 +1489,7 @@ export async function generateByEditing(
       //   3. zoneBlock — protected brand zones
       //   4. sceneText — camera angle, framing, background, lighting
       //   5. CANONICAL_PROHIBITIONS_BLOCK — 11 canonical prohibitions from productPreservation.ts
-      const isPairSlot = getSlotByKey(scene.name)?.layout === 'pair'
+      const isPairSlot = !isVisualLockV01Context(visualLock) && getSlotByKey(scene.name)?.layout === 'pair'
       const visualLockBlock = buildOptionalVisualLockPromptBlock(visualLock, scene.name)
       const fullPrompt = LOCK_REMINDER_BLOCK + TASK_FRAMING_BLOCK + identityLock.promptBlock + zoneBlock + sceneText + STUDIO_STANDARD_BLOCK + materialDirectives(identityLock.material, identityLock.visualNotes) + MATERIAL_IDENTITY_LOCK_BLOCK + buildVisualFactLock(visualFacts) + visualLockBlock + CANONICAL_PROHIBITIONS_BLOCK + ANTI_FRAME_FINAL_BLOCK + (isPairSlot ? PAIR_MODE_FINAL_BLOCK : '')
 
@@ -1913,7 +1913,7 @@ export async function generateByGeminiPro(
         .replace(/\{BACKGROUND\}/g, premiumBackground)
 
       // Same 5-block prompt structure as generateByEditing
-      const isPairSlot = getSlotByKey(scene.name)?.layout === 'pair'
+      const isPairSlot = !isVisualLockV01Context(visualLock) && getSlotByKey(scene.name)?.layout === 'pair'
       const visualLockBlock = buildOptionalVisualLockPromptBlock(visualLock, scene.name)
       const fullPrompt = LOCK_REMINDER_BLOCK + TASK_FRAMING_BLOCK + multiRefFraming + identityLock.promptBlock + zoneBlock + sceneText + STUDIO_STANDARD_BLOCK + materialDirectives(identityLock.material, identityLock.visualNotes) + MATERIAL_IDENTITY_LOCK_BLOCK + buildVisualFactLock(visualFacts) + visualLockBlock + CANONICAL_PROHIBITIONS_BLOCK + ANTI_FRAME_FINAL_BLOCK + (isPairSlot ? PAIR_MODE_FINAL_BLOCK : '')
 

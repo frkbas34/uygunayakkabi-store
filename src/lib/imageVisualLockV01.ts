@@ -111,12 +111,137 @@ export function buildVisualLockV01Context(input: {
   }
 }
 
-const V01_ORIENTATION_LOCKS: Record<SlotKey, string> = {
-  side: 'SIDE must remain a complete controlled lateral view with the full toe-to-heel profile visible.',
-  hero_3q: 'HERO_3Q must remain a controlled front-and-side three-quarter catalog pair.',
-  top: 'TOP must remain a true overhead catalog pair with source-supported upper and opening topology visible.',
-  back: 'BACK must be a true straight rear, heel-centered view. Both heel edges must be comparably visible and the outsole centerline must face the camera. Any visible side-dominant face, diagonal toe axis, asymmetric heel exposure, or rear-three-quarter view is forbidden.',
-  detail: 'DETAIL must show only a source-supported material, seam, or sole-edge detail without changing component topology.',
+export const VISUAL_LOCK_V01_ANGLE_CONTRACT_VERSION = 'visual-angle-contract/v1' as const
+
+type VisualLockV01AngleRange = {
+  targetDegrees: number
+  toleranceDegrees: number
+}
+
+export type VisualLockV01AngleContract = {
+  slotId: SlotKey
+  semanticMeaning: 'side' | 'hero_three_quarter' | 'top' | 'true_rear' | 'material_detail'
+  expectedDetectedView: 'side' | 'hero_three_quarter' | 'top' | 'true_rear' | 'material_detail'
+  azimuth: VisualLockV01AngleRange | null
+  elevation: VisualLockV01AngleRange
+  requiredVisualCues: readonly string[]
+  forbiddenVisualCues: readonly string[]
+  entireShoeRequired: boolean
+  intentionalCropAllowed: boolean
+}
+
+/** Canonical V0.1 angle authority. Slot keys and their existing order remain unchanged. */
+export const VISUAL_LOCK_V01_ANGLE_CONTRACTS: Readonly<Record<SlotKey, VisualLockV01AngleContract>> = {
+  side: {
+    slotId: 'side',
+    semanticMeaning: 'side',
+    expectedDetectedView: 'side',
+    azimuth: { targetDegrees: 90, toleranceDegrees: 2 },
+    elevation: { targetDegrees: 0, toleranceDegrees: 2 },
+    requiredVisualCues: [
+      'strict outer-side lateral profile with the optical axis perpendicular to the side profile',
+      'heel-to-toe baseline approximately horizontal',
+      'entire shoe visible as exactly one shoe',
+    ],
+    forbiddenVisualCues: ['three-quarter view', 'elevated view', 'top-oblique view'],
+    entireShoeRequired: true,
+    intentionalCropAllowed: false,
+  },
+  hero_3q: {
+    slotId: 'hero_3q',
+    semanticMeaning: 'hero_three_quarter',
+    expectedDetectedView: 'hero_three_quarter',
+    azimuth: { targetDegrees: 40, toleranceDegrees: 5 },
+    elevation: { targetDegrees: 12, toleranceDegrees: 3 },
+    requiredVisualCues: [
+      'front outer-side three-quarter view with toe and outer side both clearly visible',
+      'heel recedes naturally',
+      'entire shoe visible as exactly one shoe',
+    ],
+    forbiddenVisualCues: ['strict side view', 'dead-on front view', 'top view', 'rear-three-quarter view'],
+    entireShoeRequired: true,
+    intentionalCropAllowed: false,
+  },
+  top: {
+    slotId: 'top',
+    semanticMeaning: 'top',
+    expectedDetectedView: 'top',
+    azimuth: null,
+    elevation: { targetDegrees: 90, toleranceDegrees: 2 },
+    requiredVisualCues: [
+      "strict overhead view with the shoe long axis vertical and toe pointing toward 12 o'clock",
+      'no dominant side perspective',
+      'entire shoe visible as exactly one shoe',
+    ],
+    forbiddenVisualCues: ['elevated three-quarter view', 'top-oblique view', 'diagonal shoe axis'],
+    entireShoeRequired: true,
+    intentionalCropAllowed: false,
+  },
+  back: {
+    slotId: 'back',
+    semanticMeaning: 'true_rear',
+    expectedDetectedView: 'true_rear',
+    azimuth: { targetDegrees: 180, toleranceDegrees: 2 },
+    elevation: { targetDegrees: 5, toleranceDegrees: 2 },
+    requiredVisualCues: [
+      'centered true-rear view with heel counter centered',
+      'left and right side visibility minimal and approximately symmetric',
+      'entire shoe visible as exactly one shoe',
+    ],
+    forbiddenVisualCues: ['rear-three-quarter view', 'visible vamp', 'dominant side panel'],
+    entireShoeRequired: true,
+    intentionalCropAllowed: false,
+  },
+  detail: {
+    slotId: 'detail',
+    semanticMeaning: 'material_detail',
+    expectedDetectedView: 'material_detail',
+    azimuth: { targetDegrees: 40, toleranceDegrees: 5 },
+    elevation: { targetDegrees: 25, toleranceDegrees: 5 },
+    requiredVisualCues: [
+      'front outer-quarter close crop of the source-supported primary upper-material zone',
+      'primary focus on material surface and one existing construction boundary such as stitching or a seam',
+      'visible region remains recognizably part of the same shoe and exactly one shoe identity',
+    ],
+    forbiddenVisualCues: ['hardware, logo, ornament, or branding close-up', 'detached material swatch', 'second shoe or pair'],
+    entireShoeRequired: false,
+    intentionalCropAllowed: true,
+  },
+}
+
+export const VISUAL_LOCK_V01_DETECTED_VIEWS = [
+  'front',
+  'side',
+  'hero_three_quarter',
+  'top',
+  'true_rear',
+  'rear_three_quarter',
+  'elevated_three_quarter',
+  'top_oblique',
+  'diagonal',
+  'material_detail',
+  'unknown',
+] as const
+
+export function buildVisualLockV01AngleContractPrompt(slotId: SlotKey): string {
+  const contract = VISUAL_LOCK_V01_ANGLE_CONTRACTS[slotId]
+  const azimuth = contract.azimuth
+    ? `${contract.azimuth.targetDegrees}° ±${contract.azimuth.toleranceDegrees}°`
+    : "overhead-axis controlled: long axis vertical, toe toward 12 o'clock"
+  const framing = contract.intentionalCropAllowed
+    ? 'intentional crop allowed for this material_detail slot only; a detached swatch is forbidden'
+    : 'entire shoe required; intentional crop forbidden'
+  return (
+    `ANGLE CONTRACT VERSION: ${VISUAL_LOCK_V01_ANGLE_CONTRACT_VERSION}\n` +
+    `SLOT ID: ${contract.slotId}; LOCKED SEMANTIC MEANING: ${contract.semanticMeaning}\n` +
+    `COORDINATE REFERENCE: toe-facing camera 0°; outer-side camera 90°; heel-facing camera 180°.\n` +
+    `AZIMUTH: ${azimuth}; ELEVATION: ${contract.elevation.targetDegrees}° ±${contract.elevation.toleranceDegrees}°.\n` +
+    `REQUIRED VISUAL CUES: ${contract.requiredVisualCues.join('; ')}.\n` +
+    `FORBIDDEN SUBSTITUTIONS: ${contract.forbiddenVisualCues.join('; ')}.\n` +
+    `FRAMING: ${framing}.\n` +
+    `GLOBAL IDENTITY: preserve the same physical shoe and source handedness; never mirror; never create a pair; never substitute another semantic angle.\n` +
+    `ANGLE DECISION: explicit evidence inside the numeric tolerance and visual cues is PASS; a clearly incorrect semantic angle is FAIL; ambiguous or unverifiable angle evidence is UNKNOWN.`
+  )
 }
 
 export function buildVisualLockV01PromptBlock(context: VisualLockV01Context, slotId: SlotKey): string {
@@ -130,7 +255,8 @@ export function buildVisualLockV01PromptBlock(context: VisualLockV01Context, slo
     `COMPONENT TOPOLOGY (canonical JSON; identical in every slot): ${context.serializedComponentTopology}\n` +
     `CROSS-SLOT RULE: Render the exact same physical shoe and the exact same source-supported component graph in all five slots. No component, seam, boundary, absence, wordmark, motif, patch, overlay, pull tab, opening, apron, or sole feature may be added, removed, resized, relocated, merged, or simplified.\n` +
     `GEOMETRY CONTRACT (${context.geometryGateVersion}): complete-product slots must measure 72-82% occupancy, at most 3% center offset, and at most 8 percentage points occupancy spread across the pack. These values are verified after generation; prompt compliance alone is not PASS.\n` +
-    `ORIENTATION CONTRACT: ${V01_ORIENTATION_LOCKS[slotId]}\n` +
+    `V0.1 ANGLE OVERRIDE: The following single-shoe contract supersedes any earlier generic scene language about free camera choice, matched pairs, mirroring, or rear-three-quarter composition.\n` +
+    `${buildVisualLockV01AngleContractPrompt(slotId)}\n` +
     `EVALUATOR CONTRACT (${context.evaluatorVersion}): PASS requires explicit valid evidence. Missing, malformed, unavailable, incomplete, unsupported, ambiguous, or unexecuted evaluation is UNKNOWN, never PASS. UNKNOWN and FAIL are blocked without automatic regeneration.\n` +
     `UNKNOWN-EVIDENCE RULE: Unknown facts and hidden structure remain unknown. Do not infer or invent them.\n` +
     `=== END VISUAL LOCK V0.1 ===\n`
@@ -264,23 +390,7 @@ function parseDimension(value: unknown, code: string): { value: VisualQualityDim
   return { value: { state: candidate.state, evidence } }
 }
 
-const EXPECTED_VIEW: Record<SlotKey, string> = {
-  side: 'side',
-  hero_3q: 'hero_three_quarter',
-  top: 'top',
-  back: 'true_rear',
-  detail: 'detail',
-}
-
-const ALLOWED_DETECTED_VIEWS = new Set([
-  'side',
-  'hero_three_quarter',
-  'top',
-  'true_rear',
-  'rear_three_quarter',
-  'detail',
-  'unknown',
-])
+const ALLOWED_DETECTED_VIEWS = new Set<string>(VISUAL_LOCK_V01_DETECTED_VIEWS)
 
 export function parseVisualQualityEvaluatorV01(raw: string, slotId: SlotKey): VisualQualityEvaluatorResultV01 {
   let parsed: unknown
@@ -312,7 +422,7 @@ export function parseVisualQualityEvaluatorV01(raw: string, slotId: SlotKey): Vi
   if (!ALLOWED_DETECTED_VIEWS.has(detectedView)) {
     orientation = { state: 'unknown', evidence: '' }
     reasonCodes.push('orientation_unsupported_detected_view')
-  } else if (orientation.state === 'pass' && detectedView !== EXPECTED_VIEW[slotId]) {
+  } else if (orientation.state === 'pass' && detectedView !== VISUAL_LOCK_V01_ANGLE_CONTRACTS[slotId].expectedDetectedView) {
     orientation = { state: 'fail', evidence: orientation.evidence }
     reasonCodes.push(slotId === 'back' ? 'back_not_true_rear' : 'orientation_view_mismatch')
   }
@@ -383,12 +493,12 @@ export function buildVisualQualityEvaluatorPromptV01(context: VisualLockV01Conte
     `Evaluate this generated shoe image under ${VISUAL_QUALITY_EVALUATOR_V01_VERSION}.\n` +
     `Expected dominant color evidence: ${JSON.stringify(context.identityAnchor.facts.colorZones)}\n` +
     `Source-supported component topology: ${context.serializedComponentTopology}\n` +
-    `Required view: ${EXPECTED_VIEW[slotId]}. ${V01_ORIENTATION_LOCKS[slotId]}\n` +
+    `Use this exact canonical angle contract, identical to generation:\n${buildVisualLockV01AngleContractPrompt(slotId)}\n` +
     `Return strict JSON only with exactly these objects:\n` +
     `{"color":{"state":"pass|fail|unknown","detectedColor":"...","evidence":"..."},` +
     `"topology":{"state":"pass|fail|unknown","evidence":"..."},` +
-    `"orientation":{"state":"pass|fail|unknown","detectedView":"side|hero_three_quarter|top|true_rear|rear_three_quarter|detail|unknown","evidence":"..."}}\n` +
-    `PASS requires explicit visible evidence. Use UNKNOWN for ambiguity, occlusion, missing source support, incomplete visibility, unsupported values, or inability to evaluate. Never convert missing or malformed evidence to PASS. For back, rear_three_quarter is FAIL; only true_rear can pass.`
+    `"orientation":{"state":"pass|fail|unknown","detectedView":"${VISUAL_LOCK_V01_DETECTED_VIEWS.join('|')}","evidence":"..."}}\n` +
+    `PASS requires explicit visible evidence that satisfies the slot's numeric tolerance and plain-language cues. A clearly incorrect semantic angle is FAIL. Use UNKNOWN for ambiguity, occlusion, missing source support, incomplete visibility, unsupported values, or inability to evaluate. Never convert missing or malformed evidence to PASS. For back, rear_three_quarter is FAIL; only true_rear can pass.`
   )
 }
 

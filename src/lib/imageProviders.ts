@@ -34,9 +34,55 @@ import {
   correctVisualLockV01Framing,
   type VisualFramingCorrectionEvidenceV01,
 } from './imageFramingCorrectionV01'
+import {
+  buildVisualQualityRetryDirectiveV01,
+  type VisualQualityRetryExecutionCallbacksV01,
+  type VisualQualityRetryAuthorizedDecisionV01,
+} from './imageQualityRetryV01'
 // D-407: central 5-slot contract — single source of truth for slot types, order,
 // and the centering/framing discipline. EDITING_SCENES is now derived from it.
 import { GENERATED_SCENES, getSlotByKey, type SlotKey } from './imageSlotContract'
+
+export type VisualQualityRetryInvocationV01 = {
+  slotId: SlotKey
+  decision: VisualQualityRetryAuthorizedDecisionV01
+  execution: VisualQualityRetryExecutionCallbacksV01
+}
+
+function resolveVisualQualityRetryContextV01(params: {
+  invocation?: VisualQualityRetryInvocationV01
+  visualLock?: VisualLockContext
+  sceneIndices?: readonly number[]
+  selectedSlotIds: readonly SlotKey[]
+}): VisualLockV01Context | null {
+  if (!params.invocation) return null
+  if (!isVisualLockV01Context(params.visualLock)) {
+    throw new Error('Visual quality retry requires the visual-lock/v0.1 context.')
+  }
+  if (
+    params.invocation.decision.authorized !== true
+    || params.invocation.decision.decision !== 'retry_authorized'
+    || params.invocation.decision.attemptOrdinal !== 1
+    || params.invocation.decision.targets.length === 0
+  ) {
+    throw new Error('Visual quality retry requires one authorized initial-attempt decision.')
+  }
+  if (
+    !params.sceneIndices
+    || params.sceneIndices.length !== 1
+    || params.selectedSlotIds.length !== 1
+  ) {
+    throw new Error('Visual quality retry requires exactly one selected semantic slot.')
+  }
+  const selectedSlotId = params.selectedSlotIds[0]
+  if (
+    selectedSlotId !== params.invocation.slotId
+    || params.invocation.decision.slotId !== params.invocation.slotId
+  ) {
+    throw new Error('Visual quality retry semantic slot does not match the selected provider scene.')
+  }
+  return params.visualLock
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Shared canonical prohibitions — injected into EVERY generation prompt
@@ -1383,11 +1429,18 @@ export async function generateByEditing(
   productId?: string | number, // D-233: stable per-product background variant
   visualFacts?: string | null, // D-355N: operator-verified product facts (visual fact lock override)
   visualLock?: VisualLockContext, // opt-in only; omitted default produces the byte-identical prompt
+  qualityRetry?: VisualQualityRetryInvocationV01,
 ): Promise<{ results: ProviderResult[]; buffers: Buffer[]; slotLogs: SlotLog[] }> {
   // Filter scenes to run — default is all 5
   const scenes = sceneIndices
     ? EDITING_SCENES.filter((_, i) => sceneIndices.includes(i))
     : [...EDITING_SCENES]
+  const qualityRetryContext = resolveVisualQualityRetryContextV01({
+    invocation: qualityRetry,
+    visualLock,
+    sceneIndices,
+    selectedSlotIds: scenes.map((scene) => scene.name),
+  })
 
   const result: ProviderResult = {
     provider: 'gpt-image-edit',
@@ -1399,6 +1452,9 @@ export async function generateByEditing(
 
   const slotLogs: SlotLog[] = []
   const geminiKey = process.env.GEMINI_API_KEY
+  if (qualityRetryContext && !geminiKey) {
+    throw new Error('Visual quality retry requires the configured V0.1 evaluator.')
+  }
 
   const apiKey = process.env.OPENAI_API_KEY
   if (!apiKey) {
@@ -1506,7 +1562,10 @@ export async function generateByEditing(
       //   5. CANONICAL_PROHIBITIONS_BLOCK — 11 canonical prohibitions from productPreservation.ts
       const isPairSlot = !isVisualLockV01Context(visualLock) && getSlotByKey(scene.name)?.layout === 'pair'
       const visualLockBlock = buildOptionalVisualLockPromptBlock(visualLock, scene.name)
-      const fullPrompt = LOCK_REMINDER_BLOCK + TASK_FRAMING_BLOCK + identityLock.promptBlock + zoneBlock + sceneText + STUDIO_STANDARD_BLOCK + materialDirectives(identityLock.material, identityLock.visualNotes) + MATERIAL_IDENTITY_LOCK_BLOCK + buildVisualFactLock(visualFacts) + visualLockBlock + CANONICAL_PROHIBITIONS_BLOCK + ANTI_FRAME_FINAL_BLOCK + (isPairSlot ? PAIR_MODE_FINAL_BLOCK : '')
+      const qualityRetryDirective = qualityRetry && qualityRetryContext
+        ? buildVisualQualityRetryDirectiveV01({ context: qualityRetryContext, decision: qualityRetry.decision })
+        : ''
+      const fullPrompt = LOCK_REMINDER_BLOCK + TASK_FRAMING_BLOCK + identityLock.promptBlock + zoneBlock + sceneText + STUDIO_STANDARD_BLOCK + materialDirectives(identityLock.material, identityLock.visualNotes) + MATERIAL_IDENTITY_LOCK_BLOCK + buildVisualFactLock(visualFacts) + visualLockBlock + CANONICAL_PROHIBITIONS_BLOCK + ANTI_FRAME_FINAL_BLOCK + (isPairSlot ? PAIR_MODE_FINAL_BLOCK : '') + qualityRetryDirective
 
       const slotLog: SlotLog = {
         slot: scene.name,
@@ -1520,14 +1579,17 @@ export async function generateByEditing(
 
       // ── Attempt 1 ──────────────────────────────────────────────────────────
       slotLog.attempts = 1
+      qualityRetry?.execution.onGenerationCallStarted()
       let rawBuf = await callGPTImageEdit(pngBuffer, fullPrompt, apiKey)
 
       if (rawBuf) {
         const jpegBuf = await sharp(rawBuf).jpeg({ quality: 92 }).toBuffer()
+        qualityRetry?.execution.onCandidateProduced()
 
         if (isVisualLockV01Context(visualLock)) {
           const correction = await correctVisualLockV01Framing(jpegBuf, scene.name)
           slotLog.framingCorrection = correction.evidence
+          qualityRetry?.execution.onEvaluatorCallStarted()
           const quality = geminiKey
             ? await checkVisualQualityV01(correction.buffer, visualLock, scene.name, geminiKey)
             : unknownVisualQualityEvaluatorResultV01('evaluator_unavailable')
@@ -1817,10 +1879,17 @@ export async function generateByGeminiPro(
   productId?: string | number, // D-233: stable per-product background variant
   visualFacts?: string | null, // D-355N: operator-verified product facts (visual fact lock override)
   visualLock?: VisualLockContext, // opt-in only; omitted default produces the byte-identical prompt
+  qualityRetry?: VisualQualityRetryInvocationV01,
 ): Promise<{ results: ProviderResult[]; buffers: Buffer[]; slotLogs: SlotLog[] }> {
   const scenes = sceneIndices
     ? EDITING_SCENES.filter((_, i) => sceneIndices.includes(i))
     : [...EDITING_SCENES]
+  const qualityRetryContext = resolveVisualQualityRetryContextV01({
+    invocation: qualityRetry,
+    visualLock,
+    sceneIndices,
+    selectedSlotIds: scenes.map((scene) => scene.name),
+  })
 
   const modelId = process.env.GEMINI_IMAGE_GEN_MODEL || 'gemini-2.5-flash-image'
 
@@ -1836,6 +1905,9 @@ export async function generateByGeminiPro(
   const geminiKey = process.env.GEMINI_API_KEY
 
   if (!geminiKey) {
+    if (qualityRetryContext) {
+      throw new Error('Visual quality retry requires the configured V0.1 evaluator.')
+    }
     const msg = 'GEMINI_API_KEY not set — Gemini Pro generation impossible'
     console.error(`[generateByGeminiPro] ${msg}`)
     result.errors.push(msg)
@@ -1932,7 +2004,10 @@ export async function generateByGeminiPro(
       // Same 5-block prompt structure as generateByEditing
       const isPairSlot = !isVisualLockV01Context(visualLock) && getSlotByKey(scene.name)?.layout === 'pair'
       const visualLockBlock = buildOptionalVisualLockPromptBlock(visualLock, scene.name)
-      const fullPrompt = LOCK_REMINDER_BLOCK + TASK_FRAMING_BLOCK + multiRefFraming + identityLock.promptBlock + zoneBlock + sceneText + STUDIO_STANDARD_BLOCK + materialDirectives(identityLock.material, identityLock.visualNotes) + MATERIAL_IDENTITY_LOCK_BLOCK + buildVisualFactLock(visualFacts) + visualLockBlock + CANONICAL_PROHIBITIONS_BLOCK + ANTI_FRAME_FINAL_BLOCK + (isPairSlot ? PAIR_MODE_FINAL_BLOCK : '')
+      const qualityRetryDirective = qualityRetry && qualityRetryContext
+        ? buildVisualQualityRetryDirectiveV01({ context: qualityRetryContext, decision: qualityRetry.decision })
+        : ''
+      const fullPrompt = LOCK_REMINDER_BLOCK + TASK_FRAMING_BLOCK + multiRefFraming + identityLock.promptBlock + zoneBlock + sceneText + STUDIO_STANDARD_BLOCK + materialDirectives(identityLock.material, identityLock.visualNotes) + MATERIAL_IDENTITY_LOCK_BLOCK + buildVisualFactLock(visualFacts) + visualLockBlock + CANONICAL_PROHIBITIONS_BLOCK + ANTI_FRAME_FINAL_BLOCK + (isPairSlot ? PAIR_MODE_FINAL_BLOCK : '') + qualityRetryDirective
 
       // D-412: every slot uses only the ORIGINAL reference image(s) (primary base +
       // any real operator-supplied extra angles of the SAME shoe). No generated
@@ -1956,13 +2031,16 @@ export async function generateByGeminiPro(
       try {
         // ── Attempt 1 ──────────────────────────────────────────────────────────
         slotLog.attempts = 1
+        qualityRetry?.execution.onGenerationCallStarted()
         let rawBuf = await callGeminiImageGenerate(pngBuffer, slotPrompt, geminiKey, slotImages)
 
         const jpegBuf = await sharp(rawBuf).jpeg({ quality: 92 }).toBuffer()
+        qualityRetry?.execution.onCandidateProduced()
 
         if (isVisualLockV01Context(visualLock)) {
           const correction = await correctVisualLockV01Framing(jpegBuf, scene.name)
           slotLog.framingCorrection = correction.evidence
+          qualityRetry?.execution.onEvaluatorCallStarted()
           const quality = await checkVisualQualityV01(correction.buffer, visualLock, scene.name, geminiKey)
           applyVisualQualityV01ToSlotLog(slotLog, quality)
           // Preserve the provider output only as a transient task input. Quality

@@ -25,6 +25,11 @@ import type {
   VisualFramingCorrectionOutcomeV01,
   VisualFramingCorrectionReasonV01,
 } from './imageFramingCorrectionV01'
+import {
+  VISUAL_QUALITY_RETRY_POLICY_V01_VERSION,
+  sanitizeVisualQualityRetryEvidenceV01,
+  type VisualQualityRetryEvidenceV01,
+} from './imageQualityRetryV01'
 
 export type ImageGenerationContractVersion = typeof IMAGE_SLOT_CONTRACT_VERSION
 export type ImageSlotId = SlotKey
@@ -40,6 +45,25 @@ export type ImageSlotResultStatus =
   | 'skipped'
 
 export type ImageGenerationAttemptStatus = 'running' | 'completed' | 'partial' | 'failed'
+export type ImageGenerationAttemptKind = 'initial' | 'quality_retry'
+export type ImageGenerationAttemptOrdinal = 1 | 2
+
+export const IMAGE_GENERATION_PACK_SELECTION_VERSION = 'image-generation-pack-selection/v1' as const
+
+export type ImageGenerationPackSelectionSlot = {
+  slotId: ImageSlotId
+  displayOrder: number
+  sourceAttemptId: ImageGenerationAttemptId
+  sourceAttemptOrdinal: ImageGenerationAttemptOrdinal
+  mediaId: string | number
+  mediaUrl?: string | null
+}
+
+export type ImageGenerationPackSelection = {
+  version: typeof IMAGE_GENERATION_PACK_SELECTION_VERSION
+  rootAttemptId: ImageGenerationAttemptId
+  slots: ImageGenerationPackSelectionSlot[]
+}
 
 export type ImageSlotFailure = {
   code:
@@ -98,6 +122,8 @@ export type ImageSlotResult = {
   mediaUrl?: string | null
   warnings: string[]
   failure?: ImageSlotFailure
+  /** Sanitized V0.1 quality-retry evidence. Absent on historical attempts. */
+  qualityRetry?: VisualQualityRetryEvidenceV01
 }
 
 export type ImageSlotExecutionEnvelope<TOutput> = ImageSlotResult & {
@@ -129,6 +155,13 @@ export type ImageGenerationAttemptMetadata = {
     materialFidelity?: string
   }
   qualityGateSummary?: VisualQualityGateSummaryV01
+  /** Optional so historical attempt JSON remains byte-for-byte readable. */
+  attemptKind?: ImageGenerationAttemptKind
+  attemptOrdinal?: ImageGenerationAttemptOrdinal
+  parentAttemptId?: ImageGenerationAttemptId | null
+  retryPolicyVersion?: typeof VISUAL_QUALITY_RETRY_POLICY_V01_VERSION
+  /** Root-only, deterministic approval-pack lineage. */
+  packSelection?: ImageGenerationPackSelection
 }
 
 export type LegacySlotProjection = {
@@ -172,6 +205,7 @@ type LegacyProviderSlotLog = {
 }
 
 const MAX_SAFE_SUMMARY_LENGTH = 240
+const IMAGE_GENERATION_ATTEMPT_ID_PATTERN = /^iga_[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
 const VISUAL_FRAMING_CORRECTION_VERSION = 'visual-framing-correction/v1' as const
 const VISUAL_GEOMETRY_GATE_VERSION = 'visual-geometry-gate/v0.1' as const
 const VISUAL_FRAMING_CORRECTION_OUTCOMES: ReadonlySet<VisualFramingCorrectionOutcomeV01> = new Set([
@@ -423,6 +457,10 @@ export function createImageGenerationAttempt(params: {
   requestedSlotIds: readonly ImageSlotId[]
   now?: string
   attemptId?: ImageGenerationAttemptId
+  attemptKind?: ImageGenerationAttemptKind
+  attemptOrdinal?: ImageGenerationAttemptOrdinal
+  parentAttemptId?: ImageGenerationAttemptId | null
+  retryPolicyVersion?: typeof VISUAL_QUALITY_RETRY_POLICY_V01_VERSION
 }): ImageGenerationAttemptMetadata {
   const attemptId = params.attemptId ?? `iga_${randomUUID()}`
   const requested = [...params.requestedSlotIds]
@@ -431,6 +469,31 @@ export function createImageGenerationAttempt(params: {
   }
   for (const slotId of requested) {
     if (!isValidSlotKey(slotId)) throw new Error(`Unknown image slot ID: ${String(slotId)}`)
+  }
+
+  const hasRetryLineage = params.attemptKind !== undefined
+    || params.attemptOrdinal !== undefined
+    || params.parentAttemptId !== undefined
+    || params.retryPolicyVersion !== undefined
+  if (hasRetryLineage) {
+    if (
+      params.retryPolicyVersion !== VISUAL_QUALITY_RETRY_POLICY_V01_VERSION
+      || (params.attemptKind !== 'initial' && params.attemptKind !== 'quality_retry')
+      || (params.attemptOrdinal !== 1 && params.attemptOrdinal !== 2)
+      || !IMAGE_GENERATION_ATTEMPT_ID_PATTERN.test(attemptId)
+    ) {
+      throw new Error('Quality-retry attempt lineage must use the complete V0.1 contract.')
+    }
+    if (
+      params.attemptKind === 'initial'
+        ? params.attemptOrdinal !== 1 || params.parentAttemptId !== null
+        : params.attemptOrdinal !== 2
+          || typeof params.parentAttemptId !== 'string'
+          || !IMAGE_GENERATION_ATTEMPT_ID_PATTERN.test(params.parentAttemptId)
+          || requested.length !== 1
+    ) {
+      throw new Error('Quality-retry attempt kind, ordinal, parent, or durable slot is invalid.')
+    }
   }
 
   return {
@@ -456,6 +519,12 @@ export function createImageGenerationAttempt(params: {
       }
     }),
     startedAt: params.now ?? new Date().toISOString(),
+    ...(hasRetryLineage ? {
+      attemptKind: params.attemptKind,
+      attemptOrdinal: params.attemptOrdinal,
+      parentAttemptId: params.parentAttemptId,
+      retryPolicyVersion: params.retryPolicyVersion,
+    } : {}),
   }
 }
 
@@ -623,9 +692,16 @@ export async function persistGeneratedSlotEnvelopes<TOutput>(params: {
     mediaId: string | number
     mediaUrl?: string | null
   }>
+  /** Opt-in for final-pack persistence. Historical behavior remains best-effort. */
+  failFast?: boolean
 }): Promise<ImageSlotExecutionEnvelope<TOutput>[]> {
   const persisted: ImageSlotExecutionEnvelope<TOutput>[] = []
+  let mediaSaveFailed = false
   for (const slot of params.slots) {
+    if (params.failFast === true && mediaSaveFailed) {
+      persisted.push({ ...slot })
+      continue
+    }
     if (slot.status !== 'generated' || slot.output === undefined) {
       persisted.push({ ...slot })
       continue
@@ -640,6 +716,7 @@ export async function persistGeneratedSlotEnvelopes<TOutput>(params: {
         failure: undefined,
       })
     } catch (error) {
+      mediaSaveFailed = true
       persisted.push({
         ...slot,
         status: 'media_save_failed',
@@ -682,6 +759,28 @@ export function serializeSlotEnvelopes<TOutput>(
   })
 }
 
+function canonicalizeGenerationAttemptEvidence(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(canonicalizeGenerationAttemptEvidence)
+  if (value && typeof value === 'object') {
+    return Object.fromEntries(
+      Object.entries(value as Record<string, unknown>)
+        .sort(([left], [right]) => left.localeCompare(right))
+        .map(([key, entry]) => [key, canonicalizeGenerationAttemptEvidence(entry)]),
+    )
+  }
+  return value
+}
+
+export function areGenerationAttemptHistoriesSemanticallyEqual(
+  left: readonly ImageGenerationAttemptMetadata[],
+  right: readonly ImageGenerationAttemptMetadata[],
+): boolean {
+  const byAttemptId = (attempts: readonly ImageGenerationAttemptMetadata[]) =>
+    [...attempts].sort((a, b) => a.attemptId.localeCompare(b.attemptId))
+  return JSON.stringify(canonicalizeGenerationAttemptEvidence(byAttemptId(left)))
+    === JSON.stringify(canonicalizeGenerationAttemptEvidence(byAttemptId(right)))
+}
+
 export function upsertGenerationAttemptHistory(
   value: unknown,
   attempt: ImageGenerationAttemptMetadata,
@@ -690,8 +789,309 @@ export function upsertGenerationAttemptHistory(
   if (!parsed.ok) throw new Error(parsed.error)
   const existing = parsed.attempts
   const index = existing.findIndex((item) => item.attemptId === attempt.attemptId)
-  if (index < 0) return [...existing, attempt]
-  return existing.map((item, i) => i === index ? attempt : item)
+  const next = index < 0
+    ? [...existing, attempt]
+    : existing.map((item, i) => i === index ? attempt : item)
+  const verified = parseGenerationAttemptHistory(next)
+  if (!verified.ok) throw new Error(verified.error)
+  return verified.attempts
+}
+
+function hasRetryMetadata(attempt: Partial<ImageGenerationAttemptMetadata>): boolean {
+  return attempt.attemptKind !== undefined
+    || attempt.attemptOrdinal !== undefined
+    || attempt.parentAttemptId !== undefined
+    || attempt.retryPolicyVersion !== undefined
+    || attempt.packSelection !== undefined
+    || (Array.isArray(attempt.slots) && attempt.slots.some((slot) =>
+      Boolean(slot) && typeof slot === 'object' && 'qualityRetry' in slot,
+    ))
+}
+
+function validMediaId(value: unknown): value is string | number {
+  return (typeof value === 'string' && value.length > 0)
+    || (typeof value === 'number' && Number.isSafeInteger(value) && value >= 0)
+}
+
+function retryLineageError(attemptId: string, detail: string): string {
+  return `Generation attempt ${attemptId} has invalid quality-retry lineage: ${detail}`
+}
+
+function sanitizeRetryAwareAttempt(
+  attempt: ImageGenerationAttemptMetadata,
+): { ok: true; attempt: ImageGenerationAttemptMetadata } | { ok: false; error: string } {
+  if (
+    attempt.retryPolicyVersion !== VISUAL_QUALITY_RETRY_POLICY_V01_VERSION
+    || (attempt.attemptKind !== 'initial' && attempt.attemptKind !== 'quality_retry')
+    || (attempt.attemptOrdinal !== 1 && attempt.attemptOrdinal !== 2)
+    || !['running', 'completed', 'partial', 'failed'].includes(attempt.status)
+    || typeof attempt.startedAt !== 'string'
+    || Number.isNaN(Date.parse(attempt.startedAt))
+    || (attempt.completedAt !== undefined
+      && (typeof attempt.completedAt !== 'string' || Number.isNaN(Date.parse(attempt.completedAt))))
+    || !IMAGE_GENERATION_ATTEMPT_ID_PATTERN.test(attempt.attemptId)
+  ) {
+    return { ok: false, error: retryLineageError(attempt.attemptId, 'the version, kind, ordinal, status, or timestamps are malformed.') }
+  }
+
+  if (
+    attempt.requestedSlotIds.length < 1
+    || new Set(attempt.requestedSlotIds).size !== attempt.requestedSlotIds.length
+    || !attempt.requestedSlotIds.every(isValidSlotKey)
+    || attempt.slots.length !== attempt.requestedSlotIds.length
+  ) {
+    return { ok: false, error: retryLineageError(attempt.attemptId, 'durable requested slots are incomplete or duplicated.') }
+  }
+
+  const sortedRequested = [...attempt.requestedSlotIds].sort((left, right) =>
+    (getSlotByKey(left)?.displayOrder ?? Number.MAX_SAFE_INTEGER)
+      - (getSlotByKey(right)?.displayOrder ?? Number.MAX_SAFE_INTEGER),
+  )
+  if (sortedRequested.some((slotId, index) => slotId !== attempt.requestedSlotIds[index])) {
+    return { ok: false, error: retryLineageError(attempt.attemptId, 'requested slots are not in canonical order.') }
+  }
+
+  const sanitizedSlots: ImageSlotResult[] = []
+  for (let index = 0; index < attempt.slots.length; index += 1) {
+    const slot = attempt.slots[index]
+    const slotId = attempt.requestedSlotIds[index]
+    const canonical = getSlotByKey(slotId)
+    if (
+      !canonical
+      || slot.slotId !== slotId
+      || slot.displayOrder !== canonical.displayOrder
+      || slot.purposeIdentifier !== canonical.purposeIdentifier
+      || slot.operatorLabel !== canonical.operatorLabel
+      || !['pending', 'generating', 'generated', 'provider_failed', 'media_save_failed', 'persisted', 'skipped'].includes(slot.status)
+      || !Array.isArray(slot.warnings)
+      || !slot.warnings.every((warning) => typeof warning === 'string')
+      || (slot.status === 'persisted' && !validMediaId(slot.mediaId))
+    ) {
+      return { ok: false, error: retryLineageError(attempt.attemptId, `slot ${slotId} is malformed or positionally compacted.`) }
+    }
+
+    let qualityRetry: VisualQualityRetryEvidenceV01 | undefined
+    if (slot.qualityRetry !== undefined) {
+      qualityRetry = sanitizeVisualQualityRetryEvidenceV01(slot.qualityRetry)
+      if (
+        !qualityRetry
+        || qualityRetry.jobId !== attempt.jobId
+        || qualityRetry.slotId !== slotId
+        || (attempt.attemptKind === 'initial' && qualityRetry.parentAttemptId !== attempt.attemptId)
+      ) {
+        return { ok: false, error: retryLineageError(attempt.attemptId, `slot ${slotId} has malformed or mismatched retry evidence.`) }
+      }
+    }
+    sanitizedSlots.push({
+      ...slot,
+      ...(qualityRetry ? { qualityRetry } : {}),
+    })
+  }
+
+  if (
+    attempt.attemptKind === 'initial'
+      ? attempt.attemptOrdinal !== 1 || attempt.parentAttemptId !== null
+      : attempt.attemptOrdinal !== 2
+        || typeof attempt.parentAttemptId !== 'string'
+        || !IMAGE_GENERATION_ATTEMPT_ID_PATTERN.test(attempt.parentAttemptId)
+        || attempt.requestedSlotIds.length !== 1
+  ) {
+    return { ok: false, error: retryLineageError(attempt.attemptId, 'the kind, ordinal, parent, or retry slot is invalid.') }
+  }
+
+  if (attempt.attemptKind === 'quality_retry') {
+    const retryEvidence = sanitizedSlots[0]?.qualityRetry
+    const failureReasonByTarget = {
+      ANGLE: 'ANGLE_FAIL',
+      STUDIO: 'STUDIO_FAIL',
+      MATERIAL: 'MATERIAL_FAIL',
+      TOPOLOGY: 'TOPOLOGY_FAIL',
+      FRAMING: 'FRAMING_FAIL',
+      PRODUCT_COUNT: 'PRODUCT_COUNT_FAIL',
+    } as const
+    const expectedReasons = retryEvidence?.targets.map((target) => failureReasonByTarget[target]) ?? []
+    if (
+      !retryEvidence
+      || retryEvidence.authorized !== true
+      || retryEvidence.parentAttemptId !== attempt.parentAttemptId
+      || retryEvidence.retryAttemptId !== attempt.attemptId
+      || retryEvidence.attemptOrdinal !== 2
+      || retryEvidence.promptDigest === null
+      || retryEvidence.targets.length < 1
+      || JSON.stringify(retryEvidence.normalizedFailureReasons) !== JSON.stringify(expectedReasons)
+    ) {
+      return { ok: false, error: retryLineageError(attempt.attemptId, 'the retry evidence, digest, targets, or parent identifiers are invalid.') }
+    }
+  }
+
+  return { ok: true, attempt: { ...attempt, slots: sanitizedSlots } }
+}
+
+function validatePackSelectionInternal(params: {
+  attempts: readonly ImageGenerationAttemptMetadata[]
+  rootAttempt: ImageGenerationAttemptMetadata
+  selection: unknown
+}): { ok: true; selection: ImageGenerationPackSelection } | { ok: false; error: string } {
+  const { rootAttempt } = params
+  if (
+    rootAttempt.attemptKind !== 'initial'
+    || !isRecord(params.selection)
+    || params.selection.version !== IMAGE_GENERATION_PACK_SELECTION_VERSION
+    || params.selection.rootAttemptId !== rootAttempt.attemptId
+    || !Array.isArray(params.selection.slots)
+    || params.selection.slots.length !== rootAttempt.requestedSlotIds.length
+  ) {
+    return { ok: false, error: `Generation attempt ${rootAttempt.attemptId} has an invalid pack-selection manifest.` }
+  }
+  const qualityGateSummary = isRecord(rootAttempt.qualityGateSummary)
+    ? rootAttempt.qualityGateSummary
+    : undefined
+  const packResults = qualityGateSummary && isRecord(qualityGateSummary.packResults)
+    ? qualityGateSummary.packResults
+    : undefined
+  const rootTerminal = rootAttempt.status !== 'running'
+    && typeof rootAttempt.completedAt === 'string'
+    && !Number.isNaN(Date.parse(rootAttempt.completedAt))
+  const directChildren = params.attempts.filter((attempt) =>
+    attempt.attemptKind === 'quality_retry' && attempt.parentAttemptId === rootAttempt.attemptId,
+  )
+  if (
+    !rootTerminal
+    || packResults?.qualityGateStatus !== 'pass'
+    || directChildren.some((attempt) => attempt.status === 'running' || !attempt.completedAt)
+  ) {
+    return { ok: false, error: `Generation attempt ${rootAttempt.attemptId} cannot select a pack from non-terminal or non-passing evidence.` }
+  }
+
+  const sanitizedSlots: ImageGenerationPackSelectionSlot[] = []
+  for (let index = 0; index < rootAttempt.requestedSlotIds.length; index += 1) {
+    const slotId = rootAttempt.requestedSlotIds[index]
+    const canonical = getSlotByKey(slotId)
+    const rootSlotEvidence = rootAttempt.slots[index]?.qualityRetry
+    const value = params.selection.slots[index]
+    if (
+      !canonical
+      || !rootSlotEvidence
+      || !isRecord(value)
+      || value.slotId !== slotId
+      || value.displayOrder !== canonical.displayOrder
+      || typeof value.sourceAttemptId !== 'string'
+      || !IMAGE_GENERATION_ATTEMPT_ID_PATTERN.test(value.sourceAttemptId)
+      || (value.sourceAttemptOrdinal !== 1 && value.sourceAttemptOrdinal !== 2)
+      || !validMediaId(value.mediaId)
+      || (value.mediaUrl !== undefined && value.mediaUrl !== null && typeof value.mediaUrl !== 'string')
+    ) {
+      return { ok: false, error: `Pack selection for ${rootAttempt.attemptId} has malformed or reordered slot ${slotId}.` }
+    }
+
+    const sourceAttempt = params.attempts.find((attempt) => attempt.attemptId === value.sourceAttemptId)
+    const sourceSlot = sourceAttempt?.slots.find((slot) => slot.slotId === slotId)
+    const sourceIsRoot = sourceAttempt?.attemptId === rootAttempt.attemptId
+    const sourceIsDirectRetry = sourceAttempt?.attemptKind === 'quality_retry'
+      && sourceAttempt.parentAttemptId === rootAttempt.attemptId
+      && sourceAttempt.status === 'completed'
+      && typeof sourceAttempt.completedAt === 'string'
+      && !Number.isNaN(Date.parse(sourceAttempt.completedAt))
+      && sourceAttempt.requestedSlotIds.length === 1
+      && sourceAttempt.requestedSlotIds[0] === slotId
+      && sourceSlot?.qualityRetry?.finalCombinedGateState === 'pass'
+      && sourceSlot.qualityRetry.terminalOutcome === 'retry_passed'
+      && sourceSlot.qualityRetry.generationAttempts === 1
+      && sourceSlot.qualityRetry.evaluatorExecutions === 1
+    const rootEvidenceMatchesSelection = sourceIsRoot
+      ? rootSlotEvidence.authorized === false
+        && rootSlotEvidence.retryAttemptId === null
+        && rootSlotEvidence.finalCombinedGateState === 'pass'
+        && rootSlotEvidence.terminalOutcome === 'not_authorized'
+      : sourceIsDirectRetry
+        ? rootSlotEvidence.authorized === true
+        && rootSlotEvidence.retryAttemptId === sourceAttempt?.attemptId
+        && rootSlotEvidence.terminalOutcome === sourceSlot?.qualityRetry?.terminalOutcome
+        && rootSlotEvidence.finalCombinedGateState === sourceSlot?.qualityRetry?.finalCombinedGateState
+        && rootSlotEvidence.framingCorrectionOutcome === sourceSlot?.qualityRetry?.framingCorrectionOutcome
+        && JSON.stringify(rootSlotEvidence.finalDimensionStates) === JSON.stringify(sourceSlot?.qualityRetry?.finalDimensionStates)
+      : false
+    if (
+      !sourceAttempt
+      || sourceAttempt.jobId !== rootAttempt.jobId
+      || sourceAttempt.attemptOrdinal !== value.sourceAttemptOrdinal
+      || (!sourceIsRoot && !sourceIsDirectRetry)
+      || !rootEvidenceMatchesSelection
+      || !sourceSlot
+      || sourceSlot.status !== 'persisted'
+      || sourceSlot.mediaId !== value.mediaId
+      || (value.mediaUrl !== undefined && (sourceSlot.mediaUrl ?? null) !== value.mediaUrl)
+    ) {
+      return { ok: false, error: `Pack selection for ${rootAttempt.attemptId} has invalid Media lineage for slot ${slotId}.` }
+    }
+
+    sanitizedSlots.push({
+      slotId,
+      displayOrder: canonical.displayOrder,
+      sourceAttemptId: sourceAttempt.attemptId,
+      sourceAttemptOrdinal: sourceAttempt.attemptOrdinal as ImageGenerationAttemptOrdinal,
+      mediaId: sourceSlot.mediaId as string | number,
+      ...(value.mediaUrl !== undefined ? { mediaUrl: value.mediaUrl as string | null } : {}),
+    })
+  }
+
+  return {
+    ok: true,
+    selection: {
+      version: IMAGE_GENERATION_PACK_SELECTION_VERSION,
+      rootAttemptId: rootAttempt.attemptId,
+      slots: sanitizedSlots,
+    },
+  }
+}
+
+export function validateImageGenerationPackSelection(params: {
+  attempts: readonly ImageGenerationAttemptMetadata[]
+  rootAttempt: ImageGenerationAttemptMetadata
+  selection?: unknown
+}): { ok: true; selection: ImageGenerationPackSelection } | { ok: false; error: string } {
+  return validatePackSelectionInternal({
+    attempts: params.attempts,
+    rootAttempt: params.rootAttempt,
+    selection: params.selection ?? params.rootAttempt.packSelection,
+  })
+}
+
+export function buildImageGenerationPackSelection(params: {
+  attempts: readonly ImageGenerationAttemptMetadata[]
+  rootAttemptId: ImageGenerationAttemptId
+  sourcesBySlot: Readonly<Partial<Record<ImageSlotId, ImageGenerationAttemptId>>>
+}): ImageGenerationPackSelection {
+  const parsed = parseGenerationAttemptHistory(params.attempts)
+  if (!parsed.ok) throw new Error(parsed.error)
+  const rootAttempt = parsed.attempts.find((attempt) => attempt.attemptId === params.rootAttemptId)
+  if (!rootAttempt || rootAttempt.attemptKind !== 'initial') {
+    throw new Error(`Root generation attempt ${params.rootAttemptId} is unavailable or invalid.`)
+  }
+  const selection: ImageGenerationPackSelection = {
+    version: IMAGE_GENERATION_PACK_SELECTION_VERSION,
+    rootAttemptId: rootAttempt.attemptId,
+    slots: rootAttempt.requestedSlotIds.map((slotId) => {
+      const sourceAttemptId = params.sourcesBySlot[slotId]
+      const sourceAttempt = parsed.attempts.find((attempt) => attempt.attemptId === sourceAttemptId)
+      const sourceSlot = sourceAttempt?.slots.find((slot) => slot.slotId === slotId)
+      const canonical = getSlotByKey(slotId)
+      if (!sourceAttempt || !sourceSlot || !canonical || !validMediaId(sourceSlot.mediaId)) {
+        throw new Error(`A complete persisted source is required for pack slot ${slotId}.`)
+      }
+      return {
+        slotId,
+        displayOrder: canonical.displayOrder,
+        sourceAttemptId: sourceAttempt.attemptId,
+        sourceAttemptOrdinal: sourceAttempt.attemptOrdinal as ImageGenerationAttemptOrdinal,
+        mediaId: sourceSlot.mediaId,
+        ...(sourceSlot.mediaUrl !== undefined ? { mediaUrl: sourceSlot.mediaUrl } : {}),
+      }
+    }),
+  }
+  const validated = validatePackSelectionInternal({ attempts: parsed.attempts, rootAttempt, selection })
+  if (!validated.ok) throw new Error(validated.error)
+  return validated.selection
 }
 
 export function parseGenerationAttemptHistory(value: unknown):
@@ -700,6 +1100,7 @@ export function parseGenerationAttemptHistory(value: unknown):
   if (value == null) return { ok: true, attempts: [] }
   if (!Array.isArray(value)) return { ok: false, attempts: [], error: 'Generation attempt metadata is not an array.' }
   const attempts: ImageGenerationAttemptMetadata[] = []
+  const retryAwareIds = new Set<string>()
   for (const candidate of value) {
     if (!candidate || typeof candidate !== 'object') {
       return { ok: false, attempts: [], error: 'Generation attempt metadata contains a non-object entry.' }
@@ -721,7 +1122,95 @@ export function parseGenerationAttemptHistory(value: unknown):
     )) {
       return { ok: false, attempts: [], error: `Generation attempt ${attempt.attemptId} contains malformed slot results.` }
     }
-    attempts.push(attempt as ImageGenerationAttemptMetadata)
+    const typedAttempt = attempt as ImageGenerationAttemptMetadata
+    if (hasRetryMetadata(attempt)) {
+      const sanitized = sanitizeRetryAwareAttempt(typedAttempt)
+      if (!sanitized.ok) return { ok: false, attempts: [], error: sanitized.error }
+      attempts.push(sanitized.attempt)
+      retryAwareIds.add(sanitized.attempt.attemptId)
+    } else {
+      attempts.push(typedAttempt)
+    }
+  }
+
+  if (retryAwareIds.size > 0) {
+    const attemptIndex = new Map<string, number>()
+    for (let index = 0; index < attempts.length; index += 1) {
+      const attempt = attempts[index]
+      if (attemptIndex.has(attempt.attemptId)) {
+        return { ok: false, attempts: [], error: `Generation attempt ${attempt.attemptId} is duplicated.` }
+      }
+      attemptIndex.set(attempt.attemptId, index)
+    }
+
+    const childByParentAndSlot = new Set<string>()
+    for (const attempt of attempts) {
+      if (!retryAwareIds.has(attempt.attemptId) || attempt.attemptKind !== 'quality_retry') continue
+      const parent = attempts.find((candidate) => candidate.attemptId === attempt.parentAttemptId)
+      const parentIndex = parent ? attemptIndex.get(parent.attemptId) : undefined
+      const childIndex = attemptIndex.get(attempt.attemptId)
+      const slotId = attempt.requestedSlotIds[0]
+      const childKey = `${attempt.parentAttemptId}:${slotId}`
+      const parentEvidence = parent?.slots.find((slot) => slot.slotId === slotId)?.qualityRetry
+      const childEvidence = attempt.slots[0]?.qualityRetry
+      if (
+        !parent
+        || parent.attemptKind !== 'initial'
+        || parent.jobId !== attempt.jobId
+        || !parent.requestedSlotIds.includes(slotId)
+        || parentIndex === undefined
+        || childIndex === undefined
+        || parentIndex >= childIndex
+        || childByParentAndSlot.has(childKey)
+        || parentEvidence === undefined
+        || (
+          parentEvidence.authorized !== true
+          || parentEvidence.retryAttemptId !== attempt.attemptId
+          || parentEvidence.promptDigest !== childEvidence?.promptDigest
+          || JSON.stringify(parentEvidence.targets) !== JSON.stringify(childEvidence?.targets)
+          || JSON.stringify(parentEvidence.normalizedFailureReasons) !== JSON.stringify(childEvidence?.normalizedFailureReasons)
+        )
+      ) {
+        return { ok: false, attempts: [], error: retryLineageError(attempt.attemptId, 'its parent, job, order, or one-child-per-slot invariant is invalid.') }
+      }
+      childByParentAndSlot.add(childKey)
+    }
+
+    for (const root of attempts) {
+      if (!retryAwareIds.has(root.attemptId) || root.attemptKind !== 'initial') continue
+      for (const slot of root.slots) {
+        const evidence = slot.qualityRetry
+        if (!evidence) continue
+        const child = evidence.retryAttemptId === null
+          ? undefined
+          : attempts.find((attempt) => attempt.attemptId === evidence.retryAttemptId)
+        const matchingChild = child?.attemptKind === 'quality_retry'
+          && child.parentAttemptId === root.attemptId
+          && child.jobId === root.jobId
+          && child.requestedSlotIds.length === 1
+          && child.requestedSlotIds[0] === slot.slotId
+        if (
+          evidence.retryAttemptId === null
+            ? childByParentAndSlot.has(`${root.attemptId}:${slot.slotId}`)
+            : child
+              ? !matchingChild
+              : evidence.terminalOutcome !== 'authorized_pending'
+        ) {
+          return { ok: false, attempts: [], error: retryLineageError(root.attemptId, `slot ${slot.slotId} has an invalid retry-child link.`) }
+        }
+      }
+    }
+
+    for (let index = 0; index < attempts.length; index += 1) {
+      const attempt = attempts[index]
+      if (!retryAwareIds.has(attempt.attemptId) || attempt.packSelection === undefined) continue
+      if (attempt.attemptKind !== 'initial') {
+        return { ok: false, attempts: [], error: retryLineageError(attempt.attemptId, 'only an initial root may own packSelection.') }
+      }
+      const validated = validatePackSelectionInternal({ attempts, rootAttempt: attempt, selection: attempt.packSelection })
+      if (!validated.ok) return { ok: false, attempts: [], error: validated.error }
+      attempts[index] = { ...attempt, packSelection: validated.selection }
+    }
   }
   return { ok: true, attempts }
 }
@@ -771,6 +1260,41 @@ export function resolveApprovalCandidates(params: {
     const attempt = (activeId ? parsed.attempts.find((item) => item.attemptId === activeId) : undefined)
       ?? parsed.attempts.at(-1)
     if (!attempt) return { ok: false, source: 'semantic', candidates: [], error: 'No semantic generation attempt is available.' }
+    const rootAttempt = attempt.attemptKind === 'quality_retry'
+      ? parsed.attempts.find((item) => item.attemptId === attempt.parentAttemptId)
+      : attempt
+    if (rootAttempt?.packSelection !== undefined) {
+      const validated = validatePackSelectionInternal({
+        attempts: parsed.attempts,
+        rootAttempt,
+        selection: rootAttempt.packSelection,
+      })
+      if (!validated.ok) return { ok: false, source: 'semantic', candidates: [], error: validated.error }
+      return {
+        ok: true,
+        source: 'semantic',
+        candidates: validated.selection.slots.map((slot) => {
+          const canonical = getSlotByKey(slot.slotId)
+          return {
+            slotId: slot.slotId,
+            displayOrder: slot.displayOrder,
+            operatorLabel: canonical?.operatorLabel ?? slot.slotId,
+            mediaId: slot.mediaId,
+          }
+        }),
+      }
+    }
+    if (
+      rootAttempt?.attemptKind === 'initial'
+      && rootAttempt.retryPolicyVersion === VISUAL_QUALITY_RETRY_POLICY_V01_VERSION
+    ) {
+      return {
+        ok: false,
+        source: 'semantic',
+        candidates: [],
+        error: 'Retry-aware approval requires a complete validated pack-selection manifest.',
+      }
+    }
     const candidates = attempt.slots
       .filter((slot) => slot.status === 'persisted' && (typeof slot.mediaId === 'number' || typeof slot.mediaId === 'string'))
       .sort((a, b) => a.displayOrder - b.displayOrder)

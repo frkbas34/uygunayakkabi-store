@@ -29,34 +29,59 @@ import {
   SLOT_PROMPT_VERSION,
   buildSlotMeta,
   getSlotByKey,
+  type SlotKey,
 } from '../lib/imageSlotContract'
 import {
   adaptLegacyProviderOutput,
-  blockImageSlotEnvelopesForQualityGate,
+  areGenerationAttemptHistoriesSemanticallyEqual,
+  buildImageGenerationPackSelection,
   createImageGenerationAttempt,
   finishImageGenerationAttempt,
   markAttemptSlotsGenerating,
   markAttemptSlotsSkipped,
+  parseGenerationAttemptHistory,
   persistGeneratedSlotEnvelopes,
   requestedSlotIdsForStage,
   safeImageFailureSummary,
   serializeSlotEnvelopes,
+  setAttemptSlotStatus,
   upsertGenerationAttemptHistory,
   type ImageGenerationAttemptMetadata,
   type ImageSlotExecutionEnvelope,
 } from '../lib/imageGenerationContracts'
 import {
   buildVisualLockContext,
+  buildVisualLockV01PromptBlock,
   buildVisualLockV01FailureWorkflow,
   buildVisualQualityGateSummaryV01,
+  combineVisualQualityGateV01,
   evaluateVisualGeometryMeasurementV01,
   evaluateVisualGeometryPackV01,
   isVisualLockV01Context,
   measureVisualGeometryV01,
   resolveVisualLockTaskSelection,
   type VisualGeometryGateResultV01,
+  type VisualQualityTriState,
 } from '../lib/imageVisualLockV01'
 import { VISUAL_LOCK_V01_FRAMING_CORRECTION_VERSION } from '../lib/imageFramingCorrectionV01'
+import {
+  VISUAL_QUALITY_RETRY_POLICY_V01_VERSION,
+  VISUAL_QUALITY_RETRY_TARGET_ORDER,
+  buildVisualQualityRetryPromptV01,
+  classifyVisualQualityRetryV01,
+  createVisualQualityRetryEvidenceV01,
+  digestVisualQualityRetryPromptV01,
+  executeSingleVisualQualityRetryProviderV01,
+  failVisualQualityRetryPersistenceV01,
+  finalizeVisualQualityRetryEvidenceV01,
+  hasSufficientSourceEvidenceForRetryV01,
+  isVisualQualityRetryGeometryReasonV01,
+  mergeVisualQualityRetrySlotV01,
+  type VisualQualityRetryAuthorizedDecisionV01,
+  type VisualQualityRetryDimensionStatesV01,
+  type VisualQualityRetryEvidenceV01,
+  type VisualQualityRetryExecutionUsageV01,
+} from '../lib/imageQualityRetryV01'
 
 export const imageGenTask: TaskConfig<{
   input: {
@@ -136,6 +161,12 @@ export const imageGenTask: TaskConfig<{
     let attemptMetadata: ImageGenerationAttemptMetadata = createImageGenerationAttempt({
       jobId,
       requestedSlotIds,
+      ...(visualLockSelection?.profileVersion === 'visual-lock/v0.1' ? {
+        attemptKind: 'initial' as const,
+        attemptOrdinal: 1 as const,
+        parentAttemptId: null,
+        retryPolicyVersion: VISUAL_QUALITY_RETRY_POLICY_V01_VERSION,
+      } : {}),
     })
     if (visualLockSelection) {
       attemptMetadata = {
@@ -167,19 +198,38 @@ export const imageGenTask: TaskConfig<{
 
     const productId = typeof productRef === 'object' ? productRef.id : productRef
 
+    if (visualLockSelection?.profileVersion === 'visual-lock/v0.1') {
+      const existingAttempts = parseGenerationAttemptHistory(jobDoc.generationAttempts)
+      if (!existingAttempts.ok) throw new Error(existingAttempts.error)
+      if (existingAttempts.attempts.some((attempt) => attempt.jobId === String(jobId))) {
+        throw new Error('Visual Lock V0.1 job already has an immutable generation attempt; duplicate execution is blocked.')
+      }
+    }
+
+    const rootAttemptId = attemptMetadata.attemptId
     let attemptHistory = upsertGenerationAttemptHistory(jobDoc.generationAttempts, attemptMetadata)
-    const persistAttemptMetadata = async (data: Record<string, unknown> = {}) => {
-      attemptHistory = upsertGenerationAttemptHistory(attemptHistory, attemptMetadata)
+    const persistAttemptRecords = async (
+      attempts: readonly ImageGenerationAttemptMetadata[],
+      data: Record<string, unknown> = {},
+    ) => {
+      for (const attempt of attempts) {
+        attemptHistory = upsertGenerationAttemptHistory(attemptHistory, attempt)
+      }
       await payload.update({
         collection: 'image-generation-jobs',
         id: jobId,
         data: {
           generationContractVersion: IMAGE_SLOT_CONTRACT_VERSION,
-          activeAttemptId: attemptMetadata.attemptId,
+          // One-slot quality-retry children never replace the active five-slot
+          // approval pack. The root remains the operator-facing attempt.
+          activeAttemptId: rootAttemptId,
           generationAttempts: attemptHistory,
           ...data,
         },
       })
+    }
+    const persistAttemptMetadata = async (data: Record<string, unknown> = {}) => {
+      await persistAttemptRecords([attemptMetadata], data)
     }
 
     await persistAttemptMetadata({
@@ -200,6 +250,44 @@ export const imageGenTask: TaskConfig<{
     }
 
     const productTitle = (productDoc.title as string) || 'Ürün'
+    const finalizeVisualLockV01ProductFailure = async () => {
+      if (visualLockSelection?.profileVersion !== 'visual-lock/v0.1') return
+      const currentProduct = await payload.findByID({
+        collection: 'products',
+        id: productId,
+        depth: 0,
+      }) as Record<string, unknown>
+      const workflow = (currentProduct.workflow ?? {}) as Record<string, unknown>
+      const failedWorkflow = buildVisualLockV01FailureWorkflow(workflow)
+      if (!failedWorkflow) return
+      await payload.update({
+        collection: 'products',
+        id: productId,
+        data: { workflow: failedWorkflow },
+        context: { isDispatchUpdate: true, isVisualStatusUpdate: true },
+      })
+    }
+    const persistVisualLockV01AttemptRecords = async (
+      attempts: readonly ImageGenerationAttemptMetadata[],
+      data: Record<string, unknown> = {},
+    ) => {
+      try {
+        await persistAttemptRecords(attempts, data)
+      } catch (error) {
+        const persistenceError = safeImageFailureSummary(
+          error,
+          'Visual Lock V0.1 attempt evidence could not be persisted.',
+        )
+        try {
+          await finalizeVisualLockV01ProductFailure()
+        } catch (finalizationError) {
+          throw new Error(
+            `${persistenceError} Product finalization: ${safeImageFailureSummary(finalizationError, 'Product visual failure state could not be finalized.')}`,
+          )
+        }
+        throw new Error(persistenceError)
+      }
+    }
 
     // D-415: brand gate REMOVED per operator decision — branded products are sent
     // deliberately to be generated branded; image gen does NOT block on brand.
@@ -510,6 +598,7 @@ export const imageGenTask: TaskConfig<{
               geometryGateVersion: visualLockContext.geometryGateVersion,
               framingCorrectionVersion: VISUAL_LOCK_V01_FRAMING_CORRECTION_VERSION,
               materialContractVersion: visualLockContext.materialContractVersion,
+              qualityRetryPolicyVersion: VISUAL_QUALITY_RETRY_POLICY_V01_VERSION,
             } : {}),
           },
         } : {}),
@@ -683,16 +772,58 @@ export const imageGenTask: TaskConfig<{
     // to render the stock number in the bottom-right corner of every image.
     // Visual Lock V0.1 is fail-closed as a complete pack. Geometry is measured
     // after deterministic normalization and before badge, Media, or preview work.
+    // An explicit normalized visual failure may spend one immutable, one-slot
+    // quality retry. Unknown or infrastructure evidence never spends the budget.
+    const qualityRetryAttempts = new Map<string, ImageGenerationAttemptMetadata>()
     if (isVisualLockV01Context(visualLockContext)) {
-      const geometryResults: VisualGeometryGateResultV01[] = []
-      for (let i = 0; i < slotEnvelopes.length; i++) {
-        const envelope = slotEnvelopes[i]
+      const geometryByAttemptSlot = new Map<string, VisualGeometryGateResultV01>()
+      const geometryKey = (slot: Pick<ImageSlotExecutionEnvelope<Buffer>, 'attemptId' | 'slotId'>) =>
+        `${slot.attemptId}:${slot.slotId}`
+      const unknownDimensions = (): VisualQualityRetryDimensionStatesV01 => ({
+        evaluator: 'unknown',
+        color: 'unknown',
+        angle: 'unknown',
+        studio: 'unknown',
+        material: 'unknown',
+        topology: 'unknown',
+        framing: 'unknown',
+        geometry: 'unknown',
+      })
+      const dimensionsFor = (
+        slot: ImageSlotExecutionEnvelope<Buffer>,
+        geometry: VisualGeometryGateResultV01,
+      ): VisualQualityRetryDimensionStatesV01 => ({
+        evaluator: slot.provider?.qualityEvaluatorState ?? 'unknown',
+        color: slot.provider?.colorEvaluatorState ?? 'unknown',
+        angle: slot.provider?.orientationEvaluatorState ?? 'unknown',
+        studio: slot.provider?.studioEvaluatorState ?? 'unknown',
+        material: slot.provider?.materialEvaluatorState ?? 'unknown',
+        topology: slot.provider?.componentTopologyEvaluatorState ?? 'unknown',
+        framing: slot.provider?.framingCorrection?.state ?? 'unknown',
+        geometry: geometry.state,
+      })
+      const combinedStateFor = (dimensions: VisualQualityRetryDimensionStatesV01): VisualQualityTriState =>
+        combineVisualQualityGateV01(
+          [
+            dimensions.evaluator,
+            dimensions.color,
+            dimensions.angle,
+            dimensions.studio,
+            dimensions.material,
+            dimensions.topology,
+            dimensions.framing,
+          ],
+          dimensions.geometry,
+        )
+      const measureSlot = async (
+        envelope: ImageSlotExecutionEnvelope<Buffer>,
+      ): Promise<ImageSlotExecutionEnvelope<Buffer>> => {
         const measurement = envelope.status === 'generated' && envelope.output
           ? await measureVisualGeometryV01(envelope.output)
           : null
         const geometry = evaluateVisualGeometryMeasurementV01(envelope.slotId, measurement)
-        geometryResults.push(geometry)
-        slotEnvelopes[i] = {
+        geometryByAttemptSlot.set(geometryKey(envelope), geometry)
+        return {
           ...envelope,
           provider: envelope.provider ? {
             ...envelope.provider,
@@ -704,55 +835,543 @@ export const imageGenTask: TaskConfig<{
           } : envelope.provider,
         }
       }
-
-      const geometryPack = evaluateVisualGeometryPackV01(geometryResults)
-      const qualityGateSummary = buildVisualQualityGateSummaryV01({
-        context: visualLockContext,
-        geometryPack,
-        framingCorrectionContractVersion: VISUAL_LOCK_V01_FRAMING_CORRECTION_VERSION,
-        slots: slotEnvelopes.map((slot, index) => ({
-          slotId: slot.slotId,
-          framingCorrectionState: slot.provider?.framingCorrection?.state ?? 'unknown',
-          framingCorrectionOutcome: slot.provider?.framingCorrection?.outcome ?? 'insufficient_geometry_evidence',
-          framingCorrectionReasonCodes: slot.provider?.framingCorrection?.reasonCodes ?? ['framing_correction_evidence_missing'],
-          evaluatorStatus: slot.provider?.qualityEvaluatorState ?? 'unknown',
-          evaluatorReasonCodes: slot.provider?.qualityEvaluatorReasonCodes ?? ['evaluator_result_missing'],
-          orientationStatus: slot.provider?.orientationEvaluatorState ?? 'unknown',
-          detectedView: slot.provider?.detectedShot ?? 'unknown',
-          topologyStatus: slot.provider?.componentTopologyEvaluatorState ?? 'unknown',
-          topologyReasonCodes: slot.provider?.componentTopologyEvaluatorReasonCodes ?? [],
-          studioStatus: slot.provider?.studioEvaluatorState ?? 'unknown',
-          materialStatus: slot.provider?.materialEvaluatorState ?? 'unknown',
-          materialReasonCodes: slot.provider?.materialEvaluatorReasonCodes ?? [],
-          geometry: geometryResults[index],
-        })),
+      const failQualitySlot = (
+        slot: ImageSlotExecutionEnvelope<Buffer>,
+        state: Exclude<VisualQualityTriState, 'pass'>,
+        reasonCodes: readonly string[],
+        evidence: VisualQualityRetryEvidenceV01,
+      ): ImageSlotExecutionEnvelope<Buffer> => ({
+        ...slot,
+        status: 'provider_failed',
+        output: undefined,
+        qualityRetry: evidence,
+        failure: {
+          code: 'quality_gate_failed',
+          summary: safeImageFailureSummary(
+            `Visual Lock V0.1 quality gate ${state}: ${reasonCodes.join(',') || 'evidence_unavailable'}`,
+            'Visual Lock V0.1 quality evidence did not pass.',
+          ),
+        },
       })
-      const qualityState = qualityGateSummary.packResults.qualityGateStatus
-      const reasonCodes = qualityGateSummary.packResults.reasonCodes
-
-      attemptMetadata = {
-        ...attemptMetadata,
-        qualityGateSummary,
-      }
-
-      if (qualityState !== 'pass') {
-        slotEnvelopes = blockImageSlotEnvelopesForQualityGate({
-          slots: slotEnvelopes,
-          state: qualityState,
-          reasonCodes,
+      const buildPackQuality = (slots: readonly ImageSlotExecutionEnvelope<Buffer>[]) => {
+        const geometryResults = slots.map((slot) =>
+          geometryByAttemptSlot.get(geometryKey(slot))
+          ?? evaluateVisualGeometryMeasurementV01(slot.slotId, null),
+        )
+        const geometryPack = evaluateVisualGeometryPackV01(geometryResults)
+        return buildVisualQualityGateSummaryV01({
+          context: visualLockContext,
+          geometryPack,
+          framingCorrectionContractVersion: VISUAL_LOCK_V01_FRAMING_CORRECTION_VERSION,
+          slots: slots.map((slot, index) => ({
+            slotId: slot.slotId,
+            framingCorrectionState: slot.provider?.framingCorrection?.state ?? 'unknown',
+            framingCorrectionOutcome: slot.provider?.framingCorrection?.outcome ?? 'insufficient_geometry_evidence',
+            framingCorrectionReasonCodes: slot.provider?.framingCorrection?.reasonCodes ?? ['framing_correction_evidence_missing'],
+            evaluatorStatus: slot.provider?.qualityEvaluatorState ?? 'unknown',
+            evaluatorReasonCodes: slot.provider?.qualityEvaluatorReasonCodes ?? ['evaluator_result_missing'],
+            orientationStatus: slot.provider?.orientationEvaluatorState ?? 'unknown',
+            detectedView: slot.provider?.detectedShot ?? 'unknown',
+            topologyStatus: slot.provider?.componentTopologyEvaluatorState ?? 'unknown',
+            topologyReasonCodes: slot.provider?.componentTopologyEvaluatorReasonCodes ?? [],
+            studioStatus: slot.provider?.studioEvaluatorState ?? 'unknown',
+            materialStatus: slot.provider?.materialEvaluatorState ?? 'unknown',
+            materialReasonCodes: slot.provider?.materialEvaluatorReasonCodes ?? [],
+            geometry: geometryResults[index],
+          })),
         })
       }
 
-      attemptMetadata = { ...attemptMetadata, slots: serializeSlotEnvelopes(slotEnvelopes) }
-      await persistAttemptMetadata()
+      let rootSlotEnvelopes: ImageSlotExecutionEnvelope<Buffer>[] = []
+      for (const slot of slotEnvelopes) rootSlotEnvelopes.push(await measureSlot(slot))
+      slotEnvelopes = [...rootSlotEnvelopes]
+      attemptMetadata = { ...attemptMetadata, slots: serializeSlotEnvelopes(rootSlotEnvelopes) }
+      await persistVisualLockV01AttemptRecords([attemptMetadata])
+
+      const sourceEvidenceSufficientTargets = VISUAL_QUALITY_RETRY_TARGET_ORDER.filter((target) =>
+        hasSufficientSourceEvidenceForRetryV01(visualLockContext, target),
+      )
+      const retryProviderModule = await import('../lib/imageProviders')
+      const retryGenFn = provider === 'gemini-pro'
+        ? retryProviderModule.generateByGeminiPro
+        : retryProviderModule.generateByEditing
+      const readRetryAuthorizationSnapshot = async (slotId: SlotKey) => {
+        try {
+          const latestJob = await payload.findByID({
+            collection: 'image-generation-jobs',
+            id: jobId,
+            depth: 0,
+          }) as Record<string, unknown>
+          const parsed = parseGenerationAttemptHistory(latestJob.generationAttempts)
+          const expected = parseGenerationAttemptHistory([
+            attemptMetadata,
+            ...qualityRetryAttempts.values(),
+          ])
+          if (!parsed.ok || !expected.ok) {
+            return {
+              jobState: latestJob.status === 'cancelled' ? 'cancelled' as const : 'invalid' as const,
+              lineageState: 'uncertain' as const,
+              persistenceState: 'uncertain' as const,
+              duplicateDeliveryState: 'uncertain' as const,
+              qualityRetryCount: 1,
+            }
+          }
+
+          const currentAttempts = parsed.attempts.filter((attempt) => attempt.jobId === String(jobId))
+          const expectedAttempts = expected.attempts.filter((attempt) => attempt.jobId === String(jobId))
+          const persistedExactly = areGenerationAttemptHistoriesSemanticallyEqual(
+            currentAttempts,
+            expectedAttempts,
+          )
+          const root = currentAttempts.find((attempt) => attempt.attemptId === rootAttemptId)
+          const exactRootSlots = root?.requestedSlotIds.length === requestedSlotIds.length
+            && root.requestedSlotIds.every((requestedSlotId, index) => requestedSlotId === requestedSlotIds[index])
+            && root.slots.length === requestedSlotIds.length
+            && root.slots.every((slot, index) => slot.slotId === requestedSlotIds[index])
+          const exactAttemptSet = currentAttempts.length === expectedAttempts.length
+            && currentAttempts.every((attempt) => expectedAttempts.some((candidate) => candidate.attemptId === attempt.attemptId))
+          const lineageCertain = Boolean(
+            root
+            && root.attemptKind === 'initial'
+            && root.attemptOrdinal === 1
+            && root.parentAttemptId === null
+            && exactRootSlots
+            && exactAttemptSet,
+          )
+          const activeRoot = latestJob.activeAttemptId === rootAttemptId
+          const noSelectedPack = root?.packSelection === undefined
+          const generatedImages = Array.isArray(latestJob.generatedImages) ? latestJob.generatedImages : []
+          const ready = latestJob.status === 'generating'
+            && activeRoot
+            && lineageCertain
+            && persistedExactly
+          const qualityRetryCount = currentAttempts.filter((attempt) =>
+            attempt.attemptKind === 'quality_retry'
+            && attempt.parentAttemptId === rootAttemptId
+            && attempt.requestedSlotIds.length === 1
+            && attempt.requestedSlotIds[0] === slotId,
+          ).length
+
+          return {
+            jobState: latestJob.status === 'cancelled'
+              ? 'cancelled' as const
+              : ready
+                ? 'ready' as const
+                : 'invalid' as const,
+            lineageState: lineageCertain ? 'certain' as const : 'uncertain' as const,
+            persistenceState: persistedExactly ? 'certain' as const : 'uncertain' as const,
+            duplicateDeliveryState: ready && noSelectedPack && generatedImages.length === 0
+              ? 'clear' as const
+              : 'uncertain' as const,
+            qualityRetryCount,
+          }
+        } catch {
+          return {
+            jobState: 'invalid' as const,
+            lineageState: 'uncertain' as const,
+            persistenceState: 'uncertain' as const,
+            duplicateDeliveryState: 'uncertain' as const,
+            qualityRetryCount: 1,
+          }
+        }
+      }
+      let retryProcessingBlocked = false
+
+      for (const slotId of requestedSlotIds) {
+        const initialSlot = rootSlotEnvelopes.find((slot) => slot.slotId === slotId)
+        if (!initialSlot) continue
+        const initialGeometry = geometryByAttemptSlot.get(geometryKey(initialSlot))
+          ?? evaluateVisualGeometryMeasurementV01(slotId, null)
+        const initialDimensions = dimensionsFor(initialSlot, initialGeometry)
+        const initialCombinedState = combinedStateFor(initialDimensions)
+        const evaluatorReasonCodes = initialSlot.provider?.qualityEvaluatorReasonCodes ?? []
+        const retrySnapshot = await readRetryAuthorizationSnapshot(slotId)
+        const decision = classifyVisualQualityRetryV01({
+          profileVersion: visualLockContext.profileVersion,
+          slotId,
+          attemptOrdinal: 1,
+          qualityRetryCount: retrySnapshot.qualityRetryCount,
+          jobState: retrySnapshot.jobState,
+          packState: retryProcessingBlocked ? 'unrecoverable' : 'recoverable',
+          lineageState: retrySnapshot.lineageState,
+          persistenceState: retrySnapshot.persistenceState,
+          duplicateDeliveryState: retrySnapshot.duplicateDeliveryState,
+          requestedSlotCount: attemptMetadata.requestedSlotIds.length,
+          durableSlotCount: rootSlotEnvelopes.length,
+          providerCandidateCount: initialSlot.status === 'generated' && initialSlot.output ? 1 : 0,
+          evaluatorExecutionCount: initialSlot.provider?.qualityEvaluatorVersion ? 1 : 0,
+          candidateProduced: initialSlot.status === 'generated' && initialSlot.output !== undefined,
+          combinedGateState: initialCombinedState,
+          dimensions: initialDimensions,
+          evaluatorReasonCodes,
+          topologyReasonCodes: initialSlot.provider?.componentTopologyEvaluatorReasonCodes ?? [],
+          materialReasonCodes: initialSlot.provider?.materialEvaluatorReasonCodes ?? [],
+          framingOutcome: initialSlot.provider?.framingCorrection?.outcome ?? 'insufficient_geometry_evidence',
+          framingReasonCodes: initialSlot.provider?.framingCorrection?.reasonCodes ?? ['geometry_measurement_unavailable'],
+          geometryReasonCodes: initialGeometry.reasonCodes.filter(isVisualQualityRetryGeometryReasonV01),
+          geometryReliable: initialGeometry.measurement !== null && initialGeometry.state !== 'unknown',
+          detailCropEvidence: slotId === 'detail'
+            ? 'ambiguous_intentional_crop'
+            : 'not_applicable',
+          sourceEvidenceSufficientTargets,
+        })
+
+        if (!decision.authorized) {
+          const evidence = createVisualQualityRetryEvidenceV01({
+            decision,
+            jobId,
+            parentAttemptId: rootAttemptId,
+            retryAttemptId: null,
+            promptDigest: null,
+            framingCorrectionOutcome: initialSlot.provider?.framingCorrection?.outcome ?? 'insufficient_geometry_evidence',
+            finalDimensionStates: initialDimensions,
+            finalCombinedGateState: initialCombinedState,
+          })
+          const updatedRootSlot = initialCombinedState === 'pass'
+            ? { ...initialSlot, qualityRetry: evidence }
+            : failQualitySlot(initialSlot, initialCombinedState, evaluatorReasonCodes, evidence)
+          rootSlotEnvelopes = mergeVisualQualityRetrySlotV01({
+            slots: rootSlotEnvelopes,
+            slotId,
+            replacement: updatedRootSlot,
+            slotKey: (slot) => slot.slotId,
+          })
+          slotEnvelopes = mergeVisualQualityRetrySlotV01({
+            slots: slotEnvelopes,
+            slotId,
+            replacement: updatedRootSlot,
+            slotKey: (slot) => slot.slotId,
+          })
+          if (initialCombinedState !== 'pass') retryProcessingBlocked = true
+          continue
+        }
+
+        const authorizedDecision = decision as VisualQualityRetryAuthorizedDecisionV01
+        let retryAttempt = createImageGenerationAttempt({
+          jobId,
+          requestedSlotIds: [slotId],
+          attemptKind: 'quality_retry',
+          attemptOrdinal: 2,
+          parentAttemptId: rootAttemptId,
+          retryPolicyVersion: VISUAL_QUALITY_RETRY_POLICY_V01_VERSION,
+        })
+        retryAttempt = {
+          ...retryAttempt,
+          qualityProfile: attemptMetadata.qualityProfile,
+          productFamily: attemptMetadata.productFamily,
+          identityAnchorHash: attemptMetadata.identityAnchorHash,
+          profileContractVersions: attemptMetadata.profileContractVersions,
+        }
+        // Evidence digest scope is deliberately limited to the canonical V0.1
+        // slot block plus retry directive. Provider-specific prompt framing is
+        // assembled later inside the provider adapter and is not claimed here.
+        const retryPromptEvidenceSuffix = buildVisualQualityRetryPromptV01({
+          basePrompt: buildVisualLockV01PromptBlock(visualLockContext, slotId),
+          context: visualLockContext,
+          decision: authorizedDecision,
+        })
+        const promptDigest = digestVisualQualityRetryPromptV01(retryPromptEvidenceSuffix)
+        const retryStartedAt = new Date().toISOString()
+        let retryEvidence = createVisualQualityRetryEvidenceV01({
+          decision: authorizedDecision,
+          jobId,
+          parentAttemptId: rootAttemptId,
+          retryAttemptId: retryAttempt.attemptId,
+          promptDigest,
+          framingCorrectionOutcome: initialSlot.provider?.framingCorrection?.outcome ?? 'insufficient_geometry_evidence',
+          finalDimensionStates: initialDimensions,
+          finalCombinedGateState: initialCombinedState,
+          startedAt: retryStartedAt,
+        })
+        retryAttempt = setAttemptSlotStatus(retryAttempt, slotId, {
+          status: 'generating',
+          qualityRetry: retryEvidence,
+        })
+        const failedInitialSlot = failQualitySlot(
+          initialSlot,
+          initialCombinedState === 'pass' ? 'unknown' : initialCombinedState,
+          authorizedDecision.normalizedFailureReasons,
+          retryEvidence,
+        )
+        rootSlotEnvelopes = mergeVisualQualityRetrySlotV01({
+          slots: rootSlotEnvelopes,
+          slotId,
+          replacement: failedInitialSlot,
+          slotKey: (slot) => slot.slotId,
+        })
+        slotEnvelopes = mergeVisualQualityRetrySlotV01({
+          slots: slotEnvelopes,
+          slotId,
+          replacement: failedInitialSlot,
+          slotKey: (slot) => slot.slotId,
+        })
+        attemptMetadata = { ...attemptMetadata, slots: serializeSlotEnvelopes(rootSlotEnvelopes) }
+        qualityRetryAttempts.set(retryAttempt.attemptId, retryAttempt)
+        // Persist the root's authorized-pending child link before inserting the
+        // child so strict incremental history validation never observes an orphan.
+        await persistVisualLockV01AttemptRecords([attemptMetadata, retryAttempt])
+
+        const executionSnapshot = await readRetryAuthorizationSnapshot(slotId)
+        if (
+          executionSnapshot.jobState !== 'ready'
+          || executionSnapshot.lineageState !== 'certain'
+          || executionSnapshot.persistenceState !== 'certain'
+          || executionSnapshot.duplicateDeliveryState !== 'clear'
+          || executionSnapshot.qualityRetryCount !== 1
+        ) {
+          const completedAt = new Date().toISOString()
+          retryEvidence = finalizeVisualQualityRetryEvidenceV01(retryEvidence, {
+            terminalOutcome: 'execution_blocked',
+            generationAttempts: 0,
+            evaluatorExecutions: 0,
+            framingCorrectionOutcome: initialSlot.provider?.framingCorrection?.outcome
+              ?? 'insufficient_geometry_evidence',
+            finalDimensionStates: unknownDimensions(),
+            finalCombinedGateState: 'unknown',
+            completedAt,
+            durationMs: Math.max(0, Date.parse(completedAt) - Date.parse(retryStartedAt)),
+          })
+          retryAttempt = finishImageGenerationAttempt(setAttemptSlotStatus(retryAttempt, slotId, {
+            status: 'provider_failed',
+            qualityRetry: retryEvidence,
+            failure: {
+              code: 'provider_failed',
+              summary: 'Targeted quality retry execution was blocked by changed job or lineage state.',
+            },
+          }))
+          qualityRetryAttempts.set(retryAttempt.attemptId, retryAttempt)
+          const rootRetrySlot = { ...failedInitialSlot, qualityRetry: retryEvidence }
+          rootSlotEnvelopes = mergeVisualQualityRetrySlotV01({
+            slots: rootSlotEnvelopes,
+            slotId,
+            replacement: rootRetrySlot,
+            slotKey: (slot) => slot.slotId,
+          })
+          slotEnvelopes = mergeVisualQualityRetrySlotV01({
+            slots: slotEnvelopes,
+            slotId,
+            replacement: rootRetrySlot,
+            slotKey: (slot) => slot.slotId,
+          })
+          attemptMetadata = { ...attemptMetadata, slots: serializeSlotEnvelopes(rootSlotEnvelopes) }
+          retryProcessingBlocked = true
+          await persistVisualLockV01AttemptRecords([attemptMetadata, retryAttempt])
+          continue
+        }
+
+        let retryExecutionUsage: VisualQualityRetryExecutionUsageV01 = {
+          generationCalls: 0,
+          candidatesProduced: 0,
+          evaluatorCalls: 0,
+        }
+        let retryObservedDimensions = unknownDimensions()
+        let retryObservedCombinedState: VisualQualityTriState = 'unknown'
+        let retryObservedFramingOutcome = initialSlot.provider?.framingCorrection?.outcome
+          ?? 'insufficient_geometry_evidence'
+        try {
+          const slotDefinition = getSlotByKey(slotId)
+          if (!slotDefinition) throw new Error(`Unknown semantic retry slot: ${slotId}`)
+          const providerExecution = await executeSingleVisualQualityRetryProviderV01((execution) =>
+            retryGenFn(
+              referenceImage,
+              referenceImageMime || 'image/jpeg',
+              identityLock,
+              [slotDefinition.displayOrder],
+              additionalReferenceImages.length > 0 ? additionalReferenceImages : undefined,
+              productId,
+              input.visualFacts,
+              visualLockContext,
+              { slotId, decision: authorizedDecision, execution },
+            ),
+          )
+          retryExecutionUsage = providerExecution.usage
+          if (!providerExecution.ok) throw providerExecution.error
+          const { results, buffers, slotLogs } = providerExecution.value
+          providerResultsSummary = [
+            ...providerResultsSummary,
+            ...results.map((result) => ({
+              provider: result.provider,
+              qualityRetryAttemptId: retryAttempt.attemptId,
+              slotId,
+              success: result.successCount,
+              total: result.promptCount,
+              errors: result.errors.map((error) => safeImageFailureSummary(error, 'Retry provider error.')),
+            })),
+          ]
+          slotLogsSummary = [
+            ...slotLogsSummary,
+            ...slotLogs.map((log) => ({
+              ...log,
+              qualityRetryAttemptId: retryAttempt.attemptId,
+            })),
+          ]
+          const matchingLogs = slotLogs.filter((log) => log.slot === slotId)
+          const evaluatorEvidenceExecutions = matchingLogs.length === 1
+            && slotLogs.length === 1
+            && matchingLogs[0]?.qualityEvaluatorVersion
+            ? 1
+            : 0
+          if (
+            buffers.length !== 1
+            || matchingLogs.length !== 1
+            || slotLogs.length !== 1
+            || retryExecutionUsage.candidatesProduced !== 1
+            || retryExecutionUsage.evaluatorCalls !== evaluatorEvidenceExecutions
+          ) {
+            throw new Error('Targeted quality retry returned ambiguous semantic output.')
+          }
+          let retrySlot = adaptLegacyProviderOutput({
+            attempt: retryAttempt,
+            provider,
+            buffers,
+            slotLogs,
+          })[0]
+          if (!retrySlot || retrySlot.slotId !== slotId || retrySlot.status !== 'generated' || !retrySlot.output) {
+            throw new Error('Targeted quality retry did not produce its durable slot candidate.')
+          }
+          const preGeometry = evaluateVisualGeometryMeasurementV01(slotId, null)
+          retryObservedDimensions = dimensionsFor(retrySlot, preGeometry)
+          retryObservedCombinedState = combinedStateFor(retryObservedDimensions)
+          retryObservedFramingOutcome = retrySlot.provider?.framingCorrection?.outcome
+            ?? 'insufficient_geometry_evidence'
+          retrySlot = await measureSlot(retrySlot)
+          const retryGeometry = geometryByAttemptSlot.get(geometryKey(retrySlot))
+            ?? evaluateVisualGeometryMeasurementV01(slotId, null)
+          const retryDimensions = dimensionsFor(retrySlot, retryGeometry)
+          const retryCombinedState = combinedStateFor(retryDimensions)
+          const evaluatorExecutions = retryExecutionUsage.evaluatorCalls
+          retryObservedDimensions = retryDimensions
+          retryObservedCombinedState = retryCombinedState
+          retryObservedFramingOutcome = retrySlot.provider?.framingCorrection?.outcome
+            ?? 'insufficient_geometry_evidence'
+          const terminalOutcome = retryDimensions.evaluator === 'unknown'
+            ? 'evaluation_failed'
+            : retryCombinedState === 'pass'
+              ? 'retry_passed'
+              : retryCombinedState === 'fail'
+                ? 'retry_failed'
+                : 'retry_unknown'
+          const completedAt = new Date().toISOString()
+          retryEvidence = finalizeVisualQualityRetryEvidenceV01(retryEvidence, {
+            terminalOutcome,
+            generationAttempts: 1,
+            evaluatorExecutions,
+            framingCorrectionOutcome: retrySlot.provider?.framingCorrection?.outcome ?? 'insufficient_geometry_evidence',
+            finalDimensionStates: retryDimensions,
+            finalCombinedGateState: retryCombinedState,
+            completedAt,
+            durationMs: Math.max(0, Date.parse(completedAt) - Date.parse(retryStartedAt)),
+          })
+          retrySlot = retryCombinedState === 'pass'
+            ? { ...retrySlot, qualityRetry: retryEvidence }
+            : failQualitySlot(
+                retrySlot,
+                retryCombinedState,
+                retrySlot.provider?.qualityEvaluatorReasonCodes ?? ['retry_quality_gate_blocked'],
+                retryEvidence,
+              )
+          retryAttempt = {
+            ...retryAttempt,
+            slots: serializeSlotEnvelopes([retrySlot]),
+          }
+          if (retryCombinedState !== 'pass') {
+            retryAttempt = finishImageGenerationAttempt(retryAttempt)
+          }
+          qualityRetryAttempts.set(retryAttempt.attemptId, retryAttempt)
+          const rootRetrySlot = { ...failedInitialSlot, qualityRetry: retryEvidence }
+          rootSlotEnvelopes = mergeVisualQualityRetrySlotV01({
+            slots: rootSlotEnvelopes,
+            slotId,
+            replacement: rootRetrySlot,
+            slotKey: (slot) => slot.slotId,
+          })
+          slotEnvelopes = mergeVisualQualityRetrySlotV01({
+            slots: slotEnvelopes,
+            slotId,
+            replacement: retryCombinedState === 'pass' ? retrySlot : rootRetrySlot,
+            slotKey: (slot) => slot.slotId,
+          })
+          if (retryCombinedState !== 'pass') retryProcessingBlocked = true
+        } catch (error) {
+          const completedAt = new Date().toISOString()
+          const terminalOutcome = retryExecutionUsage.generationCalls === 0
+            || retryExecutionUsage.candidatesProduced === 0
+            ? 'generation_failed' as const
+            : retryExecutionUsage.evaluatorCalls === 0 || retryObservedDimensions.evaluator === 'unknown'
+              ? 'evaluation_failed' as const
+              : retryObservedCombinedState === 'fail'
+                ? 'retry_failed' as const
+                : 'retry_unknown' as const
+          const retainObservedEvidence = terminalOutcome === 'retry_failed'
+            || (terminalOutcome === 'retry_unknown' && retryObservedCombinedState === 'unknown')
+          const finalDimensionStates = retainObservedEvidence
+            ? retryObservedDimensions
+            : unknownDimensions()
+          const finalCombinedGateState = retainObservedEvidence
+            ? retryObservedCombinedState
+            : 'unknown' as const
+          retryEvidence = finalizeVisualQualityRetryEvidenceV01(retryEvidence, {
+            terminalOutcome,
+            generationAttempts: retryExecutionUsage.generationCalls,
+            evaluatorExecutions: retryExecutionUsage.evaluatorCalls,
+            framingCorrectionOutcome: retryObservedFramingOutcome,
+            finalDimensionStates,
+            finalCombinedGateState,
+            completedAt,
+            durationMs: Math.max(0, Date.parse(completedAt) - Date.parse(retryStartedAt)),
+          })
+          retryAttempt = finishImageGenerationAttempt(setAttemptSlotStatus(retryAttempt, slotId, {
+            status: 'provider_failed',
+            qualityRetry: retryEvidence,
+            failure: {
+              code: terminalOutcome === 'generation_failed' ? 'provider_failed' : 'quality_gate_failed',
+              summary: safeImageFailureSummary(error, 'Targeted quality retry failed.'),
+            },
+          }))
+          qualityRetryAttempts.set(retryAttempt.attemptId, retryAttempt)
+          const rootRetrySlot = { ...failedInitialSlot, qualityRetry: retryEvidence }
+          rootSlotEnvelopes = mergeVisualQualityRetrySlotV01({
+            slots: rootSlotEnvelopes,
+            slotId,
+            replacement: rootRetrySlot,
+            slotKey: (slot) => slot.slotId,
+          })
+          slotEnvelopes = mergeVisualQualityRetrySlotV01({
+            slots: slotEnvelopes,
+            slotId,
+            replacement: rootRetrySlot,
+            slotKey: (slot) => slot.slotId,
+          })
+          retryProcessingBlocked = true
+        }
+        attemptMetadata = { ...attemptMetadata, slots: serializeSlotEnvelopes(rootSlotEnvelopes) }
+        await persistVisualLockV01AttemptRecords([attemptMetadata, retryAttempt])
+      }
+
+      const qualityGateSummary = buildPackQuality(slotEnvelopes)
+      const qualityState = qualityGateSummary.packResults.qualityGateStatus
+      const reasonCodes = qualityGateSummary.packResults.reasonCodes
+      attemptMetadata = {
+        ...attemptMetadata,
+        qualityGateSummary,
+        slots: serializeSlotEnvelopes(rootSlotEnvelopes),
+      }
+      await persistVisualLockV01AttemptRecords([attemptMetadata])
 
       if (qualityState !== 'pass') {
         const msg = safeImageFailureSummary(
           `Visual Lock V0.1 quality gate ${qualityState}: ${reasonCodes.join(',') || 'evidence_unavailable'}`,
           'Visual Lock V0.1 quality evidence did not pass.',
         )
-        attemptMetadata = finishImageGenerationAttempt(attemptMetadata, serializeSlotEnvelopes(slotEnvelopes))
-        await persistAttemptMetadata({
+        attemptMetadata = finishImageGenerationAttempt(attemptMetadata)
+        const terminalRetryAttempts = [...qualityRetryAttempts.values()].map((attempt) =>
+          attempt.status === 'running' ? finishImageGenerationAttempt(attempt) : attempt,
+        )
+        for (const retryAttempt of terminalRetryAttempts) {
+          qualityRetryAttempts.set(retryAttempt.attemptId, retryAttempt)
+        }
+        slotEnvelopes = slotEnvelopes.map((slot) => ({ ...slot, output: undefined }))
+        await persistVisualLockV01AttemptRecords([...terminalRetryAttempts, attemptMetadata], {
           status: 'failed',
           errorMessage: msg,
           generationCompletedAt: attemptMetadata.completedAt,
@@ -764,25 +1383,12 @@ export const imageGenTask: TaskConfig<{
             slotLogs: slotLogsSummary,
             slotResults: attemptMetadata.slots,
             qualityGateSummary: attemptMetadata.qualityGateSummary,
+            qualityRetryPolicyVersion: VISUAL_QUALITY_RETRY_POLICY_V01_VERSION,
           }),
         })
 
         try {
-          const currentProduct = await payload.findByID({
-            collection: 'products',
-            id: productId,
-            depth: 0,
-          }) as Record<string, unknown>
-          const workflow = (currentProduct.workflow ?? {}) as Record<string, unknown>
-          const failedWorkflow = buildVisualLockV01FailureWorkflow(workflow)
-          if (failedWorkflow) {
-            await payload.update({
-              collection: 'products',
-              id: productId,
-              data: { workflow: failedWorkflow },
-              context: { isDispatchUpdate: true, isVisualStatusUpdate: true },
-            })
-          }
+          await finalizeVisualLockV01ProductFailure()
         } catch (error) {
           const finalizationError = safeImageFailureSummary(error, 'Product visual failure state could not be finalized.')
           await persistAttemptMetadata({
@@ -834,13 +1440,14 @@ export const imageGenTask: TaskConfig<{
     // On approval: written to product.generativeGallery (marketing lane), NOT product.images.
     slotEnvelopes = await persistGeneratedSlotEnvelopes({
       slots: slotEnvelopes,
+      failFast: isVisualLockV01Context(visualLockContext),
       persist: async (envelope) => {
         const slot = getSlotByKey(envelope.slotId)
         if (!slot) throw new Error(`Unknown semantic slot: ${envelope.slotId}`)
         const buf = envelope.output
         const concept = envelope.slotId
         const label = slot.operatorLabel
-        const filename = `ai-${productId}-${concept}-${attemptMetadata.attemptId}-${slot.displayOrder}.jpg`
+        const filename = `ai-${productId}-${concept}-${envelope.attemptId}-${slot.displayOrder}.jpg`
 
         // Upscale ~2x (cap long side at 2048px) for crisp product-page zoom ("Büyüt").
         // This existing deterministic behavior remains unchanged and fails soft.
@@ -878,7 +1485,7 @@ export const imageGenTask: TaskConfig<{
               generationLineage: {
                 contractVersion: IMAGE_SLOT_CONTRACT_VERSION,
                 jobId: String(jobId),
-                attemptId: attemptMetadata.attemptId,
+                attemptId: envelope.attemptId,
                 slotId: envelope.slotId,
               },
             },
@@ -898,14 +1505,160 @@ export const imageGenTask: TaskConfig<{
       },
     })
 
-    attemptMetadata = finishImageGenerationAttempt(attemptMetadata, serializeSlotEnvelopes(slotEnvelopes))
-    await persistAttemptMetadata()
+    if (isVisualLockV01Context(visualLockContext)) {
+      try {
+      const completePersistence = slotEnvelopes.every((slot) =>
+        slot.status === 'persisted' && slot.mediaId != null,
+      )
+      if (!completePersistence) {
+        slotEnvelopes = slotEnvelopes.map((slot) => slot.status === 'generated'
+          ? {
+              ...slot,
+              status: 'media_save_failed' as const,
+              failure: {
+                code: 'media_save_failed' as const,
+                summary: 'Final V0.1 pack persistence stopped after an earlier Media save failure.',
+              },
+            }
+          : slot)
+      }
+
+      for (let index = 0; index < slotEnvelopes.length; index++) {
+        let selectedSlot = slotEnvelopes[index]
+        if (selectedSlot.attemptId !== rootAttemptId && selectedSlot.status !== 'persisted') {
+          const child = qualityRetryAttempts.get(selectedSlot.attemptId)
+          const childEvidence = child?.slots.find((slot) => slot.slotId === selectedSlot.slotId)?.qualityRetry
+          if (childEvidence?.terminalOutcome === 'retry_passed') {
+            const completedAt = new Date().toISOString()
+            const persistenceEvidence = failVisualQualityRetryPersistenceV01(childEvidence, {
+              completedAt,
+              durationMs: childEvidence.startedAt
+                ? Math.max(0, Date.parse(completedAt) - Date.parse(childEvidence.startedAt))
+                : 0,
+            })
+            selectedSlot = { ...selectedSlot, qualityRetry: persistenceEvidence }
+            slotEnvelopes[index] = selectedSlot
+            const rootSlot = attemptMetadata.slots.find((slot) => slot.slotId === selectedSlot.slotId)
+            if (rootSlot) {
+              attemptMetadata = setAttemptSlotStatus(attemptMetadata, selectedSlot.slotId, {
+                qualityRetry: persistenceEvidence,
+              })
+            }
+          }
+        }
+
+        const serialized = serializeSlotEnvelopes([selectedSlot])[0]
+        const patch = {
+          displayOrder: serialized.displayOrder,
+          purposeIdentifier: serialized.purposeIdentifier,
+          operatorLabel: serialized.operatorLabel,
+          status: serialized.status,
+          provider: serialized.provider,
+          mediaId: serialized.mediaId,
+          mediaUrl: serialized.mediaUrl,
+          warnings: serialized.warnings,
+          failure: serialized.failure,
+          qualityRetry: serialized.qualityRetry,
+        }
+        if (selectedSlot.attemptId === rootAttemptId) {
+          attemptMetadata = setAttemptSlotStatus(attemptMetadata, selectedSlot.slotId, patch)
+        } else {
+          const child = qualityRetryAttempts.get(selectedSlot.attemptId)
+          if (!child) throw new Error(`Missing retry attempt for selected slot ${selectedSlot.slotId}.`)
+          qualityRetryAttempts.set(
+            child.attemptId,
+            setAttemptSlotStatus(child, selectedSlot.slotId, patch),
+          )
+        }
+      }
+
+      attemptMetadata = finishImageGenerationAttempt(attemptMetadata)
+      for (const [attemptId, retryAttempt] of qualityRetryAttempts) {
+        qualityRetryAttempts.set(
+          attemptId,
+          retryAttempt.status === 'running' ? finishImageGenerationAttempt(retryAttempt) : retryAttempt,
+        )
+      }
+
+      if (completePersistence) {
+        let selectionHistory = attemptHistory
+        for (const retryAttempt of qualityRetryAttempts.values()) {
+          selectionHistory = upsertGenerationAttemptHistory(selectionHistory, retryAttempt)
+        }
+        selectionHistory = upsertGenerationAttemptHistory(selectionHistory, attemptMetadata)
+        const sourcesBySlot: Partial<Record<SlotKey, `iga_${string}`>> = {}
+        for (const slot of slotEnvelopes) sourcesBySlot[slot.slotId] = slot.attemptId
+        attemptMetadata = {
+          ...attemptMetadata,
+          packSelection: buildImageGenerationPackSelection({
+            attempts: selectionHistory,
+            rootAttemptId,
+            sourcesBySlot,
+          }),
+        }
+      }
+      await persistAttemptRecords([...qualityRetryAttempts.values(), attemptMetadata])
+      } catch (error) {
+        const lineageError = safeImageFailureSummary(
+          error,
+          'Final V0.1 attempt or pack-selection evidence could not be persisted.',
+        )
+        try {
+          await finalizeVisualLockV01ProductFailure()
+        } catch (finalizationError) {
+          throw new Error(
+            `${lineageError} Product finalization: ${safeImageFailureSummary(finalizationError, 'Product visual failure state could not be finalized.')}`,
+          )
+        }
+        throw new Error(lineageError)
+      }
+    } else {
+      attemptMetadata = finishImageGenerationAttempt(attemptMetadata, serializeSlotEnvelopes(slotEnvelopes))
+      await persistAttemptMetadata()
+    }
 
     const persistedSlots = slotEnvelopes
       .filter((slot) => slot.status === 'persisted' && slot.output && slot.mediaId != null)
       .sort((a, b) => a.displayOrder - b.displayOrder)
+    const selectedSlotById = new Map(slotEnvelopes.map((slot) => [slot.slotId, slot]))
     const mediaIds = persistedSlots.map((slot) => Number(slot.mediaId)).filter(Number.isFinite)
-    const mediaUrls = attemptMetadata.slots.map((slot) => slot.mediaUrl || '')
+    const mediaUrls = requestedSlotIds.map((slotId) => selectedSlotById.get(slotId)?.mediaUrl || '')
+
+    if (
+      isVisualLockV01Context(visualLockContext)
+      && persistedSlots.length !== requestedSlotIds.length
+    ) {
+      const msg = 'Visual Lock V0.1 tam beş-slot Media paketi kaydedilemedi — önizleme oluşturulmadı.'
+      await persistAttemptRecords([...qualityRetryAttempts.values(), attemptMetadata], {
+        status: 'failed',
+        errorMessage: msg,
+        generationCompletedAt: attemptMetadata.completedAt,
+        providerResults: JSON.stringify({
+          contractVersion: IMAGE_SLOT_CONTRACT_VERSION,
+          attemptId: attemptMetadata.attemptId,
+          summary: providerResultsSummary,
+          slotLogs: slotLogsSummary,
+          slotResults: attemptMetadata.slots,
+          qualityGateSummary: attemptMetadata.qualityGateSummary,
+          qualityRetryPolicyVersion: VISUAL_QUALITY_RETRY_POLICY_V01_VERSION,
+        }),
+      })
+      try {
+        await finalizeVisualLockV01ProductFailure()
+      } catch (error) {
+        const finalizationError = safeImageFailureSummary(error, 'Product visual failure state could not be finalized.')
+        await persistAttemptRecords([...qualityRetryAttempts.values(), attemptMetadata], {
+          status: 'failed',
+          errorMessage: `${msg} Product finalization: ${finalizationError}`,
+          generationCompletedAt: attemptMetadata.completedAt,
+        })
+        throw new Error(`${msg} Product finalization: ${finalizationError}`)
+      }
+      if (telegramChatId) {
+        await sendTelegramNotification(telegramChatId, `❌ <b>Görsel kaydı başarısız</b>\n\n${msg}`)
+      }
+      throw new Error(msg)
+    }
 
     if (persistedSlots.length === 0) {
       const msg = 'Üretilen görseller Media kaydına alınamadı — önizleme oluşturulmadı.'
@@ -930,7 +1683,9 @@ export const imageGenTask: TaskConfig<{
     // ── Build per-slot icon array (ARRAY not string — avoids emoji indexing bugs) ─
     // v12: ⚠️ also shown when brandFidelityPass=false (brand zones drifted)
     // v20: ⚠️ also shown when shotCompliancePass=false (angle drift detected)
-    const slotIconArr: string[] = attemptMetadata.slots.map((slot) => {
+    const slotIconArr: string[] = requestedSlotIds.map((slotId) => {
+      const slot = selectedSlotById.get(slotId)
+      if (!slot) return '❌'
       if (slot.status !== 'persisted') return '❌'
       if (slot.warnings.length > 0 || slot.provider?.colorCheckPass === false || slot.provider?.brandFidelityPass === false || slot.provider?.shotCompliancePass === false) return '⚠️'
       return '✅'
@@ -1042,13 +1797,14 @@ export const imageGenTask: TaskConfig<{
         slotLogs: slotLogsSummary,
         identityLock: identityLockMeta,
         mediaUrls,
-        slotResults: attemptMetadata.slots,
+        slotResults: serializeSlotEnvelopes(slotEnvelopes),
+        rootSlotResults: attemptMetadata.slots,
         // D-407: final per-image slot-contract metadata, now with the saved media
         // IDs paired to each slot (slotIndex/slotKey/promptVersion/productId/sourceImageId).
         promptVersion: SLOT_PROMPT_VERSION,
         slotContract: slotContractMeta.map((metadata) => ({
           ...metadata,
-          mediaId: attemptMetadata.slots.find((slot) => slot.slotId === metadata.slotKey)?.mediaId ?? null,
+          mediaId: selectedSlotById.get(metadata.slotKey as (typeof requestedSlotIds)[number])?.mediaId ?? null,
         })),
       }),
       jobTitle: provider === 'gemini-pro'

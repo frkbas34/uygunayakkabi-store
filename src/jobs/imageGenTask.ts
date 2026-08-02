@@ -707,6 +707,7 @@ export const imageGenTask: TaskConfig<{
           orientationStatus: slot.provider?.orientationEvaluatorState ?? 'unknown',
           detectedView: slot.provider?.detectedShot ?? 'unknown',
           topologyStatus: slot.provider?.componentTopologyEvaluatorState ?? 'unknown',
+          studioStatus: slot.provider?.studioEvaluatorState ?? 'unknown',
           geometry: geometryResults[index],
         })),
       })

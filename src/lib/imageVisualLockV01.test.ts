@@ -9,6 +9,7 @@ import {
   buildVisualLockV01FailureWorkflow,
   buildVisualLockV01AngleContractPrompt,
   buildVisualLockV01PromptFixture,
+  buildVisualLockV01StudioContractPrompt,
   buildVisualQualityEvaluatorPromptV01,
   buildVisualQualityGateSummaryV01,
   combineVisualQualityGateV01,
@@ -23,6 +24,8 @@ import {
   VISUAL_LOCK_V01_ANGLE_CONTRACTS,
   VISUAL_LOCK_V01_ANGLE_CONTRACT_VERSION,
   VISUAL_LOCK_V01_PROFILE_VERSION,
+  VISUAL_LOCK_V01_STUDIO_CONTRACT,
+  VISUAL_LOCK_V01_STUDIO_CONTRACT_VERSION,
   VISUAL_QUALITY_EVALUATOR_V01_VERSION,
 } from './imageVisualLockV01'
 import { buildProductIdentityAnchorV0, buildVisualLockV0PromptFixture } from './imageVisualLockV0'
@@ -50,6 +53,7 @@ const completeEvaluatorPayload = {
   color: { state: 'pass', detectedColor: 'light grey', evidence: 'light grey mesh upper is visible' },
   topology: { state: 'pass', evidence: 'instep patch and curved side overlay are retained' },
   orientation: { state: 'pass', detectedView: 'true_rear', evidence: 'heel is shown straight-on and symmetrically' },
+  studio: { state: 'pass', evidence: 'uniform warm-neutral studio and subtle contact shadow' },
 }
 
 check('1 default and V0 prompt digests remain unchanged', () => {
@@ -100,6 +104,7 @@ check('6 every V0.1 prompt carries all explicit contract versions and topology',
     assert.match(prompt, /visual-quality-evaluator\/v0\.1/)
     assert.match(prompt, /visual-geometry-gate\/v0\.1/)
     assert.match(prompt, /visual-angle-contract\/v1/)
+    assert.match(prompt, /visual-studio-contract\/v1/)
     assert.ok(prompt.includes(context.componentTopologyHash))
   }
 })
@@ -190,6 +195,85 @@ check('7f a clear angle failure is fail while incomplete or unsupported angle ev
   }
 })
 
+check('7g every generation prompt and evaluator share the canonical studio contract', () => {
+  for (const slotId of GENERATED_SLOT_KEYS) {
+    const canonical = buildVisualLockV01StudioContractPrompt(slotId)
+    assert.ok(buildVisualLockV01PromptFixture(context)[GENERATED_SLOT_KEYS.indexOf(slotId)].includes(canonical))
+    assert.ok(buildVisualQualityEvaluatorPromptV01(context, slotId).includes(canonical))
+  }
+})
+
+check('7h studio background and lighting targets are exact and prohibit contamination', () => {
+  const prompt = buildVisualLockV01StudioContractPrompt('side')
+  assert.match(prompt, /square 1024 × 1024 catalog composition/i)
+  assert.match(prompt, /uniform matte warm-neutral near-white/i)
+  assert.match(prompt, /#F7F5F0/i)
+  assert.match(prompt, /visual reference, not pixel-perfect equality/i)
+  assert.match(prompt, /visible horizon or background seam/i)
+  assert.match(prompt, /gradient, vignette, spotlight halo, or glow/i)
+  assert.match(prompt, /texture, pattern, props, platform, pedestal, or decorative surface/i)
+  assert.match(prompt, /reflection or glossy floor/i)
+  assert.match(prompt, /text, logo, caption, watermark, or Sho118 contamination/i)
+  assert.match(prompt, /large broad soft key light from upper-front-left/i)
+  assert.match(prompt, /gentle soft fill from front-right/i)
+  assert.match(prompt, /2:1 key-to-fill/i)
+  assert.match(prompt, /5200K/i)
+  assert.match(prompt, /5000–5400K/i)
+  assert.match(prompt, /unclipped highlights/i)
+  assert.match(prompt, /crushed shadow regions/i)
+})
+
+check('7i contact shadow is required for four full-product slots and optional only for material_detail', () => {
+  for (const slotId of ['side', 'hero_3q', 'top', 'back'] as const) {
+    const prompt = buildVisualLockV01StudioContractPrompt(slotId)
+    assert.match(prompt, /CONTACT SHADOW REQUIRED/i)
+    assert.match(prompt, /one subtle neutral-gray contact shadow/i)
+    assert.match(prompt, /soft feathered edges/i)
+    assert.doesNotMatch(prompt, /MATERIAL_DETAIL SHADOW EXCEPTION/i)
+  }
+  const detail = buildVisualLockV01StudioContractPrompt('detail')
+  assert.match(detail, /MATERIAL_DETAIL SHADOW EXCEPTION/i)
+  assert.match(detail, /contact shadow is not required and its absence must not fail/i)
+  assert.doesNotMatch(detail, /CONTACT SHADOW REQUIRED/i)
+  assert.match(detail, /#F7F5F0/i)
+  assert.match(detail, /upper-front-left/i)
+})
+
+check('7j prohibited studio conditions fail and ambiguous studio evidence remains unknown', () => {
+  const failure = parseVisualQualityEvaluatorV01(JSON.stringify({
+    ...completeEvaluatorPayload,
+    studio: { state: 'fail', evidence: 'visible gradient, watermark, and detached hard shadow' },
+  }), 'back')
+  assert.equal(failure.studio.state, 'fail')
+  assert.equal(failure.state, 'fail')
+  assert.ok(failure.reasonCodes.includes('studio_failed'))
+  assert.equal(combineVisualQualityGateV01([failure.state], 'pass'), 'fail')
+
+  const ambiguous = parseVisualQualityEvaluatorV01(JSON.stringify({
+    ...completeEvaluatorPayload,
+    studio: { state: 'unknown', evidence: 'background edge is not visible enough to verify' },
+  }), 'back')
+  assert.equal(ambiguous.studio.state, 'unknown')
+  assert.equal(ambiguous.state, 'unknown')
+  assert.equal(combineVisualQualityGateV01([ambiguous.state], 'pass'), 'unknown')
+
+  const unsupported = parseVisualQualityEvaluatorV01(JSON.stringify({
+    ...completeEvaluatorPayload,
+    orientation: { state: 'pass', detectedView: 'material_detail', evidence: 'source-supported upper-material crop' },
+    studio: { state: 'not_applicable', evidence: 'detail crop' },
+  }), 'detail')
+  assert.equal(unsupported.state, 'unknown')
+  assert.ok(unsupported.reasonCodes.includes('studio_unsupported_state'))
+
+  const missing = parseVisualQualityEvaluatorV01(JSON.stringify({
+    color: completeEvaluatorPayload.color,
+    topology: completeEvaluatorPayload.topology,
+    orientation: completeEvaluatorPayload.orientation,
+  }), 'back')
+  assert.equal(missing.state, 'unknown')
+  assert.ok(missing.reasonCodes.includes('studio_missing'))
+})
+
 check('8 malformed, missing, unsupported, and incomplete evaluator output are unknown', () => {
   assert.equal(parseVisualQualityEvaluatorV01('{bad', 'back').state, 'unknown')
   assert.equal(parseVisualQualityEvaluatorV01('{}', 'back').state, 'unknown')
@@ -205,9 +289,9 @@ check('9 explicit fail outranks unknown and pass', () => {
 })
 
 check('10 only true_rear can pass the back evaluator', () => {
-  const pass = parseVisualQualityEvaluatorV01(JSON.stringify({ color: { state: 'pass', detectedColor: 'grey', evidence: 'grey upper' }, topology: { state: 'pass', evidence: 'patch retained' }, orientation: { state: 'pass', detectedView: 'true_rear', evidence: 'symmetric heel edges' } }), 'back')
+  const pass = parseVisualQualityEvaluatorV01(JSON.stringify({ color: { state: 'pass', detectedColor: 'grey', evidence: 'grey upper' }, topology: { state: 'pass', evidence: 'patch retained' }, orientation: { state: 'pass', detectedView: 'true_rear', evidence: 'symmetric heel edges' }, studio: completeEvaluatorPayload.studio }), 'back')
   assert.equal(pass.state, 'pass')
-  const mismatch = parseVisualQualityEvaluatorV01(JSON.stringify({ color: { state: 'pass', detectedColor: 'grey', evidence: 'grey upper' }, topology: { state: 'pass', evidence: 'patch retained' }, orientation: { state: 'pass', detectedView: 'rear_three_quarter', evidence: 'side face visible' } }), 'back')
+  const mismatch = parseVisualQualityEvaluatorV01(JSON.stringify({ color: { state: 'pass', detectedColor: 'grey', evidence: 'grey upper' }, topology: { state: 'pass', evidence: 'patch retained' }, orientation: { state: 'pass', detectedView: 'rear_three_quarter', evidence: 'side face visible' }, studio: completeEvaluatorPayload.studio }), 'back')
   assert.equal(mismatch.state, 'fail')
   assert.ok(mismatch.reasonCodes.includes('back_not_true_rear'))
 })
@@ -324,11 +408,13 @@ check('15 V0.1 profile versions are exact', () => {
   assert.equal(VISUAL_QUALITY_EVALUATOR_V01_VERSION, 'visual-quality-evaluator/v0.1')
   assert.equal(VISUAL_GEOMETRY_GATE_V01_VERSION, 'visual-geometry-gate/v0.1')
   assert.equal(VISUAL_LOCK_V01_ANGLE_CONTRACT_VERSION, 'visual-angle-contract/v1')
+  assert.equal(VISUAL_LOCK_V01_STUDIO_CONTRACT_VERSION, 'visual-studio-contract/v1')
+  assert.equal(VISUAL_LOCK_V01_STUDIO_CONTRACT.backgroundTarget, 'uniform matte warm-neutral near-white, visually approximately #F7F5F0')
 })
 
 check('16 V0.1 prompt fixture digest is pinned', () => {
   const digest = createHash('sha256').update(JSON.stringify(buildVisualLockV01PromptFixture(context))).digest('hex')
-  assert.equal(digest, '529633f7eaa9b7b0dde86c20c693659bb3edeacda8484edb8111e85dc55e335f')
+  assert.equal(digest, '79862e1fb6e5dd8e060f367fa69dbcffb61f7c8e2853258d1345561372bed4ca')
 })
 
 check('17 complete non-pass evidence remains inspectable before persistence authorization', () => {
@@ -351,6 +437,7 @@ check('17 complete non-pass evidence remains inspectable before persistence auth
       orientationStatus: 'unknown',
       detectedView: 'unknown',
       topologyStatus: 'unknown',
+      studioStatus: 'unknown',
       geometry: geometry[index],
     })),
   })
@@ -361,8 +448,10 @@ check('17 complete non-pass evidence remains inspectable before persistence auth
   assert.equal(summary.packResults.occupancyMaximumPercent, 80)
   assert.equal(summary.packResults.occupancySpreadPercent, 8)
   assert.equal(summary.packResults.requiredEvaluatorCompleteness, 'unknown')
+  assert.equal(summary.packResults.studioGateStatus, 'unknown')
+  assert.equal(summary.studioContractVersion, 'visual-studio-contract/v1')
   assert.ok(summary.packResults.reasonCodes.includes('provider_response_incomplete'))
-  assert.ok(summary.slotResults.every((slot) => slot.geometryStatus === 'pass' && slot.occupancyPercent !== null))
+  assert.ok(summary.slotResults.every((slot) => slot.geometryStatus === 'pass' && slot.occupancyPercent !== null && slot.studioResult.status === 'unknown'))
 
   const incompletePass = buildVisualQualityGateSummaryV01({
     context,
@@ -374,6 +463,7 @@ check('17 complete non-pass evidence remains inspectable before persistence auth
       orientationStatus: 'pass',
       detectedView: scene.name,
       topologyStatus: 'pass',
+      studioStatus: 'pass',
       geometry: geometry[index],
     })),
   })

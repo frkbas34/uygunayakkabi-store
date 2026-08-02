@@ -51,6 +51,7 @@ export type ImageSlotProviderMetadata = {
   colorEvaluatorState?: 'pass' | 'fail' | 'unknown'
   componentTopologyEvaluatorState?: 'pass' | 'fail' | 'unknown'
   orientationEvaluatorState?: 'pass' | 'fail' | 'unknown'
+  studioEvaluatorState?: 'pass' | 'fail' | 'unknown'
   geometryGateVersion?: string
   geometryGateState?: 'pass' | 'fail' | 'unknown'
   geometryClippingState?: 'pass' | 'fail' | 'unknown'
@@ -140,6 +141,7 @@ type LegacyProviderSlotLog = {
   colorEvaluatorState?: unknown
   componentTopologyEvaluatorState?: unknown
   orientationEvaluatorState?: unknown
+  studioEvaluatorState?: unknown
   rejectionReason?: unknown
 }
 
@@ -263,6 +265,7 @@ function providerMetadata(log: LegacyProviderSlotLog, fallbackProvider: string):
     ...(triState(log.colorEvaluatorState) ? { colorEvaluatorState: log.colorEvaluatorState } : {}),
     ...(triState(log.componentTopologyEvaluatorState) ? { componentTopologyEvaluatorState: log.componentTopologyEvaluatorState } : {}),
     ...(triState(log.orientationEvaluatorState) ? { orientationEvaluatorState: log.orientationEvaluatorState } : {}),
+    ...(triState(log.studioEvaluatorState) ? { studioEvaluatorState: log.studioEvaluatorState } : {}),
   }
 }
 

@@ -244,6 +244,69 @@ export function buildVisualLockV01AngleContractPrompt(slotId: SlotKey): string {
   )
 }
 
+export const VISUAL_LOCK_V01_STUDIO_CONTRACT_VERSION = 'visual-studio-contract/v1' as const
+
+export const VISUAL_LOCK_V01_STUDIO_CONTRACT = {
+  version: VISUAL_LOCK_V01_STUDIO_CONTRACT_VERSION,
+  canvas: 'square 1024 × 1024 catalog composition',
+  backgroundTarget: 'uniform matte warm-neutral near-white, visually approximately #F7F5F0',
+  backgroundTolerance: 'minor compression or exposure variation is acceptable when the background remains visibly uniform and warm-neutral',
+  backgroundProhibitions: [
+    'visible horizon or background seam',
+    'floor-wall transition',
+    'gradient, vignette, spotlight halo, or glow',
+    'texture, pattern, props, platform, pedestal, or decorative surface',
+    'reflection or glossy floor',
+    'added border, frame, text, logo, caption, watermark, or Sho118 contamination',
+    'foreign objects or additional products',
+  ],
+  lightingRequirements: [
+    'clean commercial catalog lighting',
+    'large broad soft key light from upper-front-left',
+    'gentle soft fill from front-right with an approximate 2:1 key-to-fill relationship',
+    'neutral daylight white balance targeting approximately 5200K with an acceptable visual range of approximately 5000–5400K',
+    'soft tonal transitions without theatrical contrast',
+    'unclipped highlights, open shadow detail, and no hotspot that changes or obscures the product material',
+  ],
+  lightingProhibitions: [
+    'hard flash or spotlight',
+    'colored light, dramatic rim light, or mixed color temperature',
+    'clipped highlights or crushed shadow regions',
+    'material-obscuring hotspot',
+  ],
+  fullProductShadowRequirements: [
+    'one subtle neutral-gray contact shadow immediately beneath or tightly connected to the outsole or contact area',
+    'soft feathered edges, low visual weight, and minimal lateral displacement',
+    'consistent direction and softness with the locked lighting so the product appears grounded rather than floating',
+  ],
+  shadowProhibitions: [
+    'long directional, hard-edged, detached, dramatic, or colored shadow',
+    'multiple conflicting shadows',
+    'mirrored reflection',
+    'shadow direction inconsistent with the locked lighting',
+  ],
+  crossSlotConsistency: 'lighting direction, softness, exposure, white balance, background target, and applicable contact-shadow behavior remain visually consistent across all five slots',
+} as const
+
+export function buildVisualLockV01StudioContractPrompt(slotId: SlotKey): string {
+  const detail = slotId === 'detail'
+  const shadow = detail
+    ? 'MATERIAL_DETAIL SHADOW EXCEPTION: a visible outsole or contact shadow is not required and its absence must not fail; any visible shadow must still avoid every prohibited shadow condition'
+    : `CONTACT SHADOW REQUIRED: ${VISUAL_LOCK_V01_STUDIO_CONTRACT.fullProductShadowRequirements.join('; ')}`
+  return (
+    `STUDIO CONTRACT VERSION: ${VISUAL_LOCK_V01_STUDIO_CONTRACT.version}\n` +
+    `CANVAS: ${VISUAL_LOCK_V01_STUDIO_CONTRACT.canvas}.\n` +
+    `BACKGROUND TARGET: ${VISUAL_LOCK_V01_STUDIO_CONTRACT.backgroundTarget}; the hexadecimal target is a visual reference, not pixel-perfect equality. ${VISUAL_LOCK_V01_STUDIO_CONTRACT.backgroundTolerance}.\n` +
+    `BACKGROUND PROHIBITIONS: ${VISUAL_LOCK_V01_STUDIO_CONTRACT.backgroundProhibitions.join('; ')}.\n` +
+    `LIGHTING AND EXPOSURE: ${VISUAL_LOCK_V01_STUDIO_CONTRACT.lightingRequirements.join('; ')}.\n` +
+    `LIGHTING PROHIBITIONS: ${VISUAL_LOCK_V01_STUDIO_CONTRACT.lightingProhibitions.join('; ')}.\n` +
+    `${shadow}.\n` +
+    `SHADOW PROHIBITIONS: ${VISUAL_LOCK_V01_STUDIO_CONTRACT.shadowProhibitions.join('; ')}.\n` +
+    `CROSS-SLOT STUDIO CONSISTENCY: ${VISUAL_LOCK_V01_STUDIO_CONTRACT.crossSlotConsistency}.\n` +
+    `STUDIO DECISION: clearly compliant conditions are PASS; a clearly different background or any clearly visible prohibited studio element is FAIL; ambiguous or genuinely unverifiable compliance is UNKNOWN.`
+  )
+}
+
 export function buildVisualLockV01PromptBlock(context: VisualLockV01Context, slotId: SlotKey): string {
   return (
     `\n\n=== VISUAL LOCK V0.1 (${context.profileVersion}) ===\n` +
@@ -257,6 +320,8 @@ export function buildVisualLockV01PromptBlock(context: VisualLockV01Context, slo
     `GEOMETRY CONTRACT (${context.geometryGateVersion}): complete-product slots must measure 72-82% occupancy, at most 3% center offset, and at most 8 percentage points occupancy spread across the pack. These values are verified after generation; prompt compliance alone is not PASS.\n` +
     `V0.1 ANGLE OVERRIDE: The following single-shoe contract supersedes any earlier generic scene language about free camera choice, matched pairs, mirroring, or rear-three-quarter composition.\n` +
     `${buildVisualLockV01AngleContractPrompt(slotId)}\n` +
+    `V0.1 STUDIO OVERRIDE: The following fixed studio contract supersedes any earlier generic background, lighting, exposure, or shadow choice.\n` +
+    `${buildVisualLockV01StudioContractPrompt(slotId)}\n` +
     `EVALUATOR CONTRACT (${context.evaluatorVersion}): PASS requires explicit valid evidence. Missing, malformed, unavailable, incomplete, unsupported, ambiguous, or unexecuted evaluation is UNKNOWN, never PASS. UNKNOWN and FAIL are blocked without automatic regeneration.\n` +
     `UNKNOWN-EVIDENCE RULE: Unknown facts and hidden structure remain unknown. Do not infer or invent them.\n` +
     `=== END VISUAL LOCK V0.1 ===\n`
@@ -363,6 +428,7 @@ export type VisualQualityEvaluatorResultV01 = {
   color: VisualQualityDimensionV01 & { detectedColor: string }
   topology: VisualQualityDimensionV01
   orientation: VisualQualityDimensionV01 & { detectedView: string }
+  studio: VisualQualityDimensionV01
   reasonCodes: string[]
 }
 
@@ -373,6 +439,7 @@ export function unknownVisualQualityEvaluatorResultV01(reasonCode: string): Visu
     color: { state: 'unknown', evidence: '', detectedColor: 'unknown' },
     topology: { state: 'unknown', evidence: '' },
     orientation: { state: 'unknown', evidence: '', detectedView: 'unknown' },
+    studio: { state: 'unknown', evidence: '' },
     reasonCodes: [reasonCode],
   }
 }
@@ -400,10 +467,11 @@ export function parseVisualQualityEvaluatorV01(raw: string, slotId: SlotKey): Vi
     return unknownVisualQualityEvaluatorResultV01('malformed_response')
   }
   if (!parsed || typeof parsed !== 'object') return unknownVisualQualityEvaluatorResultV01('malformed_response')
-  const candidate = parsed as { color?: unknown; topology?: unknown; orientation?: unknown }
+  const candidate = parsed as { color?: unknown; topology?: unknown; orientation?: unknown; studio?: unknown }
   const colorParsed = parseDimension(candidate.color, 'color')
   const topologyParsed = parseDimension(candidate.topology, 'topology')
   const orientationParsed = parseDimension(candidate.orientation, 'orientation')
+  const studioParsed = parseDimension(candidate.studio, 'studio')
   const colorObject = candidate.color as { detectedColor?: unknown } | undefined
   const orientationObject = candidate.orientation as { detectedView?: unknown } | undefined
   const detectedColor = typeof colorObject?.detectedColor === 'string'
@@ -412,7 +480,7 @@ export function parseVisualQualityEvaluatorV01(raw: string, slotId: SlotKey): Vi
   const detectedView = typeof orientationObject?.detectedView === 'string'
     ? orientationObject.detectedView.trim().toLowerCase().slice(0, 80) || 'unknown'
     : 'unknown'
-  const reasonCodes = [colorParsed.reason, topologyParsed.reason, orientationParsed.reason].filter((x): x is string => Boolean(x))
+  const reasonCodes = [colorParsed.reason, topologyParsed.reason, orientationParsed.reason, studioParsed.reason].filter((x): x is string => Boolean(x))
   let color = colorParsed.value
   if (color.state !== 'unknown' && detectedColor === 'unknown') {
     color = { state: 'unknown', evidence: '' }
@@ -433,7 +501,8 @@ export function parseVisualQualityEvaluatorV01(raw: string, slotId: SlotKey): Vi
   if (color.state === 'fail') reasonCodes.push('color_failed')
   if (topologyParsed.value.state === 'fail') reasonCodes.push('component_topology_failed')
   if (orientation.state === 'fail') reasonCodes.push('orientation_failed')
-  const states = [color.state, topologyParsed.value.state, orientation.state]
+  if (studioParsed.value.state === 'fail') reasonCodes.push('studio_failed')
+  const states = [color.state, topologyParsed.value.state, orientation.state, studioParsed.value.state]
   const state: VisualQualityTriState = states.includes('fail') ? 'fail' : states.includes('unknown') ? 'unknown' : 'pass'
   return {
     version: VISUAL_QUALITY_EVALUATOR_V01_VERSION,
@@ -441,6 +510,7 @@ export function parseVisualQualityEvaluatorV01(raw: string, slotId: SlotKey): Vi
     color: { ...color, detectedColor },
     topology: topologyParsed.value,
     orientation: { ...orientation, detectedView },
+    studio: studioParsed.value,
     reasonCodes: [...new Set(reasonCodes)],
   }
 }
@@ -494,10 +564,12 @@ export function buildVisualQualityEvaluatorPromptV01(context: VisualLockV01Conte
     `Expected dominant color evidence: ${JSON.stringify(context.identityAnchor.facts.colorZones)}\n` +
     `Source-supported component topology: ${context.serializedComponentTopology}\n` +
     `Use this exact canonical angle contract, identical to generation:\n${buildVisualLockV01AngleContractPrompt(slotId)}\n` +
+    `Use this exact canonical studio contract, identical to generation:\n${buildVisualLockV01StudioContractPrompt(slotId)}\n` +
     `Return strict JSON only with exactly these objects:\n` +
     `{"color":{"state":"pass|fail|unknown","detectedColor":"...","evidence":"..."},` +
     `"topology":{"state":"pass|fail|unknown","evidence":"..."},` +
-    `"orientation":{"state":"pass|fail|unknown","detectedView":"${VISUAL_LOCK_V01_DETECTED_VIEWS.join('|')}","evidence":"..."}}\n` +
+    `"orientation":{"state":"pass|fail|unknown","detectedView":"${VISUAL_LOCK_V01_DETECTED_VIEWS.join('|')}","evidence":"..."},` +
+    `"studio":{"state":"pass|fail|unknown","evidence":"..."}}\n` +
     `PASS requires explicit visible evidence that satisfies the slot's numeric tolerance and plain-language cues. A clearly incorrect semantic angle is FAIL. Use UNKNOWN for ambiguity, occlusion, missing source support, incomplete visibility, unsupported values, or inability to evaluate. Never convert missing or malformed evidence to PASS. For back, rear_three_quarter is FAIL; only true_rear can pass.`
   )
 }
@@ -632,6 +704,7 @@ export type VisualQualitySlotEvidenceV01 = {
   orientationStatus: VisualQualityTriState
   detectedView: string
   topologyStatus: VisualQualityTriState
+  studioStatus: VisualQualityTriState
   geometry: VisualGeometryGateResultV01
 }
 
@@ -642,12 +715,14 @@ export type VisualQualityGateSummaryV01 = {
   topologyContractVersion: typeof COMPONENT_TOPOLOGY_LOCK_V01_VERSION
   evaluatorContractVersion: typeof VISUAL_QUALITY_EVALUATOR_V01_VERSION
   geometryGateVersion: typeof VISUAL_GEOMETRY_GATE_V01_VERSION
+  studioContractVersion: typeof VISUAL_LOCK_V01_STUDIO_CONTRACT_VERSION
   slotResults: Array<{
     slot: SlotKey
     evaluatorStatus: VisualQualityTriState
     evaluatorReasonCodes: string[]
     orientationResult: { status: VisualQualityTriState; detectedView: string }
     topologyResult: { status: VisualQualityTriState }
+    studioResult: { status: VisualQualityTriState }
     occupancyPercent: number | null
     horizontalCenterOffsetPercent: number | null
     verticalCenterOffsetPercent: number | null
@@ -663,6 +738,7 @@ export type VisualQualityGateSummaryV01 = {
     requiredEvaluatorCompleteness: VisualQualityTriState
     orientationGateStatus: VisualQualityTriState
     topologyGateStatus: VisualQualityTriState
+    studioGateStatus: VisualQualityTriState
     geometryGateStatus: VisualQualityTriState
     qualityGateStatus: VisualQualityTriState
     reasonCodes: string[]
@@ -694,6 +770,9 @@ export function buildVisualQualityGateSummaryV01(params: {
   const topologyGateStatus = ordered.length === GENERATED_SLOT_KEYS.length
     ? combineTriStates(ordered.map((slot) => slot.topologyStatus))
     : 'unknown'
+  const studioGateStatus = ordered.length === GENERATED_SLOT_KEYS.length
+    ? combineTriStates(ordered.map((slot) => slot.studioStatus))
+    : 'unknown'
   const qualityGateStatus = combineVisualQualityGateV01(
     [...evaluatorStates, requiredEvaluatorCompleteness],
     params.geometryPack.state,
@@ -705,6 +784,7 @@ export function buildVisualQualityGateSummaryV01(params: {
     ...(requiredEvaluatorCompleteness === 'unknown' ? ['required_evaluator_incomplete'] : []),
     ...(orientationGateStatus === 'unknown' ? ['orientation_gate_unknown'] : []),
     ...(topologyGateStatus === 'unknown' ? ['topology_gate_unknown'] : []),
+    ...(studioGateStatus === 'unknown' ? ['studio_gate_unknown'] : []),
     ...(params.geometryPack.state === 'unknown' ? ['geometry_gate_unknown'] : []),
   ])]
 
@@ -715,12 +795,14 @@ export function buildVisualQualityGateSummaryV01(params: {
     topologyContractVersion: params.context.componentTopologyVersion,
     evaluatorContractVersion: params.context.evaluatorVersion,
     geometryGateVersion: params.context.geometryGateVersion,
+    studioContractVersion: VISUAL_LOCK_V01_STUDIO_CONTRACT_VERSION,
     slotResults: ordered.map((slot) => ({
       slot: slot.slotId,
       evaluatorStatus: slot.evaluatorStatus,
       evaluatorReasonCodes: [...slot.evaluatorReasonCodes],
       orientationResult: { status: slot.orientationStatus, detectedView: slot.detectedView },
       topologyResult: { status: slot.topologyStatus },
+      studioResult: { status: slot.studioStatus },
       occupancyPercent: slot.geometry.measurement?.occupancyPercent ?? null,
       horizontalCenterOffsetPercent: slot.geometry.measurement?.centerOffsetXPercent ?? null,
       verticalCenterOffsetPercent: slot.geometry.measurement?.centerOffsetYPercent ?? null,
@@ -736,6 +818,7 @@ export function buildVisualQualityGateSummaryV01(params: {
       requiredEvaluatorCompleteness,
       orientationGateStatus,
       topologyGateStatus,
+      studioGateStatus,
       geometryGateStatus: params.geometryPack.state,
       qualityGateStatus,
       reasonCodes,

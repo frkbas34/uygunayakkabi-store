@@ -473,6 +473,7 @@ export type SlotLog = {
   colorEvaluatorState?: VisualQualityTriState
   componentTopologyEvaluatorState?: VisualQualityTriState
   orientationEvaluatorState?: VisualQualityTriState
+  studioEvaluatorState?: VisualQualityTriState
   rejectionReason?: string
 }
 
@@ -1059,6 +1060,7 @@ function applyVisualQualityV01ToSlotLog(
   slotLog.colorEvaluatorState = result.color.state
   slotLog.componentTopologyEvaluatorState = result.topology.state
   slotLog.orientationEvaluatorState = result.orientation.state
+  slotLog.studioEvaluatorState = result.studio.state
   slotLog.colorCheckPass = result.color.state === 'pass'
   slotLog.detectedColor = result.color.detectedColor
   slotLog.shotCompliancePass = result.orientation.state === 'pass'

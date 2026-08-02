@@ -83,7 +83,7 @@ await check('partial provider failure cannot relabel later successful slots', ()
     provider: 'fixture-provider',
     buffers: ['slot-1-bytes', 'slot-3-bytes', 'slot-4-bytes', 'slot-5-bytes'],
     slotLogs: [
-      { slot: 'side', success: true, attempts: 1 },
+      { slot: 'side', success: true, attempts: 1, studioEvaluatorState: 'pass' },
       { slot: 'hero_3q', success: false, attempts: 2, rejectionReason: 'fixture provider failure' },
       { slot: 'top', success: true, attempts: 1 },
       { slot: 'back', success: true, attempts: 1 },
@@ -91,6 +91,7 @@ await check('partial provider failure cannot relabel later successful slots', ()
     ],
   })
   assert.equal(results.length, 5)
+  assert.equal(results[0].provider?.studioEvaluatorState, 'pass')
   assert.equal(results[1].slotId, 'hero_3q')
   assert.equal(results[1].status, 'provider_failed')
   assert.equal(results[1].output, undefined)

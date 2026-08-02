@@ -921,6 +921,32 @@ export type VisualGeometryMeasurementV01 = {
   clippingDetected: boolean
 }
 
+export type VisualGeometryNormalizedBoundingBoxV01 = {
+  x: number
+  y: number
+  width: number
+  height: number
+}
+
+export type VisualGeometryForegroundComponentV01 = {
+  areaPercent: number
+  relativeAreaToLargest: number
+  boundingBox: VisualGeometryNormalizedBoundingBoxV01
+  comparableProductComponent: boolean
+  touchesCanvasEdge: boolean
+}
+
+export type VisualGeometryForegroundInspectionV01 = {
+  canvas: { width: number; height: number }
+  analysisCanvas: { width: number; height: number }
+  boundingBox: VisualGeometryNormalizedBoundingBoxV01
+  measurement: VisualGeometryMeasurementV01
+  retainedComponents: VisualGeometryForegroundComponentV01[]
+  retainedAreaPercent: number
+  componentEvidenceReliable: true
+  additionalProductSuspected: boolean
+}
+
 export type VisualGeometryGateResultV01 = {
   version: typeof VISUAL_GEOMETRY_GATE_V01_VERSION
   slotId: SlotKey
@@ -1038,6 +1064,9 @@ export function evaluateVisualGeometryPackV01(results: readonly VisualGeometryGa
 
 export type VisualQualitySlotEvidenceV01 = {
   slotId: SlotKey
+  framingCorrectionState?: VisualQualityTriState
+  framingCorrectionOutcome?: string
+  framingCorrectionReasonCodes?: string[]
   evaluatorStatus: VisualQualityTriState
   evaluatorReasonCodes: string[]
   orientationStatus: VisualQualityTriState
@@ -1057,10 +1086,16 @@ export type VisualQualityGateSummaryV01 = {
   topologyContractVersion: typeof COMPONENT_TOPOLOGY_LOCK_V01_VERSION
   evaluatorContractVersion: typeof VISUAL_QUALITY_EVALUATOR_V01_VERSION
   geometryGateVersion: typeof VISUAL_GEOMETRY_GATE_V01_VERSION
+  framingCorrectionContractVersion: string
   studioContractVersion: typeof VISUAL_LOCK_V01_STUDIO_CONTRACT_VERSION
   materialContractVersion: typeof VISUAL_LOCK_V01_MATERIAL_CONTRACT_VERSION
   slotResults: Array<{
     slot: SlotKey
+    framingCorrectionResult: {
+      status: VisualQualityTriState
+      outcome: string
+      reasonCodes: string[]
+    }
     evaluatorStatus: VisualQualityTriState
     evaluatorReasonCodes: string[]
     orientationResult: { status: VisualQualityTriState; detectedView: string }
@@ -1084,6 +1119,7 @@ export type VisualQualityGateSummaryV01 = {
     topologyGateStatus: VisualQualityTriState
     studioGateStatus: VisualQualityTriState
     materialGateStatus: VisualQualityTriState
+    framingCorrectionGateStatus: VisualQualityTriState
     geometryGateStatus: VisualQualityTriState
     qualityGateStatus: VisualQualityTriState
     reasonCodes: string[]
@@ -1101,6 +1137,7 @@ export function buildVisualQualityGateSummaryV01(params: {
   context: VisualLockV01Context
   slots: readonly VisualQualitySlotEvidenceV01[]
   geometryPack: VisualGeometryPackGateV01
+  framingCorrectionContractVersion?: string
 }): VisualQualityGateSummaryV01 {
   const slotById = new Map(params.slots.map((slot) => [slot.slotId, slot]))
   const ordered = GENERATED_SLOT_KEYS.map((slotId) => slotById.get(slotId)).filter((slot): slot is VisualQualitySlotEvidenceV01 => Boolean(slot))
@@ -1121,11 +1158,23 @@ export function buildVisualQualityGateSummaryV01(params: {
   const materialGateStatus = ordered.length === GENERATED_SLOT_KEYS.length
     ? combineTriStates(ordered.map((slot) => slot.materialStatus))
     : 'unknown'
+  const framingCorrectionGateStatus = ordered.length === GENERATED_SLOT_KEYS.length
+    ? combineTriStates(ordered.map((slot) => slot.framingCorrectionState ?? 'unknown'))
+    : 'unknown'
   const qualityGateStatus = combineVisualQualityGateV01(
-    [...evaluatorStates, requiredEvaluatorCompleteness, topologyGateStatus, materialGateStatus],
+    [
+      ...evaluatorStates,
+      requiredEvaluatorCompleteness,
+      orientationGateStatus,
+      topologyGateStatus,
+      studioGateStatus,
+      materialGateStatus,
+      framingCorrectionGateStatus,
+    ],
     params.geometryPack.state,
   )
   const reasonCodes = [...new Set([
+    ...ordered.flatMap((slot) => slot.framingCorrectionReasonCodes ?? ['framing_correction_evidence_missing']),
     ...ordered.flatMap((slot) => slot.evaluatorReasonCodes),
     ...ordered.flatMap((slot) => slot.topologyReasonCodes),
     ...ordered.flatMap((slot) => slot.materialReasonCodes),
@@ -1136,6 +1185,7 @@ export function buildVisualQualityGateSummaryV01(params: {
     ...(topologyGateStatus === 'unknown' ? ['topology_gate_unknown'] : []),
     ...(studioGateStatus === 'unknown' ? ['studio_gate_unknown'] : []),
     ...(materialGateStatus === 'unknown' ? ['material_gate_unknown'] : []),
+    ...(framingCorrectionGateStatus === 'unknown' ? ['framing_correction_gate_unknown'] : []),
     ...(params.geometryPack.state === 'unknown' ? ['geometry_gate_unknown'] : []),
   ])]
 
@@ -1146,10 +1196,16 @@ export function buildVisualQualityGateSummaryV01(params: {
     topologyContractVersion: params.context.componentTopologyVersion,
     evaluatorContractVersion: params.context.evaluatorVersion,
     geometryGateVersion: params.context.geometryGateVersion,
+    framingCorrectionContractVersion: params.framingCorrectionContractVersion ?? 'visual-framing-correction/v1',
     studioContractVersion: VISUAL_LOCK_V01_STUDIO_CONTRACT_VERSION,
     materialContractVersion: params.context.materialContractVersion,
     slotResults: ordered.map((slot) => ({
       slot: slot.slotId,
+      framingCorrectionResult: {
+        status: slot.framingCorrectionState ?? 'unknown',
+        outcome: slot.framingCorrectionOutcome ?? 'insufficient_geometry_evidence',
+        reasonCodes: [...(slot.framingCorrectionReasonCodes ?? ['framing_correction_evidence_missing'])],
+      },
       evaluatorStatus: slot.evaluatorStatus,
       evaluatorReasonCodes: [...slot.evaluatorReasonCodes],
       orientationResult: { status: slot.orientationStatus, detectedView: slot.detectedView },
@@ -1173,6 +1229,7 @@ export function buildVisualQualityGateSummaryV01(params: {
       topologyGateStatus,
       studioGateStatus,
       materialGateStatus,
+      framingCorrectionGateStatus,
       geometryGateStatus: params.geometryPack.state,
       qualityGateStatus,
       reasonCodes,
@@ -1212,10 +1269,24 @@ function quadraticFeatures(x: number, y: number): Fit {
   return [1, x, y, x * y, x * x, y * y]
 }
 
-export async function measureVisualGeometryV01(input: Buffer): Promise<VisualGeometryMeasurementV01 | null> {
+/**
+ * Inspect the exact foreground evidence used by the V0.1 geometry gate.
+ *
+ * The returned bounding box is the normalized union of every retained connected
+ * component. It deliberately does not density-trim the union, because sparse but
+ * required evidence such as the contact shadow must remain inside any later
+ * framing transform's protected bounds.
+ */
+export async function inspectVisualGeometryForegroundV01(
+  input: Buffer,
+): Promise<VisualGeometryForegroundInspectionV01 | null> {
   try {
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     const sharp = require('sharp') as typeof import('sharp')
+    const metadata = await sharp(input).metadata()
+    const canvasWidth = metadata.width ?? 0
+    const canvasHeight = metadata.height ?? 0
+    if (!canvasWidth || !canvasHeight) return null
     const { data, info } = await sharp(input).removeAlpha().resize(384, 384, { fit: 'fill' }).raw().toBuffer({ resolveWithObject: true })
     const matrix = Array.from({ length: 6 }, () => new Array<number>(6).fill(0))
     const rhs = [new Array<number>(6).fill(0), new Array<number>(6).fill(0), new Array<number>(6).fill(0)]
@@ -1273,7 +1344,9 @@ export async function measureVisualGeometryV01(input: Buffer): Promise<VisualGeo
       components.push({ area, minX, maxX, minY, maxY })
     }
     const largest = Math.max(0, ...components.map((component) => component.area))
-    const retained = components.filter((component) => component.area >= Math.max(24, largest * 0.015))
+    const retained = components
+      .filter((component) => component.area >= Math.max(24, largest * 0.015))
+      .sort((left, right) => right.area - left.area || left.minY - right.minY || left.minX - right.minX)
     if (retained.length === 0 || retained.reduce((sum, component) => sum + component.area, 0) < info.width * info.height * 0.005) return null
     const minX = Math.min(...retained.map((component) => component.minX))
     const maxX = Math.max(...retained.map((component) => component.maxX))
@@ -1285,14 +1358,63 @@ export async function measureVisualGeometryV01(input: Buffer): Promise<VisualGeo
     const centerY = (minY + maxY + 1) / 2
     const centerOffsetXPercent = Math.abs(centerX - info.width / 2) / info.width * 100
     const centerOffsetYPercent = Math.abs(centerY - info.height / 2) / info.height * 100
-    return {
+    const measurement: VisualGeometryMeasurementV01 = {
       occupancyPercent: Number((Math.max(width / info.width, height / info.height) * 100).toFixed(3)),
       centerOffsetXPercent: Number(centerOffsetXPercent.toFixed(3)),
       centerOffsetYPercent: Number(centerOffsetYPercent.toFixed(3)),
       maximumCenterOffsetPercent: Number(Math.max(centerOffsetXPercent, centerOffsetYPercent).toFixed(3)),
       clippingDetected: minX === 0 || minY === 0 || maxX === info.width - 1 || maxY === info.height - 1,
     }
+    const largestComponent = retained[0]
+    const largestWidth = largestComponent.maxX - largestComponent.minX + 1
+    const largestHeight = largestComponent.maxY - largestComponent.minY + 1
+    const retainedComponents: VisualGeometryForegroundComponentV01[] = retained.map((component) => {
+      const componentWidth = component.maxX - component.minX + 1
+      const componentHeight = component.maxY - component.minY + 1
+      const relativeAreaToLargest = component.area / largestComponent.area
+      // A second shoe is normally a separately connected component with substantial
+      // area and two-dimensional extent comparable to the primary shoe. A detached
+      // contact shadow can be wide, but its height is deliberately too small to
+      // satisfy this conservative product-component comparison.
+      const comparableProductComponent = relativeAreaToLargest >= 0.25
+        && componentWidth / largestWidth >= 0.45
+        && componentHeight / largestHeight >= 0.45
+      return {
+        areaPercent: Number((component.area / (info.width * info.height) * 100).toFixed(6)),
+        relativeAreaToLargest: Number(relativeAreaToLargest.toFixed(6)),
+        boundingBox: {
+          x: Number((component.minX / info.width).toFixed(6)),
+          y: Number((component.minY / info.height).toFixed(6)),
+          width: Number((componentWidth / info.width).toFixed(6)),
+          height: Number((componentHeight / info.height).toFixed(6)),
+        },
+        comparableProductComponent,
+        touchesCanvasEdge: component.minX === 0
+          || component.minY === 0
+          || component.maxX === info.width - 1
+          || component.maxY === info.height - 1,
+      }
+    })
+    return {
+      canvas: { width: canvasWidth, height: canvasHeight },
+      analysisCanvas: { width: info.width, height: info.height },
+      boundingBox: {
+        x: Number((minX / info.width).toFixed(6)),
+        y: Number((minY / info.height).toFixed(6)),
+        width: Number((width / info.width).toFixed(6)),
+        height: Number((height / info.height).toFixed(6)),
+      },
+      measurement,
+      retainedComponents,
+      retainedAreaPercent: Number((retained.reduce((sum, component) => sum + component.area, 0) / (info.width * info.height) * 100).toFixed(6)),
+      componentEvidenceReliable: true,
+      additionalProductSuspected: retainedComponents.filter((component) => component.comparableProductComponent).length > 1,
+    }
   } catch {
     return null
   }
+}
+
+export async function measureVisualGeometryV01(input: Buffer): Promise<VisualGeometryMeasurementV01 | null> {
+  return (await inspectVisualGeometryForegroundV01(input))?.measurement ?? null
 }

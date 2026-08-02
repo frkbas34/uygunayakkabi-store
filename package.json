@@ -67,6 +67,7 @@
     "test:visual-quality-fast-track": "tsx scripts/visual-quality-fast-track-governance.ts",
     "test:visual-lock-v0": "tsx src/lib/imageVisualLockV0.test.ts",
     "test:visual-lock-v0.1": "tsx src/lib/imageVisualLockV01.test.ts",
+    "test:visual-framing-correction-v0.1": "tsx src/lib/imageFramingCorrectionV01.test.ts",
     "test:generated-media-retention-policy": "tsx src/lib/generatedMediaRetentionPolicy.test.ts",
     "test:generated-media-retention-dry-run": "tsx scripts/generated-media-retention-dry-run-governance.ts",
     "dryrun:generated-media-retention": "tsx scripts/generated-media-retention-dry-run.ts",

@@ -121,6 +121,89 @@ await check('partial provider failure cannot relabel later successful slots', ()
   assert.equal(results[4].output, 'slot-5-bytes')
 })
 
+await check('framing-correction evidence is preserved only when its complete contract is valid', () => {
+  const originalGeometry = {
+    version: 'visual-geometry-gate/v0.1',
+    slotId: 'side',
+    applicable: true,
+    state: 'fail',
+    clippingState: 'pass',
+    measurement: {
+      occupancyPercent: 70,
+      centerOffsetXPercent: 4,
+      centerOffsetYPercent: 0,
+      maximumCenterOffsetPercent: 4,
+      clippingDetected: false,
+    },
+    reasonCodes: ['occupancy_below_72', 'center_offset_above_3'],
+  } as const
+  const finalGeometry = {
+    version: 'visual-geometry-gate/v0.1',
+    slotId: 'side',
+    applicable: true,
+    state: 'pass',
+    clippingState: 'pass',
+    measurement: {
+      occupancyPercent: 76,
+      centerOffsetXPercent: 0.5,
+      centerOffsetYPercent: 0.25,
+      maximumCenterOffsetPercent: 0.5,
+      clippingDetected: false,
+    },
+    reasonCodes: [],
+  } as const
+  const evidence = {
+    version: 'visual-framing-correction/v1',
+    slotId: 'side',
+    state: 'pass',
+    outcome: 'applied',
+    reasonCodes: ['framing_correction_applied'],
+    originalBoundingBox: { x: 0.12, y: 0.2, width: 0.7, height: 0.5 },
+    finalBoundingBox: { x: 0.11, y: 0.23, width: 0.78, height: 0.55 },
+    originalCanvas: { width: 1024, height: 960 },
+    finalCanvas: { width: 1024, height: 1024 },
+    appliedScale: 1.1,
+    plannedScale: 1.1,
+    appliedTranslationXPercent: 1.5,
+    appliedTranslationYPercent: -0.5,
+    plannedTranslationXPercent: 1.5,
+    plannedTranslationYPercent: -0.5,
+    paddingUsed: true,
+    padding: { top: 32, right: 0, bottom: 32, left: 0 },
+    rotationDegrees: 0,
+    aspectRatioChange: 0,
+    mirrored: false,
+    originalGeometry,
+    finalGeometry,
+    finalGeometryState: 'pass',
+  } as const
+  const attempt = createImageGenerationAttempt({ jobId: 'framing-evidence', requestedSlotIds: ['side'] })
+  const [valid] = adaptLegacyProviderOutput({
+    attempt,
+    provider: 'fixture-provider',
+    buffers: ['side-bytes'],
+    slotLogs: [{ slot: 'side', success: true, attempts: 1, framingCorrection: evidence }],
+  })
+  assert.deepEqual(valid.provider?.framingCorrection, evidence)
+  assert.deepEqual(serializeSlotEnvelopes([valid])[0].provider?.framingCorrection, evidence)
+
+  for (const malformed of [
+    { ...evidence, version: 'visual-framing-correction/unsupported' },
+    { ...evidence, slotId: 'hero_3q' },
+    { ...evidence, appliedTranslationXPercent: 12.01 },
+    { ...evidence, reasonCodes: ['unsupported_reason'] },
+    { ...evidence, finalGeometryState: 'fail' },
+  ]) {
+    const [blocked] = adaptLegacyProviderOutput({
+      attempt,
+      provider: 'fixture-provider',
+      buffers: ['side-bytes'],
+      slotLogs: [{ slot: 'side', success: true, attempts: 1, framingCorrection: malformed }],
+    })
+    assert.equal(blocked.provider?.framingCorrection, undefined)
+  }
+})
+
 await check('a middle Media-save failure stays on that slot without compaction', async () => {
   const attempt = createImageGenerationAttempt({ jobId: 'media-partial', requestedSlotIds: fiveSlotIds })
   const generated = adaptLegacyProviderOutput({

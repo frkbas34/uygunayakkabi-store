@@ -30,6 +30,10 @@ import {
   type VisualQualityEvaluatorResultV01,
   type VisualQualityTriState,
 } from './imageVisualLockV01'
+import {
+  correctVisualLockV01Framing,
+  type VisualFramingCorrectionEvidenceV01,
+} from './imageFramingCorrectionV01'
 // D-407: central 5-slot contract — single source of truth for slot types, order,
 // and the centering/framing discipline. EDITING_SCENES is now derived from it.
 import { GENERATED_SCENES, getSlotByKey, type SlotKey } from './imageSlotContract'
@@ -479,6 +483,7 @@ export type SlotLog = {
   studioEvaluatorState?: VisualQualityTriState
   materialEvaluatorState?: VisualQualityTriState
   materialEvaluatorReasonCodes?: VisualLockV01MaterialReasonCode[]
+  framingCorrection?: VisualFramingCorrectionEvidenceV01
   rejectionReason?: string
 }
 
@@ -1521,8 +1526,10 @@ export async function generateByEditing(
         const jpegBuf = await sharp(rawBuf).jpeg({ quality: 92 }).toBuffer()
 
         if (isVisualLockV01Context(visualLock)) {
+          const correction = await correctVisualLockV01Framing(jpegBuf, scene.name)
+          slotLog.framingCorrection = correction.evidence
           const quality = geminiKey
-            ? await checkVisualQualityV01(jpegBuf, visualLock, scene.name, geminiKey)
+            ? await checkVisualQualityV01(correction.buffer, visualLock, scene.name, geminiKey)
             : unknownVisualQualityEvaluatorResultV01('evaluator_unavailable')
           applyVisualQualityV01ToSlotLog(slotLog, quality)
           // Generation success and quality authorization are separate facts.
@@ -1530,7 +1537,7 @@ export async function generateByEditing(
           // deterministic geometry and build complete non-pass evidence. The task
           // discards these bytes before any Media/Blob/Telegram persistence unless
           // the combined V0.1 gate is explicit pass.
-          finalBuf = jpegBuf
+          finalBuf = correction.buffer
           if (quality.state !== 'pass') {
             slotLog.rejectionReason = `visual_quality_${quality.state}:${quality.reasonCodes.join(',') || 'evidence_blocked'}`
           }
@@ -1954,12 +1961,14 @@ export async function generateByGeminiPro(
         const jpegBuf = await sharp(rawBuf).jpeg({ quality: 92 }).toBuffer()
 
         if (isVisualLockV01Context(visualLock)) {
-          const quality = await checkVisualQualityV01(jpegBuf, visualLock, scene.name, geminiKey)
+          const correction = await correctVisualLockV01Framing(jpegBuf, scene.name)
+          slotLog.framingCorrection = correction.evidence
+          const quality = await checkVisualQualityV01(correction.buffer, visualLock, scene.name, geminiKey)
           applyVisualQualityV01ToSlotLog(slotLog, quality)
           // Preserve the provider output only as a transient task input. Quality
           // fail/unknown remains blocked; imageGenTask evaluates geometry, persists
           // the complete safe evidence, then drops the bytes before Media/preview.
-          finalBuf = jpegBuf
+          finalBuf = correction.buffer
           if (quality.state !== 'pass') {
             slotLog.rejectionReason = `visual_quality_${quality.state}:${quality.reasonCodes.join(',') || 'evidence_blocked'}`
           }

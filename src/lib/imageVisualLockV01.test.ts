@@ -713,6 +713,9 @@ check('17 complete non-pass evidence remains inspectable before persistence auth
     geometryPack,
     slots: GENERATED_SCENES.map((scene, index) => ({
       slotId: scene.name,
+      framingCorrectionState: 'pass' as const,
+      framingCorrectionOutcome: 'not_required',
+      framingCorrectionReasonCodes: [scene.name === 'detail' ? 'detail_slot_exempt' : 'geometry_already_compliant'],
       evaluatorStatus: 'unknown',
       evaluatorReasonCodes: ['provider_response_incomplete'],
       orientationStatus: 'unknown',
@@ -735,6 +738,8 @@ check('17 complete non-pass evidence remains inspectable before persistence auth
   assert.equal(summary.packResults.topologyGateStatus, 'unknown')
   assert.equal(summary.packResults.studioGateStatus, 'unknown')
   assert.equal(summary.packResults.materialGateStatus, 'unknown')
+  assert.equal(summary.packResults.framingCorrectionGateStatus, 'pass')
+  assert.equal(summary.framingCorrectionContractVersion, 'visual-framing-correction/v1')
   assert.equal(summary.studioContractVersion, 'visual-studio-contract/v1')
   assert.equal(summary.materialContractVersion, 'material-zone-fidelity-contract/v1')
   assert.ok(summary.packResults.reasonCodes.includes('provider_response_incomplete'))
@@ -753,6 +758,9 @@ check('17 complete non-pass evidence remains inspectable before persistence auth
     geometryPack,
     slots: GENERATED_SCENES.slice(0, 4).map((scene, index) => ({
       slotId: scene.name,
+      framingCorrectionState: 'pass' as const,
+      framingCorrectionOutcome: 'not_required',
+      framingCorrectionReasonCodes: ['geometry_already_compliant'],
       evaluatorStatus: 'pass',
       evaluatorReasonCodes: [],
       orientationStatus: 'pass',
@@ -773,6 +781,9 @@ check('17 complete non-pass evidence remains inspectable before persistence auth
     geometryPack,
     slots: GENERATED_SCENES.map((scene, index) => ({
       slotId: scene.name,
+      framingCorrectionState: 'pass' as const,
+      framingCorrectionOutcome: 'not_required',
+      framingCorrectionReasonCodes: [scene.name === 'detail' ? 'detail_slot_exempt' : 'geometry_already_compliant'],
       evaluatorStatus: 'pass',
       evaluatorReasonCodes: [],
       orientationStatus: 'pass',
@@ -794,6 +805,9 @@ check('17 complete non-pass evidence remains inspectable before persistence auth
     geometryPack,
     slots: GENERATED_SCENES.map((scene, index) => ({
       slotId: scene.name,
+      framingCorrectionState: 'pass' as const,
+      framingCorrectionOutcome: 'not_required',
+      framingCorrectionReasonCodes: [scene.name === 'detail' ? 'detail_slot_exempt' : 'geometry_already_compliant'],
       evaluatorStatus: 'pass',
       evaluatorReasonCodes: [],
       orientationStatus: 'pass',
@@ -810,6 +824,30 @@ check('17 complete non-pass evidence remains inspectable before persistence auth
   assert.equal(topologyUnknown.packResults.topologyGateStatus, 'unknown')
   assert.equal(topologyUnknown.packResults.qualityGateStatus, 'unknown')
   assert.ok(topologyUnknown.packResults.reasonCodes.includes('COMPONENT_EVIDENCE_INSUFFICIENT'))
+
+  const framingUnknown = buildVisualQualityGateSummaryV01({
+    context,
+    geometryPack,
+    slots: GENERATED_SCENES.map((scene, index) => ({
+      slotId: scene.name,
+      framingCorrectionState: index === 0 ? 'unknown' as const : 'pass' as const,
+      framingCorrectionOutcome: index === 0 ? 'unsafe_background_extension' : 'not_required',
+      framingCorrectionReasonCodes: index === 0 ? ['background_nonuniform'] : ['geometry_already_compliant'],
+      evaluatorStatus: 'pass' as const,
+      evaluatorReasonCodes: [],
+      orientationStatus: 'pass' as const,
+      detectedView: VISUAL_LOCK_V01_ANGLE_CONTRACTS[scene.name].expectedDetectedView,
+      topologyStatus: 'pass' as const,
+      topologyReasonCodes: [],
+      studioStatus: 'pass' as const,
+      materialStatus: 'pass' as const,
+      materialReasonCodes: [],
+      geometry: geometry[index],
+    })),
+  })
+  assert.equal(framingUnknown.packResults.framingCorrectionGateStatus, 'unknown')
+  assert.equal(framingUnknown.packResults.qualityGateStatus, 'unknown')
+  assert.ok(framingUnknown.packResults.reasonCodes.includes('background_nonuniform'))
 })
 
 check('18 failure workflow clears only active visual state and preserves every sibling field', () => {

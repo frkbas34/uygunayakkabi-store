@@ -13,8 +13,18 @@ import {
   isVisualLockV01MaterialReasonCode,
   type VisualLockV01ComponentTopologyReasonCode,
   type VisualLockV01MaterialReasonCode,
+  type VisualGeometryGateResultV01,
+  type VisualGeometryMeasurementV01,
+  type VisualQualityTriState,
   type VisualQualityGateSummaryV01,
 } from './imageVisualLockV01'
+import type {
+  NormalizedVisualBoundingBoxV01,
+  VisualCanvasDimensionsV01,
+  VisualFramingCorrectionEvidenceV01,
+  VisualFramingCorrectionOutcomeV01,
+  VisualFramingCorrectionReasonV01,
+} from './imageFramingCorrectionV01'
 
 export type ImageGenerationContractVersion = typeof IMAGE_SLOT_CONTRACT_VERSION
 export type ImageSlotId = SlotKey
@@ -72,6 +82,7 @@ export type ImageSlotProviderMetadata = {
     maximumCenterOffsetPercent: number
     clippingDetected: boolean
   } | null
+  framingCorrection?: VisualFramingCorrectionEvidenceV01
 }
 
 export type ImageSlotResult = {
@@ -114,6 +125,7 @@ export type ImageGenerationAttemptMetadata = {
     componentTopology?: string
     evaluator?: string
     geometryGate?: string
+    framingCorrection?: string
     materialFidelity?: string
   }
   qualityGateSummary?: VisualQualityGateSummaryV01
@@ -155,10 +167,238 @@ type LegacyProviderSlotLog = {
   studioEvaluatorState?: unknown
   materialEvaluatorState?: unknown
   materialEvaluatorReasonCodes?: unknown
+  framingCorrection?: unknown
   rejectionReason?: unknown
 }
 
 const MAX_SAFE_SUMMARY_LENGTH = 240
+const VISUAL_FRAMING_CORRECTION_VERSION = 'visual-framing-correction/v1' as const
+const VISUAL_GEOMETRY_GATE_VERSION = 'visual-geometry-gate/v0.1' as const
+const VISUAL_FRAMING_CORRECTION_OUTCOMES: ReadonlySet<VisualFramingCorrectionOutcomeV01> = new Set([
+  'not_required',
+  'applied',
+  'unsafe_existing_clipping',
+  'transform_outside_allowed_bounds',
+  'unsafe_background_extension',
+  'insufficient_geometry_evidence',
+  'final_geometry_failed',
+])
+const VISUAL_FRAMING_CORRECTION_REASONS: ReadonlySet<VisualFramingCorrectionReasonV01> = new Set([
+  'detail_slot_exempt',
+  'geometry_already_compliant',
+  'framing_correction_applied',
+  'geometry_measurement_unavailable',
+  'foreground_bounds_unavailable',
+  'additional_product_suspected',
+  'existing_edge_clipping',
+  'insufficient_real_margin',
+  'required_scale_above_1_15',
+  'required_scale_below_reciprocal_1_15',
+  'translation_above_12_percent',
+  'background_not_warm_neutral',
+  'background_nonuniform',
+  'protected_bounds_would_crop',
+  'final_geometry_unavailable',
+  'final_geometry_not_pass',
+  'transform_failed',
+])
+const VISUAL_GEOMETRY_REASON_CODES = new Set([
+  'detail_slot_exempt',
+  'geometry_measurement_unavailable',
+  'occupancy_below_72',
+  'occupancy_above_82',
+  'center_offset_above_3',
+  'clipping_detected',
+])
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
+}
+
+function isVisualQualityTriState(value: unknown): value is VisualQualityTriState {
+  return value === 'pass' || value === 'fail' || value === 'unknown'
+}
+
+function sanitizeNormalizedBoundingBox(value: unknown): NormalizedVisualBoundingBoxV01 | null | undefined {
+  if (value === null) return null
+  if (!isRecord(value)) return undefined
+  const { x, y, width, height } = value
+  if (![x, y, width, height].every((coordinate) => typeof coordinate === 'number' && Number.isFinite(coordinate))) {
+    return undefined
+  }
+  if (
+    (x as number) < 0 || (y as number) < 0 || (width as number) <= 0 || (height as number) <= 0
+    || (x as number) + (width as number) > 1.000001
+    || (y as number) + (height as number) > 1.000001
+  ) return undefined
+  return { x: x as number, y: y as number, width: width as number, height: height as number }
+}
+
+function sanitizeCanvasDimensions(value: unknown): VisualCanvasDimensionsV01 | null | undefined {
+  if (value === null) return null
+  if (!isRecord(value)) return undefined
+  const { width, height } = value
+  if (
+    typeof width !== 'number' || !Number.isSafeInteger(width) || width <= 0
+    || typeof height !== 'number' || !Number.isSafeInteger(height) || height <= 0
+  ) return undefined
+  return { width, height }
+}
+
+function sanitizeVisualGeometryMeasurement(value: unknown): VisualGeometryMeasurementV01 | null | undefined {
+  if (value === null) return null
+  if (!isRecord(value)) return undefined
+  const {
+    occupancyPercent,
+    centerOffsetXPercent,
+    centerOffsetYPercent,
+    maximumCenterOffsetPercent,
+    clippingDetected,
+  } = value
+  if (
+    ![occupancyPercent, centerOffsetXPercent, centerOffsetYPercent, maximumCenterOffsetPercent]
+      .every((measurement) => typeof measurement === 'number' && Number.isFinite(measurement))
+    || typeof clippingDetected !== 'boolean'
+  ) return undefined
+  return {
+    occupancyPercent: occupancyPercent as number,
+    centerOffsetXPercent: centerOffsetXPercent as number,
+    centerOffsetYPercent: centerOffsetYPercent as number,
+    maximumCenterOffsetPercent: maximumCenterOffsetPercent as number,
+    clippingDetected,
+  }
+}
+
+function sanitizeVisualGeometryGate(value: unknown): VisualGeometryGateResultV01 | undefined {
+  if (!isRecord(value)) return undefined
+  const measurement = sanitizeVisualGeometryMeasurement(value.measurement)
+  if (
+    value.version !== VISUAL_GEOMETRY_GATE_VERSION
+    || !isValidSlotKey(value.slotId)
+    || typeof value.applicable !== 'boolean'
+    || !isVisualQualityTriState(value.state)
+    || !isVisualQualityTriState(value.clippingState)
+    || measurement === undefined
+    || !Array.isArray(value.reasonCodes)
+    || value.reasonCodes.length > 8
+    || !value.reasonCodes.every((reason) => typeof reason === 'string' && VISUAL_GEOMETRY_REASON_CODES.has(reason))
+  ) return undefined
+  return {
+    version: VISUAL_GEOMETRY_GATE_VERSION,
+    slotId: value.slotId,
+    applicable: value.applicable,
+    state: value.state,
+    clippingState: value.clippingState,
+    measurement,
+    reasonCodes: [...value.reasonCodes] as string[],
+  }
+}
+
+function sanitizeVisualFramingCorrectionEvidence(value: unknown): VisualFramingCorrectionEvidenceV01 | undefined {
+  if (!isRecord(value)) return undefined
+  const originalBoundingBox = sanitizeNormalizedBoundingBox(value.originalBoundingBox)
+  const finalBoundingBox = sanitizeNormalizedBoundingBox(value.finalBoundingBox)
+  const originalCanvas = sanitizeCanvasDimensions(value.originalCanvas)
+  const finalCanvas = sanitizeCanvasDimensions(value.finalCanvas)
+  const originalGeometry = sanitizeVisualGeometryGate(value.originalGeometry)
+  const finalGeometry = sanitizeVisualGeometryGate(value.finalGeometry)
+  const padding = isRecord(value.padding) ? value.padding : undefined
+  const numericFields = [
+    value.appliedScale,
+    value.plannedScale,
+    value.appliedTranslationXPercent,
+    value.appliedTranslationYPercent,
+    value.plannedTranslationXPercent,
+    value.plannedTranslationYPercent,
+  ]
+  if (
+    value.version !== VISUAL_FRAMING_CORRECTION_VERSION
+    || !isValidSlotKey(value.slotId)
+    || !isVisualQualityTriState(value.state)
+    || typeof value.outcome !== 'string'
+    || !VISUAL_FRAMING_CORRECTION_OUTCOMES.has(value.outcome as VisualFramingCorrectionOutcomeV01)
+    || !Array.isArray(value.reasonCodes)
+    || value.reasonCodes.length < 1
+    || value.reasonCodes.length > 16
+    || !value.reasonCodes.every((reason) => typeof reason === 'string'
+      && VISUAL_FRAMING_CORRECTION_REASONS.has(reason as VisualFramingCorrectionReasonV01))
+    || originalBoundingBox === undefined
+    || finalBoundingBox === undefined
+    || originalCanvas === undefined
+    || finalCanvas === undefined
+    || !numericFields.every((number) => typeof number === 'number' && Number.isFinite(number))
+    || typeof value.appliedScale !== 'number' || value.appliedScale <= 0
+    || typeof value.plannedScale !== 'number' || value.plannedScale <= 0
+    || typeof value.paddingUsed !== 'boolean'
+    || !padding
+    || !['top', 'right', 'bottom', 'left'].every((side) => {
+      const pixels = padding?.[side]
+      return typeof pixels === 'number' && Number.isSafeInteger(pixels) && pixels >= 0
+    })
+    || value.rotationDegrees !== 0
+    || value.aspectRatioChange !== 0
+    || value.mirrored !== false
+    || !isVisualQualityTriState(value.finalGeometryState)
+    || !originalGeometry
+    || !finalGeometry
+    || value.finalGeometryState !== finalGeometry.state
+    || originalGeometry.slotId !== value.slotId
+    || finalGeometry.slotId !== value.slotId
+  ) return undefined
+
+  const outcome = value.outcome as VisualFramingCorrectionOutcomeV01
+  const isApplied = outcome === 'applied'
+  if (
+    isApplied
+      ? value.state !== 'pass'
+        || value.appliedScale < (1 / 1.15) - 1e-6 || value.appliedScale > 1.15 + 1e-6
+        || Math.abs(value.appliedTranslationXPercent as number) > 12
+        || Math.abs(value.appliedTranslationYPercent as number) > 12
+        || finalGeometry.state !== 'pass'
+        || !finalBoundingBox || !finalCanvas || finalCanvas.width !== finalCanvas.height
+      : value.appliedScale !== 1
+        || value.appliedTranslationXPercent !== 0
+        || value.appliedTranslationYPercent !== 0
+        || value.paddingUsed !== false
+  ) return undefined
+  if (
+    (outcome === 'not_required' && value.state !== 'pass')
+    || ((outcome === 'unsafe_existing_clipping' || outcome === 'transform_outside_allowed_bounds') && value.state !== 'fail')
+    || ((outcome === 'unsafe_background_extension' || outcome === 'insufficient_geometry_evidence') && value.state !== 'unknown')
+    || (outcome === 'final_geometry_failed' && value.state === 'pass')
+  ) return undefined
+
+  return {
+    version: VISUAL_FRAMING_CORRECTION_VERSION,
+    slotId: value.slotId,
+    state: value.state,
+    outcome,
+    reasonCodes: [...value.reasonCodes] as VisualFramingCorrectionReasonV01[],
+    originalBoundingBox,
+    finalBoundingBox,
+    originalCanvas,
+    finalCanvas,
+    appliedScale: value.appliedScale,
+    plannedScale: value.plannedScale,
+    appliedTranslationXPercent: value.appliedTranslationXPercent as number,
+    appliedTranslationYPercent: value.appliedTranslationYPercent as number,
+    plannedTranslationXPercent: value.plannedTranslationXPercent as number,
+    plannedTranslationYPercent: value.plannedTranslationYPercent as number,
+    paddingUsed: value.paddingUsed,
+    padding: {
+      top: padding.top as number,
+      right: padding.right as number,
+      bottom: padding.bottom as number,
+      left: padding.left as number,
+    },
+    rotationDegrees: 0,
+    aspectRatioChange: 0,
+    mirrored: false,
+    originalGeometry,
+    finalGeometry,
+    finalGeometryState: value.finalGeometryState,
+  }
+}
 
 export function safeImageFailureSummary(error: unknown, fallback: string): string {
   const raw = error instanceof Error ? error.message : typeof error === 'string' ? error : fallback
@@ -260,8 +500,7 @@ export function markAttemptSlotsSkipped(
 }
 
 function providerMetadata(log: LegacyProviderSlotLog, fallbackProvider: string): ImageSlotProviderMetadata {
-  const triState = (value: unknown): value is 'pass' | 'fail' | 'unknown' =>
-    value === 'pass' || value === 'fail' || value === 'unknown'
+  const framingCorrection = sanitizeVisualFramingCorrectionEvidence(log.framingCorrection)
   return {
     provider: typeof log.provider === 'string' ? log.provider : fallbackProvider,
     attempts: typeof log.attempts === 'number' && log.attempts > 0 ? log.attempts : 1,
@@ -271,21 +510,22 @@ function providerMetadata(log: LegacyProviderSlotLog, fallbackProvider: string):
     ...(typeof log.shotCompliancePass === 'boolean' ? { shotCompliancePass: log.shotCompliancePass } : {}),
     ...(typeof log.detectedShot === 'string' ? { detectedShot: log.detectedShot.slice(0, 120) } : {}),
     ...(typeof log.qualityEvaluatorVersion === 'string' ? { qualityEvaluatorVersion: log.qualityEvaluatorVersion.slice(0, 120) } : {}),
-    ...(triState(log.qualityEvaluatorState) ? { qualityEvaluatorState: log.qualityEvaluatorState } : {}),
+    ...(isVisualQualityTriState(log.qualityEvaluatorState) ? { qualityEvaluatorState: log.qualityEvaluatorState } : {}),
     ...(Array.isArray(log.qualityEvaluatorReasonCodes) ? {
       qualityEvaluatorReasonCodes: log.qualityEvaluatorReasonCodes.filter((value): value is string => typeof value === 'string').map((value) => value.slice(0, 120)),
     } : {}),
-    ...(triState(log.colorEvaluatorState) ? { colorEvaluatorState: log.colorEvaluatorState } : {}),
-    ...(triState(log.componentTopologyEvaluatorState) ? { componentTopologyEvaluatorState: log.componentTopologyEvaluatorState } : {}),
+    ...(isVisualQualityTriState(log.colorEvaluatorState) ? { colorEvaluatorState: log.colorEvaluatorState } : {}),
+    ...(isVisualQualityTriState(log.componentTopologyEvaluatorState) ? { componentTopologyEvaluatorState: log.componentTopologyEvaluatorState } : {}),
     ...(Array.isArray(log.componentTopologyEvaluatorReasonCodes) ? {
       componentTopologyEvaluatorReasonCodes: log.componentTopologyEvaluatorReasonCodes.filter(isVisualLockV01ComponentTopologyReasonCode),
     } : {}),
-    ...(triState(log.orientationEvaluatorState) ? { orientationEvaluatorState: log.orientationEvaluatorState } : {}),
-    ...(triState(log.studioEvaluatorState) ? { studioEvaluatorState: log.studioEvaluatorState } : {}),
-    ...(triState(log.materialEvaluatorState) ? { materialEvaluatorState: log.materialEvaluatorState } : {}),
+    ...(isVisualQualityTriState(log.orientationEvaluatorState) ? { orientationEvaluatorState: log.orientationEvaluatorState } : {}),
+    ...(isVisualQualityTriState(log.studioEvaluatorState) ? { studioEvaluatorState: log.studioEvaluatorState } : {}),
+    ...(isVisualQualityTriState(log.materialEvaluatorState) ? { materialEvaluatorState: log.materialEvaluatorState } : {}),
     ...(Array.isArray(log.materialEvaluatorReasonCodes) ? {
       materialEvaluatorReasonCodes: log.materialEvaluatorReasonCodes.filter(isVisualLockV01MaterialReasonCode),
     } : {}),
+    ...(framingCorrection && framingCorrection.slotId === log.slot ? { framingCorrection } : {}),
   }
 }
 

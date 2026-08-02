@@ -56,6 +56,7 @@ import {
   resolveVisualLockTaskSelection,
   type VisualGeometryGateResultV01,
 } from '../lib/imageVisualLockV01'
+import { VISUAL_LOCK_V01_FRAMING_CORRECTION_VERSION } from '../lib/imageFramingCorrectionV01'
 
 export const imageGenTask: TaskConfig<{
   input: {
@@ -449,6 +450,7 @@ export const imageGenTask: TaskConfig<{
             componentTopology: visualLockContext.componentTopologyVersion,
             evaluator: visualLockContext.evaluatorVersion,
             geometryGate: visualLockContext.geometryGateVersion,
+            framingCorrection: VISUAL_LOCK_V01_FRAMING_CORRECTION_VERSION,
             materialFidelity: visualLockContext.materialContractVersion,
           } : {}),
         },
@@ -506,6 +508,7 @@ export const imageGenTask: TaskConfig<{
               componentTopologyHash: visualLockContext.componentTopologyHash,
               evaluatorVersion: visualLockContext.evaluatorVersion,
               geometryGateVersion: visualLockContext.geometryGateVersion,
+              framingCorrectionVersion: VISUAL_LOCK_V01_FRAMING_CORRECTION_VERSION,
               materialContractVersion: visualLockContext.materialContractVersion,
             } : {}),
           },
@@ -641,7 +644,11 @@ export const imageGenTask: TaskConfig<{
     // a matched pair in the prompt), so no deterministic duplication here — every
     // slot just gets centered. For a pair image the detector treats the two shoes
     // as one group and centers the pair. Runs before the stock-number overlay.
-    if (process.env.IMAGE_CENTERING_ENABLED !== '0') {
+    // V0.1 performs its governed correction before its single evaluator call so
+    // evaluator evidence and final geometry describe the same candidate bytes.
+    // Keep this legacy post-processing path byte-for-byte compatible for the
+    // default profile and Visual Lock V0 only.
+    if (process.env.IMAGE_CENTERING_ENABLED !== '0' && !isVisualLockV01Context(visualLockContext)) {
       const { normalizeProductCentering, normalizeBackground } = await import('../lib/imageCentering')
       const { frameCoverageForIndex } = await import('../lib/imageSlotContract')
       let centered = 0, bgFixed = 0
@@ -702,8 +709,12 @@ export const imageGenTask: TaskConfig<{
       const qualityGateSummary = buildVisualQualityGateSummaryV01({
         context: visualLockContext,
         geometryPack,
+        framingCorrectionContractVersion: VISUAL_LOCK_V01_FRAMING_CORRECTION_VERSION,
         slots: slotEnvelopes.map((slot, index) => ({
           slotId: slot.slotId,
+          framingCorrectionState: slot.provider?.framingCorrection?.state ?? 'unknown',
+          framingCorrectionOutcome: slot.provider?.framingCorrection?.outcome ?? 'insufficient_geometry_evidence',
+          framingCorrectionReasonCodes: slot.provider?.framingCorrection?.reasonCodes ?? ['framing_correction_evidence_missing'],
           evaluatorStatus: slot.provider?.qualityEvaluatorState ?? 'unknown',
           evaluatorReasonCodes: slot.provider?.qualityEvaluatorReasonCodes ?? ['evaluator_result_missing'],
           orientationStatus: slot.provider?.orientationEvaluatorState ?? 'unknown',

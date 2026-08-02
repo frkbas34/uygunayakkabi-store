@@ -2,10 +2,11 @@ import assert from 'node:assert/strict'
 import { createHash } from 'node:crypto'
 import { readFileSync } from 'node:fs'
 
-import { GENERATED_SCENES, GENERATED_SLOT_KEYS } from './imageSlotContract'
+import { GENERATED_SCENES, GENERATED_SLOT_KEYS, type SlotKey } from './imageSlotContract'
 import { blockImageSlotEnvelopesForQualityGate, createImageGenerationAttempt } from './imageGenerationContracts'
 import {
   buildVisualLockV01Context,
+  buildVisualLockV01ComponentTopologyContractPrompt,
   buildVisualLockV01FailureWorkflow,
   buildVisualLockV01AngleContractPrompt,
   buildVisualLockV01MaterialContractPrompt,
@@ -17,13 +18,15 @@ import {
   COMPONENT_TOPOLOGY_LOCK_V01_VERSION,
   evaluateVisualGeometryMeasurementV01,
   evaluateVisualGeometryPackV01,
-  normalizeVisualQualityProviderResponseV01,
+  normalizeVisualQualityProviderResponseV01 as normalizeVisualQualityProviderResponseWithContextV01,
   parseVisualLockCommand,
-  parseVisualQualityEvaluatorV01,
+  parseVisualQualityEvaluatorV01 as parseVisualQualityEvaluatorWithContextV01,
   resolveVisualLockTaskSelection,
   VISUAL_GEOMETRY_GATE_V01_VERSION,
   VISUAL_LOCK_V01_ANGLE_CONTRACTS,
   VISUAL_LOCK_V01_ANGLE_CONTRACT_VERSION,
+  VISUAL_LOCK_V01_COMPONENT_TOPOLOGY_CONTRACT,
+  VISUAL_LOCK_V01_COMPONENT_TOPOLOGY_REASON_CODES,
   VISUAL_LOCK_V01_MATERIAL_CONTRACT,
   VISUAL_LOCK_V01_MATERIAL_CONTRACT_VERSION,
   VISUAL_LOCK_V01_PROFILE_VERSION,
@@ -49,12 +52,16 @@ const evidence = {
   closureType: 'elastic slip-on',
   distinctiveFeatures: 'instep patch, curved side overlay, toe cap, pull tab',
   constructionNotes: 'curved overlay seam and visible instep patch boundary',
-  visualNotes: 'no visible metal; repeated sole cavity rhythm',
+  visualNotes: 'instep patch and curved overlay are the only ornaments; no visible metal hardware, laces, or eyelets; repeated sole cavity rhythm',
 }
 const context = buildVisualLockV01Context({ family: 'generic', identityEvidence: evidence })
+const parseVisualQualityEvaluatorV01 = (raw: string, slotId: SlotKey) =>
+  parseVisualQualityEvaluatorWithContextV01(raw, slotId, context)
+const normalizeVisualQualityProviderResponseV01 = (response: unknown, slotId: SlotKey) =>
+  normalizeVisualQualityProviderResponseWithContextV01(response, slotId, context)
 const completeEvaluatorPayload = {
   color: { state: 'pass', detectedColor: 'light grey', evidence: 'light grey mesh upper is visible' },
-  topology: { state: 'pass', evidence: 'instep patch and curved side overlay are retained' },
+  topology: { state: 'pass', reasonCodes: [], evidence: 'instep patch and curved side overlay are retained' },
   orientation: { state: 'pass', detectedView: 'true_rear', evidence: 'heel is shown straight-on and symmetrically' },
   studio: { state: 'pass', evidence: 'uniform warm-neutral studio and subtle contact shadow' },
   material: { state: 'pass', reasonCodes: [], evidence: 'matte mesh material zones and boundaries are preserved' },
@@ -98,6 +105,11 @@ check('5 component topology is canonical and source-supported', () => {
   assert.equal(context.componentTopologyVersion, COMPONENT_TOPOLOGY_LOCK_V01_VERSION)
   assert.match(context.serializedComponentTopology, /instep patch, curved side overlay, toe cap, pull tab/)
   assert.match(context.serializedComponentTopology, /repeated sole cavity rhythm/)
+  assert.match(context.componentTopology.sourceSupported.hardwarePresence, /no visible metal hardware/i)
+  assert.match(context.componentTopology.sourceSupported.ornamentPresence, /instep patch/i)
+  assert.match(context.componentTopology.sourceSupported.lacesAndEyelets, /laces, or eyelets/i)
+  assert.equal(context.identityAnchor.sourceEvidence.operatorVisualFacts, 'unknown')
+  assert.doesNotMatch(context.serializedComponentTopology, /preservationRule|uncertaintyRule/)
   assert.equal(context.componentTopologyHash.length, 64)
 })
 
@@ -144,7 +156,7 @@ check('7c hero_3q cannot silently use side, front, top, or rear-three-quarter', 
   for (const detectedView of ['side', 'front', 'top', 'rear_three_quarter']) {
     const result = parseVisualQualityEvaluatorV01(JSON.stringify({
       color: { state: 'pass', detectedColor: 'light grey', evidence: 'visible' },
-      topology: { state: 'pass', evidence: 'source topology retained' },
+      topology: { state: 'pass', reasonCodes: [], evidence: 'source topology retained' },
       orientation: { state: 'pass', detectedView, evidence: 'clearly visible semantic view' },
     }), 'hero_3q')
     assert.equal(result.orientation.state, 'fail')
@@ -184,7 +196,7 @@ check('7e detail keeps its durable slot ID but receives material_detail semantic
 check('7f a clear angle failure is fail while incomplete or unsupported angle evidence is unknown', () => {
   const clearFailure = parseVisualQualityEvaluatorV01(JSON.stringify({
     color: { state: 'pass', detectedColor: 'light grey', evidence: 'visible' },
-    topology: { state: 'pass', evidence: 'source topology retained' },
+    topology: { state: 'pass', reasonCodes: [], evidence: 'source topology retained' },
     orientation: { state: 'fail', detectedView: 'side', evidence: 'strict lateral profile instead of hero three-quarter' },
   }), 'hero_3q')
   assert.equal(clearFailure.state, 'fail')
@@ -429,24 +441,135 @@ check('7s material_detail receives the same fidelity contract without replacing 
   assert.match(canonical, /never convert the detail into a hardware, logo, ornament, or branding close-up/i)
 })
 
+check('7t generation and evaluation share one canonical topology contract in every slot', () => {
+  assert.equal(VISUAL_LOCK_V01_COMPONENT_TOPOLOGY_CONTRACT.version, COMPONENT_TOPOLOGY_LOCK_V01_VERSION)
+  assert.deepEqual(VISUAL_LOCK_V01_COMPONENT_TOPOLOGY_CONTRACT.reasonCodes, VISUAL_LOCK_V01_COMPONENT_TOPOLOGY_REASON_CODES)
+  for (const slotId of GENERATED_SLOT_KEYS) {
+    const canonical = buildVisualLockV01ComponentTopologyContractPrompt(context, slotId)
+    assert.ok(buildVisualLockV01PromptFixture(context)[GENERATED_SLOT_KEYS.indexOf(slotId)].includes(canonical))
+    assert.ok(buildVisualQualityEvaluatorPromptV01(context, slotId).includes(canonical))
+  }
+  const prompt = buildVisualLockV01ComponentTopologyContractPrompt(context, 'side')
+  assert.match(prompt, /presence and source-supported absence/i)
+  assert.match(prompt, /adjacency, overlap, containment, and layering/i)
+  assert.match(prompt, /cross-view component identity and continuity/i)
+  assert.match(prompt, /one shoe into a pair, second shoe, mirrored shoe, or changed handedness/i)
+  assert.match(prompt, /another generated slot is never source authority/i)
+  assert.doesNotMatch(prompt, /Product 349|\bBOSS\b|horsebit|burgundy/i)
+})
+
+check('7u every prohibited topology drift produces fail with its stable reason code', () => {
+  const cases = [
+    ['UNSUPPORTED_COMPONENT_ADDITION', 'an unsupported buckle was added'],
+    ['SOURCE_COMPONENT_REMOVAL', 'the source-supported pull tab was removed'],
+    ['COMPONENT_COUNT_DRIFT', 'one loop was duplicated'],
+    ['COMPONENT_COUNT_DRIFT', 'two source panels were merged into one'],
+    ['COMPONENT_COUNT_DRIFT', 'one source overlay was split into two'],
+    ['COMPONENT_TOPOLOGY_HALLUCINATION', 'the source closure category became a different functional assembly'],
+    ['COMPONENT_SHAPE_DRIFT', 'the curved overlay became a rectangular panel'],
+    ['COMPONENT_TOPOLOGY_HALLUCINATION', 'a localized ornament became a spanning hardware assembly'],
+    ['COMPONENT_RELOCATION', 'the pull tab moved to the outer side and rotated'],
+    ['COMPONENT_ATTACHMENT_DRIFT', 'the strap was reattached to an invented anchor'],
+    ['COMPONENT_ADJACENCY_DRIFT', 'the overlay no longer overlaps the source-supported panel edge'],
+    ['UNSUPPORTED_COMPONENT_ADDITION', 'an unsupported seam and panel boundary were added'],
+    ['SOURCE_COMPONENT_REMOVAL', 'a source-supported stitching boundary disappeared'],
+    ['BRAND_PLACEMENT_DRIFT', 'the embossed brand moved zones and became a metal plaque'],
+    ['PRODUCT_COUNT_DRIFT', 'the source single shoe became a mirrored pair'],
+  ] as const
+  for (const [reasonCode, evidenceText] of cases) {
+    const result = parseVisualQualityEvaluatorV01(JSON.stringify({
+      ...completeEvaluatorPayload,
+      topology: { state: 'fail', reasonCodes: [reasonCode], evidence: evidenceText },
+    }), 'back')
+    assert.equal(result.topology.state, 'fail', evidenceText)
+    assert.deepEqual(result.topology.reasonCodes, [reasonCode])
+    assert.equal(result.state, 'fail')
+    assert.ok(result.reasonCodes.includes(reasonCode))
+    assert.equal(combineVisualQualityGateV01([result.state], 'pass'), 'fail')
+  }
+})
+
+check('7v preserved topology passes and insufficient topology evidence is unknown', () => {
+  const preserved = parseVisualQualityEvaluatorV01(JSON.stringify(completeEvaluatorPayload), 'back')
+  assert.equal(preserved.topology.state, 'pass')
+  assert.deepEqual(preserved.topology.reasonCodes, [])
+
+  const insufficient = parseVisualQualityEvaluatorV01(JSON.stringify({
+    ...completeEvaluatorPayload,
+    topology: {
+      state: 'unknown',
+      reasonCodes: ['COMPONENT_EVIDENCE_INSUFFICIENT'],
+      evidence: 'the source does not reveal the hidden attachment point',
+    },
+  }), 'back')
+  assert.equal(insufficient.topology.state, 'unknown')
+  assert.deepEqual(insufficient.topology.reasonCodes, ['COMPONENT_EVIDENCE_INSUFFICIENT'])
+  assert.equal(insufficient.state, 'unknown')
+  assert.equal(combineVisualQualityGateV01([insufficient.state], 'pass'), 'unknown')
+
+  const partialSourceContext = buildVisualLockV01Context({
+    family: 'generic',
+    identityEvidence: { closureType: 'slip-on' },
+  })
+  const unsupportedPass = parseVisualQualityEvaluatorWithContextV01(
+    JSON.stringify(completeEvaluatorPayload),
+    'back',
+    partialSourceContext,
+  )
+  assert.equal(unsupportedPass.topology.state, 'unknown')
+  assert.deepEqual(unsupportedPass.topology.reasonCodes, ['COMPONENT_EVIDENCE_INSUFFICIENT'])
+  assert.ok(unsupportedPass.reasonCodes.includes('topology_source_evidence_incomplete'))
+})
+
+check('7w partial, malformed, unsupported, and state-incompatible topology verdicts remain unknown', () => {
+  const invalidTopologyResults = [
+    { state: 'pass', evidence: 'preserved' },
+    { state: 'pass', reasonCodes: ['SOURCE_COMPONENT_REMOVAL'], evidence: 'contradictory' },
+    { state: 'fail', reasonCodes: [], evidence: 'drift without a stable reason' },
+    { state: 'fail', reasonCodes: ['COMPONENT_EVIDENCE_INSUFFICIENT'], evidence: 'wrong reason for fail' },
+    { state: 'unknown', reasonCodes: [], evidence: 'missing insufficiency reason' },
+    { state: 'unknown', reasonCodes: ['SOURCE_COMPONENT_REMOVAL'], evidence: 'wrong reason for unknown' },
+    { state: 'pass', reasonCodes: ['UNSUPPORTED_VALUE'], evidence: 'unsupported reason' },
+    { state: 'unsupported', reasonCodes: [], evidence: 'unsupported state' },
+    { state: 'pass', reasonCodes: [], evidence: '' },
+  ]
+  for (const topology of invalidTopologyResults) {
+    const result = parseVisualQualityEvaluatorV01(JSON.stringify({ ...completeEvaluatorPayload, topology }), 'back')
+    assert.equal(result.topology.state, 'unknown')
+    assert.equal(result.state, 'unknown')
+    assert.deepEqual(result.topology.reasonCodes, [])
+  }
+})
+
+check('7x material_detail crop preserves visible topology without treating outside-crop components as removals', () => {
+  const canonical = buildVisualLockV01ComponentTopologyContractPrompt(context, 'detail')
+  assert.ok(buildVisualLockV01PromptFixture(context)[4].includes(canonical))
+  assert.ok(buildVisualQualityEvaluatorPromptV01(context, 'detail').includes(canonical))
+  assert.match(canonical, /outside-crop component a removal/i)
+  assert.match(canonical, /no visible component may be omitted/i)
+  assert.match(canonical, /visible cropped component and boundary must remain structurally correct/i)
+  assert.match(canonical, /never permits invented hardware, logos, seams, plaques, or attachment points/i)
+  assert.match(canonical, /does not redefine the angle, studio, material-zone, framing, geometry/i)
+})
+
 check('8 malformed, missing, unsupported, and incomplete evaluator output are unknown', () => {
   assert.equal(parseVisualQualityEvaluatorV01('{bad', 'back').state, 'unknown')
   assert.equal(parseVisualQualityEvaluatorV01('{}', 'back').state, 'unknown')
-  assert.equal(parseVisualQualityEvaluatorV01(JSON.stringify({ color: { state: 'yes', evidence: 'x' }, topology: { state: 'pass', evidence: 'x' }, orientation: { state: 'pass', detectedView: 'true_rear', evidence: 'x' } }), 'back').state, 'unknown')
-  assert.equal(parseVisualQualityEvaluatorV01(JSON.stringify({ color: { state: 'pass' }, topology: { state: 'pass', evidence: 'x' }, orientation: { state: 'pass', detectedView: 'true_rear', evidence: 'x' } }), 'back').state, 'unknown')
-  assert.equal(parseVisualQualityEvaluatorV01(JSON.stringify({ color: { state: 'pass', evidence: 'grey upper' }, topology: { state: 'pass', evidence: 'x' }, orientation: { state: 'pass', detectedView: 'true_rear', evidence: 'x' } }), 'back').state, 'unknown')
-  assert.equal(parseVisualQualityEvaluatorV01(JSON.stringify({ color: { state: 'pass', detectedColor: 'grey', evidence: 'grey upper' }, topology: { state: 'pass', evidence: 'x' }, orientation: { state: 'pass', detectedView: 'sideways', evidence: 'x' } }), 'back').state, 'unknown')
+  assert.equal(parseVisualQualityEvaluatorV01(JSON.stringify({ color: { state: 'yes', evidence: 'x' }, topology: { state: 'pass', reasonCodes: [], evidence: 'x' }, orientation: { state: 'pass', detectedView: 'true_rear', evidence: 'x' } }), 'back').state, 'unknown')
+  assert.equal(parseVisualQualityEvaluatorV01(JSON.stringify({ color: { state: 'pass' }, topology: { state: 'pass', reasonCodes: [], evidence: 'x' }, orientation: { state: 'pass', detectedView: 'true_rear', evidence: 'x' } }), 'back').state, 'unknown')
+  assert.equal(parseVisualQualityEvaluatorV01(JSON.stringify({ color: { state: 'pass', evidence: 'grey upper' }, topology: { state: 'pass', reasonCodes: [], evidence: 'x' }, orientation: { state: 'pass', detectedView: 'true_rear', evidence: 'x' } }), 'back').state, 'unknown')
+  assert.equal(parseVisualQualityEvaluatorV01(JSON.stringify({ color: { state: 'pass', detectedColor: 'grey', evidence: 'grey upper' }, topology: { state: 'pass', reasonCodes: [], evidence: 'x' }, orientation: { state: 'pass', detectedView: 'sideways', evidence: 'x' } }), 'back').state, 'unknown')
 })
 
 check('9 explicit fail outranks unknown and pass', () => {
-  const result = parseVisualQualityEvaluatorV01(JSON.stringify({ color: { state: 'unknown', detectedColor: 'unknown', evidence: '' }, topology: { state: 'fail', evidence: 'patch removed' }, orientation: { state: 'pass', detectedView: 'top', evidence: 'overhead view' } }), 'top')
+  const result = parseVisualQualityEvaluatorV01(JSON.stringify({ color: { state: 'unknown', detectedColor: 'unknown', evidence: '' }, topology: { state: 'fail', reasonCodes: ['SOURCE_COMPONENT_REMOVAL'], evidence: 'patch removed' }, orientation: { state: 'pass', detectedView: 'top', evidence: 'overhead view' } }), 'top')
   assert.equal(result.state, 'fail')
 })
 
 check('10 only true_rear can pass the back evaluator', () => {
-  const pass = parseVisualQualityEvaluatorV01(JSON.stringify({ ...completeEvaluatorPayload, color: { state: 'pass', detectedColor: 'grey', evidence: 'grey upper' }, topology: { state: 'pass', evidence: 'patch retained' }, orientation: { state: 'pass', detectedView: 'true_rear', evidence: 'symmetric heel edges' } }), 'back')
+  const pass = parseVisualQualityEvaluatorV01(JSON.stringify({ ...completeEvaluatorPayload, color: { state: 'pass', detectedColor: 'grey', evidence: 'grey upper' }, topology: { state: 'pass', reasonCodes: [], evidence: 'patch retained' }, orientation: { state: 'pass', detectedView: 'true_rear', evidence: 'symmetric heel edges' } }), 'back')
   assert.equal(pass.state, 'pass')
-  const mismatch = parseVisualQualityEvaluatorV01(JSON.stringify({ ...completeEvaluatorPayload, color: { state: 'pass', detectedColor: 'grey', evidence: 'grey upper' }, topology: { state: 'pass', evidence: 'patch retained' }, orientation: { state: 'pass', detectedView: 'rear_three_quarter', evidence: 'side face visible' } }), 'back')
+  const mismatch = parseVisualQualityEvaluatorV01(JSON.stringify({ ...completeEvaluatorPayload, color: { state: 'pass', detectedColor: 'grey', evidence: 'grey upper' }, topology: { state: 'pass', reasonCodes: [], evidence: 'patch retained' }, orientation: { state: 'pass', detectedView: 'rear_three_quarter', evidence: 'side face visible' } }), 'back')
   assert.equal(mismatch.state, 'fail')
   assert.ok(mismatch.reasonCodes.includes('back_not_true_rear'))
 })
@@ -464,7 +587,7 @@ check('10a complete valid provider response preserves pass and fail for STOP or 
 
   const fail = normalizeVisualQualityProviderResponseV01(providerEnvelope(JSON.stringify({
     ...completeEvaluatorPayload,
-    topology: { state: 'fail', evidence: 'source-supported instep patch is absent' },
+    topology: { state: 'fail', reasonCodes: ['SOURCE_COMPONENT_REMOVAL'], evidence: 'source-supported instep patch is absent' },
   })), 'back')
   assert.equal(fail.state, 'fail')
   assert.ok(fail.reasonCodes.includes('component_topology_failed'))
@@ -483,12 +606,14 @@ check('10c malformed provider response remains unknown', () => {
   const result = normalizeVisualQualityProviderResponseV01(providerEnvelope('not json'), 'back')
   assert.equal(result.state, 'unknown')
   assert.deepEqual(result.reasonCodes, ['malformed_response'])
+  assert.deepEqual(result.topology.reasonCodes, [])
 })
 
 check('10d provider error remains unknown', () => {
   const result = normalizeVisualQualityProviderResponseV01({ error: { code: 503 } }, 'back')
   assert.equal(result.state, 'unknown')
   assert.deepEqual(result.reasonCodes, ['provider_error'])
+  assert.deepEqual(result.topology.reasonCodes, [])
 })
 
 check('10e unsupported provider and evaluator status values remain unknown', () => {
@@ -570,7 +695,7 @@ check('15 V0.1 profile versions are exact', () => {
 
 check('16 V0.1 prompt fixture digest is pinned', () => {
   const digest = createHash('sha256').update(JSON.stringify(buildVisualLockV01PromptFixture(context))).digest('hex')
-  assert.equal(digest, 'a4ae4837fcbacf6aed7e263b78ad764adc1a54a90d9dfe9e90bf144d34059405')
+  assert.equal(digest, 'e8c1becfcb7d04528a22cdb40584088b0b455589170a3c6bb1376ef05eccdb47')
 })
 
 check('17 complete non-pass evidence remains inspectable before persistence authorization', () => {
@@ -593,6 +718,7 @@ check('17 complete non-pass evidence remains inspectable before persistence auth
       orientationStatus: 'unknown',
       detectedView: 'unknown',
       topologyStatus: 'unknown',
+      topologyReasonCodes: ['COMPONENT_EVIDENCE_INSUFFICIENT'],
       studioStatus: 'unknown',
       materialStatus: 'unknown',
       materialReasonCodes: ['MATERIAL_EVIDENCE_INSUFFICIENT'],
@@ -606,14 +732,18 @@ check('17 complete non-pass evidence remains inspectable before persistence auth
   assert.equal(summary.packResults.occupancyMaximumPercent, 80)
   assert.equal(summary.packResults.occupancySpreadPercent, 8)
   assert.equal(summary.packResults.requiredEvaluatorCompleteness, 'unknown')
+  assert.equal(summary.packResults.topologyGateStatus, 'unknown')
   assert.equal(summary.packResults.studioGateStatus, 'unknown')
   assert.equal(summary.packResults.materialGateStatus, 'unknown')
   assert.equal(summary.studioContractVersion, 'visual-studio-contract/v1')
   assert.equal(summary.materialContractVersion, 'material-zone-fidelity-contract/v1')
   assert.ok(summary.packResults.reasonCodes.includes('provider_response_incomplete'))
+  assert.ok(summary.packResults.reasonCodes.includes('COMPONENT_EVIDENCE_INSUFFICIENT'))
   assert.ok(summary.packResults.reasonCodes.includes('MATERIAL_EVIDENCE_INSUFFICIENT'))
   assert.ok(summary.slotResults.every((slot) => slot.geometryStatus === 'pass'
     && slot.occupancyPercent !== null
+    && slot.topologyResult.status === 'unknown'
+    && slot.topologyResult.reasonCodes[0] === 'COMPONENT_EVIDENCE_INSUFFICIENT'
     && slot.studioResult.status === 'unknown'
     && slot.materialResult.status === 'unknown'
     && slot.materialResult.reasonCodes[0] === 'MATERIAL_EVIDENCE_INSUFFICIENT'))
@@ -628,6 +758,7 @@ check('17 complete non-pass evidence remains inspectable before persistence auth
       orientationStatus: 'pass',
       detectedView: scene.name,
       topologyStatus: 'pass',
+      topologyReasonCodes: [],
       studioStatus: 'pass',
       materialStatus: 'pass',
       materialReasonCodes: [],
@@ -647,6 +778,7 @@ check('17 complete non-pass evidence remains inspectable before persistence auth
       orientationStatus: 'pass',
       detectedView: VISUAL_LOCK_V01_ANGLE_CONTRACTS[scene.name].expectedDetectedView,
       topologyStatus: 'pass',
+      topologyReasonCodes: [],
       studioStatus: 'pass',
       materialStatus: index === 0 ? 'unknown' : 'pass',
       materialReasonCodes: index === 0 ? ['MATERIAL_EVIDENCE_INSUFFICIENT'] : [],
@@ -656,6 +788,28 @@ check('17 complete non-pass evidence remains inspectable before persistence auth
   assert.equal(materialUnknown.packResults.requiredEvaluatorCompleteness, 'pass')
   assert.equal(materialUnknown.packResults.materialGateStatus, 'unknown')
   assert.equal(materialUnknown.packResults.qualityGateStatus, 'unknown')
+
+  const topologyUnknown = buildVisualQualityGateSummaryV01({
+    context,
+    geometryPack,
+    slots: GENERATED_SCENES.map((scene, index) => ({
+      slotId: scene.name,
+      evaluatorStatus: 'pass',
+      evaluatorReasonCodes: [],
+      orientationStatus: 'pass',
+      detectedView: VISUAL_LOCK_V01_ANGLE_CONTRACTS[scene.name].expectedDetectedView,
+      topologyStatus: index === 0 ? 'unknown' : 'pass',
+      topologyReasonCodes: index === 0 ? ['COMPONENT_EVIDENCE_INSUFFICIENT'] : [],
+      studioStatus: 'pass',
+      materialStatus: 'pass',
+      materialReasonCodes: [],
+      geometry: geometry[index],
+    })),
+  })
+  assert.equal(topologyUnknown.packResults.requiredEvaluatorCompleteness, 'pass')
+  assert.equal(topologyUnknown.packResults.topologyGateStatus, 'unknown')
+  assert.equal(topologyUnknown.packResults.qualityGateStatus, 'unknown')
+  assert.ok(topologyUnknown.packResults.reasonCodes.includes('COMPONENT_EVIDENCE_INSUFFICIENT'))
 })
 
 check('18 failure workflow clears only active visual state and preserves every sibling field', () => {
@@ -698,6 +852,7 @@ check('19 runtime wiring retains transient bytes through evidence and drops them
   assert.match(provider, /if \(isVisualLockV01Context\(visualLock\)\)/)
   assert.match(provider, /finalBuf = jpegBuf[\s\S]*quality\.state !== 'pass'/)
   assert.match(provider, /unknownVisualQualityEvaluatorResultV01\('evaluator_unavailable'\)/)
+  assert.match(provider, /slotLog\.componentTopologyEvaluatorReasonCodes = result\.topology\.reasonCodes/)
   assert.match(provider, /slotLog\.materialEvaluatorState = result\.material\.state/)
   assert.match(provider, /slotLog\.materialEvaluatorReasonCodes = result\.material\.reasonCodes/)
   assert.equal((provider.match(/!isVisualLockV01Context\(visualLock\) && getSlotByKey\(scene\.name\)\?\.layout === 'pair'/g) ?? []).length, 2)
@@ -707,9 +862,11 @@ check('19 runtime wiring retains transient bytes through evidence and drops them
   assert.match(task, /blockImageSlotEnvelopesForQualityGate/)
   assert.match(contracts, /code: 'quality_gate_failed'/)
   assert.match(contracts, /materialEvaluatorReasonCodes/)
+  assert.match(contracts, /componentTopologyEvaluatorReasonCodes/)
   assert.match(task, /buildVisualLockV01FailureWorkflow/)
   assert.match(task, /materialFidelity: visualLockContext\.materialContractVersion/)
   assert.match(task, /materialStatus: slot\.provider\?\.materialEvaluatorState \?\? 'unknown'/)
+  assert.match(task, /topologyReasonCodes: slot\.provider\?\.componentTopologyEvaluatorReasonCodes/)
   assert.ok(task.lastIndexOf('blockImageSlotEnvelopesForQualityGate({') < task.indexOf('persistGeneratedSlotEnvelopes({'))
   assert.match(route, /parseVisualLockCommand/)
 })

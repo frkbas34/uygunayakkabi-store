@@ -88,6 +88,8 @@ await check('partial provider failure cannot relabel later successful slots', ()
         success: true,
         attempts: 1,
         studioEvaluatorState: 'pass',
+        componentTopologyEvaluatorState: 'fail',
+        componentTopologyEvaluatorReasonCodes: ['SOURCE_COMPONENT_REMOVAL', 'COMPONENT_RELOCATION'],
         materialEvaluatorState: 'fail',
         materialEvaluatorReasonCodes: ['UNSUPPORTED_MATERIAL_ADDITION', 'MATERIAL_ZONE_DRIFT'],
       },
@@ -99,10 +101,14 @@ await check('partial provider failure cannot relabel later successful slots', ()
   })
   assert.equal(results.length, 5)
   assert.equal(results[0].provider?.studioEvaluatorState, 'pass')
+  assert.equal(results[0].provider?.componentTopologyEvaluatorState, 'fail')
+  assert.deepEqual(results[0].provider?.componentTopologyEvaluatorReasonCodes, ['SOURCE_COMPONENT_REMOVAL', 'COMPONENT_RELOCATION'])
   assert.equal(results[0].provider?.materialEvaluatorState, 'fail')
   assert.deepEqual(results[0].provider?.materialEvaluatorReasonCodes, ['UNSUPPORTED_MATERIAL_ADDITION', 'MATERIAL_ZONE_DRIFT'])
   const serialized = serializeSlotEnvelopes(results)
   assert.equal(serialized[0].provider?.materialEvaluatorState, 'fail')
+  assert.equal(serialized[0].provider?.componentTopologyEvaluatorState, 'fail')
+  assert.deepEqual(serialized[0].provider?.componentTopologyEvaluatorReasonCodes, ['SOURCE_COMPONENT_REMOVAL', 'COMPONENT_RELOCATION'])
   assert.deepEqual(serialized[0].provider?.materialEvaluatorReasonCodes, ['UNSUPPORTED_MATERIAL_ADDITION', 'MATERIAL_ZONE_DRIFT'])
   assert.equal(results[1].slotId, 'hero_3q')
   assert.equal(results[1].status, 'provider_failed')

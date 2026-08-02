@@ -9,7 +9,9 @@ import {
   type SlotKey,
 } from './imageSlotContract'
 import {
+  isVisualLockV01ComponentTopologyReasonCode,
   isVisualLockV01MaterialReasonCode,
+  type VisualLockV01ComponentTopologyReasonCode,
   type VisualLockV01MaterialReasonCode,
   type VisualQualityGateSummaryV01,
 } from './imageVisualLockV01'
@@ -54,6 +56,7 @@ export type ImageSlotProviderMetadata = {
   qualityEvaluatorReasonCodes?: string[]
   colorEvaluatorState?: 'pass' | 'fail' | 'unknown'
   componentTopologyEvaluatorState?: 'pass' | 'fail' | 'unknown'
+  componentTopologyEvaluatorReasonCodes?: VisualLockV01ComponentTopologyReasonCode[]
   orientationEvaluatorState?: 'pass' | 'fail' | 'unknown'
   studioEvaluatorState?: 'pass' | 'fail' | 'unknown'
   materialEvaluatorState?: 'pass' | 'fail' | 'unknown'
@@ -147,6 +150,7 @@ type LegacyProviderSlotLog = {
   qualityEvaluatorReasonCodes?: unknown
   colorEvaluatorState?: unknown
   componentTopologyEvaluatorState?: unknown
+  componentTopologyEvaluatorReasonCodes?: unknown
   orientationEvaluatorState?: unknown
   studioEvaluatorState?: unknown
   materialEvaluatorState?: unknown
@@ -273,6 +277,9 @@ function providerMetadata(log: LegacyProviderSlotLog, fallbackProvider: string):
     } : {}),
     ...(triState(log.colorEvaluatorState) ? { colorEvaluatorState: log.colorEvaluatorState } : {}),
     ...(triState(log.componentTopologyEvaluatorState) ? { componentTopologyEvaluatorState: log.componentTopologyEvaluatorState } : {}),
+    ...(Array.isArray(log.componentTopologyEvaluatorReasonCodes) ? {
+      componentTopologyEvaluatorReasonCodes: log.componentTopologyEvaluatorReasonCodes.filter(isVisualLockV01ComponentTopologyReasonCode),
+    } : {}),
     ...(triState(log.orientationEvaluatorState) ? { orientationEvaluatorState: log.orientationEvaluatorState } : {}),
     ...(triState(log.studioEvaluatorState) ? { studioEvaluatorState: log.studioEvaluatorState } : {}),
     ...(triState(log.materialEvaluatorState) ? { materialEvaluatorState: log.materialEvaluatorState } : {}),

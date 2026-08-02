@@ -709,6 +709,7 @@ export const imageGenTask: TaskConfig<{
           orientationStatus: slot.provider?.orientationEvaluatorState ?? 'unknown',
           detectedView: slot.provider?.detectedShot ?? 'unknown',
           topologyStatus: slot.provider?.componentTopologyEvaluatorState ?? 'unknown',
+          topologyReasonCodes: slot.provider?.componentTopologyEvaluatorReasonCodes ?? [],
           studioStatus: slot.provider?.studioEvaluatorState ?? 'unknown',
           materialStatus: slot.provider?.materialEvaluatorState ?? 'unknown',
           materialReasonCodes: slot.provider?.materialEvaluatorReasonCodes ?? [],

@@ -25,6 +25,7 @@ import {
   unknownVisualQualityEvaluatorResultV01,
   type VisualLockContext,
   type VisualLockV01Context,
+  type VisualLockV01ComponentTopologyReasonCode,
   type VisualLockV01MaterialReasonCode,
   type VisualQualityEvaluatorResultV01,
   type VisualQualityTriState,
@@ -473,6 +474,7 @@ export type SlotLog = {
   qualityEvaluatorReasonCodes?: string[]
   colorEvaluatorState?: VisualQualityTriState
   componentTopologyEvaluatorState?: VisualQualityTriState
+  componentTopologyEvaluatorReasonCodes?: VisualLockV01ComponentTopologyReasonCode[]
   orientationEvaluatorState?: VisualQualityTriState
   studioEvaluatorState?: VisualQualityTriState
   materialEvaluatorState?: VisualQualityTriState
@@ -1044,7 +1046,7 @@ async function checkVisualQualityV01(
     )
     if (!response.ok) return unknownVisualQualityEvaluatorResultV01(`provider_http_${response.status}`)
     const data = await response.json().catch(() => null)
-    return normalizeVisualQualityProviderResponseV01(data, slotId)
+    return normalizeVisualQualityProviderResponseV01(data, slotId, context)
   } catch (error) {
     const code = error instanceof Error && error.name === 'TimeoutError'
       ? 'provider_timeout'
@@ -1062,6 +1064,7 @@ function applyVisualQualityV01ToSlotLog(
   slotLog.qualityEvaluatorReasonCodes = result.reasonCodes
   slotLog.colorEvaluatorState = result.color.state
   slotLog.componentTopologyEvaluatorState = result.topology.state
+  slotLog.componentTopologyEvaluatorReasonCodes = result.topology.reasonCodes
   slotLog.orientationEvaluatorState = result.orientation.state
   slotLog.studioEvaluatorState = result.studio.state
   slotLog.materialEvaluatorState = result.material.state

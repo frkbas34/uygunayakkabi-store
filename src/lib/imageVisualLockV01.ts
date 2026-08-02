@@ -21,6 +21,23 @@ export const VISUAL_QUALITY_EVALUATOR_V01_VERSION = 'visual-quality-evaluator/v0
 export const VISUAL_GEOMETRY_GATE_V01_VERSION = 'visual-geometry-gate/v0.1' as const
 export const VISUAL_LOCK_V01_MATERIAL_CONTRACT_VERSION = 'material-zone-fidelity-contract/v1' as const
 
+export const VISUAL_LOCK_V01_COMPONENT_TOPOLOGY_REASON_CODES = [
+  'COMPONENT_TOPOLOGY_HALLUCINATION',
+  'UNSUPPORTED_COMPONENT_ADDITION',
+  'SOURCE_COMPONENT_REMOVAL',
+  'COMPONENT_COUNT_DRIFT',
+  'COMPONENT_SHAPE_DRIFT',
+  'COMPONENT_RELOCATION',
+  'COMPONENT_ATTACHMENT_DRIFT',
+  'COMPONENT_ADJACENCY_DRIFT',
+  'BRAND_PLACEMENT_DRIFT',
+  'PRODUCT_COUNT_DRIFT',
+  'COMPONENT_EVIDENCE_INSUFFICIENT',
+] as const
+
+export type VisualLockV01ComponentTopologyReasonCode =
+  (typeof VISUAL_LOCK_V01_COMPONENT_TOPOLOGY_REASON_CODES)[number]
+
 export const VISUAL_LOCK_V01_MATERIAL_REASON_CODES = [
   'UNSUPPORTED_MATERIAL_ADDITION',
   'MATERIAL_ZONE_DRIFT',
@@ -46,8 +63,6 @@ export type ComponentTopologyLockV01 = {
     soleProfileAndThickness: KnownOrUnknown
     visualNotes: KnownOrUnknown
   }
-  preservationRule: 'preserve every source-supported component, seam, boundary, absence, size, and placement'
-  uncertaintyRule: 'unknown topology remains unknown; never infer, remove, or invent a component'
 }
 
 export type VisualLockV01Context = {
@@ -80,27 +95,60 @@ function knownOrUnknown(value: unknown): string {
   return normalized ? normalized.slice(0, 600) : 'unknown'
 }
 
+function explicitSourceTopologyEvidence(
+  values: readonly unknown[],
+  matcher: RegExp,
+): string {
+  for (const value of values) {
+    const normalized = knownOrUnknown(value)
+    if (normalized !== 'unknown' && matcher.test(normalized)) return normalized
+  }
+  return 'unknown'
+}
+
 export function buildVisualLockV01Context(input: {
   family: VisualLockV0Family
   identityEvidence: VisualLockIdentityEvidence
   operatorVisualFacts?: string | null
 }): VisualLockV01Context {
   const v0 = buildProductIdentityAnchorV0(input)
+  const sourceTopologyEvidence = [
+    input.identityEvidence.distinctiveFeatures,
+    input.identityEvidence.constructionNotes,
+    input.identityEvidence.visualNotes,
+    ...(input.identityEvidence.brandTechnologies ?? []),
+  ]
+  const sourceHardwareEvidence = explicitSourceTopologyEvidence(
+    sourceTopologyEvidence,
+    /\b(?:hardware|metal|buckle|zipper|eyelet|plaque|chain|clasp|stud)\b/i,
+  )
+  const sourceOrnamentEvidence = explicitSourceTopologyEvidence(
+    sourceTopologyEvidence,
+    /\b(?:ornament|tassel|bow|charm|badge|patch|motif|appliqu\w*|embroider\w*|decorative)\b/i,
+  )
+  const sourceLaceEvidence = explicitSourceTopologyEvidence(
+    sourceTopologyEvidence,
+    /\b(?:lace|laces|eyelet|eyelets)\b/i,
+  )
   const componentTopology: ComponentTopologyLockV01 = {
     version: COMPONENT_TOPOLOGY_LOCK_V01_VERSION,
     sourceSupported: {
       distinctiveFeatures: knownOrUnknown(input.identityEvidence.distinctiveFeatures),
       seamPaths: v0.identityAnchor.facts.seamPaths,
-      hardwarePresence: v0.identityAnchor.facts.hardwarePresence,
-      ornamentPresence: v0.identityAnchor.facts.ornamentPresence,
-      lacesAndEyelets: v0.identityAnchor.facts.lacesAndEyelets,
+      hardwarePresence: v0.identityAnchor.facts.hardwarePresence !== 'unknown'
+        ? v0.identityAnchor.facts.hardwarePresence
+        : sourceHardwareEvidence,
+      ornamentPresence: v0.identityAnchor.facts.ornamentPresence !== 'unknown'
+        ? v0.identityAnchor.facts.ornamentPresence
+        : sourceOrnamentEvidence,
+      lacesAndEyelets: v0.identityAnchor.facts.lacesAndEyelets !== 'unknown'
+        ? v0.identityAnchor.facts.lacesAndEyelets
+        : sourceLaceEvidence,
       closureType: v0.identityAnchor.sourceEvidence.closureType,
       heelBackStructure: v0.identityAnchor.facts.heelBackStructure,
       soleProfileAndThickness: v0.identityAnchor.facts.soleProfileAndThickness,
       visualNotes: v0.identityAnchor.sourceEvidence.visualNotes,
     },
-    preservationRule: 'preserve every source-supported component, seam, boundary, absence, size, and placement',
-    uncertaintyRule: 'unknown topology remains unknown; never infer, remove, or invent a component',
   }
   const serializedComponentTopology = JSON.stringify(componentTopology)
   return {
@@ -318,6 +366,71 @@ export function buildVisualLockV01StudioContractPrompt(slotId: SlotKey): string 
   )
 }
 
+/** Canonical V0.1 topology authority shared byte-for-byte by generation and evaluation. */
+export const VISUAL_LOCK_V01_COMPONENT_TOPOLOGY_CONTRACT = {
+  version: COMPONENT_TOPOLOGY_LOCK_V01_VERSION,
+  preservedProperties: [
+    'component presence and source-supported absence',
+    'component category and function',
+    'component count',
+    'component shape and silhouette',
+    'relative size and proportion',
+    'side and material-zone location',
+    'orientation',
+    'attachment',
+    'adjacency, overlap, containment, and layering',
+    'seam, panel, overlay, outsole, heel, welt, and edge continuity',
+    'cross-view component identity and continuity',
+  ],
+  coveredComponents: [
+    'ornaments and decorative details',
+    'hardware, straps, buckles, loops, laces, eyelets, zippers, and pull tabs',
+    'seams, stitching, panels, overlays, outsole, heel, welt, and edges',
+    'embossing, labels, logos, wordmarks, motifs, and other brand details',
+  ],
+  forbiddenChanges: [
+    'add, duplicate, remove, merge, split, or replace a component',
+    'relocate, rotate, resize, reorient, or reattach a component',
+    'invent an attachment point, seam, panel boundary, overlay, or material-zone boundary',
+    'turn a localized ornament or hardware item into a spanning assembly',
+    'relocate branding or change its modality, including embossing, print, plaque, patch, or hardware',
+    'turn one shoe into a pair, second shoe, mirrored shoe, or changed handedness',
+  ],
+  sourceBoundary: 'topology authority comes only from supplied source references and operator-verified visual facts; absence of evidence is never evidence of absence and never permits PASS',
+  hiddenRegionRule: 'when a region is hidden, cropped, low-resolution, or otherwise insufficient, continue only the nearest source-supported structure conservatively; never invent topology and return UNKNOWN when compliance cannot be verified',
+  independentSlotRule: 'evaluate every semantic slot independently against the same source topology contract; another generated slot is never source authority and no pack-level evaluator call is allowed',
+  detailRule: 'an intentional material_detail crop does not make an outside-crop component a removal; no visible component may be omitted; every visible cropped component and boundary must remain structurally correct, and the crop never permits invented hardware, logos, seams, plaques, or attachment points',
+  explicitExclusions: 'this contract does not redefine the angle, studio, material-zone, framing, geometry, provider, retry, or semantic-slot contracts',
+  reasonCodes: VISUAL_LOCK_V01_COMPONENT_TOPOLOGY_REASON_CODES,
+} as const
+
+export function buildVisualLockV01ComponentTopologyContractPrompt(
+  context: VisualLockV01Context,
+  slotId: SlotKey,
+): string {
+  const sourceEvidence = JSON.stringify({
+    componentTopology: context.componentTopology.sourceSupported,
+    operatorVisualFacts: context.identityAnchor.sourceEvidence.operatorVisualFacts,
+  })
+  const slotRule = slotId === 'detail'
+    ? `MATERIAL_DETAIL TOPOLOGY RULE: ${VISUAL_LOCK_V01_COMPONENT_TOPOLOGY_CONTRACT.detailRule}. Apply every other topology rule unchanged.`
+    : 'SLOT RULE: evaluate this slot independently against the complete source topology contract and preserve exactly one shoe with source-supported handedness.'
+  return (
+    `COMPONENT TOPOLOGY CONTRACT VERSION: ${VISUAL_LOCK_V01_COMPONENT_TOPOLOGY_CONTRACT.version}\n` +
+    `SOURCE-SUPPORTED TOPOLOGY EVIDENCE (canonical JSON): ${sourceEvidence}\n` +
+    `PRESERVE: ${VISUAL_LOCK_V01_COMPONENT_TOPOLOGY_CONTRACT.preservedProperties.join('; ')}.\n` +
+    `COVERED COMPONENTS: ${VISUAL_LOCK_V01_COMPONENT_TOPOLOGY_CONTRACT.coveredComponents.join('; ')}.\n` +
+    `FORBIDDEN TOPOLOGY CHANGES: ${VISUAL_LOCK_V01_COMPONENT_TOPOLOGY_CONTRACT.forbiddenChanges.join('; ')}.\n` +
+    `SOURCE BOUNDARY: ${VISUAL_LOCK_V01_COMPONENT_TOPOLOGY_CONTRACT.sourceBoundary}.\n` +
+    `HIDDEN OR INSUFFICIENT REGIONS: ${VISUAL_LOCK_V01_COMPONENT_TOPOLOGY_CONTRACT.hiddenRegionRule}.\n` +
+    `SLOT INDEPENDENCE: ${VISUAL_LOCK_V01_COMPONENT_TOPOLOGY_CONTRACT.independentSlotRule}.\n` +
+    `${slotRule}\n` +
+    `EXCLUSIONS: ${VISUAL_LOCK_V01_COMPONENT_TOPOLOGY_CONTRACT.explicitExclusions}.\n` +
+    `TOPOLOGY DECISION: PASS only with explicit source-supported evidence that every visible topology property is preserved; FAIL for a clear source contradiction; UNKNOWN for insufficient source or generated-image evidence.\n` +
+    `TOPOLOGY REASON CODES: FAIL uses one or more of ${VISUAL_LOCK_V01_COMPONENT_TOPOLOGY_REASON_CODES.slice(0, -1).join(', ')}; UNKNOWN uses COMPONENT_EVIDENCE_INSUFFICIENT; PASS uses no reason code.`
+  )
+}
+
 /** Canonical V0.1 material authority shared byte-for-byte by generation and evaluation. */
 export const VISUAL_LOCK_V01_MATERIAL_CONTRACT = {
   version: VISUAL_LOCK_V01_MATERIAL_CONTRACT_VERSION,
@@ -394,8 +507,9 @@ export function buildVisualLockV01PromptBlock(context: VisualLockV01Context, slo
     `IDENTITY ANCHOR (canonical JSON; identical in every slot): ${context.serializedIdentityAnchor}\n` +
     `COMPONENT TOPOLOGY VERSION: ${context.componentTopologyVersion}\n` +
     `COMPONENT TOPOLOGY SHA-256: ${context.componentTopologyHash}\n` +
-    `COMPONENT TOPOLOGY (canonical JSON; identical in every slot): ${context.serializedComponentTopology}\n` +
-    `CROSS-SLOT RULE: Render the exact same physical shoe and the exact same source-supported component graph in all five slots. No component, seam, boundary, absence, wordmark, motif, patch, overlay, pull tab, opening, apron, or sole feature may be added, removed, resized, relocated, merged, or simplified.\n` +
+    `COMPONENT TOPOLOGY EVIDENCE (canonical JSON; identical in every slot): ${context.serializedComponentTopology}\n` +
+    `V0.1 COMPONENT-TOPOLOGY OVERRIDE: The following source-evidence contract is the only V0.1 component-topology authority.\n` +
+    `${buildVisualLockV01ComponentTopologyContractPrompt(context, slotId)}\n` +
     `GEOMETRY CONTRACT (${context.geometryGateVersion}): complete-product slots must measure 72-82% occupancy, at most 3% center offset, and at most 8 percentage points occupancy spread across the pack. These values are verified after generation; prompt compliance alone is not PASS.\n` +
     `V0.1 ANGLE OVERRIDE: The following single-shoe contract supersedes any earlier generic scene language about free camera choice, matched pairs, mirroring, or rear-three-quarter composition.\n` +
     `${buildVisualLockV01AngleContractPrompt(slotId)}\n` +
@@ -507,11 +621,15 @@ export type VisualQualityMaterialDimensionV01 = VisualQualityDimensionV01 & {
   reasonCodes: VisualLockV01MaterialReasonCode[]
 }
 
+export type VisualQualityComponentTopologyDimensionV01 = VisualQualityDimensionV01 & {
+  reasonCodes: VisualLockV01ComponentTopologyReasonCode[]
+}
+
 export type VisualQualityEvaluatorResultV01 = {
   version: typeof VISUAL_QUALITY_EVALUATOR_V01_VERSION
   state: VisualQualityTriState
   color: VisualQualityDimensionV01 & { detectedColor: string }
-  topology: VisualQualityDimensionV01
+  topology: VisualQualityComponentTopologyDimensionV01
   orientation: VisualQualityDimensionV01 & { detectedView: string }
   studio: VisualQualityDimensionV01
   material: VisualQualityMaterialDimensionV01
@@ -523,7 +641,7 @@ export function unknownVisualQualityEvaluatorResultV01(reasonCode: string): Visu
     version: VISUAL_QUALITY_EVALUATOR_V01_VERSION,
     state: 'unknown',
     color: { state: 'unknown', evidence: '', detectedColor: 'unknown' },
-    topology: { state: 'unknown', evidence: '' },
+    topology: { state: 'unknown', evidence: '', reasonCodes: [] },
     orientation: { state: 'unknown', evidence: '', detectedView: 'unknown' },
     studio: { state: 'unknown', evidence: '' },
     material: { state: 'unknown', evidence: '', reasonCodes: [] },
@@ -542,6 +660,85 @@ function parseDimension(value: unknown, code: string): { value: VisualQualityDim
     return { value: { state: 'unknown', evidence: '' }, reason: `${code}_missing_evidence` }
   }
   return { value: { state: candidate.state, evidence } }
+}
+
+const COMPONENT_TOPOLOGY_REASON_CODES = new Set<string>(VISUAL_LOCK_V01_COMPONENT_TOPOLOGY_REASON_CODES)
+const COMPONENT_TOPOLOGY_FAILURE_REASON_CODES = new Set<string>(
+  VISUAL_LOCK_V01_COMPONENT_TOPOLOGY_REASON_CODES.slice(0, -1),
+)
+
+export function isVisualLockV01ComponentTopologyReasonCode(
+  value: unknown,
+): value is VisualLockV01ComponentTopologyReasonCode {
+  return typeof value === 'string' && COMPONENT_TOPOLOGY_REASON_CODES.has(value)
+}
+
+function sourceSupportedTopologyValues(context: VisualLockV01Context): string[] {
+  return Object.values(context.componentTopology.sourceSupported)
+}
+
+function hasAnySourceSupportedTopologyEvidence(context: VisualLockV01Context): boolean {
+  return sourceSupportedTopologyValues(context)
+    .some((value) => value.trim().toLowerCase() !== 'unknown')
+}
+
+function hasCompleteSourceSupportedTopologyEvidence(context: VisualLockV01Context): boolean {
+  return sourceSupportedTopologyValues(context)
+    .every((value) => value.trim().toLowerCase() !== 'unknown')
+}
+
+function parseComponentTopologyDimension(
+  value: unknown,
+  context: VisualLockV01Context,
+): {
+  value: VisualQualityComponentTopologyDimensionV01
+  reason?: string
+} {
+  const unknown = (
+    reasonCodes: VisualLockV01ComponentTopologyReasonCode[] = [],
+  ): VisualQualityComponentTopologyDimensionV01 => ({
+    state: 'unknown',
+    evidence: '',
+    reasonCodes,
+  })
+  const parsed = parseDimension(value, 'topology')
+  if (parsed.reason) return { value: unknown(), reason: parsed.reason }
+
+  const candidate = value as { reasonCodes?: unknown }
+  if (!Array.isArray(candidate.reasonCodes)) {
+    return { value: unknown(), reason: 'topology_missing_reason_codes' }
+  }
+  if (candidate.reasonCodes.some((reason) => !isVisualLockV01ComponentTopologyReasonCode(reason))) {
+    return { value: unknown(), reason: 'topology_unsupported_reason_code' }
+  }
+  const reasonCodes = [...new Set(candidate.reasonCodes)] as VisualLockV01ComponentTopologyReasonCode[]
+  if (!parsed.value.evidence) {
+    return { value: unknown(), reason: 'topology_missing_evidence' }
+  }
+  if (parsed.value.state === 'pass' && reasonCodes.length > 0) {
+    return { value: unknown(), reason: 'topology_reason_state_mismatch' }
+  }
+  if (parsed.value.state === 'fail'
+    && (reasonCodes.length === 0 || reasonCodes.some((reason) => !COMPONENT_TOPOLOGY_FAILURE_REASON_CODES.has(reason)))) {
+    return { value: unknown(), reason: 'topology_missing_failure_reason' }
+  }
+  if (parsed.value.state === 'unknown'
+    && (reasonCodes.length !== 1 || reasonCodes[0] !== 'COMPONENT_EVIDENCE_INSUFFICIENT')) {
+    return { value: unknown(), reason: 'topology_reason_state_mismatch' }
+  }
+  if (parsed.value.state === 'pass' && !hasCompleteSourceSupportedTopologyEvidence(context)) {
+    return {
+      value: unknown(['COMPONENT_EVIDENCE_INSUFFICIENT']),
+      reason: 'topology_source_evidence_incomplete',
+    }
+  }
+  if (parsed.value.state === 'fail' && !hasAnySourceSupportedTopologyEvidence(context)) {
+    return {
+      value: unknown(['COMPONENT_EVIDENCE_INSUFFICIENT']),
+      reason: 'topology_source_evidence_insufficient',
+    }
+  }
+  return { value: { ...parsed.value, reasonCodes } }
 }
 
 const MATERIAL_REASON_CODES = new Set<string>(VISUAL_LOCK_V01_MATERIAL_REASON_CODES)
@@ -589,7 +786,11 @@ function parseMaterialDimension(value: unknown): {
 
 const ALLOWED_DETECTED_VIEWS = new Set<string>(VISUAL_LOCK_V01_DETECTED_VIEWS)
 
-export function parseVisualQualityEvaluatorV01(raw: string, slotId: SlotKey): VisualQualityEvaluatorResultV01 {
+export function parseVisualQualityEvaluatorV01(
+  raw: string,
+  slotId: SlotKey,
+  context: VisualLockV01Context,
+): VisualQualityEvaluatorResultV01 {
   let parsed: unknown
   try {
     parsed = JSON.parse(raw.trim())
@@ -599,7 +800,7 @@ export function parseVisualQualityEvaluatorV01(raw: string, slotId: SlotKey): Vi
   if (!parsed || typeof parsed !== 'object') return unknownVisualQualityEvaluatorResultV01('malformed_response')
   const candidate = parsed as { color?: unknown; topology?: unknown; orientation?: unknown; studio?: unknown; material?: unknown }
   const colorParsed = parseDimension(candidate.color, 'color')
-  const topologyParsed = parseDimension(candidate.topology, 'topology')
+  const topologyParsed = parseComponentTopologyDimension(candidate.topology, context)
   const orientationParsed = parseDimension(candidate.orientation, 'orientation')
   const studioParsed = parseDimension(candidate.studio, 'studio')
   const materialParsed = parseMaterialDimension(candidate.material)
@@ -634,7 +835,7 @@ export function parseVisualQualityEvaluatorV01(raw: string, slotId: SlotKey): Vi
   if (orientation.state === 'fail') reasonCodes.push('orientation_failed')
   if (studioParsed.value.state === 'fail') reasonCodes.push('studio_failed')
   if (materialParsed.value.state === 'fail') reasonCodes.push('material_fidelity_failed')
-  reasonCodes.push(...materialParsed.value.reasonCodes)
+  reasonCodes.push(...topologyParsed.value.reasonCodes, ...materialParsed.value.reasonCodes)
   const states = [color.state, topologyParsed.value.state, orientation.state, studioParsed.value.state, materialParsed.value.state]
   const state: VisualQualityTriState = states.includes('fail') ? 'fail' : states.includes('unknown') ? 'unknown' : 'pass'
   return {
@@ -659,6 +860,7 @@ export function parseVisualQualityEvaluatorV01(raw: string, slotId: SlotKey): Vi
 export function normalizeVisualQualityProviderResponseV01(
   response: unknown,
   slotId: SlotKey,
+  context: VisualLockV01Context,
 ): VisualQualityEvaluatorResultV01 {
   if (!response || typeof response !== 'object') {
     return unknownVisualQualityEvaluatorResultV01('provider_response_missing')
@@ -689,24 +891,24 @@ export function normalizeVisualQualityProviderResponseV01(
     return unknownVisualQualityEvaluatorResultV01('provider_response_missing')
   }
 
-  return parseVisualQualityEvaluatorV01(text, slotId)
+  return parseVisualQualityEvaluatorV01(text, slotId, context)
 }
 
 export function buildVisualQualityEvaluatorPromptV01(context: VisualLockV01Context, slotId: SlotKey): string {
   return (
     `Evaluate this generated shoe image under ${VISUAL_QUALITY_EVALUATOR_V01_VERSION}.\n` +
     `Expected dominant color evidence: ${JSON.stringify(context.identityAnchor.facts.colorZones)}\n` +
-    `Source-supported component topology: ${context.serializedComponentTopology}\n` +
+    `Use this exact canonical component-topology contract, identical to generation:\n${buildVisualLockV01ComponentTopologyContractPrompt(context, slotId)}\n` +
     `Use this exact canonical angle contract, identical to generation:\n${buildVisualLockV01AngleContractPrompt(slotId)}\n` +
     `Use this exact canonical studio contract, identical to generation:\n${buildVisualLockV01StudioContractPrompt(slotId)}\n` +
     `Use this exact canonical material contract, identical to generation:\n${buildVisualLockV01MaterialContractPrompt(context, slotId)}\n` +
     `Return strict JSON only with exactly these objects:\n` +
     `{"color":{"state":"pass|fail|unknown","detectedColor":"...","evidence":"..."},` +
-    `"topology":{"state":"pass|fail|unknown","evidence":"..."},` +
+    `"topology":{"state":"pass|fail|unknown","reasonCodes":[],"evidence":"..."},` +
     `"orientation":{"state":"pass|fail|unknown","detectedView":"${VISUAL_LOCK_V01_DETECTED_VIEWS.join('|')}","evidence":"..."},` +
     `"studio":{"state":"pass|fail|unknown","evidence":"..."},` +
     `"material":{"state":"pass|fail|unknown","reasonCodes":[],"evidence":"..."}}\n` +
-    `For material.reasonCodes, use only the exact state-compatible codes defined by the canonical material contract above; never combine names or invent a value.\n` +
+    `For topology.reasonCodes and material.reasonCodes, use only the exact state-compatible codes defined by their canonical contracts above; never combine names or invent a value.\n` +
     `PASS requires explicit visible evidence that satisfies the slot's numeric tolerance and plain-language cues. A clearly incorrect semantic angle is FAIL. Use UNKNOWN for ambiguity, occlusion, missing source support, incomplete visibility, unsupported values, or inability to evaluate. Never convert missing or malformed evidence to PASS. For back, rear_three_quarter is FAIL; only true_rear can pass.`
   )
 }
@@ -841,6 +1043,7 @@ export type VisualQualitySlotEvidenceV01 = {
   orientationStatus: VisualQualityTriState
   detectedView: string
   topologyStatus: VisualQualityTriState
+  topologyReasonCodes: VisualLockV01ComponentTopologyReasonCode[]
   studioStatus: VisualQualityTriState
   materialStatus: VisualQualityTriState
   materialReasonCodes: VisualLockV01MaterialReasonCode[]
@@ -861,7 +1064,7 @@ export type VisualQualityGateSummaryV01 = {
     evaluatorStatus: VisualQualityTriState
     evaluatorReasonCodes: string[]
     orientationResult: { status: VisualQualityTriState; detectedView: string }
-    topologyResult: { status: VisualQualityTriState }
+    topologyResult: { status: VisualQualityTriState; reasonCodes: VisualLockV01ComponentTopologyReasonCode[] }
     studioResult: { status: VisualQualityTriState }
     materialResult: { status: VisualQualityTriState; reasonCodes: VisualLockV01MaterialReasonCode[] }
     occupancyPercent: number | null
@@ -919,11 +1122,12 @@ export function buildVisualQualityGateSummaryV01(params: {
     ? combineTriStates(ordered.map((slot) => slot.materialStatus))
     : 'unknown'
   const qualityGateStatus = combineVisualQualityGateV01(
-    [...evaluatorStates, requiredEvaluatorCompleteness, materialGateStatus],
+    [...evaluatorStates, requiredEvaluatorCompleteness, topologyGateStatus, materialGateStatus],
     params.geometryPack.state,
   )
   const reasonCodes = [...new Set([
     ...ordered.flatMap((slot) => slot.evaluatorReasonCodes),
+    ...ordered.flatMap((slot) => slot.topologyReasonCodes),
     ...ordered.flatMap((slot) => slot.materialReasonCodes),
     ...ordered.flatMap((slot) => slot.geometry.reasonCodes),
     ...params.geometryPack.reasonCodes,
@@ -949,7 +1153,7 @@ export function buildVisualQualityGateSummaryV01(params: {
       evaluatorStatus: slot.evaluatorStatus,
       evaluatorReasonCodes: [...slot.evaluatorReasonCodes],
       orientationResult: { status: slot.orientationStatus, detectedView: slot.detectedView },
-      topologyResult: { status: slot.topologyStatus },
+      topologyResult: { status: slot.topologyStatus, reasonCodes: [...slot.topologyReasonCodes] },
       studioResult: { status: slot.studioStatus },
       materialResult: { status: slot.materialStatus, reasonCodes: [...slot.materialReasonCodes] },
       occupancyPercent: slot.geometry.measurement?.occupancyPercent ?? null,

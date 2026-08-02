@@ -19,6 +19,15 @@ export const VISUAL_LOCK_V01_PROFILE_VERSION = 'visual-lock/v0.1' as const
 export const COMPONENT_TOPOLOGY_LOCK_V01_VERSION = 'component-topology-lock/v0.1' as const
 export const VISUAL_QUALITY_EVALUATOR_V01_VERSION = 'visual-quality-evaluator/v0.1' as const
 export const VISUAL_GEOMETRY_GATE_V01_VERSION = 'visual-geometry-gate/v0.1' as const
+export const VISUAL_LOCK_V01_MATERIAL_CONTRACT_VERSION = 'material-zone-fidelity-contract/v1' as const
+
+export const VISUAL_LOCK_V01_MATERIAL_REASON_CODES = [
+  'UNSUPPORTED_MATERIAL_ADDITION',
+  'MATERIAL_ZONE_DRIFT',
+  'MATERIAL_EVIDENCE_INSUFFICIENT',
+] as const
+
+export type VisualLockV01MaterialReasonCode = (typeof VISUAL_LOCK_V01_MATERIAL_REASON_CODES)[number]
 
 export type VisualQualityTriState = 'pass' | 'fail' | 'unknown'
 
@@ -49,6 +58,7 @@ export type VisualLockV01Context = {
   componentTopologyVersion: typeof COMPONENT_TOPOLOGY_LOCK_V01_VERSION
   evaluatorVersion: typeof VISUAL_QUALITY_EVALUATOR_V01_VERSION
   geometryGateVersion: typeof VISUAL_GEOMETRY_GATE_V01_VERSION
+  materialContractVersion: typeof VISUAL_LOCK_V01_MATERIAL_CONTRACT_VERSION
   family: VisualLockV0Family
   identityAnchor: ProductIdentityAnchorV0
   serializedIdentityAnchor: string
@@ -101,6 +111,7 @@ export function buildVisualLockV01Context(input: {
     componentTopologyVersion: COMPONENT_TOPOLOGY_LOCK_V01_VERSION,
     evaluatorVersion: VISUAL_QUALITY_EVALUATOR_V01_VERSION,
     geometryGateVersion: VISUAL_GEOMETRY_GATE_V01_VERSION,
+    materialContractVersion: VISUAL_LOCK_V01_MATERIAL_CONTRACT_VERSION,
     family: v0.family,
     identityAnchor: v0.identityAnchor,
     serializedIdentityAnchor: v0.serializedIdentityAnchor,
@@ -307,6 +318,74 @@ export function buildVisualLockV01StudioContractPrompt(slotId: SlotKey): string 
   )
 }
 
+/** Canonical V0.1 material authority shared byte-for-byte by generation and evaluation. */
+export const VISUAL_LOCK_V01_MATERIAL_CONTRACT = {
+  version: VISUAL_LOCK_V01_MATERIAL_CONTRACT_VERSION,
+  preservedProperties: [
+    'material class',
+    'color family',
+    'surface finish',
+    'texture character',
+    'visible coverage',
+    'material-zone boundaries',
+  ],
+  unsupportedAdditions: [
+    'material',
+    'finish',
+    'lining',
+    'trim',
+    'plaque',
+    'material overlay',
+    'decorative surface',
+  ],
+  conversionExamples: [
+    'napped material to smooth material',
+    'napped material to pebbled material',
+    'napped material to woven material',
+    'matte material to glossy material',
+    'source material to synthetic-looking material',
+  ],
+  metalRule: 'metal is allowed only where source references or operator-verified visual facts support it; a small supported metal zone must retain its localized coverage and must never expand across a larger product region',
+  zoneRule: 'a source-supported material zone must not disappear, expand, contract, move, or replace another material zone',
+  insufficientEvidenceRule: 'for an insufficiently visible region, continue the nearest source-supported base material conservatively and never invent a distinct material zone',
+  allowedVariation: 'minor lighting, compression, or exposure variation is not material drift when material identity, texture character, coverage, and boundaries remain visibly preserved',
+  uncertaintyRule: 'when source coverage, resolution, or evaluator evidence cannot establish material identity reliably, return UNKNOWN and never infer PASS',
+  detailRule: 'preserve the existing material_detail crop and angle contract; focus on a source-supported primary upper-material zone; never convert the detail into a hardware, logo, ornament, or branding close-up',
+  explicitExclusions: 'this contract does not evaluate component count, attachment, hardware shape or topology, seams, component relocation, framing, or geometry',
+  reasonCodes: VISUAL_LOCK_V01_MATERIAL_REASON_CODES,
+} as const
+
+export function buildVisualLockV01MaterialContractPrompt(
+  context: VisualLockV01Context,
+  slotId: SlotKey,
+): string {
+  const sourceEvidence = JSON.stringify({
+    materialZones: context.identityAnchor.facts.materialZones,
+    colorZones: context.identityAnchor.facts.colorZones,
+    metalSupport: context.identityAnchor.facts.hardwarePresence,
+    operatorVisualFacts: context.identityAnchor.sourceEvidence.operatorVisualFacts,
+  })
+  const slotRule = slotId === 'detail'
+    ? `MATERIAL_DETAIL RULE: ${VISUAL_LOCK_V01_MATERIAL_CONTRACT.detailRule}. Apply every other material-fidelity rule unchanged.`
+    : 'SLOT RULE: apply the complete material-fidelity contract to every visible product region without changing the locked angle, studio, framing, or geometry contracts.'
+  return (
+    `MATERIAL CONTRACT VERSION: ${VISUAL_LOCK_V01_MATERIAL_CONTRACT.version}\n` +
+    `SOURCE-SUPPORTED MATERIAL EVIDENCE (canonical JSON): ${sourceEvidence}\n` +
+    `PRESERVE: ${VISUAL_LOCK_V01_MATERIAL_CONTRACT.preservedProperties.join('; ')}.\n` +
+    `UNSUPPORTED ADDITIONS FORBIDDEN: ${VISUAL_LOCK_V01_MATERIAL_CONTRACT.unsupportedAdditions.join('; ')}.\n` +
+    `MATERIAL CONVERSION FORBIDDEN: ${VISUAL_LOCK_V01_MATERIAL_CONTRACT.conversionExamples.join('; ')}.\n` +
+    `METAL COVERAGE: ${VISUAL_LOCK_V01_MATERIAL_CONTRACT.metalRule}.\n` +
+    `MATERIAL-ZONE CONTINUITY: ${VISUAL_LOCK_V01_MATERIAL_CONTRACT.zoneRule}.\n` +
+    `HIDDEN OR INSUFFICIENT REGIONS: ${VISUAL_LOCK_V01_MATERIAL_CONTRACT.insufficientEvidenceRule}.\n` +
+    `ALLOWED APPEARANCE VARIATION: ${VISUAL_LOCK_V01_MATERIAL_CONTRACT.allowedVariation}.\n` +
+    `UNCERTAINTY: ${VISUAL_LOCK_V01_MATERIAL_CONTRACT.uncertaintyRule}.\n` +
+    `${slotRule}\n` +
+    `EXCLUSIONS: ${VISUAL_LOCK_V01_MATERIAL_CONTRACT.explicitExclusions}.\n` +
+    `MATERIAL DECISION: PASS only when every visible material zone is source-supported and preserved; FAIL for a clear unsupported material or clear material-zone drift; UNKNOWN when evidence is insufficient.\n` +
+    `MATERIAL REASON CODES: FAIL uses ${VISUAL_LOCK_V01_MATERIAL_REASON_CODES[0]} and/or ${VISUAL_LOCK_V01_MATERIAL_REASON_CODES[1]}; UNKNOWN uses ${VISUAL_LOCK_V01_MATERIAL_REASON_CODES[2]}; PASS uses no reason code.`
+  )
+}
+
 export function buildVisualLockV01PromptBlock(context: VisualLockV01Context, slotId: SlotKey): string {
   return (
     `\n\n=== VISUAL LOCK V0.1 (${context.profileVersion}) ===\n` +
@@ -322,6 +401,8 @@ export function buildVisualLockV01PromptBlock(context: VisualLockV01Context, slo
     `${buildVisualLockV01AngleContractPrompt(slotId)}\n` +
     `V0.1 STUDIO OVERRIDE: The following fixed studio contract supersedes any earlier generic background, lighting, exposure, or shadow choice.\n` +
     `${buildVisualLockV01StudioContractPrompt(slotId)}\n` +
+    `V0.1 MATERIAL-ZONE OVERRIDE: The following source-evidence contract is the only V0.1 material-fidelity authority.\n` +
+    `${buildVisualLockV01MaterialContractPrompt(context, slotId)}\n` +
     `EVALUATOR CONTRACT (${context.evaluatorVersion}): PASS requires explicit valid evidence. Missing, malformed, unavailable, incomplete, unsupported, ambiguous, or unexecuted evaluation is UNKNOWN, never PASS. UNKNOWN and FAIL are blocked without automatic regeneration.\n` +
     `UNKNOWN-EVIDENCE RULE: Unknown facts and hidden structure remain unknown. Do not infer or invent them.\n` +
     `=== END VISUAL LOCK V0.1 ===\n`
@@ -422,6 +503,10 @@ export type VisualQualityDimensionV01 = {
   evidence: string
 }
 
+export type VisualQualityMaterialDimensionV01 = VisualQualityDimensionV01 & {
+  reasonCodes: VisualLockV01MaterialReasonCode[]
+}
+
 export type VisualQualityEvaluatorResultV01 = {
   version: typeof VISUAL_QUALITY_EVALUATOR_V01_VERSION
   state: VisualQualityTriState
@@ -429,6 +514,7 @@ export type VisualQualityEvaluatorResultV01 = {
   topology: VisualQualityDimensionV01
   orientation: VisualQualityDimensionV01 & { detectedView: string }
   studio: VisualQualityDimensionV01
+  material: VisualQualityMaterialDimensionV01
   reasonCodes: string[]
 }
 
@@ -440,6 +526,7 @@ export function unknownVisualQualityEvaluatorResultV01(reasonCode: string): Visu
     topology: { state: 'unknown', evidence: '' },
     orientation: { state: 'unknown', evidence: '', detectedView: 'unknown' },
     studio: { state: 'unknown', evidence: '' },
+    material: { state: 'unknown', evidence: '', reasonCodes: [] },
     reasonCodes: [reasonCode],
   }
 }
@@ -457,6 +544,49 @@ function parseDimension(value: unknown, code: string): { value: VisualQualityDim
   return { value: { state: candidate.state, evidence } }
 }
 
+const MATERIAL_REASON_CODES = new Set<string>(VISUAL_LOCK_V01_MATERIAL_REASON_CODES)
+const MATERIAL_FAILURE_REASON_CODES = new Set<string>([
+  'UNSUPPORTED_MATERIAL_ADDITION',
+  'MATERIAL_ZONE_DRIFT',
+])
+
+export function isVisualLockV01MaterialReasonCode(value: unknown): value is VisualLockV01MaterialReasonCode {
+  return typeof value === 'string' && MATERIAL_REASON_CODES.has(value)
+}
+
+function parseMaterialDimension(value: unknown): {
+  value: VisualQualityMaterialDimensionV01
+  reason?: string
+} {
+  const unknown = (): VisualQualityMaterialDimensionV01 => ({ state: 'unknown', evidence: '', reasonCodes: [] })
+  const parsed = parseDimension(value, 'material')
+  if (parsed.reason) return { value: unknown(), reason: parsed.reason }
+
+  const candidate = value as { reasonCodes?: unknown }
+  if (!Array.isArray(candidate.reasonCodes)) {
+    return { value: unknown(), reason: 'material_missing_reason_codes' }
+  }
+  if (candidate.reasonCodes.some((reason) => !isVisualLockV01MaterialReasonCode(reason))) {
+    return { value: unknown(), reason: 'material_unsupported_reason_code' }
+  }
+  const reasonCodes = [...new Set(candidate.reasonCodes)] as VisualLockV01MaterialReasonCode[]
+  if (!parsed.value.evidence) {
+    return { value: unknown(), reason: 'material_missing_evidence' }
+  }
+  if (parsed.value.state === 'pass' && reasonCodes.length > 0) {
+    return { value: unknown(), reason: 'material_reason_state_mismatch' }
+  }
+  if (parsed.value.state === 'fail'
+    && (reasonCodes.length === 0 || reasonCodes.some((reason) => !MATERIAL_FAILURE_REASON_CODES.has(reason)))) {
+    return { value: unknown(), reason: 'material_missing_failure_reason' }
+  }
+  if (parsed.value.state === 'unknown'
+    && (reasonCodes.length !== 1 || reasonCodes[0] !== 'MATERIAL_EVIDENCE_INSUFFICIENT')) {
+    return { value: unknown(), reason: 'material_reason_state_mismatch' }
+  }
+  return { value: { ...parsed.value, reasonCodes } }
+}
+
 const ALLOWED_DETECTED_VIEWS = new Set<string>(VISUAL_LOCK_V01_DETECTED_VIEWS)
 
 export function parseVisualQualityEvaluatorV01(raw: string, slotId: SlotKey): VisualQualityEvaluatorResultV01 {
@@ -467,11 +597,12 @@ export function parseVisualQualityEvaluatorV01(raw: string, slotId: SlotKey): Vi
     return unknownVisualQualityEvaluatorResultV01('malformed_response')
   }
   if (!parsed || typeof parsed !== 'object') return unknownVisualQualityEvaluatorResultV01('malformed_response')
-  const candidate = parsed as { color?: unknown; topology?: unknown; orientation?: unknown; studio?: unknown }
+  const candidate = parsed as { color?: unknown; topology?: unknown; orientation?: unknown; studio?: unknown; material?: unknown }
   const colorParsed = parseDimension(candidate.color, 'color')
   const topologyParsed = parseDimension(candidate.topology, 'topology')
   const orientationParsed = parseDimension(candidate.orientation, 'orientation')
   const studioParsed = parseDimension(candidate.studio, 'studio')
+  const materialParsed = parseMaterialDimension(candidate.material)
   const colorObject = candidate.color as { detectedColor?: unknown } | undefined
   const orientationObject = candidate.orientation as { detectedView?: unknown } | undefined
   const detectedColor = typeof colorObject?.detectedColor === 'string'
@@ -480,7 +611,7 @@ export function parseVisualQualityEvaluatorV01(raw: string, slotId: SlotKey): Vi
   const detectedView = typeof orientationObject?.detectedView === 'string'
     ? orientationObject.detectedView.trim().toLowerCase().slice(0, 80) || 'unknown'
     : 'unknown'
-  const reasonCodes = [colorParsed.reason, topologyParsed.reason, orientationParsed.reason, studioParsed.reason].filter((x): x is string => Boolean(x))
+  const reasonCodes = [colorParsed.reason, topologyParsed.reason, orientationParsed.reason, studioParsed.reason, materialParsed.reason].filter((x): x is string => Boolean(x))
   let color = colorParsed.value
   if (color.state !== 'unknown' && detectedColor === 'unknown') {
     color = { state: 'unknown', evidence: '' }
@@ -502,7 +633,9 @@ export function parseVisualQualityEvaluatorV01(raw: string, slotId: SlotKey): Vi
   if (topologyParsed.value.state === 'fail') reasonCodes.push('component_topology_failed')
   if (orientation.state === 'fail') reasonCodes.push('orientation_failed')
   if (studioParsed.value.state === 'fail') reasonCodes.push('studio_failed')
-  const states = [color.state, topologyParsed.value.state, orientation.state, studioParsed.value.state]
+  if (materialParsed.value.state === 'fail') reasonCodes.push('material_fidelity_failed')
+  reasonCodes.push(...materialParsed.value.reasonCodes)
+  const states = [color.state, topologyParsed.value.state, orientation.state, studioParsed.value.state, materialParsed.value.state]
   const state: VisualQualityTriState = states.includes('fail') ? 'fail' : states.includes('unknown') ? 'unknown' : 'pass'
   return {
     version: VISUAL_QUALITY_EVALUATOR_V01_VERSION,
@@ -511,6 +644,7 @@ export function parseVisualQualityEvaluatorV01(raw: string, slotId: SlotKey): Vi
     topology: topologyParsed.value,
     orientation: { ...orientation, detectedView },
     studio: studioParsed.value,
+    material: materialParsed.value,
     reasonCodes: [...new Set(reasonCodes)],
   }
 }
@@ -565,11 +699,14 @@ export function buildVisualQualityEvaluatorPromptV01(context: VisualLockV01Conte
     `Source-supported component topology: ${context.serializedComponentTopology}\n` +
     `Use this exact canonical angle contract, identical to generation:\n${buildVisualLockV01AngleContractPrompt(slotId)}\n` +
     `Use this exact canonical studio contract, identical to generation:\n${buildVisualLockV01StudioContractPrompt(slotId)}\n` +
+    `Use this exact canonical material contract, identical to generation:\n${buildVisualLockV01MaterialContractPrompt(context, slotId)}\n` +
     `Return strict JSON only with exactly these objects:\n` +
     `{"color":{"state":"pass|fail|unknown","detectedColor":"...","evidence":"..."},` +
     `"topology":{"state":"pass|fail|unknown","evidence":"..."},` +
     `"orientation":{"state":"pass|fail|unknown","detectedView":"${VISUAL_LOCK_V01_DETECTED_VIEWS.join('|')}","evidence":"..."},` +
-    `"studio":{"state":"pass|fail|unknown","evidence":"..."}}\n` +
+    `"studio":{"state":"pass|fail|unknown","evidence":"..."},` +
+    `"material":{"state":"pass|fail|unknown","reasonCodes":[],"evidence":"..."}}\n` +
+    `For material.reasonCodes, use only the exact state-compatible codes defined by the canonical material contract above; never combine names or invent a value.\n` +
     `PASS requires explicit visible evidence that satisfies the slot's numeric tolerance and plain-language cues. A clearly incorrect semantic angle is FAIL. Use UNKNOWN for ambiguity, occlusion, missing source support, incomplete visibility, unsupported values, or inability to evaluate. Never convert missing or malformed evidence to PASS. For back, rear_three_quarter is FAIL; only true_rear can pass.`
   )
 }
@@ -705,6 +842,8 @@ export type VisualQualitySlotEvidenceV01 = {
   detectedView: string
   topologyStatus: VisualQualityTriState
   studioStatus: VisualQualityTriState
+  materialStatus: VisualQualityTriState
+  materialReasonCodes: VisualLockV01MaterialReasonCode[]
   geometry: VisualGeometryGateResultV01
 }
 
@@ -716,6 +855,7 @@ export type VisualQualityGateSummaryV01 = {
   evaluatorContractVersion: typeof VISUAL_QUALITY_EVALUATOR_V01_VERSION
   geometryGateVersion: typeof VISUAL_GEOMETRY_GATE_V01_VERSION
   studioContractVersion: typeof VISUAL_LOCK_V01_STUDIO_CONTRACT_VERSION
+  materialContractVersion: typeof VISUAL_LOCK_V01_MATERIAL_CONTRACT_VERSION
   slotResults: Array<{
     slot: SlotKey
     evaluatorStatus: VisualQualityTriState
@@ -723,6 +863,7 @@ export type VisualQualityGateSummaryV01 = {
     orientationResult: { status: VisualQualityTriState; detectedView: string }
     topologyResult: { status: VisualQualityTriState }
     studioResult: { status: VisualQualityTriState }
+    materialResult: { status: VisualQualityTriState; reasonCodes: VisualLockV01MaterialReasonCode[] }
     occupancyPercent: number | null
     horizontalCenterOffsetPercent: number | null
     verticalCenterOffsetPercent: number | null
@@ -739,6 +880,7 @@ export type VisualQualityGateSummaryV01 = {
     orientationGateStatus: VisualQualityTriState
     topologyGateStatus: VisualQualityTriState
     studioGateStatus: VisualQualityTriState
+    materialGateStatus: VisualQualityTriState
     geometryGateStatus: VisualQualityTriState
     qualityGateStatus: VisualQualityTriState
     reasonCodes: string[]
@@ -773,18 +915,23 @@ export function buildVisualQualityGateSummaryV01(params: {
   const studioGateStatus = ordered.length === GENERATED_SLOT_KEYS.length
     ? combineTriStates(ordered.map((slot) => slot.studioStatus))
     : 'unknown'
+  const materialGateStatus = ordered.length === GENERATED_SLOT_KEYS.length
+    ? combineTriStates(ordered.map((slot) => slot.materialStatus))
+    : 'unknown'
   const qualityGateStatus = combineVisualQualityGateV01(
-    [...evaluatorStates, requiredEvaluatorCompleteness],
+    [...evaluatorStates, requiredEvaluatorCompleteness, materialGateStatus],
     params.geometryPack.state,
   )
   const reasonCodes = [...new Set([
     ...ordered.flatMap((slot) => slot.evaluatorReasonCodes),
+    ...ordered.flatMap((slot) => slot.materialReasonCodes),
     ...ordered.flatMap((slot) => slot.geometry.reasonCodes),
     ...params.geometryPack.reasonCodes,
     ...(requiredEvaluatorCompleteness === 'unknown' ? ['required_evaluator_incomplete'] : []),
     ...(orientationGateStatus === 'unknown' ? ['orientation_gate_unknown'] : []),
     ...(topologyGateStatus === 'unknown' ? ['topology_gate_unknown'] : []),
     ...(studioGateStatus === 'unknown' ? ['studio_gate_unknown'] : []),
+    ...(materialGateStatus === 'unknown' ? ['material_gate_unknown'] : []),
     ...(params.geometryPack.state === 'unknown' ? ['geometry_gate_unknown'] : []),
   ])]
 
@@ -796,6 +943,7 @@ export function buildVisualQualityGateSummaryV01(params: {
     evaluatorContractVersion: params.context.evaluatorVersion,
     geometryGateVersion: params.context.geometryGateVersion,
     studioContractVersion: VISUAL_LOCK_V01_STUDIO_CONTRACT_VERSION,
+    materialContractVersion: params.context.materialContractVersion,
     slotResults: ordered.map((slot) => ({
       slot: slot.slotId,
       evaluatorStatus: slot.evaluatorStatus,
@@ -803,6 +951,7 @@ export function buildVisualQualityGateSummaryV01(params: {
       orientationResult: { status: slot.orientationStatus, detectedView: slot.detectedView },
       topologyResult: { status: slot.topologyStatus },
       studioResult: { status: slot.studioStatus },
+      materialResult: { status: slot.materialStatus, reasonCodes: [...slot.materialReasonCodes] },
       occupancyPercent: slot.geometry.measurement?.occupancyPercent ?? null,
       horizontalCenterOffsetPercent: slot.geometry.measurement?.centerOffsetXPercent ?? null,
       verticalCenterOffsetPercent: slot.geometry.measurement?.centerOffsetYPercent ?? null,
@@ -819,6 +968,7 @@ export function buildVisualQualityGateSummaryV01(params: {
       orientationGateStatus,
       topologyGateStatus,
       studioGateStatus,
+      materialGateStatus,
       geometryGateStatus: params.geometryPack.state,
       qualityGateStatus,
       reasonCodes,

@@ -8,6 +8,7 @@ import {
   buildVisualLockV01Context,
   buildVisualLockV01FailureWorkflow,
   buildVisualLockV01AngleContractPrompt,
+  buildVisualLockV01MaterialContractPrompt,
   buildVisualLockV01PromptFixture,
   buildVisualLockV01StudioContractPrompt,
   buildVisualQualityEvaluatorPromptV01,
@@ -23,6 +24,8 @@ import {
   VISUAL_GEOMETRY_GATE_V01_VERSION,
   VISUAL_LOCK_V01_ANGLE_CONTRACTS,
   VISUAL_LOCK_V01_ANGLE_CONTRACT_VERSION,
+  VISUAL_LOCK_V01_MATERIAL_CONTRACT,
+  VISUAL_LOCK_V01_MATERIAL_CONTRACT_VERSION,
   VISUAL_LOCK_V01_PROFILE_VERSION,
   VISUAL_LOCK_V01_STUDIO_CONTRACT,
   VISUAL_LOCK_V01_STUDIO_CONTRACT_VERSION,
@@ -54,6 +57,7 @@ const completeEvaluatorPayload = {
   topology: { state: 'pass', evidence: 'instep patch and curved side overlay are retained' },
   orientation: { state: 'pass', detectedView: 'true_rear', evidence: 'heel is shown straight-on and symmetrically' },
   studio: { state: 'pass', evidence: 'uniform warm-neutral studio and subtle contact shadow' },
+  material: { state: 'pass', reasonCodes: [], evidence: 'matte mesh material zones and boundaries are preserved' },
 }
 
 check('1 default and V0 prompt digests remain unchanged', () => {
@@ -105,6 +109,7 @@ check('6 every V0.1 prompt carries all explicit contract versions and topology',
     assert.match(prompt, /visual-geometry-gate\/v0\.1/)
     assert.match(prompt, /visual-angle-contract\/v1/)
     assert.match(prompt, /visual-studio-contract\/v1/)
+    assert.match(prompt, /material-zone-fidelity-contract\/v1/)
     assert.ok(prompt.includes(context.componentTopologyHash))
   }
 })
@@ -274,6 +279,156 @@ check('7j prohibited studio conditions fail and ambiguous studio evidence remain
   assert.ok(missing.reasonCodes.includes('studio_missing'))
 })
 
+check('7k generation and evaluation share one canonical material-zone contract', () => {
+  for (const slotId of GENERATED_SLOT_KEYS) {
+    const canonical = buildVisualLockV01MaterialContractPrompt(context, slotId)
+    assert.ok(buildVisualLockV01PromptFixture(context)[GENERATED_SLOT_KEYS.indexOf(slotId)].includes(canonical))
+    assert.ok(buildVisualQualityEvaluatorPromptV01(context, slotId).includes(canonical))
+  }
+  assert.deepEqual(VISUAL_LOCK_V01_MATERIAL_CONTRACT.reasonCodes, [
+    'UNSUPPORTED_MATERIAL_ADDITION',
+    'MATERIAL_ZONE_DRIFT',
+    'MATERIAL_EVIDENCE_INSUFFICIENT',
+  ])
+})
+
+check('7l material contract preserves zones and forbids unsupported additions and conversions', () => {
+  const prompt = buildVisualLockV01MaterialContractPrompt(context, 'side')
+  assert.match(prompt, /material class; color family; surface finish; texture character; visible coverage; material-zone boundaries/i)
+  assert.match(prompt, /lining; trim; plaque; material overlay; decorative surface/i)
+  assert.match(prompt, /napped material to smooth material/i)
+  assert.match(prompt, /napped material to pebbled material/i)
+  assert.match(prompt, /napped material to woven material/i)
+  assert.match(prompt, /matte material to glossy material/i)
+  assert.match(prompt, /small supported metal zone.*must never expand/i)
+  assert.match(prompt, /must not disappear, expand, contract, move, or replace/i)
+  assert.match(prompt, /continue the nearest source-supported base material conservatively/i)
+  assert.match(prompt, /minor lighting, compression, or exposure variation is not material drift/i)
+  assert.match(prompt, /cannot establish material identity reliably, return UNKNOWN/i)
+  assert.doesNotMatch(prompt, /Product 349|BOSS|burgundy|horsebit/i)
+})
+
+check('7m a clearly unsupported material addition fails with a stable reason', () => {
+  const result = parseVisualQualityEvaluatorV01(JSON.stringify({
+    ...completeEvaluatorPayload,
+    material: {
+      state: 'fail',
+      reasonCodes: ['UNSUPPORTED_MATERIAL_ADDITION'],
+      evidence: 'a new glossy plaque and contrasting lining are clearly visible',
+    },
+  }), 'back')
+  assert.equal(result.material.state, 'fail')
+  assert.deepEqual(result.material.reasonCodes, ['UNSUPPORTED_MATERIAL_ADDITION'])
+  assert.equal(result.state, 'fail')
+  assert.ok(result.reasonCodes.includes('UNSUPPORTED_MATERIAL_ADDITION'))
+})
+
+check('7n expansion of a supported localized metal zone fails as material-zone drift', () => {
+  const result = parseVisualQualityEvaluatorV01(JSON.stringify({
+    ...completeEvaluatorPayload,
+    material: {
+      state: 'fail',
+      reasonCodes: ['MATERIAL_ZONE_DRIFT'],
+      evidence: 'the localized source-supported metal zone expands across the full upper width',
+    },
+  }), 'hero_3q')
+  assert.equal(result.material.state, 'fail')
+  assert.deepEqual(result.material.reasonCodes, ['MATERIAL_ZONE_DRIFT'])
+  assert.equal(result.state, 'fail')
+})
+
+check('7o clear material-type or texture conversion fails', () => {
+  for (const evidenceText of [
+    'source-supported napped material became smooth',
+    'source-supported napped material became pebbled',
+    'source-supported napped material became woven',
+    'source-supported matte material became glossy and synthetic-looking',
+  ]) {
+    const result = parseVisualQualityEvaluatorV01(JSON.stringify({
+      ...completeEvaluatorPayload,
+      material: { state: 'fail', reasonCodes: ['MATERIAL_ZONE_DRIFT'], evidence: evidenceText },
+    }), 'side')
+    assert.equal(result.material.state, 'fail')
+    assert.ok(result.reasonCodes.includes('MATERIAL_ZONE_DRIFT'))
+  }
+})
+
+check('7p clear material-zone movement, replacement, expansion, or loss fails', () => {
+  for (const evidenceText of [
+    'the upper material zone moved from the vamp to the quarter',
+    'the source-supported trim material was replaced by another finish',
+    'the accent material zone expanded beyond its source boundary',
+    'the source-supported material zone disappeared',
+  ]) {
+    const result = parseVisualQualityEvaluatorV01(JSON.stringify({
+      ...completeEvaluatorPayload,
+      material: { state: 'fail', reasonCodes: ['MATERIAL_ZONE_DRIFT'], evidence: evidenceText },
+    }), 'top')
+    assert.equal(result.state, 'fail')
+    assert.equal(result.material.state, 'fail')
+  }
+})
+
+check('7q supported material zones pass and minor lighting variation is not drift', () => {
+  const supported = parseVisualQualityEvaluatorV01(JSON.stringify(completeEvaluatorPayload), 'back')
+  assert.equal(supported.material.state, 'pass')
+  assert.equal(supported.state, 'pass')
+
+  const lightingOnly = parseVisualQualityEvaluatorV01(JSON.stringify({
+    ...completeEvaluatorPayload,
+    material: {
+      state: 'pass',
+      reasonCodes: [],
+      evidence: 'minor exposure variation only; material class, texture, coverage, and boundaries remain preserved',
+    },
+  }), 'back')
+  assert.equal(lightingOnly.material.state, 'pass')
+  assert.equal(lightingOnly.state, 'pass')
+  assert.ok(!lightingOnly.reasonCodes.includes('MATERIAL_ZONE_DRIFT'))
+})
+
+check('7r insufficient or invalid material evidence remains unknown and blocks', () => {
+  const insufficient = parseVisualQualityEvaluatorV01(JSON.stringify({
+    ...completeEvaluatorPayload,
+    material: {
+      state: 'unknown',
+      reasonCodes: ['MATERIAL_EVIDENCE_INSUFFICIENT'],
+      evidence: 'source coverage and generated detail resolution cannot establish the material reliably',
+    },
+  }), 'back')
+  assert.equal(insufficient.material.state, 'unknown')
+  assert.equal(insufficient.state, 'unknown')
+  assert.ok(insufficient.reasonCodes.includes('MATERIAL_EVIDENCE_INSUFFICIENT'))
+  assert.equal(combineVisualQualityGateV01([insufficient.state], 'pass'), 'unknown')
+
+  const invalidMaterialResults = [
+    { ...completeEvaluatorPayload, material: undefined },
+    { ...completeEvaluatorPayload, material: { state: 'pass', reasonCodes: [], evidence: '' } },
+    { ...completeEvaluatorPayload, material: { state: 'fail', reasonCodes: [], evidence: 'clear drift' } },
+    { ...completeEvaluatorPayload, material: { state: 'pass', reasonCodes: ['MATERIAL_ZONE_DRIFT'], evidence: 'contradictory' } },
+    { ...completeEvaluatorPayload, material: { state: 'fail', reasonCodes: ['UNSUPPORTED_VALUE'], evidence: 'unsupported code' } },
+    { ...completeEvaluatorPayload, material: { state: 'unsupported', reasonCodes: [], evidence: 'unsupported state' } },
+  ]
+  for (const payload of invalidMaterialResults) {
+    assert.equal(parseVisualQualityEvaluatorV01(JSON.stringify(payload), 'back').state, 'unknown')
+  }
+
+  const clearFailure = parseVisualQualityEvaluatorV01(JSON.stringify({
+    ...completeEvaluatorPayload,
+    material: { state: 'fail', reasonCodes: ['MATERIAL_ZONE_DRIFT'], evidence: 'material zone moved' },
+  }), 'back')
+  assert.equal(combineVisualQualityGateV01([clearFailure.state], 'pass'), 'fail')
+})
+
+check('7s material_detail receives the same fidelity contract without replacing its crop or angle', () => {
+  const canonical = buildVisualLockV01MaterialContractPrompt(context, 'detail')
+  assert.ok(buildVisualLockV01PromptFixture(context)[4].includes(canonical))
+  assert.ok(buildVisualQualityEvaluatorPromptV01(context, 'detail').includes(canonical))
+  assert.match(canonical, /preserve the existing material_detail crop and angle contract/i)
+  assert.match(canonical, /source-supported primary upper-material zone/i)
+  assert.match(canonical, /never convert the detail into a hardware, logo, ornament, or branding close-up/i)
+})
+
 check('8 malformed, missing, unsupported, and incomplete evaluator output are unknown', () => {
   assert.equal(parseVisualQualityEvaluatorV01('{bad', 'back').state, 'unknown')
   assert.equal(parseVisualQualityEvaluatorV01('{}', 'back').state, 'unknown')
@@ -289,9 +444,9 @@ check('9 explicit fail outranks unknown and pass', () => {
 })
 
 check('10 only true_rear can pass the back evaluator', () => {
-  const pass = parseVisualQualityEvaluatorV01(JSON.stringify({ color: { state: 'pass', detectedColor: 'grey', evidence: 'grey upper' }, topology: { state: 'pass', evidence: 'patch retained' }, orientation: { state: 'pass', detectedView: 'true_rear', evidence: 'symmetric heel edges' }, studio: completeEvaluatorPayload.studio }), 'back')
+  const pass = parseVisualQualityEvaluatorV01(JSON.stringify({ ...completeEvaluatorPayload, color: { state: 'pass', detectedColor: 'grey', evidence: 'grey upper' }, topology: { state: 'pass', evidence: 'patch retained' }, orientation: { state: 'pass', detectedView: 'true_rear', evidence: 'symmetric heel edges' } }), 'back')
   assert.equal(pass.state, 'pass')
-  const mismatch = parseVisualQualityEvaluatorV01(JSON.stringify({ color: { state: 'pass', detectedColor: 'grey', evidence: 'grey upper' }, topology: { state: 'pass', evidence: 'patch retained' }, orientation: { state: 'pass', detectedView: 'rear_three_quarter', evidence: 'side face visible' }, studio: completeEvaluatorPayload.studio }), 'back')
+  const mismatch = parseVisualQualityEvaluatorV01(JSON.stringify({ ...completeEvaluatorPayload, color: { state: 'pass', detectedColor: 'grey', evidence: 'grey upper' }, topology: { state: 'pass', evidence: 'patch retained' }, orientation: { state: 'pass', detectedView: 'rear_three_quarter', evidence: 'side face visible' } }), 'back')
   assert.equal(mismatch.state, 'fail')
   assert.ok(mismatch.reasonCodes.includes('back_not_true_rear'))
 })
@@ -409,12 +564,13 @@ check('15 V0.1 profile versions are exact', () => {
   assert.equal(VISUAL_GEOMETRY_GATE_V01_VERSION, 'visual-geometry-gate/v0.1')
   assert.equal(VISUAL_LOCK_V01_ANGLE_CONTRACT_VERSION, 'visual-angle-contract/v1')
   assert.equal(VISUAL_LOCK_V01_STUDIO_CONTRACT_VERSION, 'visual-studio-contract/v1')
+  assert.equal(VISUAL_LOCK_V01_MATERIAL_CONTRACT_VERSION, 'material-zone-fidelity-contract/v1')
   assert.equal(VISUAL_LOCK_V01_STUDIO_CONTRACT.backgroundTarget, 'uniform matte warm-neutral near-white, visually approximately #F7F5F0')
 })
 
 check('16 V0.1 prompt fixture digest is pinned', () => {
   const digest = createHash('sha256').update(JSON.stringify(buildVisualLockV01PromptFixture(context))).digest('hex')
-  assert.equal(digest, '79862e1fb6e5dd8e060f367fa69dbcffb61f7c8e2853258d1345561372bed4ca')
+  assert.equal(digest, 'a4ae4837fcbacf6aed7e263b78ad764adc1a54a90d9dfe9e90bf144d34059405')
 })
 
 check('17 complete non-pass evidence remains inspectable before persistence authorization', () => {
@@ -438,6 +594,8 @@ check('17 complete non-pass evidence remains inspectable before persistence auth
       detectedView: 'unknown',
       topologyStatus: 'unknown',
       studioStatus: 'unknown',
+      materialStatus: 'unknown',
+      materialReasonCodes: ['MATERIAL_EVIDENCE_INSUFFICIENT'],
       geometry: geometry[index],
     })),
   })
@@ -449,9 +607,16 @@ check('17 complete non-pass evidence remains inspectable before persistence auth
   assert.equal(summary.packResults.occupancySpreadPercent, 8)
   assert.equal(summary.packResults.requiredEvaluatorCompleteness, 'unknown')
   assert.equal(summary.packResults.studioGateStatus, 'unknown')
+  assert.equal(summary.packResults.materialGateStatus, 'unknown')
   assert.equal(summary.studioContractVersion, 'visual-studio-contract/v1')
+  assert.equal(summary.materialContractVersion, 'material-zone-fidelity-contract/v1')
   assert.ok(summary.packResults.reasonCodes.includes('provider_response_incomplete'))
-  assert.ok(summary.slotResults.every((slot) => slot.geometryStatus === 'pass' && slot.occupancyPercent !== null && slot.studioResult.status === 'unknown'))
+  assert.ok(summary.packResults.reasonCodes.includes('MATERIAL_EVIDENCE_INSUFFICIENT'))
+  assert.ok(summary.slotResults.every((slot) => slot.geometryStatus === 'pass'
+    && slot.occupancyPercent !== null
+    && slot.studioResult.status === 'unknown'
+    && slot.materialResult.status === 'unknown'
+    && slot.materialResult.reasonCodes[0] === 'MATERIAL_EVIDENCE_INSUFFICIENT'))
 
   const incompletePass = buildVisualQualityGateSummaryV01({
     context,
@@ -464,11 +629,33 @@ check('17 complete non-pass evidence remains inspectable before persistence auth
       detectedView: scene.name,
       topologyStatus: 'pass',
       studioStatus: 'pass',
+      materialStatus: 'pass',
+      materialReasonCodes: [],
       geometry: geometry[index],
     })),
   })
   assert.equal(incompletePass.packResults.requiredEvaluatorCompleteness, 'unknown')
   assert.equal(incompletePass.packResults.qualityGateStatus, 'unknown')
+
+  const materialUnknown = buildVisualQualityGateSummaryV01({
+    context,
+    geometryPack,
+    slots: GENERATED_SCENES.map((scene, index) => ({
+      slotId: scene.name,
+      evaluatorStatus: 'pass',
+      evaluatorReasonCodes: [],
+      orientationStatus: 'pass',
+      detectedView: VISUAL_LOCK_V01_ANGLE_CONTRACTS[scene.name].expectedDetectedView,
+      topologyStatus: 'pass',
+      studioStatus: 'pass',
+      materialStatus: index === 0 ? 'unknown' : 'pass',
+      materialReasonCodes: index === 0 ? ['MATERIAL_EVIDENCE_INSUFFICIENT'] : [],
+      geometry: geometry[index],
+    })),
+  })
+  assert.equal(materialUnknown.packResults.requiredEvaluatorCompleteness, 'pass')
+  assert.equal(materialUnknown.packResults.materialGateStatus, 'unknown')
+  assert.equal(materialUnknown.packResults.qualityGateStatus, 'unknown')
 })
 
 check('18 failure workflow clears only active visual state and preserves every sibling field', () => {
@@ -511,13 +698,18 @@ check('19 runtime wiring retains transient bytes through evidence and drops them
   assert.match(provider, /if \(isVisualLockV01Context\(visualLock\)\)/)
   assert.match(provider, /finalBuf = jpegBuf[\s\S]*quality\.state !== 'pass'/)
   assert.match(provider, /unknownVisualQualityEvaluatorResultV01\('evaluator_unavailable'\)/)
+  assert.match(provider, /slotLog\.materialEvaluatorState = result\.material\.state/)
+  assert.match(provider, /slotLog\.materialEvaluatorReasonCodes = result\.material\.reasonCodes/)
   assert.equal((provider.match(/!isVisualLockV01Context\(visualLock\) && getSlotByKey\(scene\.name\)\?\.layout === 'pair'/g) ?? []).length, 2)
   assert.match(task, /measureVisualGeometryV01\(envelope\.output\)/)
   assert.match(task, /buildVisualQualityGateSummaryV01/)
   assert.match(task, /if \(qualityState !== 'pass'\)/)
   assert.match(task, /blockImageSlotEnvelopesForQualityGate/)
   assert.match(contracts, /code: 'quality_gate_failed'/)
+  assert.match(contracts, /materialEvaluatorReasonCodes/)
   assert.match(task, /buildVisualLockV01FailureWorkflow/)
+  assert.match(task, /materialFidelity: visualLockContext\.materialContractVersion/)
+  assert.match(task, /materialStatus: slot\.provider\?\.materialEvaluatorState \?\? 'unknown'/)
   assert.ok(task.lastIndexOf('blockImageSlotEnvelopesForQualityGate({') < task.indexOf('persistGeneratedSlotEnvelopes({'))
   assert.match(route, /parseVisualLockCommand/)
 })

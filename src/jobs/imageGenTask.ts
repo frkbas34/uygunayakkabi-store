@@ -449,6 +449,7 @@ export const imageGenTask: TaskConfig<{
             componentTopology: visualLockContext.componentTopologyVersion,
             evaluator: visualLockContext.evaluatorVersion,
             geometryGate: visualLockContext.geometryGateVersion,
+            materialFidelity: visualLockContext.materialContractVersion,
           } : {}),
         },
       }
@@ -505,6 +506,7 @@ export const imageGenTask: TaskConfig<{
               componentTopologyHash: visualLockContext.componentTopologyHash,
               evaluatorVersion: visualLockContext.evaluatorVersion,
               geometryGateVersion: visualLockContext.geometryGateVersion,
+              materialContractVersion: visualLockContext.materialContractVersion,
             } : {}),
           },
         } : {}),
@@ -708,6 +710,8 @@ export const imageGenTask: TaskConfig<{
           detectedView: slot.provider?.detectedShot ?? 'unknown',
           topologyStatus: slot.provider?.componentTopologyEvaluatorState ?? 'unknown',
           studioStatus: slot.provider?.studioEvaluatorState ?? 'unknown',
+          materialStatus: slot.provider?.materialEvaluatorState ?? 'unknown',
+          materialReasonCodes: slot.provider?.materialEvaluatorReasonCodes ?? [],
           geometry: geometryResults[index],
         })),
       })

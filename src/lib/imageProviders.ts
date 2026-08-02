@@ -25,6 +25,7 @@ import {
   unknownVisualQualityEvaluatorResultV01,
   type VisualLockContext,
   type VisualLockV01Context,
+  type VisualLockV01MaterialReasonCode,
   type VisualQualityEvaluatorResultV01,
   type VisualQualityTriState,
 } from './imageVisualLockV01'
@@ -474,6 +475,8 @@ export type SlotLog = {
   componentTopologyEvaluatorState?: VisualQualityTriState
   orientationEvaluatorState?: VisualQualityTriState
   studioEvaluatorState?: VisualQualityTriState
+  materialEvaluatorState?: VisualQualityTriState
+  materialEvaluatorReasonCodes?: VisualLockV01MaterialReasonCode[]
   rejectionReason?: string
 }
 
@@ -1061,6 +1064,8 @@ function applyVisualQualityV01ToSlotLog(
   slotLog.componentTopologyEvaluatorState = result.topology.state
   slotLog.orientationEvaluatorState = result.orientation.state
   slotLog.studioEvaluatorState = result.studio.state
+  slotLog.materialEvaluatorState = result.material.state
+  slotLog.materialEvaluatorReasonCodes = result.material.reasonCodes
   slotLog.colorCheckPass = result.color.state === 'pass'
   slotLog.detectedColor = result.color.detectedColor
   slotLog.shotCompliancePass = result.orientation.state === 'pass'

@@ -122,6 +122,7 @@ for (const command of [
   'npm run smoke:shopier-order-id-schema:read -- --confirm-read-only',
   'npm run smoke:shopier:read -- --confirm-read-only',
   'npm run smoke:image-plan:read -- --product=<id-or-sn> --confirm-read-only',
+  'npm run smoke:visual-pilot-target:read -- --product=<id-or-sn> --confirm-read-only',
   'npm run smoke:image-qc-plan:read -- --confirm-read-only',
   'npm run smoke:load-plan:read -- --confirm-read-only',
   'npm run smoke:brand-safety:read -- --confirm-read-only',

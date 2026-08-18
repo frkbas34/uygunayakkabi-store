@@ -46,6 +46,7 @@ These commands may connect to real Payload data. Run only with an approved targe
 - `npm run smoke:activation:read -- --confirm-read-only`
 - `npm run smoke:product-flow:read -- --product=<ref> --confirm-read-only`
 - `npm run smoke:image-plan:read -- --product=<ref> --confirm-read-only`
+- `npm run smoke:visual-pilot-target:read -- --product=<ref> --confirm-read-only`
 - `npm run smoke:load-plan:read -- --confirm-read-only`
 - `npm run smoke:brand-safety:read -- --confirm-read-only`
 - `npm run smoke:image-qc-plan:read -- --confirm-read-only`
@@ -65,6 +66,8 @@ These commands may connect to real Payload data. Run only with an approved targe
 - `npm run smoke:shopier:read -- --confirm-read-only`
 
 The operator plan uses load-plan-selected product-flow runtime and Telegram checks before any queueing decision. Use `/smokeplan` for the ordered operator checklist.
+
+The target-specific visual-pilot verifier is a separately authorized read surface: it requires an exact product plus the literal confirmation flag before Payload initialization, consumes process-provided environment values without printing them, exhaustively reconciles persisted target evidence, and performs bounded in-memory reads of ordered original Media. Its only verdicts are `TARGET_READY_FOR_PILOT_APPROVAL`, `TARGET_BLOCKED`, and `TARGET_EVIDENCE_UNSUPPORTED`; only the first permits a later human pilot-approval decision.
 
 ## Guardrail references
 

@@ -1,6 +1,6 @@
 # UygunAyakkabi Operator Runbook
 
-Last updated: 2026-07-25
+Last updated: 2026-08-18
 
 This is the daily operator guide. It describes the current local product and
 diagnostic workflow. It is not deployment approval, proof of provider health,
@@ -53,9 +53,18 @@ dispatch state, coherence warnings, links, and the next recommended step.
    ```powershell
    npm run smoke:product-flow:read -- --product=<id-or-sn> --confirm-read-only
    npm run smoke:image-plan:read -- --product=<id-or-sn> --confirm-read-only
+   npm run smoke:visual-pilot-target:read -- --product=<id-or-sn> --confirm-read-only
    ```
 
-   Then use `/productflow <id-or-sn>` and `/imageplan <id-or-sn>`.
+   Then use `/productflow <id-or-sn>` and `/imageplan <id-or-sn>`. The visual
+   pilot verifier is stricter than the image plan: it exhaustively reads job,
+   attempt, queue, Media-lineage, BotEvent, and StoryJob evidence, then performs
+   bounded in-memory HTTPS reads of every ordered original. It rejects unknown
+   arguments and requires the literal confirmation flag before Payload starts.
+   It returns only `TARGET_READY_FOR_PILOT_APPROVAL`, `TARGET_BLOCKED`, or
+   `TARGET_EVIDENCE_UNSUPPORTED`; stop on either non-ready verdict. The command
+   consumes process-provided secrets without printing them and does not load or
+   write an env file, call a provider, send Telegram, or mutate Payload.
 4. Before relying on channels or providers, run:
 
    ```powershell

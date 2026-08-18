@@ -66,6 +66,7 @@ These commands may read a configured Payload database and require the literal ap
 - `npm run smoke:activation:read -- --confirm-read-only`
 - `npm run smoke:product-flow:read -- --product=<ref> --confirm-read-only`
 - `npm run smoke:image-plan:read -- --product=<ref> --confirm-read-only`
+- `npm run smoke:visual-pilot-target:read -- --product=<ref> --confirm-read-only`
 - `npm run smoke:load-plan:read -- --confirm-read-only`
 - `npm run smoke:brand-safety:read -- --confirm-read-only`
 - `npm run smoke:image-qc-plan:read -- --confirm-read-only`

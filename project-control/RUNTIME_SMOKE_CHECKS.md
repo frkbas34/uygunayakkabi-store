@@ -1,6 +1,6 @@
 # Runtime Smoke Checks
 
-Last updated: 2026-07-16
+Last updated: 2026-08-18
 
 Latest local smoke-plan governance note:
 
@@ -209,6 +209,60 @@ Use this before live Telegram `/imageplan` smoke or before deciding whether a pr
 Latest verification:
 
 - 2026-07-06: Script added as `smoke:image-plan:read`, included in runtime-smoke governance, and inserted into `/smokeplan` before Telegram `/imageplan`. No live read-only run has been performed yet; run only with `--product=<id-or-sn> --confirm-read-only`.
+
+## Target-Specific Visual Pilot Read-Only Verifier
+
+Command:
+
+```powershell
+npm run smoke:visual-pilot-target:read -- --product=<id-or-sn> --confirm-read-only
+```
+
+This verifier accepts only an explicit numeric Payload Product ID or `SN...`
+reference plus the literal confirmation flag. Unknown, empty, duplicate, or
+mutation-like arguments stop before Payload initialization. It consumes
+process-provided `DATABASE_URI` and `PAYLOAD_SECRET` values without printing
+them; the script does not load or write `.env` files. `PAYLOAD_DB_PUSH` is forced
+to `false` before Payload starts.
+
+Read boundary:
+
+- the exact Product, every ordered original Media relationship, all matching
+  image-generation jobs and attempts, relevant Payload queue receipts,
+  BotEvents, StoryJobs, generated Media lineage, gallery, pack selection, and
+  downstream state;
+- bounded external HTTPS reads of the original Media only, in memory: trusted
+  application/Vercel Blob hosts, public DNS addresses pinned to the HTTPS
+  connection while preserving hostname/TLS verification, manual redirect handling
+  with every hop revalidated, at most three redirects, a 15-second total timeout,
+  a streamed 10,000,000-byte limit, supported raster MIME agreement, and full
+  Sharp decode with positive dimensions;
+- in-memory SHA-256 is used only to detect duplicate source content. URLs,
+  signed queries, bytes, full digests, Telegram identifiers, provider payloads,
+  and unrestricted records are never printed.
+
+The script exhaustively paginates and reconciles totals. It fails closed on a
+skipped/duplicated page, malformed or legacy-ambiguous lineage, nonterminal job
+or queue evidence, unresolved attempt, incomplete approval pack, pending preview,
+downstream exposure, inaccessible/corrupt/duplicate original, or an authority the
+current schema cannot prove. Accessibility is not semantic angle sufficiency;
+the latter remains an explicit operator-review fact.
+
+Verdicts and exits:
+
+- `TARGET_READY_FOR_PILOT_APPROVAL` — exit 0; evidence may proceed to a separate
+  human approval decision, never directly to generation.
+- `TARGET_BLOCKED` — nonzero; a deterministic persisted or Media-read blocker
+  exists.
+- `TARGET_EVIDENCE_UNSUPPORTED` — nonzero; an authoritative absence check is
+  unavailable. Current persistence cannot prove Telegram keyboard/callback
+  revocation or product-correlated external advertising history, so those
+  capabilities remain explicitly unsupported rather than inferred clear.
+
+The command never creates, updates, deletes, queues, dispatches, approves,
+attaches, publishes, retries, calls a provider/evaluator/Shopier, or sends a
+Telegram message. It is excluded from `test:safe`; only its synthetic focused
+tests run there. This foundation task did not execute it against production.
 
 ## Product Loading Plan Read-Only Smoke
 

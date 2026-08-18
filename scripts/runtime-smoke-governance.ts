@@ -10,6 +10,8 @@ type ReadOnlySmoke = {
   scriptPath: string
   requiresPayloadPushFalse: boolean
   extraNeedles?: string[]
+  additionalSourcePaths?: string[]
+  strictCli?: boolean
 }
 
 function read(filePath: string): string {
@@ -53,6 +55,28 @@ const readOnlySmokes: ReadOnlySmoke[] = [
     scriptPath: 'scripts/image-plan-runtime-smoke.ts',
     requiresPayloadPushFalse: true,
     extraNeedles: ['image-generation job', 'queue image generation', 'provider calls', 'BotEvents', 'provenanceEvents'],
+  },
+  {
+    name: 'smoke:visual-pilot-target:read',
+    scriptPath: 'scripts/visual-pilot-target-runtime-smoke.ts',
+    requiresPayloadPushFalse: true,
+    strictCli: true,
+    additionalSourcePaths: [
+      'src/lib/visualPilotTargetVerifier.ts',
+      'src/lib/visualPilotMediaEvidence.ts',
+    ],
+    extraNeedles: [
+      'TARGET_READY_FOR_PILOT_APPROVAL',
+      'TARGET_BLOCKED',
+      'TARGET_EVIDENCE_UNSUPPORTED',
+      'paginationReconciled',
+      'VISUAL_PILOT_MEDIA_MAX_BYTES',
+      'ORIGINAL_REDIRECT_LIMIT_EXCEEDED',
+      'blockingReasons',
+      'JSON.stringify',
+      'payload.destroy()',
+      'pathToFileURL',
+    ],
   },
   {
     name: 'smoke:load-plan:read',
@@ -215,16 +239,22 @@ for (const smoke of readOnlySmokes) {
   assert.ok(existsSync(smoke.scriptPath), `${smoke.name} script is missing: ${smoke.scriptPath}`)
   assertIncludes(scripts[smoke.name] ?? '', `tsx ${smoke.scriptPath}`, `package ${smoke.name} script`)
 
-  const source = read(smoke.scriptPath)
+  const source = [smoke.scriptPath, ...(smoke.additionalSourcePaths ?? [])].map(read).join('\n')
   assertIncludes(source, '--confirm-read-only', `${smoke.name} confirmation flag`)
-  assertIncludes(source, 'READ_ONLY', `${smoke.name} READ_ONLY env/confirmation`)
-  assertIncludes(source, 'mutationRequested', `${smoke.name} mutation refusal state`)
-  assertIncludes(source, 'Refusing to', `${smoke.name} refusal path`)
+  if (smoke.strictCli) {
+    assertIncludes(source, 'parseVisualPilotTargetArgs', `${smoke.name} strict CLI parser`)
+    assertIncludes(source, 'CLI_UNKNOWN_ARGUMENT', `${smoke.name} unknown-argument refusal`)
+    assertIncludes(source, 'CLI_READ_ONLY_CONFIRMATION_REQUIRED', `${smoke.name} literal confirmation refusal`)
+  } else {
+    assertIncludes(source, 'READ_ONLY', `${smoke.name} READ_ONLY env/confirmation`)
+    assertIncludes(source, 'mutationRequested', `${smoke.name} mutation refusal state`)
+    assertIncludes(source, 'Refusing to', `${smoke.name} refusal path`)
+  }
   assertNoWriteWording(source, smoke.name)
 
   if (smoke.requiresPayloadPushFalse) {
     assertIncludes(source, "process.env.PAYLOAD_DB_PUSH = 'false'", `${smoke.name} schema-push guard`)
-    assertIncludes(source, 'PAYLOAD_DB_PUSH: false', `${smoke.name} schema-push output`)
+    if (!smoke.strictCli) assertIncludes(source, 'PAYLOAD_DB_PUSH: false', `${smoke.name} schema-push output`)
   }
 
   for (const needle of smoke.extraNeedles ?? []) {
@@ -235,6 +265,18 @@ for (const smoke of readOnlySmokes) {
     assertCommandDocumentedNearConfirmation(read(docPath), smoke.name, label)
   }
 }
+
+const visualPilotScript = read('scripts/visual-pilot-target-runtime-smoke.ts')
+const visualPilotTestScript = scripts['test:visual-pilot-target'] ?? ''
+assertIncludes(visualPilotTestScript, 'visualPilotMediaEvidence.test.ts', 'visual pilot Media evidence tests')
+assertIncludes(visualPilotTestScript, 'visualPilotTargetVerifier.test.ts', 'visual pilot verifier tests')
+assertIncludes(visualPilotTestScript, 'visual-pilot-target-runtime-smoke.test.ts', 'visual pilot CLI tests')
+assertIncludes(scripts['test:safe'] ?? '', 'npm run test:visual-pilot-target', 'safe suite visual pilot tests')
+assert.ok(!(scripts['test:safe'] ?? '').includes('smoke:visual-pilot-target:read'), 'test:safe must not execute visual pilot runtime smoke')
+assertIncludes(visualPilotScript, "collection: 'payload-jobs'", 'visual pilot queue receipt read')
+assertIncludes(visualPilotScript, "collection: 'story-jobs'", 'visual pilot StoryJob read')
+assertIncludes(visualPilotScript, "collection: 'bot-events'", 'visual pilot BotEvent read')
+assert.ok(!/payload\.(?:create|update|delete)|payload\.jobs\.(?:queue|run)|sendTelegram|approveImage|rejectImage|generateProductImages/.test(visualPilotScript), 'visual pilot runtime adapter must expose no mutation, queue, Telegram, approval, or generation call')
 
 const blogApplyScript = read('scripts/blog-featured-image-schema-apply.ts')
 const blogCheckScript = read('scripts/blog-featured-image-schema-check.ts')

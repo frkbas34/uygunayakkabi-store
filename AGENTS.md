@@ -105,6 +105,7 @@ These may connect to real Payload data. Run only with an approved target and the
 - `npm run smoke:activation:read -- --confirm-read-only`
 - `npm run smoke:product-flow:read -- --product=<ref> --confirm-read-only`
 - `npm run smoke:image-plan:read -- --product=<ref> --confirm-read-only`
+- `npm run smoke:visual-pilot-target:read -- --product=<ref> --confirm-read-only`
 - `npm run smoke:load-plan:read -- --confirm-read-only`
 - `npm run smoke:brand-safety:read -- --confirm-read-only`
 - `npm run smoke:image-qc-plan:read -- --confirm-read-only`

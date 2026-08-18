@@ -136,6 +136,13 @@ export type VisualQualityRetryClassifierInputV01 = {
   framingOutcome: VisualFramingCorrectionOutcomeV01
   framingReasonCodes: readonly VisualFramingCorrectionReasonV01[]
   geometryReasonCodes: readonly VisualQualityRetryGeometryReasonV01[]
+  /**
+   * Whether full-product geometry is a quality requirement for this semantic
+   * slot. Measurement reliability answers a different question: whether a
+   * measurement, if applicable, is trustworthy. The material-detail crop is
+   * intentionally geometry-exempt.
+   */
+  geometryApplicable: boolean
   geometryReliable: boolean
   detailCropEvidence: VisualQualityRetryDetailCropEvidenceV01
   sourceEvidenceSufficientTargets: readonly VisualQualityRetryTargetV01[]
@@ -394,10 +401,12 @@ function geometryEvidenceIsCoherent(input: VisualQualityRetryClassifierInputV01)
   if (new Set(reasons).size !== reasons.length) return false
   const stableReasons = VISUAL_QUALITY_RETRY_GEOMETRY_REASONS.filter((reason) => reasons.includes(reason))
   if (JSON.stringify(stableReasons) !== JSON.stringify(reasons)) return false
-  if (input.slotId === 'detail') {
+  if (!input.geometryApplicable) {
     return input.dimensions.geometry === 'pass'
       && reasons.length === 0
-      && input.geometryReliable === false
+  }
+  if (input.slotId === 'detail') {
+    return false
   }
   if (input.dimensions.geometry === 'pass') return reasons.length === 0 && input.geometryReliable
   if (input.dimensions.geometry === 'fail') return reasons.length > 0 && input.geometryReliable
@@ -471,6 +480,7 @@ export function classifyVisualQualityRetryV01(
     || !isNonNegativeSafeInteger(input.providerCandidateCount)
     || !isNonNegativeSafeInteger(input.evaluatorExecutionCount)
     || typeof input.candidateProduced !== 'boolean'
+    || typeof input.geometryApplicable !== 'boolean'
     || typeof input.geometryReliable !== 'boolean'
     || !isRecord(input.dimensions)
     || Object.keys(input.dimensions).length !== dimensionKeys.length
@@ -519,6 +529,10 @@ export function classifyVisualQualityRetryV01(
     input.dimensions.studio,
     input.dimensions.material,
   ])
+  const expectedGeometryApplicable = input.slotId !== 'detail'
+  if (input.geometryApplicable !== expectedGeometryApplicable) {
+    return deny(input, 'EVALUATOR_EVIDENCE_INCOMPLETE')
+  }
   const expectedCombinedState = combineTriStates([
     input.dimensions.evaluator,
     input.dimensions.color,
@@ -527,13 +541,16 @@ export function classifyVisualQualityRetryV01(
     input.dimensions.material,
     input.dimensions.topology,
     input.dimensions.framing,
-    input.dimensions.geometry,
+    ...(input.geometryApplicable ? [input.dimensions.geometry] : []),
   ])
   if (
     input.dimensions.evaluator !== expectedEvaluatorState
     || input.combinedGateState !== expectedCombinedState
   ) return deny(input, 'EVALUATOR_EVIDENCE_INCOMPLETE')
-  if (Object.values(input.dimensions).includes('unknown') || input.combinedGateState === 'unknown') {
+  const blockingDimensionStates = dimensionKeys
+    .filter((key) => input.geometryApplicable || key !== 'geometry')
+    .map((key) => input.dimensions[key])
+  if (blockingDimensionStates.includes('unknown') || input.combinedGateState === 'unknown') {
     return deny(input, 'BLOCKING_DIMENSION_UNKNOWN')
   }
   if (
@@ -625,7 +642,8 @@ export function classifyVisualQualityRetryV01(
     && input.topologyReasonCodes.includes('PRODUCT_COUNT_DRIFT')
   ) candidates.push('PRODUCT_COUNT')
 
-  const framingFailed = input.dimensions.framing === 'fail' || input.dimensions.geometry === 'fail'
+  const framingFailed = input.dimensions.framing === 'fail'
+    || (input.geometryApplicable && input.dimensions.geometry === 'fail')
   if (framingFailed) {
     if (input.slotId === 'detail') {
       if (input.detailCropEvidence !== 'reliable_crop_local_defect') {

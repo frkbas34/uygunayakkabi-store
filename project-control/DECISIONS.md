@@ -8083,7 +8083,7 @@ provider calls in tests. `npm run validate` PASS. Behaviour reaches the live
 **Decision (operator delegated "do what's best"):** Revise the D-407 canonical
 slot set to the angles that convert best for shoe e-commerce:
 
-  0 hero_3q · 1 side · 2 top · 3 back · 4 detail
+  0 side · 1 hero_3q · 2 top · 3 back · 4 detail
 
 Change vs D-407 (`front, side, top_pair, heel, material_detail`): the dead-on
 `front` slot is replaced by a THREE-QUARTER hero (`hero_3q`) — a shoe shot
@@ -8098,7 +8098,7 @@ NEVER-FABRICATE-UNSEEN-REGIONS rule). The safer visible-material `detail` is kep
 **Implementation:** `imageSlotContract.ts` keys/labels/meanings/compositionIntent
 updated (hero_3q gets a three-quarter intent; still geometry-free per D-407, the
 model picks the exact composition, D-408 centers it). Downstream key references
-updated: anchors (`hero_3q`/`side` → `top`/`back`/`detail`), the detail
+updated: anchors (`side`/`hero_3q` → `top`/`back`/`detail`), the detail
 special-case, and the (disabled) SHOT_CRITERIA keys. Contract test updated.
 
 **Boundary:** Local-only. Not committed/pushed/deployed. `npm run validate` PASS.

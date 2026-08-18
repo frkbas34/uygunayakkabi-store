@@ -1385,8 +1385,8 @@ async function callGPTImageEdit(
  * (src/lib/imageSlotContract.ts) — the single source of truth for slot types,
  * order, and the centering/framing discipline.
  *
- * Canonical slot order (index → key):
- *   0 front · 1 side · 2 top_pair · 3 heel · 4 material_detail
+ * Slot identity and order derive exclusively from GENERATED_SCENES, which is
+ * the projection of imageSlotContract's canonical slot contract.
  *
  * Each scene keeps the { name, label, sceneInstructions } shape and the
  * {COLOR}/{BACKGROUND}/{REF_ANGLE} placeholders resolved below, so the rest of

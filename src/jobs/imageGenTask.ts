@@ -1009,6 +1009,7 @@ export const imageGenTask: TaskConfig<{
           framingOutcome: initialSlot.provider?.framingCorrection?.outcome ?? 'insufficient_geometry_evidence',
           framingReasonCodes: initialSlot.provider?.framingCorrection?.reasonCodes ?? ['geometry_measurement_unavailable'],
           geometryReasonCodes: initialGeometry.reasonCodes.filter(isVisualQualityRetryGeometryReasonV01),
+          geometryApplicable: initialGeometry.applicable,
           geometryReliable: initialGeometry.measurement !== null && initialGeometry.state !== 'unknown',
           detailCropEvidence: slotId === 'detail'
             ? 'ambiguous_intentional_crop'

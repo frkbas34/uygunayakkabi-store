@@ -407,7 +407,7 @@ _Created 2026-06-14. Compact handoff for future sessions. See PROJECT_STATE.md /
 - `npm run validate` PASS. NOT deployed (prod image system is rolled back). Open: hard-block vs de-brand policy — defaulted to block. Other open defects to fix next: 2nd-shoe anchor bleed (Slot 4/5), close-up blur.
 
 ## D-410 Slot set revised: 3/4 hero replaces dead-on front (2026-07-07) - LOCAL CODE, NOT DEPLOYED
-- Operator delegated "do what's best". Revised the D-407 slot set to shoe-optimal angles: `hero_3q, side, top, back, detail` (was `front, side, top_pair, heel, material_detail`).
+- Operator delegated "do what's best". Revised the D-407 slot set to shoe-optimal angles: `side, hero_3q, top, back, detail` (was `front, side, top_pair, heel, material_detail`).
 - Only real change: dead-on `front` → THREE-QUARTER hero (`hero_3q`) — a shoe head-on is flat; 3/4 (front+one side) is the strongest catalog hero. Others just renamed (top_pair→top, heel→back, material_detail→detail).
 - Rejected `sole`/outsole for slot 5: model would risk fabricating tread not in the reference (forbidden). Kept visible-material `detail`.
 - `imageSlotContract.ts` updated (hero_3q gets 3/4 intent, still geometry-free per D-407; D-408 centers it). Downstream keys updated: anchors, detail special-case, disabled SHOT_CRITERIA. Contract test updated. `npm run validate` PASS. Not committed/pushed/deployed.

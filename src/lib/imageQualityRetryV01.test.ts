@@ -148,6 +148,7 @@ function classifierInput(overrides: InputOverrides = {}): VisualQualityRetryClas
     framingOutcome: 'not_required',
     framingReasonCodes: ['geometry_already_compliant'],
     geometryReasonCodes: [],
+    geometryApplicable: true,
     geometryReliable: true,
     detailCropEvidence: 'not_applicable',
     sourceEvidenceSufficientTargets: allSufficientTargets,
@@ -410,6 +411,9 @@ check('15 malformed partial missing unsupported or errored evaluator evidence re
   assert.equal(deniedReason(failureInput('angle', {
     geometryReliable: 'yes' as unknown as boolean,
   })), 'EVALUATOR_EVIDENCE_INCOMPLETE')
+  assert.equal(deniedReason(failureInput('angle', {
+    geometryApplicable: 'no' as unknown as boolean,
+  })), 'EVALUATOR_EVIDENCE_INCOMPLETE')
 })
 
 check('16 missing or unreliable geometry prevents framing retry', () => {
@@ -623,23 +627,57 @@ check('26 canonical five-slot ordering remains exact after retry', () => {
   assert.deepEqual(merged.map((slot) => slot.slotId), GENERATED_SLOT_KEYS)
 })
 
-check('27 detail preserves intentional material-crop semantics', () => {
+check('27 measured detail material and topology failures remain retryable without full-product geometry', () => {
   const decision = requireAuthorized(failureInput('material', {
     slotId: 'detail',
     dimensions: { geometry: 'pass', framing: 'pass' },
     framingOutcome: 'not_required',
     framingReasonCodes: ['detail_slot_exempt'],
     geometryReasonCodes: [],
-    geometryReliable: false,
+    geometryApplicable: false,
+    geometryReliable: true,
     detailCropEvidence: 'ambiguous_intentional_crop',
   }))
+  assert.deepEqual(decision.targets, ['MATERIAL'])
   const directive = buildVisualQualityRetryDirectiveV01({ context, decision })
   assert.match(directive, /preserve the existing material_detail crop/i)
   assert.match(directive, /never convert the detail into a hardware, logo, ornament, or branding close-up/i)
   assert.doesNotMatch(directive, /FRAMING CORRECTION:.*complete product/i)
+
+  const topology = requireAuthorized(failureInput('topology', {
+    slotId: 'detail',
+    framingOutcome: 'not_required',
+    framingReasonCodes: ['detail_slot_exempt'],
+    geometryApplicable: false,
+    geometryReliable: true,
+    detailCropEvidence: 'ambiguous_intentional_crop',
+  }))
+  assert.deepEqual(topology.targets, ['TOPOLOGY'])
 })
 
-check('28 detail crop exception cannot leak to a full-product slot', () => {
+check('28 detail angle/studio retries ignore a missing geometry measurement, but framing does not', () => {
+  for (const dimension of ['angle', 'studio'] as const) {
+    const decision = requireAuthorized(failureInput(dimension, {
+      slotId: 'detail',
+      framingOutcome: 'not_required',
+      framingReasonCodes: ['detail_slot_exempt'],
+      geometryApplicable: false,
+      geometryReliable: false,
+      detailCropEvidence: 'ambiguous_intentional_crop',
+    }))
+    assert.deepEqual(decision.targets, [dimension.toUpperCase()])
+  }
+  assert.equal(deniedReason(classifierInput({
+    slotId: 'detail',
+    combinedGateState: 'fail',
+    dimensions: { geometry: 'fail' },
+    geometryApplicable: false,
+    geometryReliable: true,
+    detailCropEvidence: 'ambiguous_intentional_crop',
+  })), 'EVALUATOR_EVIDENCE_INCOMPLETE')
+})
+
+check('29 detail crop exception cannot leak to a full-product slot', () => {
   const ambiguousDetailFraming = classifierInput({
     slotId: 'detail',
     combinedGateState: 'fail',
@@ -647,6 +685,7 @@ check('28 detail crop exception cannot leak to a full-product slot', () => {
     framingOutcome: 'unsafe_existing_clipping',
     framingReasonCodes: ['existing_edge_clipping'],
     geometryReasonCodes: [],
+    geometryApplicable: false,
     geometryReliable: false,
     detailCropEvidence: 'ambiguous_intentional_crop',
   })
@@ -662,6 +701,10 @@ check('28 detail crop exception cannot leak to a full-product slot', () => {
   const sideDirective = buildVisualQualityRetryDirectiveV01({ context, decision: sideDecision })
   assert.match(sideDirective, /complete product inside the canvas/)
   assert.doesNotMatch(sideDirective, /Do not reveal the whole shoe/)
+  assert.equal(deniedReason(failureInput('angle', {
+    slotId: 'side',
+    geometryApplicable: false,
+  })), 'EVALUATOR_EVIDENCE_INCOMPLETE')
 })
 
 check('29 decision and parent-child retry evidence persist through JSON metadata', () => {

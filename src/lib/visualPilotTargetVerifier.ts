@@ -20,12 +20,19 @@ import {
   VISUAL_QUALITY_EVALUATOR_V01_VERSION,
 } from './imageVisualLockV01'
 import {
+  VISUAL_PILOT_MEDIA_MAX_BYTES,
+  VISUAL_PILOT_MEDIA_MAX_INPUT_PIXELS,
+  VISUAL_PILOT_MEDIA_TIMEOUT_MS,
   readVisualPilotMediaEvidence,
   type VisualPilotMediaReadDependencies,
 } from './visualPilotMediaEvidence'
 
 export const VISUAL_PILOT_TARGET_VERIFIER_VERSION = 'visual-pilot-target-verifier/v1' as const
 export const VISUAL_PILOT_TARGET_PAGE_SIZE = 50
+export const VISUAL_PILOT_MAX_ORIGINALS = 8
+export const VISUAL_PILOT_AGGREGATE_MAX_BYTES = 40_000_000
+export const VISUAL_PILOT_AGGREGATE_MAX_PIXELS = 160_000_000
+export const VISUAL_PILOT_AGGREGATE_TIMEOUT_MS = 45_000
 
 export type VisualPilotTargetVerdict =
   | 'TARGET_READY_FOR_PILOT_APPROVAL'
@@ -48,7 +55,7 @@ export type VisualPilotPage = {
 
 export type VisualPilotTargetReadGateway = {
   findProductCandidates(reference: string): Promise<unknown[]>
-  findMediaById(id: string | number): Promise<unknown | null>
+  readProductMediaPage(productId: string | number, page: number, limit: number): Promise<VisualPilotPage>
   readImageJobPage(productId: string | number, page: number, limit: number): Promise<VisualPilotPage>
   readPayloadJobPage(imageJobIds: readonly (string | number)[], page: number, limit: number): Promise<VisualPilotPage>
   readBotEventPage(productId: string | number, page: number, limit: number): Promise<VisualPilotPage>
@@ -103,6 +110,12 @@ export type VisualPilotTargetReport = {
     byPreviewApprovalState: Record<string, number>
     byMediaPersistence: { zero: number; partial: number; complete: number; other: number }
   }
+  media: {
+    exhaustiveCount: number
+    originalCount: number
+    generatedCount: number
+    paginationReconciled: boolean
+  }
   attempts: {
     count: number
     lineageIntegrityState: 'pass' | 'fail' | 'unknown'
@@ -130,6 +143,7 @@ export type VisualPilotTargetReport = {
 export type VisualPilotTargetVerifierDependencies = {
   gateway: VisualPilotTargetReadGateway
   mediaRead?: VisualPilotMediaReadDependencies
+  now?: () => number
 }
 
 export type VisualPilotTargetCliParseResult =
@@ -185,22 +199,48 @@ function safeTitle(value: unknown): string | null {
   return cleaned || null
 }
 
-const DOWNSTREAM_EXPOSURE_EVENT_PREFIXES = [
-  'publish',
-  'dispatch',
-  'shopier',
-  'story',
-  'advert',
-  'campaign',
-] as const
+type BotEventTaxonomy = 'exposure' | 'non_exposure' | 'neutral'
 
-function isDownstreamExposureEvent(eventType: string): boolean {
-  if (eventType === 'product.activated') return true
-  return DOWNSTREAM_EXPOSURE_EVENT_PREFIXES.some((prefix) =>
-    eventType === prefix
-    || eventType.startsWith(`${prefix}.`)
-    || eventType.startsWith(`${prefix}_`)
-    || eventType.startsWith(`${prefix}-`))
+const BOT_EVENT_TAXONOMY: Readonly<Record<string, BotEventTaxonomy>> = {
+  'publish.approved': 'exposure',
+  'product.activated': 'exposure',
+  'product.soldout': 'exposure',
+  'product.restocked': 'exposure',
+  'lead.converted': 'exposure',
+  'order.status_changed': 'exposure',
+  'order.new_alert_sent': 'exposure',
+  'order.refund_requested': 'exposure',
+  'order.refund_updated': 'exposure',
+  'publish.rejected': 'non_exposure',
+  'pi.auto_trigger_failed': 'non_exposure',
+  'content.failed': 'non_exposure',
+  'audit.needs_revision': 'non_exposure',
+  'audit.failed': 'non_exposure',
+  'brand_safety.provenance_reviewed': 'neutral',
+  'pi.auto_triggered_by_geo': 'neutral',
+  'pi.sent_to_geo': 'neutral',
+  'content.requested': 'neutral',
+  'content.commerce_generated': 'neutral',
+  'content.discovery_generated': 'neutral',
+  'content.ready': 'neutral',
+  'audit.requested': 'neutral',
+  'audit.started': 'neutral',
+  'audit.approved': 'neutral',
+  'audit.approved_with_warning': 'neutral',
+  'audit.auto_fix_requested': 'neutral',
+  'product.publish_ready': 'neutral',
+  'product.confirmed': 'neutral',
+  'state.repaired': 'neutral',
+  'stock.changed': 'neutral',
+  'lead.status_changed': 'neutral',
+  'lead.new_alert_sent': 'neutral',
+}
+
+function classifyBotEvent(eventType: string, status: string): BotEventTaxonomy | 'unknown' {
+  const classification = BOT_EVENT_TAXONOMY[eventType]
+  if (!classification) return 'unknown'
+  if (classification === 'exposure' && (status === 'failed' || status === 'ignored')) return 'non_exposure'
+  return classification
 }
 
 function safeStockNumber(value: unknown): string | null {
@@ -213,6 +253,17 @@ function asStringArray(value: unknown): string[] | null {
   if (!Array.isArray(value) || !value.every((entry) => typeof entry === 'string')) return null
   const normalized = value.map((entry) => entry.trim().toLowerCase())
   return normalized.some((entry) => !entry) ? null : normalized
+}
+
+function serializedStringArray(value: unknown): string[] | null {
+  if (typeof value !== 'string') return null
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(value)
+  } catch {
+    return null
+  }
+  return asStringArray(parsed)
 }
 
 function dateIsValid(value: unknown): boolean {
@@ -259,34 +310,63 @@ function canonicalEvidence(value: unknown): unknown {
 }
 
 function productReadSnapshot(product: RecordValue): unknown {
-  return canonicalEvidence({
-    id: relationshipId(product.id),
-    stockNumber: safeStockNumber(product.stockNumber),
-    status: product.status,
-    workflow: product.workflow,
-    imageQuality: product.imageQuality,
-    images: relationArray(product.images, 'image'),
-    generativeGallery: relationArray(product.generativeGallery, 'image'),
-    channels: product.channels,
-    channelTargets: product.channelTargets,
-    sourceMeta: product.sourceMeta,
-    updatedAt: product.updatedAt,
-  })
+  return canonicalEvidence(product)
 }
 
 function jobReadSnapshot(jobs: readonly RecordValue[]): unknown {
-  return canonicalEvidence(jobs.map((job) => ({
-    id: relationshipId(job.id),
-    product: relationshipId(job.product),
-    status: job.status,
-    generationContractVersion: job.generationContractVersion,
-    activeAttemptId: job.activeAttemptId,
-    generationAttempts: job.generationAttempts,
-    generatedImages: relationArray(job.generatedImages),
-    imageCount: job.imageCount,
-    generationCompletedAt: job.generationCompletedAt,
-    updatedAt: job.updatedAt,
-  })))
+  return canonicalRecordSet(jobs)
+}
+
+function canonicalRecordSet(records: readonly RecordValue[]): unknown {
+  return canonicalEvidence([...records].sort((left, right) =>
+    String(relationshipId(left.id) ?? '').localeCompare(String(relationshipId(right.id) ?? ''), 'en', { numeric: true }),
+  ))
+}
+
+type OptionalEvidenceSnapshot = {
+  authority: 'available' | 'unsupported'
+  readState: 'complete' | 'unsupported'
+  docs: RecordValue[]
+}
+
+type VisualPilotEvidenceSnapshot = {
+  product: RecordValue
+  jobs: RecordValue[]
+  media: RecordValue[]
+  queueReceipts: RecordValue[]
+  botEvents: RecordValue[]
+  storyJobs: RecordValue[]
+  telegram: OptionalEvidenceSnapshot
+  advertising: OptionalEvidenceSnapshot
+  pagination: {
+    jobs: boolean
+    media: boolean
+    queueReceipts: boolean
+    botEvents: boolean
+    storyJobs: boolean
+  }
+}
+
+function canonicalSnapshot(snapshot: VisualPilotEvidenceSnapshot): unknown {
+  return canonicalEvidence({
+    product: productReadSnapshot(snapshot.product),
+    jobs: jobReadSnapshot(snapshot.jobs),
+    media: canonicalRecordSet(snapshot.media),
+    queueReceipts: canonicalRecordSet(snapshot.queueReceipts),
+    botEvents: canonicalRecordSet(snapshot.botEvents),
+    storyJobs: canonicalRecordSet(snapshot.storyJobs),
+    telegram: {
+      authority: snapshot.telegram.authority,
+      readState: snapshot.telegram.readState,
+      docs: canonicalRecordSet(snapshot.telegram.docs),
+    },
+    advertising: {
+      authority: snapshot.advertising.authority,
+      readState: snapshot.advertising.readState,
+      docs: canonicalRecordSet(snapshot.advertising.docs),
+    },
+    pagination: snapshot.pagination,
+  })
 }
 
 function emptyReport(reference: string): VisualPilotTargetReport {
@@ -324,6 +404,7 @@ function emptyReport(reference: string): VisualPilotTargetReport {
       byPreviewApprovalState: {},
       byMediaPersistence: { zero: 0, partial: 0, complete: 0, other: 0 },
     },
+    media: { exhaustiveCount: 0, originalCount: 0, generatedCount: 0, paginationReconciled: false },
     attempts: {
       count: 0,
       lineageIntegrityState: 'unknown',
@@ -491,6 +572,93 @@ async function collectAllPages(params: {
   return { ok: false, docs: [] }
 }
 
+async function readEvidenceSnapshot(params: {
+  product: RecordValue
+  productId: number
+  gateway: VisualPilotTargetReadGateway
+  reasons: VisualPilotTargetReason[]
+  reconciliation: boolean
+}): Promise<VisualPilotEvidenceSnapshot> {
+  const suffix = params.reconciliation ? '_RECONCILIATION' : ''
+  const jobs = await collectAllPages({
+    readPage: (page, limit) => params.gateway.readImageJobPage(params.productId, page, limit),
+    malformedCode: `IMAGE_JOB${suffix}_PAGINATION_INCONSISTENT`,
+    unsupportedCode: `IMAGE_JOB${suffix}_DISCOVERY_UNSUPPORTED`,
+    reasons: params.reasons,
+  })
+  const media = await collectAllPages({
+    readPage: (page, limit) => params.gateway.readProductMediaPage(params.productId, page, limit),
+    malformedCode: `MEDIA${suffix}_PAGINATION_INCONSISTENT`,
+    unsupportedCode: `MEDIA${suffix}_DISCOVERY_UNSUPPORTED`,
+    reasons: params.reasons,
+  })
+  const jobIds = jobs.docs
+    .map((job) => relationshipId(job.id))
+    .filter((id): id is string | number => id !== null)
+  const queueReceipts = await collectAllPages({
+    readPage: (page, limit) => params.gateway.readPayloadJobPage(jobIds, page, limit),
+    malformedCode: `QUEUE_RECEIPT${suffix}_PAGINATION_INCONSISTENT`,
+    unsupportedCode: `QUEUE_RECEIPT${suffix}_DISCOVERY_UNSUPPORTED`,
+    reasons: params.reasons,
+  })
+  const botEvents = await collectAllPages({
+    readPage: (page, limit) => params.gateway.readBotEventPage(params.productId, page, limit),
+    malformedCode: `BOT_EVENT${suffix}_PAGINATION_INCONSISTENT`,
+    unsupportedCode: `BOT_EVENT${suffix}_DISCOVERY_UNSUPPORTED`,
+    reasons: params.reasons,
+  })
+  const storyJobs = await collectAllPages({
+    readPage: (page, limit) => params.gateway.readStoryJobPage(params.productId, page, limit),
+    malformedCode: `STORY_JOB${suffix}_PAGINATION_INCONSISTENT`,
+    unsupportedCode: `STORY_JOB${suffix}_DISCOVERY_UNSUPPORTED`,
+    reasons: params.reasons,
+  })
+
+  let telegram: OptionalEvidenceSnapshot = { authority: 'unsupported', readState: 'unsupported', docs: [] }
+  if (params.gateway.readTelegramPreviewReceiptPage) {
+    const pages = await collectAllPages({
+      readPage: (page, limit) => params.gateway.readTelegramPreviewReceiptPage!(params.productId, page, limit),
+      malformedCode: `TELEGRAM_PREVIEW_RECEIPT${suffix}_PAGINATION_INCONSISTENT`,
+      unsupportedCode: `TELEGRAM_PREVIEW_RECEIPT${suffix}_DISCOVERY_UNSUPPORTED`,
+      reasons: params.reasons,
+    })
+    telegram = { authority: 'available', readState: pages.ok ? 'complete' : 'unsupported', docs: pages.docs }
+  } else if (!params.reconciliation) {
+    params.reasons.push({ code: 'TELEGRAM_PREVIEW_ABSENCE_UNSUPPORTED', kind: 'unsupported' })
+  }
+
+  let advertising: OptionalEvidenceSnapshot = { authority: 'unsupported', readState: 'unsupported', docs: [] }
+  if (params.gateway.readAdvertisingHistoryPage) {
+    const pages = await collectAllPages({
+      readPage: (page, limit) => params.gateway.readAdvertisingHistoryPage!(params.productId, page, limit),
+      malformedCode: `ADVERTISING_HISTORY${suffix}_PAGINATION_INCONSISTENT`,
+      unsupportedCode: `ADVERTISING_HISTORY${suffix}_DISCOVERY_UNSUPPORTED`,
+      reasons: params.reasons,
+    })
+    advertising = { authority: 'available', readState: pages.ok ? 'complete' : 'unsupported', docs: pages.docs }
+  } else if (!params.reconciliation) {
+    params.reasons.push({ code: 'ADVERTISING_HISTORY_ABSENCE_UNSUPPORTED', kind: 'unsupported' })
+  }
+
+  return {
+    product: params.product,
+    jobs: jobs.docs,
+    media: media.docs,
+    queueReceipts: queueReceipts.docs,
+    botEvents: botEvents.docs,
+    storyJobs: storyJobs.docs,
+    telegram,
+    advertising,
+    pagination: {
+      jobs: jobs.ok,
+      media: media.ok,
+      queueReceipts: queueReceipts.ok,
+      botEvents: botEvents.ok,
+      storyJobs: storyJobs.ok,
+    },
+  }
+}
+
 function exposureFromProduct(product: RecordValue): {
   shopier: boolean | null
   publishing: boolean | null
@@ -499,8 +667,11 @@ function exposureFromProduct(product: RecordValue): {
   const channels = isRecord(product.channels) ? product.channels : null
   const workflow = isRecord(product.workflow) ? product.workflow : null
   const sourceMeta = isRecord(product.sourceMeta) ? product.sourceMeta : null
+  const merchandising = product.merchandising === undefined || product.merchandising === null
+    ? {}
+    : isRecord(product.merchandising) ? product.merchandising : null
   const targets = asStringArray(product.channelTargets)
-  if (!channels || !workflow || !sourceMeta || targets === null) {
+  if (!channels || !workflow || !sourceMeta || !merchandising || targets === null) {
     return { shopier: null, publishing: null, dispatch: null }
   }
   const channelFields = ['publishWebsite', 'publishInstagram', 'publishFacebook', 'publishX', 'publishShopier'] as const
@@ -511,7 +682,7 @@ function exposureFromProduct(product: RecordValue): {
   if (targets.some((target) => !knownTargets.has(target)) || new Set(targets).size !== targets.length) {
     return { shopier: null, publishing: null, dispatch: null }
   }
-  const dispatched = asStringArray(sourceMeta.dispatchedChannels)
+  const dispatched = serializedStringArray(sourceMeta.dispatchedChannels)
   const shopierStatus = safeEnum(sourceMeta.shopierSyncStatus, ['not_synced', 'queued', 'syncing', 'synced', 'error'])
   const publishStatus = safeEnum(workflow.publishStatus, ['not_requested', 'pending', 'published', 'partial', 'failed'])
   const storyStatus = safeEnum(sourceMeta.storyStatus, [
@@ -525,6 +696,10 @@ function exposureFromProduct(product: RecordValue): {
     || shopierStatus === 'unknown'
     || publishStatus === 'unknown'
     || storyStatus === 'unknown'
+    || (sourceMeta.externalSyncId !== undefined && sourceMeta.externalSyncId !== null && typeof sourceMeta.externalSyncId !== 'string')
+    || (sourceMeta.lastDispatchedAt !== undefined && sourceMeta.lastDispatchedAt !== null && !dateIsValid(sourceMeta.lastDispatchedAt))
+    || (merchandising.publishedAt !== undefined && merchandising.publishedAt !== null && !dateIsValid(merchandising.publishedAt))
+    || typeof product.postToInstagram !== 'boolean'
   ) {
     return { shopier: null, publishing: null, dispatch: null }
   }
@@ -538,13 +713,20 @@ function exposureFromProduct(product: RecordValue): {
     || channels.publishInstagram === true
     || channels.publishFacebook === true
     || channels.publishX === true
+    || product.postToInstagram === true
+    || Boolean(merchandising.publishedAt)
   const dispatch = (dispatched?.length ?? 0) > 0
     || Boolean(sourceMeta.lastDispatchedAt)
     || sourceMeta.forceRedispatch === true
     || sourceMeta.previewDispatch === true
     || Boolean(sourceMeta.storyQueuedAt || sourceMeta.storyPublishedAt)
     || storyStatus !== 'none'
-  return { shopier, publishing, dispatch }
+    || Boolean(typeof sourceMeta.externalSyncId === 'string' && sourceMeta.externalSyncId.trim())
+  return {
+    shopier: shopier || Boolean(sourceMeta.shopierProductId),
+    publishing,
+    dispatch,
+  }
 }
 
 function attemptHasCanonicalSlots(attempt: ImageGenerationAttemptMetadata): boolean {
@@ -780,7 +962,6 @@ export async function verifyVisualPilotTarget(
   const resolvedStockNumber = safeStockNumber(product.stockNumber)
   const exactReferenceMatches = /^\d+$/.test(productReference)
     ? String(productId) === String(Number(productReference))
-      || resolvedStockNumber === `SN${productReference.padStart(4, '0')}`
     : resolvedStockNumber === productReference.toUpperCase()
   if (!exactReferenceMatches) {
     reasons.push({ code: 'PRODUCT_REFERENCE_MISMATCH', kind: 'blocked' })
@@ -852,13 +1033,40 @@ export async function verifyVisualPilotTarget(
   if (productExposure.publishing) reasons.push({ code: 'DOWNSTREAM_PUBLISHING_TARGET', kind: 'blocked' })
   if (productExposure.dispatch) reasons.push({ code: 'DOWNSTREAM_DISPATCH_EXPOSURE', kind: 'blocked' })
 
+  const firstSnapshot = await readEvidenceSnapshot({
+    product,
+    productId,
+    gateway: dependencies.gateway,
+    reasons,
+    reconciliation: false,
+  })
+  report.jobs.paginationReconciled = firstSnapshot.pagination.jobs
+  report.jobs.exhaustiveCount = firstSnapshot.jobs.length
+  report.media = {
+    exhaustiveCount: firstSnapshot.media.length,
+    originalCount: firstSnapshot.media.filter((entry) => entry.type === 'original').length,
+    generatedCount: firstSnapshot.media.filter((entry) => entry.type === 'generated').length,
+    paginationReconciled: firstSnapshot.pagination.media,
+  }
+  const jobs = firstSnapshot.jobs
+  const jobIds = jobs.map((job) => relationshipId(job.id)).filter((id): id is string | number => id !== null)
+
   const originalIds = relationArray(product.images, 'image')
   const originalEvidence: VisualPilotOriginalEvidence[] = []
   const contentDigests = new Set<string>()
   let originalsDistinct: 'pass' | 'fail' | 'unknown' = 'pass'
   let originalsOrdered = true
+  const now = dependencies.now ?? Date.now
+  const aggregateDeadline = now() + VISUAL_PILOT_AGGREGATE_TIMEOUT_MS
+  let aggregateBytes = 0
+  let aggregatePixels = 0
+  const targetMediaById = new Map(firstSnapshot.media.map((entry) => [String(relationshipId(entry.id)), entry]))
   if (!originalIds || originalIds.length === 0) {
     reasons.push({ code: originalIds ? 'ORIGINAL_RELATIONSHIP_MISSING' : 'ORIGINAL_RELATIONSHIP_MALFORMED', kind: 'blocked' })
+    originalsDistinct = 'fail'
+    originalsOrdered = false
+  } else if (originalIds.length > VISUAL_PILOT_MAX_ORIGINALS) {
+    reasons.push({ code: 'ORIGINAL_COUNT_LIMIT_EXCEEDED', kind: 'blocked' })
     originalsDistinct = 'fail'
     originalsOrdered = false
   } else {
@@ -881,14 +1089,7 @@ export async function verifyVisualPilotTarget(
         continue
       }
       relationshipIds.add(String(id))
-      let rawMedia: unknown | null
-      try {
-        rawMedia = await dependencies.gateway.findMediaById(id)
-      } catch {
-        reasons.push({ code: 'ORIGINAL_MEDIA_LOOKUP_UNSUPPORTED', kind: 'unsupported' })
-        if (originalsDistinct === 'pass') originalsDistinct = 'unknown'
-        rawMedia = null
-      }
+      const rawMedia = targetMediaById.get(String(id))
       if (!isRecord(rawMedia) || !sameId(rawMedia.id, id)) {
         reasons.push({ code: 'ORIGINAL_MEDIA_NOT_FOUND', kind: 'blocked' })
         if (originalsDistinct === 'pass') originalsDistinct = 'unknown'
@@ -920,7 +1121,44 @@ export async function verifyVisualPilotTarget(
         })
         continue
       }
-      const mediaRead = await readVisualPilotMediaEvidence(rawMedia, dependencies.mediaRead)
+      const remainingWallMs = aggregateDeadline - now()
+      const remainingBytes = VISUAL_PILOT_AGGREGATE_MAX_BYTES - aggregateBytes
+      const remainingPixels = VISUAL_PILOT_AGGREGATE_MAX_PIXELS - aggregatePixels
+      if (remainingWallMs <= 0 || remainingBytes <= 0 || remainingPixels <= 0) {
+        reasons.push({
+          code: remainingWallMs <= 0
+            ? 'ORIGINAL_AGGREGATE_TIMEOUT'
+            : remainingBytes <= 0
+              ? 'ORIGINAL_AGGREGATE_BYTE_LIMIT_EXCEEDED'
+              : 'ORIGINAL_AGGREGATE_PIXEL_LIMIT_EXCEEDED',
+          kind: 'blocked',
+        })
+        originalsDistinct = 'fail'
+        originalsOrdered = false
+        break
+      }
+      const perFileTimeout = dependencies.mediaRead?.timeoutMs ?? VISUAL_PILOT_MEDIA_TIMEOUT_MS
+      const perFileBytes = dependencies.mediaRead?.maxBytes ?? VISUAL_PILOT_MEDIA_MAX_BYTES
+      const perFilePixels = dependencies.mediaRead?.maxInputPixels ?? VISUAL_PILOT_MEDIA_MAX_INPUT_PIXELS
+      const aggregateController = new AbortController()
+      const externalAbort = () => aggregateController.abort()
+      dependencies.mediaRead?.signal?.addEventListener('abort', externalAbort, { once: true })
+      if (dependencies.mediaRead?.signal?.aborted) aggregateController.abort()
+      const mediaRead = await readVisualPilotMediaEvidence(rawMedia, {
+        ...dependencies.mediaRead,
+        signal: aggregateController.signal,
+        timeoutMs: Math.min(perFileTimeout, remainingWallMs),
+        timeoutFailureCode: remainingWallMs < perFileTimeout ? 'ORIGINAL_AGGREGATE_TIMEOUT' : 'ORIGINAL_FETCH_TIMEOUT',
+        maxBytes: Math.min(perFileBytes, remainingBytes),
+        byteLimitFailureCode: remainingBytes < perFileBytes
+          ? 'ORIGINAL_AGGREGATE_BYTE_LIMIT_EXCEEDED'
+          : 'ORIGINAL_BYTE_LIMIT_EXCEEDED',
+        maxInputPixels: Math.min(perFilePixels, remainingPixels),
+        pixelLimitFailureCode: remainingPixels < perFilePixels
+          ? 'ORIGINAL_AGGREGATE_PIXEL_LIMIT_EXCEEDED'
+          : 'ORIGINAL_PIXEL_LIMIT_EXCEEDED',
+      })
+      dependencies.mediaRead?.signal?.removeEventListener('abort', externalAbort)
       if (!mediaRead.ok) {
         reasons.push({ code: mediaRead.code, kind: 'blocked' })
         if (originalsDistinct === 'pass') originalsDistinct = 'unknown'
@@ -933,7 +1171,26 @@ export async function verifyVisualPilotTarget(
           height: null,
           mimeType: null,
         })
+        if (mediaRead.code.startsWith('ORIGINAL_AGGREGATE_')) {
+          aggregateController.abort()
+          originalsOrdered = false
+          break
+        }
         continue
+      }
+      aggregateBytes += mediaRead.byteSize
+      aggregatePixels += mediaRead.width * mediaRead.height
+      if (aggregateBytes > VISUAL_PILOT_AGGREGATE_MAX_BYTES || aggregatePixels > VISUAL_PILOT_AGGREGATE_MAX_PIXELS) {
+        aggregateController.abort()
+        reasons.push({
+          code: aggregateBytes > VISUAL_PILOT_AGGREGATE_MAX_BYTES
+            ? 'ORIGINAL_AGGREGATE_BYTE_LIMIT_EXCEEDED'
+            : 'ORIGINAL_AGGREGATE_PIXEL_LIMIT_EXCEEDED',
+          kind: 'blocked',
+        })
+        originalsDistinct = 'fail'
+        originalsOrdered = false
+        break
       }
       if (contentDigests.has(mediaRead.contentDigest)) {
         reasons.push({ code: 'ORIGINAL_CONTENT_DUPLICATE', kind: 'blocked' })
@@ -971,23 +1228,14 @@ export async function verifyVisualPilotTarget(
     semanticSuitability: 'operator_review_required',
   }
 
-  const jobPages = await collectAllPages({
-    readPage: (page, limit) => dependencies.gateway.readImageJobPage(productId, page, limit),
-    malformedCode: 'IMAGE_JOB_PAGINATION_INCONSISTENT',
-    unsupportedCode: 'IMAGE_JOB_DISCOVERY_UNSUPPORTED',
-    reasons,
-  })
-  report.jobs.paginationReconciled = jobPages.ok
-  const jobs = jobPages.docs
-  report.jobs.exhaustiveCount = jobs.length
   const allAttemptIds = new Set<string>()
-  const jobIds = jobs.map((job) => relationshipId(job.id)).filter((id): id is string | number => id !== null)
-  let lineagePass = jobPages.ok
+  let lineagePass = firstSnapshot.pagination.jobs && firstSnapshot.pagination.media
   let activeAttemptState: VisualPilotTargetReport['attempts']['activeAttemptState'] = 'clear'
   let packPass = true
   const terminalStatuses = new Set(['approved', 'rejected', 'failed'])
   const activeStatuses = new Set(['queued', 'generating', 'preview', 'review'])
   const persistedMediaById = new Map<string, { jobId: string; attemptId: string; slotId: string }>()
+  const generatedJobOwnerByMediaId = new Map<string, string>()
 
   for (const job of jobs) {
     const jobId = relationshipId(job.id)
@@ -1006,7 +1254,6 @@ export async function verifyVisualPilotTarget(
       reasons.push({ code: 'IMAGE_JOB_TERMINAL_EVIDENCE_INCOMPLETE', kind: 'blocked' })
       lineagePass = false
     }
-
     const generatedIds = relationArray(job.generatedImages)
     if (generatedIds === null) {
       reasons.push({ code: 'IMAGE_JOB_MEDIA_RELATIONSHIP_MALFORMED', kind: 'blocked' })
@@ -1023,6 +1270,15 @@ export async function verifyVisualPilotTarget(
     ) {
       reasons.push({ code: 'IMAGE_JOB_MEDIA_COUNT_INCONSISTENT', kind: 'blocked' })
       lineagePass = false
+    }
+    for (const mediaId of generatedIds) {
+      const key = String(mediaId)
+      const existingOwner = generatedJobOwnerByMediaId.get(key)
+      if (existingOwner && existingOwner !== String(jobId)) {
+        reasons.push({ code: 'GENERATED_MEDIA_JOB_RELATIONSHIP_DUPLICATED', kind: 'blocked' })
+        lineagePass = false
+      }
+      generatedJobOwnerByMediaId.set(key, String(jobId))
     }
     const mediaBucket = generatedIds.length === 0 ? 'zero' : generatedIds.length === 5 ? 'complete' : generatedIds.length < 5 ? 'partial' : 'other'
     report.jobs.byMediaPersistence[mediaBucket] += 1
@@ -1199,33 +1455,6 @@ export async function verifyVisualPilotTarget(
       reasons.push({ code: 'JOB_MEDIA_ATTEMPT_LINEAGE_MISMATCH', kind: 'blocked' })
       lineagePass = false
     }
-    for (const mediaId of generatedIds) {
-      const expected = persistedMediaById.get(String(mediaId))
-      let media: unknown | null
-      try {
-        media = await dependencies.gateway.findMediaById(mediaId)
-      } catch {
-        reasons.push({ code: 'GENERATED_MEDIA_LOOKUP_UNSUPPORTED', kind: 'unsupported' })
-        media = null
-      }
-      const lineage = isRecord(media) && isRecord(media.generationLineage) ? media.generationLineage : null
-      if (
-        !expected
-        || !isRecord(media)
-        || !sameId(media.id, mediaId)
-        || media.type !== 'generated'
-        || !sameId(media.product, productId)
-        || !lineage
-        || lineage.contractVersion !== IMAGE_SLOT_CONTRACT_VERSION
-        || String(lineage.jobId ?? '') !== expected.jobId
-        || lineage.attemptId !== expected.attemptId
-        || lineage.slotId !== expected.slotId
-      ) {
-        reasons.push({ code: 'GENERATED_MEDIA_LINEAGE_INVALID', kind: 'blocked' })
-        lineagePass = false
-      }
-    }
-
     if (status === 'approved' || status === 'preview' || status === 'review') {
       const resolution = resolveApprovalCandidates({
         generationAttempts: parsed.attempts,
@@ -1257,19 +1486,67 @@ export async function verifyVisualPilotTarget(
       }
     }
   }
+
+  const generatedMediaById = new Map<string, RecordValue>()
+  for (const media of firstSnapshot.media) {
+    const mediaId = relationshipId(media.id)
+    if (mediaId === null || !sameId(media.product, productId)) {
+      reasons.push({ code: 'MEDIA_PRODUCT_ASSOCIATION_MISMATCH', kind: 'blocked' })
+      lineagePass = false
+      continue
+    }
+    if (media.type !== 'original' && media.type !== 'enhanced' && media.type !== 'generated') {
+      reasons.push({ code: 'MEDIA_CLASSIFICATION_MALFORMED', kind: 'blocked' })
+      lineagePass = false
+      continue
+    }
+    if (media.type !== 'generated') continue
+    const key = String(mediaId)
+    generatedMediaById.set(key, media)
+    const expected = persistedMediaById.get(key)
+    const jobOwner = generatedJobOwnerByMediaId.get(key)
+    const lineage = isRecord(media.generationLineage) ? media.generationLineage : null
+    if (!expected || !jobOwner) {
+      reasons.push({ code: 'GENERATED_MEDIA_ORPHANED', kind: 'blocked' })
+      lineagePass = false
+      continue
+    }
+    if (
+      expected.jobId !== jobOwner
+      || !lineage
+      || lineage.contractVersion !== IMAGE_SLOT_CONTRACT_VERSION
+      || String(lineage.jobId ?? '') !== expected.jobId
+      || lineage.attemptId !== expected.attemptId
+      || lineage.slotId !== expected.slotId
+    ) {
+      reasons.push({ code: 'GENERATED_MEDIA_LINEAGE_INVALID', kind: 'blocked' })
+      lineagePass = false
+    }
+  }
+  for (const mediaId of new Set([...persistedMediaById.keys(), ...generatedJobOwnerByMediaId.keys()])) {
+    if (!generatedMediaById.has(mediaId)) {
+      reasons.push({ code: 'GENERATED_MEDIA_RECORD_MISSING', kind: 'blocked' })
+      lineagePass = false
+    }
+  }
+  if (galleryIds) {
+    if (new Set(galleryIds.map(String)).size !== galleryIds.length) {
+      reasons.push({ code: 'PRODUCT_GALLERY_RELATIONSHIP_DUPLICATED', kind: 'blocked' })
+      lineagePass = false
+    }
+    if (galleryIds.some((mediaId) => !generatedMediaById.has(String(mediaId)))) {
+      reasons.push({ code: 'PRODUCT_GALLERY_GENERATED_MEDIA_INVALID', kind: 'blocked' })
+      lineagePass = false
+    }
+  }
   report.attempts.lineageIntegrityState = lineagePass ? 'pass' : 'fail'
   report.attempts.activeAttemptState = activeAttemptState
   report.packApprovalManifestState = packPass ? 'complete_or_not_applicable' : 'blocked'
 
-  const queuePages = await collectAllPages({
-    readPage: (page, limit) => dependencies.gateway.readPayloadJobPage(jobIds, page, limit),
-    malformedCode: 'QUEUE_RECEIPT_PAGINATION_INCONSISTENT',
-    unsupportedCode: 'QUEUE_RECEIPT_DISCOVERY_UNSUPPORTED',
-    reasons,
-  })
-  report.queueReceipts.count = queuePages.docs.length
-  report.queueReceipts.paginationReconciled = queuePages.ok
-  let queueClear = queuePages.ok
+  const queuePages = { ok: firstSnapshot.pagination.queueReceipts, docs: firstSnapshot.queueReceipts }
+  report.queueReceipts.count = firstSnapshot.queueReceipts.length
+  report.queueReceipts.paginationReconciled = firstSnapshot.pagination.queueReceipts
+  let queueClear = firstSnapshot.pagination.queueReceipts
   const receiptJobIds = new Set<string>()
   const receiptCountByJobId = new Map<string, number>()
   for (const receipt of queuePages.docs) {
@@ -1303,7 +1580,7 @@ export async function verifyVisualPilotTarget(
     }
     const processing = receipt.processing === true
     const complete = dateIsValid(receipt.completedAt) || receipt.hasError === true
-    if (processing || !complete || (dateIsValid(receipt.waitUntil) && Date.parse(String(receipt.waitUntil)) > Date.now())) {
+    if (processing || !complete || (dateIsValid(receipt.waitUntil) && Date.parse(String(receipt.waitUntil)) > now())) {
       reasons.push({ code: 'QUEUE_RECEIPT_NONTERMINAL', kind: 'blocked' })
       queueClear = false
     }
@@ -1316,14 +1593,8 @@ export async function verifyVisualPilotTarget(
   }
   report.queueReceipts.state = queueClear ? 'clear' : queuePages.ok ? 'blocked' : 'unknown'
 
-  const botPages = await collectAllPages({
-    readPage: (page, limit) => dependencies.gateway.readBotEventPage(productId, page, limit),
-    malformedCode: 'BOT_EVENT_PAGINATION_INCONSISTENT',
-    unsupportedCode: 'BOT_EVENT_DISCOVERY_UNSUPPORTED',
-    reasons,
-  })
-  if (botPages.ok) {
-    for (const event of botPages.docs) {
+  if (firstSnapshot.pagination.botEvents) {
+    for (const event of firstSnapshot.botEvents) {
       if (!sameId(event.product, productId)) {
         reasons.push({ code: 'DOWNSTREAM_BOT_EVENT_ASSOCIATION_MISMATCH', kind: 'blocked' })
         continue
@@ -1334,21 +1605,17 @@ export async function verifyVisualPilotTarget(
         reasons.push({ code: 'BOT_EVENT_STATE_AMBIGUOUS', kind: 'blocked' })
         continue
       }
-      const relevant = isDownstreamExposureEvent(eventType)
-      if (relevant && (eventStatus === 'pending' || eventStatus === 'processed')) {
+      const classification = classifyBotEvent(eventType, eventStatus)
+      if (classification === 'unknown') {
+        reasons.push({ code: 'BOT_EVENT_TAXONOMY_UNSUPPORTED', kind: 'unsupported' })
+      } else if (classification === 'exposure' && (eventStatus === 'pending' || eventStatus === 'processed')) {
         reasons.push({ code: 'DOWNSTREAM_BOT_EVENT_EXPOSURE', kind: 'blocked' })
       }
     }
   }
 
-  const storyPages = await collectAllPages({
-    readPage: (page, limit) => dependencies.gateway.readStoryJobPage(productId, page, limit),
-    malformedCode: 'STORY_JOB_PAGINATION_INCONSISTENT',
-    unsupportedCode: 'STORY_JOB_DISCOVERY_UNSUPPORTED',
-    reasons,
-  })
-  if (storyPages.ok) {
-    for (const story of storyPages.docs) {
+  if (firstSnapshot.pagination.storyJobs) {
+    for (const story of firstSnapshot.storyJobs) {
       if (!sameId(story.product, productId)) {
         reasons.push({ code: 'DOWNSTREAM_STORY_JOB_ASSOCIATION_MISMATCH', kind: 'blocked' })
       } else {
@@ -1357,18 +1624,11 @@ export async function verifyVisualPilotTarget(
     }
   }
 
-  if (!dependencies.gateway.readTelegramPreviewReceiptPage) {
+  if (firstSnapshot.telegram.authority === 'unsupported') {
     report.telegramPreviewState = 'unsupported'
-    reasons.push({ code: 'TELEGRAM_PREVIEW_ABSENCE_UNSUPPORTED', kind: 'unsupported' })
   } else {
-    const telegramPages = await collectAllPages({
-      readPage: (page, limit) => dependencies.gateway.readTelegramPreviewReceiptPage!(productId, page, limit),
-      malformedCode: 'TELEGRAM_PREVIEW_RECEIPT_PAGINATION_INCONSISTENT',
-      unsupportedCode: 'TELEGRAM_PREVIEW_RECEIPT_DISCOVERY_UNSUPPORTED',
-      reasons,
-    })
-    let telegramClear = telegramPages.ok
-    for (const receipt of telegramPages.docs) {
+    let telegramClear = firstSnapshot.telegram.readState === 'complete'
+    for (const receipt of firstSnapshot.telegram.docs) {
       const state = safeEnum(receipt.state, ['pending', 'active', 'preview', 'awaiting_approval', 'consumed', 'revoked', 'expired'])
       if (!sameId(receipt.product, productId) || state === 'unknown') {
         reasons.push({ code: 'TELEGRAM_PREVIEW_RECEIPT_AMBIGUOUS', kind: 'blocked' })
@@ -1381,18 +1641,11 @@ export async function verifyVisualPilotTarget(
     report.telegramPreviewState = telegramClear ? 'clear' : 'blocked'
   }
 
-  if (!dependencies.gateway.readAdvertisingHistoryPage) {
+  if (firstSnapshot.advertising.authority === 'unsupported') {
     report.downstreamExposure.advertising = 'unsupported'
-    reasons.push({ code: 'ADVERTISING_HISTORY_ABSENCE_UNSUPPORTED', kind: 'unsupported' })
   } else {
-    const advertisingPages = await collectAllPages({
-      readPage: (page, limit) => dependencies.gateway.readAdvertisingHistoryPage!(productId, page, limit),
-      malformedCode: 'ADVERTISING_HISTORY_PAGINATION_INCONSISTENT',
-      unsupportedCode: 'ADVERTISING_HISTORY_DISCOVERY_UNSUPPORTED',
-      reasons,
-    })
-    let advertisingClear = advertisingPages.ok
-    for (const record of advertisingPages.docs) {
+    let advertisingClear = firstSnapshot.advertising.readState === 'complete'
+    for (const record of firstSnapshot.advertising.docs) {
       if (!sameId(record.product, productId)) {
         reasons.push({ code: 'DOWNSTREAM_ADVERTISING_HISTORY_ASSOCIATION_MISMATCH', kind: 'blocked' })
       } else {
@@ -1400,35 +1653,37 @@ export async function verifyVisualPilotTarget(
       }
       advertisingClear = false
     }
-    report.downstreamExposure.advertising = advertisingClear ? 'clear' : advertisingPages.ok ? 'exposed' : 'unsupported'
+    report.downstreamExposure.advertising = advertisingClear
+      ? 'clear'
+      : firstSnapshot.advertising.readState === 'complete' ? 'exposed' : 'unsupported'
   }
 
-  let finalCandidates: unknown[] | null = null
+  let secondSnapshot: VisualPilotEvidenceSnapshot | null = null
   try {
-    finalCandidates = await dependencies.gateway.findProductCandidates(productReference)
+    const finalCandidates = await dependencies.gateway.findProductCandidates(productReference)
+    const finalProduct = finalCandidates.length === 1 && isRecord(finalCandidates[0]) ? finalCandidates[0] : null
+    const finalId = finalProduct ? canonicalProductId(finalProduct.id) : null
+    const finalStock = finalProduct ? safeStockNumber(finalProduct.stockNumber) : null
+    const exactFinalIdentity = finalProduct && finalId !== null && (/^\d+$/.test(productReference)
+      ? String(finalId) === String(Number(productReference))
+      : finalStock === productReference.toUpperCase())
+    if (!exactFinalIdentity || finalId !== productId) {
+      reasons.push({ code: 'TARGET_STATE_CHANGED_DURING_READ', kind: 'blocked' })
+    } else {
+      secondSnapshot = await readEvidenceSnapshot({
+        product: finalProduct,
+        productId,
+        gateway: dependencies.gateway,
+        reasons,
+        reconciliation: true,
+      })
+    }
   } catch {
     reasons.push({ code: 'PRODUCT_RECONCILIATION_UNSUPPORTED', kind: 'unsupported' })
   }
   if (
-    finalCandidates
-    && (
-      finalCandidates.length !== 1
-      || !isRecord(finalCandidates[0])
-      || JSON.stringify(productReadSnapshot(finalCandidates[0])) !== JSON.stringify(productReadSnapshot(product))
-    )
-  ) {
-    reasons.push({ code: 'TARGET_STATE_CHANGED_DURING_READ', kind: 'blocked' })
-  }
-  const finalJobPages = await collectAllPages({
-    readPage: (page, limit) => dependencies.gateway.readImageJobPage(productId, page, limit),
-    malformedCode: 'IMAGE_JOB_RECONCILIATION_INCONSISTENT',
-    unsupportedCode: 'IMAGE_JOB_RECONCILIATION_UNSUPPORTED',
-    reasons,
-  })
-  if (!finalJobPages.ok) report.jobs.paginationReconciled = false
-  if (
-    finalJobPages.ok
-    && JSON.stringify(jobReadSnapshot(finalJobPages.docs)) !== JSON.stringify(jobReadSnapshot(jobs))
+    secondSnapshot
+    && JSON.stringify(canonicalSnapshot(secondSnapshot)) !== JSON.stringify(canonicalSnapshot(firstSnapshot))
   ) {
     reasons.push({ code: 'TARGET_STATE_CHANGED_DURING_READ', kind: 'blocked' })
   }
@@ -1437,7 +1692,8 @@ export async function verifyVisualPilotTarget(
     reason.code === 'ADVERTISING_HISTORY_ABSENCE_UNSUPPORTED'
     || reason.code === 'ADVERTISING_HISTORY_DISCOVERY_UNSUPPORTED'
     || reason.code === 'BOT_EVENT_DISCOVERY_UNSUPPORTED'
-    || reason.code === 'STORY_JOB_DISCOVERY_UNSUPPORTED',
+    || reason.code === 'STORY_JOB_DISCOVERY_UNSUPPORTED'
+    || reason.code === 'BOT_EVENT_TAXONOMY_UNSUPPORTED',
   )
   report.downstreamExposure.state = downstreamUnsupported ? 'unsupported' : downstreamBlocked ? 'blocked' : 'clear'
   return finishReport(report, reasons)
@@ -1450,6 +1706,7 @@ export function formatVisualPilotTargetSummary(report: VisualPilotTargetReport):
     `  product: ${String(report.product.id ?? report.productReference)}${report.product.stockNumber ? ` / ${report.product.stockNumber}` : ''}`,
     `  isolation: ${report.productIsolationState}`,
     `  originals: ${report.originals.count} (distinct=${report.originals.distinctState}, ordered=${report.originals.orderedState})`,
+    `  Media: ${report.media.exhaustiveCount} (original=${report.media.originalCount}, generated=${report.media.generatedCount}, paginated=${report.media.paginationReconciled})`,
     `  jobs: ${report.jobs.exhaustiveCount} (terminal=${report.jobs.terminalCount}, nonterminal=${report.jobs.nonterminalCount}, paginated=${report.jobs.paginationReconciled})`,
     `  job states: ${Object.entries(report.jobs.byPreviewApprovalState).map(([state, count]) => `${state}=${count}`).join(', ') || 'none'}`,
     `  attempts: ${report.attempts.count} (lineage=${report.attempts.lineageIntegrityState}, active=${report.attempts.activeAttemptState})`,

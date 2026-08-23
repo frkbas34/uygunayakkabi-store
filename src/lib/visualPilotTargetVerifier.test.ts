@@ -52,12 +52,14 @@ function product(overrides: Record<string, unknown> = {}): Record<string, unknow
       sellable: false,
     },
     sourceMeta: {
-      dispatchedChannels: [],
+      dispatchedChannels: '[]',
       shopierSyncStatus: 'not_synced',
       storyStatus: 'none',
       forceRedispatch: false,
       previewDispatch: false,
     },
+    merchandising: {},
+    postToInstagram: false,
     ...overrides,
   }
 }
@@ -71,6 +73,15 @@ function originalMedia(id: number, overrides: Record<string, unknown> = {}): Rec
     filename: `${id}.jpg`,
     mimeType: 'image/jpeg',
     ...overrides,
+  }
+}
+
+function mediaSet(extra: Record<string, Record<string, unknown>> = {}): Record<string, Record<string, unknown>> {
+  return {
+    '1001': originalMedia(1001),
+    '1002': originalMedia(1002),
+    '1003': originalMedia(1003),
+    ...extra,
   }
 }
 
@@ -147,6 +158,52 @@ function queueReceipt(jobId: number, overrides: Record<string, unknown> = {}): R
   }
 }
 
+function completedGeneratedFixture(jobIdNumber = 501): {
+  job: Record<string, unknown>
+  media: Record<string, Record<string, unknown>>
+} {
+  const jobId = String(jobIdNumber)
+  const attemptId = `iga_00000000-0000-4000-8000-${String(jobIdNumber).padStart(12, '0')}`
+  const semantic = attempt(attemptId, jobId) as Record<string, unknown>
+  for (const key of [
+    'qualityProfile', 'attemptKind', 'attemptOrdinal', 'parentAttemptId', 'retryPolicyVersion',
+    'identityAnchorHash', 'profileContractVersions', 'qualityGateSummary', 'packSelection',
+  ]) delete semantic[key]
+  semantic.status = 'completed'
+  semantic.slots = GENERATED_SLOT_KEYS.map((slotId, index) => {
+    const slot = getSlotByKey(slotId)!
+    return {
+      contractVersion: IMAGE_SLOT_CONTRACT_VERSION,
+      attemptId,
+      slotId,
+      displayOrder: slot.displayOrder,
+      purposeIdentifier: slot.purposeIdentifier,
+      operatorLabel: slot.operatorLabel,
+      status: 'persisted',
+      mediaId: 2001 + index,
+      warnings: [],
+    }
+  })
+  return {
+    job: imageJob(jobIdNumber, {
+      status: 'rejected',
+      generatedImages: GENERATED_SLOT_KEYS.map((_slotId, index) => 2001 + index),
+      imageCount: 5,
+      activeAttemptId: attemptId,
+      generationAttempts: [semantic],
+    }),
+    media: Object.fromEntries(GENERATED_SLOT_KEYS.map((slotId, index) => [
+      String(2001 + index),
+      {
+        id: 2001 + index,
+        type: 'generated',
+        product: 349,
+        generationLineage: { contractVersion: IMAGE_SLOT_CONTRACT_VERSION, jobId, attemptId, slotId },
+      },
+    ])),
+  }
+}
+
 function pageOf(values: unknown[], page: number, requestedLimit: number): VisualPilotPage {
   const limit = requestedLimit
   const totalDocs = values.length
@@ -183,7 +240,7 @@ function gateway(options: GatewayOptions = {}): VisualPilotTargetReadGateway {
   }
   const value: VisualPilotTargetReadGateway = {
     async findProductCandidates() { return options.products ?? [product()] },
-    async findMediaById(id) { return media[String(id)] ?? null },
+    async readProductMediaPage(_id, page, limit) { return pageOf(Object.values(media), page, limit) },
     async readImageJobPage(_id, page, limit) { return pageOf(options.jobs ?? [], page, limit) },
     async readPayloadJobPage(_ids, page, limit) { return pageOf(options.queue ?? [], page, limit) },
     async readBotEventPage(_id, page, limit) { return pageOf(options.events ?? [], page, limit) },
@@ -319,6 +376,84 @@ await check('duplicate original bytes block while order remains explicit', async
   assert.deepEqual(report.originals.evidence.map((entry) => entry.ordinal), [1, 2, 3])
 })
 
+await check('original count limit fails before any retrieval', async () => {
+  const ids = Array.from({ length: 9 }, (_, index) => 1100 + index)
+  let fetches = 0
+  const report = await verifyVisualPilotTarget('349', {
+    gateway: gateway({
+      products: [product({ images: ids.map((id) => ({ image: id })) })],
+      media: Object.fromEntries(ids.map((id) => [String(id), originalMedia(id)])),
+    }),
+    mediaRead: {
+      ...mediaReadBodies(),
+      fetchImpl: (async () => { fetches += 1; throw new Error('must not fetch') }) as typeof fetch,
+    },
+  })
+  assert.ok(reasonCodes(report).includes('ORIGINAL_COUNT_LIMIT_EXCEEDED'))
+  assert.equal(fetches, 0)
+})
+
+await check('aggregate byte budget stops before a fifth maximum-size original', async () => {
+  const ids = [1201, 1202, 1203, 1204, 1205]
+  let fetches = 0
+  const report = await verifyVisualPilotTarget('349', {
+    gateway: gateway({
+      products: [product({ images: ids.map((id) => ({ image: id })) })],
+      media: Object.fromEntries(ids.map((id) => [String(id), originalMedia(id)])),
+    }),
+    mediaRead: {
+      ...mediaReadBodies(),
+      fetchImpl: (async () => {
+        fetches += 1
+        return new Response(new Uint8Array(10_000_000).fill(fetches), {
+          status: 200,
+          headers: { 'content-type': 'image/jpeg' },
+        })
+      }) as typeof fetch,
+    },
+  })
+  assert.ok(reasonCodes(report).includes('ORIGINAL_AGGREGATE_BYTE_LIMIT_EXCEEDED'))
+  assert.equal(fetches, 4)
+})
+
+await check('aggregate pixel budget stops before later originals', async () => {
+  const ids = [1301, 1302, 1303, 1304, 1305]
+  let fetches = 0
+  const report = await verifyVisualPilotTarget('349', {
+    gateway: gateway({
+      products: [product({ images: ids.map((id) => ({ image: id })) })],
+      media: Object.fromEntries(ids.map((id) => [String(id), originalMedia(id)])),
+    }),
+    mediaRead: {
+      ...mediaReadBodies(),
+      fetchImpl: (async () => { fetches += 1; return new Response(new Uint8Array([fetches]), { status: 200, headers: { 'content-type': 'image/jpeg' } }) }) as typeof fetch,
+      decodeImage: async () => ({ width: 8_000, height: 5_000, format: 'jpeg', pages: 1 }),
+    },
+  })
+  assert.ok(reasonCodes(report).includes('ORIGINAL_AGGREGATE_PIXEL_LIMIT_EXCEEDED'))
+  assert.equal(fetches, 4)
+})
+
+await check('aggregate wall deadline aborts the current decode and skips later originals', async () => {
+  const ids = [1401, 1402]
+  let nowCalls = 0
+  let fetches = 0
+  const report = await verifyVisualPilotTarget('349', {
+    gateway: gateway({
+      products: [product({ images: ids.map((id) => ({ image: id })) })],
+      media: Object.fromEntries(ids.map((id) => [String(id), originalMedia(id)])),
+    }),
+    now: () => (++nowCalls === 1 ? 0 : 44_995),
+    mediaRead: {
+      ...mediaReadBodies(),
+      fetchImpl: (async () => { fetches += 1; return new Response(new Uint8Array([1]), { status: 200, headers: { 'content-type': 'image/jpeg' } }) }) as typeof fetch,
+      decodeImage: async () => new Promise(() => undefined),
+    },
+  })
+  assert.ok(reasonCodes(report).includes('ORIGINAL_AGGREGATE_TIMEOUT'))
+  assert.equal(fetches, 1)
+})
+
 await check('all paginated job pages are consumed and totals reconcile', async () => {
   const jobs = Array.from({ length: 104 }, (_, index) => imageJob(501 + index))
   const queue = jobs.map((job) => queueReceipt(Number(job.id)))
@@ -340,6 +475,68 @@ await check('pagination limit drift fails closed', async () => {
   bad.readImageJobPage = async (_id, page) => ({ docs: [], totalDocs: 0, page, totalPages: 0, hasNextPage: false, limit: 49 })
   const report = await verifyVisualPilotTarget('349', { gateway: bad, mediaRead: mediaReadBodies() })
   assert.ok(reasonCodes(report).includes('IMAGE_JOB_PAGINATION_INCONSISTENT'))
+})
+
+await check('product-scoped orphan generated Media is detected outside gallery and job arrays', async () => {
+  const report = await run({
+    media: mediaSet({
+      '2999': {
+        id: 2999,
+        product: 349,
+        type: 'generated',
+        generationLineage: {
+          contractVersion: IMAGE_SLOT_CONTRACT_VERSION,
+          jobId: '999',
+          attemptId: 'iga_00000000-0000-4000-8000-000000000999',
+          slotId: 'side',
+        },
+      },
+    }),
+  })
+  assert.ok(reasonCodes(report).includes('GENERATED_MEDIA_ORPHANED'))
+  assert.equal(report.media.generatedCount, 1)
+})
+
+await check('complete generated Media lineage rejects wrong job or attempt links', async () => {
+  const fixture = completedGeneratedFixture()
+  const wrong = {
+    ...fixture.media['2001'],
+    generationLineage: {
+      ...(fixture.media['2001'].generationLineage as Record<string, unknown>),
+      attemptId: 'iga_ffffffff-ffff-4fff-8fff-ffffffffffff',
+    },
+  }
+  const report = await run({
+    jobs: [fixture.job],
+    queue: [queueReceipt(501)],
+    media: mediaSet({ ...fixture.media, '2001': wrong }),
+  })
+  assert.ok(reasonCodes(report).includes('GENERATED_MEDIA_LINEAGE_INVALID'))
+})
+
+await check('duplicate generated Media relationships across jobs fail closed', async () => {
+  const first = completedGeneratedFixture(501)
+  const second = completedGeneratedFixture(502)
+  const report = await run({
+    jobs: [first.job, second.job],
+    queue: [queueReceipt(501), queueReceipt(502)],
+    media: mediaSet(first.media),
+  })
+  assert.ok(reasonCodes(report).includes('GENERATED_MEDIA_JOB_RELATIONSHIP_DUPLICATED'))
+})
+
+await check('malformed and duplicate product-scoped Media pagination fails closed', async () => {
+  const malformed = gateway()
+  malformed.readProductMediaPage = async (_id, page, limit) => ({
+    docs: [originalMedia(1001), originalMedia(1001)],
+    totalDocs: 2,
+    page,
+    totalPages: 1,
+    hasNextPage: false,
+    limit,
+  })
+  const report = await verifyVisualPilotTarget('349', { gateway: malformed, mediaRead: mediaReadBodies() })
+  assert.ok(reasonCodes(report).includes('MEDIA_PAGINATION_INCONSISTENT'))
 })
 
 await check('active job outside the former three-job window is detected', async () => {
@@ -494,6 +691,43 @@ await check('a product or job change during bounded reads fails reconciliation',
   assert.ok(reasonCodes(report).includes('TARGET_STATE_CHANGED_DURING_READ'))
 })
 
+await check('every readiness-critical evidence surface is compared across two complete passes', async () => {
+  for (const surface of ['jobs', 'media', 'queue', 'bot', 'story', 'telegram', 'advertising'] as const) {
+    const changing = gateway()
+    let calls = 0
+    if (surface === 'jobs') changing.readImageJobPage = async (_id, page, limit) => pageOf(++calls === 1 ? [] : [imageJob(901)], page, limit)
+    if (surface === 'media') changing.readProductMediaPage = async (_id, page, limit) => pageOf(
+      ++calls === 1 ? Object.values(mediaSet()) : Object.values(mediaSet({ '1999': originalMedia(1999) })),
+      page,
+      limit,
+    )
+    if (surface === 'queue') changing.readPayloadJobPage = async (_ids, page, limit) => pageOf(++calls === 1 ? [] : [queueReceipt(901)], page, limit)
+    if (surface === 'bot') changing.readBotEventPage = async (_id, page, limit) => pageOf(
+      ++calls === 1 ? [] : [{ id: 1, product: 349, eventType: 'publish.approved', status: 'processed' }],
+      page,
+      limit,
+    )
+    if (surface === 'story') changing.readStoryJobPage = async (_id, page, limit) => pageOf(
+      ++calls === 1 ? [] : [{ id: 1, product: 349, status: 'published' }],
+      page,
+      limit,
+    )
+    if (surface === 'telegram') changing.readTelegramPreviewReceiptPage = async (_id, page, limit) => pageOf(
+      ++calls === 1 ? [] : [{ id: 'tg-1', product: 349, state: 'awaiting_approval' }],
+      page,
+      limit,
+    )
+    if (surface === 'advertising') changing.readAdvertisingHistoryPage = async (_id, page, limit) => pageOf(
+      ++calls === 1 ? [] : [{ id: 'ad-1', product: 349 }],
+      page,
+      limit,
+    )
+    const report = await verifyVisualPilotTarget('349', { gateway: changing, mediaRead: mediaReadBodies() })
+    assert.ok(reasonCodes(report).includes('TARGET_STATE_CHANGED_DURING_READ'), surface)
+    assert.notEqual(report.finalVerdict, 'TARGET_READY_FOR_PILOT_APPROVAL', surface)
+  }
+})
+
 await check('pending Telegram preview blocks when durable receipt authority exists', async () => {
   const job = imageJob(501, { status: 'preview', generationCompletedAt: null })
   const report = await run({
@@ -524,7 +758,7 @@ await check('Shopier, publishing, dispatch, BotEvent, StoryJob, and ad authority
     channels: { publishWebsite: false, publishInstagram: false, publishFacebook: false, publishX: false, publishShopier: true },
     channelTargets: ['shopier'],
     sourceMeta: {
-      dispatchedChannels: ['instagram'],
+      dispatchedChannels: '["instagram"]',
       shopierSyncStatus: 'queued',
       storyStatus: 'none',
       forceRedispatch: false,
@@ -533,7 +767,7 @@ await check('Shopier, publishing, dispatch, BotEvent, StoryJob, and ad authority
   })
   const report = await run({
     products: [exposed],
-    events: [{ id: 1, product: 349, eventType: 'publish_requested', status: 'pending' }],
+    events: [{ id: 1, product: 349, eventType: 'publish.approved', status: 'pending' }],
     stories: [{ id: 1, product: 349, status: 'queued' }],
     advertisingAuthority: false,
   })
@@ -553,11 +787,64 @@ await check('canonical product activation history blocks downstream isolation', 
   assert.equal(report.downstreamExposure.state, 'blocked')
 })
 
+await check('explicit BotEvent taxonomy separates exposure, non-exposure, neutral, and unknown events', async () => {
+  const neutralTypes = [
+    'brand_safety.provenance_reviewed', 'pi.auto_triggered_by_geo', 'pi.sent_to_geo',
+    'content.requested', 'content.commerce_generated', 'content.discovery_generated', 'content.ready',
+    'audit.requested', 'audit.started', 'audit.approved', 'audit.approved_with_warning',
+    'audit.auto_fix_requested', 'product.publish_ready', 'product.confirmed', 'state.repaired',
+    'stock.changed', 'lead.status_changed', 'lead.new_alert_sent',
+  ]
+  const neutral = await run({ events: neutralTypes.map((eventType, index) => ({ id: index + 1, product: 349, eventType, status: 'processed' })) })
+  assert.equal(reasonCodes(neutral).includes('DOWNSTREAM_BOT_EVENT_EXPOSURE'), false)
+  assert.equal(reasonCodes(neutral).includes('BOT_EVENT_TAXONOMY_UNSUPPORTED'), false)
+
+  const nonExposureTypes = ['publish.rejected', 'pi.auto_trigger_failed', 'content.failed', 'audit.needs_revision', 'audit.failed']
+  const nonExposure = await run({ events: nonExposureTypes.map((eventType, index) => ({ id: index + 100, product: 349, eventType, status: 'processed' })) })
+  assert.equal(reasonCodes(nonExposure).includes('DOWNSTREAM_BOT_EVENT_EXPOSURE'), false)
+
+  const exposureTypes = [
+    'publish.approved', 'product.activated', 'product.soldout', 'product.restocked', 'lead.converted',
+    'order.status_changed', 'order.new_alert_sent', 'order.refund_requested', 'order.refund_updated',
+  ]
+  const exposure = await run({ events: exposureTypes.map((eventType, index) => ({ id: index + 200, product: 349, eventType, status: 'processed' })) })
+  assert.ok(reasonCodes(exposure).includes('DOWNSTREAM_BOT_EVENT_EXPOSURE'))
+
+  const failedExposure = await run({ events: [{ id: 301, product: 349, eventType: 'product.activated', status: 'failed' }] })
+  assert.equal(reasonCodes(failedExposure).includes('DOWNSTREAM_BOT_EVENT_EXPOSURE'), false)
+
+  const unknown = await run({ events: [{ id: 401, product: 349, eventType: 'future.external_success', status: 'processed' }] })
+  assert.ok(reasonCodes(unknown).includes('BOT_EVENT_TAXONOMY_UNSUPPORTED'))
+  assert.equal(unknown.finalVerdict, 'TARGET_EVIDENCE_UNSUPPORTED')
+})
+
 await check('unknown downstream shape fails closed', async () => {
   const report = await run({ products: [product({ channels: null })] })
   assert.ok(reasonCodes(report).includes('DOWNSTREAM_PRODUCT_STATE_AMBIGUOUS'))
   const blankTargets = await run({ products: [product({ channelTargets: ['   '] })] })
   assert.ok(reasonCodes(blankTargets).includes('DOWNSTREAM_PRODUCT_STATE_AMBIGUOUS'))
+})
+
+await check('schema-correct dispatchedChannels text distinguishes empty, populated, malformed, and legacy arrays', async () => {
+  const empty = await run({ products: [product({ sourceMeta: { ...(product().sourceMeta as Record<string, unknown>), dispatchedChannels: '[]' } })] })
+  assert.equal(reasonCodes(empty).includes('DOWNSTREAM_DISPATCH_EXPOSURE'), false)
+  const populated = await run({ products: [product({ sourceMeta: { ...(product().sourceMeta as Record<string, unknown>), dispatchedChannels: '["instagram"]' } })] })
+  assert.ok(reasonCodes(populated).includes('DOWNSTREAM_DISPATCH_EXPOSURE'))
+  for (const dispatchedChannels of ['not-json', '{"channel":"instagram"}', '["instagram",7]', ['instagram']]) {
+    const malformed = await run({ products: [product({ sourceMeta: { ...(product().sourceMeta as Record<string, unknown>), dispatchedChannels } })] })
+    assert.ok(reasonCodes(malformed).includes('DOWNSTREAM_PRODUCT_STATE_AMBIGUOUS'))
+  }
+})
+
+await check('durable publication, external-sync, and legacy downstream markers cannot be cleared by current intent', async () => {
+  const published = await run({ products: [product({ merchandising: { publishedAt: completedAt } })] })
+  assert.ok(reasonCodes(published).includes('DOWNSTREAM_PUBLISHING_TARGET'))
+  const external = await run({ products: [product({ sourceMeta: { ...(product().sourceMeta as Record<string, unknown>), externalSyncId: 'legacy-external-id' } })] })
+  assert.ok(reasonCodes(external).includes('DOWNSTREAM_DISPATCH_EXPOSURE'))
+  const legacyInstagram = await run({ products: [product({ postToInstagram: true })] })
+  assert.ok(reasonCodes(legacyInstagram).includes('DOWNSTREAM_PUBLISHING_TARGET'))
+  const dispatchedAt = await run({ products: [product({ sourceMeta: { ...(product().sourceMeta as Record<string, unknown>), lastDispatchedAt: completedAt } })] })
+  assert.ok(reasonCodes(dispatchedAt).includes('DOWNSTREAM_DISPATCH_EXPOSURE'))
 })
 
 await check('malformed active attempt, temporal order, and failed-slot Media identity block', async () => {
@@ -609,7 +896,7 @@ await check('generated Media records must match their requested relationship IDs
   const generated = Object.fromEntries(GENERATED_SLOT_KEYS.map((slotId, index) => [
     String(2001 + index),
     {
-      id: 9999,
+      id: index === 0 ? 9999 : 2001 + index,
       type: 'generated',
       product: 349,
       generationLineage: { contractVersion: IMAGE_SLOT_CONTRACT_VERSION, jobId, attemptId, slotId },
@@ -629,7 +916,8 @@ await check('generated Media records must match their requested relationship IDs
     generationAttempts: [semantic],
   })
   const report = await run({ jobs: [rejectedJob], queue: [queueReceipt(501)], media })
-  assert.ok(reasonCodes(report).includes('GENERATED_MEDIA_LINEAGE_INVALID'))
+  assert.ok(reasonCodes(report).includes('GENERATED_MEDIA_RECORD_MISSING'))
+  assert.ok(reasonCodes(report).includes('GENERATED_MEDIA_ORPHANED'))
 })
 
 await check('no provider, evaluator, mutation, queue, Telegram, or approval method can be invoked', async () => {

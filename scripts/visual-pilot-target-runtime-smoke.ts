@@ -134,39 +134,40 @@ export function createVisualPilotRuntimeGateway(
     // history do not have authoritative persisted readers today. The optional
     // gateway methods are intentionally omitted so the verifier fails closed.
     async findProductCandidates(reference) {
-      const stockNumber = /^\d+$/.test(reference)
-        ? `SN${reference.padStart(4, '0')}`
-        : reference
-      const result = normalizedPage(await payload.find({
+      if (/^\d+$/.test(reference)) {
+        const productId = Number(reference)
+        if (!Number.isSafeInteger(productId) || productId <= 0) throw new Error('product_reference_out_of_range')
+        const product = await payload.findByID({
+          collection: 'products',
+          id: productId,
+          depth: 0,
+          disableErrors: true,
+          overrideAccess: true,
+        })
+        return product ? [product] : []
+      }
+      return normalizedPage(await payload.find({
         collection: 'products',
-        where: { stockNumber: { equals: stockNumber } },
+        where: { stockNumber: { equals: reference } },
         depth: 0,
         limit: 2,
         page: 1,
         sort: 'id',
         overrideAccess: true,
         pagination: true,
-      }), 1, 2)
-      if (result.docs.length > 0 || !/^\d+$/.test(reference)) return result.docs
-      const productId = Number(reference)
-      if (!Number.isSafeInteger(productId)) throw new Error('product_reference_out_of_range')
-      const product = await payload.findByID({
-        collection: 'products',
-        id: productId,
-        depth: 0,
-        disableErrors: true,
-        overrideAccess: true,
-      })
-      return product ? [product] : []
+      }), 1, 2).docs
     },
-    async findMediaById(id) {
-      return payload.findByID({
+    async readProductMediaPage(productId, page, limit) {
+      return normalizedPage(await payload.find({
         collection: 'media',
-        id,
+        where: { product: { equals: productId } },
         depth: 0,
-        disableErrors: true,
+        page,
+        limit,
+        sort: 'id',
         overrideAccess: true,
-      })
+        pagination: true,
+      }), page, limit)
     },
     async readImageJobPage(productId, page, limit) {
       return normalizedPage(await payload.find({

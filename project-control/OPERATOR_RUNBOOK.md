@@ -57,9 +57,11 @@ dispatch state, coherence warnings, links, and the next recommended step.
    ```
 
    Then use `/productflow <id-or-sn>` and `/imageplan <id-or-sn>`. The visual
-   pilot verifier is stricter than the image plan: it exhaustively reads job,
-   attempt, queue, Media-lineage, BotEvent, and StoryJob evidence, then performs
-   bounded in-memory HTTPS reads of every ordered original. It rejects unknown
+   pilot verifier is stricter than the image plan: numeric values bind only to
+   Payload IDs and `SN...` values only to exact stock numbers. It compares two
+   complete Product/job/queue/product-scoped-Media/BotEvent/StoryJob evidence
+   snapshots around bounded in-memory HTTPS reads of every ordered original,
+   with per-file and aggregate budgets and terminable Sharp workers. It rejects unknown
    arguments and requires the literal confirmation flag before Payload starts.
    It returns only `TARGET_READY_FOR_PILOT_APPROVAL`, `TARGET_BLOCKED`, or
    `TARGET_EVIDENCE_UNSUPPORTED`; stop on either non-ready verdict. The command

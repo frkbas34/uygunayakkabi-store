@@ -276,6 +276,7 @@ assert.ok(!(scripts['test:safe'] ?? '').includes('smoke:visual-pilot-target:read
 assertIncludes(visualPilotScript, "collection: 'payload-jobs'", 'visual pilot queue receipt read')
 assertIncludes(visualPilotScript, "collection: 'story-jobs'", 'visual pilot StoryJob read')
 assertIncludes(visualPilotScript, "collection: 'bot-events'", 'visual pilot BotEvent read')
+assertIncludes(visualPilotScript, "collection: 'media'", 'visual pilot exhaustive product-scoped Media read')
 assert.ok(!/payload\.(?:create|update|delete)|payload\.jobs\.(?:queue|run)|sendTelegram|approveImage|rejectImage|generateProductImages/.test(visualPilotScript), 'visual pilot runtime adapter must expose no mutation, queue, Telegram, approval, or generation call')
 
 const blogApplyScript = read('scripts/blog-featured-image-schema-apply.ts')

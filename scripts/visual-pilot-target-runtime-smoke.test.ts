@@ -29,7 +29,7 @@ function emptyPage(page: number, limit: number): VisualPilotPage {
 function blockedGateway(): VisualPilotTargetReadGateway {
   return {
     async findProductCandidates() { return [] },
-    async findMediaById() { return null },
+    async readProductMediaPage(_id, page, limit) { return emptyPage(page, limit) },
     async readImageJobPage(_id, page, limit) { return emptyPage(page, limit) },
     async readPayloadJobPage(_ids, page, limit) { return emptyPage(page, limit) },
     async readBotEventPage(_id, page, limit) { return emptyPage(page, limit) },
@@ -188,24 +188,50 @@ await check('runtime adapter exposes reads only and never accesses injected muta
   assert.equal(exit, 3)
 })
 
-await check('runtime numeric product resolution preserves canonical SN-first then ID fallback rules', async () => {
+await check('runtime product resolution binds numeric IDs and SN stock numbers without fallback', async () => {
   let idReads = 0
-  const snGateway = createVisualPilotRuntimeGateway(fakePayload({
-    async find(args) {
-      assert.deepEqual(args.where, { stockNumber: { equals: 'SN0349' } })
-      return payloadPage([{ id: 777, stockNumber: 'SN0349' }], 1, 2)
-    },
-    async findByID() { idReads += 1; return null },
-  }))
-  assert.deepEqual(await snGateway.findProductCandidates('349'), [{ id: 777, stockNumber: 'SN0349' }])
-  assert.equal(idReads, 0)
-
+  let stockReads = 0
   const idGateway = createVisualPilotRuntimeGateway(fakePayload({
-    async find() { return payloadPage([], 1, 2) },
+    async find(args) {
+      stockReads += 1
+      assert.deepEqual(args.where, { stockNumber: { equals: 'SN0117' } })
+      return payloadPage([{ id: 349, stockNumber: 'SN0117' }], 1, 2)
+    },
     async findByID(args) { idReads += 1; return { id: args.id, stockNumber: 'SN0117' } },
   }))
   assert.deepEqual(await idGateway.findProductCandidates('349'), [{ id: 349, stockNumber: 'SN0117' }])
   assert.equal(idReads, 1)
+  assert.equal(stockReads, 0)
+  assert.deepEqual(await idGateway.findProductCandidates('SN0117'), [{ id: 349, stockNumber: 'SN0117' }])
+  assert.equal(idReads, 1)
+  assert.equal(stockReads, 1)
+})
+
+await check('numeric Product ID cannot collide with an unrelated SN0349 product', async () => {
+  let stockQueries = 0
+  const gateway = createVisualPilotRuntimeGateway(fakePayload({
+    async find() {
+      stockQueries += 1
+      return payloadPage([{ id: 777, stockNumber: 'SN0349' }], 1, 2)
+    },
+    async findByID(args) { return { id: args.id, stockNumber: 'SN0117' } },
+  }))
+  assert.deepEqual(await gateway.findProductCandidates('349'), [{ id: 349, stockNumber: 'SN0117' }])
+  assert.equal(stockQueries, 0)
+})
+
+await check('runtime gateway reads exhaustive Product-scoped Media pages', async () => {
+  const calls: Record<string, unknown>[] = []
+  const gateway = createVisualPilotRuntimeGateway(fakePayload({
+    async find(args) {
+      calls.push(args)
+      return payloadPage([{ id: 1001, product: 349, type: 'original' }], 1, 50)
+    },
+  }))
+  const result = await gateway.readProductMediaPage(349, 1, 50)
+  assert.equal(result.totalDocs, 1)
+  assert.deepEqual(calls[0]?.where, { product: { equals: 349 } })
+  assert.equal(calls[0]?.sort, 'id')
 })
 
 await check('runtime gateway scopes queue receipts by exact target job IDs in Payload', async () => {
@@ -274,20 +300,20 @@ await check('runtime gateway preserves valid page metadata without coercion', as
 await check('runtime gateway propagates product and Media infrastructure failures', async () => {
   const infrastructureFailure = new Error('database_connection_failed')
   const gateway = createVisualPilotRuntimeGateway(fakePayload({
+    async find() { throw infrastructureFailure },
     async findByID() { throw infrastructureFailure },
   }))
   await assert.rejects(() => gateway.findProductCandidates('349'), infrastructureFailure)
-  await assert.rejects(() => gateway.findMediaById(123), infrastructureFailure)
+  await assert.rejects(() => gateway.readProductMediaPage(349, 1, 50), infrastructureFailure)
 })
 
-await check('runtime gateway treats only explicit findByID null as absent', async () => {
+await check('runtime gateway treats only explicit numeric findByID null as absent', async () => {
   const calls: Record<string, unknown>[] = []
   const gateway = createVisualPilotRuntimeGateway(fakePayload({
     async findByID(args) { calls.push(args); return null },
   }))
   assert.deepEqual(await gateway.findProductCandidates('349'), [])
-  assert.equal(await gateway.findMediaById(123), null)
-  assert.equal(calls.length, 2)
+  assert.equal(calls.length, 1)
   assert.equal(calls.every((call) => call.disableErrors === true), true)
 })
 

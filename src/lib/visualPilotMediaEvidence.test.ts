@@ -1,7 +1,15 @@
 import assert from 'node:assert/strict'
+import { EventEmitter } from 'node:events'
+import { request as nodeHttpsRequest, type RequestOptions } from 'node:https'
+import type { ClientRequest, IncomingMessage } from 'node:http'
+import type { LookupFunction } from 'node:net'
+import { PassThrough } from 'node:stream'
 
 import {
+  decodeVisualPilotImageInWorker,
+  pinnedHttpsFetch,
   readVisualPilotMediaEvidence,
+  type VisualPilotDecodeWorker,
   type VisualPilotMediaReadDependencies,
 } from './visualPilotMediaEvidence'
 
@@ -48,6 +56,19 @@ function deps(overrides: VisualPilotMediaReadDependencies = {}): VisualPilotMedi
   }
 }
 
+class ControlledDecodeWorker extends EventEmitter implements VisualPilotDecodeWorker {
+  terminated = false
+  lateCompletion = false
+  timer: NodeJS.Timeout | null = null
+
+  async terminate(): Promise<number> {
+    this.terminated = true
+    if (this.timer) clearTimeout(this.timer)
+    this.timer = null
+    return 1
+  }
+}
+
 async function main(): Promise<void> {
 await check('valid public raster is decoded in memory', async () => {
   const result = await readVisualPilotMediaEvidence(media(), deps())
@@ -55,8 +76,63 @@ await check('valid public raster is decoded in memory', async () => {
   if (result.ok) {
     assert.equal(result.width, 1200)
     assert.equal(result.height, 800)
+    assert.equal(result.byteSize, 3)
     assert.match(result.contentDigest, /^[a-f0-9]{64}$/)
   }
+})
+
+await check('default Sharp worker decodes successfully and exits before returning', async () => {
+  const onePixelPng = Buffer.from(
+    'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=',
+    'base64',
+  )
+  const decoded = await decodeVisualPilotImageInWorker(onePixelPng)
+  assert.deepEqual(decoded, { width: 1, height: 1, format: 'png', pages: 1 })
+})
+
+await check('decode isolation refuses an already-aborted request before worker creation', async () => {
+  const controller = new AbortController()
+  controller.abort()
+  let workers = 0
+  await assert.rejects(() => decodeVisualPilotImageInWorker(Buffer.from([1]), {
+    signal: controller.signal,
+    workerFactory: () => { workers += 1; return new ControlledDecodeWorker() },
+  }), /visual_pilot_decode_aborted/)
+  assert.equal(workers, 0)
+})
+
+await check('decode abort awaits termination, removes listeners, and prevents late completion', async () => {
+  const controller = new AbortController()
+  const worker = new ControlledDecodeWorker()
+  worker.timer = setTimeout(() => {
+    worker.lateCompletion = true
+    worker.emit('message', { ok: true, value: { width: 1, height: 1, format: 'jpeg', pages: 1 } })
+    worker.emit('exit', 0)
+  }, 25)
+  const decoding = decodeVisualPilotImageInWorker(Buffer.from([1, 2, 3]), {
+    signal: controller.signal,
+    workerFactory: () => worker,
+  })
+  controller.abort()
+  await assert.rejects(decoding, /visual_pilot_decode_failed/)
+  await new Promise((resolve) => setTimeout(resolve, 35))
+  assert.equal(worker.terminated, true)
+  assert.equal(worker.lateCompletion, false)
+  assert.equal(worker.listenerCount('message'), 0)
+  assert.equal(worker.listenerCount('error'), 0)
+  assert.equal(worker.listenerCount('exit'), 0)
+})
+
+await check('worker errors are sanitized and termination is awaited', async () => {
+  const worker = new ControlledDecodeWorker()
+  const decoding = decodeVisualPilotImageInWorker(Buffer.from([1]), { workerFactory: () => worker })
+  worker.emit('error', new Error('signed-url-secret-must-not-leak'))
+  await assert.rejects(decoding, (error: Error) => {
+    assert.equal(error.message, 'visual_pilot_decode_failed')
+    assert.equal(error.message.includes('secret'), false)
+    return true
+  })
+  assert.equal(worker.terminated, true)
 })
 
 await check('relative canonical media path resolves without entering output', async () => {
@@ -183,6 +259,109 @@ await check('validated DNS address is pinned to the HTTPS connection', async () 
   }])
 })
 
+await check('pinned HTTPS transport preserves address, Host, SNI, certificate host, and redirect revalidation', async () => {
+  const requests: Array<{ hostname: string; host: string; servername: string; pinnedAddress: string }> = []
+  const certificateHosts: string[] = []
+  const requestImpl = ((input: URL | string, rawOptions: RequestOptions, callback: (response: IncomingMessage) => void) => {
+    const url = input instanceof URL ? input : new URL(String(input))
+    const options = rawOptions
+    const lookup = options.lookup as LookupFunction
+    let pinnedAddress = ''
+    lookup('must-not-be-resolved-again.invalid', { family: 0, all: false }, (error, address) => {
+      if (error) throw error
+      pinnedAddress = String(address)
+    })
+    const checkIdentity = options.checkServerIdentity
+    assert.equal(typeof checkIdentity, 'function')
+    assert.equal(checkIdentity?.('ignored.example', {} as never), undefined)
+    requests.push({
+      hostname: url.hostname,
+      host: String((options.headers as Record<string, string>).Host),
+      servername: String(options.servername),
+      pinnedAddress,
+    })
+
+    const request = new EventEmitter() as EventEmitter & { end: () => void }
+    request.end = () => {
+      const incoming = new PassThrough() as PassThrough & {
+        statusCode: number
+        headers: Record<string, string>
+      }
+      if (requests.length === 1) {
+        incoming.statusCode = 302
+        incoming.headers = { location: 'https://fixture.public.blob.vercel-storage.com/original.jpg' }
+      } else {
+        incoming.statusCode = 200
+        incoming.headers = { 'content-type': 'image/jpeg' }
+      }
+      callback(incoming as unknown as IncomingMessage)
+      if (requests.length === 1) incoming.end()
+      else incoming.end(Buffer.from([1, 2, 3]))
+    }
+    return request as unknown as ClientRequest
+  }) as typeof nodeHttpsRequest
+
+  const dnsHosts: string[] = []
+  const addresses: Record<string, string> = {
+    'www.uygunayakkabi.com': '93.184.216.34',
+    'fixture.public.blob.vercel-storage.com': '151.101.1.195',
+  }
+  const result = await readVisualPilotMediaEvidence(
+    media({ url: 'https://www.uygunayakkabi.com/media/original.jpg' }),
+    {
+      dnsLookup: async (hostname) => {
+        dnsHosts.push(hostname)
+        return [{ address: addresses[hostname], family: 4 }]
+      },
+      pinnedFetchImpl: (url, address, init) => pinnedHttpsFetch(url, address, init, {
+        requestImpl,
+        checkServerIdentityImpl: (hostname) => { certificateHosts.push(hostname); return undefined },
+      }),
+      decodeImage: decodedJpeg,
+    },
+  )
+  assert.equal(result.ok, true)
+  assert.deepEqual(dnsHosts, ['www.uygunayakkabi.com', 'fixture.public.blob.vercel-storage.com'])
+  assert.deepEqual(certificateHosts, ['www.uygunayakkabi.com', 'fixture.public.blob.vercel-storage.com'])
+  assert.deepEqual(requests, [
+    {
+      hostname: 'www.uygunayakkabi.com',
+      host: 'www.uygunayakkabi.com',
+      servername: 'www.uygunayakkabi.com',
+      pinnedAddress: '93.184.216.34',
+    },
+    {
+      hostname: 'fixture.public.blob.vercel-storage.com',
+      host: 'fixture.public.blob.vercel-storage.com',
+      servername: 'fixture.public.blob.vercel-storage.com',
+      pinnedAddress: '151.101.1.195',
+    },
+  ])
+})
+
+await check('redirect DNS change to a private address cannot escape pinned transport', async () => {
+  let transportCalls = 0
+  const result = await readVisualPilotMediaEvidence(
+    media({ url: 'https://www.uygunayakkabi.com/media/original.jpg' }),
+    {
+      dnsLookup: async (hostname) => [{
+        address: hostname === 'www.uygunayakkabi.com' ? '93.184.216.34' : '127.0.0.1',
+        family: 4,
+      }],
+      pinnedFetchImpl: async () => {
+        transportCalls += 1
+        return response(null, {
+          status: 302,
+          headers: { location: 'https://fixture.public.blob.vercel-storage.com/original.jpg' },
+        })
+      },
+      decodeImage: decodedJpeg,
+    },
+  )
+  assert.deepEqual(result, { ok: false, code: 'ORIGINAL_MEDIA_DNS_BLOCKED' })
+  assert.equal(transportCalls, 1)
+})
+
 await check('a public global-unicast IPv6 address can be pinned', async () => {
   let pinnedAddress: string | null = null
   const result = await readVisualPilotMediaEvidence(media(), {
@@ -272,6 +451,21 @@ await check('timeout also bounds DNS and decode waits', async () => {
     decodeImage: async () => new Promise(() => undefined),
   }))
   assert.deepEqual(decodeTimeout, { ok: false, code: 'ORIGINAL_FETCH_TIMEOUT' })
+})
+
+await check('media timeout terminates the active decode worker before returning', async () => {
+  const worker = new ControlledDecodeWorker()
+  const result = await readVisualPilotMediaEvidence(media(), {
+    fetchImpl: async () => response(),
+    dnsLookup: publicDns,
+    timeoutMs: 5,
+    decodeWorkerFactory: () => worker,
+  })
+  assert.deepEqual(result, { ok: false, code: 'ORIGINAL_FETCH_TIMEOUT' })
+  assert.equal(worker.terminated, true)
+  assert.equal(worker.listenerCount('message'), 0)
+  assert.equal(worker.listenerCount('error'), 0)
+  assert.equal(worker.listenerCount('exit'), 0)
 })
 
 await check('invalid Content-Length aborts and cancels the response body', async () => {

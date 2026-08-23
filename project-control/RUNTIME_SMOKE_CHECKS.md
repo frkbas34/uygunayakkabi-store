@@ -218,8 +218,9 @@ Command:
 npm run smoke:visual-pilot-target:read -- --product=<id-or-sn> --confirm-read-only
 ```
 
-This verifier accepts only an explicit numeric Payload Product ID or `SN...`
-reference plus the literal confirmation flag. Unknown, empty, duplicate, or
+This verifier accepts only an explicit numeric Payload Product ID or exact `SN...`
+stock-number reference plus the literal confirmation flag. Numeric references
+never fall back to stock numbers and stock numbers never fall back to IDs. Unknown, empty, duplicate, or
 mutation-like arguments stop before Payload initialization. It consumes
 process-provided `DATABASE_URI` and `PAYLOAD_SECRET` values without printing
 them; the script does not load or write `.env` files. `PAYLOAD_DB_PUSH` is forced
@@ -227,22 +228,28 @@ to `false` before Payload starts.
 
 Read boundary:
 
-- the exact Product, every ordered original Media relationship, all matching
-  image-generation jobs and attempts, relevant Payload queue receipts,
-  BotEvents, StoryJobs, generated Media lineage, gallery, pack selection, and
-  downstream state;
+- two complete, deterministically compared snapshots of the exact Product, all
+  product-scoped Media, all matching image-generation jobs and attempts,
+  relevant Payload queue receipts, BotEvents, StoryJobs, optional Telegram and
+  advertising authorities/results, gallery, pack selection, and downstream state;
+- exhaustive generated-Media reconciliation across jobs, attempts, semantic
+  slots, retry lineage, approval-pack evidence, and Product gallery relationships;
 - bounded external HTTPS reads of the original Media only, in memory: trusted
   application/Vercel Blob hosts, public DNS addresses pinned to the HTTPS
   connection while preserving hostname/TLS verification, manual redirect handling
-  with every hop revalidated, at most three redirects, a 15-second total timeout,
-  a streamed 10,000,000-byte limit, supported raster MIME agreement, and full
-  Sharp decode with positive dimensions;
+  with every hop revalidated, at most three redirects, a 15-second per-file timeout,
+  a streamed 10,000,000-byte and 40-MP per-file limit, supported raster MIME
+  agreement, and full Sharp decode in a worker terminated and awaited on abort;
+- an aggregate original-inspection budget of 8 originals, 40,000,000 streamed
+  bytes, 160 MP decoded pixels, and 45 seconds across DNS, redirects, download,
+  and decode; later originals are not started after an aggregate limit;
 - in-memory SHA-256 is used only to detect duplicate source content. URLs,
   signed queries, bytes, full digests, Telegram identifiers, provider payloads,
   and unrestricted records are never printed.
 
 The script exhaustively paginates and reconciles totals. It fails closed on a
-skipped/duplicated page, malformed or legacy-ambiguous lineage, nonterminal job
+skipped/duplicated page, malformed or legacy-ambiguous lineage, orphaned or
+cross-linked generated Media, snapshot drift, nonterminal job
 or queue evidence, unresolved attempt, incomplete approval pack, pending preview,
 downstream exposure, inaccessible/corrupt/duplicate original, or an authority the
 current schema cannot prove. Accessibility is not semantic angle sufficiency;

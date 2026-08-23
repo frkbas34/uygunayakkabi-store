@@ -1,10 +1,13 @@
 import { createHash } from 'node:crypto'
 import { lookup as nodeLookup } from 'node:dns/promises'
-import { request as httpsRequest } from 'node:https'
+import { request as nodeHttpsRequest, type RequestOptions } from 'node:https'
 import { isIP, type LookupFunction } from 'node:net'
 import { Readable } from 'node:stream'
-
-import sharp from 'sharp'
+import {
+  checkServerIdentity as nodeCheckServerIdentity,
+  type PeerCertificate,
+} from 'node:tls'
+import { Worker } from 'node:worker_threads'
 
 export const VISUAL_PILOT_MEDIA_MAX_BYTES = 10_000_000
 export const VISUAL_PILOT_MEDIA_TIMEOUT_MS = 15_000
@@ -21,10 +24,12 @@ export type VisualPilotMediaFailureCode =
   | 'ORIGINAL_REDIRECT_HOST_BLOCKED'
   | 'ORIGINAL_REDIRECT_LIMIT_EXCEEDED'
   | 'ORIGINAL_FETCH_TIMEOUT'
+  | 'ORIGINAL_AGGREGATE_TIMEOUT'
   | 'ORIGINAL_FETCH_FAILED'
   | 'ORIGINAL_HTTP_FAILURE'
   | 'ORIGINAL_CONTENT_LENGTH_INVALID'
   | 'ORIGINAL_BYTE_LIMIT_EXCEEDED'
+  | 'ORIGINAL_AGGREGATE_BYTE_LIMIT_EXCEEDED'
   | 'ORIGINAL_BODY_EMPTY'
   | 'ORIGINAL_MIME_MISSING'
   | 'ORIGINAL_MIME_UNSUPPORTED'
@@ -33,6 +38,7 @@ export type VisualPilotMediaFailureCode =
   | 'ORIGINAL_FORMAT_MISMATCH'
   | 'ORIGINAL_DIMENSIONS_INVALID'
   | 'ORIGINAL_PIXEL_LIMIT_EXCEEDED'
+  | 'ORIGINAL_AGGREGATE_PIXEL_LIMIT_EXCEEDED'
   | 'ORIGINAL_MULTIPAGE_UNSUPPORTED'
 
 export type VisualPilotDecodedImage = {
@@ -48,6 +54,8 @@ export type VisualPilotMediaReadResult =
       width: number
       height: number
       mimeType: 'image/jpeg' | 'image/png' | 'image/webp' | 'image/gif'
+      /** Budget accounting only. Callers must never serialize downloaded bytes. */
+      byteSize: number
       /** Integrity-only value. Callers must never serialize or print it. */
       contentDigest: string
     }
@@ -63,11 +71,37 @@ export type VisualPilotMediaReadDependencies = {
     init: { signal: AbortSignal; headers: Record<string, string> },
   ) => Promise<Response>
   dnsLookup?: (hostname: string) => Promise<VisualPilotDnsAddress[]>
-  decodeImage?: (bytes: Buffer) => Promise<VisualPilotDecodedImage>
+  decodeImage?: (bytes: Buffer, signal: AbortSignal) => Promise<VisualPilotDecodedImage>
+  decodeWorkerFactory?: VisualPilotDecodeWorkerFactory
+  signal?: AbortSignal
   timeoutMs?: number
+  timeoutFailureCode?: Extract<VisualPilotMediaFailureCode, 'ORIGINAL_FETCH_TIMEOUT' | 'ORIGINAL_AGGREGATE_TIMEOUT'>
   maxBytes?: number
+  byteLimitFailureCode?: Extract<VisualPilotMediaFailureCode, 'ORIGINAL_BYTE_LIMIT_EXCEEDED' | 'ORIGINAL_AGGREGATE_BYTE_LIMIT_EXCEEDED'>
+  maxInputPixels?: number
+  pixelLimitFailureCode?: Extract<VisualPilotMediaFailureCode, 'ORIGINAL_PIXEL_LIMIT_EXCEEDED' | 'ORIGINAL_AGGREGATE_PIXEL_LIMIT_EXCEEDED'>
   maxRedirects?: number
   canonicalOrigin?: string
+}
+
+export type VisualPilotDecodeWorker = {
+  once(event: 'message', listener: (value: unknown) => void): unknown
+  once(event: 'error', listener: (error: Error) => void): unknown
+  once(event: 'exit', listener: (code: number) => void): unknown
+  removeListener(event: 'message', listener: (value: unknown) => void): unknown
+  removeListener(event: 'error', listener: (error: Error) => void): unknown
+  removeListener(event: 'exit', listener: (code: number) => void): unknown
+  terminate(): Promise<number>
+}
+
+export type VisualPilotDecodeWorkerFactory = (
+  source: string,
+  options: { eval: true; workerData: Record<string, unknown>; transferList: ArrayBuffer[] },
+) => VisualPilotDecodeWorker
+
+export type VisualPilotPinnedHttpsTransport = {
+  requestImpl?: typeof nodeHttpsRequest
+  checkServerIdentityImpl?: (hostname: string, cert: PeerCertificate) => Error | undefined
 }
 
 const SUPPORTED_MIME_TO_FORMAT = {
@@ -220,10 +254,11 @@ async function awaitWithAbort<T>(promise: Promise<T>, signal: AbortSignal): Prom
   }
 }
 
-async function pinnedHttpsFetch(
+export async function pinnedHttpsFetch(
   url: URL,
   pinnedAddress: VisualPilotDnsAddress,
   init: { signal: AbortSignal; headers: Record<string, string> },
+  transport: VisualPilotPinnedHttpsTransport = {},
 ): Promise<Response> {
   return new Promise<Response>((resolve, reject) => {
     const pinnedLookup: LookupFunction = (_hostname, options, callback) => {
@@ -233,15 +268,18 @@ async function pinnedHttpsFetch(
       }
       callback(null, pinnedAddress.address, pinnedAddress.family)
     }
-    const request = httpsRequest(url, {
+    const checkServerIdentity = transport.checkServerIdentityImpl ?? nodeCheckServerIdentity
+    const options: RequestOptions = {
       method: 'GET',
-      headers: init.headers,
+      headers: { ...init.headers, Host: url.host },
       signal: init.signal,
       servername: url.hostname,
       rejectUnauthorized: true,
       family: pinnedAddress.family,
       lookup: pinnedLookup,
-    }, (incoming) => {
+      checkServerIdentity: (_hostname, certificate) => checkServerIdentity(url.hostname, certificate),
+    }
+    const request = (transport.requestImpl ?? nodeHttpsRequest)(url, options, (incoming) => {
       const headers = new Headers()
       for (const [name, raw] of Object.entries(incoming.headers)) {
         if (Array.isArray(raw)) for (const value of raw) headers.append(name, value)
@@ -267,25 +305,142 @@ function cancelResponseBody(response: Response): void {
 }
 
 export async function decodeVisualPilotImage(bytes: Buffer): Promise<VisualPilotDecodedImage> {
-  const instance = sharp(bytes, {
-    failOn: 'warning',
-    limitInputPixels: VISUAL_PILOT_MEDIA_MAX_INPUT_PIXELS,
-    unlimited: false,
-    sequentialRead: true,
-    pages: 1,
+  return decodeVisualPilotImageInWorker(bytes)
+}
+
+const VISUAL_PILOT_SHARP_WORKER_SOURCE = String.raw`
+'use strict';
+const { parentPort, workerData } = require('node:worker_threads');
+(async () => {
+  let input = Buffer.from(workerData.bytes);
+  try {
+    const sharp = require('sharp');
+    const instance = sharp(input, {
+      failOn: 'warning',
+      limitInputPixels: workerData.hardMaxInputPixels,
+      unlimited: false,
+      sequentialRead: true,
+      pages: 1,
+    });
+    const metadata = await instance.metadata();
+    const width = metadata.width || 0;
+    const height = metadata.height || 0;
+    if (width > 0 && height > 0 && width * height > workerData.budgetPixels) {
+      parentPort.postMessage({ ok: false, code: 'pixel_limit' });
+      return;
+    }
+    await instance.stats();
+    const format = metadata.format;
+    if (!['jpeg', 'png', 'webp', 'gif'].includes(format)) throw new Error('unsupported');
+    parentPort.postMessage({
+      ok: true,
+      value: {
+        width,
+        height,
+        format,
+        pages: metadata.pages || 1,
+      },
+    });
+  } catch {
+    parentPort.postMessage({ ok: false });
+  } finally {
+    input.fill(0);
+    input = null;
+  }
+})().catch(() => parentPort.postMessage({ ok: false }));
+`
+
+function defaultDecodeWorkerFactory(
+  source: string,
+  options: { eval: true; workerData: Record<string, unknown>; transferList: ArrayBuffer[] },
+): VisualPilotDecodeWorker {
+  return new Worker(source, options) as VisualPilotDecodeWorker
+}
+
+function isDecodedWorkerValue(value: unknown): value is VisualPilotDecodedImage {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false
+  const candidate = value as Record<string, unknown>
+  return Number.isInteger(candidate.width)
+    && Number.isInteger(candidate.height)
+    && Number.isInteger(candidate.pages)
+    && (candidate.format === 'jpeg' || candidate.format === 'png' || candidate.format === 'webp' || candidate.format === 'gif')
+}
+
+export async function decodeVisualPilotImageInWorker(
+  bytes: Buffer,
+  options: {
+    signal?: AbortSignal
+    maxInputPixels?: number
+    workerFactory?: VisualPilotDecodeWorkerFactory
+  } = {},
+): Promise<VisualPilotDecodedImage> {
+  if (options.signal?.aborted) throw new Error('visual_pilot_decode_aborted')
+  const transferable = Uint8Array.from(bytes)
+  const worker = (options.workerFactory ?? defaultDecodeWorkerFactory)(VISUAL_PILOT_SHARP_WORKER_SOURCE, {
+    eval: true,
+    workerData: {
+      bytes: transferable,
+      hardMaxInputPixels: VISUAL_PILOT_MEDIA_MAX_INPUT_PIXELS,
+      budgetPixels: options.maxInputPixels ?? VISUAL_PILOT_MEDIA_MAX_INPUT_PIXELS,
+    },
+    transferList: [transferable.buffer],
   })
-  const metadata = await instance.metadata()
-  await instance.stats()
-  const format = metadata.format
-  if (format !== 'jpeg' && format !== 'png' && format !== 'webp' && format !== 'gif') {
-    throw new Error('unsupported_format')
-  }
-  return {
-    width: metadata.width ?? 0,
-    height: metadata.height ?? 0,
-    format,
-    pages: metadata.pages ?? 1,
-  }
+
+  return new Promise<VisualPilotDecodedImage>((resolve, reject) => {
+    let settled = false
+    let message: VisualPilotDecodedImage | null = null
+
+    const cleanup = () => {
+      worker.removeListener('message', onMessage)
+      worker.removeListener('error', onError)
+      worker.removeListener('exit', onExit)
+      options.signal?.removeEventListener('abort', onAbort)
+    }
+    const settle = (value: VisualPilotDecodedImage | null) => {
+      if (settled) return
+      settled = true
+      cleanup()
+      if (value) resolve(value)
+      else reject(new Error('visual_pilot_decode_failed'))
+    }
+    const terminateAndReject = async (code = 'visual_pilot_decode_failed') => {
+      if (settled) return
+      settled = true
+      cleanup()
+      await worker.terminate().catch(() => undefined)
+      reject(new Error(code))
+    }
+    const onMessage = (raw: unknown) => {
+      if (
+        raw
+        && typeof raw === 'object'
+        && !Array.isArray(raw)
+        && (raw as Record<string, unknown>).ok === true
+        && isDecodedWorkerValue((raw as Record<string, unknown>).value)
+      ) {
+        message = (raw as { value: VisualPilotDecodedImage }).value
+      } else if (
+        raw
+        && typeof raw === 'object'
+        && !Array.isArray(raw)
+        && (raw as Record<string, unknown>).ok === false
+        && (raw as Record<string, unknown>).code === 'pixel_limit'
+      ) {
+        void terminateAndReject('visual_pilot_decode_pixel_limit')
+      } else {
+        void terminateAndReject()
+      }
+    }
+    const onError = () => { void terminateAndReject() }
+    const onExit = (code: number) => settle(code === 0 ? message : null)
+    const onAbort = () => { void terminateAndReject() }
+
+    worker.once('message', onMessage)
+    worker.once('error', onError)
+    worker.once('exit', onExit)
+    options.signal?.addEventListener('abort', onAbort, { once: true })
+    if (options.signal?.aborted) onAbort()
+  })
 }
 
 function resolveMediaUrl(media: Record<string, unknown>): string | null {
@@ -300,6 +455,7 @@ async function readBoundedBody(
   response: Response,
   maxBytes: number,
   controller: AbortController,
+  byteLimitFailureCode: Extract<VisualPilotMediaFailureCode, 'ORIGINAL_BYTE_LIMIT_EXCEEDED' | 'ORIGINAL_AGGREGATE_BYTE_LIMIT_EXCEEDED'>,
 ): Promise<Buffer | VisualPilotMediaFailureCode> {
   const declared = response.headers.get('content-length')
   if (declared !== null) {
@@ -311,7 +467,7 @@ async function readBoundedBody(
     const declaredBytes = Number(declared)
     if (!Number.isSafeInteger(declaredBytes) || declaredBytes > maxBytes) {
       controller.abort()
-      return 'ORIGINAL_BYTE_LIMIT_EXCEEDED'
+      return byteLimitFailureCode
     }
   }
   if (!response.body) return 'ORIGINAL_BODY_EMPTY'
@@ -327,7 +483,7 @@ async function readBoundedBody(
     if (total > maxBytes) {
       controller.abort()
       void reader.cancel().catch(() => undefined)
-      return 'ORIGINAL_BYTE_LIMIT_EXCEEDED'
+      return byteLimitFailureCode
     }
     chunks.push(result.value)
   }
@@ -341,9 +497,12 @@ export async function readVisualPilotMediaEvidence(
 ): Promise<VisualPilotMediaReadResult> {
   const fetchImpl = dependencies.fetchImpl ?? fetch
   const dnsLookup = dependencies.dnsLookup ?? defaultDnsLookup
-  const decodeImage = dependencies.decodeImage ?? decodeVisualPilotImage
   const timeoutMs = dependencies.timeoutMs ?? VISUAL_PILOT_MEDIA_TIMEOUT_MS
+  const timeoutFailureCode = dependencies.timeoutFailureCode ?? 'ORIGINAL_FETCH_TIMEOUT'
   const maxBytes = dependencies.maxBytes ?? VISUAL_PILOT_MEDIA_MAX_BYTES
+  const byteLimitFailureCode = dependencies.byteLimitFailureCode ?? 'ORIGINAL_BYTE_LIMIT_EXCEEDED'
+  const maxInputPixels = dependencies.maxInputPixels ?? VISUAL_PILOT_MEDIA_MAX_INPUT_PIXELS
+  const pixelLimitFailureCode = dependencies.pixelLimitFailureCode ?? 'ORIGINAL_PIXEL_LIMIT_EXCEEDED'
   const maxRedirects = dependencies.maxRedirects ?? VISUAL_PILOT_MEDIA_MAX_REDIRECTS
   const canonicalOrigin = dependencies.canonicalOrigin ?? 'https://www.uygunayakkabi.com'
   const rawUrl = resolveMediaUrl(media)
@@ -357,6 +516,10 @@ export async function readVisualPilotMediaEvidence(
   if (!isSupportedMime(expectedMime)) return { ok: false, code: 'ORIGINAL_MIME_UNSUPPORTED' }
 
   const controller = new AbortController()
+  const externalSignal = dependencies.signal
+  const onExternalAbort = () => controller.abort()
+  externalSignal?.addEventListener('abort', onExternalAbort, { once: true })
+  if (externalSignal?.aborted) controller.abort()
   let timedOut = false
   const timer = setTimeout(() => {
     timedOut = true
@@ -374,7 +537,7 @@ export async function readVisualPilotMediaEvidence(
       try {
         addresses = await awaitWithAbort(dnsLookup(current.hostname), controller.signal)
       } catch {
-        return { ok: false, code: timedOut ? 'ORIGINAL_FETCH_TIMEOUT' : 'ORIGINAL_MEDIA_DNS_BLOCKED' }
+        return { ok: false, code: timedOut || externalSignal?.aborted ? timeoutFailureCode : 'ORIGINAL_MEDIA_DNS_BLOCKED' }
       }
       if (addresses.length === 0 || addresses.some((entry) => !isPublicDnsAddress(entry))) {
         return { ok: false, code: 'ORIGINAL_MEDIA_DNS_BLOCKED' }
@@ -401,7 +564,7 @@ export async function readVisualPilotMediaEvidence(
               controller.signal,
             )
       } catch {
-        return { ok: false, code: timedOut ? 'ORIGINAL_FETCH_TIMEOUT' : 'ORIGINAL_FETCH_FAILED' }
+        return { ok: false, code: timedOut || externalSignal?.aborted ? timeoutFailureCode : 'ORIGINAL_FETCH_FAILED' }
       }
 
       if (response.status >= 300 && response.status < 400) {
@@ -456,23 +619,40 @@ export async function readVisualPilotMediaEvidence(
 
       let bytesOrCode: Buffer | VisualPilotMediaFailureCode
       try {
-        bytesOrCode = await readBoundedBody(response, maxBytes, controller)
+        bytesOrCode = await readBoundedBody(response, maxBytes, controller, byteLimitFailureCode)
       } catch {
-        return { ok: false, code: timedOut ? 'ORIGINAL_FETCH_TIMEOUT' : 'ORIGINAL_FETCH_FAILED' }
+        return { ok: false, code: timedOut || externalSignal?.aborted ? timeoutFailureCode : 'ORIGINAL_FETCH_FAILED' }
       }
       if (typeof bytesOrCode === 'string') return { ok: false, code: bytesOrCode }
 
       let decoded: VisualPilotDecodedImage
+      const contentDigest = createHash('sha256').update(bytesOrCode).digest('hex')
+      const byteSize = bytesOrCode.byteLength
       try {
-        decoded = await awaitWithAbort(decodeImage(bytesOrCode), controller.signal)
-      } catch {
-        return { ok: false, code: timedOut ? 'ORIGINAL_FETCH_TIMEOUT' : 'ORIGINAL_DECODE_FAILED' }
+        decoded = dependencies.decodeImage
+          ? await awaitWithAbort(dependencies.decodeImage(bytesOrCode, controller.signal), controller.signal)
+          : await decodeVisualPilotImageInWorker(bytesOrCode, {
+              signal: controller.signal,
+              maxInputPixels,
+              workerFactory: dependencies.decodeWorkerFactory,
+            })
+      } catch (error) {
+        return {
+          ok: false,
+          code: timedOut || externalSignal?.aborted
+            ? timeoutFailureCode
+            : error instanceof Error && error.message === 'visual_pilot_decode_pixel_limit'
+              ? pixelLimitFailureCode
+              : 'ORIGINAL_DECODE_FAILED',
+        }
+      } finally {
+        bytesOrCode.fill(0)
       }
       if (!Number.isInteger(decoded.width) || decoded.width <= 0 || !Number.isInteger(decoded.height) || decoded.height <= 0) {
         return { ok: false, code: 'ORIGINAL_DIMENSIONS_INVALID' }
       }
-      if (decoded.width * decoded.height > VISUAL_PILOT_MEDIA_MAX_INPUT_PIXELS) {
-        return { ok: false, code: 'ORIGINAL_PIXEL_LIMIT_EXCEEDED' }
+      if (decoded.width * decoded.height > maxInputPixels) {
+        return { ok: false, code: pixelLimitFailureCode }
       }
       if (decoded.pages !== 1) return { ok: false, code: 'ORIGINAL_MULTIPAGE_UNSUPPORTED' }
       if (SUPPORTED_MIME_TO_FORMAT[responseMime] !== decoded.format) {
@@ -484,11 +664,13 @@ export async function readVisualPilotMediaEvidence(
         width: decoded.width,
         height: decoded.height,
         mimeType: responseMime,
-        contentDigest: createHash('sha256').update(bytesOrCode).digest('hex'),
+        byteSize,
+        contentDigest,
       }
     }
     return { ok: false, code: 'ORIGINAL_REDIRECT_LIMIT_EXCEEDED' }
   } finally {
     clearTimeout(timer)
+    externalSignal?.removeEventListener('abort', onExternalAbort)
   }
 }

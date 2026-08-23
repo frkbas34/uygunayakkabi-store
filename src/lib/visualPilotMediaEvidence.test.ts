@@ -11,6 +11,7 @@ import {
   readVisualPilotMediaEvidence,
   type VisualPilotDecodeWorker,
   type VisualPilotMediaReadDependencies,
+  type VisualPilotMediaReadResult,
 } from './visualPilotMediaEvidence'
 
 let passed = 0
@@ -56,6 +57,14 @@ function deps(overrides: VisualPilotMediaReadDependencies = {}): VisualPilotMedi
   }
 }
 
+function assertFailure(result: VisualPilotMediaReadResult, code: string): asserts result is Extract<VisualPilotMediaReadResult, { ok: false }> {
+  assert.equal(result.ok, false)
+  if (result.ok) throw new Error(`expected ${code}`)
+  assert.equal(result.code, code)
+  assert.ok(Number.isSafeInteger(result.consumedByteCount) && result.consumedByteCount >= 0)
+  assert.ok(Number.isSafeInteger(result.knownPixelCount) && result.knownPixelCount >= 0)
+}
+
 class ControlledDecodeWorker extends EventEmitter implements VisualPilotDecodeWorker {
   terminated = false
   lateCompletion = false
@@ -77,6 +86,8 @@ await check('valid public raster is decoded in memory', async () => {
     assert.equal(result.width, 1200)
     assert.equal(result.height, 800)
     assert.equal(result.byteSize, 3)
+    assert.equal(result.consumedByteCount, 3)
+    assert.equal(result.knownPixelCount, 960_000)
     assert.match(result.contentDigest, /^[a-f0-9]{64}$/)
   }
 })
@@ -147,7 +158,7 @@ await check('relative canonical media path resolves without entering output', as
 
 await check('missing URL and filename fail closed', async () => {
   const result = await readVisualPilotMediaEvidence(media({ url: null, filename: null }), deps())
-  assert.deepEqual(result, { ok: false, code: 'ORIGINAL_MEDIA_URL_MISSING' })
+  assertFailure(result, 'ORIGINAL_MEDIA_URL_MISSING')
 })
 
 await check('HTTP, credentials, fragments, and custom ports block before fetch', async () => {
@@ -183,7 +194,7 @@ await check('application host only permits canonical media paths', async () => {
     media({ url: 'https://www.uygunayakkabi.com/admin/collections/media' }),
     deps(),
   )
-  assert.deepEqual(result, { ok: false, code: 'ORIGINAL_MEDIA_PATH_BLOCKED' })
+  assertFailure(result, 'ORIGINAL_MEDIA_PATH_BLOCKED')
 })
 
 await check('private, loopback, link-local, and empty DNS results block fetch', async () => {
@@ -193,7 +204,7 @@ await check('private, loopback, link-local, and empty DNS results block fetch', 
       dnsLookup: async () => [{ address, family: address.includes(':') ? 6 : 4 }],
       fetchImpl: async () => { calls += 1; return response() },
     }))
-    assert.deepEqual(result, { ok: false, code: 'ORIGINAL_MEDIA_DNS_BLOCKED' })
+    assertFailure(result, 'ORIGINAL_MEDIA_DNS_BLOCKED')
     assert.equal(calls, 0)
   }
 })
@@ -217,7 +228,7 @@ await check('alternate and special-range IPv6 addresses fail closed before retri
       dnsLookup: async () => [{ address, family: 6 }],
       fetchImpl: async () => { calls += 1; return response() },
     }))
-    assert.deepEqual(result, { ok: false, code: 'ORIGINAL_MEDIA_DNS_BLOCKED' }, address)
+    assertFailure(result, 'ORIGINAL_MEDIA_DNS_BLOCKED')
     assert.equal(calls, 0, address)
   }
 })
@@ -228,7 +239,7 @@ await check('DNS address family must match the parsed address family', async () 
     dnsLookup: async () => [{ address: '93.184.216.34', family: 6 }],
     fetchImpl: async () => { calls += 1; return response() },
   }))
-  assert.deepEqual(result, { ok: false, code: 'ORIGINAL_MEDIA_DNS_BLOCKED' })
+  assertFailure(result, 'ORIGINAL_MEDIA_DNS_BLOCKED')
   assert.equal(calls, 0)
 })
 
@@ -358,7 +369,7 @@ await check('redirect DNS change to a private address cannot escape pinned trans
       decodeImage: decodedJpeg,
     },
   )
-  assert.deepEqual(result, { ok: false, code: 'ORIGINAL_MEDIA_DNS_BLOCKED' })
+  assertFailure(result, 'ORIGINAL_MEDIA_DNS_BLOCKED')
   assert.equal(transportCalls, 1)
 })
 
@@ -401,7 +412,7 @@ await check('redirect to untrusted host blocks before second retrieval', async (
       return response(null, { status: 302, headers: { location: 'https://evil.example/secret.jpg' } })
     }) as typeof fetch,
   }))
-  assert.deepEqual(result, { ok: false, code: 'ORIGINAL_REDIRECT_HOST_BLOCKED' })
+  assertFailure(result, 'ORIGINAL_REDIRECT_HOST_BLOCKED')
   assert.equal(calls, 1)
 })
 
@@ -409,11 +420,11 @@ await check('missing Location and redirect loops fail closed', async () => {
   const missing = await readVisualPilotMediaEvidence(media(), deps({
     fetchImpl: (async () => response(null, { status: 302 })) as typeof fetch,
   }))
-  assert.deepEqual(missing, { ok: false, code: 'ORIGINAL_REDIRECT_INVALID' })
+  assertFailure(missing, 'ORIGINAL_REDIRECT_INVALID')
   const loop = await readVisualPilotMediaEvidence(media(), deps({
     fetchImpl: (async () => response(null, { status: 302, headers: { location: '/original.jpg' } })) as typeof fetch,
   }))
-  assert.deepEqual(loop, { ok: false, code: 'ORIGINAL_REDIRECT_INVALID' })
+  assertFailure(loop, 'ORIGINAL_REDIRECT_INVALID')
 })
 
 await check('redirect count is capped', async () => {
@@ -425,7 +436,7 @@ await check('redirect count is capped', async () => {
       return response(null, { status: 302, headers: { location: `https://fixture.public.blob.vercel-storage.com/r${index}.jpg` } })
     }) as typeof fetch,
   }))
-  assert.deepEqual(result, { ok: false, code: 'ORIGINAL_REDIRECT_LIMIT_EXCEEDED' })
+  assertFailure(result, 'ORIGINAL_REDIRECT_LIMIT_EXCEEDED')
   assert.equal(index, 3)
 })
 
@@ -436,7 +447,7 @@ await check('timeout emits only the stable timeout code', async () => {
       init?.signal?.addEventListener('abort', () => reject(new Error('secret signed URL')))
     })) as typeof fetch,
   }))
-  assert.deepEqual(result, { ok: false, code: 'ORIGINAL_FETCH_TIMEOUT' })
+  assertFailure(result, 'ORIGINAL_FETCH_TIMEOUT')
 })
 
 await check('timeout also bounds DNS and decode waits', async () => {
@@ -444,13 +455,13 @@ await check('timeout also bounds DNS and decode waits', async () => {
     timeoutMs: 5,
     dnsLookup: async () => new Promise(() => undefined),
   }))
-  assert.deepEqual(dnsTimeout, { ok: false, code: 'ORIGINAL_FETCH_TIMEOUT' })
+  assertFailure(dnsTimeout, 'ORIGINAL_FETCH_TIMEOUT')
 
   const decodeTimeout = await readVisualPilotMediaEvidence(media(), deps({
     timeoutMs: 5,
     decodeImage: async () => new Promise(() => undefined),
   }))
-  assert.deepEqual(decodeTimeout, { ok: false, code: 'ORIGINAL_FETCH_TIMEOUT' })
+  assertFailure(decodeTimeout, 'ORIGINAL_FETCH_TIMEOUT')
 })
 
 await check('media timeout terminates the active decode worker before returning', async () => {
@@ -459,9 +470,14 @@ await check('media timeout terminates the active decode worker before returning'
     fetchImpl: async () => response(),
     dnsLookup: publicDns,
     timeoutMs: 5,
-    decodeWorkerFactory: () => worker,
+    decodeWorkerFactory: () => {
+      queueMicrotask(() => worker.emit('message', { stage: 'metadata', knownPixelCount: 1_250_000 }))
+      return worker
+    },
   })
-  assert.deepEqual(result, { ok: false, code: 'ORIGINAL_FETCH_TIMEOUT' })
+  assertFailure(result, 'ORIGINAL_FETCH_TIMEOUT')
+  assert.equal(result.consumedByteCount, 3)
+  assert.equal(result.knownPixelCount, 1_250_000)
   assert.equal(worker.terminated, true)
   assert.equal(worker.listenerCount('message'), 0)
   assert.equal(worker.listenerCount('error'), 0)
@@ -479,7 +495,7 @@ await check('invalid Content-Length aborts and cancels the response body', async
       headers: { 'content-type': 'image/jpeg', 'content-length': 'not-a-number' },
     })) as typeof fetch,
   }))
-  assert.deepEqual(result, { ok: false, code: 'ORIGINAL_CONTENT_LENGTH_INVALID' })
+  assertFailure(result, 'ORIGINAL_CONTENT_LENGTH_INVALID')
   await Promise.resolve()
   assert.equal(cancelled, true)
 })
@@ -492,7 +508,7 @@ await check('oversized Content-Length blocks before body consumption', async () 
     fetchImpl: (async () => response(body, { headers: { 'content-type': 'image/jpeg', 'content-length': '3' } })) as typeof fetch,
     decodeImage: async () => { decoded = true; return decodedJpeg() },
   }))
-  assert.deepEqual(result, { ok: false, code: 'ORIGINAL_BYTE_LIMIT_EXCEEDED' })
+  assertFailure(result, 'ORIGINAL_BYTE_LIMIT_EXCEEDED')
   assert.equal(decoded, false)
 })
 
@@ -504,61 +520,86 @@ await check('streamed overflow blocks when length is missing or deceptive', asyn
       maxBytes: 2,
       fetchImpl: (async () => response(new Uint8Array([1, 2, 3]), { headers })) as typeof fetch,
     }))
-    assert.deepEqual(result, { ok: false, code: 'ORIGINAL_BYTE_LIMIT_EXCEEDED' })
+    assertFailure(result, 'ORIGINAL_BYTE_LIMIT_EXCEEDED')
   }
+})
+
+await check('partial download failure reports bytes consumed before the stream error', async () => {
+  let pullCount = 0
+  const body = new ReadableStream<Uint8Array>({
+    pull(controller) {
+      pullCount += 1
+      if (pullCount === 1) controller.enqueue(new Uint8Array([1, 2, 3, 4]))
+      else controller.error(new Error('raw-stream-error-must-not-leak'))
+    },
+  })
+  const result = await readVisualPilotMediaEvidence(media(), deps({
+    fetchImpl: (async () => response(body)) as typeof fetch,
+  }))
+  assertFailure(result, 'ORIGINAL_FETCH_FAILED')
+  assert.equal(result.consumedByteCount, 4)
+  assert.equal(result.knownPixelCount, 0)
+  assert.equal(JSON.stringify(result).includes('raw-stream-error-must-not-leak'), false)
 })
 
 await check('HTTP failure and empty body block', async () => {
   const http = await readVisualPilotMediaEvidence(media(), deps({
     fetchImpl: (async () => response(null, { status: 404 })) as typeof fetch,
   }))
-  assert.deepEqual(http, { ok: false, code: 'ORIGINAL_HTTP_FAILURE' })
+  assertFailure(http, 'ORIGINAL_HTTP_FAILURE')
   const empty = await readVisualPilotMediaEvidence(media(), deps({
     fetchImpl: (async () => response(new Uint8Array(), { headers: { 'content-type': 'image/jpeg' } })) as typeof fetch,
   }))
-  assert.deepEqual(empty, { ok: false, code: 'ORIGINAL_BODY_EMPTY' })
+  assertFailure(empty, 'ORIGINAL_BODY_EMPTY')
 })
 
 await check('missing, HTML, unsupported SVG, and deceptive MIME block', async () => {
   const missing = await readVisualPilotMediaEvidence(media(), deps({
     fetchImpl: (async () => new Response(new Uint8Array([1]), { status: 200 })) as typeof fetch,
   }))
-  assert.deepEqual(missing, { ok: false, code: 'ORIGINAL_MIME_MISSING' })
+  assertFailure(missing, 'ORIGINAL_MIME_MISSING')
   for (const mimeType of ['text/html', 'image/svg+xml']) {
     const result = await readVisualPilotMediaEvidence(media({ mimeType }), deps({
       fetchImpl: (async () => response(new Uint8Array([1]), { headers: { 'content-type': mimeType } })) as typeof fetch,
     }))
-    assert.deepEqual(result, { ok: false, code: 'ORIGINAL_MIME_UNSUPPORTED' })
+    assertFailure(result, 'ORIGINAL_MIME_UNSUPPORTED')
   }
   const mismatch = await readVisualPilotMediaEvidence(media(), deps({
     fetchImpl: (async () => response(new Uint8Array([1]), { headers: { 'content-type': 'image/png' } })) as typeof fetch,
   }))
-  assert.deepEqual(mismatch, { ok: false, code: 'ORIGINAL_MIME_MISMATCH' })
+  assertFailure(mismatch, 'ORIGINAL_MIME_MISMATCH')
 })
 
 await check('corrupt bytes and decoded format mismatch block', async () => {
   const corrupt = await readVisualPilotMediaEvidence(media(), deps({ decodeImage: async () => { throw new Error('corrupt') } }))
-  assert.deepEqual(corrupt, { ok: false, code: 'ORIGINAL_DECODE_FAILED' })
+  assertFailure(corrupt, 'ORIGINAL_DECODE_FAILED')
+  assert.equal(corrupt.consumedByteCount, 3)
+  assert.equal(corrupt.knownPixelCount, 0)
   const mismatch = await readVisualPilotMediaEvidence(media(), deps({
     decodeImage: async () => ({ width: 100, height: 100, format: 'png', pages: 1 }),
   }))
-  assert.deepEqual(mismatch, { ok: false, code: 'ORIGINAL_FORMAT_MISMATCH' })
+  assertFailure(mismatch, 'ORIGINAL_FORMAT_MISMATCH')
+  assert.equal(mismatch.consumedByteCount, 3)
+  assert.equal(mismatch.knownPixelCount, 10_000)
 })
 
 await check('invalid dimensions, pixel overflow, and multipage input block', async () => {
   const invalid = await readVisualPilotMediaEvidence(media(), deps({
     decodeImage: async () => ({ width: 0, height: 10, format: 'jpeg', pages: 1 }),
   }))
-  assert.deepEqual(invalid, { ok: false, code: 'ORIGINAL_DIMENSIONS_INVALID' })
+  assertFailure(invalid, 'ORIGINAL_DIMENSIONS_INVALID')
   const pixels = await readVisualPilotMediaEvidence(media(), deps({
     decodeImage: async () => ({ width: 50_000, height: 50_000, format: 'jpeg', pages: 1 }),
   }))
-  assert.deepEqual(pixels, { ok: false, code: 'ORIGINAL_PIXEL_LIMIT_EXCEEDED' })
+  assertFailure(pixels, 'ORIGINAL_PIXEL_LIMIT_EXCEEDED')
+  assert.equal(pixels.knownPixelCount, 2_500_000_000)
   const pages = await readVisualPilotMediaEvidence(media({ mimeType: 'image/gif' }), deps({
     decodeImage: async () => ({ width: 100, height: 100, format: 'gif', pages: 2 }),
     fetchImpl: (async () => response(new Uint8Array([1]), { headers: { 'content-type': 'image/gif' } })) as typeof fetch,
   }))
-  assert.deepEqual(pages, { ok: false, code: 'ORIGINAL_MULTIPAGE_UNSUPPORTED' })
+  assertFailure(pages, 'ORIGINAL_MULTIPAGE_UNSUPPORTED')
+  assert.equal(pages.consumedByteCount, 1)
+  assert.equal(pages.knownPixelCount, 10_000)
 })
 
 await check('URL, signed query, bytes, and caught error text never enter results', async () => {

@@ -1,3 +1,5 @@
+import { isDeepStrictEqual } from 'node:util'
+
 import {
   IMAGE_GENERATION_PACK_SELECTION_VERSION,
   parseGenerationAttemptHistory,
@@ -176,6 +178,36 @@ function sameId(left: unknown, right: unknown): boolean {
   return a !== null && b !== null && String(a) === String(b)
 }
 
+function deepFreezeEvidence<T>(value: T, seen = new WeakSet<object>()): T {
+  if (!value || typeof value !== 'object' || seen.has(value)) return value
+  seen.add(value)
+  for (const entry of Object.values(value as Record<string, unknown>)) {
+    deepFreezeEvidence(entry, seen)
+  }
+  try {
+    Object.freeze(value)
+  } catch {
+    // The value is already detached from the gateway by structuredClone.
+    // Non-freezable structured-clone values remain fail-closed in field parsing.
+  }
+  return value
+}
+
+function captureEvidenceRecord(value: RecordValue): RecordValue | null {
+  try {
+    const captured: unknown = structuredClone(value)
+    return isRecord(captured) ? deepFreezeEvidence(captured) : null
+  } catch {
+    return null
+  }
+}
+
+function sortedCapturedRecords(records: readonly RecordValue[]): RecordValue[] {
+  return [...records].sort((left, right) =>
+    String(relationshipId(left.id) ?? '').localeCompare(String(relationshipId(right.id) ?? ''), 'en', { numeric: true }),
+  )
+}
+
 function canonicalProductId(value: unknown): number | null {
   return typeof value === 'number' && Number.isSafeInteger(value) && value > 0 ? value : null
 }
@@ -297,32 +329,6 @@ function sortedReasons(reasons: VisualPilotTargetReason[]): VisualPilotTargetRea
   )
 }
 
-function canonicalEvidence(value: unknown): unknown {
-  if (Array.isArray(value)) return value.map(canonicalEvidence)
-  if (isRecord(value)) {
-    return Object.fromEntries(
-      Object.entries(value)
-        .sort(([left], [right]) => left.localeCompare(right))
-        .map(([key, entry]) => [key, canonicalEvidence(entry)]),
-    )
-  }
-  return value
-}
-
-function productReadSnapshot(product: RecordValue): unknown {
-  return canonicalEvidence(product)
-}
-
-function jobReadSnapshot(jobs: readonly RecordValue[]): unknown {
-  return canonicalRecordSet(jobs)
-}
-
-function canonicalRecordSet(records: readonly RecordValue[]): unknown {
-  return canonicalEvidence([...records].sort((left, right) =>
-    String(relationshipId(left.id) ?? '').localeCompare(String(relationshipId(right.id) ?? ''), 'en', { numeric: true }),
-  ))
-}
-
 type OptionalEvidenceSnapshot = {
   authority: 'available' | 'unsupported'
   readState: 'complete' | 'unsupported'
@@ -345,28 +351,6 @@ type VisualPilotEvidenceSnapshot = {
     botEvents: boolean
     storyJobs: boolean
   }
-}
-
-function canonicalSnapshot(snapshot: VisualPilotEvidenceSnapshot): unknown {
-  return canonicalEvidence({
-    product: productReadSnapshot(snapshot.product),
-    jobs: jobReadSnapshot(snapshot.jobs),
-    media: canonicalRecordSet(snapshot.media),
-    queueReceipts: canonicalRecordSet(snapshot.queueReceipts),
-    botEvents: canonicalRecordSet(snapshot.botEvents),
-    storyJobs: canonicalRecordSet(snapshot.storyJobs),
-    telegram: {
-      authority: snapshot.telegram.authority,
-      readState: snapshot.telegram.readState,
-      docs: canonicalRecordSet(snapshot.telegram.docs),
-    },
-    advertising: {
-      authority: snapshot.advertising.authority,
-      readState: snapshot.advertising.readState,
-      docs: canonicalRecordSet(snapshot.advertising.docs),
-    },
-    pagination: snapshot.pagination,
-  })
 }
 
 function emptyReport(reference: string): VisualPilotTargetReport {
@@ -544,13 +528,18 @@ async function collectAllPages(params: {
         params.reasons.push({ code: params.malformedCode, kind: 'blocked' })
         return { ok: false, docs: [] }
       }
-      const id = relationshipId(raw.id)
+      const captured = captureEvidenceRecord(raw)
+      if (!captured) {
+        params.reasons.push({ code: params.malformedCode, kind: 'blocked' })
+        return { ok: false, docs: [] }
+      }
+      const id = relationshipId(captured.id)
       if (id === null || ids.has(String(id))) {
         params.reasons.push({ code: params.malformedCode, kind: 'blocked' })
         return { ok: false, docs: [] }
       }
       ids.add(String(id))
-      docs.push(raw)
+      docs.push(captured)
     }
     if (!result.hasNextPage) {
       const pagesMatch = expectedTotal === 0
@@ -580,6 +569,10 @@ async function readEvidenceSnapshot(params: {
   reconciliation: boolean
 }): Promise<VisualPilotEvidenceSnapshot> {
   const suffix = params.reconciliation ? '_RECONCILIATION' : ''
+  const capturedProduct = captureEvidenceRecord(params.product)
+  if (!capturedProduct) {
+    params.reasons.push({ code: 'TARGET_SNAPSHOT_CAPTURE_UNSUPPORTED', kind: 'blocked' })
+  }
   const jobs = await collectAllPages({
     readPage: (page, limit) => params.gateway.readImageJobPage(params.productId, page, limit),
     malformedCode: `IMAGE_JOB${suffix}_PAGINATION_INCONSISTENT`,
@@ -640,15 +633,15 @@ async function readEvidenceSnapshot(params: {
     params.reasons.push({ code: 'ADVERTISING_HISTORY_ABSENCE_UNSUPPORTED', kind: 'unsupported' })
   }
 
-  return {
-    product: params.product,
-    jobs: jobs.docs,
-    media: media.docs,
-    queueReceipts: queueReceipts.docs,
-    botEvents: botEvents.docs,
-    storyJobs: storyJobs.docs,
-    telegram,
-    advertising,
+  return deepFreezeEvidence({
+    product: capturedProduct ?? {},
+    jobs: sortedCapturedRecords(jobs.docs),
+    media: sortedCapturedRecords(media.docs),
+    queueReceipts: sortedCapturedRecords(queueReceipts.docs),
+    botEvents: sortedCapturedRecords(botEvents.docs),
+    storyJobs: sortedCapturedRecords(storyJobs.docs),
+    telegram: { ...telegram, docs: sortedCapturedRecords(telegram.docs) },
+    advertising: { ...advertising, docs: sortedCapturedRecords(advertising.docs) },
     pagination: {
       jobs: jobs.ok,
       media: media.ok,
@@ -656,7 +649,7 @@ async function readEvidenceSnapshot(params: {
       botEvents: botEvents.ok,
       storyJobs: storyJobs.ok,
     },
-  }
+  })
 }
 
 function exposureFromProduct(product: RecordValue): {
@@ -952,7 +945,11 @@ export async function verifyVisualPilotTarget(
     reasons.push({ code: candidates.length > 1 ? 'PRODUCT_REFERENCE_DUPLICATED' : 'PRODUCT_RECORD_MALFORMED', kind: 'blocked' })
     return finishReport(report, reasons)
   }
-  const product = candidates[0]
+  const product = captureEvidenceRecord(candidates[0])
+  if (!product) {
+    reasons.push({ code: 'PRODUCT_RECORD_MALFORMED', kind: 'blocked' })
+    return finishReport(report, reasons)
+  }
   const productId = canonicalProductId(product.id)
   if (productId === null) {
     reasons.push({ code: 'PRODUCT_IDENTITY_AMBIGUOUS', kind: 'blocked' })
@@ -1159,6 +1156,17 @@ export async function verifyVisualPilotTarget(
           : 'ORIGINAL_PIXEL_LIMIT_EXCEEDED',
       })
       dependencies.mediaRead?.signal?.removeEventListener('abort', externalAbort)
+      aggregateBytes += mediaRead.consumedByteCount
+      aggregatePixels += mediaRead.knownPixelCount
+      const aggregateLimitCode = aggregateBytes > VISUAL_PILOT_AGGREGATE_MAX_BYTES
+        ? 'ORIGINAL_AGGREGATE_BYTE_LIMIT_EXCEEDED'
+        : aggregatePixels > VISUAL_PILOT_AGGREGATE_MAX_PIXELS
+          ? 'ORIGINAL_AGGREGATE_PIXEL_LIMIT_EXCEEDED'
+          : null
+      if (aggregateLimitCode) {
+        aggregateController.abort()
+        reasons.push({ code: aggregateLimitCode, kind: 'blocked' })
+      }
       if (!mediaRead.ok) {
         reasons.push({ code: mediaRead.code, kind: 'blocked' })
         if (originalsDistinct === 'pass') originalsDistinct = 'unknown'
@@ -1171,23 +1179,14 @@ export async function verifyVisualPilotTarget(
           height: null,
           mimeType: null,
         })
-        if (mediaRead.code.startsWith('ORIGINAL_AGGREGATE_')) {
+        if (aggregateLimitCode || mediaRead.code.startsWith('ORIGINAL_AGGREGATE_')) {
           aggregateController.abort()
           originalsOrdered = false
           break
         }
         continue
       }
-      aggregateBytes += mediaRead.byteSize
-      aggregatePixels += mediaRead.width * mediaRead.height
-      if (aggregateBytes > VISUAL_PILOT_AGGREGATE_MAX_BYTES || aggregatePixels > VISUAL_PILOT_AGGREGATE_MAX_PIXELS) {
-        aggregateController.abort()
-        reasons.push({
-          code: aggregateBytes > VISUAL_PILOT_AGGREGATE_MAX_BYTES
-            ? 'ORIGINAL_AGGREGATE_BYTE_LIMIT_EXCEEDED'
-            : 'ORIGINAL_AGGREGATE_PIXEL_LIMIT_EXCEEDED',
-          kind: 'blocked',
-        })
+      if (aggregateLimitCode) {
         originalsDistinct = 'fail'
         originalsOrdered = false
         break
@@ -1661,7 +1660,9 @@ export async function verifyVisualPilotTarget(
   let secondSnapshot: VisualPilotEvidenceSnapshot | null = null
   try {
     const finalCandidates = await dependencies.gateway.findProductCandidates(productReference)
-    const finalProduct = finalCandidates.length === 1 && isRecord(finalCandidates[0]) ? finalCandidates[0] : null
+    const finalProduct = finalCandidates.length === 1 && isRecord(finalCandidates[0])
+      ? captureEvidenceRecord(finalCandidates[0])
+      : null
     const finalId = finalProduct ? canonicalProductId(finalProduct.id) : null
     const finalStock = finalProduct ? safeStockNumber(finalProduct.stockNumber) : null
     const exactFinalIdentity = finalProduct && finalId !== null && (/^\d+$/.test(productReference)
@@ -1683,7 +1684,7 @@ export async function verifyVisualPilotTarget(
   }
   if (
     secondSnapshot
-    && JSON.stringify(canonicalSnapshot(secondSnapshot)) !== JSON.stringify(canonicalSnapshot(firstSnapshot))
+    && !isDeepStrictEqual(secondSnapshot, firstSnapshot)
   ) {
     reasons.push({ code: 'TARGET_STATE_CHANGED_DURING_READ', kind: 'blocked' })
   }

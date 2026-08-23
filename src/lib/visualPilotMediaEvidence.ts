@@ -58,8 +58,19 @@ export type VisualPilotMediaReadResult =
       byteSize: number
       /** Integrity-only value. Callers must never serialize or print it. */
       contentDigest: string
+      /** Aggregate accounting only. Never include this value in operator output. */
+      consumedByteCount: number
+      /** Aggregate accounting only. Never include this value in operator output. */
+      knownPixelCount: number
     }
-  | { ok: false; code: VisualPilotMediaFailureCode }
+  | {
+      ok: false
+      code: VisualPilotMediaFailureCode
+      /** Aggregate accounting only. Never include this value in operator output. */
+      consumedByteCount: number
+      /** Aggregate accounting only. Never include this value in operator output. */
+      knownPixelCount: number
+    }
 
 export type VisualPilotDnsAddress = { address: string; family: number }
 
@@ -85,6 +96,7 @@ export type VisualPilotMediaReadDependencies = {
 }
 
 export type VisualPilotDecodeWorker = {
+  on(event: 'message', listener: (value: unknown) => void): unknown
   once(event: 'message', listener: (value: unknown) => void): unknown
   once(event: 'error', listener: (error: Error) => void): unknown
   once(event: 'exit', listener: (code: number) => void): unknown
@@ -325,8 +337,12 @@ const { parentPort, workerData } = require('node:worker_threads');
     const metadata = await instance.metadata();
     const width = metadata.width || 0;
     const height = metadata.height || 0;
-    if (width > 0 && height > 0 && width * height > workerData.budgetPixels) {
-      parentPort.postMessage({ ok: false, code: 'pixel_limit' });
+    const knownPixelCount = width > 0 && height > 0 && Number.isSafeInteger(width * height)
+      ? width * height
+      : 0;
+    parentPort.postMessage({ stage: 'metadata', knownPixelCount });
+    if (knownPixelCount > workerData.budgetPixels) {
+      parentPort.postMessage({ ok: false, code: 'pixel_limit', knownPixelCount });
       return;
     }
     await instance.stats();
@@ -366,6 +382,29 @@ function isDecodedWorkerValue(value: unknown): value is VisualPilotDecodedImage 
     && (candidate.format === 'jpeg' || candidate.format === 'png' || candidate.format === 'webp' || candidate.format === 'gif')
 }
 
+class VisualPilotDecodeFailure extends Error {
+  readonly knownPixelCount: number
+
+  constructor(code: string, knownPixelCount: number) {
+    super(code)
+    this.name = 'VisualPilotDecodeFailure'
+    this.knownPixelCount = knownPixelCount
+  }
+}
+
+function safeKnownPixelCount(width: unknown, height: unknown): number {
+  if (!Number.isSafeInteger(width) || !Number.isSafeInteger(height)) return 0
+  const widthNumber = Number(width)
+  const heightNumber = Number(height)
+  if (widthNumber <= 0 || heightNumber <= 0) return 0
+  const pixels = widthNumber * heightNumber
+  return Number.isSafeInteger(pixels) ? pixels : Number.MAX_SAFE_INTEGER
+}
+
+function decodeFailureKnownPixels(error: unknown): number {
+  return error instanceof VisualPilotDecodeFailure ? error.knownPixelCount : 0
+}
+
 export async function decodeVisualPilotImageInWorker(
   bytes: Buffer,
   options: {
@@ -389,6 +428,7 @@ export async function decodeVisualPilotImageInWorker(
   return new Promise<VisualPilotDecodedImage>((resolve, reject) => {
     let settled = false
     let message: VisualPilotDecodedImage | null = null
+    let knownPixelCount = 0
 
     const cleanup = () => {
       worker.removeListener('message', onMessage)
@@ -401,16 +441,27 @@ export async function decodeVisualPilotImageInWorker(
       settled = true
       cleanup()
       if (value) resolve(value)
-      else reject(new Error('visual_pilot_decode_failed'))
+      else reject(new VisualPilotDecodeFailure('visual_pilot_decode_failed', knownPixelCount))
     }
     const terminateAndReject = async (code = 'visual_pilot_decode_failed') => {
       if (settled) return
       settled = true
       cleanup()
       await worker.terminate().catch(() => undefined)
-      reject(new Error(code))
+      reject(new VisualPilotDecodeFailure(code, knownPixelCount))
     }
     const onMessage = (raw: unknown) => {
+      if (
+        raw
+        && typeof raw === 'object'
+        && !Array.isArray(raw)
+        && (raw as Record<string, unknown>).stage === 'metadata'
+        && Number.isSafeInteger((raw as Record<string, unknown>).knownPixelCount)
+        && Number((raw as Record<string, unknown>).knownPixelCount) >= 0
+      ) {
+        knownPixelCount = Number((raw as Record<string, unknown>).knownPixelCount)
+        return
+      }
       if (
         raw
         && typeof raw === 'object'
@@ -426,6 +477,10 @@ export async function decodeVisualPilotImageInWorker(
         && (raw as Record<string, unknown>).ok === false
         && (raw as Record<string, unknown>).code === 'pixel_limit'
       ) {
+        const reportedPixels = (raw as Record<string, unknown>).knownPixelCount
+        if (Number.isSafeInteger(reportedPixels) && Number(reportedPixels) >= 0) {
+          knownPixelCount = Number(reportedPixels)
+        }
         void terminateAndReject('visual_pilot_decode_pixel_limit')
       } else {
         void terminateAndReject()
@@ -435,7 +490,7 @@ export async function decodeVisualPilotImageInWorker(
     const onExit = (code: number) => settle(code === 0 ? message : null)
     const onAbort = () => { void terminateAndReject() }
 
-    worker.once('message', onMessage)
+    worker.on('message', onMessage)
     worker.once('error', onError)
     worker.once('exit', onExit)
     options.signal?.addEventListener('abort', onAbort, { once: true })
@@ -456,6 +511,7 @@ async function readBoundedBody(
   maxBytes: number,
   controller: AbortController,
   byteLimitFailureCode: Extract<VisualPilotMediaFailureCode, 'ORIGINAL_BYTE_LIMIT_EXCEEDED' | 'ORIGINAL_AGGREGATE_BYTE_LIMIT_EXCEEDED'>,
+  onBytesConsumed: (count: number) => void,
 ): Promise<Buffer | VisualPilotMediaFailureCode> {
   const declared = response.headers.get('content-length')
   if (declared !== null) {
@@ -480,6 +536,7 @@ async function readBoundedBody(
     if (result.done) break
     if (!result.value) continue
     total += result.value.byteLength
+    onBytesConsumed(result.value.byteLength)
     if (total > maxBytes) {
       controller.abort()
       void reader.cancel().catch(() => undefined)
@@ -495,6 +552,14 @@ export async function readVisualPilotMediaEvidence(
   media: Record<string, unknown>,
   dependencies: VisualPilotMediaReadDependencies = {},
 ): Promise<VisualPilotMediaReadResult> {
+  let consumedByteCount = 0
+  let knownPixelCount = 0
+  const failure = (code: VisualPilotMediaFailureCode): VisualPilotMediaReadResult => ({
+    ok: false,
+    code,
+    consumedByteCount,
+    knownPixelCount,
+  })
   const fetchImpl = dependencies.fetchImpl ?? fetch
   const dnsLookup = dependencies.dnsLookup ?? defaultDnsLookup
   const timeoutMs = dependencies.timeoutMs ?? VISUAL_PILOT_MEDIA_TIMEOUT_MS
@@ -506,14 +571,14 @@ export async function readVisualPilotMediaEvidence(
   const maxRedirects = dependencies.maxRedirects ?? VISUAL_PILOT_MEDIA_MAX_REDIRECTS
   const canonicalOrigin = dependencies.canonicalOrigin ?? 'https://www.uygunayakkabi.com'
   const rawUrl = resolveMediaUrl(media)
-  if (!rawUrl) return { ok: false, code: 'ORIGINAL_MEDIA_URL_MISSING' }
+  if (!rawUrl) return failure('ORIGINAL_MEDIA_URL_MISSING')
 
   const initial = validateUrl(rawUrl, canonicalOrigin)
-  if (!initial.ok) return initial
+  if (!initial.ok) return failure(initial.code)
 
   const expectedMime = normalizedMime(typeof media.mimeType === 'string' ? media.mimeType : null)
-  if (!expectedMime) return { ok: false, code: 'ORIGINAL_MIME_MISSING' }
-  if (!isSupportedMime(expectedMime)) return { ok: false, code: 'ORIGINAL_MIME_UNSUPPORTED' }
+  if (!expectedMime) return failure('ORIGINAL_MIME_MISSING')
+  if (!isSupportedMime(expectedMime)) return failure('ORIGINAL_MIME_UNSUPPORTED')
 
   const controller = new AbortController()
   const externalSignal = dependencies.signal
@@ -530,17 +595,17 @@ export async function readVisualPilotMediaEvidence(
     let current = initial.url
     const visited = new Set<string>()
     for (let redirectCount = 0; redirectCount <= maxRedirects; redirectCount += 1) {
-      if (visited.has(current.href)) return { ok: false, code: 'ORIGINAL_REDIRECT_INVALID' }
+      if (visited.has(current.href)) return failure('ORIGINAL_REDIRECT_INVALID')
       visited.add(current.href)
 
       let addresses: VisualPilotDnsAddress[]
       try {
         addresses = await awaitWithAbort(dnsLookup(current.hostname), controller.signal)
       } catch {
-        return { ok: false, code: timedOut || externalSignal?.aborted ? timeoutFailureCode : 'ORIGINAL_MEDIA_DNS_BLOCKED' }
+        return failure(timedOut || externalSignal?.aborted ? timeoutFailureCode : 'ORIGINAL_MEDIA_DNS_BLOCKED')
       }
       if (addresses.length === 0 || addresses.some((entry) => !isPublicDnsAddress(entry))) {
-        return { ok: false, code: 'ORIGINAL_MEDIA_DNS_BLOCKED' }
+        return failure('ORIGINAL_MEDIA_DNS_BLOCKED')
       }
       const pinnedAddress = [...addresses].sort((left, right) =>
         left.family - right.family || left.address.localeCompare(right.address),
@@ -564,35 +629,32 @@ export async function readVisualPilotMediaEvidence(
               controller.signal,
             )
       } catch {
-        return { ok: false, code: timedOut || externalSignal?.aborted ? timeoutFailureCode : 'ORIGINAL_FETCH_FAILED' }
+        return failure(timedOut || externalSignal?.aborted ? timeoutFailureCode : 'ORIGINAL_FETCH_FAILED')
       }
 
       if (response.status >= 300 && response.status < 400) {
         if (redirectCount >= maxRedirects) {
           cancelResponseBody(response)
-          return { ok: false, code: 'ORIGINAL_REDIRECT_LIMIT_EXCEEDED' }
+          return failure('ORIGINAL_REDIRECT_LIMIT_EXCEEDED')
         }
         const location = response.headers.get('location')
         if (!location) {
           cancelResponseBody(response)
-          return { ok: false, code: 'ORIGINAL_REDIRECT_INVALID' }
+          return failure('ORIGINAL_REDIRECT_INVALID')
         }
         let nextRaw: string
         try {
           nextRaw = new URL(location, current).href
         } catch {
           cancelResponseBody(response)
-          return { ok: false, code: 'ORIGINAL_REDIRECT_INVALID' }
+          return failure('ORIGINAL_REDIRECT_INVALID')
         }
         const next = validateUrl(nextRaw, canonicalOrigin)
         if (!next.ok) {
           cancelResponseBody(response)
-          return {
-            ok: false,
-            code: next.code === 'ORIGINAL_MEDIA_HOST_BLOCKED'
-              ? 'ORIGINAL_REDIRECT_HOST_BLOCKED'
-              : 'ORIGINAL_REDIRECT_INVALID',
-          }
+          return failure(next.code === 'ORIGINAL_MEDIA_HOST_BLOCKED'
+            ? 'ORIGINAL_REDIRECT_HOST_BLOCKED'
+            : 'ORIGINAL_REDIRECT_INVALID')
         }
         cancelResponseBody(response)
         current = next.url
@@ -601,29 +663,35 @@ export async function readVisualPilotMediaEvidence(
 
       if (!response.ok) {
         cancelResponseBody(response)
-        return { ok: false, code: 'ORIGINAL_HTTP_FAILURE' }
+        return failure('ORIGINAL_HTTP_FAILURE')
       }
       const responseMime = normalizedMime(response.headers.get('content-type'))
       if (!responseMime) {
         cancelResponseBody(response)
-        return { ok: false, code: 'ORIGINAL_MIME_MISSING' }
+        return failure('ORIGINAL_MIME_MISSING')
       }
       if (!isSupportedMime(responseMime)) {
         cancelResponseBody(response)
-        return { ok: false, code: 'ORIGINAL_MIME_UNSUPPORTED' }
+        return failure('ORIGINAL_MIME_UNSUPPORTED')
       }
       if (responseMime !== expectedMime) {
         cancelResponseBody(response)
-        return { ok: false, code: 'ORIGINAL_MIME_MISMATCH' }
+        return failure('ORIGINAL_MIME_MISMATCH')
       }
 
       let bytesOrCode: Buffer | VisualPilotMediaFailureCode
       try {
-        bytesOrCode = await readBoundedBody(response, maxBytes, controller, byteLimitFailureCode)
+        bytesOrCode = await readBoundedBody(
+          response,
+          maxBytes,
+          controller,
+          byteLimitFailureCode,
+          (count) => { consumedByteCount += count },
+        )
       } catch {
-        return { ok: false, code: timedOut || externalSignal?.aborted ? timeoutFailureCode : 'ORIGINAL_FETCH_FAILED' }
+        return failure(timedOut || externalSignal?.aborted ? timeoutFailureCode : 'ORIGINAL_FETCH_FAILED')
       }
-      if (typeof bytesOrCode === 'string') return { ok: false, code: bytesOrCode }
+      if (typeof bytesOrCode === 'string') return failure(bytesOrCode)
 
       let decoded: VisualPilotDecodedImage
       const contentDigest = createHash('sha256').update(bytesOrCode).digest('hex')
@@ -637,26 +705,25 @@ export async function readVisualPilotMediaEvidence(
               workerFactory: dependencies.decodeWorkerFactory,
             })
       } catch (error) {
-        return {
-          ok: false,
-          code: timedOut || externalSignal?.aborted
-            ? timeoutFailureCode
-            : error instanceof Error && error.message === 'visual_pilot_decode_pixel_limit'
-              ? pixelLimitFailureCode
-              : 'ORIGINAL_DECODE_FAILED',
-        }
+        knownPixelCount = decodeFailureKnownPixels(error)
+        return failure(timedOut || externalSignal?.aborted
+          ? timeoutFailureCode
+          : error instanceof Error && error.message === 'visual_pilot_decode_pixel_limit'
+            ? pixelLimitFailureCode
+            : 'ORIGINAL_DECODE_FAILED')
       } finally {
         bytesOrCode.fill(0)
       }
+      knownPixelCount = safeKnownPixelCount(decoded.width, decoded.height)
       if (!Number.isInteger(decoded.width) || decoded.width <= 0 || !Number.isInteger(decoded.height) || decoded.height <= 0) {
-        return { ok: false, code: 'ORIGINAL_DIMENSIONS_INVALID' }
+        return failure('ORIGINAL_DIMENSIONS_INVALID')
       }
       if (decoded.width * decoded.height > maxInputPixels) {
-        return { ok: false, code: pixelLimitFailureCode }
+        return failure(pixelLimitFailureCode)
       }
-      if (decoded.pages !== 1) return { ok: false, code: 'ORIGINAL_MULTIPAGE_UNSUPPORTED' }
+      if (decoded.pages !== 1) return failure('ORIGINAL_MULTIPAGE_UNSUPPORTED')
       if (SUPPORTED_MIME_TO_FORMAT[responseMime] !== decoded.format) {
-        return { ok: false, code: 'ORIGINAL_FORMAT_MISMATCH' }
+        return failure('ORIGINAL_FORMAT_MISMATCH')
       }
 
       return {
@@ -666,9 +733,11 @@ export async function readVisualPilotMediaEvidence(
         mimeType: responseMime,
         byteSize,
         contentDigest,
+        consumedByteCount,
+        knownPixelCount,
       }
     }
-    return { ok: false, code: 'ORIGINAL_REDIRECT_LIMIT_EXCEEDED' }
+    return failure('ORIGINAL_REDIRECT_LIMIT_EXCEEDED')
   } finally {
     clearTimeout(timer)
     externalSignal?.removeEventListener('abort', onExternalAbort)

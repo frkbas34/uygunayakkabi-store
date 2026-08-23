@@ -434,6 +434,61 @@ await check('aggregate pixel budget stops before later originals', async () => {
   assert.equal(fetches, 4)
 })
 
+await check('failed decodes consume aggregate bytes and stop before a fifth failure', async () => {
+  const ids = [1351, 1352, 1353, 1354, 1355]
+  let fetches = 0
+  const secret = 'FAILED_DECODE_SECRET_MUST_NOT_LEAK'
+  const report = await verifyVisualPilotTarget('349', {
+    gateway: gateway({
+      products: [product({ images: ids.map((id) => ({ image: id })) })],
+      media: Object.fromEntries(ids.map((id) => [String(id), originalMedia(id, {
+        url: `https://fixture.public.blob.vercel-storage.com/${id}.jpg?token=${secret}`,
+      })])),
+    }),
+    mediaRead: {
+      ...mediaReadBodies(),
+      fetchImpl: (async () => {
+        fetches += 1
+        return new Response(new Uint8Array(10_000_000).fill(fetches), {
+          status: 200,
+          headers: { 'content-type': 'image/jpeg' },
+        })
+      }) as typeof fetch,
+      decodeImage: async () => { throw new Error(`raw decode exception ${secret}`) },
+    },
+  })
+  const serialized = JSON.stringify(report)
+  assert.ok(reasonCodes(report).includes('ORIGINAL_AGGREGATE_BYTE_LIMIT_EXCEEDED'))
+  assert.ok(reasonCodes(report).includes('ORIGINAL_DECODE_FAILED'))
+  assert.equal(fetches, 4)
+  assert.equal(serialized.includes(secret), false)
+  assert.equal(serialized.includes('https://'), false)
+  assert.equal(serialized.includes('10000000'), false)
+  assert.doesNotMatch(serialized, /[a-f0-9]{64}/)
+})
+
+await check('known dimensions on later multipage failures consume aggregate pixels', async () => {
+  const ids = [1361, 1362, 1363, 1364, 1365]
+  let fetches = 0
+  const report = await verifyVisualPilotTarget('349', {
+    gateway: gateway({
+      products: [product({ images: ids.map((id) => ({ image: id })) })],
+      media: Object.fromEntries(ids.map((id) => [String(id), originalMedia(id)])),
+    }),
+    mediaRead: {
+      ...mediaReadBodies(),
+      fetchImpl: (async () => {
+        fetches += 1
+        return new Response(new Uint8Array([fetches]), { status: 200, headers: { 'content-type': 'image/jpeg' } })
+      }) as typeof fetch,
+      decodeImage: async () => ({ width: 8_000, height: 5_000, format: 'jpeg', pages: 2 }),
+    },
+  })
+  assert.ok(reasonCodes(report).includes('ORIGINAL_AGGREGATE_PIXEL_LIMIT_EXCEEDED'))
+  assert.ok(reasonCodes(report).includes('ORIGINAL_MULTIPAGE_UNSUPPORTED'))
+  assert.equal(fetches, 4)
+})
+
 await check('aggregate wall deadline aborts the current decode and skips later originals', async () => {
   const ids = [1401, 1402]
   let nowCalls = 0
@@ -689,6 +744,21 @@ await check('a product or job change during bounded reads fails reconciliation',
   }
   const report = await verifyVisualPilotTarget('349', { gateway: changing, mediaRead: mediaReadBodies() })
   assert.ok(reasonCodes(report).includes('TARGET_STATE_CHANGED_DURING_READ'))
+})
+
+await check('a reused mutable Product object cannot rewrite the first captured snapshot', async () => {
+  const sharedProduct = product()
+  const changing = gateway({ products: [sharedProduct] })
+  let productReads = 0
+  changing.findProductCandidates = async () => {
+    productReads += 1
+    if (productReads === 2) sharedProduct.title = 'Mutated after first capture'
+    return [sharedProduct]
+  }
+  const report = await verifyVisualPilotTarget('349', { gateway: changing, mediaRead: mediaReadBodies() })
+  assert.equal(productReads, 2)
+  assert.ok(reasonCodes(report).includes('TARGET_STATE_CHANGED_DURING_READ'))
+  assert.notEqual(report.finalVerdict, 'TARGET_READY_FOR_PILOT_APPROVAL')
 })
 
 await check('every readiness-critical evidence surface is compared across two complete passes', async () => {

@@ -901,48 +901,84 @@ await check('queue processing, missing receipt, and receipt correlation ambiguit
   })).includes('QUEUE_RECEIPT_DUPLICATED'))
 })
 
-await check('queue discovery failures never fabricate a secondary missing-receipt reason', async () => {
+await check('shared exact queue-receipt qualification governs both snapshots and missing semantics', async () => {
   const job = imageJob(501)
-  const firstFailureGateway = gateway({ jobs: [job] })
-  firstFailureGateway.readPayloadJobPage = async () => { throw new Error('synthetic discovery failure') }
-  const firstFailure = await verifyVisualPilotTarget('349', {
-    gateway: firstFailureGateway,
-    mediaRead: mediaReadBodies(),
-  })
-  const firstCodes = reasonCodes(firstFailure)
-  assert.ok(firstCodes.includes('QUEUE_RECEIPT_DISCOVERY_UNSUPPORTED'))
-  assert.ok(firstCodes.includes('QUEUE_RECEIPT_RECONCILIATION_DISCOVERY_UNSUPPORTED'))
-  assert.equal(firstCodes.includes('QUEUE_RECEIPT_MISSING'), false)
-
-  const reconciliationFailureGateway = gateway({ jobs: [job], queue: [queueReceipt(501)] })
-  let queueReads = 0
-  reconciliationFailureGateway.readPayloadJobPage = async (_ids, page, limit) => {
-    queueReads += 1
-    if (queueReads > 1) throw new Error('synthetic reconciliation failure')
-    return pageOf([queueReceipt(501)], page, limit)
+  type QueueSnapshot = unknown[] | 'unsupported'
+  const runSnapshots = async (first: QueueSnapshot, second: QueueSnapshot) => {
+    const snapshotGateway = gateway({ jobs: [job] })
+    let queueReads = 0
+    snapshotGateway.readPayloadJobPage = async (_ids, page, limit) => {
+      queueReads += 1
+      const selected = queueReads === 1 ? first : second
+      if (selected === 'unsupported') throw new Error('synthetic queue discovery failure')
+      return pageOf(selected, page, limit)
+    }
+    const report = await verifyVisualPilotTarget('349', {
+      gateway: snapshotGateway,
+      mediaRead: mediaReadBodies(),
+    })
+    assert.equal(queueReads, 2)
+    return report
   }
-  const reconciliationFailure = await verifyVisualPilotTarget('349', {
-    gateway: reconciliationFailureGateway,
-    mediaRead: mediaReadBodies(),
-  })
-  const reconciliationCodes = reasonCodes(reconciliationFailure)
-  assert.ok(reconciliationCodes.includes('QUEUE_RECEIPT_RECONCILIATION_DISCOVERY_UNSUPPORTED'))
-  assert.equal(reconciliationCodes.includes('QUEUE_RECEIPT_MISSING'), false)
+  const has = (report: Awaited<ReturnType<typeof runSnapshots>>, code: string) => reasonCodes(report).includes(code)
 
-  const reconciliationMissingGateway = gateway({ jobs: [job], queue: [queueReceipt(501)] })
-  let successfulQueueReads = 0
-  reconciliationMissingGateway.readPayloadJobPage = async (_ids, page, limit) => {
-    successfulQueueReads += 1
-    return pageOf(successfulQueueReads === 1 ? [queueReceipt(501)] : [], page, limit)
-  }
-  const reconciliationMissing = await verifyVisualPilotTarget('349', {
-    gateway: reconciliationMissingGateway,
-    mediaRead: mediaReadBodies(),
-  })
-  assert.ok(reasonCodes(reconciliationMissing).includes('QUEUE_RECEIPT_MISSING'))
+  const qualifying = await runSnapshots([queueReceipt(501)], [queueReceipt(501)])
+  assert.equal(has(qualifying, 'QUEUE_RECEIPT_MISSING'), false)
 
-  const successfulEmpty = await run({ jobs: [job], queue: [] })
-  assert.ok(reasonCodes(successfulEmpty).includes('QUEUE_RECEIPT_MISSING'))
+  const empty = await runSnapshots([], [])
+  assert.equal(has(empty, 'QUEUE_RECEIPT_MISSING'), true)
+
+  const nonImageReceipt = queueReceipt(501, { taskSlug: 'other-task' })
+  const nonImage = await runSnapshots([nonImageReceipt], [nonImageReceipt])
+  assert.equal(has(nonImage, 'QUEUE_RECEIPT_TASK_MISMATCH'), true)
+  assert.equal(has(nonImage, 'QUEUE_RECEIPT_MISSING'), true)
+  assert.notEqual(nonImage.finalVerdict, 'TARGET_READY_FOR_PILOT_APPROVAL')
+
+  const ambiguousReceipt = queueReceipt(501, { log: [{ input: { jobId: '502' } }] })
+  const ambiguous = await runSnapshots([ambiguousReceipt], [ambiguousReceipt])
+  assert.equal(has(ambiguous, 'QUEUE_RECEIPT_CORRELATION_AMBIGUOUS'), true)
+  assert.equal(has(ambiguous, 'QUEUE_RECEIPT_MISSING'), true)
+  assert.notEqual(ambiguous.finalVerdict, 'TARGET_READY_FOR_PILOT_APPROVAL')
+
+  const firstUnsupportedThenEmpty = await runSnapshots('unsupported', [])
+  assert.equal(has(firstUnsupportedThenEmpty, 'QUEUE_RECEIPT_DISCOVERY_UNSUPPORTED'), true)
+  assert.equal(has(firstUnsupportedThenEmpty, 'QUEUE_RECEIPT_MISSING'), true)
+  assert.equal(has(firstUnsupportedThenEmpty, 'TARGET_STATE_CHANGED_DURING_READ'), true)
+
+  const firstUnsupportedThenNonImage = await runSnapshots('unsupported', [nonImageReceipt])
+  assert.equal(has(firstUnsupportedThenNonImage, 'QUEUE_RECEIPT_DISCOVERY_UNSUPPORTED'), true)
+  assert.equal(has(firstUnsupportedThenNonImage, 'QUEUE_RECEIPT_TASK_MISMATCH'), true)
+  assert.equal(has(firstUnsupportedThenNonImage, 'QUEUE_RECEIPT_MISSING'), true)
+  assert.equal(has(firstUnsupportedThenNonImage, 'TARGET_STATE_CHANGED_DURING_READ'), true)
+
+  const firstUnsupportedThenQualifying = await runSnapshots('unsupported', [queueReceipt(501)])
+  assert.equal(has(firstUnsupportedThenQualifying, 'QUEUE_RECEIPT_DISCOVERY_UNSUPPORTED'), true)
+  assert.equal(has(firstUnsupportedThenQualifying, 'QUEUE_RECEIPT_MISSING'), false)
+  assert.equal(has(firstUnsupportedThenQualifying, 'TARGET_STATE_CHANGED_DURING_READ'), true)
+
+  const bothUnsupported = await runSnapshots('unsupported', 'unsupported')
+  assert.equal(has(bothUnsupported, 'QUEUE_RECEIPT_DISCOVERY_UNSUPPORTED'), true)
+  assert.equal(has(bothUnsupported, 'QUEUE_RECEIPT_RECONCILIATION_DISCOVERY_UNSUPPORTED'), true)
+  assert.equal(has(bothUnsupported, 'QUEUE_RECEIPT_MISSING'), false)
+
+  const reconciliationUnsupported = await runSnapshots([queueReceipt(501)], 'unsupported')
+  assert.equal(has(reconciliationUnsupported, 'QUEUE_RECEIPT_RECONCILIATION_DISCOVERY_UNSUPPORTED'), true)
+  assert.equal(has(reconciliationUnsupported, 'QUEUE_RECEIPT_MISSING'), false)
+
+  const disappears = await runSnapshots([queueReceipt(501)], [])
+  assert.equal(has(disappears, 'QUEUE_RECEIPT_MISSING'), false)
+  assert.equal(has(disappears, 'TARGET_STATE_CHANGED_DURING_READ'), true)
+
+  const appearsDuringReconciliation = await runSnapshots([], [queueReceipt(501)])
+  assert.equal(has(appearsDuringReconciliation, 'QUEUE_RECEIPT_MISSING'), false)
+  assert.equal(has(appearsDuringReconciliation, 'TARGET_STATE_CHANGED_DURING_READ'), true)
+
+  const changesIdentity = await runSnapshots(
+    [queueReceipt(501)],
+    [queueReceipt(501, { id: 'queue-501-changed' })],
+  )
+  assert.equal(has(changesIdentity, 'QUEUE_RECEIPT_MISSING'), false)
+  assert.equal(has(changesIdentity, 'TARGET_STATE_CHANGED_DURING_READ'), true)
 })
 
 await check('a product or job change during bounded reads fails reconciliation', async () => {

@@ -340,6 +340,8 @@ type VisualPilotEvidenceSnapshot = {
   jobs: RecordValue[]
   media: RecordValue[]
   queueReceipts: RecordValue[]
+  qualifiedQueueReceiptJobIds: string[]
+  queueReceiptQualificationIssues: Array<'task' | 'correlation' | 'state'>
   botEvents: RecordValue[]
   storyJobs: RecordValue[]
   telegram: OptionalEvidenceSnapshot
@@ -594,18 +596,18 @@ async function readEvidenceSnapshot(params: {
     unsupportedCode: `QUEUE_RECEIPT${suffix}_DISCOVERY_UNSUPPORTED`,
     reasons: params.reasons,
   })
-  if (queueReceipts.ok) {
-    const discoveredJobIds = new Set(
-      queueReceipts.docs
-        .flatMap((receipt) => payloadJobInputIds(receipt) ?? [])
-        .map(String),
-    )
-    for (const jobId of jobIds) {
-      if (!discoveredJobIds.has(String(jobId))) {
-        params.reasons.push({ code: 'QUEUE_RECEIPT_MISSING', kind: 'unsupported' })
-      }
-    }
-  }
+  const requestedJobIds = new Set(jobIds.map(String))
+  const queueReceiptQualifications = queueReceipts.ok
+    ? queueReceipts.docs.map((receipt) => qualifyQueueReceipt(receipt, requestedJobIds))
+    : []
+  const qualifiedQueueReceiptJobIds = queueReceipts.ok
+    ? [...new Set(queueReceiptQualifications.flatMap((qualification) =>
+        qualification.ok ? [qualification.jobId] : [],
+      ))].sort()
+    : []
+  const queueReceiptQualificationIssues = queueReceiptQualifications.flatMap((qualification) =>
+    qualification.ok ? [] : [qualification.issue],
+  ).sort()
   const botEvents = await collectAllPages({
     readPage: (page, limit) => params.gateway.readBotEventPage(params.productId, page, limit),
     malformedCode: `BOT_EVENT${suffix}_PAGINATION_INCONSISTENT`,
@@ -650,6 +652,8 @@ async function readEvidenceSnapshot(params: {
     jobs: sortedCapturedRecords(jobs.docs),
     media: sortedCapturedRecords(media.docs),
     queueReceipts: sortedCapturedRecords(queueReceipts.docs),
+    qualifiedQueueReceiptJobIds,
+    queueReceiptQualificationIssues,
     botEvents: sortedCapturedRecords(botEvents.docs),
     storyJobs: sortedCapturedRecords(storyJobs.docs),
     telegram: { ...telegram, docs: sortedCapturedRecords(telegram.docs) },
@@ -1045,6 +1049,35 @@ function payloadJobInputIds(receipt: RecordValue): string[] | null {
     }
   }
   return [...new Set(ids)]
+}
+
+type QueueReceiptQualification =
+  | { ok: true; jobId: string }
+  | { ok: false; issue: 'task' | 'correlation' | 'state' }
+
+function qualifyQueueReceipt(
+  receipt: RecordValue,
+  requestedJobIds: ReadonlySet<string>,
+): QueueReceiptQualification {
+  if (receipt.taskSlug !== 'image-gen') return { ok: false, issue: 'task' }
+  const correlated = payloadJobInputIds(receipt)
+  if (
+    !correlated
+    || correlated.length !== 1
+    || !requestedJobIds.has(correlated[0])
+  ) {
+    return { ok: false, issue: 'correlation' }
+  }
+  if (
+    relationshipId(receipt.id) === null
+    || typeof receipt.processing !== 'boolean'
+    || typeof receipt.hasError !== 'boolean'
+    || (receipt.completedAt !== undefined && receipt.completedAt !== null && !dateIsValid(receipt.completedAt))
+    || (receipt.waitUntil !== undefined && receipt.waitUntil !== null && !dateIsValid(receipt.waitUntil))
+  ) {
+    return { ok: false, issue: 'state' }
+  }
+  return { ok: true, jobId: correlated[0] }
 }
 
 export async function verifyVisualPilotTarget(
@@ -1669,36 +1702,27 @@ export async function verifyVisualPilotTarget(
   report.queueReceipts.count = firstSnapshot.queueReceipts.length
   report.queueReceipts.paginationReconciled = firstSnapshot.pagination.queueReceipts
   let queueClear = firstSnapshot.pagination.queueReceipts
-  const receiptJobIds = new Set<string>()
   const receiptCountByJobId = new Map<string, number>()
+  const requestedJobIds = new Set(jobIds.map(String))
   for (const receipt of queuePages.docs) {
-    if (receipt.taskSlug !== 'image-gen') {
-      reasons.push({ code: 'QUEUE_RECEIPT_TASK_MISMATCH', kind: 'blocked' })
+    const qualification = qualifyQueueReceipt(receipt, requestedJobIds)
+    if (!qualification.ok) {
+      reasons.push({
+        code: qualification.issue === 'task'
+          ? 'QUEUE_RECEIPT_TASK_MISMATCH'
+          : qualification.issue === 'correlation'
+            ? 'QUEUE_RECEIPT_CORRELATION_AMBIGUOUS'
+            : 'QUEUE_RECEIPT_STATE_AMBIGUOUS',
+        kind: 'blocked',
+      })
       queueClear = false
       continue
     }
-    const correlated = payloadJobInputIds(receipt)
-    if (!correlated || correlated.length !== 1 || !jobIds.some((jobId) => String(jobId) === correlated[0])) {
-      reasons.push({ code: 'QUEUE_RECEIPT_CORRELATION_AMBIGUOUS', kind: 'blocked' })
-      queueClear = false
-      continue
-    }
-    const receiptCount = (receiptCountByJobId.get(correlated[0]) ?? 0) + 1
-    receiptCountByJobId.set(correlated[0], receiptCount)
+    const receiptCount = (receiptCountByJobId.get(qualification.jobId) ?? 0) + 1
+    receiptCountByJobId.set(qualification.jobId, receiptCount)
     if (receiptCount > 1) {
       reasons.push({ code: 'QUEUE_RECEIPT_DUPLICATED', kind: 'blocked' })
       queueClear = false
-    }
-    receiptJobIds.add(correlated[0])
-    if (
-      typeof receipt.processing !== 'boolean'
-      || typeof receipt.hasError !== 'boolean'
-      || (receipt.completedAt !== undefined && receipt.completedAt !== null && !dateIsValid(receipt.completedAt))
-      || (receipt.waitUntil !== undefined && receipt.waitUntil !== null && !dateIsValid(receipt.waitUntil))
-    ) {
-      reasons.push({ code: 'QUEUE_RECEIPT_STATE_AMBIGUOUS', kind: 'blocked' })
-      queueClear = false
-      continue
     }
     const processing = receipt.processing === true
     const complete = dateIsValid(receipt.completedAt) || receipt.hasError === true
@@ -1707,15 +1731,6 @@ export async function verifyVisualPilotTarget(
       queueClear = false
     }
   }
-  if (queuePages.ok) {
-    for (const jobId of jobIds) {
-      if (!receiptJobIds.has(String(jobId))) {
-        reasons.push({ code: 'QUEUE_RECEIPT_MISSING', kind: 'unsupported' })
-        queueClear = false
-      }
-    }
-  }
-  report.queueReceipts.state = queueClear ? 'clear' : queuePages.ok ? 'blocked' : 'unknown'
 
   if (firstSnapshot.pagination.botEvents) {
     for (const event of firstSnapshot.botEvents) {
@@ -1813,6 +1828,33 @@ export async function verifyVisualPilotTarget(
   ) {
     reasons.push({ code: 'TARGET_STATE_CHANGED_DURING_READ', kind: 'blocked' })
   }
+  const exhaustiveQueueSnapshots = [firstSnapshot, secondSnapshot]
+    .filter((snapshot): snapshot is VisualPilotEvidenceSnapshot => Boolean(snapshot?.pagination.queueReceipts))
+  const qualifyingReceiptJobIds = new Set(
+    exhaustiveQueueSnapshots.flatMap((snapshot) => snapshot.qualifiedQueueReceiptJobIds),
+  )
+  for (const issue of new Set(exhaustiveQueueSnapshots.flatMap((snapshot) => snapshot.queueReceiptQualificationIssues))) {
+    reasons.push({
+      code: issue === 'task'
+        ? 'QUEUE_RECEIPT_TASK_MISMATCH'
+        : issue === 'correlation'
+          ? 'QUEUE_RECEIPT_CORRELATION_AMBIGUOUS'
+          : 'QUEUE_RECEIPT_STATE_AMBIGUOUS',
+      kind: 'blocked',
+    })
+    queueClear = false
+  }
+  if (exhaustiveQueueSnapshots.length > 0) {
+    for (const jobId of jobIds) {
+      if (!qualifyingReceiptJobIds.has(String(jobId))) {
+        reasons.push({ code: 'QUEUE_RECEIPT_MISSING', kind: 'unsupported' })
+        queueClear = false
+      }
+    }
+  }
+  report.queueReceipts.state = queueClear
+    ? 'clear'
+    : exhaustiveQueueSnapshots.length > 0 ? 'blocked' : 'unknown'
   const downstreamBlocked = reasons.some((reason) => reason.code.startsWith('DOWNSTREAM_'))
   const downstreamUnsupported = reasons.some((reason) =>
     reason.code === 'ADVERTISING_HISTORY_ABSENCE_UNSUPPORTED'

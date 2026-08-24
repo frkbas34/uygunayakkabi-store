@@ -86,6 +86,27 @@ function fakePayload(overrides: Partial<VisualPilotRuntimePayload> = {}): Visual
   }
 }
 
+function queueReceiptRow(
+  id: number,
+  jobId: string,
+  overrides: Partial<Record<'id' | 'taskSlug' | 'input' | 'processing' | 'completedAt' | 'hasError' | 'waitUntil', unknown>> = {},
+): Record<string, unknown> {
+  return {
+    id,
+    taskSlug: 'image-gen',
+    input: { jobId },
+    processing: false,
+    completedAt: '2026-08-18T00:00:00.000Z',
+    hasError: false,
+    waitUntil: null,
+    ...overrides,
+  }
+}
+
+function idleItem(client: { release: () => void }): Record<string, unknown> {
+  return { client, idleListener: () => undefined, timeoutId: undefined }
+}
+
 async function runLifecycleChild(): Promise<void> {
   let payloadDestroyCalls = 0
   let clientReleaseCalls = 0
@@ -233,6 +254,72 @@ await check('runtime cleanup is idempotent and closes each runtime-owned resourc
   assert.equal(poolEndCalls, 1)
 })
 
+await check('runtime cleanup rejects every incompatible pinned pool shape before any client release', async () => {
+  const cases: Array<{
+    name: string
+    clients: unknown
+    idle: unknown
+    getReleases: () => number
+  }> = []
+  const addCase = (name: string, build: (client: { release: () => void }) => { clients: unknown; idle: unknown }) => {
+    let releases = 0
+    const client = { release() { releases += 1 } }
+    const shape = build(client)
+    cases.push({ name, ...shape, getReleases: () => releases })
+  }
+  addCase('missing _clients', () => ({ clients: undefined, idle: [] }))
+  addCase('missing _idle', (client) => ({ clients: [client], idle: undefined }))
+  addCase('non-container _clients', () => ({ clients: {}, idle: [] }))
+  addCase('non-container _idle', (client) => ({ clients: [client], idle: {} }))
+  addCase('malformed client', (client) => ({ clients: [client, {}], idle: [] }))
+  addCase('IdleItem-shaped client entry', (client) => ({ clients: [{ ...idleItem(client), release: client.release }], idle: [] }))
+  addCase('malformed idle item', (client) => ({ clients: [client], idle: [{ client }] }))
+  addCase('ambiguous idle wrapper', (client) => ({ clients: [client], idle: [{ ...idleItem(client), release: client.release }] }))
+  addCase('duplicate client identity', (client) => ({ clients: [client, client], idle: [] }))
+  addCase('duplicate idle identity', (client) => ({ clients: [client], idle: [idleItem(client), idleItem(client)] }))
+  addCase('idle client outside complete client set', (client) => ({
+    clients: [client],
+    idle: [idleItem({ release: client.release })],
+  }))
+  addCase('direct client instead of IdleItem wrapper', (client) => ({ clients: [client], idle: [client] }))
+  addCase('exact reviewer probe shape', (client) => ({ clients: [client], idle: [client] }))
+
+  for (const testCase of cases) {
+    let poolEndCalls = 0
+    const pool: VisualPilotRuntimePostgresPool = {
+      _clients: testCase.clients,
+      _idle: testCase.idle,
+      async query() { return { rows: [] } },
+      async end() { poolEndCalls += 1 },
+    }
+    const cleanup = createVisualPilotRuntimeCleanup({ payloadDestroy: async () => undefined, pool })
+    assert.deepEqual(await cleanup(), { ok: false, code: 'RUNTIME_POSTGRES_CLIENT_CLEANUP_UNSUPPORTED' }, testCase.name)
+    assert.deepEqual(await cleanup(), { ok: false, code: 'RUNTIME_POSTGRES_CLIENT_CLEANUP_UNSUPPORTED' }, testCase.name)
+    assert.equal(testCase.getReleases(), 0, testCase.name)
+    assert.equal(poolEndCalls, 1, testCase.name)
+  }
+})
+
+await check('runtime cleanup releases checked-out clients only and never releases an idle client', async () => {
+  let checkedOutReleases = 0
+  let idleReleases = 0
+  let poolEndCalls = 0
+  const checkedOut = { release() { checkedOutReleases += 1 } }
+  const idle = { release() { idleReleases += 1 } }
+  const pool: VisualPilotRuntimePostgresPool = {
+    _clients: [checkedOut, idle],
+    _idle: [idleItem(idle)],
+    async query() { return { rows: [] } },
+    async end() { poolEndCalls += 1 },
+  }
+  const cleanup = createVisualPilotRuntimeCleanup({ payloadDestroy: async () => undefined, pool })
+  assert.deepEqual(await cleanup(), { ok: true })
+  assert.deepEqual(await cleanup(), { ok: true })
+  assert.equal(checkedOutReleases, 1)
+  assert.equal(idleReleases, 0)
+  assert.equal(poolEndCalls, 1)
+})
+
 await check('runtime cleanup timeout is bounded, sanitized, and still closes Postgres resources once', async () => {
   let clientReleaseCalls = 0
   let poolEndCalls = 0
@@ -292,6 +379,24 @@ await check('runtime cleanup failures use stable codes and still attempt every o
     assert.equal(releaseCalls, 1)
     assert.equal(poolEndCalls, 1)
   }
+})
+
+await check('runtime pool-close timeout is bounded, sanitized, and cached', async () => {
+  let poolEndCalls = 0
+  const pool: VisualPilotRuntimePostgresPool = {
+    _clients: [],
+    _idle: [],
+    async query() { return { rows: [] } },
+    end() { poolEndCalls += 1; return new Promise<void>(() => undefined) },
+  }
+  const cleanup = createVisualPilotRuntimeCleanup({
+    payloadDestroy: async () => undefined,
+    pool,
+    timeoutMs: 20,
+  })
+  assert.deepEqual(await cleanup(), { ok: false, code: 'RUNTIME_POSTGRES_POOL_CLOSE_TIMEOUT' })
+  assert.deepEqual(await cleanup(), { ok: false, code: 'RUNTIME_POSTGRES_POOL_CLOSE_TIMEOUT' })
+  assert.equal(poolEndCalls, 1)
 })
 
 await check('teardown failure preserves the completed verdict output and uses a sanitized execution status', async () => {
@@ -442,8 +547,8 @@ await check('real minimal runtime config uses the narrow durable queue reader wi
         rows: [{
           total_docs: '2',
           docs: [
-            { id: 9001, taskSlug: 'image-gen', input: { jobId: '433' }, completedAt: '2026-08-18T00:00:00.000Z' },
-            { id: 9002, taskSlug: 'image-gen', input: { jobId: '434' }, hasError: true },
+            queueReceiptRow(9001, '433'),
+            queueReceiptRow(9002, '434', { completedAt: null, hasError: true }),
           ],
         }],
       }
@@ -480,9 +585,9 @@ await check('real minimal runtime config uses the narrow durable queue reader wi
 await check('durable queue reader paginates deterministically with exact bounded offsets', async () => {
   const queryValues: unknown[][] = []
   const allDocs = [
-    { id: 1, taskSlug: 'image-gen', input: { jobId: '433' } },
-    { id: 2, taskSlug: 'image-gen', input: { jobId: '434' } },
-    { id: 3, taskSlug: 'image-gen', input: { jobId: '435' } },
+    queueReceiptRow(1, '433'),
+    queueReceiptRow(2, '434'),
+    queueReceiptRow(3, '435'),
   ]
   const pool: VisualPilotRuntimePostgresPool = {
     _clients: [],
@@ -506,6 +611,175 @@ await check('durable queue reader paginates deterministically with exact bounded
     [['433', '434', '435'], 2, 0],
     [['433', '434', '435'], 2, 2],
   ])
+})
+
+await check('durable queue reader uses only the exact parameterized read-only SQL boundary and minimal fields', async () => {
+  let capturedText = ''
+  let capturedValues: unknown[] = []
+  const pool: VisualPilotRuntimePostgresPool = {
+    _clients: [],
+    _idle: [],
+    async query(text, values = []) {
+      capturedText = text
+      capturedValues = values
+      return { rows: [{ total_docs: '1', docs: [queueReceiptRow(7, '433')] }] }
+    },
+    async end() { return undefined },
+  }
+  const result = await createVisualPilotQueueReceiptReader(pool).readPage(['433', 433], 1, 50)
+  assert.deepEqual(capturedValues, [['433'], 50, 0])
+  assert.match(capturedText, /WHERE task_slug = 'image-gen'/)
+  assert.match(capturedText, /input ->> 'jobId' = ANY\(\$1::text\[\]\)/)
+  assert.match(capturedText, /LIMIT \$2 OFFSET \$3/)
+  assert.match(capturedText, /ORDER BY id ASC/)
+  assert.doesNotMatch(capturedText, /\b(?:insert|update|delete|retry|cancel|create|alter|drop|truncate)\b/i)
+  assert.deepEqual(Object.keys(result.docs[0]!).sort(), [
+    'completedAt', 'hasError', 'id', 'input', 'processing', 'taskSlug', 'waitUntil',
+  ])
+  assert.deepEqual(Object.keys((result.docs[0]!.input as Record<string, unknown>)), ['jobId'])
+})
+
+await check('durable queue reader accepts an authoritative empty result without an extra query', async () => {
+  let queryCalls = 0
+  const pool: VisualPilotRuntimePostgresPool = {
+    _clients: [],
+    _idle: [],
+    async query() { queryCalls += 1; return { rows: [{ total_docs: '0', docs: [] }] } },
+    async end() { return undefined },
+  }
+  assert.deepEqual(await createVisualPilotQueueReceiptReader(pool).readPage(['433'], 1, 50), {
+    docs: [], totalDocs: 0, page: 1, totalPages: 0, hasNextPage: false, limit: 50,
+  })
+  assert.equal(queryCalls, 1)
+})
+
+await check('durable queue reader rejects malformed rows, missing fields, wrong task/correlation, and invalid result containers', async () => {
+  const valid = queueReceiptRow(1, '433')
+  const missingWaitUntil = Object.fromEntries(
+    Object.entries(valid).filter(([key]) => key !== 'waitUntil'),
+  )
+  const cases: Array<{ name: string; result: unknown; error: RegExp }> = [
+    { name: 'invalid result object', result: null, error: /queue_receipt_page_malformed/ },
+    { name: 'missing rows container', result: {}, error: /queue_receipt_page_malformed/ },
+    { name: 'invalid rows container', result: { rows: {} }, error: /queue_receipt_page_malformed/ },
+    { name: 'multiple aggregate rows', result: { rows: [{}, {}] }, error: /queue_receipt_page_malformed/ },
+    { name: 'malformed row', result: { rows: [{ total_docs: '1', docs: [null] }] }, error: /queue_receipt_page_malformed/ },
+    { name: 'missing required row field', result: { rows: [{ total_docs: '1', docs: [missingWaitUntil] }] }, error: /queue_receipt_page_malformed/ },
+    { name: 'unexpected row field', result: { rows: [{ total_docs: '1', docs: [{ ...valid, other: true }] }] }, error: /queue_receipt_page_malformed/ },
+    { name: 'wrong task', result: { rows: [{ total_docs: '1', docs: [queueReceiptRow(1, '433', { taskSlug: 'other' })] }] }, error: /queue_receipt_page_malformed/ },
+    { name: 'wrong correlation', result: { rows: [{ total_docs: '1', docs: [queueReceiptRow(1, '999')] }] }, error: /queue_receipt_page_malformed/ },
+    { name: 'invalid input shape', result: { rows: [{ total_docs: '1', docs: [queueReceiptRow(1, '433', { input: { jobId: '433', product: 349 } })] }] }, error: /queue_receipt_page_malformed/ },
+    { name: 'invalid receipt id', result: { rows: [{ total_docs: '1', docs: [queueReceiptRow(0, '433')] }] }, error: /queue_receipt_page_malformed/ },
+    { name: 'invalid processing', result: { rows: [{ total_docs: '1', docs: [queueReceiptRow(1, '433', { processing: 'false' })] }] }, error: /queue_receipt_page_malformed/ },
+    { name: 'invalid completion date', result: { rows: [{ total_docs: '1', docs: [queueReceiptRow(1, '433', { completedAt: 'invalid' })] }] }, error: /queue_receipt_page_malformed/ },
+    { name: 'invalid total type', result: { rows: [{ total_docs: 1, docs: [valid] }] }, error: /queue_receipt_page_malformed/ },
+    { name: 'truncated result', result: { rows: [{ total_docs: '2', docs: [valid] }] }, error: /queue_receipt_page_inconsistent/ },
+    { name: 'extra result', result: { rows: [{ total_docs: '0', docs: [valid] }] }, error: /queue_receipt_page_inconsistent/ },
+  ]
+  for (const testCase of cases) {
+    const pool: VisualPilotRuntimePostgresPool = {
+      _clients: [],
+      _idle: [],
+      async query() { return testCase.result as { rows?: unknown } },
+      async end() { return undefined },
+    }
+    await assert.rejects(
+      () => createVisualPilotQueueReceiptReader(pool).readPage(['433'], 1, 2),
+      testCase.error,
+      testCase.name,
+    )
+  }
+})
+
+await check('durable queue reader rejects duplicates, repeated pages, inconsistent metadata, and invalid termination', async () => {
+  const duplicatePool: VisualPilotRuntimePostgresPool = {
+    _clients: [],
+    _idle: [],
+    async query(_text, values = []) {
+      return {
+        rows: [{
+          total_docs: '2',
+          docs: [queueReceiptRow(1, Number(values[2]) === 0 ? '433' : '434')],
+        }],
+      }
+    },
+    async end() { return undefined },
+  }
+  const duplicateReader = createVisualPilotQueueReceiptReader(duplicatePool)
+  await duplicateReader.readPage(['433', '434'], 1, 1)
+  await assert.rejects(() => duplicateReader.readPage(['433', '434'], 2, 1), /queue_receipt_page_inconsistent/)
+
+  let repeatedQueries = 0
+  const repeatedPool: VisualPilotRuntimePostgresPool = {
+    _clients: [],
+    _idle: [],
+    async query(_text, values = []) {
+      repeatedQueries += 1
+      const pageId = Number(values[2]) + 1
+      return { rows: [{ total_docs: '3', docs: [queueReceiptRow(pageId, String(432 + pageId))] }] }
+    },
+    async end() { return undefined },
+  }
+  const repeatedReader = createVisualPilotQueueReceiptReader(repeatedPool)
+  await repeatedReader.readPage(['433', '434', '435'], 1, 1)
+  await repeatedReader.readPage(['433', '434', '435'], 2, 1)
+  await assert.rejects(() => repeatedReader.readPage(['433', '434', '435'], 2, 1), /queue_receipt_page_sequence_invalid/)
+  assert.equal(repeatedQueries, 2)
+
+  let page = 0
+  const inconsistentPool: VisualPilotRuntimePostgresPool = {
+    _clients: [],
+    _idle: [],
+    async query() {
+      page += 1
+      return page === 1
+        ? { rows: [{ total_docs: '2', docs: [queueReceiptRow(1, '433')] }] }
+        : { rows: [{ total_docs: '3', docs: [queueReceiptRow(2, '434')] }] }
+    },
+    async end() { return undefined },
+  }
+  const inconsistentReader = createVisualPilotQueueReceiptReader(inconsistentPool)
+  await inconsistentReader.readPage(['433', '434'], 1, 1)
+  await assert.rejects(() => inconsistentReader.readPage(['433', '434'], 2, 1), /queue_receipt_page_inconsistent/)
+  await assert.rejects(() => createVisualPilotQueueReceiptReader(inconsistentPool).readPage(['433'], 2, 1), /queue_receipt_page_sequence_invalid/)
+
+  let completedQueries = 0
+  const completedPool: VisualPilotRuntimePostgresPool = {
+    _clients: [],
+    _idle: [],
+    async query() {
+      completedQueries += 1
+      return { rows: [{ total_docs: '1', docs: [queueReceiptRow(1, '433')] }] }
+    },
+    async end() { return undefined },
+  }
+  const completedReader = createVisualPilotQueueReceiptReader(completedPool)
+  await completedReader.readPage(['433'], 1, 1)
+  await assert.rejects(() => completedReader.readPage(['433'], 2, 1), /queue_receipt_page_sequence_invalid/)
+  assert.equal(completedQueries, 1)
+})
+
+await check('durable queue reader sanitizes query rejection and validates boundaries before querying', async () => {
+  const sensitive = ['postgres', '://', 'private', '-host/secret?', 'credential', '=value'].join('')
+  let queries = 0
+  const pool: VisualPilotRuntimePostgresPool = {
+    _clients: [],
+    _idle: [],
+    async query() { queries += 1; throw new Error(sensitive) },
+    async end() { return undefined },
+  }
+  const reader = createVisualPilotQueueReceiptReader(pool)
+  await assert.rejects(
+    () => reader.readPage(['433'], 1, 50),
+    (error: unknown) => error instanceof Error
+      && error.message === 'queue_receipt_query_failed'
+      && !error.message.includes(sensitive),
+  )
+  await assert.rejects(() => reader.readPage(['invalid'], 1, 50), /queue_receipt_job_ids_invalid/)
+  await assert.rejects(() => reader.readPage(['433'], 0, 50), /queue_receipt_page_boundary_invalid/)
+  await assert.rejects(() => reader.readPage(['433'], 1, 0), /queue_receipt_page_boundary_invalid/)
+  assert.equal(queries, 1)
+  assert.deepEqual(Object.keys(reader), ['readPage'])
 })
 
 await check('runtime gateway performs no queue collection read when the target has no image jobs', async () => {

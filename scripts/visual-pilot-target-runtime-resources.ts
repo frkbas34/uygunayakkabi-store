@@ -18,8 +18,10 @@ type RuntimePostgresClient = {
   release: () => void
 }
 
-type RuntimePostgresIdleClient = {
-  client?: unknown
+type RuntimePostgresIdleItem = {
+  client: RuntimePostgresClient
+  idleListener: (...args: unknown[]) => unknown
+  timeoutId: unknown
 }
 
 export type VisualPilotRuntimePostgresPool = {
@@ -99,9 +101,52 @@ function exactNonnegativeIntegerText(value: unknown): number | null {
   return Number.isSafeInteger(parsed) ? parsed : null
 }
 
+function hasExactKeys(value: Record<string, unknown>, expected: readonly string[]): boolean {
+  const actual = Object.keys(value).sort()
+  const sortedExpected = [...expected].sort()
+  return actual.length === expected.length
+    && actual.every((key, index) => key === sortedExpected[index])
+}
+
+function optionalDateIsValid(value: unknown): boolean {
+  return value === null || (typeof value === 'string' && Number.isFinite(Date.parse(value)))
+}
+
+function exactQueueReceiptDocument(
+  value: unknown,
+  requestedJobIds: ReadonlySet<string>,
+): value is Record<string, unknown> {
+  if (!isRecord(value) || !hasExactKeys(value, [
+    'completedAt',
+    'hasError',
+    'id',
+    'input',
+    'processing',
+    'taskSlug',
+    'waitUntil',
+  ])) return false
+  if (!exactPositiveInteger(value.id) || value.taskSlug !== 'image-gen') return false
+  if (typeof value.processing !== 'boolean' || typeof value.hasError !== 'boolean') return false
+  if (!optionalDateIsValid(value.completedAt) || !optionalDateIsValid(value.waitUntil)) return false
+  if (!isRecord(value.input) || !hasExactKeys(value.input, ['jobId'])) return false
+  return typeof value.input.jobId === 'string'
+    && /^\d+$/.test(value.input.jobId)
+    && requestedJobIds.has(value.input.jobId)
+}
+
 export function createVisualPilotQueueReceiptReader(
   pool: VisualPilotRuntimePostgresPool,
 ): VisualPilotQueueReceiptReader {
+  let activePagination: {
+    requestKey: string
+    limit: number
+    totalDocs: number
+    totalPages: number
+    nextPage: number
+    lastId: number | null
+    seenIds: Set<number>
+  } | null = null
+
   return {
     async readPage(imageJobIds, page, limit) {
       if (!exactPositiveInteger(page) || !exactPositiveInteger(limit)) {
@@ -116,15 +161,31 @@ export function createVisualPilotQueueReceiptReader(
         return { docs: [], totalDocs: 0, page, totalPages: 0, hasNextPage: false, limit }
       }
 
+      const requestKey = normalizedJobIds.join(',')
+      if (page !== 1 && (
+        !activePagination
+        || activePagination.requestKey !== requestKey
+        || activePagination.limit !== limit
+        || activePagination.nextPage !== page
+      )) {
+        throw new Error('queue_receipt_page_sequence_invalid')
+      }
+
       const offset = (page - 1) * limit
       if (!Number.isSafeInteger(offset)) throw new Error('queue_receipt_page_boundary_invalid')
-      const result = await pool.query(QUEUE_RECEIPT_PAGE_SQL, [normalizedJobIds, limit, offset])
-      if (!Array.isArray(result.rows) || result.rows.length !== 1 || !isRecord(result.rows[0])) {
+      let result: { rows?: unknown }
+      try {
+        result = await pool.query(QUEUE_RECEIPT_PAGE_SQL, [normalizedJobIds, limit, offset])
+      } catch {
+        throw new Error('queue_receipt_query_failed')
+      }
+      if (!isRecord(result) || !Array.isArray(result.rows) || result.rows.length !== 1 || !isRecord(result.rows[0])) {
         throw new Error('queue_receipt_page_malformed')
       }
       const totalDocs = exactNonnegativeIntegerText(result.rows[0].total_docs)
       const docs = result.rows[0].docs
-      if (totalDocs === null || !Array.isArray(docs) || !docs.every(isRecord)) {
+      const requestedJobIds = new Set(normalizedJobIds)
+      if (totalDocs === null || !Array.isArray(docs) || !docs.every((doc) => exactQueueReceiptDocument(doc, requestedJobIds))) {
         throw new Error('queue_receipt_page_malformed')
       }
       const totalPages = totalDocs === 0 ? 0 : Math.ceil(totalDocs / limit)
@@ -136,6 +197,31 @@ export function createVisualPilotQueueReceiptReader(
         || docs.length !== expectedDocCount
       ) {
         throw new Error('queue_receipt_page_inconsistent')
+      }
+
+      const previous = page === 1 ? null : activePagination
+      if (previous && (previous.totalDocs !== totalDocs || previous.totalPages !== totalPages)) {
+        throw new Error('queue_receipt_page_inconsistent')
+      }
+      const seenIds = previous ? new Set(previous.seenIds) : new Set<number>()
+      let lastId = previous?.lastId ?? null
+      for (const doc of docs) {
+        const id = doc.id as number
+        if (seenIds.has(id) || (lastId !== null && id <= lastId)) {
+          throw new Error('queue_receipt_page_inconsistent')
+        }
+        seenIds.add(id)
+        lastId = id
+      }
+      if (seenIds.size > totalDocs) throw new Error('queue_receipt_page_inconsistent')
+      activePagination = {
+        requestKey,
+        limit,
+        totalDocs,
+        totalPages,
+        nextPage: page < totalPages ? page + 1 : 0,
+        lastId,
+        seenIds,
       }
       return {
         docs,
@@ -150,22 +236,44 @@ export function createVisualPilotQueueReceiptReader(
 }
 
 function isRuntimePostgresClient(value: unknown): value is RuntimePostgresClient {
-  return isRecord(value) && typeof value.release === 'function'
+  return isRecord(value)
+    && typeof value.release === 'function'
+    && !('client' in value && 'idleListener' in value && 'timeoutId' in value)
+}
+
+function isRuntimePostgresIdleItem(value: unknown): value is RuntimePostgresIdleItem {
+  return isRecord(value)
+    && hasExactKeys(value, ['client', 'idleListener', 'timeoutId'])
+    && isRuntimePostgresClient(value.client)
+    && typeof value.idleListener === 'function'
 }
 
 function releaseRuntimeOwnedCheckedOutClients(pool: VisualPilotRuntimePostgresPool): VisualPilotRuntimeTeardownCode | null {
-  if (!Array.isArray(pool._clients) || !Array.isArray(pool._idle)) {
+  let checkedOutClients: RuntimePostgresClient[]
+  try {
+    if (!Array.isArray(pool._clients) || !Array.isArray(pool._idle)) {
+      return 'RUNTIME_POSTGRES_CLIENT_CLEANUP_UNSUPPORTED'
+    }
+    if (!pool._clients.every(isRuntimePostgresClient) || !pool._idle.every(isRuntimePostgresIdleItem)) {
+      return 'RUNTIME_POSTGRES_CLIENT_CLEANUP_UNSUPPORTED'
+    }
+    const clients = pool._clients as RuntimePostgresClient[]
+    const idleItems = pool._idle as RuntimePostgresIdleItem[]
+    const clientSet = new Set(clients)
+    const idleClients = new Set(idleItems.map((entry) => entry.client))
+    if (
+      clientSet.size !== clients.length
+      || idleClients.size !== idleItems.length
+      || [...idleClients].some((client) => !clientSet.has(client))
+    ) {
+      return 'RUNTIME_POSTGRES_CLIENT_CLEANUP_UNSUPPORTED'
+    }
+    checkedOutClients = clients.filter((client) => !idleClients.has(client))
+  } catch {
     return 'RUNTIME_POSTGRES_CLIENT_CLEANUP_UNSUPPORTED'
   }
-  const idleClients = new Set(
-    pool._idle
-      .filter(isRecord)
-      .map((entry: RuntimePostgresIdleClient) => entry.client),
-  )
   try {
-    for (const client of pool._clients) {
-      if (idleClients.has(client)) continue
-      if (!isRuntimePostgresClient(client)) return 'RUNTIME_POSTGRES_CLIENT_CLEANUP_UNSUPPORTED'
+    for (const client of checkedOutClients) {
       client.release()
     }
     return null

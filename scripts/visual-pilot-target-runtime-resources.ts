@@ -15,7 +15,10 @@ export type VisualPilotRuntimeTeardownResult =
   | { ok: false; code: VisualPilotRuntimeTeardownCode }
 
 type RuntimePostgresClient = {
+  _ending: boolean
+  end: () => Promise<void> | void
   release: () => void
+  unref: () => void
 }
 
 type RuntimePostgresIdleItem = {
@@ -237,7 +240,10 @@ export function createVisualPilotQueueReceiptReader(
 
 function isRuntimePostgresClient(value: unknown): value is RuntimePostgresClient {
   return isRecord(value)
+    && typeof value._ending === 'boolean'
+    && typeof value.end === 'function'
     && typeof value.release === 'function'
+    && typeof value.unref === 'function'
     && !('client' in value && 'idleListener' in value && 'timeoutId' in value)
 }
 
@@ -299,6 +305,33 @@ async function boundedStep(
   }
 }
 
+function runtimeOwnedTerminalClients(pool: VisualPilotRuntimePostgresPool): RuntimePostgresClient[] {
+  if (!Array.isArray(pool._clients)) return []
+  return [...new Set(pool._clients.filter(isRuntimePostgresClient))]
+}
+
+async function terminalizeRuntimeOwnedClients(
+  clients: readonly RuntimePostgresClient[],
+  timeoutMs: number,
+): Promise<void> {
+  const clientsToEnd = clients.filter((client) => !client._ending)
+  if (clientsToEnd.length > 0) {
+    await boundedStep(
+      async () => {
+        await Promise.all(clientsToEnd.map(async (client) => client.end()))
+      },
+      timeoutMs,
+    )
+  }
+  for (const client of clients) {
+    try {
+      client.unref()
+    } catch {
+      // The stable teardown result is selected by the owning cleanup step.
+    }
+  }
+}
+
 export async function destroyVisualPilotPayloadWithinBoundary(params: {
   payloadDestroy: () => Promise<void>
   timeoutMs?: number
@@ -322,9 +355,18 @@ export function createVisualPilotRuntimeCleanup(params: {
 
   return () => {
     cleanupPromise ??= (async () => {
+      const terminalClients = runtimeOwnedTerminalClients(params.pool)
       const payloadState = await boundedStep(params.payloadDestroy, timeoutMs)
       const clientFailure = releaseRuntimeOwnedCheckedOutClients(params.pool)
-      const poolState = await boundedStep(() => params.pool.end(), timeoutMs)
+      const incompatiblePoolShape = clientFailure === 'RUNTIME_POSTGRES_CLIENT_CLEANUP_UNSUPPORTED'
+      // Pinned pg-pool end() dereferences every _idle entry as an IdleItem.
+      // Never invoke that path after the exact private-shape proof fails.
+      const poolState = incompatiblePoolShape
+        ? 'skipped' as const
+        : await boundedStep(() => params.pool.end(), timeoutMs)
+      if (incompatiblePoolShape || clientFailure || poolState !== 'ok') {
+        await terminalizeRuntimeOwnedClients(terminalClients, timeoutMs)
+      }
 
       if (payloadState === 'timeout') return { ok: false, code: 'RUNTIME_PAYLOAD_TEARDOWN_TIMEOUT' }
       if (payloadState === 'failed') return { ok: false, code: 'RUNTIME_PAYLOAD_TEARDOWN_FAILED' }

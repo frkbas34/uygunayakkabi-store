@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import { spawn } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
+import { Pool } from 'pg'
 
 import type { VisualPilotPage, VisualPilotTargetReadGateway } from '../src/lib/visualPilotTargetVerifier'
 import {
@@ -107,17 +108,39 @@ function idleItem(client: { release: () => void }): Record<string, unknown> {
   return { client, idleListener: () => undefined, timeoutId: undefined }
 }
 
+function runtimeClient(overrides: {
+  end?: () => Promise<void> | void
+  release?: () => void
+  unref?: () => void
+} = {}): {
+  _ending: boolean
+  end: () => Promise<void> | void
+  release: () => void
+  unref: () => void
+} {
+  const client = {
+    _ending: false,
+    end() {
+      client._ending = true
+      return overrides.end?.()
+    },
+    release() { overrides.release?.() },
+    unref() { overrides.unref?.() },
+  }
+  return client
+}
+
 async function runLifecycleChild(): Promise<void> {
   let payloadDestroyCalls = 0
   let clientReleaseCalls = 0
   let poolEndCalls = 0
   const retainedHandle = setInterval(() => undefined, 60_000)
-  const client = {
+  const client = runtimeClient({
     release() {
       clientReleaseCalls += 1
       clearInterval(retainedHandle)
     },
-  }
+  })
   const pool: VisualPilotRuntimePostgresPool = {
     _clients: [client],
     _idle: [],
@@ -137,12 +160,15 @@ async function runLifecycleChild(): Promise<void> {
   process.stdout.write('LIFECYCLE_CHILD_CLEAN_EXIT\n')
 }
 
-async function spawnLifecycleChild(): Promise<{ code: number | null; stdout: string; stderr: string }> {
+async function spawnOfflineChild(
+  flag: '--incompatible-installed-pool-child' | '--lifecycle-child',
+  label: string,
+): Promise<{ code: number | null; stdout: string; stderr: string }> {
   const child = spawn(process.execPath, [
     '--import',
     'tsx',
     fileURLToPath(import.meta.url),
-    '--lifecycle-child',
+    flag,
   ], { stdio: ['ignore', 'pipe', 'pipe'] })
   let stdout = ''
   let stderr = ''
@@ -151,7 +177,7 @@ async function spawnLifecycleChild(): Promise<{ code: number | null; stdout: str
   return new Promise((resolve, reject) => {
     const timer = setTimeout(() => {
       child.kill()
-      reject(new Error('lifecycle child did not exit within the offline boundary'))
+      reject(new Error(`${label} child did not exit within the offline boundary`))
     }, 3_000)
     child.once('error', (error) => {
       clearTimeout(timer)
@@ -162,6 +188,64 @@ async function spawnLifecycleChild(): Promise<{ code: number | null; stdout: str
       resolve({ code, stdout, stderr })
     })
   })
+}
+
+async function runIncompatibleInstalledPoolChild(): Promise<void> {
+  let clientReleaseCalls = 0
+  let clientEndCalls = 0
+  let clientUnrefCalls = 0
+  let poolEndCalls = 0
+  let retainedHandleClosed = false
+  const retainedHandle = setInterval(() => undefined, 60_000)
+  const client = runtimeClient({
+    release() { clientReleaseCalls += 1 },
+    end() {
+      clientEndCalls += 1
+      retainedHandleClosed = true
+      clearInterval(retainedHandle)
+    },
+    unref() {
+      clientUnrefCalls += 1
+      retainedHandle.unref()
+    },
+  })
+  const installedPool = new Pool() as unknown as VisualPilotRuntimePostgresPool
+  const originalPoolEnd = installedPool.end.bind(installedPool)
+  installedPool.end = async () => {
+    poolEndCalls += 1
+    await originalPoolEnd()
+  }
+  installedPool._clients = [client]
+  installedPool._idle = [client]
+  const cleanup = createVisualPilotRuntimeCleanup({
+    payloadDestroy: async () => undefined,
+    pool: installedPool,
+    timeoutMs: 250,
+  })
+  const captured = captureIo()
+  const exitCode = await runVisualPilotTargetRuntimeSmoke({
+    argv: ['--product=349', '--confirm-read-only'],
+    initialize: async () => ({ dependencies: { gateway: blockedGateway() }, destroy: cleanup }),
+    io: captured.io,
+  })
+  const first = await cleanup()
+  const second = await cleanup()
+  const output = [...captured.stdout, ...captured.stderr].join('\n')
+  assert.equal(exitCode, VISUAL_PILOT_TARGET_TEARDOWN_EXIT_CODE)
+  assert.deepEqual(first, { ok: false, code: 'RUNTIME_POSTGRES_CLIENT_CLEANUP_UNSUPPORTED' })
+  assert.deepEqual(second, first)
+  assert.equal(clientReleaseCalls, 0)
+  assert.equal(clientEndCalls, 1)
+  assert.equal(clientUnrefCalls, 1)
+  assert.equal(poolEndCalls, 0)
+  assert.equal(retainedHandleClosed, true)
+  assert.ok(captured.stdout.some((text) => text.includes('TARGET_BLOCKED')))
+  assert.deepEqual(captured.stderr, [
+    'VISUAL_PILOT_TARGET_TEARDOWN_FAILURE: RUNTIME_POSTGRES_CLIENT_CLEANUP_UNSUPPORTED',
+  ])
+  assert.equal(output.includes('postgres://'), false)
+  process.stdout.write('INCOMPATIBLE_INSTALLED_POOL_CHILD_CLEAN_EXIT\n')
+  process.exitCode = exitCode
 }
 
 async function main(): Promise<void> {
@@ -236,7 +320,7 @@ await check('runtime cleanup is idempotent and closes each runtime-owned resourc
   let payloadDestroyCalls = 0
   let clientReleaseCalls = 0
   let poolEndCalls = 0
-  const client = { release() { clientReleaseCalls += 1 } }
+  const client = runtimeClient({ release() { clientReleaseCalls += 1 } })
   const pool: VisualPilotRuntimePostgresPool = {
     _clients: [client],
     _idle: [],
@@ -263,7 +347,7 @@ await check('runtime cleanup rejects every incompatible pinned pool shape before
   }> = []
   const addCase = (name: string, build: (client: { release: () => void }) => { clients: unknown; idle: unknown }) => {
     let releases = 0
-    const client = { release() { releases += 1 } }
+    const client = runtimeClient({ release() { releases += 1 } })
     const shape = build(client)
     cases.push({ name, ...shape, getReleases: () => releases })
   }
@@ -296,16 +380,47 @@ await check('runtime cleanup rejects every incompatible pinned pool shape before
     assert.deepEqual(await cleanup(), { ok: false, code: 'RUNTIME_POSTGRES_CLIENT_CLEANUP_UNSUPPORTED' }, testCase.name)
     assert.deepEqual(await cleanup(), { ok: false, code: 'RUNTIME_POSTGRES_CLIENT_CLEANUP_UNSUPPORTED' }, testCase.name)
     assert.equal(testCase.getReleases(), 0, testCase.name)
-    assert.equal(poolEndCalls, 1, testCase.name)
+    assert.equal(poolEndCalls, 0, testCase.name)
   }
+})
+
+await check('unsupported-shape terminal client timeout remains bounded and unrefs the handle once', async () => {
+  let releases = 0
+  let ends = 0
+  let unrefs = 0
+  let poolEnds = 0
+  const retainedHandle = setInterval(() => undefined, 60_000)
+  const client = runtimeClient({
+    release() { releases += 1 },
+    end() { ends += 1; return new Promise<void>(() => undefined) },
+    unref() { unrefs += 1; retainedHandle.unref() },
+  })
+  const pool: VisualPilotRuntimePostgresPool = {
+    _clients: [client],
+    _idle: [client],
+    async query() { return { rows: [] } },
+    async end() { poolEnds += 1 },
+  }
+  const cleanup = createVisualPilotRuntimeCleanup({
+    payloadDestroy: async () => undefined,
+    pool,
+    timeoutMs: 20,
+  })
+  assert.deepEqual(await cleanup(), { ok: false, code: 'RUNTIME_POSTGRES_CLIENT_CLEANUP_UNSUPPORTED' })
+  assert.deepEqual(await cleanup(), { ok: false, code: 'RUNTIME_POSTGRES_CLIENT_CLEANUP_UNSUPPORTED' })
+  assert.equal(releases, 0)
+  assert.equal(ends, 1)
+  assert.equal(unrefs, 1)
+  assert.equal(poolEnds, 0)
+  clearInterval(retainedHandle)
 })
 
 await check('runtime cleanup releases checked-out clients only and never releases an idle client', async () => {
   let checkedOutReleases = 0
   let idleReleases = 0
   let poolEndCalls = 0
-  const checkedOut = { release() { checkedOutReleases += 1 } }
-  const idle = { release() { idleReleases += 1 } }
+  const checkedOut = runtimeClient({ release() { checkedOutReleases += 1 } })
+  const idle = runtimeClient({ release() { idleReleases += 1 } })
   const pool: VisualPilotRuntimePostgresPool = {
     _clients: [checkedOut, idle],
     _idle: [idleItem(idle)],
@@ -324,7 +439,7 @@ await check('runtime cleanup timeout is bounded, sanitized, and still closes Pos
   let clientReleaseCalls = 0
   let poolEndCalls = 0
   const pool: VisualPilotRuntimePostgresPool = {
-    _clients: [{ release() { clientReleaseCalls += 1 } }],
+    _clients: [runtimeClient({ release() { clientReleaseCalls += 1 } })],
     _idle: [],
     async query() { return { rows: [] } },
     async end() { poolEndCalls += 1 },
@@ -344,18 +459,21 @@ await check('runtime cleanup failures use stable codes and still attempt every o
   for (const testCase of [
     {
       expected: 'RUNTIME_PAYLOAD_TEARDOWN_FAILED',
+      terminalized: false,
       payloadDestroy: async () => { throw new Error('sensitive payload detail') },
       release: () => undefined,
       poolEnd: async () => undefined,
     },
     {
       expected: 'RUNTIME_POSTGRES_CLIENT_CLEANUP_FAILED',
+      terminalized: true,
       payloadDestroy: async () => undefined,
       release: () => { throw new Error('sensitive client detail') },
       poolEnd: async () => undefined,
     },
     {
       expected: 'RUNTIME_POSTGRES_POOL_CLOSE_FAILED',
+      terminalized: true,
       payloadDestroy: async () => undefined,
       release: () => undefined,
       poolEnd: async () => { throw new Error('sensitive pool detail') },
@@ -363,9 +481,15 @@ await check('runtime cleanup failures use stable codes and still attempt every o
   ] as const) {
     let payloadDestroyCalls = 0
     let releaseCalls = 0
+    let clientEndCalls = 0
+    let clientUnrefCalls = 0
     let poolEndCalls = 0
     const pool: VisualPilotRuntimePostgresPool = {
-      _clients: [{ release() { releaseCalls += 1; testCase.release() } }],
+      _clients: [runtimeClient({
+        end() { clientEndCalls += 1 },
+        release() { releaseCalls += 1; testCase.release() },
+        unref() { clientUnrefCalls += 1 },
+      })],
       _idle: [],
       async query() { return { rows: [] } },
       async end() { poolEndCalls += 1; await testCase.poolEnd() },
@@ -377,14 +501,23 @@ await check('runtime cleanup failures use stable codes and still attempt every o
     assert.deepEqual(await cleanup(), { ok: false, code: testCase.expected })
     assert.equal(payloadDestroyCalls, 1)
     assert.equal(releaseCalls, 1)
+    assert.equal(clientEndCalls, testCase.terminalized ? 1 : 0)
+    assert.equal(clientUnrefCalls, testCase.terminalized ? 1 : 0)
     assert.equal(poolEndCalls, 1)
   }
 })
 
 await check('runtime pool-close timeout is bounded, sanitized, and cached', async () => {
+  let clientReleaseCalls = 0
+  let clientEndCalls = 0
+  let clientUnrefCalls = 0
   let poolEndCalls = 0
   const pool: VisualPilotRuntimePostgresPool = {
-    _clients: [],
+    _clients: [runtimeClient({
+      end() { clientEndCalls += 1 },
+      release() { clientReleaseCalls += 1 },
+      unref() { clientUnrefCalls += 1 },
+    })],
     _idle: [],
     async query() { return { rows: [] } },
     end() { poolEndCalls += 1; return new Promise<void>(() => undefined) },
@@ -396,6 +529,9 @@ await check('runtime pool-close timeout is bounded, sanitized, and cached', asyn
   })
   assert.deepEqual(await cleanup(), { ok: false, code: 'RUNTIME_POSTGRES_POOL_CLOSE_TIMEOUT' })
   assert.deepEqual(await cleanup(), { ok: false, code: 'RUNTIME_POSTGRES_POOL_CLOSE_TIMEOUT' })
+  assert.equal(clientReleaseCalls, 1)
+  assert.equal(clientEndCalls, 1)
+  assert.equal(clientUnrefCalls, 1)
   assert.equal(poolEndCalls, 1)
 })
 
@@ -423,9 +559,15 @@ await check('teardown failure preserves the completed verdict output and uses a 
 })
 
 await check('real child process releases its retained synthetic handle and exits naturally', async () => {
-  const child = await spawnLifecycleChild()
+  const child = await spawnOfflineChild('--lifecycle-child', 'lifecycle')
   assert.equal(child.code, 0, child.stderr)
   assert.ok(child.stdout.includes('LIFECYCLE_CHILD_CLEAN_EXIT'))
+})
+
+await check('installed pg-pool incompatible shape closes its retained handle and exits naturally with teardown status', async () => {
+  const child = await spawnOfflineChild('--incompatible-installed-pool-child', 'incompatible installed-pool')
+  assert.equal(child.code, VISUAL_PILOT_TARGET_TEARDOWN_EXIT_CODE, child.stderr)
+  assert.ok(child.stdout.includes('INCOMPATIBLE_INSTALLED_POOL_CHILD_CLEAN_EXIT'))
 })
 
 await check('unsupported target uses the dedicated nonzero exit', async () => {
@@ -837,7 +979,12 @@ console.log(`\n${passed} visual pilot runtime smoke tests passed.`)
 if (process.exitCode) process.exit(process.exitCode)
 }
 
-if (process.argv.includes('--lifecycle-child')) {
+if (process.argv.includes('--incompatible-installed-pool-child')) {
+  void runIncompatibleInstalledPoolChild().catch(() => {
+    console.error('incompatible_installed_pool_child_failed')
+    process.exitCode = 1
+  })
+} else if (process.argv.includes('--lifecycle-child')) {
   void runLifecycleChild().catch((error) => {
     console.error((error as Error).message)
     process.exitCode = 1

@@ -129,6 +129,51 @@ function attempt(attemptId: string, jobId: string, overrides: Record<string, unk
   }
 }
 
+function v01QualitySummary(): Record<string, unknown> {
+  return {
+    profile: 'visual-lock/v0.1',
+    family: 'loafer',
+    identityAnchorHash: 'a'.repeat(64),
+    topologyContractVersion: 'component-topology-lock/v0.1',
+    evaluatorContractVersion: 'visual-quality-evaluator/v0.1',
+    geometryGateVersion: 'visual-geometry-gate/v0.1',
+    framingCorrectionContractVersion: 'visual-framing-correction/v1',
+    studioContractVersion: 'visual-studio-contract/v1',
+    materialContractVersion: 'material-zone-fidelity-contract/v1',
+    slotResults: GENERATED_SLOT_KEYS.map((slot) => ({
+      slot,
+      framingCorrectionResult: { status: 'unknown', outcome: 'not_applied', reasonCodes: [] },
+      orientationResult: { status: 'unknown', detectedView: 'unknown' },
+      topologyResult: { status: 'unknown', reasonCodes: [] },
+      studioResult: { status: 'unknown' },
+      materialResult: { status: 'unknown', reasonCodes: [] },
+      evaluatorStatus: 'unknown',
+      evaluatorReasonCodes: [],
+      occupancyPercent: null,
+      horizontalCenterOffsetPercent: null,
+      verticalCenterOffsetPercent: null,
+      maximumCenterOffsetPercent: null,
+      clippingState: 'unknown',
+      geometryStatus: 'unknown',
+      geometryReasonCodes: [],
+    })),
+    packResults: {
+      requiredEvaluatorCompleteness: 'unknown',
+      orientationGateStatus: 'unknown',
+      topologyGateStatus: 'unknown',
+      studioGateStatus: 'unknown',
+      materialGateStatus: 'unknown',
+      framingCorrectionGateStatus: 'unknown',
+      geometryGateStatus: 'unknown',
+      qualityGateStatus: 'unknown',
+      occupancyMinimumPercent: null,
+      occupancyMaximumPercent: null,
+      occupancySpreadPercent: null,
+      reasonCodes: [],
+    },
+  }
+}
+
 function imageJob(id: number, overrides: Record<string, unknown> = {}): Record<string, unknown> {
   const attemptId = `iga_00000000-0000-4000-8000-${String(id).padStart(12, '0')}`
   return {
@@ -654,6 +699,127 @@ await check('unknown profiles and incomplete V0.1 profile evidence block', async
   assert.ok(reasonCodes(await run({ jobs: [{ ...base, generationAttempts: [malformedSummary] }], queue: [queueReceipt(501)] })).includes('V01_ATTEMPT_CONTRACT_INCOMPLETE'))
 })
 
+await check('V0.1 contract diagnostics emit every sanitized field-family subreason', async () => {
+  const base = imageJob(501)
+  const root = (base.generationAttempts as Record<string, unknown>[])[0]
+  const validAttempt = { ...root, qualityGateSummary: v01QualitySummary() }
+  const validCodes = reasonCodes(await run({
+    jobs: [{ ...base, generationAttempts: [validAttempt] }],
+    queue: [queueReceipt(501)],
+  }))
+  assert.equal(validCodes.some((code) => code.startsWith('V01_')), false)
+
+  const cases: Array<{
+    code: string
+    mutate: (candidate: Record<string, unknown>) => void
+  }> = [
+    {
+      code: 'V01_ATTEMPT_IDENTITY_ORDINAL_RETRY_LINEAGE_INVALID',
+      mutate: (candidate) => {
+        delete candidate.attemptKind
+        delete candidate.attemptOrdinal
+        delete candidate.parentAttemptId
+        delete candidate.retryPolicyVersion
+      },
+    },
+    { code: 'V01_IDENTITY_ANCHOR_INVALID', mutate: (candidate) => { candidate.identityAnchorHash = 'invalid' } },
+    {
+      code: 'V01_CONTRACT_VERSION_FAMILY_INVALID',
+      mutate: (candidate) => {
+        candidate.profileContractVersions = {
+          ...(candidate.profileContractVersions as Record<string, unknown>),
+          evaluator: 'unsupported-version',
+        }
+      },
+    },
+    {
+      code: 'V01_ORDERED_FIVE_SLOT_SUMMARY_INVALID',
+      mutate: (candidate) => {
+        const summary = candidate.qualityGateSummary as Record<string, unknown>
+        summary.slotResults = (summary.slotResults as unknown[]).slice(1)
+      },
+    },
+    {
+      code: 'V01_EVALUATOR_STATE_INVALID',
+      mutate: (candidate) => {
+        const summary = candidate.qualityGateSummary as Record<string, unknown>
+        ;(summary.slotResults as Record<string, unknown>[])[0]!.evaluatorStatus = 'invalid'
+      },
+    },
+    {
+      code: 'V01_MATERIAL_STATE_INVALID',
+      mutate: (candidate) => {
+        const summary = candidate.qualityGateSummary as Record<string, unknown>
+        ;(summary.slotResults as Record<string, unknown>[])[0]!.materialResult = null
+      },
+    },
+    {
+      code: 'V01_TOPOLOGY_STATE_INVALID',
+      mutate: (candidate) => {
+        const summary = candidate.qualityGateSummary as Record<string, unknown>
+        ;(summary.slotResults as Record<string, unknown>[])[0]!.topologyResult = null
+      },
+    },
+    {
+      code: 'V01_GEOMETRY_STATE_INVALID',
+      mutate: (candidate) => {
+        const summary = candidate.qualityGateSummary as Record<string, unknown>
+        ;(summary.slotResults as Record<string, unknown>[])[0]!.geometryStatus = 'invalid'
+      },
+    },
+    {
+      code: 'V01_STUDIO_STATE_INVALID',
+      mutate: (candidate) => {
+        const summary = candidate.qualityGateSummary as Record<string, unknown>
+        ;(summary.slotResults as Record<string, unknown>[])[0]!.studioResult = null
+      },
+    },
+    {
+      code: 'V01_FRAMING_STATE_INVALID',
+      mutate: (candidate) => {
+        const summary = candidate.qualityGateSummary as Record<string, unknown>
+        ;(summary.slotResults as Record<string, unknown>[])[0]!.framingCorrectionResult = null
+      },
+    },
+    {
+      code: 'V01_ORIENTATION_STATE_INVALID',
+      mutate: (candidate) => {
+        const summary = candidate.qualityGateSummary as Record<string, unknown>
+        ;(summary.slotResults as Record<string, unknown>[])[0]!.orientationResult = null
+      },
+    },
+    {
+      code: 'V01_MEASUREMENT_VALIDITY_INVALID',
+      mutate: (candidate) => {
+        const summary = candidate.qualityGateSummary as Record<string, unknown>
+        ;(summary.slotResults as Record<string, unknown>[])[0]!.occupancyPercent = 'invalid'
+      },
+    },
+    {
+      code: 'V01_PACK_GATE_CONSISTENCY_INVALID',
+      mutate: (candidate) => {
+        const summary = candidate.qualityGateSummary as Record<string, unknown>
+        ;(summary.packResults as Record<string, unknown>).qualityGateStatus = 'pass'
+      },
+    },
+    {
+      code: 'V01_ATTEMPT_TERMINAL_STATE_INCONSISTENT',
+      mutate: (candidate) => { candidate.status = 'completed' },
+    },
+  ]
+
+  for (const testCase of cases) {
+    const candidate = structuredClone(validAttempt)
+    testCase.mutate(candidate)
+    const codes = reasonCodes(await run({
+      jobs: [{ ...base, generationAttempts: [candidate] }],
+      queue: [queueReceipt(501)],
+    }))
+    assert.ok(codes.includes('V01_ATTEMPT_CONTRACT_INCOMPLETE'), testCase.code)
+    assert.ok(codes.includes(testCase.code), testCase.code)
+  }
+})
+
 await check('malformed immutable attempt identity blocks', async () => {
   const base = imageJob(501)
   const malformed = { ...(base.generationAttempts as Record<string, unknown>[])[0], attemptId: 'iga_not_immutable' }
@@ -733,6 +899,50 @@ await check('queue processing, missing receipt, and receipt correlation ambiguit
     jobs: [job],
     queue: [queueReceipt(501), queueReceipt(501, { id: 'queue-501-duplicate' })],
   })).includes('QUEUE_RECEIPT_DUPLICATED'))
+})
+
+await check('queue discovery failures never fabricate a secondary missing-receipt reason', async () => {
+  const job = imageJob(501)
+  const firstFailureGateway = gateway({ jobs: [job] })
+  firstFailureGateway.readPayloadJobPage = async () => { throw new Error('synthetic discovery failure') }
+  const firstFailure = await verifyVisualPilotTarget('349', {
+    gateway: firstFailureGateway,
+    mediaRead: mediaReadBodies(),
+  })
+  const firstCodes = reasonCodes(firstFailure)
+  assert.ok(firstCodes.includes('QUEUE_RECEIPT_DISCOVERY_UNSUPPORTED'))
+  assert.ok(firstCodes.includes('QUEUE_RECEIPT_RECONCILIATION_DISCOVERY_UNSUPPORTED'))
+  assert.equal(firstCodes.includes('QUEUE_RECEIPT_MISSING'), false)
+
+  const reconciliationFailureGateway = gateway({ jobs: [job], queue: [queueReceipt(501)] })
+  let queueReads = 0
+  reconciliationFailureGateway.readPayloadJobPage = async (_ids, page, limit) => {
+    queueReads += 1
+    if (queueReads > 1) throw new Error('synthetic reconciliation failure')
+    return pageOf([queueReceipt(501)], page, limit)
+  }
+  const reconciliationFailure = await verifyVisualPilotTarget('349', {
+    gateway: reconciliationFailureGateway,
+    mediaRead: mediaReadBodies(),
+  })
+  const reconciliationCodes = reasonCodes(reconciliationFailure)
+  assert.ok(reconciliationCodes.includes('QUEUE_RECEIPT_RECONCILIATION_DISCOVERY_UNSUPPORTED'))
+  assert.equal(reconciliationCodes.includes('QUEUE_RECEIPT_MISSING'), false)
+
+  const reconciliationMissingGateway = gateway({ jobs: [job], queue: [queueReceipt(501)] })
+  let successfulQueueReads = 0
+  reconciliationMissingGateway.readPayloadJobPage = async (_ids, page, limit) => {
+    successfulQueueReads += 1
+    return pageOf(successfulQueueReads === 1 ? [queueReceipt(501)] : [], page, limit)
+  }
+  const reconciliationMissing = await verifyVisualPilotTarget('349', {
+    gateway: reconciliationMissingGateway,
+    mediaRead: mediaReadBodies(),
+  })
+  assert.ok(reasonCodes(reconciliationMissing).includes('QUEUE_RECEIPT_MISSING'))
+
+  const successfulEmpty = await run({ jobs: [job], queue: [] })
+  assert.ok(reasonCodes(successfulEmpty).includes('QUEUE_RECEIPT_MISSING'))
 })
 
 await check('a product or job change during bounded reads fails reconciliation', async () => {
@@ -893,6 +1103,45 @@ await check('unknown downstream shape fails closed', async () => {
   assert.ok(reasonCodes(report).includes('DOWNSTREAM_PRODUCT_STATE_AMBIGUOUS'))
   const blankTargets = await run({ products: [product({ channelTargets: ['   '] })] })
   assert.ok(reasonCodes(blankTargets).includes('DOWNSTREAM_PRODUCT_STATE_AMBIGUOUS'))
+})
+
+await check('downstream ambiguity emits every sanitized Product field-family subreason', async () => {
+  const baseProduct = product()
+  const cases: Array<{ code: string; overrides: Record<string, unknown> }> = [
+    { code: 'DOWNSTREAM_CHANNEL_FIELD_SHAPE_INVALID', overrides: { channels: null } },
+    { code: 'DOWNSTREAM_CHANNEL_TARGET_VALIDATION_FAILED', overrides: { channelTargets: ['future-channel'] } },
+    {
+      code: 'DOWNSTREAM_WORKFLOW_PUBLISH_STATUS_INVALID',
+      overrides: { workflow: { ...(baseProduct.workflow as Record<string, unknown>), publishStatus: 'unknown-status' } },
+    },
+    {
+      code: 'DOWNSTREAM_SERIALIZED_DISPATCHED_CHANNELS_INVALID',
+      overrides: { sourceMeta: { ...(baseProduct.sourceMeta as Record<string, unknown>), dispatchedChannels: 'not-json' } },
+    },
+    {
+      code: 'DOWNSTREAM_SHOPIER_STATE_INVALID',
+      overrides: { sourceMeta: { ...(baseProduct.sourceMeta as Record<string, unknown>), shopierSyncStatus: 'unknown-status' } },
+    },
+    {
+      code: 'DOWNSTREAM_STORY_STATE_INVALID',
+      overrides: { sourceMeta: { ...(baseProduct.sourceMeta as Record<string, unknown>), storyStatus: 'unknown-status' } },
+    },
+    {
+      code: 'DOWNSTREAM_EXTERNAL_SYNC_MARKERS_INVALID',
+      overrides: { sourceMeta: { ...(baseProduct.sourceMeta as Record<string, unknown>), externalSyncId: 7 } },
+    },
+    {
+      code: 'DOWNSTREAM_DISPATCH_TIMESTAMPS_INVALID',
+      overrides: { sourceMeta: { ...(baseProduct.sourceMeta as Record<string, unknown>), lastDispatchedAt: 'not-a-date' } },
+    },
+    { code: 'DOWNSTREAM_MERCHANDISING_PUBLICATION_MARKERS_INVALID', overrides: { merchandising: { publishedAt: 'not-a-date' } } },
+    { code: 'DOWNSTREAM_LEGACY_PUBLICATION_MARKERS_INVALID', overrides: { postToInstagram: 'false' } },
+  ]
+  for (const testCase of cases) {
+    const codes = reasonCodes(await run({ products: [product(testCase.overrides)] }))
+    assert.ok(codes.includes('DOWNSTREAM_PRODUCT_STATE_AMBIGUOUS'), testCase.code)
+    assert.ok(codes.includes(testCase.code), testCase.code)
+  }
 })
 
 await check('schema-correct dispatchedChannels text distinguishes empty, populated, malformed, and legacy arrays', async () => {

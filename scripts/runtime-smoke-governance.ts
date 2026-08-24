@@ -267,17 +267,21 @@ for (const smoke of readOnlySmokes) {
 }
 
 const visualPilotScript = read('scripts/visual-pilot-target-runtime-smoke.ts')
+const visualPilotResources = read('scripts/visual-pilot-target-runtime-resources.ts')
 const visualPilotTestScript = scripts['test:visual-pilot-target'] ?? ''
 assertIncludes(visualPilotTestScript, 'visualPilotMediaEvidence.test.ts', 'visual pilot Media evidence tests')
 assertIncludes(visualPilotTestScript, 'visualPilotTargetVerifier.test.ts', 'visual pilot verifier tests')
 assertIncludes(visualPilotTestScript, 'visual-pilot-target-runtime-smoke.test.ts', 'visual pilot CLI tests')
 assertIncludes(scripts['test:safe'] ?? '', 'npm run test:visual-pilot-target', 'safe suite visual pilot tests')
 assert.ok(!(scripts['test:safe'] ?? '').includes('smoke:visual-pilot-target:read'), 'test:safe must not execute visual pilot runtime smoke')
-assertIncludes(visualPilotScript, "collection: 'payload-jobs'", 'visual pilot queue receipt read')
+assertIncludes(visualPilotResources, 'FROM payload_jobs', 'visual pilot durable queue receipt authority')
+assertIncludes(visualPilotResources, "input ->> 'jobId' = ANY($1::text[])", 'visual pilot exact queue receipt correlation')
+assertIncludes(visualPilotResources, 'ORDER BY id ASC', 'visual pilot deterministic queue receipt pagination')
 assertIncludes(visualPilotScript, "collection: 'story-jobs'", 'visual pilot StoryJob read')
 assertIncludes(visualPilotScript, "collection: 'bot-events'", 'visual pilot BotEvent read')
 assertIncludes(visualPilotScript, "collection: 'media'", 'visual pilot exhaustive product-scoped Media read')
 assert.ok(!/payload\.(?:create|update|delete)|payload\.jobs\.(?:queue|run)|sendTelegram|approveImage|rejectImage|generateProductImages/.test(visualPilotScript), 'visual pilot runtime adapter must expose no mutation, queue, Telegram, approval, or generation call')
+assert.ok(!/\b(?:INSERT|UPDATE|DELETE|ALTER|DROP|CREATE|TRUNCATE)\b/i.test(visualPilotResources), 'visual pilot runtime resources must remain read-only')
 
 const blogApplyScript = read('scripts/blog-featured-image-schema-apply.ts')
 const blogCheckScript = read('scripts/blog-featured-image-schema-check.ts')

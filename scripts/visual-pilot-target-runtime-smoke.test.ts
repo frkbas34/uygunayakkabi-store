@@ -1,13 +1,22 @@
 import assert from 'node:assert/strict'
+import { spawn } from 'node:child_process'
+import { fileURLToPath } from 'node:url'
 
 import type { VisualPilotPage, VisualPilotTargetReadGateway } from '../src/lib/visualPilotTargetVerifier'
 import {
+  createVisualPilotMinimalRuntimeConfig,
   createVisualPilotRuntimeGateway,
   runVisualPilotTargetRuntimeSmoke,
+  VISUAL_PILOT_TARGET_TEARDOWN_EXIT_CODE,
   visualPilotTargetUsage,
   type VisualPilotRuntimeIo,
   type VisualPilotRuntimePayload,
 } from './visual-pilot-target-runtime-smoke'
+import {
+  createVisualPilotQueueReceiptReader,
+  createVisualPilotRuntimeCleanup,
+  type VisualPilotRuntimePostgresPool,
+} from './visual-pilot-target-runtime-resources'
 
 let passed = 0
 
@@ -75,6 +84,63 @@ function fakePayload(overrides: Partial<VisualPilotRuntimePayload> = {}): Visual
     async destroy() { return undefined },
     ...overrides,
   }
+}
+
+async function runLifecycleChild(): Promise<void> {
+  let payloadDestroyCalls = 0
+  let clientReleaseCalls = 0
+  let poolEndCalls = 0
+  const retainedHandle = setInterval(() => undefined, 60_000)
+  const client = {
+    release() {
+      clientReleaseCalls += 1
+      clearInterval(retainedHandle)
+    },
+  }
+  const pool: VisualPilotRuntimePostgresPool = {
+    _clients: [client],
+    _idle: [],
+    async query() { return { rows: [] } },
+    async end() { poolEndCalls += 1 },
+  }
+  const cleanup = createVisualPilotRuntimeCleanup({
+    payloadDestroy: async () => { payloadDestroyCalls += 1 },
+    pool,
+    timeoutMs: 250,
+  })
+  assert.deepEqual(await cleanup(), { ok: true })
+  assert.deepEqual(await cleanup(), { ok: true })
+  assert.equal(payloadDestroyCalls, 1)
+  assert.equal(clientReleaseCalls, 1)
+  assert.equal(poolEndCalls, 1)
+  process.stdout.write('LIFECYCLE_CHILD_CLEAN_EXIT\n')
+}
+
+async function spawnLifecycleChild(): Promise<{ code: number | null; stdout: string; stderr: string }> {
+  const child = spawn(process.execPath, [
+    '--import',
+    'tsx',
+    fileURLToPath(import.meta.url),
+    '--lifecycle-child',
+  ], { stdio: ['ignore', 'pipe', 'pipe'] })
+  let stdout = ''
+  let stderr = ''
+  child.stdout.on('data', (chunk) => { stdout += String(chunk) })
+  child.stderr.on('data', (chunk) => { stderr += String(chunk) })
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      child.kill()
+      reject(new Error('lifecycle child did not exit within the offline boundary'))
+    }, 3_000)
+    child.once('error', (error) => {
+      clearTimeout(timer)
+      reject(error)
+    })
+    child.once('exit', (code) => {
+      clearTimeout(timer)
+      resolve({ code, stdout, stderr })
+    })
+  })
 }
 
 async function main(): Promise<void> {
@@ -145,6 +211,118 @@ await check('blocked target returns nonzero and destroys Payload resource', asyn
   assert.ok(captured.stdout.some((text) => text.includes('TARGET_BLOCKED')))
 })
 
+await check('runtime cleanup is idempotent and closes each runtime-owned resource exactly once', async () => {
+  let payloadDestroyCalls = 0
+  let clientReleaseCalls = 0
+  let poolEndCalls = 0
+  const client = { release() { clientReleaseCalls += 1 } }
+  const pool: VisualPilotRuntimePostgresPool = {
+    _clients: [client],
+    _idle: [],
+    async query() { return { rows: [] } },
+    async end() { poolEndCalls += 1 },
+  }
+  const cleanup = createVisualPilotRuntimeCleanup({
+    payloadDestroy: async () => { payloadDestroyCalls += 1 },
+    pool,
+  })
+  assert.deepEqual(await cleanup(), { ok: true })
+  assert.deepEqual(await cleanup(), { ok: true })
+  assert.equal(payloadDestroyCalls, 1)
+  assert.equal(clientReleaseCalls, 1)
+  assert.equal(poolEndCalls, 1)
+})
+
+await check('runtime cleanup timeout is bounded, sanitized, and still closes Postgres resources once', async () => {
+  let clientReleaseCalls = 0
+  let poolEndCalls = 0
+  const pool: VisualPilotRuntimePostgresPool = {
+    _clients: [{ release() { clientReleaseCalls += 1 } }],
+    _idle: [],
+    async query() { return { rows: [] } },
+    async end() { poolEndCalls += 1 },
+  }
+  const cleanup = createVisualPilotRuntimeCleanup({
+    payloadDestroy: () => new Promise<void>(() => undefined),
+    pool,
+    timeoutMs: 20,
+  })
+  assert.deepEqual(await cleanup(), { ok: false, code: 'RUNTIME_PAYLOAD_TEARDOWN_TIMEOUT' })
+  assert.deepEqual(await cleanup(), { ok: false, code: 'RUNTIME_PAYLOAD_TEARDOWN_TIMEOUT' })
+  assert.equal(clientReleaseCalls, 1)
+  assert.equal(poolEndCalls, 1)
+})
+
+await check('runtime cleanup failures use stable codes and still attempt every owned resource', async () => {
+  for (const testCase of [
+    {
+      expected: 'RUNTIME_PAYLOAD_TEARDOWN_FAILED',
+      payloadDestroy: async () => { throw new Error('sensitive payload detail') },
+      release: () => undefined,
+      poolEnd: async () => undefined,
+    },
+    {
+      expected: 'RUNTIME_POSTGRES_CLIENT_CLEANUP_FAILED',
+      payloadDestroy: async () => undefined,
+      release: () => { throw new Error('sensitive client detail') },
+      poolEnd: async () => undefined,
+    },
+    {
+      expected: 'RUNTIME_POSTGRES_POOL_CLOSE_FAILED',
+      payloadDestroy: async () => undefined,
+      release: () => undefined,
+      poolEnd: async () => { throw new Error('sensitive pool detail') },
+    },
+  ] as const) {
+    let payloadDestroyCalls = 0
+    let releaseCalls = 0
+    let poolEndCalls = 0
+    const pool: VisualPilotRuntimePostgresPool = {
+      _clients: [{ release() { releaseCalls += 1; testCase.release() } }],
+      _idle: [],
+      async query() { return { rows: [] } },
+      async end() { poolEndCalls += 1; await testCase.poolEnd() },
+    }
+    const cleanup = createVisualPilotRuntimeCleanup({
+      payloadDestroy: async () => { payloadDestroyCalls += 1; await testCase.payloadDestroy() },
+      pool,
+    })
+    assert.deepEqual(await cleanup(), { ok: false, code: testCase.expected })
+    assert.equal(payloadDestroyCalls, 1)
+    assert.equal(releaseCalls, 1)
+    assert.equal(poolEndCalls, 1)
+  }
+})
+
+await check('teardown failure preserves the completed verdict output and uses a sanitized execution status', async () => {
+  const captured = captureIo()
+  const secret = 'postgres://private-runtime-value'
+  let destroyCalls = 0
+  const exit = await runVisualPilotTargetRuntimeSmoke({
+    argv: ['--product=349', '--confirm-read-only'],
+    initialize: async () => ({
+      dependencies: { gateway: blockedGateway() },
+      destroy: async () => {
+        destroyCalls += 1
+        return { ok: false as const, code: 'RUNTIME_POSTGRES_POOL_CLOSE_FAILED' as const, detail: secret }
+      },
+    }),
+    io: captured.io,
+  })
+  const output = [...captured.stdout, ...captured.stderr].join('\n')
+  assert.equal(exit, VISUAL_PILOT_TARGET_TEARDOWN_EXIT_CODE)
+  assert.equal(destroyCalls, 1)
+  assert.ok(output.includes('TARGET_BLOCKED'))
+  assert.ok(output.includes('VISUAL_PILOT_TARGET_TEARDOWN_FAILURE: RUNTIME_POSTGRES_POOL_CLOSE_FAILED'))
+  assert.equal(output.includes(secret), false)
+})
+
+await check('real child process releases its retained synthetic handle and exits naturally', async () => {
+  const child = await spawnLifecycleChild()
+  assert.equal(child.code, 0, child.stderr)
+  assert.ok(child.stdout.includes('LIFECYCLE_CHILD_CLEAN_EXIT'))
+})
+
 await check('unsupported target uses the dedicated nonzero exit', async () => {
   const gateway = blockedGateway()
   gateway.findProductCandidates = async () => [{ id: 349 }]
@@ -169,6 +347,24 @@ await check('unexpected initialization failure is sanitized and does not leak ra
   assert.equal(output.includes(secret), false)
   assert.equal(output.includes('postgres://'), false)
   assert.ok(output.includes('VISUAL_PILOT_TARGET_INTERNAL_FAILURE'))
+})
+
+await check('post-initialization execution failure still tears down exactly once', async () => {
+  let destroyed = 0
+  const gateway = blockedGateway()
+  gateway.findProductCandidates = async () => [{ id: 349 }]
+  const captured = captureIo()
+  const exit = await runVisualPilotTargetRuntimeSmoke({
+    argv: ['--product=349', '--confirm-read-only'],
+    initialize: async () => ({
+      dependencies: { gateway, now: () => { throw new Error('synthetic execution failure') } },
+      destroy: async () => { destroyed += 1 },
+    }),
+    io: captured.io,
+  })
+  assert.equal(exit, 1)
+  assert.equal(destroyed, 1)
+  assert.deepEqual(captured.stderr, ['VISUAL_PILOT_TARGET_INTERNAL_FAILURE'])
 })
 
 await check('runtime adapter exposes reads only and never accesses injected mutation/provider/Telegram surfaces', async () => {
@@ -234,36 +430,82 @@ await check('runtime gateway reads exhaustive Product-scoped Media pages', async
   assert.equal(calls[0]?.sort, 'id')
 })
 
-await check('runtime gateway scopes queue receipts by exact target job IDs in Payload', async () => {
-  const calls: Record<string, unknown>[] = []
+await check('real minimal runtime config uses the narrow durable queue reader without registering tasks', async () => {
+  const queryCalls: { text: string; values?: unknown[] }[] = []
+  let payloadFindCalls = 0
+  const pool: VisualPilotRuntimePostgresPool = {
+    _clients: [],
+    _idle: [],
+    async query(text, values) {
+      queryCalls.push({ text, values })
+      return {
+        rows: [{
+          total_docs: '2',
+          docs: [
+            { id: 9001, taskSlug: 'image-gen', input: { jobId: '433' }, completedAt: '2026-08-18T00:00:00.000Z' },
+            { id: 9002, taskSlug: 'image-gen', input: { jobId: '434' }, hasError: true },
+          ],
+        }],
+      }
+    },
+    async end() { return undefined },
+  }
+  const config = createVisualPilotMinimalRuntimeConfig({
+    collections: [{ slug: 'products' }],
+    db: { pool },
+    editor: 'offline-editor',
+    secret: 'synthetic-secret',
+    sharp: 'offline-sharp',
+  })
+  assert.deepEqual(config.jobs, { tasks: [] })
   const payload = fakePayload({
+    db: { pool },
     async find(args) {
-      calls.push(args)
-      return payloadPage([
-        { id: 9001, taskSlug: 'image-gen', input: { jobId: '433' }, completedAt: '2026-08-18T00:00:00.000Z' },
-        { id: 9002, taskSlug: 'image-gen', input: { jobId: '434' }, hasError: true },
-      ], 1, 50)
+      payloadFindCalls += 1
+      return payloadPage([], Number(args.page ?? 1), Number(args.limit ?? 50))
     },
   })
-  const gateway = createVisualPilotRuntimeGateway(payload)
+  const gateway = createVisualPilotRuntimeGateway(payload, createVisualPilotQueueReceiptReader(pool))
   const result = await gateway.readPayloadJobPage([433, '434', 433], 1, 50)
 
-  assert.equal(calls.length, 1)
+  assert.equal(payloadFindCalls, 0)
+  assert.equal(queryCalls.length, 1)
   assert.equal(result.totalDocs, 2)
-  assert.deepEqual(calls[0]?.where, {
-    and: [
-      { taskSlug: { equals: 'image-gen' } },
-      { 'input.jobId': { in: ['433', '434'] } },
-    ],
-  })
-  assert.deepEqual(calls[0]?.select, {
-    completedAt: true,
-    hasError: true,
-    input: true,
-    processing: true,
-    taskSlug: true,
-    waitUntil: true,
-  })
+  assert.match(queryCalls[0]!.text, /FROM payload_jobs/)
+  assert.match(queryCalls[0]!.text, /input ->> 'jobId' = ANY\(\$1::text\[\]\)/)
+  assert.match(queryCalls[0]!.text, /ORDER BY id ASC/)
+  assert.deepEqual(queryCalls[0]!.values, [['433', '434'], 50, 0])
+})
+
+await check('durable queue reader paginates deterministically with exact bounded offsets', async () => {
+  const queryValues: unknown[][] = []
+  const allDocs = [
+    { id: 1, taskSlug: 'image-gen', input: { jobId: '433' } },
+    { id: 2, taskSlug: 'image-gen', input: { jobId: '434' } },
+    { id: 3, taskSlug: 'image-gen', input: { jobId: '435' } },
+  ]
+  const pool: VisualPilotRuntimePostgresPool = {
+    _clients: [],
+    _idle: [],
+    async query(_text, values = []) {
+      queryValues.push(values)
+      const limit = Number(values[1])
+      const offset = Number(values[2])
+      return { rows: [{ total_docs: '3', docs: allDocs.slice(offset, offset + limit) }] }
+    },
+    async end() { return undefined },
+  }
+  const reader = createVisualPilotQueueReceiptReader(pool)
+  const first = await reader.readPage(['433', '434', '435'], 1, 2)
+  const second = await reader.readPage(['433', '434', '435'], 2, 2)
+  assert.deepEqual(first.docs.map((doc) => (doc as { id: number }).id), [1, 2])
+  assert.deepEqual(second.docs.map((doc) => (doc as { id: number }).id), [3])
+  assert.equal(first.hasNextPage, true)
+  assert.equal(second.hasNextPage, false)
+  assert.deepEqual(queryValues, [
+    [['433', '434', '435'], 2, 0],
+    [['433', '434', '435'], 2, 2],
+  ])
 })
 
 await check('runtime gateway performs no queue collection read when the target has no image jobs', async () => {
@@ -321,4 +563,11 @@ console.log(`\n${passed} visual pilot runtime smoke tests passed.`)
 if (process.exitCode) process.exit(process.exitCode)
 }
 
-void main()
+if (process.argv.includes('--lifecycle-child')) {
+  void runLifecycleChild().catch((error) => {
+    console.error((error as Error).message)
+    process.exitCode = 1
+  })
+} else {
+  void main()
+}

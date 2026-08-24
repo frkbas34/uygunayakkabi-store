@@ -594,6 +594,18 @@ async function readEvidenceSnapshot(params: {
     unsupportedCode: `QUEUE_RECEIPT${suffix}_DISCOVERY_UNSUPPORTED`,
     reasons: params.reasons,
   })
+  if (queueReceipts.ok) {
+    const discoveredJobIds = new Set(
+      queueReceipts.docs
+        .flatMap((receipt) => payloadJobInputIds(receipt) ?? [])
+        .map(String),
+    )
+    for (const jobId of jobIds) {
+      if (!discoveredJobIds.has(String(jobId))) {
+        params.reasons.push({ code: 'QUEUE_RECEIPT_MISSING', kind: 'unsupported' })
+      }
+    }
+  }
   const botEvents = await collectAllPages({
     readPage: (page, limit) => params.gateway.readBotEventPage(params.productId, page, limit),
     malformedCode: `BOT_EVENT${suffix}_PAGINATION_INCONSISTENT`,
@@ -656,7 +668,9 @@ function exposureFromProduct(product: RecordValue): {
   shopier: boolean | null
   publishing: boolean | null
   dispatch: boolean | null
+  issueCodes: string[]
 } {
+  const issueCodes: string[] = []
   const channels = isRecord(product.channels) ? product.channels : null
   const workflow = isRecord(product.workflow) ? product.workflow : null
   const sourceMeta = isRecord(product.sourceMeta) ? product.sourceMeta : null
@@ -664,37 +678,80 @@ function exposureFromProduct(product: RecordValue): {
     ? {}
     : isRecord(product.merchandising) ? product.merchandising : null
   const targets = asStringArray(product.channelTargets)
-  if (!channels || !workflow || !sourceMeta || !merchandising || targets === null) {
-    return { shopier: null, publishing: null, dispatch: null }
-  }
   const channelFields = ['publishWebsite', 'publishInstagram', 'publishFacebook', 'publishX', 'publishShopier'] as const
-  if (!channelFields.every((field) => typeof channels[field] === 'boolean')) {
-    return { shopier: null, publishing: null, dispatch: null }
-  }
   const knownTargets = new Set(['website', 'instagram', 'facebook', 'x', 'shopier'])
-  if (targets.some((target) => !knownTargets.has(target)) || new Set(targets).size !== targets.length) {
-    return { shopier: null, publishing: null, dispatch: null }
+  if (!channels || !channelFields.every((field) => typeof channels[field] === 'boolean')) {
+    issueCodes.push('DOWNSTREAM_CHANNEL_FIELD_SHAPE_INVALID')
   }
-  const dispatched = serializedStringArray(sourceMeta.dispatchedChannels)
-  const shopierStatus = safeEnum(sourceMeta.shopierSyncStatus, ['not_synced', 'queued', 'syncing', 'synced', 'error'])
-  const publishStatus = safeEnum(workflow.publishStatus, ['not_requested', 'pending', 'published', 'partial', 'failed'])
-  const storyStatus = safeEnum(sourceMeta.storyStatus, [
-    'none', 'queued', 'awaiting_approval', 'publishing', 'published', 'partial_success', 'failed', 'blocked_officially',
-  ])
+  if (targets === null || targets.some((target) => !knownTargets.has(target)) || new Set(targets).size !== targets.length) {
+    issueCodes.push('DOWNSTREAM_CHANNEL_TARGET_VALIDATION_FAILED')
+  }
+
+  const publishStatus = workflow
+    ? safeEnum(workflow.publishStatus, ['not_requested', 'pending', 'published', 'partial', 'failed'])
+    : 'unknown'
+  if (publishStatus === 'unknown') issueCodes.push('DOWNSTREAM_WORKFLOW_PUBLISH_STATUS_INVALID')
+
+  const dispatched = sourceMeta ? serializedStringArray(sourceMeta.dispatchedChannels) : null
   if (
     dispatched === null
     || dispatched.some((target) => !knownTargets.has(target))
+    || new Set(dispatched).size !== dispatched.length
+  ) {
+    issueCodes.push('DOWNSTREAM_SERIALIZED_DISPATCHED_CHANNELS_INVALID')
+  }
+
+  const shopierStatus = sourceMeta
+    ? safeEnum(sourceMeta.shopierSyncStatus, ['not_synced', 'queued', 'syncing', 'synced', 'error'])
+    : 'unknown'
+  const optionalString = (value: unknown): boolean =>
+    value === undefined || value === null || typeof value === 'string'
+  const optionalDate = (value: unknown): boolean =>
+    value === undefined || value === null || dateIsValid(value)
+  if (
+    !sourceMeta
+    || shopierStatus === 'unknown'
+    || !optionalString(sourceMeta.shopierProductId)
+    || !optionalString(sourceMeta.shopierProductUrl)
+    || !optionalDate(sourceMeta.shopierLastSyncAt)
+  ) {
+    issueCodes.push('DOWNSTREAM_SHOPIER_STATE_INVALID')
+  }
+
+  const storyStatus = sourceMeta ? safeEnum(sourceMeta.storyStatus, [
+    'none', 'queued', 'awaiting_approval', 'publishing', 'published', 'partial_success', 'failed', 'blocked_officially',
+  ]) : 'unknown'
+  if (storyStatus === 'unknown') issueCodes.push('DOWNSTREAM_STORY_STATE_INVALID')
+
+  if (
+    !sourceMeta
+    || !optionalString(sourceMeta.externalSyncId)
+  ) {
+    issueCodes.push('DOWNSTREAM_EXTERNAL_SYNC_MARKERS_INVALID')
+  }
+  if (
+    !sourceMeta
+    || !optionalDate(sourceMeta.lastDispatchedAt)
+    || !optionalDate(sourceMeta.storyQueuedAt)
+    || !optionalDate(sourceMeta.storyPublishedAt)
+  ) {
+    issueCodes.push('DOWNSTREAM_DISPATCH_TIMESTAMPS_INVALID')
+  }
+  if (
+    !sourceMeta
     || typeof sourceMeta.forceRedispatch !== 'boolean'
     || typeof sourceMeta.previewDispatch !== 'boolean'
-    || shopierStatus === 'unknown'
-    || publishStatus === 'unknown'
-    || storyStatus === 'unknown'
-    || (sourceMeta.externalSyncId !== undefined && sourceMeta.externalSyncId !== null && typeof sourceMeta.externalSyncId !== 'string')
-    || (sourceMeta.lastDispatchedAt !== undefined && sourceMeta.lastDispatchedAt !== null && !dateIsValid(sourceMeta.lastDispatchedAt))
-    || (merchandising.publishedAt !== undefined && merchandising.publishedAt !== null && !dateIsValid(merchandising.publishedAt))
-    || typeof product.postToInstagram !== 'boolean'
   ) {
-    return { shopier: null, publishing: null, dispatch: null }
+    issueCodes.push('DOWNSTREAM_DISPATCH_CONTROL_MARKERS_INVALID')
+  }
+  if (!merchandising || !optionalDate(merchandising.publishedAt)) {
+    issueCodes.push('DOWNSTREAM_MERCHANDISING_PUBLICATION_MARKERS_INVALID')
+  }
+  if (typeof product.postToInstagram !== 'boolean') {
+    issueCodes.push('DOWNSTREAM_LEGACY_PUBLICATION_MARKERS_INVALID')
+  }
+  if (issueCodes.length > 0 || !channels || !workflow || !sourceMeta || !merchandising || targets === null || dispatched === null) {
+    return { shopier: null, publishing: null, dispatch: null, issueCodes }
   }
   const shopier = channels.publishShopier === true
     || targets.includes('shopier')
@@ -719,6 +776,7 @@ function exposureFromProduct(product: RecordValue): {
     shopier: shopier || Boolean(sourceMeta.shopierProductId),
     publishing,
     dispatch,
+    issueCodes,
   }
 }
 
@@ -757,10 +815,33 @@ function derivedAttemptStatus(attempt: ImageGenerationAttemptMetadata): string {
   return 'failed'
 }
 
-function hasStrictV01ProfileEvidence(attempt: ImageGenerationAttemptMetadata): boolean {
+function strictV01ProfileEvidenceIssues(attempt: ImageGenerationAttemptMetadata): string[] {
+  const issues = new Set<string>()
+  const add = (code: string): void => { issues.add(code) }
   const versions = attempt.profileContractVersions
   const summary = attempt.qualityGateSummary
-  const identityHash = typeof attempt.identityAnchorHash === 'string' && /^[a-f0-9]{64}$/i.test(attempt.identityAnchorHash)
+  const attemptIdValid = typeof attempt.attemptId === 'string'
+    && ATTEMPT_ID_PATTERN.test(attempt.attemptId)
+  const initialLineage = attempt.attemptKind === 'initial'
+    && attempt.attemptOrdinal === 1
+    && attempt.parentAttemptId === null
+  const retryLineage = attempt.attemptKind === 'quality_retry'
+    && attempt.attemptOrdinal === 2
+    && typeof attempt.parentAttemptId === 'string'
+    && ATTEMPT_ID_PATTERN.test(attempt.parentAttemptId)
+  if (
+    !attemptIdValid
+    || typeof attempt.jobId !== 'string'
+    || !attempt.jobId
+    || (!initialLineage && !retryLineage)
+    || attempt.retryPolicyVersion !== 'visual-quality-retry-policy/v1'
+  ) {
+    add('V01_ATTEMPT_IDENTITY_ORDINAL_RETRY_LINEAGE_INVALID')
+  }
+
+  const identityHash = typeof attempt.identityAnchorHash === 'string'
+    && /^[a-f0-9]{64}$/i.test(attempt.identityAnchorHash)
+  if (!identityHash) add('V01_IDENTITY_ANCHOR_INVALID')
   const versionsValid = versions?.profile === VISUAL_LOCK_V01_PROFILE_VERSION
     && versions.identityAnchor === PRODUCT_IDENTITY_ANCHOR_V0_VERSION
     && versions.framing === VISUAL_FRAMING_LOCK_V0_VERSION
@@ -770,8 +851,13 @@ function hasStrictV01ProfileEvidence(attempt: ImageGenerationAttemptMetadata): b
     && versions.geometryGate === VISUAL_GEOMETRY_GATE_V01_VERSION
     && versions.framingCorrection === VISUAL_LOCK_V01_FRAMING_CORRECTION_VERSION
     && versions.materialFidelity === VISUAL_LOCK_V01_MATERIAL_CONTRACT_VERSION
-  if (!identityHash || !versionsValid) return false
-  if (summary === undefined) return attempt.attemptKind === 'quality_retry' || attempt.status !== 'completed'
+  if (!versionsValid) add('V01_CONTRACT_VERSION_FAMILY_INVALID')
+  if (summary === undefined) {
+    if (attempt.attemptKind !== 'quality_retry' && attempt.status === 'completed') {
+      add('V01_ORDERED_FIVE_SLOT_SUMMARY_INVALID')
+    }
+    return [...issues]
+  }
   const triState = (value: unknown): value is 'pass' | 'fail' | 'unknown' =>
     value === 'pass' || value === 'fail' || value === 'unknown'
   const stringArray = (value: unknown): value is string[] =>
@@ -779,54 +865,72 @@ function hasStrictV01ProfileEvidence(attempt: ImageGenerationAttemptMetadata): b
   const finiteOrNull = (value: unknown): boolean => value === null || (typeof value === 'number' && Number.isFinite(value))
   const combine = (states: readonly ('pass' | 'fail' | 'unknown')[]): 'pass' | 'fail' | 'unknown' =>
     states.includes('fail') ? 'fail' : states.includes('unknown') ? 'unknown' : 'pass'
+  if (!isRecord(summary)) {
+    add('V01_ORDERED_FIVE_SLOT_SUMMARY_INVALID')
+    return [...issues]
+  }
   if (
-    !isRecord(summary)
-    || summary.profile !== VISUAL_LOCK_V01_PROFILE_VERSION
+    summary.profile !== VISUAL_LOCK_V01_PROFILE_VERSION
     || (summary.family !== 'loafer' && summary.family !== 'generic')
-    || summary.identityAnchorHash !== attempt.identityAnchorHash
     || summary.topologyContractVersion !== COMPONENT_TOPOLOGY_LOCK_V01_VERSION
     || summary.evaluatorContractVersion !== VISUAL_QUALITY_EVALUATOR_V01_VERSION
     || summary.geometryGateVersion !== VISUAL_GEOMETRY_GATE_V01_VERSION
     || summary.framingCorrectionContractVersion !== VISUAL_LOCK_V01_FRAMING_CORRECTION_VERSION
     || summary.studioContractVersion !== VISUAL_LOCK_V01_STUDIO_CONTRACT_VERSION
     || summary.materialContractVersion !== VISUAL_LOCK_V01_MATERIAL_CONTRACT_VERSION
-    || !Array.isArray(summary.slotResults)
-    || summary.slotResults.length !== GENERATED_SLOT_KEYS.length
-    || !isRecord(summary.packResults)
-  ) return false
-  const slotResults = summary.slotResults
-  if (slotResults.some((value, index) => {
-    if (!isRecord(value) || value.slot !== GENERATED_SLOT_KEYS[index]) return true
+  ) add('V01_CONTRACT_VERSION_FAMILY_INVALID')
+  if (summary.identityAnchorHash !== attempt.identityAnchorHash) add('V01_IDENTITY_ANCHOR_INVALID')
+  if (!Array.isArray(summary.slotResults) || summary.slotResults.length !== GENERATED_SLOT_KEYS.length) {
+    add('V01_ORDERED_FIVE_SLOT_SUMMARY_INVALID')
+  }
+  if (!isRecord(summary.packResults)) add('V01_PACK_GATE_CONSISTENCY_INVALID')
+
+  const slotResults = Array.isArray(summary.slotResults) ? summary.slotResults : []
+  slotResults.forEach((value, index) => {
+    if (!isRecord(value) || value.slot !== GENERATED_SLOT_KEYS[index]) {
+      add('V01_ORDERED_FIVE_SLOT_SUMMARY_INVALID')
+      return
+    }
     const framing = isRecord(value.framingCorrectionResult) ? value.framingCorrectionResult : null
     const orientation = isRecord(value.orientationResult) ? value.orientationResult : null
     const topology = isRecord(value.topologyResult) ? value.topologyResult : null
     const studio = isRecord(value.studioResult) ? value.studioResult : null
     const material = isRecord(value.materialResult) ? value.materialResult : null
-    return !framing
-      || !orientation
-      || !topology
-      || !studio
-      || !material
+    if (
+      !framing
       || !triState(framing.status)
       || typeof framing.outcome !== 'string'
       || !stringArray(framing.reasonCodes)
-      || !triState(value.evaluatorStatus)
-      || !stringArray(value.evaluatorReasonCodes)
+    ) add('V01_FRAMING_STATE_INVALID')
+    if (
+      !orientation
       || !triState(orientation.status)
       || typeof orientation.detectedView !== 'string'
-      || !triState(topology.status)
-      || !stringArray(topology.reasonCodes)
-      || !triState(studio.status)
-      || !triState(material.status)
-      || !stringArray(material.reasonCodes)
-      || !finiteOrNull(value.occupancyPercent)
+    ) add('V01_ORIENTATION_STATE_INVALID')
+    if (!topology || !triState(topology.status) || !stringArray(topology.reasonCodes)) {
+      add('V01_TOPOLOGY_STATE_INVALID')
+    }
+    if (!studio || !triState(studio.status)) add('V01_STUDIO_STATE_INVALID')
+    if (!material || !triState(material.status) || !stringArray(material.reasonCodes)) {
+      add('V01_MATERIAL_STATE_INVALID')
+    }
+    if (
+      !triState(value.evaluatorStatus)
+      || !stringArray(value.evaluatorReasonCodes)
+    ) add('V01_EVALUATOR_STATE_INVALID')
+    if (
+      !finiteOrNull(value.occupancyPercent)
       || !finiteOrNull(value.horizontalCenterOffsetPercent)
       || !finiteOrNull(value.verticalCenterOffsetPercent)
       || !finiteOrNull(value.maximumCenterOffsetPercent)
-      || !triState(value.clippingState)
+    ) add('V01_MEASUREMENT_VALIDITY_INVALID')
+    if (
+      !triState(value.clippingState)
       || !triState(value.geometryStatus)
       || !stringArray(value.geometryReasonCodes)
-  })) return false
+    ) add('V01_GEOMETRY_STATE_INVALID')
+  })
+
   const pack = summary.packResults
   const gateFields = [
     'requiredEvaluatorCompleteness',
@@ -838,13 +942,30 @@ function hasStrictV01ProfileEvidence(attempt: ImageGenerationAttemptMetadata): b
     'geometryGateStatus',
     'qualityGateStatus',
   ] as const
+  if (!isRecord(pack)) return [...issues]
+  if (gateFields.some((field) => !triState(pack[field])) || !stringArray(pack.reasonCodes)) {
+    add('V01_PACK_GATE_CONSISTENCY_INVALID')
+  }
   if (
-    gateFields.some((field) => !triState(pack[field]))
-    || !finiteOrNull(pack.occupancyMinimumPercent)
+    !finiteOrNull(pack.occupancyMinimumPercent)
     || !finiteOrNull(pack.occupancyMaximumPercent)
     || !finiteOrNull(pack.occupancySpreadPercent)
-    || !stringArray(pack.reasonCodes)
-  ) return false
+  ) add('V01_MEASUREMENT_VALIDITY_INVALID')
+  if (
+    slotResults.length !== GENERATED_SLOT_KEYS.length
+    || slotResults.some((value) => !isRecord(value))
+    || gateFields.some((field) => !triState(pack[field]))
+    || issues.has('V01_ORDERED_FIVE_SLOT_SUMMARY_INVALID')
+    || [
+      'V01_EVALUATOR_STATE_INVALID',
+      'V01_FRAMING_STATE_INVALID',
+      'V01_GEOMETRY_STATE_INVALID',
+      'V01_MATERIAL_STATE_INVALID',
+      'V01_ORIENTATION_STATE_INVALID',
+      'V01_STUDIO_STATE_INVALID',
+      'V01_TOPOLOGY_STATE_INVALID',
+    ].some((code) => issues.has(code))
+  ) return [...issues]
   const expectedEvaluatorCompleteness = slotResults.every((value) =>
     isRecord(value) && (value.evaluatorStatus === 'pass' || value.evaluatorStatus === 'fail'),
   ) ? 'pass' : 'unknown'
@@ -860,16 +981,18 @@ function hasStrictV01ProfileEvidence(attempt: ImageGenerationAttemptMetadata): b
     || pack.studioGateStatus !== expectedStudio
     || pack.materialGateStatus !== expectedMaterial
     || pack.framingCorrectionGateStatus !== expectedFraming
-  ) return false
+  ) add('V01_PACK_GATE_CONSISTENCY_INVALID')
   const expectedQuality = combine(gateFields.slice(0, -1).map((field) => pack[field] as 'pass' | 'fail' | 'unknown'))
-  if (pack.qualityGateStatus !== expectedQuality) return false
-  if (pack.qualityGateStatus !== 'pass' && attempt.status === 'completed') return false
+  if (pack.qualityGateStatus !== expectedQuality) add('V01_PACK_GATE_CONSISTENCY_INVALID')
+  if (pack.qualityGateStatus !== 'pass' && attempt.status === 'completed') {
+    add('V01_ATTEMPT_TERMINAL_STATE_INCONSISTENT')
+  }
   if (
     pack.qualityGateStatus === 'pass'
     && attempt.status === 'failed'
     && !attempt.slots.some((slot) => slot.status === 'media_save_failed')
-  ) return false
-  return true
+  ) add('V01_ATTEMPT_TERMINAL_STATE_INCONSISTENT')
+  return [...issues]
 }
 
 function supportedAttemptProfile(attempt: ImageGenerationAttemptMetadata): string | null {
@@ -1025,6 +1148,7 @@ export async function verifyVisualPilotTarget(
   report.downstreamExposure.dispatch = productExposure.dispatch === null ? 'unknown' : productExposure.dispatch ? 'exposed' : 'clear'
   if (productExposure.shopier === null || productExposure.publishing === null || productExposure.dispatch === null) {
     reasons.push({ code: 'DOWNSTREAM_PRODUCT_STATE_AMBIGUOUS', kind: 'blocked' })
+    for (const code of productExposure.issueCodes) reasons.push({ code, kind: 'blocked' })
   }
   if (productExposure.shopier) reasons.push({ code: 'DOWNSTREAM_SHOPIER_EXPOSURE', kind: 'blocked' })
   if (productExposure.publishing) reasons.push({ code: 'DOWNSTREAM_PUBLISHING_TARGET', kind: 'blocked' })
@@ -1356,6 +1480,9 @@ export async function verifyVisualPilotTarget(
       lineagePass = false
     }
     for (const attempt of parsed.attempts) {
+      const v01Issues = attempt.qualityProfile === VISUAL_LOCK_V01_PROFILE_VERSION
+        ? strictV01ProfileEvidenceIssues(attempt)
+        : []
       if (allAttemptIds.has(attempt.attemptId)) {
         reasons.push({ code: 'ATTEMPT_ID_DUPLICATED', kind: 'blocked' })
         lineagePass = false
@@ -1367,14 +1494,10 @@ export async function verifyVisualPilotTarget(
       }
       if (
         attempt.qualityProfile === VISUAL_LOCK_V01_PROFILE_VERSION
-        && (
-          (attempt.attemptKind !== 'initial' && attempt.attemptKind !== 'quality_retry')
-          || (attempt.attemptOrdinal !== 1 && attempt.attemptOrdinal !== 2)
-          || attempt.retryPolicyVersion !== 'visual-quality-retry-policy/v1'
-          || !hasStrictV01ProfileEvidence(attempt)
-        )
+        && v01Issues.length > 0
       ) {
         reasons.push({ code: 'V01_ATTEMPT_CONTRACT_INCOMPLETE', kind: 'blocked' })
+        for (const code of v01Issues) reasons.push({ code, kind: 'blocked' })
         lineagePass = false
       }
       if (
@@ -1584,10 +1707,12 @@ export async function verifyVisualPilotTarget(
       queueClear = false
     }
   }
-  for (const jobId of jobIds) {
-    if (!receiptJobIds.has(String(jobId))) {
-      reasons.push({ code: 'QUEUE_RECEIPT_MISSING', kind: 'unsupported' })
-      queueClear = false
+  if (queuePages.ok) {
+    for (const jobId of jobIds) {
+      if (!receiptJobIds.has(String(jobId))) {
+        reasons.push({ code: 'QUEUE_RECEIPT_MISSING', kind: 'unsupported' })
+        queueClear = false
+      }
     }
   }
   report.queueReceipts.state = queueClear ? 'clear' : queuePages.ok ? 'blocked' : 'unknown'

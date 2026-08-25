@@ -92,6 +92,10 @@ import {
   type VisualOnlyV01BoundaryManifest,
   type VisualOnlyV01PreviewBinding,
 } from '../lib/visualOnlyV01'
+import {
+  parseVisualOnlyProvisioningEvidence,
+  type VisualOnlyProvisioningBinding,
+} from '../lib/visualOnlyProvisioning'
 
 export const imageGenTask: TaskConfig<{
   input: {
@@ -154,7 +158,7 @@ export const imageGenTask: TaskConfig<{
     }
   },
 
-  handler: async ({ input, req }) => {
+  handler: async ({ input, job, req }) => {
     const { jobId } = input
     // D-355B: the standard pack now generates the full 5-image studio set (slots
     // 1-5) by default, not just slots 1-3. 'premium' remains a backward-compatible
@@ -173,6 +177,7 @@ export const imageGenTask: TaskConfig<{
     const payload = req.payload
     const visualLockSelection = resolveVisualLockTaskSelection(input)
     let visualOnlyBoundary: VisualOnlyV01BoundaryManifest | null = null
+    let visualOnlyProvisioning: VisualOnlyProvisioningBinding | null = null
     let attemptMetadata: ImageGenerationAttemptMetadata = createImageGenerationAttempt({
       jobId,
       requestedSlotIds,
@@ -220,16 +225,20 @@ export const imageGenTask: TaskConfig<{
     if (hasVisualOnlyInputMarker) {
       visualOnlyBoundary = parseVisualOnlyV01BoundaryText(input.visualOnlyBoundary)
       const jobEvidence = parseVisualOnlyJobEvidence(jobDoc)
+      const provisioningEvidence = parseVisualOnlyProvisioningEvidence(jobDoc)
       if (
         input.executionMode !== VISUAL_ONLY_V01_MODE
         || !visualOnlyBoundary
         || !jobEvidence
+        || !provisioningEvidence
         || jobEvidence.preview !== null
         || jobEvidence.manifest.digest !== visualOnlyBoundary.digest
         || visualOnlyBoundary.jobId !== String(jobId)
         || visualOnlyBoundary.productId !== productId
         || visualOnlyBoundary.reviewChatId !== String(jobDoc.telegramChatId ?? '')
         || visualOnlyBoundary.reviewerUserId !== String(jobDoc.requestedByUserId ?? '')
+        || provisioningEvidence.binding.queueReceiptId !== String(job.id)
+        || provisioningEvidence.binding.manifestDigest !== visualOnlyBoundary.digest
         || visualLockSelection?.profileVersion !== 'visual-lock/v0.1'
         || visualLockSelection.family !== visualOnlyBoundary.productFamily
         || stage !== 'standard'
@@ -248,6 +257,7 @@ export const imageGenTask: TaskConfig<{
         throw new Error('VISUAL_ONLY_STOCK_BINDING_MISMATCH')
       }
       attemptMetadata = { ...attemptMetadata, visualOnlyBoundary }
+      visualOnlyProvisioning = provisioningEvidence.binding
     }
 
     if (visualLockSelection?.profileVersion === 'visual-lock/v0.1') {
@@ -666,6 +676,7 @@ export const imageGenTask: TaskConfig<{
         ...(visualOnlyBoundary ? {
           executionMode: VISUAL_ONLY_V01_MODE,
           visualOnlyBoundary,
+          visualOnlyProvisioning,
         } : {}),
       }
     await persistAttemptMetadata({

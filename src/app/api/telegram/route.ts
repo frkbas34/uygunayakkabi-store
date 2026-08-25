@@ -19,14 +19,17 @@ import {
   selectApprovalMediaIds,
 } from '@/lib/imageGenerationContracts'
 import {
-  assessVisualOnlyProductState,
-  createVisualOnlyV01BoundaryManifest,
   hasVisualOnlyBoundaryMarker,
   VISUAL_ONLY_V01_MODE,
 } from '@/lib/visualOnlyV01'
 import { executeVisualOnlyV01Decision } from '@/lib/visualOnlyApprovalV01'
 import { createVisualOnlyV01PayloadAdapter } from '@/lib/visualOnlyApprovalRuntime'
 import { executeAuthorizedVisualOnlyCallback } from '@/lib/visualOnlyCallbackRuntime'
+import {
+  createVisualOnlyDeliveryDigest,
+  provisionVisualOnlyV01,
+} from '@/lib/visualOnlyProvisioning'
+import { createVisualOnlyV01PayloadProvisioningAdapter } from '@/lib/visualOnlyProvisioningRuntime'
 
 // ── Vercel function timeout ────────────────────────────────────────────────────
 // Image polling loop runs up to 120s. OpenAI gpt-image-1 typically 15-40s.
@@ -3732,7 +3735,67 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ ok: true })
       }
 
-      // Verify product exists
+      const modeLabelMap: Record<string, string> = {
+        hizli: '⚡ Hızlı', dengeli: '⚖️ Dengeli', premium: '💎 Premium', karma: '🌈 Karma',
+      }
+      const modeLabel = modeLabelMap[genMode] ?? genMode
+      const isVisualOnlyCommand = visualLockCommand.kind === 'accepted'
+        && visualLockCommand.executionMode === VISUAL_ONLY_V01_MODE
+      if (isVisualOnlyCommand) {
+        if (
+          visualLockCommand.ownerConfirmation !== 'OWNER_CONFIRMED_VISUAL_ONLY_V0_1'
+          || !visualLockCommand.stockNumber
+          || message.from?.id === undefined
+          || !Number.isSafeInteger(body?.update_id)
+          || !Number.isSafeInteger(messageId)
+        ) throw new Error('VISUAL_ONLY_PRODUCT_IDENTITY_BINDING_FAILED')
+
+        const deliveryDigest = createVisualOnlyDeliveryDigest({
+          botIdentity: 'uygunops',
+          chatId,
+          updateId: body.update_id,
+          messageId,
+          userId: message.from.id,
+        })
+        const result = await provisionVisualOnlyV01({
+          adapter: createVisualOnlyV01PayloadProvisioningAdapter(payload),
+          input: {
+            productId: gorselProductId,
+            stockNumber: visualLockCommand.stockNumber,
+            productFamily: visualLockCommand.family,
+            mode: genMode,
+            modeLabel,
+            reviewChatId: String(chatId),
+            reviewerUserId: String(message.from.id),
+            deliveryDigest,
+            createNonce: () => randomBytes(16).toString('hex'),
+          },
+        })
+        if (result.kind === 'active') {
+          await sendTelegramMessage(
+            chatId,
+            `⏳ <b>Bu ürün için zaten aktif bir görsel üretimi var.</b>\n\n` +
+            `Mevcut iş tamamlanana kadar yeni iş başlatılamaz.\n` +
+            `Durumu kontrol edin veya mevcut önizlemeyi onaylayın/reddedin.`,
+          )
+          return NextResponse.json({ ok: true })
+        }
+        if (result.kind === 'reused') return NextResponse.json({ ok: true })
+
+        // Provider execution is scheduled only after the complete provisioning
+        // transaction (job, manifest, receipt and Product state) has committed.
+        after(async () => {
+          try {
+            await payload.jobs.run({ limit: 1, overrideAccess: true })
+          } catch (err) {
+            console.error('[telegram/webhook] after() #gorsel jobs.run failed:', err)
+          }
+        })
+        return NextResponse.json({ ok: true })
+      }
+
+      // The legacy non-visual path retains its existing behavior. Visual-only
+      // provisioning performs its authoritative Product/job reads under lock.
       const { docs: gorselDocs } = await payload.find({
         collection: 'products',
         where: { id: { equals: gorselProductId } },
@@ -3769,22 +3832,6 @@ export async function POST(req: NextRequest) {
 
       // Create ImageGenerationJob record — imageGenTask will look up the
       // reference image from the product's images array at run time.
-      const modeLabelMap: Record<string, string> = {
-        hizli: '⚡ Hızlı', dengeli: '⚖️ Dengeli', premium: '💎 Premium', karma: '🌈 Karma',
-      }
-      const modeLabel = modeLabelMap[genMode] ?? genMode
-      const isVisualOnlyCommand = visualLockCommand.kind === 'accepted'
-        && visualLockCommand.executionMode === VISUAL_ONLY_V01_MODE
-      if (isVisualOnlyCommand) {
-        const assessment = assessVisualOnlyProductState(gorselProduct)
-        if (
-          !assessment.eligible
-          || assessment.productId !== gorselProductId
-          || assessment.stockNumber !== visualLockCommand.stockNumber
-          || visualLockCommand.ownerConfirmation !== 'OWNER_CONFIRMED_VISUAL_ONLY_V0_1'
-          || message.from?.id === undefined
-        ) throw new Error('VISUAL_ONLY_PRODUCT_IDENTITY_BINDING_FAILED')
-      }
       // v18 Gemini-only debug phase
       const jobDoc = await payload.create({
         collection: 'image-generation-jobs',
@@ -3798,38 +3845,6 @@ export async function POST(req: NextRequest) {
         },
       })
 
-      let visualOnlyBoundaryText: string | undefined
-      if (isVisualOnlyCommand && visualLockCommand.kind === 'accepted') {
-        if (
-          visualLockCommand.stockNumber !== String(gorselProduct.stockNumber ?? '').trim().toUpperCase()
-          || visualLockCommand.ownerConfirmation !== 'OWNER_CONFIRMED_VISUAL_ONLY_V0_1'
-          || message.from?.id === undefined
-        ) {
-          throw new Error('VISUAL_ONLY_PRODUCT_IDENTITY_BINDING_FAILED')
-        }
-        const manifest = createVisualOnlyV01BoundaryManifest({
-          product: gorselProduct,
-          productId: gorselProductId,
-          stockNumber: visualLockCommand.stockNumber,
-          productFamily: visualLockCommand.family,
-          jobId: String(jobDoc.id),
-          reviewChatId: String(chatId),
-          reviewerUserId: String(message.from.id),
-          nonce: randomBytes(16).toString('hex'),
-        })
-        visualOnlyBoundaryText = JSON.stringify(manifest)
-        await payload.update({
-          collection: 'image-generation-jobs',
-          id: jobDoc.id,
-          data: {
-            promptsUsed: JSON.stringify({
-              executionMode: VISUAL_ONLY_V01_MODE,
-              visualOnlyBoundary: manifest,
-            }),
-          },
-        })
-      }
-
       await payload.jobs.queue({
         task: 'image-gen',
         input: {
@@ -3839,10 +3854,6 @@ export async function POST(req: NextRequest) {
           ...(visualLockCommand.kind === 'accepted' ? {
             qualityProfile: visualLockCommand.qualityProfile,
             productFamily: visualLockCommand.family,
-            ...(visualOnlyBoundaryText ? {
-              executionMode: VISUAL_ONLY_V01_MODE,
-              visualOnlyBoundary: visualOnlyBoundaryText,
-            } : {}),
           } : {}),
         },
         overrideAccess: true,

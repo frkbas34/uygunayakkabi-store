@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
 import { spawn } from 'node:child_process'
+import { EventEmitter } from 'node:events'
 import { fileURLToPath } from 'node:url'
 import { Pool } from 'pg'
 
@@ -108,25 +109,76 @@ function idleItem(client: { release: () => void }): Record<string, unknown> {
   return { client, idleListener: () => undefined, timeoutId: undefined }
 }
 
-function runtimeClient(overrides: {
+type RuntimeClientOverrides = {
   end?: () => Promise<void> | void
   release?: () => void
   unref?: () => void
-} = {}): {
+}
+
+type OfflineRuntimeClient = {
   _ending: boolean
+  connection: EventEmitter & { _connecting: boolean }
   end: () => Promise<void> | void
   release: () => void
   unref: () => void
-} {
-  const client = {
-    _ending: false,
-    end() {
-      client._ending = true
-      return overrides.end?.()
-    },
-    release() { overrides.release?.() },
-    unref() { overrides.unref?.() },
+}
+
+type PinnedClientConstructor = new (config?: { stream?: unknown }) => OfflineRuntimeClient
+
+class OfflinePgStream extends EventEmitter {
+  writable = true
+  private closed = false
+
+  constructor(private readonly overrides: RuntimeClientOverrides) {
+    super()
   }
+
+  write(_chunk: unknown, callback?: () => void): boolean {
+    if (callback) queueMicrotask(callback)
+    return true
+  }
+
+  end(): void {
+    const completion = this.overrides.end?.()
+    if (completion) {
+      void completion.then(() => this.close(), () => undefined)
+      return
+    }
+    this.close()
+  }
+
+  destroy(): void {
+    this.close()
+  }
+
+  ref(): void {
+    return undefined
+  }
+
+  unref(): void {
+    this.overrides.unref?.()
+  }
+
+  private close(): void {
+    if (this.closed) return
+    this.closed = true
+    this.writable = false
+    this.emit('close')
+  }
+}
+
+const clientConstructorPool = new Pool() as unknown as { Client: PinnedClientConstructor }
+const pinnedClientConstructor = clientConstructorPool.Client
+
+function runtimeClient(
+  overrides: RuntimeClientOverrides = {},
+  Client: PinnedClientConstructor = pinnedClientConstructor,
+): OfflineRuntimeClient {
+  const stream = new OfflinePgStream(overrides)
+  const client = new Client({ stream })
+  client.connection._connecting = true
+  client.release = () => { overrides.release?.() }
+  stream.once('close', () => { client.connection.emit('end') })
   return client
 }
 
@@ -142,6 +194,7 @@ async function runLifecycleChild(): Promise<void> {
     },
   })
   const pool: VisualPilotRuntimePostgresPool = {
+    Client: pinnedClientConstructor,
     _clients: [client],
     _idle: [],
     async query() { return { rows: [] } },
@@ -197,6 +250,9 @@ async function runIncompatibleInstalledPoolChild(): Promise<void> {
   let poolEndCalls = 0
   let retainedHandleClosed = false
   const retainedHandle = setInterval(() => undefined, 60_000)
+  const installedPool = new Pool() as unknown as VisualPilotRuntimePostgresPool & {
+    Client: PinnedClientConstructor
+  }
   const client = runtimeClient({
     release() { clientReleaseCalls += 1 },
     end() {
@@ -208,12 +264,9 @@ async function runIncompatibleInstalledPoolChild(): Promise<void> {
       clientUnrefCalls += 1
       retainedHandle.unref()
     },
-  })
-  const installedPool = new Pool() as unknown as VisualPilotRuntimePostgresPool
-  const originalPoolEnd = installedPool.end.bind(installedPool)
+  }, installedPool.Client)
   installedPool.end = async () => {
     poolEndCalls += 1
-    await originalPoolEnd()
   }
   installedPool._clients = [client]
   installedPool._idle = [client]
@@ -322,6 +375,7 @@ await check('runtime cleanup is idempotent and closes each runtime-owned resourc
   let poolEndCalls = 0
   const client = runtimeClient({ release() { clientReleaseCalls += 1 } })
   const pool: VisualPilotRuntimePostgresPool = {
+    Client: pinnedClientConstructor,
     _clients: [client],
     _idle: [],
     async query() { return { rows: [] } },
@@ -371,6 +425,7 @@ await check('runtime cleanup rejects every incompatible pinned pool shape before
   for (const testCase of cases) {
     let poolEndCalls = 0
     const pool: VisualPilotRuntimePostgresPool = {
+      Client: pinnedClientConstructor,
       _clients: testCase.clients,
       _idle: testCase.idle,
       async query() { return { rows: [] } },
@@ -381,6 +436,179 @@ await check('runtime cleanup rejects every incompatible pinned pool shape before
     assert.deepEqual(await cleanup(), { ok: false, code: 'RUNTIME_POSTGRES_CLIENT_CLEANUP_UNSUPPORTED' }, testCase.name)
     assert.equal(testCase.getReleases(), 0, testCase.name)
     assert.equal(poolEndCalls, 0, testCase.name)
+  }
+})
+
+await check('duck-typed _clients entry cannot execute arbitrary release, end, unref, or pool close methods', async () => {
+  let releases = 0
+  let ends = 0
+  let unrefs = 0
+  let poolEnds = 0
+  const arbitraryClient = {
+    _ending: false,
+    end() { ends += 1 },
+    release() { releases += 1 },
+    unref() { unrefs += 1 },
+  }
+  const pool: VisualPilotRuntimePostgresPool = {
+    Client: pinnedClientConstructor,
+    _clients: [arbitraryClient],
+    _idle: [arbitraryClient],
+    async query() { return { rows: [] } },
+    async end() { poolEnds += 1 },
+  }
+  const cleanup = createVisualPilotRuntimeCleanup({ payloadDestroy: async () => undefined, pool })
+  assert.deepEqual(await cleanup(), { ok: false, code: 'RUNTIME_POSTGRES_CLIENT_CLEANUP_UNSUPPORTED' })
+  assert.deepEqual(await cleanup(), { ok: false, code: 'RUNTIME_POSTGRES_CLIENT_CLEANUP_UNSUPPORTED' })
+  assert.deepEqual({ releases, ends, unrefs, poolEnds }, { releases: 0, ends: 0, unrefs: 0, poolEnds: 0 })
+})
+
+await check('terminal fallback deduplicates one genuine pinned Client identity', async () => {
+  let releases = 0
+  let ends = 0
+  let unrefs = 0
+  let poolEnds = 0
+  const client = runtimeClient({
+    release() { releases += 1 },
+    end() { ends += 1 },
+    unref() { unrefs += 1 },
+  })
+  const pool: VisualPilotRuntimePostgresPool = {
+    Client: pinnedClientConstructor,
+    _clients: [client, client],
+    _idle: [],
+    async query() { return { rows: [] } },
+    async end() { poolEnds += 1 },
+  }
+  const cleanup = createVisualPilotRuntimeCleanup({ payloadDestroy: async () => undefined, pool })
+  assert.deepEqual(await cleanup(), { ok: false, code: 'RUNTIME_POSTGRES_CLIENT_CLEANUP_UNSUPPORTED' })
+  assert.deepEqual(await cleanup(), { ok: false, code: 'RUNTIME_POSTGRES_CLIENT_CLEANUP_UNSUPPORTED' })
+  assert.deepEqual({ releases, ends, unrefs, poolEnds }, { releases: 0, ends: 1, unrefs: 1, poolEnds: 0 })
+})
+
+await check('terminal fallback rejects foreign, absent, wrapped, malformed-constructor, and prototype-spoofed candidates', async () => {
+  class ForeignClient extends pinnedClientConstructor {}
+  const cases: Array<{
+    name: string
+    build: (counters: { releases: number; ends: number; unrefs: number }) => {
+      Client?: unknown
+      clients: unknown[]
+      idle: unknown[]
+    }
+  }> = [
+    {
+      name: 'foreign Client candidate under the installed pinned constructor',
+      build: (counters) => {
+        const client = runtimeClient({
+          release() { counters.releases += 1 },
+          end() { counters.ends += 1 },
+          unref() { counters.unrefs += 1 },
+        }, ForeignClient)
+        return { Client: pinnedClientConstructor, clients: [client], idle: [client] }
+      },
+    },
+    {
+      name: 'incompatible foreign pool Client constructor',
+      build: (counters) => {
+        const client = runtimeClient({
+          release() { counters.releases += 1 },
+          end() { counters.ends += 1 },
+          unref() { counters.unrefs += 1 },
+        }, ForeignClient)
+        return { Client: ForeignClient, clients: [client], idle: [client] }
+      },
+    },
+    {
+      name: 'genuine candidate absent from exact _clients identities',
+      build: (counters) => {
+        const client = runtimeClient({
+          release() { counters.releases += 1 },
+          end() { counters.ends += 1 },
+          unref() { counters.unrefs += 1 },
+        })
+        return { Client: pinnedClientConstructor, clients: [], idle: [idleItem(client)] }
+      },
+    },
+    {
+      name: 'IdleItem wrapper presented as a Client',
+      build: (counters) => {
+        const client = runtimeClient({
+          release() { counters.releases += 1 },
+          end() { counters.ends += 1 },
+          unref() { counters.unrefs += 1 },
+        })
+        return { Client: pinnedClientConstructor, clients: [idleItem(client)], idle: [] }
+      },
+    },
+    {
+      name: 'unavailable pool Client constructor',
+      build: (counters) => {
+        const client = runtimeClient({
+          release() { counters.releases += 1 },
+          end() { counters.ends += 1 },
+          unref() { counters.unrefs += 1 },
+        })
+        return { clients: [client], idle: [client] }
+      },
+    },
+    {
+      name: 'malformed pool Client prototype',
+      build: (counters) => {
+        const client = runtimeClient({
+          release() { counters.releases += 1 },
+          end() { counters.ends += 1 },
+          unref() { counters.unrefs += 1 },
+        })
+        return { Client: { prototype: pinnedClientConstructor.prototype }, clients: [client], idle: [client] }
+      },
+    },
+    {
+      name: 'prototype-spoofed plain object',
+      build: (counters) => {
+        const spoofed = Object.assign(Object.create(pinnedClientConstructor.prototype) as Record<string, unknown>, {
+          _ending: false,
+          _Promise: Promise,
+          _types: {},
+          connectionParameters: {},
+          queryQueue: [],
+          release() { counters.releases += 1 },
+          connection: {
+            _connecting: true,
+            end() { counters.ends += 1 },
+            once() { return undefined },
+            unref() { counters.unrefs += 1 },
+          },
+        })
+        Object.defineProperty(spoofed, 'password', {
+          configurable: true,
+          enumerable: false,
+          value: null,
+          writable: true,
+        })
+        return { Client: pinnedClientConstructor, clients: [spoofed], idle: [spoofed] }
+      },
+    },
+  ]
+
+  for (const testCase of cases) {
+    const counters = { releases: 0, ends: 0, unrefs: 0 }
+    let poolEnds = 0
+    const shape = testCase.build(counters)
+    const pool: VisualPilotRuntimePostgresPool = {
+      Client: shape.Client,
+      _clients: shape.clients,
+      _idle: shape.idle,
+      async query() { return { rows: [] } },
+      async end() { poolEnds += 1 },
+    }
+    const cleanup = createVisualPilotRuntimeCleanup({ payloadDestroy: async () => undefined, pool })
+    assert.deepEqual(
+      await cleanup(),
+      { ok: false, code: 'RUNTIME_POSTGRES_CLIENT_CLEANUP_UNSUPPORTED' },
+      testCase.name,
+    )
+    assert.deepEqual(counters, { releases: 0, ends: 0, unrefs: 0 }, testCase.name)
+    assert.equal(poolEnds, 0, testCase.name)
   }
 })
 
@@ -396,6 +624,7 @@ await check('unsupported-shape terminal client timeout remains bounded and unref
     unref() { unrefs += 1; retainedHandle.unref() },
   })
   const pool: VisualPilotRuntimePostgresPool = {
+    Client: pinnedClientConstructor,
     _clients: [client],
     _idle: [client],
     async query() { return { rows: [] } },
@@ -422,6 +651,7 @@ await check('runtime cleanup releases checked-out clients only and never release
   const checkedOut = runtimeClient({ release() { checkedOutReleases += 1 } })
   const idle = runtimeClient({ release() { idleReleases += 1 } })
   const pool: VisualPilotRuntimePostgresPool = {
+    Client: pinnedClientConstructor,
     _clients: [checkedOut, idle],
     _idle: [idleItem(idle)],
     async query() { return { rows: [] } },
@@ -439,6 +669,7 @@ await check('runtime cleanup timeout is bounded, sanitized, and still closes Pos
   let clientReleaseCalls = 0
   let poolEndCalls = 0
   const pool: VisualPilotRuntimePostgresPool = {
+    Client: pinnedClientConstructor,
     _clients: [runtimeClient({ release() { clientReleaseCalls += 1 } })],
     _idle: [],
     async query() { return { rows: [] } },
@@ -485,6 +716,7 @@ await check('runtime cleanup failures use stable codes and still attempt every o
     let clientUnrefCalls = 0
     let poolEndCalls = 0
     const pool: VisualPilotRuntimePostgresPool = {
+      Client: pinnedClientConstructor,
       _clients: [runtimeClient({
         end() { clientEndCalls += 1 },
         release() { releaseCalls += 1; testCase.release() },
@@ -513,6 +745,7 @@ await check('runtime pool-close timeout is bounded, sanitized, and cached', asyn
   let clientUnrefCalls = 0
   let poolEndCalls = 0
   const pool: VisualPilotRuntimePostgresPool = {
+    Client: pinnedClientConstructor,
     _clients: [runtimeClient({
       end() { clientEndCalls += 1 },
       release() { clientReleaseCalls += 1 },

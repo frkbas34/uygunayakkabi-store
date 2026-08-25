@@ -1,3 +1,9 @@
+import {
+  Client as InstalledPostgresClient,
+  Connection as InstalledPostgresConnection,
+  TypeOverrides as InstalledPostgresTypeOverrides,
+} from 'pg'
+
 import type { VisualPilotPage } from '../src/lib/visualPilotTargetVerifier'
 
 export const VISUAL_PILOT_RUNTIME_TEARDOWN_TIMEOUT_MS = 5_000
@@ -21,6 +27,11 @@ type RuntimePostgresClient = {
   unref: () => void
 }
 
+type RuntimePostgresClientOwnership = {
+  constructor: typeof InstalledPostgresClient
+  prototype: typeof InstalledPostgresClient.prototype
+}
+
 type RuntimePostgresIdleItem = {
   client: RuntimePostgresClient
   idleListener: (...args: unknown[]) => unknown
@@ -30,6 +41,8 @@ type RuntimePostgresIdleItem = {
 export type VisualPilotRuntimePostgresPool = {
   query: (text: string, values?: unknown[]) => Promise<{ rows?: unknown }>
   end: () => Promise<void>
+  /** Exact Client constructor pinned by the installed pg Pool. */
+  Client?: unknown
   /** Runtime-owned pg Pool internals pinned by the installed adapter. */
   _clients?: unknown
   /** Runtime-owned pg Pool internals pinned by the installed adapter. */
@@ -238,29 +251,86 @@ export function createVisualPilotQueueReceiptReader(
   }
 }
 
-function isRuntimePostgresClient(value: unknown): value is RuntimePostgresClient {
-  return isRecord(value)
-    && typeof value._ending === 'boolean'
-    && typeof value.end === 'function'
-    && typeof value.release === 'function'
-    && typeof value.unref === 'function'
-    && !('client' in value && 'idleListener' in value && 'timeoutId' in value)
+function ownDataProperty(value: object, property: PropertyKey): unknown {
+  const descriptor = Object.getOwnPropertyDescriptor(value, property)
+  return descriptor && 'value' in descriptor ? descriptor.value : undefined
 }
 
-function isRuntimePostgresIdleItem(value: unknown): value is RuntimePostgresIdleItem {
+function runtimePostgresClientOwnership(
+  pool: VisualPilotRuntimePostgresPool,
+): RuntimePostgresClientOwnership | null {
+  try {
+    const poolClient = ownDataProperty(pool, 'Client')
+    if (poolClient !== InstalledPostgresClient) return null
+    const prototype = ownDataProperty(poolClient, 'prototype')
+    if (prototype !== InstalledPostgresClient.prototype) return null
+    if (ownDataProperty(prototype, 'constructor') !== poolClient) return null
+    if (ownDataProperty(prototype, 'end') !== InstalledPostgresClient.prototype.end) return null
+    if (ownDataProperty(prototype, 'unref') !== InstalledPostgresClient.prototype.unref) return null
+    return { constructor: poolClient, prototype }
+  } catch {
+    return null
+  }
+}
+
+function isRuntimePostgresClient(
+  value: unknown,
+  ownership: RuntimePostgresClientOwnership,
+): value is RuntimePostgresClient {
+  try {
+    if (!isRecord(value) || Object.getPrototypeOf(value) !== ownership.prototype) return false
+    if (!Function.prototype[Symbol.hasInstance].call(ownership.constructor, value)) return false
+    if (Object.hasOwn(value, 'end') || Object.hasOwn(value, 'unref')) return false
+    if (value.end !== InstalledPostgresClient.prototype.end || value.unref !== InstalledPostgresClient.prototype.unref) {
+      return false
+    }
+
+    const password = Object.getOwnPropertyDescriptor(value, 'password')
+    const connection = ownDataProperty(value, 'connection')
+    const connectionParameters = ownDataProperty(value, 'connectionParameters')
+    const typeOverrides = ownDataProperty(value, '_types')
+    return typeof ownDataProperty(value, '_ending') === 'boolean'
+      && typeof ownDataProperty(value, '_Promise') === 'function'
+      && Array.isArray(ownDataProperty(value, 'queryQueue'))
+      && typeof ownDataProperty(value, 'release') === 'function'
+      && Boolean(password)
+      && password?.enumerable === false
+      && password.configurable === true
+      && password.writable === true
+      && isRecord(connectionParameters)
+      && isRecord(connection)
+      && Object.getPrototypeOf(connection) === InstalledPostgresConnection.prototype
+      && Function.prototype[Symbol.hasInstance].call(InstalledPostgresConnection, connection)
+      && Object.getPrototypeOf(typeOverrides) === InstalledPostgresTypeOverrides.prototype
+      && Function.prototype[Symbol.hasInstance].call(InstalledPostgresTypeOverrides, typeOverrides)
+  } catch {
+    return false
+  }
+}
+
+function isRuntimePostgresIdleItem(
+  value: unknown,
+  ownership: RuntimePostgresClientOwnership,
+): value is RuntimePostgresIdleItem {
   return isRecord(value)
     && hasExactKeys(value, ['client', 'idleListener', 'timeoutId'])
-    && isRuntimePostgresClient(value.client)
+    && isRuntimePostgresClient(value.client, ownership)
     && typeof value.idleListener === 'function'
 }
 
-function releaseRuntimeOwnedCheckedOutClients(pool: VisualPilotRuntimePostgresPool): VisualPilotRuntimeTeardownCode | null {
+function releaseRuntimeOwnedCheckedOutClients(
+  pool: VisualPilotRuntimePostgresPool,
+  ownership: RuntimePostgresClientOwnership | null,
+): VisualPilotRuntimeTeardownCode | null {
   let checkedOutClients: RuntimePostgresClient[]
   try {
-    if (!Array.isArray(pool._clients) || !Array.isArray(pool._idle)) {
+    if (!ownership || !Array.isArray(pool._clients) || !Array.isArray(pool._idle)) {
       return 'RUNTIME_POSTGRES_CLIENT_CLEANUP_UNSUPPORTED'
     }
-    if (!pool._clients.every(isRuntimePostgresClient) || !pool._idle.every(isRuntimePostgresIdleItem)) {
+    if (
+      !pool._clients.every((client) => isRuntimePostgresClient(client, ownership))
+      || !pool._idle.every((item) => isRuntimePostgresIdleItem(item, ownership))
+    ) {
       return 'RUNTIME_POSTGRES_CLIENT_CLEANUP_UNSUPPORTED'
     }
     const clients = pool._clients as RuntimePostgresClient[]
@@ -305,9 +375,12 @@ async function boundedStep(
   }
 }
 
-function runtimeOwnedTerminalClients(pool: VisualPilotRuntimePostgresPool): RuntimePostgresClient[] {
-  if (!Array.isArray(pool._clients)) return []
-  return [...new Set(pool._clients.filter(isRuntimePostgresClient))]
+function runtimeOwnedTerminalClients(
+  pool: VisualPilotRuntimePostgresPool,
+  ownership: RuntimePostgresClientOwnership | null,
+): RuntimePostgresClient[] {
+  if (!ownership || !Array.isArray(pool._clients)) return []
+  return [...new Set(pool._clients.filter((client) => isRuntimePostgresClient(client, ownership)))]
 }
 
 async function terminalizeRuntimeOwnedClients(
@@ -355,9 +428,10 @@ export function createVisualPilotRuntimeCleanup(params: {
 
   return () => {
     cleanupPromise ??= (async () => {
-      const terminalClients = runtimeOwnedTerminalClients(params.pool)
+      const ownership = runtimePostgresClientOwnership(params.pool)
+      const terminalClients = runtimeOwnedTerminalClients(params.pool, ownership)
       const payloadState = await boundedStep(params.payloadDestroy, timeoutMs)
-      const clientFailure = releaseRuntimeOwnedCheckedOutClients(params.pool)
+      const clientFailure = releaseRuntimeOwnedCheckedOutClients(params.pool, ownership)
       const incompatiblePoolShape = clientFailure === 'RUNTIME_POSTGRES_CLIENT_CLEANUP_UNSUPPORTED'
       // Pinned pg-pool end() dereferences every _idle entry as an IdleItem.
       // Never invoke that path after the exact private-shape proof fails.

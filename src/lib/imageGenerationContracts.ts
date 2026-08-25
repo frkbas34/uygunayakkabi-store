@@ -30,6 +30,11 @@ import {
   sanitizeVisualQualityRetryEvidenceV01,
   type VisualQualityRetryEvidenceV01,
 } from './imageQualityRetryV01'
+import {
+  sanitizeVisualOnlyV01BoundaryManifest,
+  VISUAL_ONLY_V01_MODE,
+  type VisualOnlyV01BoundaryManifest,
+} from './visualOnlyV01'
 
 export type ImageGenerationContractVersion = typeof IMAGE_SLOT_CONTRACT_VERSION
 export type ImageSlotId = SlotKey
@@ -63,6 +68,9 @@ export type ImageGenerationPackSelection = {
   version: typeof IMAGE_GENERATION_PACK_SELECTION_VERSION
   rootAttemptId: ImageGenerationAttemptId
   slots: ImageGenerationPackSelectionSlot[]
+  /** Required on packs produced by the explicit visual-only execution mode. */
+  visualOnlyMode?: typeof VISUAL_ONLY_V01_MODE
+  visualOnlyBoundaryDigest?: string
 }
 
 export type ImageSlotFailure = {
@@ -162,6 +170,8 @@ export type ImageGenerationAttemptMetadata = {
   retryPolicyVersion?: typeof VISUAL_QUALITY_RETRY_POLICY_V01_VERSION
   /** Root-only, deterministic approval-pack lineage. */
   packSelection?: ImageGenerationPackSelection
+  /** Persisted, non-forgeable-without-the-job manifest binding for visual-only runs. */
+  visualOnlyBoundary?: VisualOnlyV01BoundaryManifest
 }
 
 export type LegacySlotProjection = {
@@ -461,6 +471,7 @@ export function createImageGenerationAttempt(params: {
   attemptOrdinal?: ImageGenerationAttemptOrdinal
   parentAttemptId?: ImageGenerationAttemptId | null
   retryPolicyVersion?: typeof VISUAL_QUALITY_RETRY_POLICY_V01_VERSION
+  visualOnlyBoundary?: VisualOnlyV01BoundaryManifest
 }): ImageGenerationAttemptMetadata {
   const attemptId = params.attemptId ?? `iga_${randomUUID()}`
   const requested = [...params.requestedSlotIds]
@@ -475,6 +486,12 @@ export function createImageGenerationAttempt(params: {
     || params.attemptOrdinal !== undefined
     || params.parentAttemptId !== undefined
     || params.retryPolicyVersion !== undefined
+  const visualOnlyBoundary = params.visualOnlyBoundary === undefined
+    ? undefined
+    : sanitizeVisualOnlyV01BoundaryManifest(params.visualOnlyBoundary)
+  if (params.visualOnlyBoundary !== undefined && !visualOnlyBoundary) {
+    throw new Error('Visual-only attempt boundary is malformed.')
+  }
   if (hasRetryLineage) {
     if (
       params.retryPolicyVersion !== VISUAL_QUALITY_RETRY_POLICY_V01_VERSION
@@ -525,6 +542,7 @@ export function createImageGenerationAttempt(params: {
       parentAttemptId: params.parentAttemptId,
       retryPolicyVersion: params.retryPolicyVersion,
     } : {}),
+    ...(visualOnlyBoundary ? { visualOnlyBoundary } : {}),
   }
 }
 
@@ -803,6 +821,7 @@ function hasRetryMetadata(attempt: Partial<ImageGenerationAttemptMetadata>): boo
     || attempt.parentAttemptId !== undefined
     || attempt.retryPolicyVersion !== undefined
     || attempt.packSelection !== undefined
+    || attempt.visualOnlyBoundary !== undefined
     || (Array.isArray(attempt.slots) && attempt.slots.some((slot) =>
       Boolean(slot) && typeof slot === 'object' && 'qualityRetry' in slot,
     ))
@@ -820,6 +839,15 @@ function retryLineageError(attemptId: string, detail: string): string {
 function sanitizeRetryAwareAttempt(
   attempt: ImageGenerationAttemptMetadata,
 ): { ok: true; attempt: ImageGenerationAttemptMetadata } | { ok: false; error: string } {
+  const visualOnlyBoundary = attempt.visualOnlyBoundary === undefined
+    ? undefined
+    : sanitizeVisualOnlyV01BoundaryManifest(attempt.visualOnlyBoundary)
+  if (
+    attempt.visualOnlyBoundary !== undefined
+    && (!visualOnlyBoundary || visualOnlyBoundary.jobId !== attempt.jobId)
+  ) {
+    return { ok: false, error: retryLineageError(attempt.attemptId, 'the visual-only boundary is malformed or belongs to another job.') }
+  }
   if (
     attempt.retryPolicyVersion !== VISUAL_QUALITY_RETRY_POLICY_V01_VERSION
     || (attempt.attemptKind !== 'initial' && attempt.attemptKind !== 'quality_retry')
@@ -924,7 +952,14 @@ function sanitizeRetryAwareAttempt(
     }
   }
 
-  return { ok: true, attempt: { ...attempt, slots: sanitizedSlots } }
+  return {
+    ok: true,
+    attempt: {
+      ...attempt,
+      slots: sanitizedSlots,
+      ...(visualOnlyBoundary ? { visualOnlyBoundary } : {}),
+    },
+  }
 }
 
 function validatePackSelectionInternal(params: {
@@ -942,6 +977,17 @@ function validatePackSelectionInternal(params: {
     || params.selection.slots.length !== rootAttempt.requestedSlotIds.length
   ) {
     return { ok: false, error: `Generation attempt ${rootAttempt.attemptId} has an invalid pack-selection manifest.` }
+  }
+  const rootVisualOnlyBoundary = sanitizeVisualOnlyV01BoundaryManifest(rootAttempt.visualOnlyBoundary)
+  const visualOnlyMode = params.selection.visualOnlyMode
+  const visualOnlyBoundaryDigest = params.selection.visualOnlyBoundaryDigest
+  if (
+    rootVisualOnlyBoundary
+      ? visualOnlyMode !== VISUAL_ONLY_V01_MODE
+        || visualOnlyBoundaryDigest !== rootVisualOnlyBoundary.digest
+      : visualOnlyMode !== undefined || visualOnlyBoundaryDigest !== undefined
+  ) {
+    return { ok: false, error: `Generation attempt ${rootAttempt.attemptId} has an invalid visual-only pack binding.` }
   }
   const qualityGateSummary = isRecord(rootAttempt.qualityGateSummary)
     ? rootAttempt.qualityGateSummary
@@ -1041,6 +1087,10 @@ function validatePackSelectionInternal(params: {
       version: IMAGE_GENERATION_PACK_SELECTION_VERSION,
       rootAttemptId: rootAttempt.attemptId,
       slots: sanitizedSlots,
+      ...(rootVisualOnlyBoundary ? {
+        visualOnlyMode: VISUAL_ONLY_V01_MODE,
+        visualOnlyBoundaryDigest: rootVisualOnlyBoundary.digest,
+      } : {}),
     },
   }
 }
@@ -1088,6 +1138,10 @@ export function buildImageGenerationPackSelection(params: {
         ...(sourceSlot.mediaUrl !== undefined ? { mediaUrl: sourceSlot.mediaUrl } : {}),
       }
     }),
+    ...(rootAttempt.visualOnlyBoundary ? {
+      visualOnlyMode: VISUAL_ONLY_V01_MODE,
+      visualOnlyBoundaryDigest: rootAttempt.visualOnlyBoundary.digest,
+    } : {}),
   }
   const validated = validatePackSelectionInternal({ attempts: parsed.attempts, rootAttempt, selection })
   if (!validated.ok) throw new Error(validated.error)

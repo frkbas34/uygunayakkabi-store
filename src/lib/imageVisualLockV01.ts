@@ -580,6 +580,9 @@ export type VisualLockCommandDecision =
       qualityProfile: 'visual-lock-v0' | typeof VISUAL_LOCK_V01_COMMAND_PROFILE
       profileVersion: 'visual-lock/v0' | typeof VISUAL_LOCK_V01_PROFILE_VERSION
       family: VisualLockV0Family
+      executionMode?: 'visual-only-v0.1'
+      stockNumber?: string
+      ownerConfirmation?: 'OWNER_CONFIRMED_VISUAL_ONLY_V0_1'
     }
 
 export function parseVisualLockCommand(input: {
@@ -597,6 +600,27 @@ export function parseVisualLockCommand(input: {
   if (input.dmAccessReason !== 'allowlisted') return { kind: 'rejected', reason: 'allowlisted-operator-required' }
   const family = text.match(/--family=([^\s]+)/i)?.[1]?.toLowerCase()
   if (family !== 'loafer' && family !== 'generic') return { kind: 'rejected', reason: 'unknown-family' }
+  const hasVisualOnlyMarker = /--(?:stock|mode|owner-confirm)=/i.test(text)
+  if (hasVisualOnlyMarker) {
+    const visualOnlyExact = text.match(
+      /^#gorsel\s+(\d+)\s+--stock=(SN\d{4})\s+--profile=visual-lock-v0\.1\s+--family=(loafer|generic)\s+--mode=visual-only-v0\.1\s+--owner-confirm=OWNER_CONFIRMED_VISUAL_ONLY_V0_1\s*$/i,
+    )
+    if (!visualOnlyExact) return { kind: 'rejected', reason: 'malformed-command' }
+    const visualOnlyProductId = Number(visualOnlyExact[1])
+    if (!Number.isSafeInteger(visualOnlyProductId) || visualOnlyProductId <= 0) {
+      return { kind: 'rejected', reason: 'malformed-command' }
+    }
+    return {
+      kind: 'accepted',
+      productId: visualOnlyProductId,
+      qualityProfile: VISUAL_LOCK_V01_COMMAND_PROFILE,
+      profileVersion: VISUAL_LOCK_V01_PROFILE_VERSION,
+      family: visualOnlyExact[3].toLowerCase() as VisualLockV0Family,
+      executionMode: 'visual-only-v0.1',
+      stockNumber: visualOnlyExact[2].toUpperCase(),
+      ownerConfirmation: 'OWNER_CONFIRMED_VISUAL_ONLY_V0_1',
+    }
+  }
   const exact = text.match(/^#gorsel\s+(\d+)\s+--profile=visual-lock-v0\.1\s+--family=(loafer|generic)\s*$/i)
   if (!exact) return { kind: 'rejected', reason: 'malformed-command' }
   return {

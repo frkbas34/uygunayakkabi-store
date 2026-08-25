@@ -24,12 +24,34 @@
  * Admin panel still available for manual fallback review.
  */
 import type { CollectionConfig } from 'payload'
+import { hasVisualOnlyBoundaryMarker } from '@/lib/visualOnlyV01'
 
 export const ImageGenerationJobs: CollectionConfig = {
   slug: 'image-generation-jobs',
 
   // ── Hooks ────────────────────────────────────────────────────────────────
   hooks: {
+    beforeChange: [
+      ({ data, originalDoc, req }) => {
+        const candidate = {
+          ...(originalDoc as Record<string, unknown> | undefined),
+          ...(data as Record<string, unknown>),
+        }
+        const originalWasVisualOnly = hasVisualOnlyBoundaryMarker(originalDoc)
+        const candidateIsVisualOnly = hasVisualOnlyBoundaryMarker(candidate)
+        const authorizedVisualOnlyWrite = (req.context as Record<string, unknown> | undefined)?.isVisualOnlyApproval === true
+        if (originalWasVisualOnly && !candidateIsVisualOnly && !authorizedVisualOnlyWrite) {
+          throw new Error('VISUAL_ONLY_BOUNDARY_REMOVAL_FORBIDDEN')
+        }
+        const terminalVisualOnlyWrite = (originalWasVisualOnly || candidateIsVisualOnly)
+          && (data.status === 'approved' || data.status === 'rejected')
+        if (
+          terminalVisualOnlyWrite
+          && !authorizedVisualOnlyWrite
+        ) throw new Error('VISUAL_ONLY_ATOMIC_APPROVAL_BOUNDARY_REQUIRED')
+        return data
+      },
+    ],
     afterChange: [
       /**
        * Phase Z state-sync fix (D-154): When the job's status transitions to
@@ -46,6 +68,7 @@ export const ImageGenerationJobs: CollectionConfig = {
        * This is additive and does not touch any v50-locked file.
        */
       async ({ doc, previousDoc, req, operation }) => {
+        if ((req.context as Record<string, unknown> | undefined)?.isVisualOnlyApproval === true) return
         if (
           operation !== 'update' ||
           doc.status !== 'preview' ||
@@ -112,6 +135,7 @@ export const ImageGenerationJobs: CollectionConfig = {
        * always appends whatever is currently in generatedImages.
        */
       async ({ doc, previousDoc, req, operation }) => {
+        if ((req.context as Record<string, unknown> | undefined)?.isVisualOnlyApproval === true) return
         // Only fire on updates when status just became 'approved'
         if (
           operation !== 'update' ||

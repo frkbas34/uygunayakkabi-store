@@ -82,6 +82,16 @@ import {
   type VisualQualityRetryEvidenceV01,
   type VisualQualityRetryExecutionUsageV01,
 } from '../lib/imageQualityRetryV01'
+import {
+  createVisualOnlyV01PreviewBinding,
+  hasVisualOnlyBoundaryMarker,
+  parseVisualOnlyJobEvidence,
+  parseVisualOnlyV01BoundaryText,
+  verifyVisualOnlyProductState,
+  VISUAL_ONLY_V01_MODE,
+  type VisualOnlyV01BoundaryManifest,
+  type VisualOnlyV01PreviewBinding,
+} from '../lib/visualOnlyV01'
 
 export const imageGenTask: TaskConfig<{
   input: {
@@ -91,6 +101,8 @@ export const imageGenTask: TaskConfig<{
     visualFacts?: string
     qualityProfile?: string
     productFamily?: string
+    executionMode?: string
+    visualOnlyBoundary?: string
   }
   output: {
     success: boolean
@@ -109,6 +121,8 @@ export const imageGenTask: TaskConfig<{
     { name: 'visualFacts', type: 'text' }, // D-355N: operator-verified product facts injected into every slot prompt
     { name: 'qualityProfile', type: 'text' }, // Existing task-input JSON; no collection/schema field.
     { name: 'productFamily', type: 'text' }, // Explicit operator choice; no automatic V0 classification.
+    { name: 'executionMode', type: 'text' }, // Explicit, fail-closed visual-only execution marker.
+    { name: 'visualOnlyBoundary', type: 'text' }, // Signed-digest manifest in existing task-input JSON.
   ],
 
   outputSchema: [
@@ -158,6 +172,7 @@ export const imageGenTask: TaskConfig<{
     const provider = (input.provider || 'gemini-pro') as 'openai' | 'gemini-pro'
     const payload = req.payload
     const visualLockSelection = resolveVisualLockTaskSelection(input)
+    let visualOnlyBoundary: VisualOnlyV01BoundaryManifest | null = null
     let attemptMetadata: ImageGenerationAttemptMetadata = createImageGenerationAttempt({
       jobId,
       requestedSlotIds,
@@ -197,6 +212,43 @@ export const imageGenTask: TaskConfig<{
     if (!productRef) throw new Error('Job kayıtında ürün referansı eksik')
 
     const productId = typeof productRef === 'object' ? productRef.id : productRef
+
+    const hasVisualOnlyInputMarker = input.executionMode !== undefined || input.visualOnlyBoundary !== undefined
+    if (hasVisualOnlyBoundaryMarker(jobDoc) !== hasVisualOnlyInputMarker) {
+      throw new Error('VISUAL_ONLY_EXECUTION_BOUNDARY_MISSING_OR_SUBSTITUTED')
+    }
+    if (hasVisualOnlyInputMarker) {
+      visualOnlyBoundary = parseVisualOnlyV01BoundaryText(input.visualOnlyBoundary)
+      const jobEvidence = parseVisualOnlyJobEvidence(jobDoc)
+      if (
+        input.executionMode !== VISUAL_ONLY_V01_MODE
+        || !visualOnlyBoundary
+        || !jobEvidence
+        || jobEvidence.preview !== null
+        || jobEvidence.manifest.digest !== visualOnlyBoundary.digest
+        || visualOnlyBoundary.jobId !== String(jobId)
+        || visualOnlyBoundary.productId !== productId
+        || visualOnlyBoundary.reviewChatId !== String(jobDoc.telegramChatId ?? '')
+        || visualOnlyBoundary.reviewerUserId !== String(jobDoc.requestedByUserId ?? '')
+        || visualLockSelection?.profileVersion !== 'visual-lock/v0.1'
+        || visualLockSelection.family !== visualOnlyBoundary.productFamily
+        || stage !== 'standard'
+        || provider !== 'gemini-pro'
+        || JSON.stringify(requestedSlotIds) !== JSON.stringify(visualOnlyBoundary.canonicalSlotOrder)
+      ) throw new Error('VISUAL_ONLY_EXECUTION_BOUNDARY_INVALID')
+
+      const preflightProduct = await payload.findByID({
+        collection: 'products',
+        id: productId,
+        depth: 0,
+      }) as Record<string, unknown>
+      const productState = verifyVisualOnlyProductState(preflightProduct, visualOnlyBoundary, 'execution')
+      if (!productState.ok) throw new Error(productState.code)
+      if (String(preflightProduct.stockNumber ?? '').trim().toUpperCase() !== visualOnlyBoundary.stockNumber) {
+        throw new Error('VISUAL_ONLY_STOCK_BINDING_MISMATCH')
+      }
+      attemptMetadata = { ...attemptMetadata, visualOnlyBoundary }
+    }
 
     if (visualLockSelection?.profileVersion === 'visual-lock/v0.1') {
       const existingAttempts = parseGenerationAttemptHistory(jobDoc.generationAttempts)
@@ -249,6 +301,11 @@ export const imageGenTask: TaskConfig<{
       throw new Error(`Ürün bulunamadı: ${productId}`)
     }
 
+    if (visualOnlyBoundary) {
+      const productState = verifyVisualOnlyProductState(productDoc, visualOnlyBoundary, 'execution')
+      if (!productState.ok) throw new Error(productState.code)
+    }
+
     const productTitle = (productDoc.title as string) || 'Ürün'
     const finalizeVisualLockV01ProductFailure = async () => {
       if (visualLockSelection?.profileVersion !== 'visual-lock/v0.1') return
@@ -297,7 +354,9 @@ export const imageGenTask: TaskConfig<{
     // Format: SN0001–SN9999. Generated once per product, never changes.
     // Used for deterministic overlay on all generated images.
     let stockNumber = productDoc.stockNumber as string | undefined
-    if (!stockNumber) {
+    if (visualOnlyBoundary && stockNumber !== visualOnlyBoundary.stockNumber) {
+      throw new Error('VISUAL_ONLY_STOCK_BINDING_MISMATCH')
+    } else if (!stockNumber) {
       stockNumber = await generateStockNumber(payload)
       await payload.update({
         collection: 'products',
@@ -571,8 +630,7 @@ export const imageGenTask: TaskConfig<{
     )
 
     attemptMetadata = markAttemptSlotsGenerating(attemptMetadata)
-    await persistAttemptMetadata({
-      promptsUsed: JSON.stringify({
+    const promptsUsedEvidence: Record<string, unknown> = {
         pipeline: pipelineLabel,
         provider,           // explicit provider field — recovered by regenImageGenJob
         stage,
@@ -605,7 +663,13 @@ export const imageGenTask: TaskConfig<{
         // D-407: fixed 5-slot contract metadata
         promptVersion: SLOT_PROMPT_VERSION,
         slotContract: slotContractMeta,
-      }),
+        ...(visualOnlyBoundary ? {
+          executionMode: VISUAL_ONLY_V01_MODE,
+          visualOnlyBoundary,
+        } : {}),
+      }
+    await persistAttemptMetadata({
+      promptsUsed: JSON.stringify(promptsUsedEvidence),
     })
 
     let slotEnvelopes: ImageSlotExecutionEnvelope<Buffer>[] = attemptMetadata.slots.map((slot) => ({ ...slot }))
@@ -1055,6 +1119,7 @@ export const imageGenTask: TaskConfig<{
           attemptOrdinal: 2,
           parentAttemptId: rootAttemptId,
           retryPolicyVersion: VISUAL_QUALITY_RETRY_POLICY_V01_VERSION,
+          ...(visualOnlyBoundary ? { visualOnlyBoundary } : {}),
         })
         retryAttempt = {
           ...retryAttempt,
@@ -1618,6 +1683,21 @@ export const imageGenTask: TaskConfig<{
       await persistAttemptMetadata()
     }
 
+
+    let visualOnlyPreview: VisualOnlyV01PreviewBinding | null = null
+    if (visualOnlyBoundary) {
+      if (!attemptMetadata.packSelection) throw new Error('VISUAL_ONLY_PASSING_PACK_REQUIRED')
+      visualOnlyPreview = createVisualOnlyV01PreviewBinding({
+        manifest: visualOnlyBoundary,
+        rootAttemptId: attemptMetadata.attemptId,
+        packSelection: attemptMetadata.packSelection,
+      })
+      promptsUsedEvidence.visualOnlyPreview = visualOnlyPreview
+      await persistAttemptRecords([...qualityRetryAttempts.values(), attemptMetadata], {
+        promptsUsed: JSON.stringify(promptsUsedEvidence),
+      })
+    }
+
     const persistedSlots = slotEnvelopes
       .filter((slot) => slot.status === 'persisted' && slot.output && slot.mediaId != null)
       .sort((a, b) => a.displayOrder - b.displayOrder)
@@ -1681,6 +1761,27 @@ export const imageGenTask: TaskConfig<{
       throw new Error(msg)
     }
 
+    if (visualOnlyPreview) {
+      // The private review control must never be delivered before its exact
+      // job/attempt/pack identity is durable and the Product is in preview.
+      // Unlike the legacy compatibility path, enum fallback is forbidden.
+      attemptHistory = upsertGenerationAttemptHistory(attemptHistory, attemptMetadata)
+      await payload.update({
+        collection: 'image-generation-jobs',
+        id: jobId,
+        data: {
+          status: 'preview',
+          generatedImages: mediaIds,
+          imageCount: mediaIds.length,
+          generationCompletedAt: attemptMetadata.completedAt,
+          generationContractVersion: IMAGE_SLOT_CONTRACT_VERSION,
+          activeAttemptId: attemptMetadata.attemptId,
+          generationAttempts: attemptHistory,
+          promptsUsed: JSON.stringify(promptsUsedEvidence),
+        },
+      })
+    }
+
     // ── Build per-slot icon array (ARRAY not string — avoids emoji indexing bugs) ─
     // v12: ⚠️ also shown when brandFidelityPass=false (brand zones drifted)
     // v20: ⚠️ also shown when shotCompliancePass=false (angle drift detected)
@@ -1695,7 +1796,8 @@ export const imageGenTask: TaskConfig<{
     const slotIconsJoined = slotIconArr.join('')
 
     // ── Step 8: Send preview images to Telegram FIRST ────────────────────────
-    // CRITICAL ORDER: photos go to Telegram BEFORE the DB status update.
+    // Legacy order: photos go to Telegram before its compatibility DB update.
+    // Visual-only persisted its exact preview identity immediately above.
     // If the DB update fails (e.g. enum not migrated), photos are already
     // delivered. Swapping this order was the root cause of v10/v10.1 failures.
     if (telegramChatId) {
@@ -1753,6 +1855,7 @@ export const imageGenTask: TaskConfig<{
         identityLockMeta.mainColor as string | undefined,
         stage,
         providerDisplayLabel,
+        visualOnlyPreview,
       )
     } else {
       console.warn(`[imageGenTask v14] step8 — no telegramChatId on job ${jobId}, skipping preview send`)
@@ -1811,9 +1914,17 @@ export const imageGenTask: TaskConfig<{
       jobTitle: provider === 'gemini-pro'
         ? `${productTitle} — Gemini Pro (${mediaIds.length} görsel)`
         : `${productTitle} — OpenAI Edit (${mediaIds.length} görsel)`,
+      promptsUsed: JSON.stringify(promptsUsedEvidence),
     }
 
-    try {
+    if (visualOnlyPreview) {
+      await payload.update({
+        collection: 'image-generation-jobs',
+        id: jobId,
+        data: jobUpdateData,
+      })
+      console.log(`[imageGenTask] step9 — visual-only preview evidence finalized without a status rewrite`)
+    } else try {
       await payload.update({
         collection: 'image-generation-jobs',
         id: jobId,
@@ -2058,6 +2169,7 @@ async function sendApprovalKeyboard(
   mainColor?: string,
   stage: 'standard' | 'premium' = 'standard',
   providerLabel?: string,
+  visualOnlyPreview?: VisualOnlyV01PreviewBinding | null,
 ): Promise<void> {
   const token = process.env.TELEGRAM_BOT_TOKEN
   if (!token) return
@@ -2079,7 +2191,9 @@ async function sendApprovalKeyboard(
   // D-409: legacy 1+2/1+3/2+3 combo buttons removed (dead for the 5-image pack).
   // Partial approval stays available via the per-image buttons below and via the
   // text command "onayla 1,3,5".
-  const stageNote = `Tümünü onayla, tek tek seç ya da yeniden üret. (Kısmi: "onayla 1,3,5")`
+  const stageNote = visualOnlyPreview
+    ? 'Özel visual-only inceleme: yalnızca tam beş-slot paket onaylanabilir veya reddedilebilir; aşağı-akış işlem başlatılmaz.'
+    : `Tümünü onayla, tek tek seç ya da yeniden üret. (Kısmi: "onayla 1,3,5")`
 
   const text =
     `${isStandard ? '📸' : '🌟'} <b>${imageCount} önizleme hazır (${stageLabel})</b>\n\n` +
@@ -2092,6 +2206,17 @@ async function sendApprovalKeyboard(
 
   // ── Assemble keyboard ────────────────────────────────────────────────────
   const keyboard: Array<Array<{ text: string; callback_data: string }>> = []
+
+  if (visualOnlyPreview) {
+    keyboard.push([{
+      text: `✅ Visual-only Paketi Onayla (${imageCount})`,
+      callback_data: `voa:${jobId}:${visualOnlyPreview.callbackToken}`,
+    }])
+    keyboard.push([{
+      text: '❌ Visual-only Paketi Reddet',
+      callback_data: `vor:${jobId}:${visualOnlyPreview.callbackToken}`,
+    }])
+  } else {
 
   // Row 1: Approve all
   const allLabel = `✅ Tümünü Onayla (${imageCount})`
@@ -2110,6 +2235,7 @@ async function sendApprovalKeyboard(
     { text: '🔄 Yeniden Üret', callback_data: `imgregen:${jobId}` },
     { text: '❌ Reddet',       callback_data: `imgreject:${jobId}` },
   ])
+  }
 
   try {
     const res = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse, after } from 'next/server'
 import { AsyncLocalStorage } from 'node:async_hooks'
+import { randomBytes } from 'node:crypto'
 import { getPayload } from '@/lib/payload'
 import { parseTelegramCaption, parseStockUpdate } from '@/lib/telegram'
 import {
@@ -17,6 +18,14 @@ import {
   resolveApprovalCandidates,
   selectApprovalMediaIds,
 } from '@/lib/imageGenerationContracts'
+import {
+  assessVisualOnlyProductState,
+  createVisualOnlyV01BoundaryManifest,
+  hasVisualOnlyBoundaryMarker,
+  VISUAL_ONLY_V01_MODE,
+} from '@/lib/visualOnlyV01'
+import { executeVisualOnlyV01Decision } from '@/lib/visualOnlyApprovalV01'
+import { createVisualOnlyV01PayloadAdapter } from '@/lib/visualOnlyApprovalRuntime'
 
 // ── Vercel function timeout ────────────────────────────────────────────────────
 // Image polling loop runs up to 120s. OpenAI gpt-image-1 typically 15-40s.
@@ -497,6 +506,9 @@ async function approveImageGenJob(
     id: jobId,
     depth: 1,
   }) as Record<string, unknown>
+  if (hasVisualOnlyBoundaryMarker(jobDoc)) {
+    throw new Error('VISUAL_ONLY_BOUND_CALLBACK_REQUIRED')
+  }
 
   const productRef = jobDoc.product as { id: number } | number | null
   if (!productRef) throw new Error('İş kaydında ürün referansı yok')
@@ -720,6 +732,9 @@ async function rejectImageGenJob(
     id: jobId,
     depth: 0,
   }) as Record<string, unknown>
+  if (hasVisualOnlyBoundaryMarker(jobDoc)) {
+    throw new Error('VISUAL_ONLY_BOUND_CALLBACK_REQUIRED')
+  }
   const productRef = jobDoc.product as { id: number } | number | null
   const productId = productRef ? (typeof productRef === 'object' ? productRef.id : productRef) : null
 
@@ -758,6 +773,9 @@ async function regenImageGenJob(
     id: jobId,
     depth: 0,
   }) as Record<string, unknown>
+  if (hasVisualOnlyBoundaryMarker(jobDoc)) {
+    throw new Error('VISUAL_ONLY_REGENERATION_FORBIDDEN')
+  }
 
   const productRef = jobDoc.product as { id: number } | number | null
   const productId = productRef ? (typeof productRef === 'object' ? productRef.id : productRef) : null
@@ -854,6 +872,9 @@ async function startPremiumImageGenJob(
     id: originalJobId,
     depth: 0,
   }) as Record<string, unknown>
+  if (hasVisualOnlyBoundaryMarker(originalJob)) {
+    throw new Error('VISUAL_ONLY_PREMIUM_GENERATION_FORBIDDEN')
+  }
 
   const productRef = originalJob.product as { id: number } | number | null
   if (!productRef) throw new Error('Orijinal iş kaydında ürün referansı yok')
@@ -972,7 +993,7 @@ export async function POST(req: NextRequest) {
       // button click and breaking the entire golden-path approval flow.
       // D-220: `pi:` callbacks are Product Intelligence Bot approval actions
       //        (pi:approve|sendgeo|regen|reject:{reportId}) — owned by Uygunops.
-      const OPS_CB_PREFIXES = ['imagegen:', 'imgapprove:', 'imgreject:', 'imgregen:', 'imgpremium:', 'wz_start:', 'wz_cat:', 'wz_ptype:', 'wz_tgt:', 'wz_size:', 'wz_stock:', 'wz_confirm:', 'wz_cancel:', 'wz_edit:', 'pi:']
+      const OPS_CB_PREFIXES = ['imagegen:', 'imgapprove:', 'imgreject:', 'imgregen:', 'imgpremium:', 'voa:', 'vor:', 'wz_start:', 'wz_cat:', 'wz_ptype:', 'wz_tgt:', 'wz_size:', 'wz_stock:', 'wz_confirm:', 'wz_cancel:', 'wz_edit:', 'pi:']
       const GEO_CB_PREFIXES = ['storyapprove:', 'storyreject:', 'storyretry:', 'geo_content:', 'geo_audit:', 'geo_auditrun:', 'geo_activate:', 'geo_retry:']
       // D-191c: /ara and /sn are shared commands — their callbacks must work on BOTH bots
       const SHARED_CB_PREFIXES = ['ara_stok:', 'ara_pipe:', 'ara_activate:', 'ara_shopier:', 'sn_']
@@ -1264,6 +1285,33 @@ export async function POST(req: NextRequest) {
 
         // Unknown pi: action — silent ack to avoid Telegram retries
         await answerCallbackQuery(cbQueryId)
+        return NextResponse.json({ ok: true })
+      }
+
+      // Exact visual-only callbacks carry the persisted pack-binding token.
+      // They have no partial approval or regeneration form and run through a
+      // transaction-backed claim/lock boundary before changing visual state.
+      if (cbData.startsWith('voa:') || cbData.startsWith('vor:')) {
+        await answerCallbackQuery(cbQueryId, cbData.startsWith('voa:') ? '✅ Görsel paket doğrulanıyor...' : '❌ Görsel paket reddediliyor...')
+        after(async () => {
+          try {
+            if (cbUserId === undefined) throw new Error('VISUAL_ONLY_REVIEWER_ID_MISSING')
+            const visualPayload = await getPayload()
+            const result = await executeVisualOnlyV01Decision({
+              adapter: createVisualOnlyV01PayloadAdapter(visualPayload),
+              callback: { data: cbData, chatId: cbChatId, userId: cbUserId },
+            })
+            await sendTelegramMessage(
+              cbChatId,
+              result.action === 'approve'
+                ? `✅ <b>${result.mediaCount} görsellik visual-only paket onaylandı.</b>\nÜrün taslak, pasif ve satılamaz durumda tutuldu.`
+                : '❌ <b>Visual-only paket reddedildi.</b>\nHiçbir aşağı-akış işlem başlatılmadı.',
+            )
+          } catch (error) {
+            console.error('[telegram/webhook] visual-only callback failed:', error instanceof Error ? error.message : 'VISUAL_ONLY_CALLBACK_FAILED')
+            await sendTelegramMessage(cbChatId, '❌ Visual-only işlem kimliği veya güncel durum doğrulanamadı.')
+          }
+        })
         return NextResponse.json({ ok: true })
       }
 
@@ -3698,6 +3746,18 @@ export async function POST(req: NextRequest) {
         hizli: '⚡ Hızlı', dengeli: '⚖️ Dengeli', premium: '💎 Premium', karma: '🌈 Karma',
       }
       const modeLabel = modeLabelMap[genMode] ?? genMode
+      const isVisualOnlyCommand = visualLockCommand.kind === 'accepted'
+        && visualLockCommand.executionMode === VISUAL_ONLY_V01_MODE
+      if (isVisualOnlyCommand) {
+        const assessment = assessVisualOnlyProductState(gorselProduct)
+        if (
+          !assessment.eligible
+          || assessment.productId !== gorselProductId
+          || assessment.stockNumber !== visualLockCommand.stockNumber
+          || visualLockCommand.ownerConfirmation !== 'OWNER_CONFIRMED_VISUAL_ONLY_V0_1'
+          || message.from?.id === undefined
+        ) throw new Error('VISUAL_ONLY_PRODUCT_IDENTITY_BINDING_FAILED')
+      }
       // v18 Gemini-only debug phase
       const jobDoc = await payload.create({
         collection: 'image-generation-jobs',
@@ -3711,6 +3771,38 @@ export async function POST(req: NextRequest) {
         },
       })
 
+      let visualOnlyBoundaryText: string | undefined
+      if (isVisualOnlyCommand && visualLockCommand.kind === 'accepted') {
+        if (
+          visualLockCommand.stockNumber !== String(gorselProduct.stockNumber ?? '').trim().toUpperCase()
+          || visualLockCommand.ownerConfirmation !== 'OWNER_CONFIRMED_VISUAL_ONLY_V0_1'
+          || message.from?.id === undefined
+        ) {
+          throw new Error('VISUAL_ONLY_PRODUCT_IDENTITY_BINDING_FAILED')
+        }
+        const manifest = createVisualOnlyV01BoundaryManifest({
+          product: gorselProduct,
+          productId: gorselProductId,
+          stockNumber: visualLockCommand.stockNumber,
+          productFamily: visualLockCommand.family,
+          jobId: String(jobDoc.id),
+          reviewChatId: String(chatId),
+          reviewerUserId: String(message.from.id),
+          nonce: randomBytes(16).toString('hex'),
+        })
+        visualOnlyBoundaryText = JSON.stringify(manifest)
+        await payload.update({
+          collection: 'image-generation-jobs',
+          id: jobDoc.id,
+          data: {
+            promptsUsed: JSON.stringify({
+              executionMode: VISUAL_ONLY_V01_MODE,
+              visualOnlyBoundary: manifest,
+            }),
+          },
+        })
+      }
+
       await payload.jobs.queue({
         task: 'image-gen',
         input: {
@@ -3720,6 +3812,10 @@ export async function POST(req: NextRequest) {
           ...(visualLockCommand.kind === 'accepted' ? {
             qualityProfile: visualLockCommand.qualityProfile,
             productFamily: visualLockCommand.family,
+            ...(visualOnlyBoundaryText ? {
+              executionMode: VISUAL_ONLY_V01_MODE,
+              visualOnlyBoundary: visualOnlyBoundaryText,
+            } : {}),
           } : {}),
         },
         overrideAccess: true,

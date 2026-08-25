@@ -268,7 +268,7 @@ const BOT_EVENT_TAXONOMY: Readonly<Record<string, BotEventTaxonomy>> = {
   'lead.new_alert_sent': 'neutral',
 }
 
-function classifyBotEvent(eventType: string, status: string): BotEventTaxonomy | 'unknown' {
+export function classifyVisualPilotBotEvent(eventType: string, status: string): BotEventTaxonomy | 'unknown' {
   const classification = BOT_EVENT_TAXONOMY[eventType]
   if (!classification) return 'unknown'
   if (classification === 'exposure' && (status === 'failed' || status === 'ignored')) return 'non_exposure'
@@ -1744,7 +1744,7 @@ export async function verifyVisualPilotTarget(
         reasons.push({ code: 'BOT_EVENT_STATE_AMBIGUOUS', kind: 'blocked' })
         continue
       }
-      const classification = classifyBotEvent(eventType, eventStatus)
+      const classification = classifyVisualPilotBotEvent(eventType, eventStatus)
       if (classification === 'unknown') {
         reasons.push({ code: 'BOT_EVENT_TAXONOMY_UNSUPPORTED', kind: 'unsupported' })
       } else if (classification === 'exposure' && (eventStatus === 'pending' || eventStatus === 'processed')) {

@@ -35,6 +35,7 @@ export type VisualOnlyV01ApprovalPlan = {
 }
 
 export type VisualOnlyV01AtomicAdapter<TTransaction = unknown> = {
+  authorizeCallback(callback: VisualOnlyV01CallbackContext): Promise<void>
   runAtomic<T>(operation: (transaction: TTransaction) => Promise<T>): Promise<T>
   claimJob(transaction: TTransaction, jobId: string): Promise<boolean>
   lockProduct(transaction: TTransaction, productId: number): Promise<boolean>
@@ -84,7 +85,7 @@ function relationshipArray(value: unknown, childKey?: string): Array<string | nu
   return result
 }
 
-function parseCallback(data: string): { action: VisualOnlyV01Action; jobId: string; token: string } | null {
+export function parseVisualOnlyV01Callback(data: string): { action: VisualOnlyV01Action; jobId: string; token: string } | null {
   const match = /^(voa|vor):([1-9]\d*):([0-9a-f]{20})$/.exec(data)
   if (!match) return null
   const numericJobId = Number(match[2])
@@ -181,7 +182,7 @@ export function planVisualOnlyV01Decision(params: {
   product: unknown
   media: unknown[]
 }): VisualOnlyV01ApprovalPlan {
-  const callback = parseCallback(params.callback.data)
+  const callback = parseVisualOnlyV01Callback(params.callback.data)
   if (!callback) throw new VisualOnlyV01BoundaryError('VISUAL_ONLY_CALLBACK_MALFORMED')
   if (!isRecord(params.job)) throw new VisualOnlyV01BoundaryError('VISUAL_ONLY_JOB_RECORD_MALFORMED')
   const evidence = parseVisualOnlyJobEvidence(params.job)
@@ -250,8 +251,9 @@ export async function executeVisualOnlyV01Decision<TTransaction>(params: {
   adapter: VisualOnlyV01AtomicAdapter<TTransaction>
   callback: VisualOnlyV01CallbackContext
 }): Promise<VisualOnlyV01ExecutionResult> {
-  const callback = parseCallback(params.callback.data)
+  const callback = parseVisualOnlyV01Callback(params.callback.data)
   if (!callback) throw new VisualOnlyV01BoundaryError('VISUAL_ONLY_CALLBACK_MALFORMED')
+  await params.adapter.authorizeCallback(params.callback)
   return params.adapter.runAtomic(async (transaction) => {
     if (!await params.adapter.claimJob(transaction, callback.jobId)) {
       throw new VisualOnlyV01BoundaryError('VISUAL_ONLY_CALLBACK_REPLAYED_OR_TERMINAL')

@@ -109,7 +109,14 @@ function gateway(value: Fixture): FreshVisualDiscoveryGateway {
   return {
     readProductPage: async (requestedPage, limit) => page(value.products, requestedPage, limit),
     readMediaPage: async (productId, requestedPage, limit) => page(value.mediaByProduct.get(productId) ?? [], requestedPage, limit),
-    readGeneratedGalleryOwnerPage: async (_mediaIds, requestedPage, limit) => page(value.galleryOwners, requestedPage, limit),
+    readGeneratedGalleryOwnerPage: async (mediaIds, requestedPage, limit) => {
+      const ids = new Set(mediaIds.map(String))
+      const owners = value.galleryOwners.filter((owner) =>
+        Array.isArray(owner.generativeGallery)
+        && owner.generativeGallery.some((entry) =>
+          entry && typeof entry === 'object' && ids.has(String((entry as RecordValue).image))))
+      return page(owners, requestedPage, limit)
+    },
     readImageJobPage: async (productId, requestedPage, limit) => page(value.jobsByProduct.get(productId) ?? [], requestedPage, limit),
     readQueueReceiptPage: async (productId, requestedPage, limit) => page(value.receiptsByProduct.get(productId) ?? [], requestedPage, limit),
     readBotEventPage: async (productId, requestedPage, limit) => page(value.eventsByProduct.get(productId) ?? [], requestedPage, limit),
@@ -231,6 +238,83 @@ async function main(): Promise<void> {
   for (const entry of rejectedCases) {
     const report = await run(entry.value, entry.read)
     assert.equal(report.readiness, 'NO_ELIGIBLE_FRESH_CANDIDATE', entry.name)
+  }
+
+  // Product 77 reviewer reproduction: removing historical generated Media from
+  // Product.images cannot manufacture freshness because the complete
+  // Product-scoped Media census still carries the lineage evidence.
+  {
+    const cleanOriginal = media(771, 77)
+    const reviewerScenario = fixture(
+      [product(77, [771])],
+      [
+        cleanOriginal,
+        media(772, 77, {
+          type: 'enhanced',
+          generationLineage: {
+            contractVersion: 'image-slot-contract/v1',
+            jobId: '7',
+            attemptId: 'iga_77777777-7777-4777-8777-777777777777',
+            slotId: 'side',
+          },
+        }),
+      ],
+    )
+    assert.equal((await run(reviewerScenario)).readiness, 'NO_ELIGIBLE_FRESH_CANDIDATE')
+
+    const exactCases: Array<{ name: string; media: RecordValue[]; owners?: RecordValue[]; readiness?: string }> = [
+      {
+        name: 'referenced clean original',
+        media: [cleanOriginal],
+        readiness: 'READY_FOR_EXACT_FRESH_GENERATION_AUTHORIZATION',
+      },
+      {
+        name: 'unreferenced original lineage',
+        media: [cleanOriginal, media(773, 77, { generationLineage: { jobId: '7' } })],
+      },
+      {
+        name: 'unreferenced generated Media',
+        media: [cleanOriginal, media(774, 77, { type: 'generated' })],
+      },
+      {
+        name: 'unreferenced generated ownership',
+        media: [cleanOriginal, media(775, 77)],
+        owners: [{ id: 900, generativeGallery: [{ image: 775 }] }],
+      },
+      {
+        name: 'malformed lineage',
+        media: [cleanOriginal, media(776, 77, { generationLineage: 'malformed' })],
+        readiness: 'CANDIDATE_DISCOVERY_UNSUPPORTED',
+      },
+      {
+        name: 'contradictory original provenance',
+        media: [cleanOriginal, media(777, 77, { generationProvenance: { jobId: '7' } })],
+        readiness: 'CANDIDATE_DISCOVERY_UNSUPPORTED',
+      },
+    ]
+    for (const entry of exactCases) {
+      const value = fixture([product(77, [771])], entry.media)
+      value.galleryOwners = entry.owners ?? []
+      const report = await run(value)
+      assert.equal(report.readiness, entry.readiness ?? 'NO_ELIGIBLE_FRESH_CANDIDATE', entry.name)
+      assert.notEqual(report.readiness, entry.name === 'referenced clean original'
+        ? 'NO_ELIGIBLE_FRESH_CANDIDATE'
+        : 'READY_FOR_EXACT_FRESH_GENERATION_AUTHORIZATION')
+    }
+  }
+
+  {
+    const value = fixture([product(78, [781])], [media(781, 78)])
+    value.mediaByProduct.set(78, [media(781, 78), media(881, 88)])
+    assert.equal((await run(value)).readiness, 'READY_FOR_EXACT_FRESH_GENERATION_AUTHORIZATION')
+  }
+
+  {
+    const value = fixture([product(79, [791])], [media(791, 79)])
+    value.mediaByProduct.set(79, [media(791, 79), media(792, 79, { product: {} })])
+    const report = await run(value)
+    assert.equal(report.readiness, 'CANDIDATE_DISCOVERY_UNSUPPORTED')
+    assert.deepEqual(report.reasonCodes, ['MEDIA_PRODUCT_ASSOCIATION_AMBIGUOUS'])
   }
 
   for (const surface of ['jobs', 'receipts', 'events', 'stories'] as const) {

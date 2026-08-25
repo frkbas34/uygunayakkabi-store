@@ -10,12 +10,14 @@ import {
 } from './visualPilotMediaEvidence'
 import { assessVisualOnlyProductState } from './visualOnlyV01'
 import { classifyVisualPilotBotEvent } from './visualPilotTargetVerifier'
+import { classifyProductScopedMediaGenerationState } from './mediaGenerationState'
 
 export const FRESH_VISUAL_DISCOVERY_VERSION = 'fresh-visual-product-discovery/v1' as const
 export const FRESH_VISUAL_DISCOVERY_PAGE_SIZE = 25
 export const FRESH_VISUAL_DISCOVERY_MAX_PAGES = 4
 export const FRESH_VISUAL_DISCOVERY_MAX_PRODUCTS = FRESH_VISUAL_DISCOVERY_PAGE_SIZE * FRESH_VISUAL_DISCOVERY_MAX_PAGES
 export const FRESH_VISUAL_DISCOVERY_MAX_SURFACE_PAGES = 20
+export const FRESH_VISUAL_DISCOVERY_MAX_ORIGINALS = 8
 export const FRESH_VISUAL_DISCOVERY_MAX_AGGREGATE_BYTES = 24_000_000
 export const FRESH_VISUAL_DISCOVERY_MAX_AGGREGATE_PIXELS = 100_000_000
 export const FRESH_VISUAL_DISCOVERY_OBSERVATION_TIMEOUT_MS = 45_000
@@ -229,12 +231,6 @@ async function readExhaustive(params: {
   throw new DiscoveryUnsupportedError(`${params.surface}_PAGINATION_TRUNCATED`)
 }
 
-function noGenerationLineage(media: RecordValue): boolean {
-  if (media.generationLineage === undefined || media.generationLineage === null) return true
-  if (!isRecord(media.generationLineage)) return false
-  return Object.values(media.generationLineage).every((value) => value === undefined || value === null || value === '')
-}
-
 function botEventsAreFresh(events: readonly RecordValue[], productId: number): boolean {
   for (const event of events) {
     if (String(relationshipId(event.product)) !== String(productId)) return false
@@ -294,9 +290,34 @@ async function assessCandidate(params: {
 
   const media = await surface('MEDIA', (page, limit) => params.dependencies.gateway.readMediaPage(productId, page, limit))
   const orderedImageIds = relationshipArray(params.product.images, 'image')
-  if (!orderedImageIds || orderedImageIds.length < 1) return null
+  if (!orderedImageIds || orderedImageIds.length < 1 || orderedImageIds.length > FRESH_VISUAL_DISCOVERY_MAX_ORIGINALS) return null
+  const productScopedMedia: RecordValue[] = []
+  let productScopedGenerationStatePresent = false
+  for (const entry of media) {
+    const associatedProductId = relationshipId(entry.product)
+    if (associatedProductId === null) {
+      throw new DiscoveryUnsupportedError('MEDIA_PRODUCT_ASSOCIATION_AMBIGUOUS')
+    }
+    if (String(associatedProductId) !== String(productId)) continue
+    productScopedMedia.push(entry)
+    const state = classifyProductScopedMediaGenerationState(entry)
+    if (state.state === 'unsupported') throw new DiscoveryUnsupportedError(state.code)
+    if (state.state === 'generation-state-present') productScopedGenerationStatePresent = true
+  }
+  const productScopedMediaIds = productScopedMedia.map((entry) => relationshipId(entry.id))
+  if (productScopedMediaIds.some((id) => id === null)) {
+    throw new DiscoveryUnsupportedError('MEDIA_RECORD_ID_MALFORMED')
+  }
+  const galleryOwnershipMediaIds = [...new Map(
+    [...productScopedMediaIds, ...orderedImageIds]
+      .map((id) => [String(id), id] as const),
+  ).values()] as Array<string | number>
   const galleryOwners = await surface('GENERATED_GALLERY_OWNER', (page, limit) =>
-    params.dependencies.gateway.readGeneratedGalleryOwnerPage(orderedImageIds, page, limit))
+    params.dependencies.gateway.readGeneratedGalleryOwnerPage(
+      galleryOwnershipMediaIds,
+      page,
+      limit,
+    ))
   const jobs = await surface('IMAGE_JOB', (page, limit) => params.dependencies.gateway.readImageJobPage(productId, page, limit))
   const receipts = await surface('QUEUE_RECEIPT', (page, limit) => params.dependencies.gateway.readQueueReceiptPage(productId, page, limit))
   const botEvents = await surface('BOT_EVENT', (page, limit) => params.dependencies.gateway.readBotEventPage(productId, page, limit))
@@ -317,9 +338,8 @@ async function assessCandidate(params: {
   if (galleryOwners.length > 0 || jobs.length > 0 || receipts.length > 0 || storyJobs.length > 0) return null
   if (!botEventsAreFresh(botEvents, productId)) return null
   if (jobs.some((job) => Array.isArray(job.generationAttempts) && job.generationAttempts.length > 0)) return null
-  if (media.some((entry) => entry.type === 'generated')) return null
-
-  const mediaById = new Map(media.map((entry) => [String(relationshipId(entry.id)), entry]))
+  if (productScopedGenerationStatePresent) return null
+  const mediaById = new Map(productScopedMedia.map((entry) => [String(relationshipId(entry.id)), entry]))
   const considered: RecordValue[] = []
   for (const imageId of orderedImageIds) {
     const entry = mediaById.get(String(imageId))
@@ -327,7 +347,7 @@ async function assessCandidate(params: {
       !entry
       || String(relationshipId(entry.product)) !== String(productId)
       || entry.type !== 'original'
-      || !noGenerationLineage(entry)
+      || classifyProductScopedMediaGenerationState(entry).state !== 'clean-original'
     ) return null
     considered.push(entry)
   }

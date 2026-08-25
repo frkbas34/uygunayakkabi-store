@@ -26,6 +26,7 @@ import {
 } from '@/lib/visualOnlyV01'
 import { executeVisualOnlyV01Decision } from '@/lib/visualOnlyApprovalV01'
 import { createVisualOnlyV01PayloadAdapter } from '@/lib/visualOnlyApprovalRuntime'
+import { executeAuthorizedVisualOnlyCallback } from '@/lib/visualOnlyCallbackRuntime'
 
 // ── Vercel function timeout ────────────────────────────────────────────────────
 // Image polling loop runs up to 120s. OpenAI gpt-image-1 typically 15-40s.
@@ -1001,6 +1002,59 @@ export async function POST(req: NextRequest) {
       const isGeoCb = GEO_CB_PREFIXES.some(p => cbData.startsWith(p))
       const isSharedCb = SHARED_CB_PREFIXES.some(p => cbData.startsWith(p))
 
+      // Visual-only decisions are mutation-capable and therefore use a stricter
+      // path than legacy callbacks: configured webhook secret, current nonempty
+      // operator allowlist, private Uygunops identity, persisted preview identity,
+      // atomic claim, and Product CAS all precede acknowledgement.
+      if (cbData.startsWith('voa:') || cbData.startsWith('vor:')) {
+        let visualPayload: Awaited<ReturnType<typeof getPayload>> | undefined
+        const getVisualPayload = async () => {
+          visualPayload ??= await getPayload()
+          return visualPayload
+        }
+        try {
+          await executeAuthorizedVisualOnlyCallback({
+            callbackQueryId: cbQueryId,
+            data: cbData,
+            chatId: cbChatId,
+            chatType: cbChatType,
+            userId: cbUserId,
+            botRole: botParam === 'geo' ? 'geo' : 'uygunops',
+            expectedWebhookSecret: expectedSecret,
+            providedWebhookSecret: secret,
+          }, {
+            loadAutomationSettings: async () => (await getVisualPayload()).findGlobal({
+              slug: 'automation-settings',
+            }),
+            executeDecision: async (callback) => executeVisualOnlyV01Decision({
+              adapter: createVisualOnlyV01PayloadAdapter(await getVisualPayload()),
+              callback,
+            }),
+            acknowledge: (result) => answerCallbackQuery(
+              cbQueryId,
+              result.action === 'approve'
+                ? '✅ Görsel paket onaylandı.'
+                : '❌ Görsel paket reddedildi.',
+            ),
+            notify: (result) => sendTelegramMessage(
+              cbChatId,
+              result.action === 'approve'
+                ? `✅ <b>${result.mediaCount} görsellik visual-only paket onaylandı.</b>\nÜrün taslak, pasif ve satılamaz durumda tutuldu.`
+                : '❌ <b>Visual-only paket reddedildi.</b>\nHiçbir aşağı-akış işlem başlatılmadı.',
+            ),
+          })
+          return NextResponse.json({ ok: true })
+        } catch (error) {
+          console.warn(
+            '[telegram/security] visual-only callback refused:',
+            error instanceof Error && /^VISUAL_ONLY_[A-Z0-9_]+$/.test(error.message)
+              ? error.message
+              : 'VISUAL_ONLY_CALLBACK_REFUSED',
+          )
+          return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+        }
+      }
+
       // Wrong-bot redirects (prefix-based, authoritative)
       // Shared callbacks skip this gate — they work on both bots
       if (botParam === 'geo' && isOpsCb && !isSharedCb) {
@@ -1285,33 +1339,6 @@ export async function POST(req: NextRequest) {
 
         // Unknown pi: action — silent ack to avoid Telegram retries
         await answerCallbackQuery(cbQueryId)
-        return NextResponse.json({ ok: true })
-      }
-
-      // Exact visual-only callbacks carry the persisted pack-binding token.
-      // They have no partial approval or regeneration form and run through a
-      // transaction-backed claim/lock boundary before changing visual state.
-      if (cbData.startsWith('voa:') || cbData.startsWith('vor:')) {
-        await answerCallbackQuery(cbQueryId, cbData.startsWith('voa:') ? '✅ Görsel paket doğrulanıyor...' : '❌ Görsel paket reddediliyor...')
-        after(async () => {
-          try {
-            if (cbUserId === undefined) throw new Error('VISUAL_ONLY_REVIEWER_ID_MISSING')
-            const visualPayload = await getPayload()
-            const result = await executeVisualOnlyV01Decision({
-              adapter: createVisualOnlyV01PayloadAdapter(visualPayload),
-              callback: { data: cbData, chatId: cbChatId, userId: cbUserId },
-            })
-            await sendTelegramMessage(
-              cbChatId,
-              result.action === 'approve'
-                ? `✅ <b>${result.mediaCount} görsellik visual-only paket onaylandı.</b>\nÜrün taslak, pasif ve satılamaz durumda tutuldu.`
-                : '❌ <b>Visual-only paket reddedildi.</b>\nHiçbir aşağı-akış işlem başlatılmadı.',
-            )
-          } catch (error) {
-            console.error('[telegram/webhook] visual-only callback failed:', error instanceof Error ? error.message : 'VISUAL_ONLY_CALLBACK_FAILED')
-            await sendTelegramMessage(cbChatId, '❌ Visual-only işlem kimliği veya güncel durum doğrulanamadı.')
-          }
-        })
         return NextResponse.json({ ok: true })
       }
 

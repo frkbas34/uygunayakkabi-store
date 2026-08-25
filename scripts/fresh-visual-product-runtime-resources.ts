@@ -143,7 +143,7 @@ export function createFreshVisualDiscoveryRuntimeGateway(
       }), page, limit)
     },
     async readGeneratedGalleryOwnerPage(mediaIds, page, limit) {
-      if (mediaIds.length < 1 || mediaIds.length > 8) throw new Error('generated_gallery_owner_boundary_invalid')
+      if (mediaIds.length < 1 || mediaIds.length > 508) throw new Error('generated_gallery_owner_boundary_invalid')
       return normalizeFreshVisualDiscoveryPage(await payload.find({
         collection: 'products',
         where: { 'generativeGallery.image': { in: [...mediaIds] } },

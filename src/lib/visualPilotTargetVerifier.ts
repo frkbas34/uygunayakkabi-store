@@ -28,6 +28,7 @@ import {
   readVisualPilotMediaEvidence,
   type VisualPilotMediaReadDependencies,
 } from './visualPilotMediaEvidence'
+import { hasNonEmptyMediaGenerationLineage } from './mediaGenerationState'
 
 export const VISUAL_PILOT_TARGET_VERIFIER_VERSION = 'visual-pilot-target-verifier/v1' as const
 export const VISUAL_PILOT_TARGET_PAGE_SIZE = 50
@@ -312,13 +313,6 @@ function relationArray(value: unknown, nestedKey?: string): (string | number)[] 
     ids.push(id)
   }
   return ids
-}
-
-function hasGeneratedLineage(media: RecordValue): boolean {
-  if (!isRecord(media.generationLineage)) return false
-  const lineage = media.generationLineage
-  return ['contractVersion', 'jobId', 'attemptId', 'slotId']
-    .some((key) => lineage[key] !== undefined && lineage[key] !== null && lineage[key] !== '')
 }
 
 function sortedReasons(reasons: VisualPilotTargetReason[]): VisualPilotTargetReason[] {
@@ -1260,7 +1254,7 @@ export async function verifyVisualPilotTarget(
       }
       const classifiedOriginal = rawMedia.type === 'original'
         && sameId(rawMedia.product, productId)
-        && !hasGeneratedLineage(rawMedia)
+        && !hasNonEmptyMediaGenerationLineage(rawMedia)
       if (!classifiedOriginal) {
         reasons.push({ code: 'ORIGINAL_SOURCE_CLASSIFICATION_AMBIGUOUS', kind: 'blocked' })
         if (originalsDistinct === 'pass') originalsDistinct = 'unknown'

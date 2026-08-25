@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
+import { getTableName } from 'drizzle-orm'
+import { boolean, integer, jsonb, text, timestamp } from 'drizzle-orm/pg-core'
 
 import type { PayloadRequest } from 'payload'
 
@@ -12,7 +14,13 @@ import {
   VISUAL_ONLY_PROVISIONING_REUSE_UNQUALIFIED,
   type VisualOnlyProvisioningAdapter,
   type VisualOnlyProvisioningInput,
+  type VisualOnlyQueueReceiptCensusIdentity,
+  type VisualOnlyQueueReceiptCensusPage,
 } from './visualOnlyProvisioning'
+import {
+  createVisualOnlyV01PayloadProvisioningAdapter,
+  resolveVisualOnlyQueueReceiptTableAuthority,
+} from './visualOnlyProvisioningRuntime'
 
 type RecordValue = Record<string, unknown>
 type DurableState = {
@@ -37,6 +45,11 @@ type Fault =
   | 'commit'
   | 'installed-suppressed-commit'
   | 'post-commit-read'
+type CensusTransform = (
+  page: VisualOnlyQueueReceiptCensusPage,
+  request: Request,
+  identity: VisualOnlyQueueReceiptCensusIdentity,
+) => VisualOnlyQueueReceiptCensusPage
 
 function clone<T>(value: T): T {
   return structuredClone(value)
@@ -130,6 +143,7 @@ function fixture(options: { barrier?: Barrier; fault?: Fault; unrelatedQueue?: b
   }
   const mutex = new Mutex()
   let fault = options.fault
+  let censusTransform: CensusTransform | undefined
   const calls = {
     transactions: 0,
     freshRequests: 0,
@@ -141,7 +155,15 @@ function fixture(options: { barrier?: Barrier; fault?: Fault; unrelatedQueue?: b
     productUpdates: 0,
     runners: 0,
     provider: 0,
+    acknowledgements: 0,
+    downstream: 0,
   }
+  const censusObservations: Array<{
+    kind: Request['kind']
+    page: number
+    totalDocs: number
+    receiptCount: number
+  }> = []
   const requestLog: Array<{ operation: string; request: Request }> = []
   const consumeFault = (candidate: Fault): boolean => {
     if (fault !== candidate) return false
@@ -261,11 +283,49 @@ function fixture(options: { barrier?: Barrier; fault?: Fault; unrelatedQueue?: b
       current.queueJobs.push(receipt)
       return clone(receipt)
     },
-    async readQueueReceipt(request, receiptId) {
-      record('readQueueReceipt', request)
+    async readQueueReceiptCensusPage(request, identity, page, limit) {
+      record('readQueueReceiptCensusPage', request)
       calls.receiptReads += 1
       if (consumeFault('receipt')) throw new Error('INJECTED_RECEIPT_FAILURE')
-      return clone(readState(request).queueJobs.find((entry) => String(entry.id) === receiptId) ?? null)
+      const matching = readState(request).queueJobs
+        .filter((entry) => (
+          entry.taskSlug === identity.taskSlug
+          && entry.input !== null
+          && typeof entry.input === 'object'
+          && !Array.isArray(entry.input)
+          && String((entry.input as RecordValue).jobId) === identity.imageJobId
+        ))
+        .map((entry, index) => ({ entry, index }))
+        .sort((left, right) => {
+          const leftId = Number(left.entry.id)
+          const rightId = Number(right.entry.id)
+          if (Number.isSafeInteger(leftId) && Number.isSafeInteger(rightId)) return leftId - rightId
+          if (Number.isSafeInteger(leftId)) return -1
+          if (Number.isSafeInteger(rightId)) return 1
+          return left.index - right.index
+        })
+        .map(({ entry }) => entry)
+      const totalDocs = matching.length
+      const totalPages = totalDocs === 0 ? 0 : Math.ceil(totalDocs / limit)
+      const start = (page - 1) * limit
+      const result: VisualOnlyQueueReceiptCensusPage = {
+        docs: clone(matching.slice(start, start + limit)),
+        totalDocs,
+        page,
+        totalPages,
+        hasNextPage: page < totalPages,
+        limit,
+      }
+      const observed = censusTransform
+        ? censusTransform(clone(result), request, clone(identity))
+        : result
+      censusObservations.push({
+        kind: request.kind,
+        page: observed.page,
+        totalDocs: observed.totalDocs,
+        receiptCount: observed.docs.length,
+      })
+      return clone(observed)
     },
     async updateProduct(request, productId, data) {
       record('updateProduct', request)
@@ -279,8 +339,12 @@ function fixture(options: { barrier?: Barrier; fault?: Fault; unrelatedQueue?: b
   return {
     adapter,
     calls,
+    censusObservations,
     mutate(operation: (state: DurableState) => void) {
       operation(durable)
+    },
+    setCensusTransform(transform: CensusTransform | undefined) {
+      censusTransform = transform
     },
     requestLog,
     snapshot: () => clone(durable),
@@ -531,6 +595,222 @@ async function testForeignReceiptReuse(): Promise<void> {
   assert.equal(runtime.calls.queues, 1)
 }
 
+async function testGovernedReceiptIdentityFields(): Promise<void> {
+  const mutations: Array<(receipt: RecordValue) => void> = [
+    (receipt) => { receipt.taskSlug = 'foreign-task' },
+    (receipt) => { (receipt.input as RecordValue).productId = 88 },
+    (receipt) => { (receipt.input as RecordValue).jobId = '2' },
+    (receipt) => { (receipt.input as RecordValue).stage = 'retry' },
+    (receipt) => { (receipt.input as RecordValue).provider = 'foreign-provider' },
+    (receipt) => { (receipt.input as RecordValue).qualityProfile = 'foreign-profile' },
+    (receipt) => { (receipt.input as RecordValue).productFamily = 'loafer' },
+    (receipt) => { (receipt.input as RecordValue).executionMode = 'foreign-mode' },
+    (receipt) => { (receipt.input as RecordValue).visualOnlyProvisioningVersion = 'foreign-version' },
+    (receipt) => { (receipt.input as RecordValue).visualOnlyDeliveryDigest = 'b'.repeat(64) },
+    (receipt) => { (receipt.input as RecordValue).visualOnlyManifestDigest = 'c'.repeat(64) },
+    (receipt) => { (receipt.input as RecordValue).unexpected = true },
+    (receipt) => {
+      const queueInput = receipt.input as RecordValue
+      const boundary = JSON.parse(String(queueInput.visualOnlyBoundary)) as RecordValue
+      boundary.nonce = 'b'.repeat(32)
+      queueInput.visualOnlyBoundary = JSON.stringify(boundary)
+    },
+    (receipt) => {
+      const queueInput = receipt.input as RecordValue
+      const boundary = JSON.parse(String(queueInput.visualOnlyBoundary)) as RecordValue
+      boundary.stockNumber = 'SN9999'
+      queueInput.visualOnlyBoundary = JSON.stringify(boundary)
+    },
+  ]
+  for (const mutateReceipt of mutations) {
+    const runtime = fixture()
+    await provisionVisualOnlyV01({ adapter: runtime.adapter, input: input() })
+    runtime.mutate((state) => { mutateReceipt(state.queueJobs[0]!) })
+    await assert.rejects(
+      () => provisionVisualOnlyV01({ adapter: runtime.adapter, input: input() }),
+      new RegExp(VISUAL_ONLY_PROVISIONING_REUSE_UNQUALIFIED),
+    )
+    assert.equal(runtime.calls.creates, 1)
+    assert.equal(runtime.calls.queues, 1)
+  }
+}
+
+async function testDuplicatePayloadReceiptReuse(): Promise<void> {
+  const runtime = fixture()
+  const first = await provisionVisualOnlyV01({ adapter: runtime.adapter, input: input() })
+  assert.equal(first.queueReceiptId, '1001')
+  runtime.mutate((state) => {
+    state.queueJobs.push({ ...clone(state.queueJobs[0]!), id: 1002 })
+  })
+  const before = clone(runtime.calls)
+  const observationStart = runtime.censusObservations.length
+  let acknowledgements = 0
+  let publicOutput = ''
+  try {
+    await provisionVisualOnlyV01({ adapter: runtime.adapter, input: input() })
+    acknowledgements += 1
+  } catch (error) {
+    publicOutput = error instanceof Error ? error.message : String(error)
+  }
+  assert.equal(publicOutput, VISUAL_ONLY_PROVISIONING_REUSE_UNQUALIFIED)
+  assert.doesNotMatch(publicOutput, /1001|1002|SN0077|[0-9a-f]{32,}/)
+  assert.ok(runtime.censusObservations.slice(observationStart).some((observation) => (
+    observation.kind === 'transaction'
+    && observation.totalDocs === 2
+    && observation.receiptCount === 2
+  )))
+  assert.equal(acknowledgements, 0)
+  assert.deepEqual({
+    creates: runtime.calls.creates - before.creates,
+    imageJobUpdates: runtime.calls.imageJobUpdates - before.imageJobUpdates,
+    productUpdates: runtime.calls.productUpdates - before.productUpdates,
+    queues: runtime.calls.queues - before.queues,
+    runners: runtime.calls.runners - before.runners,
+    provider: runtime.calls.provider - before.provider,
+    downstream: runtime.calls.downstream - before.downstream,
+  }, {
+    creates: 0,
+    imageJobUpdates: 0,
+    productUpdates: 0,
+    queues: 0,
+    runners: 0,
+    provider: 0,
+    downstream: 0,
+  })
+}
+
+async function testCorrectAndForeignReceiptIsAmbiguous(): Promise<void> {
+  const runtime = fixture()
+  await provisionVisualOnlyV01({ adapter: runtime.adapter, input: input() })
+  runtime.mutate((state) => {
+    const foreign = { ...clone(state.queueJobs[0]!), id: 1002 }
+    ;(foreign.input as RecordValue).productId = 88
+    state.queueJobs.push(foreign)
+  })
+  await assert.rejects(
+    () => provisionVisualOnlyV01({ adapter: runtime.adapter, input: input() }),
+    new RegExp(VISUAL_ONLY_PROVISIONING_REUSE_UNQUALIFIED),
+  )
+  assert.equal(runtime.calls.creates, 1)
+  assert.equal(runtime.calls.queues, 1)
+}
+
+async function testUnassociatedForeignReceiptIsExcluded(): Promise<void> {
+  const runtime = fixture()
+  const first = await provisionVisualOnlyV01({ adapter: runtime.adapter, input: input() })
+  runtime.mutate((state) => {
+    const foreign = { ...clone(state.queueJobs[0]!), id: 1002 }
+    ;(foreign.input as RecordValue).jobId = '999'
+    state.queueJobs.push(foreign)
+  })
+  const before = clone(runtime.calls)
+  const reused = await provisionVisualOnlyV01({ adapter: runtime.adapter, input: input() })
+  assert.deepEqual(reused, {
+    kind: 'reused',
+    jobId: first.jobId,
+    queueReceiptId: first.queueReceiptId,
+  })
+  assert.equal(runtime.calls.creates, before.creates)
+  assert.equal(runtime.calls.imageJobUpdates, before.imageJobUpdates)
+  assert.equal(runtime.calls.productUpdates, before.productUpdates)
+  assert.equal(runtime.calls.queues, before.queues)
+}
+
+async function testReceiptIdMustEqualBinding(): Promise<void> {
+  const runtime = fixture()
+  await provisionVisualOnlyV01({ adapter: runtime.adapter, input: input() })
+  runtime.mutate((state) => {
+    const prompts = JSON.parse(String(state.imageJobs[0]?.promptsUsed)) as RecordValue
+    ;(prompts.visualOnlyProvisioning as RecordValue).queueReceiptId = '1002'
+    state.imageJobs[0]!.promptsUsed = JSON.stringify(prompts)
+  })
+  await assert.rejects(
+    () => provisionVisualOnlyV01({ adapter: runtime.adapter, input: input() }),
+    new RegExp(VISUAL_ONLY_PROVISIONING_REUSE_UNQUALIFIED),
+  )
+  assert.equal(runtime.calls.creates, 1)
+  assert.equal(runtime.calls.queues, 1)
+}
+
+async function testMalformedAndDuplicateReceiptIdentity(): Promise<void> {
+  for (const mutateReceipt of [
+    (receipt: RecordValue) => { receipt.id = 'malformed' },
+    (receipt: RecordValue) => { receipt.id = 1001 },
+  ]) {
+    const runtime = fixture()
+    await provisionVisualOnlyV01({ adapter: runtime.adapter, input: input() })
+    runtime.mutate((state) => {
+      const duplicate = clone(state.queueJobs[0]!)
+      mutateReceipt(duplicate)
+      state.queueJobs.push(duplicate)
+    })
+    await assert.rejects(
+      () => provisionVisualOnlyV01({ adapter: runtime.adapter, input: input() }),
+      new RegExp(VISUAL_ONLY_PROVISIONING_REUSE_UNQUALIFIED),
+    )
+    assert.equal(runtime.calls.creates, 1)
+    assert.equal(runtime.calls.queues, 1)
+  }
+}
+
+async function testTransactionAndFreshCensusDisagreement(): Promise<void> {
+  const runtime = fixture()
+  await provisionVisualOnlyV01({ adapter: runtime.adapter, input: input() })
+  runtime.setCensusTransform((page, request) => {
+    if (request.kind !== 'post-commit' || page.page !== 1 || page.docs.length !== 1) return page
+    return {
+      ...page,
+      docs: [page.docs[0], { ...clone(page.docs[0] as RecordValue), id: 1002 }],
+      totalDocs: 2,
+      totalPages: 1,
+      hasNextPage: false,
+    }
+  })
+  const before = clone(runtime.calls)
+  await assert.rejects(
+    () => provisionVisualOnlyV01({ adapter: runtime.adapter, input: input() }),
+    new RegExp(VISUAL_ONLY_PROVISIONING_REUSE_UNQUALIFIED),
+  )
+  assert.equal(runtime.calls.creates, before.creates)
+  assert.equal(runtime.calls.imageJobUpdates, before.imageJobUpdates)
+  assert.equal(runtime.calls.productUpdates, before.productUpdates)
+  assert.equal(runtime.calls.queues, before.queues)
+}
+
+async function testCensusOverflowAndIncompletePagination(): Promise<void> {
+  {
+    const runtime = fixture()
+    await provisionVisualOnlyV01({ adapter: runtime.adapter, input: input() })
+    runtime.mutate((state) => {
+      for (let id = 1002; id <= 1005; id += 1) {
+        state.queueJobs.push({ ...clone(state.queueJobs[0]!), id })
+      }
+    })
+    await assert.rejects(
+      () => provisionVisualOnlyV01({ adapter: runtime.adapter, input: input() }),
+      new RegExp(VISUAL_ONLY_PROVISIONING_REUSE_UNQUALIFIED),
+    )
+  }
+  {
+    const runtime = fixture()
+    await provisionVisualOnlyV01({ adapter: runtime.adapter, input: input() })
+    runtime.setCensusTransform((page) => {
+      if (page.page !== 1 || page.docs.length !== 1) return page
+      return {
+        ...page,
+        docs: [page.docs[0], { ...clone(page.docs[0] as RecordValue), id: 1002 }],
+        totalDocs: 3,
+        totalPages: 2,
+        hasNextPage: true,
+      }
+    })
+    await assert.rejects(
+      () => provisionVisualOnlyV01({ adapter: runtime.adapter, input: input() }),
+      new RegExp(VISUAL_ONLY_PROVISIONING_REUSE_UNQUALIFIED),
+    )
+  }
+}
+
 async function testDuplicatedDeliveryEvidence(): Promise<void> {
   const runtime = fixture()
   await provisionVisualOnlyV01({ adapter: runtime.adapter, input: input() })
@@ -566,12 +846,12 @@ async function testRequestIdentity(): Promise<void> {
     'createImageJob',
     'updateImageJob',
     'queueImageJob',
-    'readQueueReceipt',
+    'readQueueReceiptCensusPage',
     'updateProduct',
   ]) assert.ok(transactionEntries.some((entry) => entry.operation === operation), operation)
   assert.deepEqual(
     [...new Set(postCommitEntries.map((entry) => entry.operation))].sort(),
-    ['readImageJob', 'readProduct', 'readQueueReceipt'],
+    ['readImageJob', 'readProduct', 'readQueueReceiptCensusPage'],
   )
 }
 
@@ -704,6 +984,157 @@ async function testInstalledPayloadQueuePropagation(): Promise<void> {
   assert.deepEqual(receipt.input, { jobId: '1', productId: 77 })
 }
 
+async function testInstalledPayloadReceiptCensusAuthority(): Promise<void> {
+  const [{ createTableName }, { postgresAdapter }, { getDefaultJobsCollection }] = await Promise.all([
+    import('@payloadcms/drizzle'),
+    import('@payloadcms/db-postgres'),
+    import('../../node_modules/payload/dist/queues/config/collection.js'),
+  ])
+  const jobsCollection = getDefaultJobsCollection({
+    enableConcurrencyControl: false,
+    tasks: [{ slug: 'image-gen' }],
+    workflows: [],
+  } as never)
+  const payloadRuntime: RecordValue = {
+    collections: { 'payload-jobs': { config: jobsCollection } },
+    jobs: { queue: async () => null },
+    find: async () => ({ docs: [] }),
+    findByID: async () => null,
+    create: async () => null,
+    update: async () => null,
+  }
+  const installedAdapter = postgresAdapter({ pool: {}, push: false }).init({
+    payload: payloadRuntime as never,
+  })
+  payloadRuntime.db = installedAdapter
+  const tableName = createTableName({ adapter: installedAdapter, config: jobsCollection })
+  installedAdapter.tables[tableName] = installedAdapter.pgSchema.table(tableName, {
+    id: integer('id'),
+    taskSlug: text('task_slug'),
+    input: jsonb('input'),
+    processing: boolean('processing'),
+    completedAt: timestamp('completed_at'),
+    hasError: boolean('has_error'),
+    waitUntil: timestamp('wait_until'),
+  })
+  assert.equal(tableName, 'payload_jobs')
+  assert.equal(getTableName(installedAdapter.tables[tableName]!), 'payload_jobs')
+  assert.equal(
+    resolveVisualOnlyQueueReceiptTableAuthority(payloadRuntime),
+    installedAdapter.tables.payload_jobs,
+  )
+
+  const result = {
+    rows: [{
+      total_docs: '1',
+      docs: [{
+        id: 1001,
+        taskSlug: 'image-gen',
+        input: { jobId: '1' },
+        processing: false,
+        completedAt: null,
+        hasError: false,
+        waitUntil: null,
+      }],
+    }],
+  }
+  const queryCalls = { transaction: 0, fresh: 0 }
+  installedAdapter.sessions['offline-transaction'] = {
+    db: {
+      execute: async () => {
+        queryCalls.transaction += 1
+        return result
+      },
+    } as never,
+    reject: async () => undefined,
+    resolve: async () => undefined,
+  }
+  ;(installedAdapter as unknown as RecordValue).drizzle = {
+    execute: async () => {
+      queryCalls.fresh += 1
+      return result
+    },
+  }
+  const adapter = createVisualOnlyV01PayloadProvisioningAdapter(payloadRuntime as never)
+  const identity: VisualOnlyQueueReceiptCensusIdentity = {
+    taskSlug: 'image-gen',
+    productId: 77,
+    imageJobId: '1',
+    provisioningVersion: 'visual-only-provisioning/v1',
+    deliveryDigest: 'd'.repeat(64),
+    manifestDigest: 'e'.repeat(64),
+    manifestNonce: 'a'.repeat(32),
+    stockNumber: 'SN0077',
+  }
+  const transactionPage = await adapter.readQueueReceiptCensusPage(
+    { transactionID: Promise.resolve('offline-transaction') } as never,
+    identity,
+    1,
+    2,
+  )
+  const freshPage = await adapter.readQueueReceiptCensusPage(
+    { transactionID: undefined } as never,
+    identity,
+    1,
+    2,
+  )
+  assert.deepEqual(transactionPage, freshPage)
+  assert.equal(transactionPage.totalDocs, 1)
+  assert.equal(transactionPage.docs.length, 1)
+  assert.deepEqual(queryCalls, { transaction: 1, fresh: 1 })
+  await assert.rejects(
+    () => adapter.readQueueReceiptCensusPage(
+      { transactionID: undefined } as never,
+      identity,
+      3,
+      2,
+    ),
+    /VISUAL_ONLY_PROVISIONING_QUEUE_CENSUS_UNAVAILABLE/,
+  )
+  await assert.rejects(
+    () => adapter.readQueueReceiptCensusPage(
+      { transactionID: undefined } as never,
+      identity,
+      1,
+      3,
+    ),
+    /VISUAL_ONLY_PROVISIONING_QUEUE_CENSUS_UNAVAILABLE/,
+  )
+  assert.deepEqual(queryCalls, { transaction: 1, fresh: 1 })
+
+  const cloneAuthority = (): RecordValue => ({
+    ...payloadRuntime,
+    collections: { ...payloadRuntime.collections as RecordValue },
+    db: {
+      ...installedAdapter,
+      tableNameMap: new Map(installedAdapter.tableNameMap),
+      tables: { ...installedAdapter.tables },
+    },
+  })
+  const missingMap = cloneAuthority()
+  delete (missingMap.db as RecordValue).tableNameMap
+  assert.throws(
+    () => resolveVisualOnlyQueueReceiptTableAuthority(missingMap),
+    /VISUAL_ONLY_PROVISIONING_QUEUE_CENSUS_UNAVAILABLE/,
+  )
+  const ambiguous = cloneAuthority()
+  ;((ambiguous.db as RecordValue).tableNameMap as Map<string, string>)
+    .set('foreign_jobs', 'payload_jobs')
+  assert.throws(
+    () => resolveVisualOnlyQueueReceiptTableAuthority(ambiguous),
+    /VISUAL_ONLY_PROVISIONING_QUEUE_CENSUS_UNAVAILABLE/,
+  )
+  const missingColumn = cloneAuthority()
+  ;((missingColumn.db as RecordValue).tables as Record<string, unknown>).payload_jobs = {
+    id: installedAdapter.tables.payload_jobs!.id,
+    taskSlug: installedAdapter.tables.payload_jobs!.taskSlug,
+  }
+  assert.throws(
+    () => resolveVisualOnlyQueueReceiptTableAuthority(missingColumn),
+    /VISUAL_ONLY_PROVISIONING_QUEUE_CENSUS_UNAVAILABLE/,
+  )
+}
+
 async function main(): Promise<void> {
   const digest = deliveryDigest()
   assert.match(digest, /^[0-9a-f]{64}$/)
@@ -717,7 +1148,7 @@ async function main(): Promise<void> {
   await testRollbackAndRetry('create', /INJECTED_JOB_CREATE_FAILURE/)
   await testRollbackAndRetry('manifest', /INJECTED_MANIFEST_FAILURE/)
   await testRollbackAndRetry('queue', /INJECTED_QUEUE_FAILURE/)
-  await testRollbackAndRetry('receipt', /INJECTED_RECEIPT_FAILURE/)
+  await testRollbackAndRetry('receipt', /VISUAL_ONLY_PROVISIONING_QUEUE_RECEIPT_INVALID/)
   await testRollbackAndRetry('product', /INJECTED_PRODUCT_UPDATE_FAILURE/)
   await testCommitRollback()
   await testInstalledSuppressedCommitAndCleanRetry()
@@ -726,11 +1157,20 @@ async function main(): Promise<void> {
   await testUndecodableRawIdempotencyBinding()
   await testMissingAndTerminalReceiptReuse()
   await testForeignReceiptReuse()
+  await testGovernedReceiptIdentityFields()
+  await testDuplicatePayloadReceiptReuse()
+  await testCorrectAndForeignReceiptIsAmbiguous()
+  await testUnassociatedForeignReceiptIsExcluded()
+  await testReceiptIdMustEqualBinding()
+  await testMalformedAndDuplicateReceiptIdentity()
+  await testTransactionAndFreshCensusDisagreement()
+  await testCensusOverflowAndIncompletePagination()
   await testDuplicatedDeliveryEvidence()
   await testRequestIdentity()
   await testUnrelatedRunnableJobIsNotClaimed()
   await testActualTaskExecutionIdentityMismatch()
   await testInstalledPayloadQueuePropagation()
+  await testInstalledPayloadReceiptCensusAuthority()
 
   const routeSource = readFileSync(new URL('../app/api/telegram/route.ts', import.meta.url), 'utf8')
   const runtimeSource = readFileSync(new URL('./visualOnlyProvisioningRuntime.ts', import.meta.url), 'utf8')
@@ -744,7 +1184,8 @@ async function main(): Promise<void> {
   assert.match(runtimeSource, /runtime\.jobs\.queue\(\{[\s\S]*?req,/)
   assert.match(runtimeSource, /createLocalReq\(\{\}, payload\)/)
   assert.match(runtimeSource, /Boolean\(await req\.transactionID\)/)
-  assert.match(runtimeSource, /collection: 'payload-jobs'/)
+  assert.match(runtimeSource, /QUEUE_RECEIPT_COLLECTION_SLUG = 'payload-jobs'/)
+  assert.match(runtimeSource, /ORDER BY id ASC/)
 
   console.log('visualOnlyProvisioning: ALL OK')
 }

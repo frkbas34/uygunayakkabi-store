@@ -18,6 +18,9 @@ export const VISUAL_ONLY_PROVISIONING_POST_COMMIT_UNQUALIFIED = 'VISUAL_ONLY_PRO
 
 const SHA256_PATTERN = /^[0-9a-f]{64}$/
 const ACTIVE_IMAGE_JOB_STATUSES = new Set(['queued', 'generating', 'preview', 'review'])
+const QUEUE_RECEIPT_CENSUS_PAGE_LIMIT = 2
+const QUEUE_RECEIPT_CENSUS_MAX_PAGES = 2
+const QUEUE_RECEIPT_CENSUS_MAX_RECEIPTS = QUEUE_RECEIPT_CENSUS_PAGE_LIMIT * QUEUE_RECEIPT_CENSUS_MAX_PAGES
 
 type RecordValue = Record<string, unknown>
 
@@ -57,6 +60,26 @@ export type VisualOnlyProvisioningResult = {
   queueReceiptId: string | null
 }
 
+export type VisualOnlyQueueReceiptCensusIdentity = {
+  taskSlug: 'image-gen'
+  productId: number
+  imageJobId: string
+  provisioningVersion: typeof VISUAL_ONLY_PROVISIONING_VERSION
+  deliveryDigest: string
+  manifestDigest: string
+  manifestNonce: string
+  stockNumber: string
+}
+
+export type VisualOnlyQueueReceiptCensusPage = {
+  docs: unknown[]
+  totalDocs: number
+  page: number
+  totalPages: number
+  hasNextPage: boolean
+  limit: number
+}
+
 export type VisualOnlyProvisioningAdapter<TTransaction> = {
   runAtomic<T>(operation: (transaction: TTransaction) => Promise<T>): Promise<T>
   createPostCommitRequest(): Promise<TTransaction>
@@ -68,7 +91,12 @@ export type VisualOnlyProvisioningAdapter<TTransaction> = {
   updateImageJob(transaction: TTransaction, jobId: string, data: RecordValue): Promise<void>
   readImageJob(transaction: TTransaction, jobId: string): Promise<unknown>
   queueImageJob(transaction: TTransaction, input: RecordValue): Promise<unknown>
-  readQueueReceipt(transaction: TTransaction, receiptId: string): Promise<unknown>
+  readQueueReceiptCensusPage(
+    transaction: TTransaction,
+    identity: VisualOnlyQueueReceiptCensusIdentity,
+    page: number,
+    limit: number,
+  ): Promise<VisualOnlyQueueReceiptCensusPage>
   updateProduct(transaction: TTransaction, productId: number, data: RecordValue): Promise<void>
 }
 
@@ -205,6 +233,26 @@ type ProvisioningGraphExpectation = {
   queueReceiptId: string
 }
 
+function censusIdentity(expected: ProvisioningGraphExpectation): VisualOnlyQueueReceiptCensusIdentity {
+  return {
+    taskSlug: 'image-gen',
+    productId: expected.productId,
+    imageJobId: expected.imageJobId,
+    provisioningVersion: VISUAL_ONLY_PROVISIONING_VERSION,
+    deliveryDigest: expected.deliveryDigest,
+    manifestDigest: expected.manifest.digest,
+    manifestNonce: expected.manifest.nonce,
+    stockNumber: expected.manifest.stockNumber,
+  }
+}
+
+function hasExactKeys(value: RecordValue, expected: readonly string[]): boolean {
+  const actual = Object.keys(value).sort()
+  const sortedExpected = [...expected].sort()
+  return actual.length === sortedExpected.length
+    && actual.every((key, index) => key === sortedExpected[index])
+}
+
 function validQueueReceipt(value: unknown, expected: ProvisioningGraphExpectation): boolean {
   if (
     !isPlainRecord(value)
@@ -214,10 +262,27 @@ function validQueueReceipt(value: unknown, expected: ProvisioningGraphExpectatio
     || value.hasError !== false
     || (value.completedAt !== undefined && value.completedAt !== null)
     || !isPlainRecord(value.input)
+    || !hasExactKeys(value.input, [
+      'executionMode',
+      'jobId',
+      'productFamily',
+      'productId',
+      'provider',
+      'qualityProfile',
+      'stage',
+      'visualOnlyBoundary',
+      'visualOnlyDeliveryDigest',
+      'visualOnlyManifestDigest',
+      'visualOnlyProvisioningVersion',
+    ])
   ) return false
   const boundary = parseVisualOnlyV01BoundaryText(value.input.visualOnlyBoundary)
   return relationshipId(value.input.jobId) === expected.imageJobId
     && relationshipProductId(value.input.productId) === expected.productId
+    && value.input.stage === 'standard'
+    && value.input.provider === 'gemini-pro'
+    && value.input.qualityProfile === 'visual-lock-v0.1'
+    && value.input.productFamily === expected.manifest.productFamily
     && value.input.executionMode === VISUAL_ONLY_V01_MODE
     && value.input.visualOnlyProvisioningVersion === VISUAL_ONLY_PROVISIONING_VERSION
     && value.input.visualOnlyDeliveryDigest === expected.deliveryDigest
@@ -225,6 +290,80 @@ function validQueueReceipt(value: unknown, expected: ProvisioningGraphExpectatio
     && boundary?.digest === expected.manifest.digest
     && boundary.jobId === expected.imageJobId
     && boundary.productId === expected.productId
+    && boundary.nonce === expected.manifest.nonce
+    && boundary.stockNumber === expected.manifest.stockNumber
+}
+
+async function readSingleQueueReceiptFromCensus<TTransaction>(params: {
+  adapter: VisualOnlyProvisioningAdapter<TTransaction>
+  request: TTransaction
+  expected: ProvisioningGraphExpectation
+  failureCode: string
+}): Promise<unknown> {
+  const docs: unknown[] = []
+  const seenIds = new Set<string>()
+  let expectedTotalDocs: number | null = null
+  let lastId = 0
+
+  for (let page = 1; page <= QUEUE_RECEIPT_CENSUS_MAX_PAGES; page += 1) {
+    let result: VisualOnlyQueueReceiptCensusPage
+    try {
+      result = await params.adapter.readQueueReceiptCensusPage(
+        params.request,
+        censusIdentity(params.expected),
+        page,
+        QUEUE_RECEIPT_CENSUS_PAGE_LIMIT,
+      )
+    } catch {
+      throw new Error(params.failureCode)
+    }
+    if (!result || typeof result !== 'object' || Array.isArray(result)) {
+      throw new Error(params.failureCode)
+    }
+    const totalPages = result.totalDocs === 0
+      ? 0
+      : Math.ceil(result.totalDocs / QUEUE_RECEIPT_CENSUS_PAGE_LIMIT)
+    const offset = (page - 1) * QUEUE_RECEIPT_CENSUS_PAGE_LIMIT
+    const expectedDocs = Math.max(
+      0,
+      Math.min(QUEUE_RECEIPT_CENSUS_PAGE_LIMIT, result.totalDocs - offset),
+    )
+    if (
+      !Array.isArray(result.docs)
+      || !Number.isSafeInteger(result.totalDocs) || result.totalDocs < 0
+      || result.totalDocs > QUEUE_RECEIPT_CENSUS_MAX_RECEIPTS
+      || result.page !== page
+      || result.limit !== QUEUE_RECEIPT_CENSUS_PAGE_LIMIT
+      || result.totalPages !== totalPages
+      || result.totalPages > QUEUE_RECEIPT_CENSUS_MAX_PAGES
+      || result.hasNextPage !== (page < totalPages)
+      || result.docs.length !== expectedDocs
+      || (expectedTotalDocs !== null && result.totalDocs !== expectedTotalDocs)
+    ) throw new Error(params.failureCode)
+    expectedTotalDocs ??= result.totalDocs
+
+    for (const receipt of result.docs) {
+      const receiptId = isPlainRecord(receipt) ? relationshipId(receipt.id) : null
+      const numericId = receiptId ? Number(receiptId) : NaN
+      if (
+        !receiptId
+        || !Number.isSafeInteger(numericId)
+        || numericId <= lastId
+        || seenIds.has(receiptId)
+      ) throw new Error(params.failureCode)
+      lastId = numericId
+      seenIds.add(receiptId)
+      docs.push(receipt)
+    }
+
+    if (!result.hasNextPage) {
+      if (docs.length !== result.totalDocs || docs.length !== 1) throw new Error(params.failureCode)
+      const receipt = docs[0]
+      if (!validQueueReceipt(receipt, params.expected)) throw new Error(params.failureCode)
+      return receipt
+    }
+  }
+  throw new Error(params.failureCode)
 }
 
 function qualifyProvisioningGraphRecords(params: {
@@ -321,12 +460,12 @@ export async function provisionVisualOnlyV01<TTransaction>(params: {
         productId: input.productId,
         queueReceiptId: evidence.binding.queueReceiptId,
       }
-      let receipt: unknown
-      try {
-        receipt = await adapter.readQueueReceipt(transaction, expected.queueReceiptId)
-      } catch {
-        throw new Error(VISUAL_ONLY_PROVISIONING_REUSE_UNQUALIFIED)
-      }
+      const receipt = await readSingleQueueReceiptFromCensus({
+        adapter,
+        request: transaction,
+        expected,
+        failureCode: VISUAL_ONLY_PROVISIONING_REUSE_UNQUALIFIED,
+      })
       if (!qualifyProvisioningGraphRecords({ imageJob, product, queueReceipt: receipt, expected })) {
         throw new Error(VISUAL_ONLY_PROVISIONING_REUSE_UNQUALIFIED)
       }
@@ -413,7 +552,6 @@ export async function provisionVisualOnlyV01<TTransaction>(params: {
     const queued = await adapter.queueImageJob(transaction, queueInput)
     const queueReceiptId = isPlainRecord(queued) ? relationshipId(queued.id) : null
     if (!queueReceiptId) throw new Error('VISUAL_ONLY_PROVISIONING_QUEUE_RECEIPT_INVALID')
-    const qualifiedReceipt = await adapter.readQueueReceipt(transaction, queueReceiptId)
     const expected: ProvisioningGraphExpectation = {
       deliveryDigest: input.deliveryDigest,
       imageJobId,
@@ -421,9 +559,12 @@ export async function provisionVisualOnlyV01<TTransaction>(params: {
       productId: input.productId,
       queueReceiptId,
     }
-    if (!validQueueReceipt(qualifiedReceipt, expected)) {
-      throw new Error('VISUAL_ONLY_PROVISIONING_QUEUE_RECEIPT_INVALID')
-    }
+    const qualifiedReceipt = await readSingleQueueReceiptFromCensus({
+      adapter,
+      request: transaction,
+      expected,
+      failureCode: 'VISUAL_ONLY_PROVISIONING_QUEUE_RECEIPT_INVALID',
+    })
 
     const completeBinding: VisualOnlyProvisioningBinding = { ...initialBinding, queueReceiptId }
     await adapter.updateImageJob(transaction, imageJobId, {
@@ -462,19 +603,31 @@ export async function provisionVisualOnlyV01<TTransaction>(params: {
       || postCommitRequest === transactionRequest
       || await adapter.requestHasTransaction(postCommitRequest)
     ) throw new Error(VISUAL_ONLY_PROVISIONING_POST_COMMIT_UNQUALIFIED)
+    const failureCode = atomicResult.result.kind === 'reused'
+      ? VISUAL_ONLY_PROVISIONING_REUSE_UNQUALIFIED
+      : VISUAL_ONLY_PROVISIONING_POST_COMMIT_UNQUALIFIED
     const [imageJob, product, queueReceipt] = await Promise.all([
       adapter.readImageJob(postCommitRequest, atomicResult.expected.imageJobId),
       adapter.readProduct(postCommitRequest, atomicResult.expected.productId),
-      adapter.readQueueReceipt(postCommitRequest, atomicResult.expected.queueReceiptId),
+      readSingleQueueReceiptFromCensus({
+        adapter,
+        request: postCommitRequest,
+        expected: atomicResult.expected,
+        failureCode,
+      }),
     ])
     if (!qualifyProvisioningGraphRecords({
       imageJob,
       product,
       queueReceipt,
       expected: atomicResult.expected,
-    })) throw new Error(VISUAL_ONLY_PROVISIONING_POST_COMMIT_UNQUALIFIED)
+    })) throw new Error(failureCode)
     return atomicResult.result
   } catch {
-    throw new Error(VISUAL_ONLY_PROVISIONING_POST_COMMIT_UNQUALIFIED)
+    throw new Error(
+      atomicResult.result.kind === 'reused'
+        ? VISUAL_ONLY_PROVISIONING_REUSE_UNQUALIFIED
+        : VISUAL_ONLY_PROVISIONING_POST_COMMIT_UNQUALIFIED,
+    )
   }
 }

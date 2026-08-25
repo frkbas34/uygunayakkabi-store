@@ -6,11 +6,23 @@ import {
   prepareVisualOnlyV01AtomicRuntime,
   resolveVisualOnlyV01TableAuthority,
 } from './visualOnlyApprovalRuntime'
-import type { VisualOnlyProvisioningAdapter } from './visualOnlyProvisioning'
+import type {
+  VisualOnlyProvisioningAdapter,
+  VisualOnlyQueueReceiptCensusIdentity,
+  VisualOnlyQueueReceiptCensusPage,
+} from './visualOnlyProvisioning'
 
 type RecordValue = Record<string, unknown>
+type AtomicDatabase = { execute(statement: unknown): Promise<unknown> }
+type RuntimeTable = Record<string, unknown>
 type RuntimePayload = {
-  db: unknown
+  db: {
+    drizzle?: AtomicDatabase
+    sessions?: Record<string, { db?: AtomicDatabase }>
+    tables?: Record<string, RuntimeTable | undefined>
+    tableNameMap?: Map<string, string>
+  }
+  collections?: Record<string, { config?: { slug?: unknown; dbName?: unknown } } | undefined>
   jobs: {
     queue(args: RecordValue): Promise<unknown>
   }
@@ -18,6 +30,163 @@ type RuntimePayload = {
   findByID(args: RecordValue): Promise<unknown>
   create(args: RecordValue): Promise<unknown>
   update(args: RecordValue): Promise<unknown>
+}
+
+const QUEUE_RECEIPT_COLLECTION_SLUG = 'payload-jobs'
+const QUEUE_RECEIPT_DEFAULT_TABLE_NAME = 'payload_jobs'
+const QUEUE_RECEIPT_CENSUS_PAGE_LIMIT = 2
+const QUEUE_RECEIPT_CENSUS_MAX_PAGES = 2
+const SHA256_PATTERN = /^[0-9a-f]{64}$/
+const NONCE_PATTERN = /^[0-9a-f]{32}$/
+
+function queueCensusUnavailable(): never {
+  throw new Error('VISUAL_ONLY_PROVISIONING_QUEUE_CENSUS_UNAVAILABLE')
+}
+
+export function resolveVisualOnlyQueueReceiptTableAuthority(payload: unknown): RuntimeTable {
+  const runtime = payload as RuntimePayload
+  const collection = runtime.collections?.[QUEUE_RECEIPT_COLLECTION_SLUG]?.config
+  const tableNameMap = runtime.db?.tableNameMap
+  if (
+    collection?.slug !== QUEUE_RECEIPT_COLLECTION_SLUG
+    || collection.dbName !== undefined
+    || !(tableNameMap instanceof Map)
+  ) return queueCensusUnavailable()
+  const physicalName = tableNameMap.get(QUEUE_RECEIPT_DEFAULT_TABLE_NAME)
+  if (physicalName !== QUEUE_RECEIPT_DEFAULT_TABLE_NAME) return queueCensusUnavailable()
+  const owners = [...tableNameMap.entries()].filter(([, mappedName]) => mappedName === physicalName)
+  if (owners.length !== 1 || owners[0]?.[0] !== QUEUE_RECEIPT_DEFAULT_TABLE_NAME) {
+    return queueCensusUnavailable()
+  }
+  const table = runtime.db.tables?.[physicalName]
+  if (
+    !table?.id
+    || !table.taskSlug
+    || !table.input
+    || !table.processing
+    || !table.completedAt
+    || !table.hasError
+    || !table.waitUntil
+  ) return queueCensusUnavailable()
+  return table
+}
+
+function exactPositiveInteger(value: unknown): value is number {
+  return typeof value === 'number' && Number.isSafeInteger(value) && value > 0
+}
+
+function exactNonnegativeIntegerText(value: unknown): number | null {
+  if (typeof value !== 'string' || !/^(0|[1-9]\d*)$/.test(value)) return null
+  const parsed = Number(value)
+  return Number.isSafeInteger(parsed) ? parsed : null
+}
+
+function validCensusIdentity(identity: VisualOnlyQueueReceiptCensusIdentity): boolean {
+  return identity.taskSlug === 'image-gen'
+    && Number.isSafeInteger(identity.productId) && identity.productId > 0
+    && /^[1-9]\d*$/.test(identity.imageJobId)
+    && identity.provisioningVersion === 'visual-only-provisioning/v1'
+    && SHA256_PATTERN.test(identity.deliveryDigest)
+    && SHA256_PATTERN.test(identity.manifestDigest)
+    && NONCE_PATTERN.test(identity.manifestNonce)
+    && /^SN\d{4}$/.test(identity.stockNumber)
+}
+
+function normalizeQueueReceiptCensusPage(
+  value: unknown,
+  page: number,
+  limit: number,
+): VisualOnlyQueueReceiptCensusPage {
+  if (!value || typeof value !== 'object' || !Array.isArray((value as { rows?: unknown }).rows)) {
+    return queueCensusUnavailable()
+  }
+  const rows = (value as { rows: unknown[] }).rows
+  const row = rows.length === 1 && rows[0] && typeof rows[0] === 'object' && !Array.isArray(rows[0])
+    ? rows[0] as RecordValue
+    : null
+  const totalDocs = row ? exactNonnegativeIntegerText(row.total_docs) : null
+  if (totalDocs === null || !Array.isArray(row?.docs)) return queueCensusUnavailable()
+  const totalPages = totalDocs === 0 ? 0 : Math.ceil(totalDocs / limit)
+  return {
+    docs: row.docs,
+    totalDocs,
+    page,
+    totalPages,
+    hasNextPage: page < totalPages,
+    limit,
+  }
+}
+
+async function receiptCensusDatabase(runtime: RuntimePayload, req: PayloadRequest): Promise<AtomicDatabase> {
+  const transactionID = await req.transactionID
+  const database = transactionID
+    ? runtime.db.sessions?.[String(transactionID)]?.db
+    : runtime.db.drizzle
+  if (!database || typeof database.execute !== 'function') return queueCensusUnavailable()
+  return database
+}
+
+async function readQueueReceiptCensusPage(
+  runtime: RuntimePayload,
+  req: PayloadRequest,
+  identity: VisualOnlyQueueReceiptCensusIdentity,
+  page: number,
+  limit: number,
+): Promise<VisualOnlyQueueReceiptCensusPage> {
+  if (
+    !validCensusIdentity(identity)
+    || !exactPositiveInteger(page) || page > QUEUE_RECEIPT_CENSUS_MAX_PAGES
+    || limit !== QUEUE_RECEIPT_CENSUS_PAGE_LIMIT
+  ) {
+    return queueCensusUnavailable()
+  }
+  const offset = (page - 1) * limit
+  if (!Number.isSafeInteger(offset)) return queueCensusUnavailable()
+  const table = resolveVisualOnlyQueueReceiptTableAuthority(runtime)
+  const database = await receiptCensusDatabase(runtime, req)
+  let result: unknown
+  try {
+    result = await database.execute(sql`
+      WITH target_receipts AS (
+        SELECT
+          ${table.id} AS id,
+          ${table.taskSlug} AS task_slug,
+          ${table.input} AS input,
+          ${table.processing} AS processing,
+          ${table.completedAt} AS completed_at,
+          ${table.hasError} AS has_error,
+          ${table.waitUntil} AS wait_until
+        FROM ${table}
+        WHERE ${table.taskSlug} = ${identity.taskSlug}
+          AND ${table.input} ->> 'jobId' = ${identity.imageJobId}
+      ), page_receipts AS (
+        SELECT id, task_slug, input, processing, completed_at, has_error, wait_until
+        FROM target_receipts
+        ORDER BY id ASC
+        LIMIT ${limit} OFFSET ${offset}
+      )
+      SELECT
+        (SELECT count(*)::text FROM target_receipts) AS total_docs,
+        COALESCE(
+          jsonb_agg(
+            jsonb_build_object(
+              'id', id,
+              'taskSlug', task_slug,
+              'input', input,
+              'processing', processing,
+              'completedAt', completed_at,
+              'hasError', has_error,
+              'waitUntil', wait_until
+            ) ORDER BY id ASC
+          ),
+          '[]'::jsonb
+        ) AS docs
+      FROM page_receipts
+    `)
+  } catch {
+    return queueCensusUnavailable()
+  }
+  return normalizeQueueReceiptCensusPage(result, page, limit)
 }
 
 function rowsFrom(value: unknown): unknown[] {
@@ -130,14 +299,8 @@ export function createVisualOnlyV01PayloadProvisioningAdapter(
         req,
       })
     },
-    readQueueReceipt(req, receiptId) {
-      return runtime.findByID({
-        collection: 'payload-jobs',
-        id: Number(receiptId),
-        depth: 0,
-        overrideAccess: true,
-        req,
-      })
+    readQueueReceiptCensusPage(req, identity, page, limit) {
+      return readQueueReceiptCensusPage(runtime, req, identity, page, limit)
     },
     async updateProduct(req, productId, data) {
       req.context = {

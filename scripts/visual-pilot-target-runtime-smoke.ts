@@ -19,6 +19,7 @@ import {
 } from '../src/lib/visualPilotTargetVerifier'
 import {
   createVisualPilotQueueReceiptReader,
+  createVisualPilotRuntimePostgresClientConstructor,
   createVisualPilotRuntimeCleanup,
   destroyVisualPilotPayloadWithinBoundary,
   type VisualPilotQueueReceiptReader,
@@ -293,6 +294,13 @@ async function initializeRuntime(): Promise<RuntimeResource> {
   const { StoryJobs } = unwrapModule(await import('../src/collections/StoryJobs'))
 
   const databaseUri = process.env.DATABASE_URI as string
+  const poolOptions = {
+    Client: createVisualPilotRuntimePostgresClientConstructor(),
+    connectionString: databaseUri,
+    connectionTimeoutMillis: 10_000,
+    idleTimeoutMillis: 1_000,
+    ssl: databaseUri.includes('neon.tech') ? { rejectUnauthorized: false } : undefined,
+  }
   const configInput = createVisualPilotMinimalRuntimeConfig({
     collections: [
       Products,
@@ -306,12 +314,7 @@ async function initializeRuntime(): Promise<RuntimeResource> {
       StoryJobs,
     ],
     db: postgresModule.postgresAdapter({
-      pool: {
-        connectionString: databaseUri,
-        connectionTimeoutMillis: 10_000,
-        idleTimeoutMillis: 1_000,
-        ssl: databaseUri.includes('neon.tech') ? { rejectUnauthorized: false } : undefined,
-      },
+      pool: poolOptions,
       push: false,
     }),
     editor: lexicalModule.lexicalEditor(),

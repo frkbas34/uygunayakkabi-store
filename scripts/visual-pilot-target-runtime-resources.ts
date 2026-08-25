@@ -30,6 +30,7 @@ type RuntimePostgresClient = {
 type RuntimePostgresClientOwnership = {
   constructor: typeof InstalledPostgresClient
   prototype: typeof InstalledPostgresClient.prototype
+  constructedClients: WeakSet<object>
 }
 
 type RuntimePostgresIdleItem = {
@@ -55,6 +56,25 @@ export type VisualPilotQueueReceiptReader = {
     page: number,
     limit: number,
   ) => Promise<VisualPilotPage>
+}
+
+const runtimePostgresClientConstructionProvenance = new WeakMap<
+  typeof InstalledPostgresClient,
+  WeakSet<object>
+>()
+
+export function createVisualPilotRuntimePostgresClientConstructor(): typeof InstalledPostgresClient {
+  const constructedClients = new WeakSet<object>()
+  let RuntimePostgresClient: typeof InstalledPostgresClient
+  RuntimePostgresClient = new Proxy(InstalledPostgresClient, {
+    construct(target, args, newTarget) {
+      const client = Reflect.construct(target, args, newTarget) as object
+      if (newTarget === RuntimePostgresClient) constructedClients.add(client)
+      return client
+    },
+  })
+  runtimePostgresClientConstructionProvenance.set(RuntimePostgresClient, constructedClients)
+  return RuntimePostgresClient
 }
 
 const QUEUE_RECEIPT_PAGE_SQL = `
@@ -261,13 +281,21 @@ function runtimePostgresClientOwnership(
 ): RuntimePostgresClientOwnership | null {
   try {
     const poolClient = ownDataProperty(pool, 'Client')
-    if (poolClient !== InstalledPostgresClient) return null
+    if (typeof poolClient !== 'function') return null
+    const constructedClients = runtimePostgresClientConstructionProvenance.get(
+      poolClient as typeof InstalledPostgresClient,
+    )
+    if (!constructedClients) return null
     const prototype = ownDataProperty(poolClient, 'prototype')
     if (prototype !== InstalledPostgresClient.prototype) return null
-    if (ownDataProperty(prototype, 'constructor') !== poolClient) return null
+    if (ownDataProperty(prototype, 'constructor') !== InstalledPostgresClient) return null
     if (ownDataProperty(prototype, 'end') !== InstalledPostgresClient.prototype.end) return null
     if (ownDataProperty(prototype, 'unref') !== InstalledPostgresClient.prototype.unref) return null
-    return { constructor: poolClient, prototype }
+    return {
+      constructor: poolClient as typeof InstalledPostgresClient,
+      prototype,
+      constructedClients,
+    }
   } catch {
     return null
   }
@@ -278,7 +306,8 @@ function isRuntimePostgresClient(
   ownership: RuntimePostgresClientOwnership,
 ): value is RuntimePostgresClient {
   try {
-    if (!isRecord(value) || Object.getPrototypeOf(value) !== ownership.prototype) return false
+    if (!isRecord(value) || !ownership.constructedClients.has(value)) return false
+    if (Object.getPrototypeOf(value) !== ownership.prototype) return false
     if (!Function.prototype[Symbol.hasInstance].call(ownership.constructor, value)) return false
     if (Object.hasOwn(value, 'end') || Object.hasOwn(value, 'unref')) return false
     if (value.end !== InstalledPostgresClient.prototype.end || value.unref !== InstalledPostgresClient.prototype.unref) {

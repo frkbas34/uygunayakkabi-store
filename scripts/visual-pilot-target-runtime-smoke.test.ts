@@ -16,6 +16,7 @@ import {
 } from './visual-pilot-target-runtime-smoke'
 import {
   createVisualPilotQueueReceiptReader,
+  createVisualPilotRuntimePostgresClientConstructor,
   createVisualPilotRuntimeCleanup,
   type VisualPilotRuntimePostgresPool,
 } from './visual-pilot-target-runtime-resources'
@@ -167,8 +168,7 @@ class OfflinePgStream extends EventEmitter {
   }
 }
 
-const clientConstructorPool = new Pool() as unknown as { Client: PinnedClientConstructor }
-const pinnedClientConstructor = clientConstructorPool.Client
+const pinnedClientConstructor = createVisualPilotRuntimePostgresClientConstructor() as PinnedClientConstructor
 
 function runtimeClient(
   overrides: RuntimeClientOverrides = {},
@@ -250,7 +250,8 @@ async function runIncompatibleInstalledPoolChild(): Promise<void> {
   let poolEndCalls = 0
   let retainedHandleClosed = false
   const retainedHandle = setInterval(() => undefined, 60_000)
-  const installedPool = new Pool() as unknown as VisualPilotRuntimePostgresPool & {
+  const installedPoolOptions = { Client: createVisualPilotRuntimePostgresClientConstructor() }
+  const installedPool = new Pool(installedPoolOptions) as unknown as VisualPilotRuntimePostgresPool & {
     Client: PinnedClientConstructor
   }
   const client = runtimeClient({
@@ -454,6 +455,55 @@ await check('duck-typed _clients entry cannot execute arbitrary release, end, un
     Client: pinnedClientConstructor,
     _clients: [arbitraryClient],
     _idle: [arbitraryClient],
+    async query() { return { rows: [] } },
+    async end() { poolEnds += 1 },
+  }
+  const cleanup = createVisualPilotRuntimeCleanup({ payloadDestroy: async () => undefined, pool })
+  assert.deepEqual(await cleanup(), { ok: false, code: 'RUNTIME_POSTGRES_CLIENT_CLEANUP_UNSUPPORTED' })
+  assert.deepEqual(await cleanup(), { ok: false, code: 'RUNTIME_POSTGRES_CLIENT_CLEANUP_UNSUPPORTED' })
+  assert.deepEqual({ releases, ends, unrefs, poolEnds }, { releases: 0, ends: 0, unrefs: 0, poolEnds: 0 })
+})
+
+await check('Object.create(Client.prototype) cannot forge construction provenance', async () => {
+  let releases = 0
+  let ends = 0
+  let unrefs = 0
+  let poolEnds = 0
+  const genuine = runtimeClient({
+    release() { releases += 1 },
+    end() { ends += 1 },
+    unref() { unrefs += 1 },
+  })
+  const forged = Object.create(pinnedClientConstructor.prototype) as object
+  Object.defineProperties(forged, Object.getOwnPropertyDescriptors(genuine))
+  const pool: VisualPilotRuntimePostgresPool = {
+    Client: pinnedClientConstructor,
+    _clients: [forged],
+    _idle: [],
+    async query() { return { rows: [] } },
+    async end() { poolEnds += 1 },
+  }
+  const cleanup = createVisualPilotRuntimeCleanup({ payloadDestroy: async () => undefined, pool })
+  assert.deepEqual(await cleanup(), { ok: false, code: 'RUNTIME_POSTGRES_CLIENT_CLEANUP_UNSUPPORTED' })
+  assert.deepEqual(await cleanup(), { ok: false, code: 'RUNTIME_POSTGRES_CLIENT_CLEANUP_UNSUPPORTED' })
+  assert.deepEqual({ releases, ends, unrefs, poolEnds }, { releases: 0, ends: 0, unrefs: 0, poolEnds: 0 })
+})
+
+await check('missing construction provenance registry fails closed for an otherwise genuine Client', async () => {
+  let releases = 0
+  let ends = 0
+  let unrefs = 0
+  let poolEnds = 0
+  const untrackedPool = new Pool() as unknown as { Client: PinnedClientConstructor }
+  const client = runtimeClient({
+    release() { releases += 1 },
+    end() { ends += 1 },
+    unref() { unrefs += 1 },
+  }, untrackedPool.Client)
+  const pool: VisualPilotRuntimePostgresPool = {
+    Client: untrackedPool.Client,
+    _clients: [client],
+    _idle: [],
     async query() { return { rows: [] } },
     async end() { poolEnds += 1 },
   }

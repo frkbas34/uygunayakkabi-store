@@ -3,12 +3,18 @@ import { createHash } from 'node:crypto'
 import {
   assessVisualOnlyProductState,
   createVisualOnlyV01BoundaryManifest,
+  parseVisualOnlyV01BoundaryText,
   parseVisualOnlyJobEvidence,
+  verifyVisualOnlyProductState,
   VISUAL_ONLY_V01_MODE,
+  type VisualOnlyV01BoundaryManifest,
   type VisualOnlyV01Family,
 } from './visualOnlyV01'
 
 export const VISUAL_ONLY_PROVISIONING_VERSION = 'visual-only-provisioning/v1' as const
+export const VISUAL_ONLY_PROVISIONING_IDEMPOTENCY_CORRUPT = 'VISUAL_ONLY_PROVISIONING_IDEMPOTENCY_CORRUPT' as const
+export const VISUAL_ONLY_PROVISIONING_REUSE_UNQUALIFIED = 'VISUAL_ONLY_PROVISIONING_REUSE_UNQUALIFIED' as const
+export const VISUAL_ONLY_PROVISIONING_POST_COMMIT_UNQUALIFIED = 'VISUAL_ONLY_PROVISIONING_POST_COMMIT_UNQUALIFIED' as const
 
 const SHA256_PATTERN = /^[0-9a-f]{64}$/
 const ACTIVE_IMAGE_JOB_STATUSES = new Set(['queued', 'generating', 'preview', 'review'])
@@ -53,6 +59,8 @@ export type VisualOnlyProvisioningResult = {
 
 export type VisualOnlyProvisioningAdapter<TTransaction> = {
   runAtomic<T>(operation: (transaction: TTransaction) => Promise<T>): Promise<T>
+  createPostCommitRequest(): Promise<TTransaction>
+  requestHasTransaction(request: TTransaction): Promise<boolean>
   lockProduct(transaction: TTransaction, productId: number): Promise<boolean>
   readProduct(transaction: TTransaction, productId: number): Promise<unknown>
   readProductJobs(transaction: TTransaction, productId: number): Promise<unknown[]>
@@ -183,9 +191,74 @@ function deterministicJobId(job: unknown): string | null {
   return isPlainRecord(job) ? relationshipId(job.id) : null
 }
 
-function validQueueReceipt(value: unknown, receiptId: string, imageJobId: string): boolean {
-  if (!isPlainRecord(value) || relationshipId(value.id) !== receiptId || value.taskSlug !== 'image-gen') return false
-  return isPlainRecord(value.input) && relationshipId(value.input.jobId) === imageJobId
+function hasRawDeliveryDigest(job: unknown, deliveryDigest: string): boolean {
+  return isPlainRecord(job)
+    && typeof job.promptsUsed === 'string'
+    && job.promptsUsed.includes(deliveryDigest)
+}
+
+type ProvisioningGraphExpectation = {
+  deliveryDigest: string
+  imageJobId: string
+  manifest: VisualOnlyV01BoundaryManifest
+  productId: number
+  queueReceiptId: string
+}
+
+function validQueueReceipt(value: unknown, expected: ProvisioningGraphExpectation): boolean {
+  if (
+    !isPlainRecord(value)
+    || relationshipId(value.id) !== expected.queueReceiptId
+    || value.taskSlug !== 'image-gen'
+    || value.processing !== false
+    || value.hasError !== false
+    || (value.completedAt !== undefined && value.completedAt !== null)
+    || !isPlainRecord(value.input)
+  ) return false
+  const boundary = parseVisualOnlyV01BoundaryText(value.input.visualOnlyBoundary)
+  return relationshipId(value.input.jobId) === expected.imageJobId
+    && relationshipProductId(value.input.productId) === expected.productId
+    && value.input.executionMode === VISUAL_ONLY_V01_MODE
+    && value.input.visualOnlyProvisioningVersion === VISUAL_ONLY_PROVISIONING_VERSION
+    && value.input.visualOnlyDeliveryDigest === expected.deliveryDigest
+    && value.input.visualOnlyManifestDigest === expected.manifest.digest
+    && boundary?.digest === expected.manifest.digest
+    && boundary.jobId === expected.imageJobId
+    && boundary.productId === expected.productId
+}
+
+function qualifyProvisioningGraphRecords(params: {
+  imageJob: unknown
+  product: unknown
+  queueReceipt: unknown
+  expected: ProvisioningGraphExpectation
+}): boolean {
+  const { expected } = params
+  const evidence = parseVisualOnlyProvisioningEvidence(params.imageJob)
+  if (
+    !evidence
+    || evidence.binding.version !== VISUAL_ONLY_PROVISIONING_VERSION
+    || evidence.binding.deliveryDigest !== expected.deliveryDigest
+    || evidence.binding.productId !== expected.productId
+    || evidence.binding.jobId !== expected.imageJobId
+    || evidence.binding.manifestDigest !== expected.manifest.digest
+    || evidence.binding.queueReceiptId !== expected.queueReceiptId
+    || evidence.binding.taskSlug !== 'image-gen'
+    || evidence.manifest.digest !== expected.manifest.digest
+    || evidence.manifest.nonce !== expected.manifest.nonce
+    || evidence.manifest.productId !== expected.productId
+    || evidence.manifest.jobId !== expected.imageJobId
+    || !isPlainRecord(params.imageJob)
+    || params.imageJob.status !== 'queued'
+    || !isPlainRecord(params.product)
+    || relationshipProductId(params.product.id) !== expected.productId
+    || String(params.product.stockNumber ?? '').trim().toUpperCase() !== expected.manifest.stockNumber
+    || !isPlainRecord(params.product.workflow)
+    || params.product.workflow.workflowStatus !== 'visual_pending'
+    || params.product.workflow.visualStatus !== 'generating'
+    || !verifyVisualOnlyProductState(params.product, expected.manifest, 'execution').ok
+  ) return false
+  return validQueueReceipt(params.queueReceipt, expected)
 }
 
 function workflowForGenerating(product: unknown): RecordValue {
@@ -214,7 +287,9 @@ export async function provisionVisualOnlyV01<TTransaction>(params: {
     || !positiveIntegerText(input.reviewerUserId)
   ) throw new Error('VISUAL_ONLY_PROVISIONING_INPUT_INVALID')
 
-  return adapter.runAtomic(async (transaction) => {
+  let transactionRequest: TTransaction | undefined
+  const atomicResult = await adapter.runAtomic(async (transaction) => {
+    transactionRequest = transaction
     if (!await adapter.lockProduct(transaction, input.productId)) {
       throw new Error('VISUAL_ONLY_PROVISIONING_PRODUCT_LOCK_UNAVAILABLE')
     }
@@ -227,18 +302,41 @@ export async function provisionVisualOnlyV01<TTransaction>(params: {
     ) throw new Error('VISUAL_ONLY_PRODUCT_IDENTITY_BINDING_FAILED')
 
     const productJobs = await adapter.readProductJobs(transaction, input.productId)
-    const matching = productJobs
-      .map((job) => ({ job, evidence: parseVisualOnlyProvisioningEvidence(job) }))
-      .filter(({ evidence }) => evidence?.binding.deliveryDigest === input.deliveryDigest)
-      .sort((left, right) => Number(deterministicJobId(left.job)) - Number(deterministicJobId(right.job)))
-    if (matching.length > 1) throw new Error('VISUAL_ONLY_PROVISIONING_IDEMPOTENCY_AMBIGUOUS')
-    if (matching.length === 1) {
-      const evidence = matching[0]?.evidence
-      if (!evidence?.binding.queueReceiptId) throw new Error('VISUAL_ONLY_PROVISIONING_EVIDENCE_INVALID')
-      return {
-        kind: 'reused',
-        jobId: evidence.binding.jobId,
+    const rawMatching = productJobs
+      .filter((job) => hasRawDeliveryDigest(job, input.deliveryDigest))
+      .sort((left, right) => Number(deterministicJobId(left)) - Number(deterministicJobId(right)))
+    if (rawMatching.length > 1) throw new Error('VISUAL_ONLY_PROVISIONING_IDEMPOTENCY_AMBIGUOUS')
+    if (rawMatching.length === 1) {
+      const imageJob = rawMatching[0]
+      const evidence = parseVisualOnlyProvisioningEvidence(imageJob)
+      if (
+        !evidence?.binding.queueReceiptId
+        || evidence.binding.deliveryDigest !== input.deliveryDigest
+        || evidence.binding.productId !== input.productId
+      ) throw new Error(VISUAL_ONLY_PROVISIONING_IDEMPOTENCY_CORRUPT)
+      const expected: ProvisioningGraphExpectation = {
+        deliveryDigest: input.deliveryDigest,
+        imageJobId: evidence.binding.jobId,
+        manifest: evidence.manifest,
+        productId: input.productId,
         queueReceiptId: evidence.binding.queueReceiptId,
+      }
+      let receipt: unknown
+      try {
+        receipt = await adapter.readQueueReceipt(transaction, expected.queueReceiptId)
+      } catch {
+        throw new Error(VISUAL_ONLY_PROVISIONING_REUSE_UNQUALIFIED)
+      }
+      if (!qualifyProvisioningGraphRecords({ imageJob, product, queueReceipt: receipt, expected })) {
+        throw new Error(VISUAL_ONLY_PROVISIONING_REUSE_UNQUALIFIED)
+      }
+      return {
+        result: {
+          kind: 'reused' as const,
+          jobId: evidence.binding.jobId,
+          queueReceiptId: evidence.binding.queueReceiptId,
+        },
+        expected,
       }
     }
 
@@ -248,7 +346,10 @@ export async function provisionVisualOnlyV01<TTransaction>(params: {
       .filter((jobId): jobId is string => Boolean(jobId))
       .sort((left, right) => Number(left) - Number(right))
     if (active.length > 0) {
-      return { kind: 'active', jobId: active[0]!, queueReceiptId: null }
+      return {
+        result: { kind: 'active' as const, jobId: active[0]!, queueReceiptId: null },
+        expected: null,
+      }
     }
 
     const assessment = assessVisualOnlyProductState(product)
@@ -298,18 +399,29 @@ export async function provisionVisualOnlyV01<TTransaction>(params: {
 
     const queueInput = {
       jobId: imageJobId,
+      productId: input.productId,
       stage: 'standard',
       provider: 'gemini-pro',
       qualityProfile: 'visual-lock-v0.1',
       productFamily: input.productFamily,
       executionMode: VISUAL_ONLY_V01_MODE,
       visualOnlyBoundary: JSON.stringify(manifest),
+      visualOnlyProvisioningVersion: VISUAL_ONLY_PROVISIONING_VERSION,
+      visualOnlyDeliveryDigest: input.deliveryDigest,
+      visualOnlyManifestDigest: manifest.digest,
     }
     const queued = await adapter.queueImageJob(transaction, queueInput)
     const queueReceiptId = isPlainRecord(queued) ? relationshipId(queued.id) : null
     if (!queueReceiptId) throw new Error('VISUAL_ONLY_PROVISIONING_QUEUE_RECEIPT_INVALID')
     const qualifiedReceipt = await adapter.readQueueReceipt(transaction, queueReceiptId)
-    if (!validQueueReceipt(qualifiedReceipt, queueReceiptId, imageJobId)) {
+    const expected: ProvisioningGraphExpectation = {
+      deliveryDigest: input.deliveryDigest,
+      imageJobId,
+      manifest,
+      productId: input.productId,
+      queueReceiptId,
+    }
+    if (!validQueueReceipt(qualifiedReceipt, expected)) {
       throw new Error('VISUAL_ONLY_PROVISIONING_QUEUE_RECEIPT_INVALID')
     }
 
@@ -328,6 +440,41 @@ export async function provisionVisualOnlyV01<TTransaction>(params: {
     await adapter.updateProduct(transaction, input.productId, {
       workflow: workflowForGenerating(product),
     })
-    return { kind: 'provisioned', jobId: imageJobId, queueReceiptId }
+    const persistedProduct = await adapter.readProduct(transaction, input.productId)
+    if (!qualifyProvisioningGraphRecords({
+      imageJob: persistedJob,
+      product: persistedProduct,
+      queueReceipt: qualifiedReceipt,
+      expected,
+    })) throw new Error('VISUAL_ONLY_PROVISIONING_EVIDENCE_INVALID')
+    return {
+      result: { kind: 'provisioned' as const, jobId: imageJobId, queueReceiptId },
+      expected,
+    }
   })
+
+  if (!atomicResult.expected) return atomicResult.result
+
+  try {
+    const postCommitRequest = await adapter.createPostCommitRequest()
+    if (
+      transactionRequest === undefined
+      || postCommitRequest === transactionRequest
+      || await adapter.requestHasTransaction(postCommitRequest)
+    ) throw new Error(VISUAL_ONLY_PROVISIONING_POST_COMMIT_UNQUALIFIED)
+    const [imageJob, product, queueReceipt] = await Promise.all([
+      adapter.readImageJob(postCommitRequest, atomicResult.expected.imageJobId),
+      adapter.readProduct(postCommitRequest, atomicResult.expected.productId),
+      adapter.readQueueReceipt(postCommitRequest, atomicResult.expected.queueReceiptId),
+    ])
+    if (!qualifyProvisioningGraphRecords({
+      imageJob,
+      product,
+      queueReceipt,
+      expected: atomicResult.expected,
+    })) throw new Error(VISUAL_ONLY_PROVISIONING_POST_COMMIT_UNQUALIFIED)
+    return atomicResult.result
+  } catch {
+    throw new Error(VISUAL_ONLY_PROVISIONING_POST_COMMIT_UNQUALIFIED)
+  }
 }

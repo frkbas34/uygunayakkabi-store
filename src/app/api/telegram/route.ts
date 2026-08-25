@@ -3782,15 +3782,8 @@ export async function POST(req: NextRequest) {
         }
         if (result.kind === 'reused') return NextResponse.json({ ok: true })
 
-        // Provider execution is scheduled only after the complete provisioning
-        // transaction (job, manifest, receipt and Product state) has committed.
-        after(async () => {
-          try {
-            await payload.jobs.run({ limit: 1, overrideAccess: true })
-          } catch (err) {
-            console.error('[telegram/webhook] after() #gorsel jobs.run failed:', err)
-          }
-        })
+        // The governed Payload worker consumes the exact durable receipt. This
+        // command path must not scan or claim unrelated pending queue work.
         return NextResponse.json({ ok: true })
       }
 

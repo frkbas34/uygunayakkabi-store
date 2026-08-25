@@ -100,6 +100,7 @@ import {
 export const imageGenTask: TaskConfig<{
   input: {
     jobId: string
+    productId?: number
     stage?: string
     provider?: string
     visualFacts?: string
@@ -107,6 +108,9 @@ export const imageGenTask: TaskConfig<{
     productFamily?: string
     executionMode?: string
     visualOnlyBoundary?: string
+    visualOnlyProvisioningVersion?: string
+    visualOnlyDeliveryDigest?: string
+    visualOnlyManifestDigest?: string
   }
   output: {
     success: boolean
@@ -120,6 +124,7 @@ export const imageGenTask: TaskConfig<{
 
   inputSchema: [
     { name: 'jobId', type: 'text', required: true },
+    { name: 'productId', type: 'number' }, // Exact visual-only Product identity.
     { name: 'stage', type: 'text' },    // 'standard' (slots 1-3) | 'premium' (slots 4-5)
     { name: 'provider', type: 'text' }, // 'openai' (default) | 'gemini-pro'
     { name: 'visualFacts', type: 'text' }, // D-355N: operator-verified product facts injected into every slot prompt
@@ -127,6 +132,9 @@ export const imageGenTask: TaskConfig<{
     { name: 'productFamily', type: 'text' }, // Explicit operator choice; no automatic V0 classification.
     { name: 'executionMode', type: 'text' }, // Explicit, fail-closed visual-only execution marker.
     { name: 'visualOnlyBoundary', type: 'text' }, // Signed-digest manifest in existing task-input JSON.
+    { name: 'visualOnlyProvisioningVersion', type: 'text' },
+    { name: 'visualOnlyDeliveryDigest', type: 'text' },
+    { name: 'visualOnlyManifestDigest', type: 'text' },
   ],
 
   outputSchema: [
@@ -218,7 +226,14 @@ export const imageGenTask: TaskConfig<{
 
     const productId = typeof productRef === 'object' ? productRef.id : productRef
 
-    const hasVisualOnlyInputMarker = input.executionMode !== undefined || input.visualOnlyBoundary !== undefined
+    const hasVisualOnlyInputMarker = [
+      input.executionMode,
+      input.visualOnlyBoundary,
+      input.productId,
+      input.visualOnlyProvisioningVersion,
+      input.visualOnlyDeliveryDigest,
+      input.visualOnlyManifestDigest,
+    ].some((value) => value !== undefined)
     if (hasVisualOnlyBoundaryMarker(jobDoc) !== hasVisualOnlyInputMarker) {
       throw new Error('VISUAL_ONLY_EXECUTION_BOUNDARY_MISSING_OR_SUBSTITUTED')
     }
@@ -226,6 +241,9 @@ export const imageGenTask: TaskConfig<{
       visualOnlyBoundary = parseVisualOnlyV01BoundaryText(input.visualOnlyBoundary)
       const jobEvidence = parseVisualOnlyJobEvidence(jobDoc)
       const provisioningEvidence = parseVisualOnlyProvisioningEvidence(jobDoc)
+      const executingReceiptInput = job.input && typeof job.input === 'object' && !Array.isArray(job.input)
+        ? job.input as Record<string, unknown>
+        : null
       if (
         input.executionMode !== VISUAL_ONLY_V01_MODE
         || !visualOnlyBoundary
@@ -238,6 +256,21 @@ export const imageGenTask: TaskConfig<{
         || visualOnlyBoundary.reviewChatId !== String(jobDoc.telegramChatId ?? '')
         || visualOnlyBoundary.reviewerUserId !== String(jobDoc.requestedByUserId ?? '')
         || provisioningEvidence.binding.queueReceiptId !== String(job.id)
+        || job.taskSlug !== provisioningEvidence.binding.taskSlug
+        || input.productId !== productId
+        || input.productId !== provisioningEvidence.binding.productId
+        || input.jobId !== provisioningEvidence.binding.jobId
+        || input.visualOnlyProvisioningVersion !== provisioningEvidence.binding.version
+        || input.visualOnlyDeliveryDigest !== provisioningEvidence.binding.deliveryDigest
+        || input.visualOnlyManifestDigest !== provisioningEvidence.binding.manifestDigest
+        || !executingReceiptInput
+        || executingReceiptInput.jobId !== input.jobId
+        || executingReceiptInput.productId !== input.productId
+        || executingReceiptInput.executionMode !== input.executionMode
+        || executingReceiptInput.visualOnlyBoundary !== input.visualOnlyBoundary
+        || executingReceiptInput.visualOnlyProvisioningVersion !== input.visualOnlyProvisioningVersion
+        || executingReceiptInput.visualOnlyDeliveryDigest !== input.visualOnlyDeliveryDigest
+        || executingReceiptInput.visualOnlyManifestDigest !== input.visualOnlyManifestDigest
         || provisioningEvidence.binding.manifestDigest !== visualOnlyBoundary.digest
         || visualLockSelection?.profileVersion !== 'visual-lock/v0.1'
         || visualLockSelection.family !== visualOnlyBoundary.productFamily

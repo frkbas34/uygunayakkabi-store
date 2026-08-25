@@ -1,5 +1,5 @@
 import { sql } from 'drizzle-orm'
-import type { Payload, PayloadRequest } from 'payload'
+import { createLocalReq, type Payload, type PayloadRequest } from 'payload'
 
 import { runPayloadTransaction } from './payloadTransaction'
 import {
@@ -65,6 +65,12 @@ export function createVisualOnlyV01PayloadProvisioningAdapter(
         req.context = { ...(req.context ?? {}), isVisualOnlyProvisioning: true }
         return operation(req)
       })
+    },
+    createPostCommitRequest() {
+      return createLocalReq({}, payload)
+    },
+    async requestHasTransaction(req) {
+      return Boolean(await req.transactionID)
     },
     async lockProduct(req, productId) {
       const { db, productTable } = await prepareVisualOnlyV01AtomicRuntime(runtime, req)

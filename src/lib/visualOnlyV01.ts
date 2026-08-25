@@ -260,18 +260,28 @@ export function verifyVisualOnlyProductState(
 ): { ok: true } | { ok: false; code: string } {
   if (!isPlainRecord(product)) return { ok: false, code: 'VISUAL_ONLY_PRODUCT_RECORD_MALFORMED' }
   const currentVisualStatus = isPlainRecord(product.workflow) ? product.workflow.visualStatus : undefined
-  const normalized = {
-    ...product,
-    workflow: isPlainRecord(product.workflow)
-      ? { ...product.workflow, visualStatus: manifest.initialVisualStatus }
-      : product.workflow,
+  const currentWorkflowStatus = isPlainRecord(product.workflow) ? product.workflow.workflowStatus : undefined
+  if (currentWorkflowStatus !== 'draft' && currentWorkflowStatus !== 'visual_pending') {
+    return { ok: false, code: 'VISUAL_ONLY_PRODUCT_STATE_DRIFT' }
   }
-  const assessment = assessVisualOnlyProductState(normalized)
+  const normalizedCandidates = [currentWorkflowStatus, 'draft', 'visual_pending']
+    .filter((value, index, values) => values.indexOf(value) === index)
+    .map((workflowStatus) => ({
+      ...product,
+      workflow: isPlainRecord(product.workflow)
+        ? { ...product.workflow, workflowStatus, visualStatus: manifest.initialVisualStatus }
+        : product.workflow,
+    }))
+  const assessment = normalizedCandidates
+    .map((candidate) => assessVisualOnlyProductState(candidate))
+    .find((candidate) => (
+      candidate.eligible
+      && candidate.productId === manifest.productId
+      && candidate.stockNumber === manifest.stockNumber
+      && candidate.isolationFingerprint === manifest.productIsolationFingerprint
+    ))
   if (
-    !assessment.eligible
-    || assessment.productId !== manifest.productId
-    || assessment.stockNumber !== manifest.stockNumber
-    || assessment.isolationFingerprint !== manifest.productIsolationFingerprint
+    !assessment
   ) return { ok: false, code: 'VISUAL_ONLY_PRODUCT_STATE_DRIFT' }
   if (phase === 'execution' && currentVisualStatus !== 'pending' && currentVisualStatus !== 'generating') {
     return { ok: false, code: 'VISUAL_ONLY_EXECUTION_STATE_INVALID' }

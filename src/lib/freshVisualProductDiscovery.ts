@@ -22,6 +22,38 @@ export const FRESH_VISUAL_DISCOVERY_MAX_AGGREGATE_BYTES = 24_000_000
 export const FRESH_VISUAL_DISCOVERY_MAX_AGGREGATE_PIXELS = 100_000_000
 export const FRESH_VISUAL_DISCOVERY_OBSERVATION_TIMEOUT_MS = 45_000
 export const FRESH_VISUAL_DISCOVERY_EXCLUDED_PRODUCT_ID = 349
+export const FRESH_CANDIDATE_ELIMINATION_DIAGNOSTICS_VERSION = 'fresh-candidate-elimination-diagnostics/v1' as const
+export const FRESH_CANDIDATE_PRIMARY_ELIMINATION_CATEGORIES = [
+  'PRODUCT_RECORD_OR_IDENTITY_INVALID',
+  'PRODUCT_LIFECYCLE_OR_WORKFLOW_UNSAFE',
+  'PRODUCT_SELLABILITY_OR_PUBLISH_STATE_UNSAFE',
+  'ORDERED_IMAGE_RELATIONSHIP_INVALID',
+  'GENERATED_GALLERY_PRESENT',
+  'CHANNEL_OR_DOWNSTREAM_STATE_UNSAFE',
+  'SOURCE_METADATA_UNSAFE',
+  'ORDERED_MEDIA_UNCLEAN',
+  'PRODUCT_SCOPED_MEDIA_LINEAGE_OR_OWNERSHIP',
+  'GENERATED_GALLERY_OWNERSHIP_PRESENT',
+  'GENERATION_HISTORY_PRESENT',
+  'DURABLE_QUEUE_RECEIPT_PRESENT',
+  'STORY_JOB_HISTORY_PRESENT',
+  'BOT_EVENT_HISTORY_UNSAFE',
+  'ORIGINAL_EVIDENCE_UNAVAILABLE_OR_INVALID',
+  'ORIGINAL_CONTENT_DUPLICATE',
+  'AGGREGATE_EVIDENCE_BUDGET_EXCEEDED',
+] as const
+
+export type FreshCandidatePrimaryEliminationCategory =
+  (typeof FRESH_CANDIDATE_PRIMARY_ELIMINATION_CATEGORIES)[number]
+
+export type FreshCandidateEliminationDiagnostics = {
+  version: typeof FRESH_CANDIDATE_ELIMINATION_DIAGNOSTICS_VERSION
+  queriedProductCount: number
+  assessedProductCount: number
+  eligibleCandidateCount: number
+  eliminatedProductCount: number
+  primaryEliminationCounts: Record<FreshCandidatePrimaryEliminationCategory, number>
+}
 
 export type FreshVisualDiscoveryReadiness =
   | 'READY_FOR_EXACT_FRESH_GENERATION_AUTHORIZATION'
@@ -71,6 +103,7 @@ export type FreshVisualDiscoveryReport = {
     advertisingHistory: 'unavailable'
     eligibleForPublishing: false
   }
+  diagnostics?: FreshCandidateEliminationDiagnostics
 }
 
 export type FreshVisualDiscoveryDependencies = {
@@ -99,7 +132,13 @@ type CandidateSnapshot = {
 type DiscoverySnapshot = {
   candidates: CandidateSnapshot[]
   observationDigest: string
+  diagnostics: FreshCandidateEliminationDiagnostics
 }
+
+type CandidateAssessmentResult =
+  | { outcome: 'eligible'; candidate: CandidateSnapshot }
+  | { outcome: 'eliminated'; category: FreshCandidatePrimaryEliminationCategory }
+  | { outcome: 'excluded' }
 
 class DiscoveryUnsupportedError extends Error {
   readonly code: string
@@ -108,6 +147,105 @@ class DiscoveryUnsupportedError extends Error {
     super(code)
     this.code = code
   }
+}
+
+const PRODUCT_ASSESSMENT_ELIMINATION_PRIORITY: ReadonlyArray<readonly [
+  string,
+  FreshCandidatePrimaryEliminationCategory,
+]> = [
+  ['PRODUCT_RECORD_MALFORMED', 'PRODUCT_RECORD_OR_IDENTITY_INVALID'],
+  ['PRODUCT_IDENTITY_INVALID', 'PRODUCT_RECORD_OR_IDENTITY_INVALID'],
+  ['PRODUCT_STOCK_NUMBER_INVALID', 'PRODUCT_RECORD_OR_IDENTITY_INVALID'],
+  ['PRODUCT_NOT_DRAFT', 'PRODUCT_LIFECYCLE_OR_WORKFLOW_UNSAFE'],
+  ['PRODUCT_WORKFLOW_MALFORMED', 'PRODUCT_LIFECYCLE_OR_WORKFLOW_UNSAFE'],
+  ['PRODUCT_WORKFLOW_NOT_ISOLATED', 'PRODUCT_LIFECYCLE_OR_WORKFLOW_UNSAFE'],
+  ['PRODUCT_VISUAL_STATE_NOT_FRESH', 'PRODUCT_LIFECYCLE_OR_WORKFLOW_UNSAFE'],
+  ['PRODUCT_CONFIRMATION_STATE_NOT_FRESH', 'PRODUCT_LIFECYCLE_OR_WORKFLOW_UNSAFE'],
+  ['PRODUCT_SELLABLE_STATE_UNSAFE', 'PRODUCT_SELLABILITY_OR_PUBLISH_STATE_UNSAFE'],
+  ['PRODUCT_PUBLISH_STATE_UNSAFE', 'PRODUCT_SELLABILITY_OR_PUBLISH_STATE_UNSAFE'],
+  ['PRODUCT_IMAGE_RELATIONSHIPS_INVALID', 'ORDERED_IMAGE_RELATIONSHIP_INVALID'],
+  ['PRODUCT_IMAGE_RELATIONSHIPS_DUPLICATED', 'ORDERED_IMAGE_RELATIONSHIP_INVALID'],
+  ['PRODUCT_GENERATED_GALLERY_NOT_EMPTY', 'GENERATED_GALLERY_PRESENT'],
+  ['PRODUCT_CHANNEL_STATE_UNSAFE', 'CHANNEL_OR_DOWNSTREAM_STATE_UNSAFE'],
+  ['PRODUCT_CHANNEL_TARGETS_NOT_EMPTY', 'CHANNEL_OR_DOWNSTREAM_STATE_UNSAFE'],
+  ['PRODUCT_SOURCE_META_MALFORMED', 'SOURCE_METADATA_UNSAFE'],
+  ['PRODUCT_DISPATCH_HISTORY_PRESENT', 'CHANNEL_OR_DOWNSTREAM_STATE_UNSAFE'],
+  ['PRODUCT_SHOPIER_STATE_UNSAFE', 'CHANNEL_OR_DOWNSTREAM_STATE_UNSAFE'],
+  ['PRODUCT_STORY_STATE_UNSAFE', 'CHANNEL_OR_DOWNSTREAM_STATE_UNSAFE'],
+  ['PRODUCT_DISPATCH_CONTROL_UNSAFE', 'CHANNEL_OR_DOWNSTREAM_STATE_UNSAFE'],
+  ['PRODUCT_DOWNSTREAM_MARKER_PRESENT', 'CHANNEL_OR_DOWNSTREAM_STATE_UNSAFE'],
+  ['PRODUCT_MERCHANDISING_PUBLICATION_PRESENT', 'CHANNEL_OR_DOWNSTREAM_STATE_UNSAFE'],
+  ['PRODUCT_LEGACY_PUBLICATION_STATE_UNSAFE', 'CHANNEL_OR_DOWNSTREAM_STATE_UNSAFE'],
+]
+
+const AGGREGATE_EVIDENCE_FAILURE_CODES = new Set([
+  'ORIGINAL_AGGREGATE_TIMEOUT',
+  'ORIGINAL_AGGREGATE_BYTE_LIMIT_EXCEEDED',
+  'ORIGINAL_AGGREGATE_PIXEL_LIMIT_EXCEEDED',
+])
+
+export function classifyFreshCandidateProductElimination(
+  codes: readonly string[],
+): FreshCandidatePrimaryEliminationCategory {
+  const codeSet = new Set(codes)
+  for (const [code, category] of PRODUCT_ASSESSMENT_ELIMINATION_PRIORITY) {
+    if (codeSet.has(code)) return category
+  }
+  throw new DiscoveryUnsupportedError('DIAGNOSTIC_PRIMARY_ELIMINATION_UNMAPPED')
+}
+
+function emptyPrimaryEliminationCounts(): Record<FreshCandidatePrimaryEliminationCategory, number> {
+  return Object.fromEntries(
+    FRESH_CANDIDATE_PRIMARY_ELIMINATION_CATEGORIES.map((category) => [category, 0]),
+  ) as Record<FreshCandidatePrimaryEliminationCategory, number>
+}
+
+function reconciledDiagnostics(params: {
+  queriedProductCount: number
+  assessedProductCount: number
+  eligibleCandidateCount: number
+  eliminatedProductCount: number
+  primaryEliminationCounts: Record<FreshCandidatePrimaryEliminationCategory, number>
+}): FreshCandidateEliminationDiagnostics {
+  const counts = [
+    params.queriedProductCount,
+    params.assessedProductCount,
+    params.eligibleCandidateCount,
+    params.eliminatedProductCount,
+    ...FRESH_CANDIDATE_PRIMARY_ELIMINATION_CATEGORIES.map((category) =>
+      params.primaryEliminationCounts[category]),
+  ]
+  const primaryCount = FRESH_CANDIDATE_PRIMARY_ELIMINATION_CATEGORIES.reduce(
+    (total, category) => total + params.primaryEliminationCounts[category],
+    0,
+  )
+  if (
+    counts.some((count) => !Number.isSafeInteger(count) || count < 0 || count > FRESH_VISUAL_DISCOVERY_MAX_PRODUCTS)
+    || params.assessedProductCount > params.queriedProductCount
+    || params.assessedProductCount !== params.eligibleCandidateCount + params.eliminatedProductCount
+    || primaryCount !== params.eliminatedProductCount
+  ) {
+    throw new DiscoveryUnsupportedError('DIAGNOSTIC_RECONCILIATION_FAILED')
+  }
+  return {
+    version: FRESH_CANDIDATE_ELIMINATION_DIAGNOSTICS_VERSION,
+    queriedProductCount: params.queriedProductCount,
+    assessedProductCount: params.assessedProductCount,
+    eligibleCandidateCount: params.eligibleCandidateCount,
+    eliminatedProductCount: params.eliminatedProductCount,
+    primaryEliminationCounts: Object.fromEntries(
+      FRESH_CANDIDATE_PRIMARY_ELIMINATION_CATEGORIES.map((category) => [
+        category,
+        params.primaryEliminationCounts[category],
+      ]),
+    ) as Record<FreshCandidatePrimaryEliminationCategory, number>,
+  }
+}
+
+function eliminated(
+  category: FreshCandidatePrimaryEliminationCategory,
+): CandidateAssessmentResult {
+  return { outcome: 'eliminated', category }
 }
 
 function isRecord(value: unknown): value is RecordValue {
@@ -268,12 +406,15 @@ async function assessCandidate(params: {
   deadline: number
   now: () => number
   observations: RecordValue[]
-}): Promise<CandidateSnapshot | null> {
+}): Promise<CandidateAssessmentResult> {
   const productId = numericId(params.product.id)
-  if (productId === FRESH_VISUAL_DISCOVERY_EXCLUDED_PRODUCT_ID) return null
+  if (productId === FRESH_VISUAL_DISCOVERY_EXCLUDED_PRODUCT_ID) return { outcome: 'excluded' }
   if (!productId) throw new DiscoveryUnsupportedError('PRODUCT_IDENTITY_MALFORMED')
   const assessment = assessVisualOnlyProductState(params.product)
-  if (!assessment.eligible || assessment.productId !== productId || !assessment.stockNumber) return null
+  if (!assessment.eligible) return eliminated(classifyFreshCandidateProductElimination(assessment.codes))
+  if (assessment.productId !== productId || !assessment.stockNumber) {
+    return eliminated('PRODUCT_RECORD_OR_IDENTITY_INVALID')
+  }
 
   const surface = async (
     name: string,
@@ -290,7 +431,9 @@ async function assessCandidate(params: {
 
   const media = await surface('MEDIA', (page, limit) => params.dependencies.gateway.readMediaPage(productId, page, limit))
   const orderedImageIds = relationshipArray(params.product.images, 'image')
-  if (!orderedImageIds || orderedImageIds.length < 1 || orderedImageIds.length > FRESH_VISUAL_DISCOVERY_MAX_ORIGINALS) return null
+  if (!orderedImageIds || orderedImageIds.length < 1 || orderedImageIds.length > FRESH_VISUAL_DISCOVERY_MAX_ORIGINALS) {
+    return eliminated('ORDERED_IMAGE_RELATIONSHIP_INVALID')
+  }
   const productScopedMedia: RecordValue[] = []
   let productScopedGenerationStatePresent = false
   for (const entry of media) {
@@ -335,10 +478,14 @@ async function assessCandidate(params: {
     mediaEvidence,
   })
 
-  if (galleryOwners.length > 0 || jobs.length > 0 || receipts.length > 0 || storyJobs.length > 0) return null
-  if (!botEventsAreFresh(botEvents, productId)) return null
-  if (jobs.some((job) => Array.isArray(job.generationAttempts) && job.generationAttempts.length > 0)) return null
-  if (productScopedGenerationStatePresent) return null
+  if (galleryOwners.length > 0) return eliminated('GENERATED_GALLERY_OWNERSHIP_PRESENT')
+  if (jobs.length > 0) return eliminated('GENERATION_HISTORY_PRESENT')
+  if (receipts.length > 0) return eliminated('DURABLE_QUEUE_RECEIPT_PRESENT')
+  if (storyJobs.length > 0) return eliminated('STORY_JOB_HISTORY_PRESENT')
+  if (!botEventsAreFresh(botEvents, productId)) return eliminated('BOT_EVENT_HISTORY_UNSAFE')
+  if (productScopedGenerationStatePresent) {
+    return eliminated('PRODUCT_SCOPED_MEDIA_LINEAGE_OR_OWNERSHIP')
+  }
   const mediaById = new Map(productScopedMedia.map((entry) => [String(relationshipId(entry.id)), entry]))
   const considered: RecordValue[] = []
   for (const imageId of orderedImageIds) {
@@ -348,10 +495,12 @@ async function assessCandidate(params: {
       || String(relationshipId(entry.product)) !== String(productId)
       || entry.type !== 'original'
       || classifyProductScopedMediaGenerationState(entry).state !== 'clean-original'
-    ) return null
+    ) return eliminated('ORDERED_MEDIA_UNCLEAN')
     considered.push(entry)
   }
-  if (new Set(considered.map((entry) => String(relationshipId(entry.id)))).size !== considered.length) return null
+  if (new Set(considered.map((entry) => String(relationshipId(entry.id)))).size !== considered.length) {
+    return eliminated('ORDERED_IMAGE_RELATIONSHIP_INVALID')
+  }
 
   let aggregateBytes = 0
   let aggregatePixels = 0
@@ -360,7 +509,9 @@ async function assessCandidate(params: {
     if (params.now() >= params.deadline) throw new DiscoveryUnsupportedError('DISCOVERY_OBSERVATION_TIMEOUT')
     const remainingBytes = FRESH_VISUAL_DISCOVERY_MAX_AGGREGATE_BYTES - aggregateBytes
     const remainingPixels = FRESH_VISUAL_DISCOVERY_MAX_AGGREGATE_PIXELS - aggregatePixels
-    if (remainingBytes <= 0 || remainingPixels <= 0) return null
+    if (remainingBytes <= 0 || remainingPixels <= 0) {
+      return eliminated('AGGREGATE_EVIDENCE_BUDGET_EXCEEDED')
+    }
     let evidence: VisualPilotMediaReadResult
     try {
       evidence = await (params.dependencies.readMediaEvidence ?? readVisualPilotMediaEvidence)(entry, {
@@ -382,10 +533,14 @@ async function assessCandidate(params: {
     aggregatePixels += evidence.knownPixelCount
     if (!evidence.ok) {
       mediaEvidence.push({ id: relationshipId(entry.id), ok: false, code: evidence.code })
-      return null
+      return eliminated(AGGREGATE_EVIDENCE_FAILURE_CODES.has(evidence.code)
+        ? 'AGGREGATE_EVIDENCE_BUDGET_EXCEEDED'
+        : 'ORIGINAL_EVIDENCE_UNAVAILABLE_OR_INVALID')
     }
-    if (aggregateBytes > FRESH_VISUAL_DISCOVERY_MAX_AGGREGATE_BYTES || aggregatePixels > FRESH_VISUAL_DISCOVERY_MAX_AGGREGATE_PIXELS) return null
-    if (contentDigests.has(evidence.contentDigest)) return null
+    if (aggregateBytes > FRESH_VISUAL_DISCOVERY_MAX_AGGREGATE_BYTES || aggregatePixels > FRESH_VISUAL_DISCOVERY_MAX_AGGREGATE_PIXELS) {
+      return eliminated('AGGREGATE_EVIDENCE_BUDGET_EXCEEDED')
+    }
+    if (contentDigests.has(evidence.contentDigest)) return eliminated('ORIGINAL_CONTENT_DUPLICATE')
     contentDigests.add(evidence.contentDigest)
     mediaEvidence.push({
       id: relationshipId(entry.id),
@@ -404,30 +559,33 @@ async function assessCandidate(params: {
     'TELEGRAM_PREVIEW_HISTORY_AUTHORITY_UNAVAILABLE',
   ]
   return {
-    productId,
-    stockNumber: assessment.stockNumber,
-    usableOriginalCount,
-    evidenceClassification: 'COMPLETE_VISUAL_ONLY_EVIDENCE_DOWNSTREAM_AUTHORITY_UNAVAILABLE',
-    reasonCodes,
-    eligibleForVisualOnlyGeneration: true,
-    eligibleForPublishing: false,
-    stateDigest: digest({
-      product: candidateStateProjection(params.product),
-      media: media.map((entry) => ({
-        id: entry.id,
-        product: entry.product,
-        type: entry.type,
-        generationLineage: entry.generationLineage,
-        mimeType: entry.mimeType,
-        filename: entry.filename,
-        url: entry.url,
-      })),
-      mediaEvidence,
-      jobs,
-      receipts,
-      botEvents,
-      storyJobs,
-    }),
+    outcome: 'eligible',
+    candidate: {
+      productId,
+      stockNumber: assessment.stockNumber,
+      usableOriginalCount,
+      evidenceClassification: 'COMPLETE_VISUAL_ONLY_EVIDENCE_DOWNSTREAM_AUTHORITY_UNAVAILABLE',
+      reasonCodes,
+      eligibleForVisualOnlyGeneration: true,
+      eligibleForPublishing: false,
+      stateDigest: digest({
+        product: candidateStateProjection(params.product),
+        media: media.map((entry) => ({
+          id: entry.id,
+          product: entry.product,
+          type: entry.type,
+          generationLineage: entry.generationLineage,
+          mimeType: entry.mimeType,
+          filename: entry.filename,
+          url: entry.url,
+        })),
+        mediaEvidence,
+        jobs,
+        receipts,
+        botEvents,
+        storyJobs,
+      }),
+    },
   }
 }
 
@@ -447,15 +605,33 @@ async function captureSnapshot(
   })
   const candidates: CandidateSnapshot[] = []
   const observations: RecordValue[] = []
+  const primaryEliminationCounts = emptyPrimaryEliminationCounts()
+  let assessedProductCount = 0
+  let eliminatedProductCount = 0
   for (const product of products) {
-    const candidate = await assessCandidate({ product, dependencies, deadline, now, observations })
-    if (candidate) candidates.push(candidate)
+    const result = await assessCandidate({ product, dependencies, deadline, now, observations })
+    if (result.outcome === 'excluded') continue
+    assessedProductCount += 1
+    if (result.outcome === 'eligible') {
+      candidates.push(result.candidate)
+    } else {
+      eliminatedProductCount += 1
+      primaryEliminationCounts[result.category] += 1
+    }
   }
+  const sortedCandidates = candidates.sort((left, right) => left.productId - right.productId)
   return {
-    candidates: candidates.sort((left, right) => left.productId - right.productId),
+    candidates: sortedCandidates,
     observationDigest: digest({
       products: products.map(candidateStateProjection),
       observations,
+    }),
+    diagnostics: reconciledDiagnostics({
+      queriedProductCount: products.length,
+      assessedProductCount,
+      eligibleCandidateCount: sortedCandidates.length,
+      eliminatedProductCount,
+      primaryEliminationCounts,
     }),
   }
 }
@@ -464,6 +640,7 @@ function emptyReport(
   readiness: FreshVisualDiscoveryReadiness,
   reasonCodes: string[],
   snapshotsCompleted: 0 | 1 | 2,
+  diagnostics?: FreshCandidateEliminationDiagnostics,
 ): FreshVisualDiscoveryReport {
   return {
     version: FRESH_VISUAL_DISCOVERY_VERSION,
@@ -477,6 +654,7 @@ function emptyReport(
       advertisingHistory: 'unavailable',
       eligibleForPublishing: false,
     },
+    ...(diagnostics ? { diagnostics } : {}),
   }
 }
 
@@ -511,7 +689,12 @@ export async function discoverFreshVisualProducts(
     return emptyReport('CANDIDATE_STATE_DRIFTED', ['CANDIDATE_RELEVANT_STATE_CHANGED'], 2)
   }
   if (second.candidates.length === 0) {
-    return emptyReport('NO_ELIGIBLE_FRESH_CANDIDATE', ['NO_COMPLETE_VISUAL_ONLY_CANDIDATE'], 2)
+    return emptyReport(
+      'NO_ELIGIBLE_FRESH_CANDIDATE',
+      ['NO_COMPLETE_VISUAL_ONLY_CANDIDATE'],
+      2,
+      second.diagnostics,
+    )
   }
 
   const ranked = [...second.candidates]
@@ -542,6 +725,7 @@ export async function discoverFreshVisualProducts(
       advertisingHistory: 'unavailable',
       eligibleForPublishing: false,
     },
+    diagnostics: second.diagnostics,
   }
 }
 

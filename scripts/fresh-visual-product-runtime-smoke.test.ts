@@ -1,6 +1,11 @@
 import assert from 'node:assert/strict'
 
-import type { FreshVisualDiscoveryPage } from '../src/lib/freshVisualProductDiscovery'
+import {
+  FRESH_CANDIDATE_ELIMINATION_DIAGNOSTICS_VERSION,
+  FRESH_CANDIDATE_PRIMARY_ELIMINATION_CATEGORIES,
+  type FreshVisualDiscoveryPage,
+  type FreshVisualDiscoveryReport,
+} from '../src/lib/freshVisualProductDiscovery'
 import { runFreshVisualProductRuntimeSmoke } from './fresh-visual-product-runtime-smoke'
 import { createFreshVisualDiscoveryRuntimeGateway } from './fresh-visual-product-runtime-resources'
 
@@ -96,6 +101,88 @@ async function main(): Promise<void> {
     assert.equal(destroys, 1)
     assert.match(outputs.join('\n'), /READY_FOR_EXACT_FRESH_GENERATION_AUTHORIZATION/)
     assert.doesNotMatch(outputs.join('\n'), /media\/911\.jpg/)
+    const readyReport = JSON.parse(outputs[0]) as FreshVisualDiscoveryReport
+    assert.deepEqual(Object.keys(readyReport).sort(), [
+      'candidates', 'diagnostics', 'primaryProductId', 'publishingAuthority',
+      'readiness', 'reasonCodes', 'snapshotsCompleted', 'version',
+    ])
+    assert.ok(readyReport.diagnostics)
+    assert.equal(readyReport.diagnostics.version, FRESH_CANDIDATE_ELIMINATION_DIAGNOSTICS_VERSION)
+    assert.deepEqual(Object.keys(readyReport.diagnostics).sort(), [
+      'assessedProductCount', 'eligibleCandidateCount', 'eliminatedProductCount',
+      'primaryEliminationCounts', 'queriedProductCount', 'version',
+    ])
+    assert.deepEqual(
+      Object.keys(readyReport.diagnostics.primaryEliminationCounts),
+      [...FRESH_CANDIDATE_PRIMARY_ELIMINATION_CATEGORIES],
+    )
+    assert.ok(Object.values(readyReport.diagnostics.primaryEliminationCounts).every((count) =>
+      Number.isSafeInteger(count) && count === 0))
+
+    const sanitizedOutputs: string[] = []
+    let sanitizedDestroys = 0
+    const eliminatedTarget = {
+      ...product(),
+      id: 92,
+      stockNumber: 'SN0092',
+      images: [{ image: 921 }],
+    }
+    const sensitiveMedia = {
+      id: 921,
+      product: 92,
+      type: 'original',
+      generationLineage: null,
+      mimeType: 'image/jpeg',
+      filename: 'private-original.jpg',
+      url: 'https://private.example/internal/product-92.jpg',
+    }
+    const noCandidateCode = await runFreshVisualProductRuntimeSmoke({
+      argv: ['--confirm-read-only'],
+      initialize: async () => ({
+        dependencies: {
+          gateway: {
+            readProductPage: async (requestedPage, limit) => page([eliminatedTarget], requestedPage, limit),
+            readMediaPage: async (_productId, requestedPage, limit) => page([sensitiveMedia], requestedPage, limit),
+            readGeneratedGalleryOwnerPage: async (_mediaIds, requestedPage, limit) => page([], requestedPage, limit),
+            readImageJobPage: async (_productId, requestedPage, limit) => page([], requestedPage, limit),
+            readQueueReceiptPage: async (_productId, requestedPage, limit) => page([], requestedPage, limit),
+            readBotEventPage: async (_productId, requestedPage, limit) => page([], requestedPage, limit),
+            readStoryJobPage: async (_productId, requestedPage, limit) => page([], requestedPage, limit),
+          },
+          readMediaEvidence: async () => ({
+            ok: false as const,
+            code: 'ORIGINAL_BODY_EMPTY' as const,
+            consumedByteCount: 0,
+            knownPixelCount: 0,
+          }),
+        },
+        destroy: async () => { sanitizedDestroys += 1 },
+      }),
+      io: { stdout: (text) => sanitizedOutputs.push(text), stderr: () => undefined },
+    })
+    assert.equal(noCandidateCode, 4)
+    assert.equal(sanitizedDestroys, 1)
+    assert.equal(sanitizedOutputs.length, 1)
+    assert.doesNotMatch(
+      sanitizedOutputs[0],
+      /SN0092|private\.example|private-original|product-92|"productId"|"stockNumber"|"url"|"filename"|"contentDigest"|"mimeType"|ORIGINAL_BODY_EMPTY/,
+    )
+    const noCandidateReport = JSON.parse(sanitizedOutputs[0]) as FreshVisualDiscoveryReport
+    assert.deepEqual(noCandidateReport.candidates, [])
+    assert.ok(noCandidateReport.diagnostics)
+    assert.deepEqual(
+      [
+        noCandidateReport.diagnostics.queriedProductCount,
+        noCandidateReport.diagnostics.assessedProductCount,
+        noCandidateReport.diagnostics.eligibleCandidateCount,
+        noCandidateReport.diagnostics.eliminatedProductCount,
+      ],
+      [1, 1, 0, 1],
+    )
+    assert.equal(
+      noCandidateReport.diagnostics.primaryEliminationCounts.ORIGINAL_EVIDENCE_UNAVAILABLE_OR_INVALID,
+      1,
+    )
 
     const findCalls: Record<string, unknown>[] = []
     const runtimeGateway = createFreshVisualDiscoveryRuntimeGateway(

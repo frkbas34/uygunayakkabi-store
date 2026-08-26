@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse, after } from 'next/server'
 import { AsyncLocalStorage } from 'node:async_hooks'
 import { randomBytes } from 'node:crypto'
-import { getPayload } from '@/lib/payload'
 import { parseTelegramCaption, parseStockUpdate } from '@/lib/telegram'
 import {
   fetchAutomationSettings,
@@ -41,6 +40,10 @@ export const maxDuration = 300
 // ─────────────────────────────────────────────────────────────────────────────
 // Helpers
 // ─────────────────────────────────────────────────────────────────────────────
+
+async function getPayload() {
+  return (await import('@/lib/payload')).getPayload()
+}
 
 // ── Multi-bot token resolution ───────────────────────────────────────────────
 // D-174: Per-request token isolation via AsyncLocalStorage.
@@ -936,11 +939,29 @@ async function startPremiumImageGenJob(
 // Webhook handler
 // ─────────────────────────────────────────────────────────────────────────────
 
+export function hasConfiguredExactTelegramWebhookSecret(
+  expectedSecret: unknown,
+  providedSecret: unknown,
+): boolean {
+  return typeof expectedSecret === 'string'
+    && expectedSecret.trim().length > 0
+    && typeof providedSecret === 'string'
+    && providedSecret.trim().length > 0
+    && providedSecret === expectedSecret
+}
+
 export async function POST(req: NextRequest) {
   // ── Multi-bot token resolution ─────────────────────────────────────────
   // Geo_bot webhook is set with ?bot=geo query parameter.
   // Uygunops uses the default path (no query param).
   const botParam = new URL(req.url).searchParams.get('bot')
+  const providedSecret = req.headers.get('X-Telegram-Bot-Api-Secret-Token')
+  const expectedSecret = botParam === 'geo'
+    ? (process.env.TELEGRAM_GEO_WEBHOOK_SECRET || process.env.TELEGRAM_WEBHOOK_SECRET)
+    : process.env.TELEGRAM_WEBHOOK_SECRET
+  if (!hasConfiguredExactTelegramWebhookSecret(expectedSecret, providedSecret)) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
   const resolvedToken = (botParam === 'geo' && process.env.TELEGRAM_GEO_BOT_TOKEN)
     ? process.env.TELEGRAM_GEO_BOT_TOKEN
     : process.env.TELEGRAM_BOT_TOKEN!
@@ -949,26 +970,6 @@ export async function POST(req: NextRequest) {
   // always returns THIS request's token, even during async interleaving.
   return botTokenStore.run(resolvedToken, async () => {
   try {
-
-    // Webhook secret doğrulama
-    // TELEGRAM_WEBHOOK_SECRET boşsa atla (ilk kurulum / test için)
-    // Geo_bot uses its own secret (TELEGRAM_GEO_WEBHOOK_SECRET) if configured
-    const secret = req.headers.get('X-Telegram-Bot-Api-Secret-Token')
-    const expectedSecret = botParam === 'geo'
-      ? (process.env.TELEGRAM_GEO_WEBHOOK_SECRET || process.env.TELEGRAM_WEBHOOK_SECRET)
-      : process.env.TELEGRAM_WEBHOOK_SECRET
-    if (!expectedSecret) {
-      // Pre-traffic hardening: the signature gate silently disabling itself is
-      // how a prod misconfiguration goes unnoticed — make it loud.
-      console.warn(
-        '[telegram/security] TELEGRAM_WEBHOOK_SECRET is NOT set — webhook signature verification is DISABLED. ' +
-          'Anyone who finds the endpoint can POST fake updates. Set the secret in production env vars.',
-      )
-    }
-    if (expectedSecret && secret !== expectedSecret) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    }
-
     const body = await req.json()
 
     // DEBUG: Log incoming update keys to diagnose missing message field
@@ -1024,7 +1025,7 @@ export async function POST(req: NextRequest) {
             userId: cbUserId,
             botRole: botParam === 'geo' ? 'geo' : 'uygunops',
             expectedWebhookSecret: expectedSecret,
-            providedWebhookSecret: secret,
+            providedWebhookSecret: providedSecret,
           }, {
             loadAutomationSettings: async () => (await getVisualPayload()).findGlobal({
               slug: 'automation-settings',

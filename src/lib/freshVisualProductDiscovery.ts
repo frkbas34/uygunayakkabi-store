@@ -48,6 +48,7 @@ export type FreshCandidatePrimaryEliminationCategory =
 
 export type FreshCandidateEliminationDiagnostics = {
   version: typeof FRESH_CANDIDATE_ELIMINATION_DIAGNOSTICS_VERSION
+  /** In-scope rows after the mandatory excluded-Product filter. */
   queriedProductCount: number
   assessedProductCount: number
   eligibleCandidateCount: number
@@ -135,6 +136,10 @@ type DiscoverySnapshot = {
   diagnostics: FreshCandidateEliminationDiagnostics
 }
 
+type DiscoverySnapshotResult =
+  | { ok: true; snapshot: DiscoverySnapshot }
+  | { ok: false; error: unknown }
+
 type CandidateAssessmentResult =
   | { outcome: 'eligible'; candidate: CandidateSnapshot }
   | { outcome: 'eliminated'; category: FreshCandidatePrimaryEliminationCategory }
@@ -178,6 +183,10 @@ const PRODUCT_ASSESSMENT_ELIMINATION_PRIORITY: ReadonlyArray<readonly [
   ['PRODUCT_LEGACY_PUBLICATION_STATE_UNSAFE', 'CHANNEL_OR_DOWNSTREAM_STATE_UNSAFE'],
 ]
 
+const PRODUCT_ASSESSMENT_ELIMINATION_CODES = new Set(
+  PRODUCT_ASSESSMENT_ELIMINATION_PRIORITY.map(([code]) => code),
+)
+
 const AGGREGATE_EVIDENCE_FAILURE_CODES = new Set([
   'ORIGINAL_AGGREGATE_TIMEOUT',
   'ORIGINAL_AGGREGATE_BYTE_LIMIT_EXCEEDED',
@@ -188,6 +197,9 @@ export function classifyFreshCandidateProductElimination(
   codes: readonly string[],
 ): FreshCandidatePrimaryEliminationCategory {
   const codeSet = new Set(codes)
+  if (codes.some((code) => !PRODUCT_ASSESSMENT_ELIMINATION_CODES.has(code))) {
+    throw new DiscoveryUnsupportedError('DIAGNOSTIC_PRIMARY_ELIMINATION_UNMAPPED')
+  }
   for (const [code, category] of PRODUCT_ASSESSMENT_ELIMINATION_PRIORITY) {
     if (codeSet.has(code)) return category
   }
@@ -594,7 +606,7 @@ async function captureSnapshot(
   deadline: number,
   now: () => number,
 ): Promise<DiscoverySnapshot> {
-  const products = await readExhaustive({
+  const products = (await readExhaustive({
     readPage: (page, limit) => dependencies.gateway.readProductPage(page, limit),
     limit: FRESH_VISUAL_DISCOVERY_PAGE_SIZE,
     maxPages: FRESH_VISUAL_DISCOVERY_MAX_PAGES,
@@ -602,7 +614,7 @@ async function captureSnapshot(
     surface: 'PRODUCT',
     deadline,
     now,
-  })
+  })).filter((product) => numericId(product.id) !== FRESH_VISUAL_DISCOVERY_EXCLUDED_PRODUCT_ID)
   const candidates: CandidateSnapshot[] = []
   const observations: RecordValue[] = []
   const primaryEliminationCounts = emptyPrimaryEliminationCounts()
@@ -658,14 +670,23 @@ function emptyReport(
   }
 }
 
-export async function discoverFreshVisualProducts(
-  dependencies: FreshVisualDiscoveryDependencies,
-): Promise<FreshVisualDiscoveryReport> {
-  const now = dependencies.now ?? Date.now
-  const deadline = now() + FRESH_VISUAL_DISCOVERY_OBSERVATION_TIMEOUT_MS
+function requireReconciledSnapshot(result: DiscoverySnapshotResult | undefined): DiscoverySnapshot {
+  if (!result) throw new DiscoveryUnsupportedError('DISCOVERY_READ_FAILED')
+  if (!result.ok) throw result.error
+  return {
+    ...result.snapshot,
+    diagnostics: reconciledDiagnostics(result.snapshot.diagnostics),
+  }
+}
+
+/** Pure report boundary: accepts captured data only, with no readers or runtime overrides. */
+export function finalizeFreshVisualDiscoveryReport(
+  firstResult: DiscoverySnapshotResult,
+  secondResult?: DiscoverySnapshotResult,
+): FreshVisualDiscoveryReport {
   let first: DiscoverySnapshot
   try {
-    first = await captureSnapshot(dependencies, deadline, now)
+    first = requireReconciledSnapshot(firstResult)
   } catch (error) {
     return emptyReport(
       'CANDIDATE_DISCOVERY_UNSUPPORTED',
@@ -675,7 +696,7 @@ export async function discoverFreshVisualProducts(
   }
   let second: DiscoverySnapshot
   try {
-    second = await captureSnapshot(dependencies, deadline, now)
+    second = requireReconciledSnapshot(secondResult)
   } catch (error) {
     return emptyReport(
       'CANDIDATE_DISCOVERY_UNSUPPORTED',
@@ -727,6 +748,29 @@ export async function discoverFreshVisualProducts(
     },
     diagnostics: second.diagnostics,
   }
+}
+
+export async function discoverFreshVisualProducts(
+  dependencies: FreshVisualDiscoveryDependencies,
+): Promise<FreshVisualDiscoveryReport> {
+  const now = dependencies.now ?? Date.now
+  const deadline = now() + FRESH_VISUAL_DISCOVERY_OBSERVATION_TIMEOUT_MS
+  let first: DiscoverySnapshot
+  try {
+    first = await captureSnapshot(dependencies, deadline, now)
+  } catch (error) {
+    return finalizeFreshVisualDiscoveryReport({ ok: false, error })
+  }
+  let second: DiscoverySnapshot
+  try {
+    second = await captureSnapshot(dependencies, deadline, now)
+  } catch (error) {
+    return finalizeFreshVisualDiscoveryReport({ ok: true, snapshot: first }, { ok: false, error })
+  }
+  return finalizeFreshVisualDiscoveryReport(
+    { ok: true, snapshot: first },
+    { ok: true, snapshot: second },
+  )
 }
 
 export type FreshVisualDiscoveryArgDecision =

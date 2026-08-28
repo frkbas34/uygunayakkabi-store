@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 import {
   classifyFreshCandidateProductElimination,
   discoverFreshVisualProducts,
+  finalizeFreshVisualDiscoveryReport,
   FRESH_CANDIDATE_ELIMINATION_DIAGNOSTICS_VERSION,
   FRESH_CANDIDATE_PRIMARY_ELIMINATION_CATEGORIES,
   parseFreshVisualDiscoveryArgs,
@@ -15,6 +16,8 @@ import {
 import type { VisualPilotMediaReadResult } from './visualPilotMediaEvidence'
 
 type RecordValue = Record<string, unknown>
+type SnapshotResult = Parameters<typeof finalizeFreshVisualDiscoveryReport>[0]
+type Snapshot = Extract<SnapshotResult, { ok: true }>['snapshot']
 
 function page(docs: unknown[], requestedPage: number, limit: number): FreshVisualDiscoveryPage {
   const totalDocs = docs.length
@@ -167,6 +170,7 @@ function assertReconciled(value: FreshCandidateEliminationDiagnostics): void {
   assert.equal(value.version, FRESH_CANDIDATE_ELIMINATION_DIAGNOSTICS_VERSION)
   assert.equal(value.assessedProductCount, value.eligibleCandidateCount + value.eliminatedProductCount)
   assert.equal(primaryEliminationTotal(value), value.eliminatedProductCount)
+  assert.ok(value.assessedProductCount <= value.queriedProductCount)
   for (const count of [
     value.queriedProductCount,
     value.assessedProductCount,
@@ -178,15 +182,76 @@ function assertReconciled(value: FreshCandidateEliminationDiagnostics): void {
   }
 }
 
+function eliminatedSnapshot(): Snapshot {
+  return {
+    candidates: [],
+    observationDigest: 'c'.repeat(64),
+    diagnostics: {
+      version: FRESH_CANDIDATE_ELIMINATION_DIAGNOSTICS_VERSION,
+      queriedProductCount: 1,
+      assessedProductCount: 1,
+      eligibleCandidateCount: 0,
+      eliminatedProductCount: 1,
+      primaryEliminationCounts: {
+        ...Object.fromEntries(FRESH_CANDIDATE_PRIMARY_ELIMINATION_CATEGORIES.map((category) => [category, 0])),
+        PRODUCT_LIFECYCLE_OR_WORKFLOW_UNSAFE: 1,
+      } as FreshCandidateEliminationDiagnostics['primaryEliminationCounts'],
+    },
+  }
+}
+
+function assertUnsupported(report: FreshVisualDiscoveryReport, code: string, snapshotsCompleted: 0 | 1): void {
+  assert.equal(report.readiness, 'CANDIDATE_DISCOVERY_UNSUPPORTED')
+  assert.deepEqual(report.reasonCodes, [code])
+  assert.equal(report.snapshotsCompleted, snapshotsCompleted)
+  assert.equal(report.diagnostics, undefined)
+  assert.equal(report.primaryProductId, null)
+  assert.deepEqual(report.candidates, [])
+}
+
 async function main(): Promise<void> {
   assert.deepEqual(parseFreshVisualDiscoveryArgs([]), { ok: false, code: 'READ_ONLY_CONFIRMATION_REQUIRED' })
   assert.deepEqual(parseFreshVisualDiscoveryArgs(['--query=x']), { ok: false, code: 'UNKNOWN_ARGUMENT' })
   assert.deepEqual(parseFreshVisualDiscoveryArgs(['--confirm-read-only', '--confirm-read-only']), { ok: false, code: 'DUPLICATE_ARGUMENT' })
   assert.deepEqual(parseFreshVisualDiscoveryArgs(['--confirm-read-only']), { ok: true, helpRequested: false })
-  assert.throws(
-    () => classifyFreshCandidateProductElimination(['FUTURE_UNMAPPED_NORMAL_REJECTION']),
-    /DIAGNOSTIC_PRIMARY_ELIMINATION_UNMAPPED/,
-  )
+  for (const codes of [
+    ['FUTURE_UNMAPPED_NORMAL_REJECTION'],
+    ['PRODUCT_NOT_DRAFT', 'FUTURE_UNMAPPED_NORMAL_REJECTION'],
+    ['FUTURE_UNMAPPED_NORMAL_REJECTION', 'PRODUCT_NOT_DRAFT'],
+  ]) {
+    let failure: unknown
+    assert.throws(() => {
+      try {
+        classifyFreshCandidateProductElimination(codes)
+      } catch (error) {
+        failure = error
+        throw error
+      }
+    }, /DIAGNOSTIC_PRIMARY_ELIMINATION_UNMAPPED/, 'every unknown code must fail closed')
+    for (const failedPass of [0, 1] as const) {
+      const failed: SnapshotResult = { ok: false, error: failure }
+      const report = failedPass === 0
+        ? finalizeFreshVisualDiscoveryReport(failed)
+        : finalizeFreshVisualDiscoveryReport({ ok: true, snapshot: eliminatedSnapshot() }, failed)
+      assertUnsupported(report, 'DIAGNOSTIC_PRIMARY_ELIMINATION_UNMAPPED', failedPass)
+      assert.doesNotMatch(JSON.stringify(report), /FUTURE_UNMAPPED_NORMAL_REJECTION/)
+    }
+  }
+  for (const codes of [
+    ['PRODUCT_IMAGE_RELATIONSHIPS_DUPLICATED', 'PRODUCT_NOT_DRAFT', 'PRODUCT_SOURCE_META_MALFORMED'],
+    ['PRODUCT_SOURCE_META_MALFORMED', 'PRODUCT_NOT_DRAFT', 'PRODUCT_IMAGE_RELATIONSHIPS_DUPLICATED'],
+    ['PRODUCT_NOT_DRAFT', 'PRODUCT_NOT_DRAFT'],
+  ]) {
+    assert.equal(classifyFreshCandidateProductElimination(codes), 'PRODUCT_LIFECYCLE_OR_WORKFLOW_UNSAFE')
+  }
+  {
+    const report = await run(fixture([product(8, [81, 81], { status: 'active', sourceMeta: null })], []))
+    const value = diagnostics(report)
+    assert.equal(value.eliminatedProductCount, 1)
+    assert.equal(value.primaryEliminationCounts.PRODUCT_LIFECYCLE_OR_WORKFLOW_UNSAFE, 1)
+    assert.equal(primaryEliminationTotal(value), 1)
+    assertReconciled(value)
+  }
 
   {
     const report = await run(fixture([], []))
@@ -207,6 +272,32 @@ async function main(): Promise<void> {
       },
     )
     assertReconciled(value)
+    for (const excludedPasses of [[true, true], [true, false], [false, true]]) {
+      let productReads = 0
+      let downstreamReads = 0
+      const forbiddenRead = async (): Promise<never> => {
+        downstreamReads += 1
+        throw new Error('excluded Product must not reach a scoped reader')
+      }
+      const excludedReport = await discoverFreshVisualProducts({
+        gateway: {
+          readProductPage: async (requestedPage, limit) => page(
+            excludedPasses[productReads++] ? [product(349, [3491])] : [], requestedPage, limit,
+          ),
+          readMediaPage: forbiddenRead,
+          readGeneratedGalleryOwnerPage: forbiddenRead,
+          readImageJobPage: forbiddenRead,
+          readQueueReceiptPage: forbiddenRead,
+          readBotEventPage: forbiddenRead,
+          readStoryJobPage: forbiddenRead,
+        },
+        readMediaEvidence: forbiddenRead,
+      })
+      assert.equal(productReads, 2)
+      assert.equal(downstreamReads, 0)
+      assert.deepEqual(excludedReport.diagnostics, value)
+      assert.equal(JSON.stringify(excludedReport), JSON.stringify(report), 'excluded presence must not change serialized output')
+    }
   }
 
   {
@@ -251,10 +342,12 @@ async function main(): Promise<void> {
     const diagnostic = diagnostics(report)
     assert.deepEqual(
       [diagnostic.queriedProductCount, diagnostic.assessedProductCount, diagnostic.eligibleCandidateCount, diagnostic.eliminatedProductCount],
-      [5, 4, 4, 0],
+      [4, 4, 4, 0],
     )
     assert.ok(!Object.keys(diagnostic.primaryEliminationCounts).some((key) => /TELEGRAM|ADVERTISING/.test(key)))
     assertReconciled(diagnostic)
+    value.products = value.products.filter((entry) => entry.id !== 349)
+    assert.equal(JSON.stringify(await run(value)), JSON.stringify(report), 'mixed input must not disclose the excluded row')
   }
   {
     const value = fixture(
@@ -601,6 +694,102 @@ async function main(): Promise<void> {
   }
 
   {
+    const docs = Array.from({ length: 100 }, (_, index) => product(index + 1000, [8000 + index], { status: 'active' }))
+    const base = fixture(docs, [])
+    const pages: number[] = []
+    const report = await discoverFreshVisualProducts({
+      gateway: {
+        ...gateway(base),
+        readProductPage: async (requestedPage, limit) => {
+          assert.equal(limit, 25)
+          pages.push(requestedPage)
+          return page(docs, requestedPage, limit)
+        },
+      },
+      readMediaEvidence: async () => { throw new Error('eliminated rows must not read images') },
+    })
+    assert.equal(report.readiness, 'NO_ELIGIBLE_FRESH_CANDIDATE')
+    assert.deepEqual(pages, [1, 2, 3, 4, 1, 2, 3, 4])
+    const value = diagnostics(report)
+    assert.deepEqual(
+      [value.queriedProductCount, value.assessedProductCount, value.eligibleCandidateCount, value.eliminatedProductCount],
+      [100, 100, 0, 100],
+    )
+    assert.equal(value.primaryEliminationCounts.PRODUCT_LIFECYCLE_OR_WORKFLOW_UNSAFE, 100)
+    assertReconciled(value)
+  }
+
+  for (const budget of [
+    { name: 'byte exhaustion', bytes: 8_000_000, pixels: 1_000_000, byteLimits: [10_000_000, 10_000_000, 8_000_000], pixelLimits: [40_000_000, 40_000_000, 40_000_000] },
+    { name: 'byte overflow defense', bytes: 10_000_000, pixels: 1_000_000, byteLimits: [10_000_000, 10_000_000, 4_000_000], pixelLimits: [40_000_000, 40_000_000, 40_000_000] },
+    { name: 'pixel exhaustion', bytes: 1_000, pixels: 25_000_000, byteLimits: [10_000_000, 10_000_000, 10_000_000, 10_000_000], pixelLimits: [40_000_000, 40_000_000, 40_000_000, 25_000_000] },
+    { name: 'pixel overflow defense', bytes: 1_000, pixels: 40_000_000, byteLimits: [10_000_000, 10_000_000, 10_000_000], pixelLimits: [40_000_000, 40_000_000, 20_000_000] },
+  ]) {
+    // Overflow must occur on the final original, so the next-iteration
+    // exhaustion guard cannot hide removal of the immediate overflow guard.
+    const imageIds = [6101, 6102, 6103, 6104, 6105].slice(0, budget.name.includes('overflow') ? 3 : 5)
+    const base = fixture([product(610, imageIds)], imageIds.map((id) => media(id, 610)))
+    const reads: number[] = []
+    const byteLimits: number[] = []
+    const pixelLimits: number[] = []
+    const report = await discoverFreshVisualProducts({
+      gateway: gateway(base),
+      now: () => 0,
+      readMediaEvidence: async (entry, limits) => {
+        reads.push(Number(entry.id))
+        byteLimits.push(limits.maxBytes!)
+        pixelLimits.push(limits.maxInputPixels!)
+        assert.equal(limits.timeoutMs, 15_000)
+        // Successful synthetic reads accumulate real counters. No final failure
+        // code is injected; overflow cases additionally exercise the caller's guard.
+        return {
+          ...goodEvidence(entry),
+          width: budget.pixels === 1_000_000 ? 1000 : budget.pixels / 5000,
+          height: budget.pixels === 1_000_000 ? 1000 : 5000,
+          byteSize: budget.bytes,
+          consumedByteCount: budget.bytes,
+          knownPixelCount: budget.pixels,
+        }
+      },
+    })
+    assert.equal(report.readiness, 'NO_ELIGIBLE_FRESH_CANDIDATE', budget.name)
+    const value = diagnostics(report)
+    assert.equal(value.primaryEliminationCounts.AGGREGATE_EVIDENCE_BUDGET_EXCEEDED, 1, budget.name)
+    assert.equal(value.eliminatedProductCount, 1)
+    assertReconciled(value)
+    const expectedReads = imageIds.slice(0, budget.byteLimits.length)
+    assert.deepEqual(reads, [...expectedReads, ...expectedReads], `${budget.name}: no later original may be read`)
+    assert.deepEqual(byteLimits, [...budget.byteLimits, ...budget.byteLimits])
+    assert.deepEqual(pixelLimits, [...budget.pixelLimits, ...budget.pixelLimits])
+  }
+
+  for (const failedPass of [0, 1] as const) {
+    const base = fixture([product(620, [6201, 6202])], [media(6201, 620), media(6202, 620)])
+    let clock = 0
+    let productReads = 0
+    let imageReads = 0
+    const report = await discoverFreshVisualProducts({
+      now: () => clock,
+      gateway: {
+        ...gateway(base),
+        readProductPage: async (requestedPage, limit) => {
+          productReads += 1
+          if (failedPass === 1 && productReads === 2) clock = 45_000
+          return page(base.products, requestedPage, limit)
+        },
+      },
+      readMediaEvidence: async (entry) => {
+        imageReads += 1
+        if (failedPass === 0) clock = 45_000
+        return goodEvidence(entry)
+      },
+    })
+    assertUnsupported(report, 'DISCOVERY_OBSERVATION_TIMEOUT', failedPass)
+    assert.equal(imageReads, failedPass === 0 ? 1 : 2, 'deadline must stop subsequent image reads')
+    assert.equal(productReads, failedPass + 1)
+  }
+
+  {
     const base = fixture([product(80, [801])], [media(801, 80)])
     let productReads = 0
     const drifting: FreshVisualDiscoveryGateway = {
@@ -617,24 +806,77 @@ async function main(): Promise<void> {
   }
 
   {
-    const eligible = product(82, [821])
-    const firstEliminated = product(83, [831], { status: 'active' })
-    const secondEliminated = product(83, [831, 831])
-    const base = fixture([eligible, firstEliminated], [media(821, 82), media(831, 83)])
-    let productReads = 0
-    const diagnosticDrift: FreshVisualDiscoveryGateway = {
-      ...gateway(base),
-      readProductPage: async (requestedPage, limit) => {
-        productReads += 1
-        return page(productReads === 1 ? [eligible, firstEliminated] : [eligible, secondEliminated], requestedPage, limit)
-      },
-    }
-    const report = await discoverFreshVisualProducts({
-      gateway: diagnosticDrift,
-      readMediaEvidence: async (entry) => goodEvidence(entry),
-    })
-    assert.equal(report.readiness, 'CANDIDATE_STATE_DRIFTED')
+    const first = eliminatedSnapshot()
+    first.candidates = [{
+      productId: 82,
+      stockNumber: 'SN0082',
+      usableOriginalCount: 1,
+      evidenceClassification: 'COMPLETE_VISUAL_ONLY_EVIDENCE_DOWNSTREAM_AUTHORITY_UNAVAILABLE',
+      reasonCodes: ['PUBLISHING_AUTHORITY_UNAVAILABLE'],
+      eligibleForVisualOnlyGeneration: true,
+      eligibleForPublishing: false,
+      stateDigest: 'd'.repeat(64),
+    }]
+    first.diagnostics.queriedProductCount = 2
+    first.diagnostics.assessedProductCount = 2
+    first.diagnostics.eligibleCandidateCount = 1
+    const second = structuredClone(first)
+    second.diagnostics.primaryEliminationCounts.PRODUCT_LIFECYCLE_OR_WORKFLOW_UNSAFE = 0
+    second.diagnostics.primaryEliminationCounts.ORDERED_IMAGE_RELATIONSHIP_INVALID = 1
+    // The pure production finalizer receives identical pre-diagnostic state.
+    // No Product field, candidate digest, observation digest, or reader changes.
+    const { diagnostics: firstDiagnostics, ...firstOrdinaryState } = first
+    const { diagnostics: secondDiagnostics, ...secondOrdinaryState } = second
+    assert.deepEqual(firstOrdinaryState, secondOrdinaryState)
+    assert.notDeepEqual(firstDiagnostics, secondDiagnostics)
+    assertReconciled(firstDiagnostics)
+    assertReconciled(secondDiagnostics)
+    const report = finalizeFreshVisualDiscoveryReport(
+      { ok: true, snapshot: first }, { ok: true, snapshot: second },
+    )
+    assert.equal(report.readiness, 'CANDIDATE_STATE_DRIFTED', 'diagnostic-only drift must be detected')
+    assert.deepEqual(report.reasonCodes, ['CANDIDATE_RELEVANT_STATE_CHANGED'])
+    assert.equal(report.snapshotsCompleted, 2)
     assert.equal(report.diagnostics, undefined)
+    const stable = structuredClone(first)
+    stable.diagnostics.primaryEliminationCounts = Object.fromEntries(
+      Object.entries(stable.diagnostics.primaryEliminationCounts).reverse(),
+    ) as FreshCandidateEliminationDiagnostics['primaryEliminationCounts']
+    const accepted = finalizeFreshVisualDiscoveryReport(
+      { ok: true, snapshot: first }, { ok: true, snapshot: stable },
+    )
+    assert.equal(accepted.readiness, 'READY_FOR_EXACT_FRESH_GENERATION_AUTHORIZATION')
+    assert.deepEqual(accepted.diagnostics, first.diagnostics)
+    assert.equal(accepted.candidates[0].productId, 82)
+    assert.equal(accepted.candidates[0].eligibleForPublishing, false)
+  }
+
+  {
+    const invalidCases: Array<[string, (value: FreshCandidateEliminationDiagnostics) => void]> = [
+      ['assessed sum', (value) => { value.assessedProductCount = 0 }],
+      ['primary sum', (value) => { value.primaryEliminationCounts.PRODUCT_LIFECYCLE_OR_WORKFLOW_UNSAFE = 0 }],
+      ['assessed exceeds queried', (value) => { value.queriedProductCount = 0 }],
+      ['negative count', (value) => {
+        value.primaryEliminationCounts.PRODUCT_LIFECYCLE_OR_WORKFLOW_UNSAFE = -1
+        value.primaryEliminationCounts.ORDERED_IMAGE_RELATIONSHIP_INVALID = 2
+      }],
+      ['non-integer count', (value) => { value.queriedProductCount = 1.5 }],
+      ['unsafe integer', (value) => { value.queriedProductCount = Number.MAX_SAFE_INTEGER + 1 }],
+      ['Product bound exceeded', (value) => { value.queriedProductCount = 101 }],
+      ['nonfinite count', (value) => { value.queriedProductCount = Number.POSITIVE_INFINITY }],
+    ]
+    for (const [name, invalidate] of invalidCases) {
+      const invalid = eliminatedSnapshot()
+      invalidate(invalid.diagnostics)
+      for (const failedPass of [0, 1] as const) {
+        const report = finalizeFreshVisualDiscoveryReport(
+          { ok: true, snapshot: failedPass === 0 ? invalid : eliminatedSnapshot() },
+          { ok: true, snapshot: invalid },
+        )
+        assert.equal(report.readiness, 'CANDIDATE_DISCOVERY_UNSUPPORTED', name)
+        assertUnsupported(report, 'DIAGNOSTIC_RECONCILIATION_FAILED', failedPass)
+      }
+    }
   }
 
   {

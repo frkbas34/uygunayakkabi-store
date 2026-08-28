@@ -184,6 +184,45 @@ async function main(): Promise<void> {
       1,
     )
 
+    const excludedOutputs: string[] = []
+    for (const includeExcluded of [false, true]) {
+      let scopedReads = 0
+      let cleanupCalls = 0
+      const forbiddenRead = async (): Promise<never> => {
+        scopedReads += 1
+        throw new Error('excluded Product must not reach runtime evidence readers')
+      }
+      const output: string[] = []
+      const excludedCode = await runFreshVisualProductRuntimeSmoke({
+        argv: ['--confirm-read-only'],
+        initialize: async () => ({
+          dependencies: {
+            gateway: {
+              readProductPage: async (requestedPage, limit) => page(
+                includeExcluded ? [{ ...product(), id: 349, stockNumber: 'SN0349' }] : [], requestedPage, limit,
+              ),
+              readMediaPage: forbiddenRead,
+              readGeneratedGalleryOwnerPage: forbiddenRead,
+              readImageJobPage: forbiddenRead,
+              readQueueReceiptPage: forbiddenRead,
+              readBotEventPage: forbiddenRead,
+              readStoryJobPage: forbiddenRead,
+            },
+            readMediaEvidence: forbiddenRead,
+          },
+          destroy: async () => { cleanupCalls += 1 },
+        }),
+        io: { stdout: (text) => output.push(text), stderr: () => assert.fail('unexpected runtime error') },
+      })
+      assert.equal(excludedCode, 4)
+      assert.equal(scopedReads, 0)
+      assert.equal(cleanupCalls, 1)
+      assert.equal(output.length, 1)
+      assert.doesNotMatch(output[0], /349|SN0349|excludedProductCount/)
+      excludedOutputs.push(output[0])
+    }
+    assert.equal(excludedOutputs[0], excludedOutputs[1], 'runtime output must not disclose excluded presence')
+
     const findCalls: Record<string, unknown>[] = []
     const runtimeGateway = createFreshVisualDiscoveryRuntimeGateway(
       {

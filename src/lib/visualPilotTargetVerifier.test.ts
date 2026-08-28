@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 
 import { getSlotByKey, GENERATED_SLOT_KEYS, IMAGE_SLOT_CONTRACT_VERSION } from './imageSlotContract'
 import {
+  classifyVisualPilotBotEvent,
   executeVisualPilotTargetCommand,
   formatVisualPilotTargetSummary,
   parseVisualPilotTargetArgs,
@@ -1101,6 +1102,49 @@ await check('canonical product activation history blocks downstream isolation', 
   })
   assert.ok(reasonCodes(report).includes('DOWNSTREAM_BOT_EVENT_EXPOSURE'))
   assert.equal(report.downstreamExposure.state, 'blocked')
+})
+
+await check('BotEvent classifier rejects inherited, unknown and malformed names without coercion', () => {
+  for (const eventType of [
+    'constructor', '__proto__', 'prototype', 'toString', 'valueOf', 'hasOwnProperty',
+    'future.unknown', '', ' ', 'content.requested ', 'CONTENT.REQUESTED', '\u0000content.requested',
+  ]) {
+    for (const status of ['pending', 'processed', 'failed', 'ignored']) {
+      assert.equal(classifyVisualPilotBotEvent(eventType, status), 'unknown', eventType)
+    }
+  }
+  for (const eventType of [null, undefined, 1, {}, ['content.requested'], {
+    toString() { throw new Error('BotEvent names must not be coerced') },
+  }]) {
+    assert.equal(classifyVisualPilotBotEvent(eventType as unknown as string, 'processed'), 'unknown')
+  }
+})
+
+await check('every own BotEvent taxonomy entry preserves all status classifications', () => {
+  const groups = {
+    exposure: [
+      'publish.approved', 'product.activated', 'product.soldout', 'product.restocked', 'lead.converted',
+      'order.status_changed', 'order.new_alert_sent', 'order.refund_requested', 'order.refund_updated',
+    ],
+    non_exposure: ['publish.rejected', 'pi.auto_trigger_failed', 'content.failed', 'audit.needs_revision', 'audit.failed'],
+    neutral: [
+      'brand_safety.provenance_reviewed', 'pi.auto_triggered_by_geo', 'pi.sent_to_geo',
+      'content.requested', 'content.commerce_generated', 'content.discovery_generated', 'content.ready',
+      'audit.requested', 'audit.started', 'audit.approved', 'audit.approved_with_warning',
+      'audit.auto_fix_requested', 'product.publish_ready', 'product.confirmed', 'state.repaired',
+      'stock.changed', 'lead.status_changed', 'lead.new_alert_sent',
+    ],
+  }
+  assert.equal(Object.values(groups).flat().length, 32)
+  for (const [classification, eventTypes] of Object.entries(groups)) {
+    for (const eventType of eventTypes) {
+      for (const status of ['pending', 'processed', 'failed', 'ignored']) {
+        const expected = classification === 'exposure' && (status === 'failed' || status === 'ignored')
+          ? 'non_exposure' : classification
+        assert.equal(classifyVisualPilotBotEvent(eventType, status), expected, `${eventType}/${status}`)
+      }
+    }
+  }
 })
 
 await check('explicit BotEvent taxonomy separates exposure, non-exposure, neutral, and unknown events', async () => {

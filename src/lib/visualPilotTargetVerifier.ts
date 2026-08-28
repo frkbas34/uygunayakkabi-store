@@ -270,8 +270,13 @@ const BOT_EVENT_TAXONOMY: Readonly<Record<string, BotEventTaxonomy>> = {
 }
 
 export function classifyVisualPilotBotEvent(eventType: string, status: string): BotEventTaxonomy | 'unknown' {
+  if (typeof eventType !== 'string' || !Object.prototype.hasOwnProperty.call(BOT_EVENT_TAXONOMY, eventType)) {
+    return 'unknown'
+  }
   const classification = BOT_EVENT_TAXONOMY[eventType]
-  if (!classification) return 'unknown'
+  if (classification !== 'exposure' && classification !== 'non_exposure' && classification !== 'neutral') {
+    return 'unknown'
+  }
   if (classification === 'exposure' && (status === 'failed' || status === 'ignored')) return 'non_exposure'
   return classification
 }

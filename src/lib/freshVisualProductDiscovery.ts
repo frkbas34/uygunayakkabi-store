@@ -154,6 +154,10 @@ class DiscoveryUnsupportedError extends Error {
   }
 }
 
+function assertObservationDeadline(deadline: number, now: () => number): void {
+  if (now() >= deadline) throw new DiscoveryUnsupportedError('DISCOVERY_OBSERVATION_TIMEOUT')
+}
+
 const PRODUCT_ASSESSMENT_ELIMINATION_PRIORITY: ReadonlyArray<readonly [
   string,
   FreshCandidatePrimaryEliminationCategory,
@@ -351,6 +355,9 @@ async function readExhaustive(params: {
       result = await params.readPage(page, params.limit)
     } catch {
       throw new DiscoveryUnsupportedError(`${params.surface}_READ_FAILED`)
+    } finally {
+      // Late success and late failure both invalidate the observation.
+      assertObservationDeadline(params.deadline, params.now)
     }
     if (!pageIsExact(result, page, params.limit)) {
       throw new DiscoveryUnsupportedError(`${params.surface}_PAGINATION_MALFORMED`)
@@ -540,6 +547,8 @@ async function assessCandidate(params: {
       })
     } catch {
       throw new DiscoveryUnsupportedError('MEDIA_EVIDENCE_READ_FAILED')
+    } finally {
+      assertObservationDeadline(params.deadline, params.now)
     }
     aggregateBytes += evidence.consumedByteCount
     aggregatePixels += evidence.knownPixelCount
@@ -758,19 +767,32 @@ export async function discoverFreshVisualProducts(
   let first: DiscoverySnapshot
   try {
     first = await captureSnapshot(dependencies, deadline, now)
+    // Count a snapshot only after every terminal path has returned within scope.
+    assertObservationDeadline(deadline, now)
   } catch (error) {
     return finalizeFreshVisualDiscoveryReport({ ok: false, error })
   }
   let second: DiscoverySnapshot
   try {
     second = await captureSnapshot(dependencies, deadline, now)
+    assertObservationDeadline(deadline, now)
   } catch (error) {
     return finalizeFreshVisualDiscoveryReport({ ok: true, snapshot: first }, { ok: false, error })
   }
-  return finalizeFreshVisualDiscoveryReport(
+  const report = finalizeFreshVisualDiscoveryReport(
     { ok: true, snapshot: first },
     { ok: true, snapshot: second },
   )
+  try {
+    assertObservationDeadline(deadline, now)
+  } catch (error) {
+    return emptyReport(
+      'CANDIDATE_DISCOVERY_UNSUPPORTED',
+      [error instanceof DiscoveryUnsupportedError ? error.code : 'DISCOVERY_READ_FAILED'],
+      2,
+    )
+  }
+  return report
 }
 
 export type FreshVisualDiscoveryArgDecision =

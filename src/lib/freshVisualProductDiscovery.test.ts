@@ -200,13 +200,135 @@ function eliminatedSnapshot(): Snapshot {
   }
 }
 
-function assertUnsupported(report: FreshVisualDiscoveryReport, code: string, snapshotsCompleted: 0 | 1): void {
+function assertUnsupported(report: FreshVisualDiscoveryReport, code: string, snapshotsCompleted: 0 | 1 | 2): void {
   assert.equal(report.readiness, 'CANDIDATE_DISCOVERY_UNSUPPORTED')
   assert.deepEqual(report.reasonCodes, [code])
   assert.equal(report.snapshotsCompleted, snapshotsCompleted)
   assert.equal(report.diagnostics, undefined)
+  assert.equal(Object.prototype.hasOwnProperty.call(report, 'diagnostics'), false)
   assert.equal(report.primaryProductId, null)
   assert.deepEqual(report.candidates, [])
+}
+
+type TerminalRead = 'empty-product-page' | 'original-success' | 'story-history'
+  | 'original-failure' | 'product-read-failure' | 'original-read-failure'
+
+async function assertTerminalReadDeadline(surface: TerminalRead, targetPass: 0 | 1, finishedAt: number): Promise<void> {
+  const empty = surface === 'empty-product-page' || surface === 'product-read-failure'
+  const base = fixture(empty ? [] : [product(630, [6301, 6302])], [media(6301, 630), media(6302, 630)])
+  let clock = 0
+  let productReads = 0
+  let imageReads = 0
+  let storyReads = 0
+  const completeRead = () => {
+    if (productReads === targetPass + 1) clock = finishedAt
+  }
+  const report = await discoverFreshVisualProducts({
+    now: () => clock,
+    gateway: {
+      ...gateway(base),
+      readProductPage: async (requestedPage, limit) => {
+        productReads += 1
+        if (empty) completeRead()
+        if (surface === 'product-read-failure' && productReads === targetPass + 1) {
+          throw new Error('synthetic terminal Product read failure')
+        }
+        return page(base.products, requestedPage, limit)
+      },
+      readStoryJobPage: async (_productId, requestedPage, limit) => {
+        storyReads += 1
+        if (surface === 'story-history') completeRead()
+        return page(surface === 'story-history' ? [{ id: 1, product: 630 }] : [], requestedPage, limit)
+      },
+    },
+    readMediaEvidence: async (entry) => {
+      imageReads += 1
+      // The last original has no subsequent loop iteration to enforce the deadline.
+      if (entry.id === 6302) {
+        completeRead()
+        if (surface === 'original-read-failure' && productReads === targetPass + 1) {
+          throw new Error('synthetic terminal original read failure')
+        }
+        if (surface === 'original-failure') {
+          return { ok: false, code: 'ORIGINAL_AGGREGATE_TIMEOUT', consumedByteCount: 0, knownPixelCount: 0 }
+        }
+      }
+      return goodEvidence(entry)
+    },
+  })
+  const label = `${surface}, snapshot ${targetPass + 1}, completion ${finishedAt}`
+  const timeout = finishedAt >= 45_000
+  const readFailure = surface === 'product-read-failure' || surface === 'original-read-failure'
+  if (timeout || readFailure) {
+    assert.equal(report.readiness, 'CANDIDATE_DISCOVERY_UNSUPPORTED', label)
+    assertUnsupported(report, timeout ? 'DISCOVERY_OBSERVATION_TIMEOUT'
+      : surface === 'product-read-failure' ? 'PRODUCT_READ_FAILED' : 'MEDIA_EVIDENCE_READ_FAILED', targetPass)
+    assert.doesNotMatch(JSON.stringify(report), /diagnostics|queriedProductCount|eligibleCandidateCount|primaryEliminationCounts|SN0630|"productId":630/)
+  } else {
+    assert.equal(report.readiness, surface === 'original-success'
+      ? 'READY_FOR_EXACT_FRESH_GENERATION_AUTHORIZATION' : 'NO_ELIGIBLE_FRESH_CANDIDATE', label)
+    assert.equal(report.snapshotsCompleted, 2)
+    const value = diagnostics(report)
+    assertReconciled(value)
+    assert.equal(value.queriedProductCount, empty ? 0 : 1)
+    assert.equal(value.eligibleCandidateCount, surface === 'original-success' ? 1 : 0)
+    if (surface === 'story-history') assert.equal(value.primaryEliminationCounts.STORY_JOB_HISTORY_PRESENT, 1)
+    if (surface === 'original-failure') assert.equal(value.primaryEliminationCounts.AGGREGATE_EVIDENCE_BUDGET_EXCEEDED, 1)
+  }
+  const passes = timeout || readFailure ? targetPass + 1 : 2
+  assert.equal(productReads, passes, label)
+  assert.equal(storyReads, empty ? 0 : passes, label)
+  assert.equal(imageReads, empty || surface === 'story-history' ? 0 : passes * 2, label)
+}
+
+async function assertCompletionDeadline(boundary: 'snapshot' | 'report', targetPass: 0 | 1): Promise<void> {
+  let productReads = 0
+  let terminalReadReturned = false
+  // The read itself is timely; advance at snapshot acceptance or report return.
+  let timelyPostReadChecks = boundary === 'snapshot' ? 1 : 2
+  const report = await discoverFreshVisualProducts({
+    now: () => !terminalReadReturned ? 0 : timelyPostReadChecks-- > 0 ? 44_999 : 45_000,
+    gateway: {
+      ...gateway(fixture([], [])),
+      readProductPage: async (requestedPage, limit) => {
+        productReads += 1
+        if (productReads === targetPass + 1) terminalReadReturned = true
+        return page([], requestedPage, limit)
+      },
+    },
+    readMediaEvidence: async () => { throw new Error('empty snapshot must not read images') },
+  })
+  assertUnsupported(report, 'DISCOVERY_OBSERVATION_TIMEOUT', boundary === 'snapshot' ? targetPass : 2)
+  assert.equal(productReads, targetPass + 1)
+}
+
+async function assertUnknownBotEvent(eventType: string, failedPass: 0 | 1): Promise<void> {
+  const base = fixture([product(32, [321])], [media(321, 32)])
+  let eventReads = 0
+  let imageReads = 0
+  const report = await discoverFreshVisualProducts({
+    now: () => 0,
+    gateway: {
+      ...gateway(base),
+      readBotEventPage: async (_productId, requestedPage, limit) => page([{
+        id: 1,
+        product: 32,
+        eventType: eventReads++ === failedPass ? eventType : 'content.requested',
+        status: 'processed',
+      }], requestedPage, limit),
+    },
+    readMediaEvidence: async (entry) => {
+      imageReads += 1
+      return goodEvidence(entry)
+    },
+  })
+  assert.equal(report.readiness, 'CANDIDATE_DISCOVERY_UNSUPPORTED', `unknown BotEvent: ${eventType}`)
+  assertUnsupported(report, 'BOT_EVENT_TAXONOMY_UNSUPPORTED', failedPass)
+  const output = JSON.stringify(report)
+  assert.equal(output.includes(eventType), false, 'raw BotEvent name must not escape')
+  assert.doesNotMatch(output, /eligibleCandidateCount|primaryEliminationCounts|BOT_EVENT_HISTORY_UNSAFE|SN0032|"productId":32/)
+  assert.equal(eventReads, failedPass + 1)
+  assert.equal(imageReads, failedPass, 'unsupported events must stop original-evidence reads')
 }
 
 async function main(): Promise<void> {
@@ -629,6 +751,22 @@ async function main(): Promise<void> {
     assert.equal((await run(value)).readiness, 'NO_ELIGIBLE_FRESH_CANDIDATE')
   }
 
+  for (const status of ['pending', 'processed', 'failed', 'ignored']) {
+    const value = fixture([product(31, [311])], [media(311, 31)])
+    value.eventsByProduct.set(31, [{ id: 1, product: 31, eventType: 'product.activated', status }])
+    const report = await run(value)
+    const active = status === 'pending' || status === 'processed'
+    assert.equal(report.readiness, active ? 'NO_ELIGIBLE_FRESH_CANDIDATE' : 'READY_FOR_EXACT_FRESH_GENERATION_AUTHORIZATION')
+    const counts = diagnostics(report)
+    assert.equal(counts.eligibleCandidateCount, active ? 0 : 1)
+    assert.equal(counts.primaryEliminationCounts.BOT_EVENT_HISTORY_UNSAFE, active ? 1 : 0)
+    assertReconciled(counts)
+  }
+
+  for (const eventType of ['constructor', '__proto__', 'prototype', 'toString', 'valueOf', 'hasOwnProperty', 'future.unknown']) {
+    for (const failedPass of [0, 1] as const) await assertUnknownBotEvent(eventType, failedPass)
+  }
+
   {
     const value = fixture([product(32, [321])], [media(321, 32)])
     value.eventsByProduct.set(32, [{ id: 1, product: 32, eventType: 'future.unknown', status: 'processed' }])
@@ -788,6 +926,17 @@ async function main(): Promise<void> {
     assert.equal(imageReads, failedPass === 0 ? 1 : 2, 'deadline must stop subsequent image reads')
     assert.equal(productReads, failedPass + 1)
   }
+
+  for (const surface of ['empty-product-page', 'original-success', 'story-history', 'original-failure', 'product-read-failure', 'original-read-failure'] as const) {
+    for (const targetPass of [0, 1] as const) {
+      for (const finishedAt of [44_999, 45_000, 90_000]) {
+        await assertTerminalReadDeadline(surface, targetPass, finishedAt)
+      }
+    }
+  }
+  await assertCompletionDeadline('snapshot', 0)
+  await assertCompletionDeadline('snapshot', 1)
+  await assertCompletionDeadline('report', 1)
 
   {
     const base = fixture([product(80, [801])], [media(801, 80)])

@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 import { getSlotByKey, GENERATED_SLOT_KEYS, IMAGE_SLOT_CONTRACT_VERSION } from './imageSlotContract'
 import {
   classifyVisualPilotBotEvent,
+  classifyVisualPilotBotEventFromTaxonomy,
   executeVisualPilotTargetCommand,
   formatVisualPilotTargetSummary,
   parseVisualPilotTargetArgs,
@@ -1120,23 +1121,25 @@ await check('BotEvent classifier rejects inherited, unknown and malformed names 
   }
 })
 
+const botEventTaxonomyGroups = {
+  exposure: [
+    'publish.approved', 'product.activated', 'product.soldout', 'product.restocked', 'lead.converted',
+    'order.status_changed', 'order.new_alert_sent', 'order.refund_requested', 'order.refund_updated',
+  ],
+  non_exposure: ['publish.rejected', 'pi.auto_trigger_failed', 'content.failed', 'audit.needs_revision', 'audit.failed'],
+  neutral: [
+    'brand_safety.provenance_reviewed', 'pi.auto_triggered_by_geo', 'pi.sent_to_geo',
+    'content.requested', 'content.commerce_generated', 'content.discovery_generated', 'content.ready',
+    'audit.requested', 'audit.started', 'audit.approved', 'audit.approved_with_warning',
+    'audit.auto_fix_requested', 'product.publish_ready', 'product.confirmed', 'state.repaired',
+    'stock.changed', 'lead.status_changed', 'lead.new_alert_sent',
+  ],
+}
+const botEventStatuses = ['pending', 'processed', 'failed', 'ignored'] as const
+
 await check('every own BotEvent taxonomy entry preserves all status classifications', () => {
-  const groups = {
-    exposure: [
-      'publish.approved', 'product.activated', 'product.soldout', 'product.restocked', 'lead.converted',
-      'order.status_changed', 'order.new_alert_sent', 'order.refund_requested', 'order.refund_updated',
-    ],
-    non_exposure: ['publish.rejected', 'pi.auto_trigger_failed', 'content.failed', 'audit.needs_revision', 'audit.failed'],
-    neutral: [
-      'brand_safety.provenance_reviewed', 'pi.auto_triggered_by_geo', 'pi.sent_to_geo',
-      'content.requested', 'content.commerce_generated', 'content.discovery_generated', 'content.ready',
-      'audit.requested', 'audit.started', 'audit.approved', 'audit.approved_with_warning',
-      'audit.auto_fix_requested', 'product.publish_ready', 'product.confirmed', 'state.repaired',
-      'stock.changed', 'lead.status_changed', 'lead.new_alert_sent',
-    ],
-  }
-  assert.equal(Object.values(groups).flat().length, 32)
-  for (const [classification, eventTypes] of Object.entries(groups)) {
+  assert.equal(Object.values(botEventTaxonomyGroups).flat().length, 32)
+  for (const [classification, eventTypes] of Object.entries(botEventTaxonomyGroups)) {
     for (const eventType of eventTypes) {
       for (const status of ['pending', 'processed', 'failed', 'ignored']) {
         const expected = classification === 'exposure' && (status === 'failed' || status === 'ignored')
@@ -1145,6 +1148,59 @@ await check('every own BotEvent taxonomy entry preserves all status classificati
       }
     }
   }
+})
+
+await check('invalid own BotEvent taxonomy values fail closed for all 1024 key/status/value combinations', () => {
+  const eventTypes = Object.values(botEventTaxonomyGroups).flat()
+  const productionClassifications = () => eventTypes.flatMap((eventType) =>
+    botEventStatuses.map((status) => classifyVisualPilotBotEvent(eventType, status)))
+  const before = productionClassifications()
+  const invalidValues: unknown[] = [undefined, null, true, 0, { marker: 'invalid-mapped-value' }, ['neutral'], 'unknown', 'NEUTRAL']
+  let combinations = 0
+  for (const eventType of eventTypes) {
+    for (const status of botEventStatuses) {
+      for (const value of invalidValues) {
+        const taxonomy = Object.freeze({ [eventType]: value })
+        assert.equal(Object.prototype.hasOwnProperty.call(taxonomy, eventType), true)
+        assert.equal(classifyVisualPilotBotEventFromTaxonomy(taxonomy, eventType, status), 'unknown',
+          `invalid own taxonomy value must fail closed: ${eventType}/${status}`)
+        assert.equal(taxonomy[eventType], value, 'pure helper must not mutate supplied values')
+        combinations += 1
+      }
+    }
+  }
+  assert.equal(combinations, 1024)
+  assert.deepEqual(productionClassifications(), before, 'private fixed taxonomy must remain unchanged')
+})
+
+await check('pure BotEvent taxonomy validation preserves own-property and null-prototype safety', () => {
+  const entries = Object.entries(botEventTaxonomyGroups).flatMap(([classification, eventTypes]) =>
+    eventTypes.map((eventType) => [eventType, classification]))
+  const ownTaxonomy = Object.freeze(Object.fromEntries(entries))
+  const nullPrototypeTaxonomy: Record<string, unknown> = Object.freeze(Object.assign(Object.create(null), ownTaxonomy))
+  const inheritedTaxonomy: Record<string, unknown> = Object.create(ownTaxonomy)
+  let ownPropertyCalls = 0
+  const overridden: Record<string, unknown> = Object.create(ownTaxonomy, {
+    hasOwnProperty: { value: () => { ownPropertyCalls += 1; return true } },
+    'content.requested': { value: 'NEUTRAL' },
+  })
+  for (const [eventType] of entries) {
+    for (const status of botEventStatuses) {
+      const expected = classifyVisualPilotBotEvent(eventType, status)
+      assert.equal(classifyVisualPilotBotEventFromTaxonomy(ownTaxonomy, eventType, status), expected)
+      assert.equal(classifyVisualPilotBotEventFromTaxonomy(nullPrototypeTaxonomy, eventType, status), expected)
+      assert.equal(classifyVisualPilotBotEventFromTaxonomy(inheritedTaxonomy, eventType, status), 'unknown')
+      assert.equal(classifyVisualPilotBotEventFromTaxonomy(overridden, eventType, status), 'unknown')
+    }
+  }
+  for (const eventType of ['constructor', '__proto__', 'prototype', 'toString', 'valueOf', 'hasOwnProperty']) {
+    for (const taxonomy of [ownTaxonomy, nullPrototypeTaxonomy, inheritedTaxonomy, overridden]) {
+      for (const status of botEventStatuses) {
+        assert.equal(classifyVisualPilotBotEventFromTaxonomy(taxonomy, eventType, status), 'unknown')
+      }
+    }
+  }
+  assert.equal(ownPropertyCalls, 0, 'taxonomy-owned hasOwnProperty must never be called')
 })
 
 await check('explicit BotEvent taxonomy separates exposure, non-exposure, neutral, and unknown events', async () => {

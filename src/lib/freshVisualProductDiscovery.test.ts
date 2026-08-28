@@ -331,6 +331,144 @@ async function assertUnknownBotEvent(eventType: string, failedPass: 0 | 1): Prom
   assert.equal(imageReads, failedPass, 'unsupported events must stop original-evidence reads')
 }
 
+type HistoryCondition = 'gallery' | 'jobs' | 'receipts' | 'stories'
+  | 'active' | 'association' | 'lineage' | 'ordered-media'
+
+const HISTORY_PRIORITY: ReadonlyArray<readonly [HistoryCondition, FreshCandidatePrimaryEliminationCategory]> = [
+  ['gallery', 'GENERATED_GALLERY_OWNERSHIP_PRESENT'],
+  ['jobs', 'GENERATION_HISTORY_PRESENT'],
+  ['receipts', 'DURABLE_QUEUE_RECEIPT_PRESENT'],
+  ['stories', 'STORY_JOB_HISTORY_PRESENT'],
+  ['active', 'BOT_EVENT_HISTORY_UNSAFE'],
+  ['association', 'BOT_EVENT_HISTORY_UNSAFE'],
+  ['lineage', 'PRODUCT_SCOPED_MEDIA_LINEAGE_OR_OWNERSHIP'],
+  ['ordered-media', 'ORDERED_MEDIA_UNCLEAN'],
+]
+
+function historyFixture(conditions: readonly HistoryCondition[]): Fixture {
+  const value = fixture([product(32, [321])], [media(321, 32)])
+  if (conditions.includes('gallery')) value.galleryOwners = [{ id: 1, generativeGallery: [{ image: 321 }] }]
+  if (conditions.includes('jobs')) value.jobsByProduct.set(32, [{ id: 1, product: 32 }])
+  if (conditions.includes('receipts')) value.receiptsByProduct.set(32, [{ id: 1 }])
+  if (conditions.includes('stories')) value.storiesByProduct.set(32, [{ id: 1, product: 32 }])
+  const events: RecordValue[] = []
+  if (conditions.includes('active')) events.push({ id: 1, product: 32, eventType: 'product.activated', status: 'processed' })
+  if (conditions.includes('association')) events.push({ id: 2, product: 99, eventType: 'content.requested', status: 'processed' })
+  value.eventsByProduct.set(32, events)
+  const originals = conditions.includes('ordered-media') ? [] : [media(321, 32)]
+  value.mediaByProduct.set(32, conditions.includes('lineage') ? [...originals, media(322, 32, { type: 'generated' })] : originals)
+  return value
+}
+
+async function assertCompleteBotEventValidation(): Promise<void> {
+  const conditions = HISTORY_PRIORITY.map(([condition]) => condition)
+  const histories: HistoryCondition[][] = [[], ...conditions.map((condition) => [condition]), conditions]
+  const unknown = { id: 3, product: 32, eventType: 'constructor', status: 'processed' }
+  const malformed = { id: 4, product: 32, eventType: 'content.requested', status: 'unsupported-status' }
+  const invalidSets: Array<{ events: RecordValue[]; code: string }> = [
+    { events: [unknown], code: 'BOT_EVENT_TAXONOMY_UNSUPPORTED' },
+    { events: [{ ...unknown, eventType: 'future.unknown', product: 99 }], code: 'BOT_EVENT_TAXONOMY_UNSUPPORTED' },
+    { events: [{ id: 3 }], code: 'BOT_EVENT_STATE_MALFORMED' },
+    { events: [{ ...unknown, eventType: {} }], code: 'BOT_EVENT_STATE_MALFORMED' },
+    { events: [malformed], code: 'BOT_EVENT_STATE_MALFORMED' },
+    { events: [unknown, malformed], code: 'BOT_EVENT_STATE_MALFORMED' },
+  ]
+  let checked = 0
+  for (const history of histories) {
+    for (const invalid of invalidSets) {
+      for (const failedPass of [0, 1] as const) {
+        // Both Product orders include a healthy row, including one assessed before failure.
+        for (const productOrder of [[32], [32, 33], [33, 32]]) {
+          let forwardOutput: string | undefined
+          for (const reverse of [false, true]) {
+            const base = historyFixture(history)
+            base.products = productOrder.map((id) => product(id, [id * 10 + 1]))
+            base.mediaByProduct.set(33, [media(331, 33)])
+            let productReads = 0
+            const eventReads: number[] = []
+            const storyReads: number[] = []
+            const imageReads: number[] = []
+            const report = await discoverFreshVisualProducts({
+              now: () => 0,
+              gateway: {
+                ...gateway(base),
+                readProductPage: async (requestedPage, limit) => {
+                  productReads += 1
+                  return page(base.products, requestedPage, limit)
+                },
+                readBotEventPage: async (productId, requestedPage, limit) => {
+                  eventReads.push(productId)
+                  const events = [...(base.eventsByProduct.get(productId) ?? [])]
+                  if (productId === 32 && productReads === failedPass + 1) events.push(...invalid.events)
+                  return page(reverse ? events.reverse() : events, requestedPage, limit)
+                },
+                readStoryJobPage: async (productId, requestedPage, limit) => {
+                  storyReads.push(productId)
+                  return page(base.storiesByProduct.get(productId) ?? [], requestedPage, limit)
+                },
+              },
+              readMediaEvidence: async (entry) => {
+                imageReads.push(Number(entry.product))
+                return goodEvidence(entry)
+              },
+            })
+            const label = `captured BotEvent validation: ${history.join('+') || 'alone'}, ${invalid.code}, snapshot ${failedPass + 1}, ${productOrder.join('/')}, reverse=${reverse}`
+            assert.equal(report.readiness, 'CANDIDATE_DISCOVERY_UNSUPPORTED', label)
+            assertUnsupported(report, invalid.code, failedPass)
+            const output = JSON.stringify(report)
+            assert.deepEqual(Object.keys(report).sort(), [
+              'candidates', 'primaryProductId', 'publishingAuthority', 'readiness',
+              'reasonCodes', 'snapshotsCompleted', 'version',
+            ])
+            assert.doesNotMatch(output, /diagnostics|recommendation|[Cc]ount|eventType|stockNumber|"productId"|SN003[23]|349/)
+            for (const event of invalid.events) {
+              for (const name of [event.eventType, event.status]) {
+                if (typeof name === 'string') assert.equal(output.includes(name), false, 'raw BotEvent values must not escape')
+              }
+            }
+            if (reverse) assert.equal(output, forwardOutput, 'event order must not alter unsupported output')
+            else forwardOutput = output
+            const expectedReads = [
+              ...(failedPass === 1 ? productOrder : []),
+              ...productOrder.slice(0, productOrder.indexOf(32) + 1),
+            ]
+            assert.equal(productReads, failedPass + 1)
+            assert.deepEqual(eventReads, expectedReads, 'no extra Product or BotEvent read')
+            assert.deepEqual(storyReads, expectedReads, 'existing bounded history capture remains complete')
+            assert.equal(imageReads.filter((id) => id === 32).length, history.length === 0 ? failedPass : 0)
+            assert.equal(imageReads.filter((id) => id === 33).length,
+              (failedPass === 1 && productOrder.includes(33) ? 1 : 0) + (productOrder[0] === 33 ? 1 : 0))
+            checked += 1
+          }
+        }
+      }
+    }
+  }
+  assert.equal(checked, 720)
+
+  // A normal unsafe event on page one must not hide unknown evidence on the last bounded page.
+  for (const reverse of [false, true]) {
+    const base = historyFixture(['active'])
+    const events = Array.from({ length: 500 }, (_, index) => ({
+      id: index + 1, product: 32, eventType: index === 499 ? 'constructor' : 'product.activated', status: 'processed',
+    }))
+    const pages: number[] = []
+    const report = await discoverFreshVisualProducts({
+      gateway: {
+        ...gateway(base),
+        readBotEventPage: async (_productId, requestedPage, limit) => {
+          pages.push(requestedPage)
+          assert.equal(limit, 25)
+          return page(reverse ? [...events].reverse() : events, requestedPage, limit)
+        },
+      },
+      readMediaEvidence: async () => { throw new Error('unsupported history must not read originals') },
+    })
+    assertUnsupported(report, 'BOT_EVENT_TAXONOMY_UNSUPPORTED', 0)
+    assert.deepEqual(pages, Array.from({ length: 20 }, (_, index) => index + 1))
+  }
+}
+
 async function main(): Promise<void> {
   assert.deepEqual(parseFreshVisualDiscoveryArgs([]), { ok: false, code: 'READ_ONLY_CONFIRMATION_REQUIRED' })
   assert.deepEqual(parseFreshVisualDiscoveryArgs(['--query=x']), { ok: false, code: 'UNKNOWN_ARGUMENT' })
@@ -737,7 +875,7 @@ async function main(): Promise<void> {
     const record = { id: 1, ...(surface === 'jobs' ? { generationAttempts: [{ attemptId: 'iga_x' }] } : {}) }
     if (surface === 'jobs') value.jobsByProduct.set(30, [record])
     if (surface === 'receipts') value.receiptsByProduct.set(30, [record])
-    if (surface === 'events') value.eventsByProduct.set(30, [record])
+    if (surface === 'events') value.eventsByProduct.set(30, [{ ...record, product: 99, eventType: 'content.requested', status: 'processed' }])
     if (surface === 'stories') value.storiesByProduct.set(30, [record])
     const report = await run(value)
     assert.equal(report.readiness, 'NO_ELIGIBLE_FRESH_CANDIDATE', surface)
@@ -765,6 +903,37 @@ async function main(): Promise<void> {
 
   for (const eventType of ['constructor', '__proto__', 'prototype', 'toString', 'valueOf', 'hasOwnProperty', 'future.unknown']) {
     for (const failedPass of [0, 1] as const) await assertUnknownBotEvent(eventType, failedPass)
+  }
+
+  await assertCompleteBotEventValidation()
+
+  for (let index = 0; index < HISTORY_PRIORITY.length; index += 1) {
+    const [condition, category] = HISTORY_PRIORITY[index]
+    for (const history of [[condition], HISTORY_PRIORITY.slice(index).map(([entry]) => entry)]) {
+      for (const reverse of [false, true]) {
+        const value = historyFixture(history)
+        const events = [
+          ...(value.eventsByProduct.get(32) ?? []),
+          { id: 3, product: 32, eventType: 'content.requested', status: 'processed' },
+        ]
+        value.eventsByProduct.set(32, reverse ? events.reverse() : events)
+        const report = await run(value)
+        assert.equal(report.readiness, 'NO_ELIGIBLE_FRESH_CANDIDATE', `recognized history: ${history.join('+')}`)
+        const counts = diagnostics(report)
+        assert.equal(counts.primaryEliminationCounts[category], 1, 'normal history priority must remain unchanged')
+        assert.equal(primaryEliminationTotal(counts), 1)
+        assertReconciled(counts)
+      }
+    }
+  }
+
+  for (const eventType of ['content.requested', 'publish.rejected', 'product.activated']) {
+    for (const status of ['pending', 'processed', 'failed', 'ignored']) {
+      if (eventType === 'product.activated' && (status === 'pending' || status === 'processed')) continue
+      const value = historyFixture([])
+      value.eventsByProduct.set(32, [{ id: 1, product: 32, eventType, status }])
+      assert.equal((await run(value)).readiness, 'READY_FOR_EXACT_FRESH_GENERATION_AUTHORIZATION')
+    }
   }
 
   {

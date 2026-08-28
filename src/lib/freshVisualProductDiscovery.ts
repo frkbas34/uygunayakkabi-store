@@ -389,18 +389,27 @@ async function readExhaustive(params: {
 }
 
 function botEventsAreFresh(events: readonly RecordValue[], productId: number): boolean {
+  let fresh = true
+  let malformed = false
+  let unsupported = false
   for (const event of events) {
-    if (String(relationshipId(event.product)) !== String(productId)) return false
     const eventType = typeof event.eventType === 'string' ? event.eventType.trim().toLowerCase() : ''
     const status = typeof event.status === 'string' ? event.status.trim().toLowerCase() : ''
     if (!eventType || !['pending', 'processed', 'failed', 'ignored'].includes(status)) {
-      throw new DiscoveryUnsupportedError('BOT_EVENT_STATE_MALFORMED')
+      malformed = true
+      continue
     }
     const classification = classifyVisualPilotBotEvent(eventType, status)
-    if (classification === 'unknown') throw new DiscoveryUnsupportedError('BOT_EVENT_TAXONOMY_UNSUPPORTED')
-    if (classification === 'exposure' && (status === 'pending' || status === 'processed')) return false
+    if (classification === 'unknown') unsupported = true
+    if (
+      String(relationshipId(event.product)) !== String(productId)
+      || (classification === 'exposure' && (status === 'pending' || status === 'processed'))
+    ) fresh = false
   }
-  return true
+  // Validate the complete captured set; fixed failure precedence is order-independent.
+  if (malformed) throw new DiscoveryUnsupportedError('BOT_EVENT_STATE_MALFORMED')
+  if (unsupported) throw new DiscoveryUnsupportedError('BOT_EVENT_TAXONOMY_UNSUPPORTED')
+  return fresh
 }
 
 function candidateStateProjection(product: RecordValue): RecordValue {
@@ -497,11 +506,13 @@ async function assessCandidate(params: {
     mediaEvidence,
   })
 
+  // Support validation precedes every normal category without collecting more evidence.
+  const botEventsFresh = botEventsAreFresh(botEvents, productId)
   if (galleryOwners.length > 0) return eliminated('GENERATED_GALLERY_OWNERSHIP_PRESENT')
   if (jobs.length > 0) return eliminated('GENERATION_HISTORY_PRESENT')
   if (receipts.length > 0) return eliminated('DURABLE_QUEUE_RECEIPT_PRESENT')
   if (storyJobs.length > 0) return eliminated('STORY_JOB_HISTORY_PRESENT')
-  if (!botEventsAreFresh(botEvents, productId)) return eliminated('BOT_EVENT_HISTORY_UNSAFE')
+  if (!botEventsFresh) return eliminated('BOT_EVENT_HISTORY_UNSAFE')
   if (productScopedGenerationStatePresent) {
     return eliminated('PRODUCT_SCOPED_MEDIA_LINEAGE_OR_OWNERSHIP')
   }

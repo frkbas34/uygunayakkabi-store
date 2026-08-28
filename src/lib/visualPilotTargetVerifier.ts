@@ -270,10 +270,19 @@ const BOT_EVENT_TAXONOMY: Readonly<Record<string, BotEventTaxonomy>> = {
 }
 
 export function classifyVisualPilotBotEvent(eventType: string, status: string): BotEventTaxonomy | 'unknown' {
-  if (typeof eventType !== 'string' || !Object.prototype.hasOwnProperty.call(BOT_EVENT_TAXONOMY, eventType)) {
+  return classifyVisualPilotBotEventFromTaxonomy(BOT_EVENT_TAXONOMY, eventType, status)
+}
+
+/** Pure validation seam; runtime callers use only the private fixed taxonomy above. */
+export function classifyVisualPilotBotEventFromTaxonomy(
+  taxonomy: Readonly<Record<string, unknown>>,
+  eventType: string,
+  status: string,
+): BotEventTaxonomy | 'unknown' {
+  if (typeof eventType !== 'string' || !Object.prototype.hasOwnProperty.call(taxonomy, eventType)) {
     return 'unknown'
   }
-  const classification = BOT_EVENT_TAXONOMY[eventType]
+  const classification = taxonomy[eventType]
   if (classification !== 'exposure' && classification !== 'non_exposure' && classification !== 'neutral') {
     return 'unknown'
   }

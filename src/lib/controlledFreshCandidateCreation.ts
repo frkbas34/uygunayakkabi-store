@@ -1,6 +1,5 @@
 import {
   createHash,
-  randomBytes as nodeRandomBytes,
 } from 'node:crypto'
 
 import {
@@ -23,6 +22,99 @@ import {
 export const CONTROLLED_FRESH_CANDIDATE_PUBLIC_VERSION = 'controlled-fresh-candidate-public/v1' as const
 export const CONTROLLED_FRESH_CANDIDATE_EXECUTION_TIMEOUT_MS = 45_000
 export const CONTROLLED_FRESH_CANDIDATE_RESERVED_PRODUCT_ID = 349
+export const CONTROLLED_FRESH_CANDIDATE_AUTHORIZATION_DOMAIN = 'uygunayakkabi:controlled-fresh-candidate:execution-authorization:v2' as const
+
+export class ControlledFreshCandidateDeadlineError extends Error {
+  constructor() {
+    super('CONTROLLED_DEADLINE_EXCEEDED')
+  }
+}
+
+export type ControlledFreshCandidateOperationScope = {
+  readonly deadline: number
+  readonly signal: AbortSignal
+  assertActive(): void
+  run<T>(operation: (signal: AbortSignal) => Promise<T>): Promise<T>
+  registerCancellation(handler: () => Promise<void>): void
+  cancel(): Promise<void>
+  close(): void
+}
+
+export function createControlledFreshCandidateOperationScope(params: {
+  timeoutMs?: number
+  now?: () => number
+} = {}): ControlledFreshCandidateOperationScope {
+  const now = params.now ?? Date.now
+  const timeoutMs = params.timeoutMs ?? CONTROLLED_FRESH_CANDIDATE_EXECUTION_TIMEOUT_MS
+  if (!Number.isSafeInteger(timeoutMs) || timeoutMs <= 0 || Object.is(timeoutMs, -0)) {
+    throw new Error('CONTROLLED_DEADLINE_CONFIGURATION_INVALID')
+  }
+  const deadline = now() + timeoutMs
+  if (!Number.isSafeInteger(deadline) || Object.is(deadline, -0)) {
+    throw new Error('CONTROLLED_DEADLINE_CONFIGURATION_INVALID')
+  }
+  const controller = new AbortController()
+  const cancellationHandlers: Array<() => Promise<void>> = []
+  let cancellation: Promise<void> | null = null
+  let closed = false
+
+  const cancel = (): Promise<void> => {
+    if (cancellation) return cancellation
+    controller.abort()
+    const handlers = cancellationHandlers.splice(0)
+    cancellation = Promise.allSettled(handlers.map((handler) => Promise.resolve().then(handler)))
+      .then(() => undefined)
+    return cancellation
+  }
+  const assertActive = (): void => {
+    if (closed || controller.signal.aborted || now() >= deadline) {
+      throw new ControlledFreshCandidateDeadlineError()
+    }
+  }
+  return {
+    deadline,
+    signal: controller.signal,
+    assertActive,
+    async run<T>(operation: (signal: AbortSignal) => Promise<T>): Promise<T> {
+      assertActive()
+      let work: Promise<T>
+      try {
+        work = Promise.resolve(operation(controller.signal))
+      } catch (error) {
+        work = Promise.reject(error)
+      }
+      const remaining = Math.max(1, deadline - now())
+      let timer: ReturnType<typeof setTimeout> | undefined
+      const timeout = new Promise<{ state: 'timeout' }>((resolve) => {
+        timer = setTimeout(() => resolve({ state: 'timeout' }), remaining)
+      })
+      const outcome = await Promise.race([
+        work.then(
+          (value) => ({ state: 'fulfilled' as const, value }),
+          (error: unknown) => ({ state: 'rejected' as const, error }),
+        ),
+        timeout,
+      ])
+      if (timer) clearTimeout(timer)
+      if (outcome.state === 'timeout' || controller.signal.aborted || now() >= deadline) {
+        void work.catch(() => undefined)
+        await cancel()
+        throw new ControlledFreshCandidateDeadlineError()
+      }
+      if (outcome.state === 'rejected') throw outcome.error
+      return outcome.value
+    },
+    registerCancellation(handler) {
+      if (closed || controller.signal.aborted) throw new ControlledFreshCandidateDeadlineError()
+      cancellationHandlers.push(handler)
+    },
+    cancel,
+    close() {
+      closed = true
+      cancellationHandlers.splice(0)
+    },
+  }
+}
 
 export const CONTROLLED_FRESH_CANDIDATE_PUBLIC_COUNT_KEYS = [
   'stockCandidates',
@@ -105,8 +197,30 @@ export type ControlledFreshCandidateCreationInput = {
     token: Uint8Array
   }
   executionId: string
+  authorizationContext: {
+    runtimeCommitIdentity: string
+    environmentIdentity: string
+    approvedReceiptDestinationDigest: string
+  }
   manifest: ControlledFreshCandidateManifestInput
   receiptKey: Uint8Array
+}
+
+export type ControlledFreshCandidateExecutionGrant = {
+  authorizationIdentity: string
+  executionIdentity: string
+  manifestDigest: string
+  contractIdentity: typeof CONTROLLED_FRESH_CANDIDATE_CONTRACT_IDENTITY
+  runtimeIdentity: typeof CONTROLLED_FRESH_CANDIDATE_RUNTIME_IDENTITY
+  runtimeCommitIdentity: string
+  environmentIdentity: string
+  approvedReceiptDestinationDigest: string
+}
+
+export function serializeControlledFreshCandidateExecutionGrant(
+  grant: ControlledFreshCandidateExecutionGrant,
+): string {
+  return JSON.stringify(stableValue(grant))
 }
 
 export type ControlledFreshCandidateUploadCallbacks = {
@@ -116,39 +230,45 @@ export type ControlledFreshCandidateUploadCallbacks = {
 }
 
 export type ControlledFreshCandidateCreationDependencies = {
-  consumeExecutionAuthorization(identity: string, token: Uint8Array): Promise<boolean>
-  stockExists(stockCandidate: string): Promise<boolean>
-  createTransactionRequest(): Promise<unknown>
-  beginProductTransaction(request: unknown): Promise<boolean>
-  createProduct(request: unknown, data: Record<string, unknown>): Promise<unknown>
-  commitProductTransaction(request: unknown): Promise<void>
-  rollbackProductTransaction(request: unknown): Promise<void>
-  readProduct(productId: number): Promise<unknown>
+  scope: ControlledFreshCandidateOperationScope
+  consumeExecutionAuthorization(grant: ControlledFreshCandidateExecutionGrant, token: Uint8Array, signal: AbortSignal): Promise<boolean>
+  stockExists(stockCandidate: string, signal: AbortSignal): Promise<boolean>
+  createTransactionRequest(signal: AbortSignal): Promise<unknown>
+  beginProductTransaction(request: unknown, signal: AbortSignal): Promise<boolean>
+  createProduct(request: unknown, data: Record<string, unknown>, signal: AbortSignal): Promise<unknown>
+  commitProductTransaction(request: unknown, signal: AbortSignal): Promise<void>
+  rollbackProductTransaction(request: unknown, signal: AbortSignal): Promise<void>
+  readProduct(productId: number, signal: AbortSignal): Promise<unknown>
   createMedia(params: {
     productId: number
     data: Record<string, unknown>
     file: { name: string; data: Buffer; mimetype: string; size: number }
     overwriteExistingFiles: false
     uploads: ControlledFreshCandidateUploadCallbacks
+    signal: AbortSignal
   }): Promise<unknown>
-  readMedia(mediaId: number): Promise<unknown>
-  updateProductRelationship(productId: number, mediaId: number): Promise<unknown>
-  finalizeProduct(productId: number): Promise<unknown>
-  persistPrivateReceipt(serialized: string): Promise<void>
+  readMedia(mediaId: number, signal: AbortSignal): Promise<unknown>
+  updateProductRelationship(productId: number, mediaId: number, signal: AbortSignal): Promise<unknown>
+  finalizeProduct(params: {
+    productId: number
+    mediaId: number
+    manifest: ControlledFreshCandidateManifestEvidence
+    blockedStateFingerprint: string
+    signal: AbortSignal
+  }): Promise<{ affected: number }>
+  persistPrivateReceipt(serialized: string, signal: AbortSignal): Promise<void>
   revokeMutationCapability(): Promise<void>
   teardown(): Promise<{ ok: true } | { ok: false }>
-  randomBytes(size: number): Uint8Array
-  now(): number
 }
 
 type RecordValue = Record<string, unknown>
 
 const DEPENDENCY_KEYS = [
-  'consumeExecutionAuthorization', 'stockExists', 'createTransactionRequest',
+  'scope', 'consumeExecutionAuthorization', 'stockExists', 'createTransactionRequest',
   'beginProductTransaction', 'createProduct', 'commitProductTransaction',
   'rollbackProductTransaction', 'readProduct', 'createMedia', 'readMedia',
   'updateProductRelationship', 'finalizeProduct', 'persistPrivateReceipt',
-  'revokeMutationCapability', 'teardown', 'randomBytes', 'now',
+  'revokeMutationCapability', 'teardown',
 ] as const
 
 const CHANNEL_FIELDS = [
@@ -268,9 +388,13 @@ function sanitizedExecutionNamespace(executionId: string): string {
 function validateCreationInput(input: ControlledFreshCandidateCreationInput): boolean {
   if (
     !isPlainRecord(input)
-    || !hasExactOwnKeys(input, ['executionAuthorization', 'executionId', 'manifest', 'receiptKey'])
+    || !hasExactOwnKeys(input, ['executionAuthorization', 'executionId', 'authorizationContext', 'manifest', 'receiptKey'])
     || !isPlainRecord(input.executionAuthorization)
     || !hasExactOwnKeys(input.executionAuthorization, ['identity', 'token'])
+    || !isPlainRecord(input.authorizationContext)
+    || !hasExactOwnKeys(input.authorizationContext, [
+      'runtimeCommitIdentity', 'environmentIdentity', 'approvedReceiptDestinationDigest',
+    ])
     || !isPlainRecord(input.manifest)
     || !hasExactOwnKeys(input.manifest, [
       'identity', 'title', 'positivePrice', 'provenanceStatement', 'stockCandidate', 'original',
@@ -280,6 +404,9 @@ function validateCreationInput(input: ControlledFreshCandidateCreationInput): bo
     || typeof input.executionAuthorization.identity !== 'string'
     || !(input.executionAuthorization.token instanceof Uint8Array)
     || typeof input.executionId !== 'string'
+    || typeof input.authorizationContext.runtimeCommitIdentity !== 'string'
+    || typeof input.authorizationContext.environmentIdentity !== 'string'
+    || typeof input.authorizationContext.approvedReceiptDestinationDigest !== 'string'
     || typeof input.manifest.identity !== 'string'
     || typeof input.manifest.title !== 'string'
     || typeof input.manifest.positivePrice !== 'number'
@@ -290,19 +417,25 @@ function validateCreationInput(input: ControlledFreshCandidateCreationInput): bo
     || !(input.receiptKey instanceof Uint8Array)
   ) return false
   const original = input.manifest.original
+  const exactContext = (value: string) => value.trim() === value
+    && value.length >= 1 && value.length <= 160
+    && /^[a-z0-9][a-z0-9._:/-]*$/i.test(value)
   return /^[a-z0-9][a-z0-9:_-]{7,127}$/i.test(input.executionAuthorization.identity)
-    && input.executionAuthorization.token.byteLength >= 16
+    && input.executionAuthorization.token.byteLength === 32
     && /^[a-z0-9][a-z0-9:_-]{7,127}$/i.test(input.executionId)
+    && exactContext(input.authorizationContext.runtimeCommitIdentity)
+    && exactContext(input.authorizationContext.environmentIdentity)
+    && /^[0-9a-f]{64}$/.test(input.authorizationContext.approvedReceiptDestinationDigest)
     && /^[a-z0-9][a-z0-9:_-]{7,127}$/i.test(input.manifest.identity)
     && input.manifest.title.trim() === input.manifest.title
     && input.manifest.title.length >= 1 && input.manifest.title.length <= 160
-    && Number.isFinite(input.manifest.positivePrice) && input.manifest.positivePrice > 0
+    && Number.isFinite(input.manifest.positivePrice) && !Object.is(input.manifest.positivePrice, -0) && input.manifest.positivePrice > 0
     && input.manifest.provenanceStatement.trim() === input.manifest.provenanceStatement
     && input.manifest.provenanceStatement.length >= 1 && input.manifest.provenanceStatement.length <= 1_000
     && /^SN\d{4}$/.test(input.manifest.stockCandidate)
     && original.bytes.byteLength >= 1 && original.bytes.byteLength <= 10_000_000
-    && Number.isSafeInteger(original.width) && original.width > 0 && original.width <= 20_000
-    && Number.isSafeInteger(original.height) && original.height > 0 && original.height <= 20_000
+    && Number.isSafeInteger(original.width) && !Object.is(original.width, -0) && original.width > 0 && original.width <= 20_000
+    && Number.isSafeInteger(original.height) && !Object.is(original.height, -0) && original.height > 0 && original.height <= 20_000
     && original.width * original.height <= 40_000_000
     && input.receiptKey.byteLength >= 32 && input.receiptKey.byteLength <= 128
 }
@@ -531,7 +664,17 @@ function assertDependencies(dependencies: ControlledFreshCandidateCreationDepend
     throw new Error('MUTATION_CAPABILITY_INVALID')
   }
   for (const key of DEPENDENCY_KEYS) {
+    if (key === 'scope') continue
     if (typeof dependencies[key] !== 'function') throw new Error('MUTATION_CAPABILITY_INVALID')
+  }
+  if (!isPlainRecord(dependencies.scope) || !hasExactOwnKeys(dependencies.scope, [
+    'deadline', 'signal', 'assertActive', 'run', 'registerCancellation', 'cancel', 'close',
+  ])) throw new Error('MUTATION_CAPABILITY_INVALID')
+  if (!Number.isSafeInteger(dependencies.scope.deadline) || !(dependencies.scope.signal instanceof AbortSignal)) {
+    throw new Error('MUTATION_CAPABILITY_INVALID')
+  }
+  for (const key of ['assertActive', 'run', 'registerCancellation', 'cancel', 'close'] as const) {
+    if (typeof dependencies.scope[key] !== 'function') throw new Error('MUTATION_CAPABILITY_INVALID')
   }
 }
 
@@ -606,6 +749,9 @@ function initialReceipt(params: {
     runtime: {
       identity: CONTROLLED_FRESH_CANDIDATE_RUNTIME_IDENTITY,
       contract: CONTROLLED_FRESH_CANDIDATE_CONTRACT_IDENTITY,
+      commit: params.input.authorizationContext.runtimeCommitIdentity,
+      environment: params.input.authorizationContext.environmentIdentity,
+      receiptDestinationDigest: params.input.authorizationContext.approvedReceiptDestinationDigest,
     },
     stockCandidate: params.manifest.stockCandidate,
     expectedStateFingerprint: params.expectedStateFingerprint,
@@ -648,52 +794,73 @@ export async function createControlledFreshCandidate(
 
   const namespace = sanitizedExecutionNamespace(input.executionId)
   if (!namespace) return basePublicReport(initialBudgets)
-  const random = Buffer.from(dependencies.randomBytes(16))
-  if (random.byteLength !== 16) return basePublicReport(initialBudgets)
-  const expectedFilename = `cfc-${namespace}-${random.toString('hex')}.${extensionForMime(input.manifest.original.mimeType)}`
+  const filenameIdentity = controlledFreshCandidateDigest({
+    domain: 'uygunayakkabi:controlled-fresh-candidate:filename:v1',
+    executionId: input.executionId,
+    manifestIdentity: input.manifest.identity,
+    title: input.manifest.title,
+    positivePrice: input.manifest.positivePrice,
+    provenanceStatement: input.manifest.provenanceStatement,
+    stockCandidate: input.manifest.stockCandidate,
+    original: {
+      contentDigest: createHash('sha256').update(input.manifest.original.bytes).digest('hex'),
+      mimeType: input.manifest.original.mimeType,
+      byteSize: input.manifest.original.bytes.byteLength,
+      width: input.manifest.original.width,
+      height: input.manifest.original.height,
+    },
+  })
+  const expectedFilename = `cfc-${namespace}-${filenameIdentity.slice(0, 32)}.${extensionForMime(input.manifest.original.mimeType)}`
   const manifest = createControlledFreshCandidateManifestEvidence({ input: input.manifest, expectedFilename })
+  const executionGrant: ControlledFreshCandidateExecutionGrant = {
+    authorizationIdentity: input.executionAuthorization.identity,
+    executionIdentity: input.executionId,
+    manifestDigest: manifest.digest,
+    contractIdentity: CONTROLLED_FRESH_CANDIDATE_CONTRACT_IDENTITY,
+    runtimeIdentity: CONTROLLED_FRESH_CANDIDATE_RUNTIME_IDENTITY,
+    runtimeCommitIdentity: input.authorizationContext.runtimeCommitIdentity,
+    environmentIdentity: input.authorizationContext.environmentIdentity,
+    approvedReceiptDestinationDigest: input.authorizationContext.approvedReceiptDestinationDigest,
+  }
   const expectedStateFingerprint = controlledFreshCandidateDigest(
     fixedControlledFreshCandidateProduct(manifest, 'pending'),
   )
   let receipt: ControlledFreshCandidatePrivateReceipt | null = null
   let persistChain: Promise<void> = Promise.resolve()
-  let deadlineRevoked = false
   let failure: ControlledCreationFailure | null = null
-  const deadline = dependencies.now() + CONTROLLED_FRESH_CANDIDATE_EXECUTION_TIMEOUT_MS
 
-  const bounded = async <T>(operation: Promise<T>): Promise<T> => {
-    const remaining = Math.max(1, deadline - dependencies.now())
-    let timer: ReturnType<typeof setTimeout> | undefined
+  const revokeForDeadline = async (): Promise<never> => {
     try {
-      return await Promise.race([
-        operation,
-        new Promise<T>((_resolve, reject) => {
-          timer = setTimeout(() => {
-            deadlineRevoked = true
-            void Promise.resolve(dependencies.revokeMutationCapability()).catch(() => undefined)
-            reject(new ControlledCreationFailure('DEADLINE_EXCEEDED', 'CREATION_RECOVERY_REQUIRED'))
-          }, remaining)
-        }),
-      ])
-    } finally {
-      if (timer) clearTimeout(timer)
+      await dependencies.revokeMutationCapability()
+    } catch {
+      // The owned scope has already revoked dispatch; teardown certainty is reported later.
+    }
+    throw new ControlledCreationFailure('DEADLINE_EXCEEDED', 'CREATION_RECOVERY_REQUIRED')
+  }
+
+  const bounded = async <T>(operation: (signal: AbortSignal) => Promise<T>): Promise<T> => {
+    try {
+      return await dependencies.scope.run(operation)
+    } catch (error) {
+      if (error instanceof ControlledFreshCandidateDeadlineError || dependencies.scope.signal.aborted) {
+        return revokeForDeadline()
+      }
+      throw error
     }
   }
 
   const assertDeadline = async (): Promise<void> => {
-    if (deadlineRevoked || dependencies.now() >= deadline) {
-      if (!deadlineRevoked) {
-        deadlineRevoked = true
-        try { await dependencies.revokeMutationCapability() } catch { /* fixed public failure only */ }
-      }
-      throw new ControlledCreationFailure('DEADLINE_EXCEEDED', 'CREATION_RECOVERY_REQUIRED')
+    try {
+      dependencies.scope.assertActive()
+    } catch {
+      await revokeForDeadline()
     }
   }
 
   const persistCurrent = async (): Promise<void> => {
     if (!receipt) throw new ControlledCreationFailure('PRIVATE_RECEIPT_PERSIST_FAILED')
     const serialized = serializeControlledFreshCandidateReceipt(receipt)
-    persistChain = persistChain.then(() => bounded(dependencies.persistPrivateReceipt(serialized)))
+    persistChain = persistChain.then(() => bounded((signal) => dependencies.persistPrivateReceipt(serialized, signal)))
     try {
       await persistChain
     } catch {
@@ -710,17 +877,22 @@ export async function createControlledFreshCandidate(
   }
 
   const rollback = async (request: unknown): Promise<void> => {
-    try { await dependencies.rollbackProductTransaction(request) } catch { /* rollback acknowledgement is not inferred */ }
+    try { await bounded((signal) => dependencies.rollbackProductTransaction(request, signal)) } catch { /* rollback acknowledgement is not inferred */ }
     if (receipt) {
-      await mutateReceipt((draft) => { draft.commitCertainty = 'rollback_requested' })
+      try {
+        await mutateReceipt((draft) => { draft.commitCertainty = 'rollback_requested' })
+      } catch {
+        // A revoked writer cannot supersede the mutation failure that triggered rollback.
+      }
     }
   }
 
   try {
     await assertDeadline()
-    const consumed = await bounded(dependencies.consumeExecutionAuthorization(
-      input.executionAuthorization.identity,
+    const consumed = await bounded((signal) => dependencies.consumeExecutionAuthorization(
+      executionGrant,
       Buffer.from(input.executionAuthorization.token),
+      signal,
     ))
     if (!consumed) throw new ControlledCreationFailure('EXECUTION_AUTHORIZATION_REJECTED')
     receipt = sealControlledFreshCandidateReceipt(
@@ -736,14 +908,15 @@ export async function createControlledFreshCandidate(
     receipt = resealControlledFreshCandidateReceipt(receipt, input.receiptKey, () => undefined)
     let stockCollision: boolean
     try {
-      stockCollision = await bounded(dependencies.stockExists(manifest.stockCandidate))
+      stockCollision = await bounded((signal) => dependencies.stockExists(manifest.stockCandidate, signal))
+      await assertDeadline()
     } catch {
       throw new ControlledCreationFailure('STOCK_LOOKUP_FAILED')
     }
     if (stockCollision) throw new ControlledCreationFailure('STOCK_COLLISION')
     await mutateReceipt((draft) => { draft.phase = 'stock_qualified' })
 
-    const request = await bounded(dependencies.createTransactionRequest())
+    const request = await bounded((signal) => dependencies.createTransactionRequest(signal))
     await mutateReceipt((draft) => {
       draft.phase = 'product_create_intended'
       draft.transactions.productCreate.intent = 'persisted'
@@ -751,7 +924,7 @@ export async function createControlledFreshCandidate(
     })
     await assertDeadline()
     let began = false
-    try { began = await bounded(dependencies.beginProductTransaction(request)) } catch (error) {
+    try { began = await bounded((signal) => dependencies.beginProductTransaction(request, signal)) } catch (error) {
       if (error instanceof ControlledCreationFailure) throw error
       began = false
     }
@@ -760,9 +933,11 @@ export async function createControlledFreshCandidate(
     let createdProduct: unknown
     try {
       if (receipt) receipt.transactions.productCreate.intent = 'dispatched'
-      createdProduct = await bounded(dependencies.createProduct(
+      await assertDeadline()
+      createdProduct = await bounded((signal) => dependencies.createProduct(
         request,
         fixedControlledFreshCandidateProduct(manifest, 'blocked'),
+        signal,
       ))
     } catch (error) {
       await rollback(request)
@@ -790,7 +965,8 @@ export async function createControlledFreshCandidate(
       })
     }
     try {
-      await bounded(dependencies.commitProductTransaction(request))
+      await assertDeadline()
+      await bounded((signal) => dependencies.commitProductTransaction(request, signal))
     } catch (error) {
       try { await rollback(request) } catch { /* certainty remains unknown */ }
       if (error instanceof ControlledCreationFailure) throw error
@@ -798,7 +974,10 @@ export async function createControlledFreshCandidate(
     }
 
     let committedProduct: unknown
-    try { committedProduct = await bounded(dependencies.readProduct(productId)) } catch (error) {
+    try {
+      committedProduct = await bounded((signal) => dependencies.readProduct(productId, signal))
+      await assertDeadline()
+    } catch (error) {
       if (error instanceof ControlledCreationFailure) throw error
       committedProduct = null
     }
@@ -838,6 +1017,7 @@ export async function createControlledFreshCandidate(
           draft.budgets.logicalStorageUploads = ordinal
           draft.storageLedger.push({ ordinal, filename, state: 'intended' })
         })
+        await assertDeadline()
       },
       afterUpload: async (filename) => {
         await mutateReceipt((draft) => {
@@ -858,7 +1038,7 @@ export async function createControlledFreshCandidate(
     let createdMedia: unknown
     try {
       if (receipt) receipt.transactions.mediaCreate.intent = 'dispatched'
-      createdMedia = await bounded(dependencies.createMedia({
+      createdMedia = await bounded((signal) => dependencies.createMedia({
         productId,
         data: fixedControlledFreshCandidateMedia(manifest, productId),
         file: {
@@ -869,6 +1049,7 @@ export async function createControlledFreshCandidate(
         },
         overwriteExistingFiles: false,
         uploads,
+        signal,
       }))
     } catch (error) {
       if (error instanceof ControlledCreationFailure) throw error
@@ -887,7 +1068,10 @@ export async function createControlledFreshCandidate(
       throw new ControlledCreationFailure('MEDIA_STATE_MISMATCH', 'CREATION_RECOVERY_REQUIRED')
     }
     let retainedMedia: unknown
-    try { retainedMedia = await bounded(dependencies.readMedia(mediaId)) } catch (error) {
+    try {
+      retainedMedia = await bounded((signal) => dependencies.readMedia(mediaId, signal))
+      await assertDeadline()
+    } catch (error) {
       if (error instanceof ControlledCreationFailure) throw error
       retainedMedia = null
     }
@@ -913,13 +1097,17 @@ export async function createControlledFreshCandidate(
     await assertDeadline()
     try {
       if (receipt) receipt.transactions.relationshipUpdate.intent = 'dispatched'
-      await bounded(dependencies.updateProductRelationship(productId, mediaId))
+      await assertDeadline()
+      await bounded((signal) => dependencies.updateProductRelationship(productId, mediaId, signal))
     } catch (error) {
       if (error instanceof ControlledCreationFailure) throw error
       throw new ControlledCreationFailure('RELATIONSHIP_UPDATE_FAILED', 'CREATION_RECOVERY_REQUIRED')
     }
     let relatedProduct: unknown
-    try { relatedProduct = await bounded(dependencies.readProduct(productId)) } catch (error) {
+    try {
+      relatedProduct = await bounded((signal) => dependencies.readProduct(productId, signal))
+      await assertDeadline()
+    } catch (error) {
       if (error instanceof ControlledCreationFailure) throw error
       relatedProduct = null
     }
@@ -941,13 +1129,27 @@ export async function createControlledFreshCandidate(
     await assertDeadline()
     try {
       if (receipt) receipt.transactions.finalization.intent = 'dispatched'
-      await bounded(dependencies.finalizeProduct(productId))
+      const finalized = await bounded((signal) => dependencies.finalizeProduct({
+        productId,
+        mediaId,
+        manifest,
+        blockedStateFingerprint: controlledFreshCandidateDigest(
+          fixedControlledFreshCandidateProduct(manifest, 'blocked', mediaId),
+        ),
+        signal,
+      }))
+      if (finalized.affected !== 1) {
+        throw new ControlledCreationFailure('FINALIZATION_FAILED', 'CREATION_FINALIZATION_UNCERTAIN_RECOVERY_REQUIRED')
+      }
     } catch (error) {
       if (error instanceof ControlledCreationFailure) throw error
       throw new ControlledCreationFailure('FINALIZATION_FAILED', 'CREATION_FINALIZATION_UNCERTAIN_RECOVERY_REQUIRED')
     }
     let finalProduct: unknown
-    try { finalProduct = await bounded(dependencies.readProduct(productId)) } catch (error) {
+    try {
+      finalProduct = await bounded((signal) => dependencies.readProduct(productId, signal))
+      await assertDeadline()
+    } catch (error) {
       if (error instanceof ControlledCreationFailure) throw error
       finalProduct = null
     }
@@ -974,10 +1176,14 @@ export async function createControlledFreshCandidate(
   }
 
   let teardownOk = false
-  try {
-    if (receipt) {
+  if (receipt) {
+    try {
       await mutateReceipt((draft) => { draft.teardown.attempted = true })
+    } catch {
+      // Teardown must still run after a revoked receipt writer.
     }
+  }
+  try {
     const teardown = await dependencies.teardown()
     teardownOk = teardown.ok
   } catch {
@@ -1035,8 +1241,4 @@ export async function createControlledFreshCandidate(
     cleanupStatus,
     ownerInputManifestMatch: true,
   })
-}
-
-export function defaultControlledFreshCandidateCreationDependenciesRandomBytes(size: number): Uint8Array {
-  return nodeRandomBytes(size)
 }

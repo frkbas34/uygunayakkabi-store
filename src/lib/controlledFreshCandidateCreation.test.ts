@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 
 import {
+  createControlledFreshCandidateOperationScope,
   createControlledFreshCandidate,
   type ControlledFreshCandidateCreationDependencies,
   type ControlledFreshCandidateCreationInput,
@@ -9,17 +10,26 @@ import {
   authenticateControlledFreshCandidateReceipt,
   readControlledFreshCandidateCapability,
   resealControlledFreshCandidateReceipt,
+  serializeControlledFreshCandidateReceipt,
 } from './controlledFreshCandidateReceipt'
 
 const RECEIPT_KEY = new Uint8Array(32).fill(17)
+const COMMIT_IDENTITY = '14af0deb7e1825eb5d349c89e1d36897e75fc5a0'
+const ENVIRONMENT_IDENTITY = 'controlled-test-environment'
+const RECEIPT_DESTINATION_DIGEST = 'a'.repeat(64)
 
 function input(seed = 0): ControlledFreshCandidateCreationInput {
   return {
     executionAuthorization: {
       identity: `owner-auth-${1000 + seed}`,
-      token: new Uint8Array(24).fill(23 + seed),
+      token: new Uint8Array(32).fill(23 + seed),
     },
     executionId: `execution-${1000 + seed}`,
+    authorizationContext: {
+      runtimeCommitIdentity: COMMIT_IDENTITY,
+      environmentIdentity: ENVIRONMENT_IDENTITY,
+      approvedReceiptDestinationDigest: RECEIPT_DESTINATION_DIGEST,
+    },
     manifest: {
       identity: `manifest-${1000 + seed}`,
       title: `Synthetic controlled shoe ${seed}`,
@@ -37,6 +47,22 @@ function input(seed = 0): ControlledFreshCandidateCreationInput {
   }
 }
 
+function authenticateReceipt(params: {
+  serialized: string
+  key?: Uint8Array
+  consume?: (identity: string) => boolean
+  expectedCommitIdentity?: string
+  expectedEnvironmentIdentity?: string
+}) {
+  return authenticateControlledFreshCandidateReceipt({
+    serialized: params.serialized,
+    key: params.key ?? RECEIPT_KEY,
+    expectedCommitIdentity: params.expectedCommitIdentity ?? COMMIT_IDENTITY,
+    expectedEnvironmentIdentity: params.expectedEnvironmentIdentity ?? ENVIRONMENT_IDENTITY,
+    consume: params.consume ?? (() => true),
+  })
+}
+
 type FixtureOptions = {
   authorization?: boolean
   stockCollision?: boolean
@@ -47,6 +73,9 @@ type FixtureOptions = {
   upload?: 'success' | 'uncertain'
   mediaMismatch?: boolean
   mediaHang?: boolean
+  lateBeforeUpload?: boolean
+  hangAt?: 'product-create' | 'media-create' | 'relationship-update' | 'finalization-read' | 'finalization-update'
+  finalizationInterleave?: 'before-qualification' | 'between-qualification-and-lock' | 'before-update' | 'after-commit'
   teardown?: boolean
   now?: () => number
   consume?: () => Promise<boolean>
@@ -59,9 +88,29 @@ function fixture(options: FixtureOptions = {}) {
   let media: Record<string, unknown> | null = null
   let productReads = 0
   let syntheticNow = 1_000
+  let settleMediaHang: (() => void) | null = null
+  const lateSettlers: Array<() => void> = []
+  const now = options.now ?? (() => syntheticNow)
+  const scope = createControlledFreshCandidateOperationScope({ now })
+  scope.registerCancellation(async () => {
+    events.push('mutation-revoke')
+    settleMediaHang?.()
+    for (const settle of lateSettlers.splice(0)) settle()
+  })
+  const lateResult = <T>(phase: NonNullable<FixtureOptions['hangAt']>, result: T): Promise<T> | null => {
+    if (options.hangAt !== phase) return null
+    syntheticNow = scope.deadline
+    return new Promise<T>((resolve) => {
+      lateSettlers.push(() => {
+        events.push(`late-${phase}-settled`)
+        resolve(result)
+      })
+    })
+  }
   const productId = options.productId === undefined ? 77 : options.productId
   const mediaId = 501
   const dependencies: ControlledFreshCandidateCreationDependencies = {
+    scope,
     consumeExecutionAuthorization: async () => {
       events.push('consume-auth')
       if (options.consume) return options.consume()
@@ -83,6 +132,8 @@ function fixture(options: FixtureOptions = {}) {
     createProduct: async (_request, data) => {
       events.push('product-create')
       if (options.failAt === 'create-product') throw new Error('synthetic create error')
+      const late = lateResult('product-create', null)
+      if (late) return late
       product = { ...structuredClone(data), id: productId }
       return structuredClone(product)
     },
@@ -104,11 +155,29 @@ function fixture(options: FixtureOptions = {}) {
     createMedia: async ({ data, file, uploads }) => {
       events.push('media-create')
       if (options.failAt === 'create-media') throw new Error('synthetic media create error')
+      const lateMedia = lateResult('media-create', null)
+      if (lateMedia) return lateMedia
       if (options.mediaHang) {
         syntheticNow = 46_000
-        return new Promise<never>(() => undefined)
+        return new Promise<null>((resolve) => {
+          settleMediaHang = () => {
+            events.push('late-media-settled')
+            resolve(null)
+          }
+        })
+      }
+      if (options.lateBeforeUpload) {
+        events.push('pre-upload-hook')
+        syntheticNow = scope.deadline
+        await new Promise<void>((resolve) => {
+          lateSettlers.push(() => {
+            events.push('late-pre-upload-settled')
+            resolve()
+          })
+        })
       }
       await uploads.beforeUpload(file.name)
+      events.push('storage-upload-dispatch')
       if (options.upload === 'uncertain') {
         await uploads.uploadUncertain(file.name)
         throw new Error('synthetic transport uncertainty')
@@ -130,29 +199,40 @@ function fixture(options: FixtureOptions = {}) {
     updateProductRelationship: async (id, imageId) => {
       events.push('relationship-update')
       if (options.failAt === 'relationship') throw new Error('synthetic relationship error')
+      const late = lateResult('relationship-update', null)
+      if (late) return late
       if (product) product.images = [{ image: imageId }]
       return { id }
     },
-    finalizeProduct: async (id) => {
+    finalizeProduct: async () => {
       events.push('product-finalize')
       if (options.failAt === 'finalize') throw new Error('synthetic finalization error')
+      const qualification = lateResult('finalization-read', { affected: 0 })
+      if (qualification) return qualification
+      if (options.finalizationInterleave && options.finalizationInterleave !== 'after-commit') {
+        events.push(`concurrent-${options.finalizationInterleave}`)
+        if (product) product.featured = true
+        return { affected: 0 }
+      }
       if (product && typeof product.workflow === 'object' && product.workflow) {
+        const update = lateResult('finalization-update', { affected: 0 })
+        if (update) return update
         ;(product.workflow as Record<string, unknown>).confirmationStatus = 'pending'
       }
-      return { id }
+      events.push('product-finalize-update')
+      if (options.finalizationInterleave === 'after-commit' && product) product.featured = true
+      return { affected: 1 }
     },
     persistPrivateReceipt: async (serialized) => {
       events.push('receipt-persist')
       if (options.failAt === 'persist') throw new Error('synthetic persistence error')
       receipts.push(serialized)
     },
-    revokeMutationCapability: async () => { events.push('mutation-revoke') },
+    revokeMutationCapability: () => scope.cancel(),
     teardown: async () => {
       events.push('teardown')
       return options.teardown === false ? { ok: false } : { ok: true }
     },
-    randomBytes: () => new Uint8Array(16).fill(31),
-    now: options.now ?? (() => syntheticNow),
   }
   return {
     dependencies,
@@ -220,7 +300,13 @@ async function main(): Promise<void> {
 
     const finalSerialized = state.receipts.at(-1)
     assert.ok(finalSerialized)
-    const capability = authenticateControlledFreshCandidateReceipt({ serialized: finalSerialized, key: RECEIPT_KEY })
+    const consumedReceipts = new Set<string>()
+    const consume = (identity: string) => {
+      if (consumedReceipts.has(identity)) return false
+      consumedReceipts.add(identity)
+      return true
+    }
+    const capability = authenticateReceipt({ serialized: finalSerialized, consume })
     const receipt = readControlledFreshCandidateCapability(capability)
     assert.equal(receipt.product.id, 77)
     assert.equal(receipt.media.id, 501)
@@ -228,7 +314,7 @@ async function main(): Promise<void> {
     assert.equal(receipt.storageLedger[0]?.state, 'known_present')
     assert.equal(receipt.teardown.completed, true)
     assert.throws(
-      () => authenticateControlledFreshCandidateReceipt({ serialized: finalSerialized, key: RECEIPT_KEY }),
+      () => authenticateReceipt({ serialized: finalSerialized, consume }),
       /REPLAYED/,
     )
     assert.throws(
@@ -252,24 +338,85 @@ async function main(): Promise<void> {
     const edited = JSON.parse(serialized) as Record<string, unknown>
     edited.executionId = 'execution-tampered'
     assert.throws(
-      () => authenticateControlledFreshCandidateReceipt({ serialized: JSON.stringify(edited), key: RECEIPT_KEY }),
+      () => authenticateReceipt({ serialized: JSON.stringify(edited) }),
       /AUTHENTICATION_FAILED/,
     )
     assert.throws(
-      () => authenticateControlledFreshCandidateReceipt({ serialized, key: new Uint8Array(32).fill(99) }),
+      () => authenticateReceipt({ serialized, key: new Uint8Array(32).fill(99) }),
       /AUTHENTICATION_FAILED/,
     )
     assert.throws(
-      () => authenticateControlledFreshCandidateReceipt({ serialized: '{', key: RECEIPT_KEY }),
-      /MALFORMED/,
+      () => authenticateReceipt({ serialized: '{' }),
+      /NONCANONICAL|MALFORMED/,
     )
     const polluted = JSON.parse(serialized) as Record<string, unknown>
     polluted.unexpected = true
     assert.throws(
-      () => authenticateControlledFreshCandidateReceipt({ serialized: JSON.stringify(polluted), key: RECEIPT_KEY }),
-      /MALFORMED/,
+      () => authenticateReceipt({ serialized: JSON.stringify(polluted) }),
+      /NONCANONICAL|MALFORMED/,
     )
     assert.equal(result.eligibleForPublishing, false)
+
+    const parsed = JSON.parse(serialized) as Record<string, unknown>
+    const reordered = JSON.stringify(Object.fromEntries(Object.entries(parsed).reverse()))
+    const duplicateKey = serialized.replace('{', '{"version":"duplicate",')
+    for (const noncanonical of [
+      ` ${serialized}`,
+      `${serialized}\n`,
+      `\uFEFF${serialized}`,
+      JSON.stringify(parsed, null, 2),
+      reordered,
+      duplicateKey,
+    ]) {
+      assert.throws(() => authenticateReceipt({ serialized: noncanonical }), /NONCANONICAL|MALFORMED/)
+    }
+
+    for (const substitution of ['77', 77, true, null]) {
+      const changed = structuredClone(parsed)
+      changed.executionId = substitution
+      assert.throws(
+        () => authenticateReceipt({ serialized: JSON.stringify(changed) }),
+        /NONCANONICAL|MALFORMED|AUTHENTICATION_FAILED/,
+      )
+    }
+    const omitted = structuredClone(parsed)
+    delete omitted.executionId
+    assert.throws(() => authenticateReceipt({ serialized: JSON.stringify(omitted) }), /NONCANONICAL|MALFORMED/)
+
+    const negativeZeroReceipt = readControlledFreshCandidateCapability(authenticateReceipt({ serialized }))
+    assert.throws(
+      () => resealControlledFreshCandidateReceipt(negativeZeroReceipt, RECEIPT_KEY, (draft) => {
+        draft.budgets.stockCandidates = -0
+      }),
+      /SHAPE_INVALID/,
+    )
+    assert.throws(
+      () => resealControlledFreshCandidateReceipt(negativeZeroReceipt, RECEIPT_KEY, (draft) => {
+        draft.product.id = Number.MAX_SAFE_INTEGER + 1
+      }),
+      /SHAPE_INVALID/,
+    )
+    for (const nonFinite of [Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY]) {
+      assert.throws(
+        () => resealControlledFreshCandidateReceipt(negativeZeroReceipt, RECEIPT_KEY, (draft) => {
+          draft.manifest.positivePrice = nonFinite
+        }),
+        /SHAPE_INVALID/,
+      )
+    }
+    const inherited = Object.assign(Object.create({ inherited: true }), negativeZeroReceipt)
+    assert.throws(
+      () => serializeControlledFreshCandidateReceipt(inherited),
+      /SHAPE_INVALID/,
+    )
+    assert.throws(
+      () => authenticateReceipt({ serialized, expectedCommitIdentity: 'different-commit' }),
+      /CONTEXT_MISMATCH/,
+    )
+    assert.throws(
+      () => authenticateReceipt({ serialized, expectedEnvironmentIdentity: 'different-environment' }),
+      /CONTEXT_MISMATCH/,
+    )
   }
 
   {
@@ -389,6 +536,27 @@ async function main(): Promise<void> {
     assert.equal(state.events.filter((event) => event === 'relationship-update').length, 1)
   }
 
+  for (const finalizationInterleave of [
+    'before-qualification',
+    'between-qualification-and-lock',
+    'before-update',
+  ] as const) {
+    const state = fixture({ finalizationInterleave })
+    const result = await createControlledFreshCandidate(input(60 + finalizationInterleave.length), state.dependencies)
+    assert.equal(result.verdict, 'CREATION_FINALIZATION_UNCERTAIN_RECOVERY_REQUIRED')
+    assert.deepEqual(result.reasonCodes, ['FINALIZATION_FAILED'])
+    assert.equal(state.events.includes(`concurrent-${finalizationInterleave}`), true)
+    assert.equal(state.events.includes('product-finalize-update'), false)
+  }
+
+  {
+    const state = fixture({ finalizationInterleave: 'after-commit' })
+    const result = await createControlledFreshCandidate(input(76), state.dependencies)
+    assert.equal(result.verdict, 'CREATION_FINALIZATION_UNCERTAIN_RECOVERY_REQUIRED')
+    assert.deepEqual(result.reasonCodes, ['FINALIZATION_READBACK_UNCERTAIN'])
+    assert.equal(state.events.filter((event) => event === 'product-finalize-update').length, 1)
+  }
+
   {
     const state = fixture({ teardown: false })
     const result = await createControlledFreshCandidate(input(24), state.dependencies)
@@ -420,6 +588,36 @@ async function main(): Promise<void> {
     assert.equal(state.events.includes('mutation-revoke'), true)
     assert.equal(state.events.includes('relationship-update'), false)
     assert.equal(state.events.filter((event) => event === 'teardown').length, 1)
+  }
+
+  for (const hangAt of [
+    'product-create',
+    'media-create',
+    'relationship-update',
+    'finalization-read',
+    'finalization-update',
+  ] as const) {
+    const state = fixture({ hangAt })
+    const result = await createControlledFreshCandidate(input(80 + hangAt.length), state.dependencies)
+    assert.deepEqual(result.reasonCodes, ['DEADLINE_EXCEEDED'], hangAt)
+    assert.equal(state.events.filter((event) => event === 'mutation-revoke').length, 1)
+    assert.equal(state.events.includes(`late-${hangAt}-settled`), true)
+    assert.ok(state.events.indexOf('mutation-revoke') < state.events.indexOf(`late-${hangAt}-settled`))
+    if (hangAt === 'product-create') assert.equal(state.events.includes('transaction-commit'), false)
+    if (hangAt === 'media-create') assert.equal(state.events.includes('relationship-update'), false)
+    if (hangAt === 'relationship-update') assert.equal(state.events.includes('product-finalize'), false)
+    if (hangAt.startsWith('finalization')) assert.equal(state.events.includes('product-finalize-update'), false)
+    assert.equal(state.events.filter((event) => event === 'teardown').length, 1)
+  }
+
+  {
+    const state = fixture({ lateBeforeUpload: true })
+    const result = await createControlledFreshCandidate(input(98), state.dependencies)
+    assert.deepEqual(result.reasonCodes, ['DEADLINE_EXCEEDED'])
+    assert.equal(state.events.includes('pre-upload-hook'), true)
+    assert.equal(state.events.includes('late-pre-upload-settled'), true)
+    assert.equal(state.events.includes('storage-upload-dispatch'), false)
+    assert.equal(state.events.includes('relationship-update'), false)
   }
 
   {

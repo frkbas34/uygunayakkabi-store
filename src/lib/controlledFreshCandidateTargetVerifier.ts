@@ -4,6 +4,7 @@ import {
   controlledFreshCandidateDigest,
   controlledFreshCandidateMediaMatches,
   controlledFreshCandidateProductMatches,
+  createControlledFreshCandidateOperationScope,
   fixedControlledFreshCandidateProduct,
   type ControlledFreshCandidatePublicCounts,
 } from './controlledFreshCandidateCreation'
@@ -289,6 +290,10 @@ export async function verifyControlledFreshCandidateTarget(params: {
     return report({ verdict: 'STRICT_FRESH_TARGET_BLOCKED', reasonCodes: ['RECEIPT_CAPABILITY_INVALID'] })
   }
   const counts = publicCounts(receipt.budgets)
+  const operationScope = params.dependencies.operationScope ?? createControlledFreshCandidateOperationScope({
+    now: params.dependencies.now,
+  })
+  const controlledDependencies = { ...params.dependencies, operationScope }
   const common = {
     counts,
     phase: receipt.phase,
@@ -319,8 +324,8 @@ export async function verifyControlledFreshCandidateTarget(params: {
   ) reasonCodes.push('RECEIPT_TARGET_INVALID')
 
   if (reasonCodes.length === 0 && productId && mediaId) {
-    const first = await captureFreshVisualStrictTargetSnapshot({ productId, dependencies: params.dependencies })
-    const second = await captureFreshVisualStrictTargetSnapshot({ productId, dependencies: params.dependencies })
+    const first = await captureFreshVisualStrictTargetSnapshot({ productId, dependencies: controlledDependencies })
+    const second = await captureFreshVisualStrictTargetSnapshot({ productId, dependencies: controlledDependencies })
     if (!first.ok || !second.ok) {
       reasonCodes.push('STRICT_TARGET_CAPTURE_UNSUPPORTED')
       unsupported = true
@@ -334,6 +339,7 @@ export async function verifyControlledFreshCandidateTarget(params: {
 
   let teardownOk = false
   try { teardownOk = (await params.dependencies.teardown()).ok } catch { teardownOk = false }
+  if (!params.dependencies.operationScope) operationScope.close()
   if (!teardownOk) reasonCodes.push('STRICT_TARGET_TEARDOWN_FAILED')
   reasonCodes = [...new Set(reasonCodes)].sort()
   const ready = reasonCodes.length === 0

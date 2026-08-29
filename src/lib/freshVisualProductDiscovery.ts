@@ -8,6 +8,7 @@ import {
   type VisualPilotMediaReadDependencies,
   type VisualPilotMediaReadResult,
 } from './visualPilotMediaEvidence'
+import type { ControlledFreshCandidateOperationScope } from './controlledFreshCandidateCreation'
 import { assessVisualOnlyProductState } from './visualOnlyV01'
 import { classifyVisualPilotBotEvent } from './visualPilotTargetVerifier'
 import { classifyProductScopedMediaGenerationState } from './mediaGenerationState'
@@ -827,13 +828,13 @@ export function parseFreshVisualDiscoveryArgs(argv: readonly string[]): FreshVis
 }
 
 export type FreshVisualStrictTargetGateway = {
-  readOwnedProduct(productId: number): Promise<unknown>
-  readMediaPage(productId: number, page: number, limit: number): Promise<FreshVisualDiscoveryPage>
-  readGeneratedGalleryOwnerPage(mediaIds: readonly (string | number)[], page: number, limit: number): Promise<FreshVisualDiscoveryPage>
-  readImageJobPage(productId: number, page: number, limit: number): Promise<FreshVisualDiscoveryPage>
-  readQueueReceiptPage(productId: number, page: number, limit: number): Promise<FreshVisualDiscoveryPage>
-  readBotEventPage(productId: number, page: number, limit: number): Promise<FreshVisualDiscoveryPage>
-  readStoryJobPage(productId: number, page: number, limit: number): Promise<FreshVisualDiscoveryPage>
+  readOwnedProduct(productId: number, signal: AbortSignal): Promise<unknown>
+  readMediaPage(productId: number, page: number, limit: number, signal: AbortSignal): Promise<FreshVisualDiscoveryPage>
+  readGeneratedGalleryOwnerPage(mediaIds: readonly (string | number)[], page: number, limit: number, signal: AbortSignal): Promise<FreshVisualDiscoveryPage>
+  readImageJobPage(productId: number, page: number, limit: number, signal: AbortSignal): Promise<FreshVisualDiscoveryPage>
+  readQueueReceiptPage(productId: number, page: number, limit: number, signal: AbortSignal): Promise<FreshVisualDiscoveryPage>
+  readBotEventPage(productId: number, page: number, limit: number, signal: AbortSignal): Promise<FreshVisualDiscoveryPage>
+  readStoryJobPage(productId: number, page: number, limit: number, signal: AbortSignal): Promise<FreshVisualDiscoveryPage>
 }
 
 export type FreshVisualStrictTargetDependencies = {
@@ -844,6 +845,7 @@ export type FreshVisualStrictTargetDependencies = {
     dependencies: VisualPilotMediaReadDependencies,
   ) => Promise<VisualPilotMediaReadResult>
   now?: () => number
+  operationScope?: ControlledFreshCandidateOperationScope
 }
 
 export type FreshVisualStrictTargetSnapshot = {
@@ -879,11 +881,13 @@ export async function captureFreshVisualStrictTargetSnapshot(params: {
   ) return { ok: false, code: 'STRICT_TARGET_IDENTITY_INVALID' }
 
   const now = params.dependencies.now ?? Date.now
-  const deadline = now() + FRESH_VISUAL_DISCOVERY_OBSERVATION_TIMEOUT_MS
+  const operationScope = params.dependencies.operationScope
+  if (!operationScope) return { ok: false, code: 'STRICT_TARGET_CANCELLATION_UNAVAILABLE' }
+  const deadline = operationScope.deadline
   try {
     let rawProduct: unknown
     try {
-      rawProduct = await params.dependencies.gateway.readOwnedProduct(params.productId)
+      rawProduct = await operationScope.run((signal) => params.dependencies.gateway.readOwnedProduct(params.productId, signal))
     } catch {
       throw new DiscoveryUnsupportedError('STRICT_TARGET_PRODUCT_READ_FAILED')
     } finally {
@@ -895,9 +899,9 @@ export async function captureFreshVisualStrictTargetSnapshot(params: {
     const product = structuredClone(rawProduct) as RecordValue
     const surface = async (
       name: string,
-      reader: (page: number, limit: number) => Promise<FreshVisualDiscoveryPage>,
+      reader: (page: number, limit: number, signal: AbortSignal) => Promise<FreshVisualDiscoveryPage>,
     ) => readExhaustive({
-      readPage: reader,
+      readPage: (page, limit) => operationScope.run((signal) => reader(page, limit, signal)),
       limit: FRESH_VISUAL_DISCOVERY_PAGE_SIZE,
       maxPages: FRESH_VISUAL_DISCOVERY_MAX_SURFACE_PAGES,
       maxDocs: FRESH_VISUAL_DISCOVERY_PAGE_SIZE * FRESH_VISUAL_DISCOVERY_MAX_SURFACE_PAGES,
@@ -906,29 +910,29 @@ export async function captureFreshVisualStrictTargetSnapshot(params: {
       now,
     })
 
-    const media = await surface('MEDIA', (page, limit) =>
-      params.dependencies.gateway.readMediaPage(params.productId, page, limit))
+    const media = await surface('MEDIA', (page, limit, signal) =>
+      params.dependencies.gateway.readMediaPage(params.productId, page, limit, signal))
     const mediaIds = media
       .map((entry) => relationshipId(entry.id))
       .filter((id): id is string | number => id !== null)
     const galleryOwnershipRead = mediaIds.length === media.length && mediaIds.length > 0 && mediaIds.length <= 500
     const galleryOwners = galleryOwnershipRead
-      ? await surface('GENERATED_GALLERY_OWNER', (page, limit) =>
-          params.dependencies.gateway.readGeneratedGalleryOwnerPage(mediaIds, page, limit))
+      ? await surface('GENERATED_GALLERY_OWNER', (page, limit, signal) =>
+          params.dependencies.gateway.readGeneratedGalleryOwnerPage(mediaIds, page, limit, signal))
       : []
-    const jobs = await surface('IMAGE_JOB', (page, limit) =>
-      params.dependencies.gateway.readImageJobPage(params.productId, page, limit))
-    const receipts = await surface('QUEUE_RECEIPT', (page, limit) =>
-      params.dependencies.gateway.readQueueReceiptPage(params.productId, page, limit))
-    const botEvents = await surface('BOT_EVENT', (page, limit) =>
-      params.dependencies.gateway.readBotEventPage(params.productId, page, limit))
-    const storyJobs = await surface('STORY_JOB', (page, limit) =>
-      params.dependencies.gateway.readStoryJobPage(params.productId, page, limit))
+    const jobs = await surface('IMAGE_JOB', (page, limit, signal) =>
+      params.dependencies.gateway.readImageJobPage(params.productId, page, limit, signal))
+    const receipts = await surface('QUEUE_RECEIPT', (page, limit, signal) =>
+      params.dependencies.gateway.readQueueReceiptPage(params.productId, page, limit, signal))
+    const botEvents = await surface('BOT_EVENT', (page, limit, signal) =>
+      params.dependencies.gateway.readBotEventPage(params.productId, page, limit, signal))
+    const storyJobs = await surface('STORY_JOB', (page, limit, signal) =>
+      params.dependencies.gateway.readStoryJobPage(params.productId, page, limit, signal))
 
     let originalEvidence: VisualPilotMediaReadResult | null = null
     if (media.length === 1) {
       try {
-        originalEvidence = await (params.dependencies.readMediaEvidence ?? readVisualPilotMediaEvidence)(media[0], {
+        originalEvidence = await operationScope.run(() => (params.dependencies.readMediaEvidence ?? readVisualPilotMediaEvidence)(media[0], {
           ...params.dependencies.mediaRead,
           timeoutMs: Math.max(1, Math.min(VISUAL_PILOT_MEDIA_TIMEOUT_MS, deadline - now())),
           timeoutFailureCode: 'ORIGINAL_AGGREGATE_TIMEOUT',
@@ -936,7 +940,7 @@ export async function captureFreshVisualStrictTargetSnapshot(params: {
           byteLimitFailureCode: 'ORIGINAL_AGGREGATE_BYTE_LIMIT_EXCEEDED',
           maxInputPixels: Math.min(VISUAL_PILOT_MEDIA_MAX_INPUT_PIXELS, FRESH_VISUAL_DISCOVERY_MAX_AGGREGATE_PIXELS),
           pixelLimitFailureCode: 'ORIGINAL_AGGREGATE_PIXEL_LIMIT_EXCEEDED',
-        })
+        }))
       } catch {
         throw new DiscoveryUnsupportedError('STRICT_TARGET_MEDIA_EVIDENCE_READ_FAILED')
       } finally {

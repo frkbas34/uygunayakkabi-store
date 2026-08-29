@@ -8,6 +8,7 @@ export const CONTROLLED_FRESH_CANDIDATE_MANIFEST_VERSION = 'controlled-fresh-can
 export const CONTROLLED_FRESH_CANDIDATE_RUNTIME_IDENTITY = 'controlled-fresh-candidate-runtime/v1' as const
 export const CONTROLLED_FRESH_CANDIDATE_CONTRACT_IDENTITY = 'controlled-fresh-candidate-contract/v1' as const
 export const CONTROLLED_FRESH_CANDIDATE_RECEIPT_DOMAIN = 'uygunayakkabi:controlled-fresh-candidate:private-receipt:v1' as const
+export const CONTROLLED_FRESH_CANDIDATE_RECEIPT_CONSUMPTION_DOMAIN = 'uygunayakkabi:controlled-fresh-candidate:receipt-consumption:v1' as const
 export const CONTROLLED_FRESH_CANDIDATE_MAX_STORAGE_OBJECTS = 4
 
 export const CONTROLLED_FRESH_CANDIDATE_PHASES = [
@@ -86,6 +87,9 @@ export type ControlledFreshCandidatePrivateReceipt = {
   runtime: {
     identity: typeof CONTROLLED_FRESH_CANDIDATE_RUNTIME_IDENTITY
     contract: typeof CONTROLLED_FRESH_CANDIDATE_CONTRACT_IDENTITY
+    commit: string
+    environment: string
+    receiptDestinationDigest: string
   }
   stockCandidate: string
   expectedStateFingerprint: string
@@ -145,8 +149,6 @@ type ReceiptCapabilityState = {
 }
 
 const capabilityRegistry = new WeakMap<object, ReceiptCapabilityState>()
-const replayedSeals = new Set<string>()
-const MAX_REPLAY_SEALS = 1_024
 
 export type ControlledFreshCandidateTargetCapability = Readonly<{
   readonly __controlledFreshCandidateTargetCapability?: never
@@ -179,6 +181,7 @@ function canonicalJson(value: unknown): string {
 function exactSafeInteger(value: unknown, minimum: number, maximum: number): value is number {
   return typeof value === 'number'
     && Number.isSafeInteger(value)
+    && !Object.is(value, -0)
     && value >= minimum
     && value <= maximum
 }
@@ -189,6 +192,14 @@ function exactDigest(value: unknown): value is string {
 
 function exactIdentity(value: unknown): value is string {
   return typeof value === 'string' && /^[a-z0-9][a-z0-9:_-]{7,127}$/i.test(value)
+}
+
+function exactContextIdentity(value: unknown): value is string {
+  return typeof value === 'string'
+    && value.trim() === value
+    && value.length >= 1
+    && value.length <= 160
+    && /^[a-z0-9][a-z0-9._:/-]*$/i.test(value)
 }
 
 function exactStock(value: unknown): value is string {
@@ -276,7 +287,9 @@ function exactReceiptShape(value: unknown): value is ControlledFreshCandidatePri
     'cleanupStatus', 'finalization', 'teardown', 'seal',
   ])) return false
   if (!isPlainRecord(value.executionAuthorization) || !hasExactOwnKeys(value.executionAuthorization, ['identity', 'digest', 'consumed'])) return false
-  if (!isPlainRecord(value.runtime) || !hasExactOwnKeys(value.runtime, ['identity', 'contract'])) return false
+  if (!isPlainRecord(value.runtime) || !hasExactOwnKeys(value.runtime, [
+    'identity', 'contract', 'commit', 'environment', 'receiptDestinationDigest',
+  ])) return false
   if (!isPlainRecord(value.product) || !hasExactOwnKeys(value.product, ['state', 'id', 'fingerprint'])) return false
   if (!isPlainRecord(value.media) || !hasExactOwnKeys(value.media, ['state', 'id', 'productId', 'expectedFilename', 'actualFilename'])) return false
   if (!isPlainRecord(value.transactions) || !hasExactOwnKeys(value.transactions, ['productCreate', 'mediaCreate', 'relationshipUpdate', 'finalization'])) return false
@@ -301,6 +314,9 @@ function exactReceiptShape(value: unknown): value is ControlledFreshCandidatePri
     && exactManifest(value.manifest)
     && value.runtime.identity === CONTROLLED_FRESH_CANDIDATE_RUNTIME_IDENTITY
     && value.runtime.contract === CONTROLLED_FRESH_CANDIDATE_CONTRACT_IDENTITY
+    && exactContextIdentity(value.runtime.commit)
+    && exactContextIdentity(value.runtime.environment)
+    && exactDigest(value.runtime.receiptDestinationDigest)
     && exactStock(value.stockCandidate)
     && exactDigest(value.expectedStateFingerprint)
     && ['not_created', 'create_dispatched', 'retained', 'identity_rejected'].includes(String(value.product.state))
@@ -363,8 +379,11 @@ export function serializeControlledFreshCandidateReceipt(
 export function authenticateControlledFreshCandidateReceipt(params: {
   serialized: string
   key: Uint8Array
-  expectedRuntimeIdentity?: typeof CONTROLLED_FRESH_CANDIDATE_RUNTIME_IDENTITY
-  expectedContractIdentity?: typeof CONTROLLED_FRESH_CANDIDATE_CONTRACT_IDENTITY
+  expectedRuntimeIdentity?: string
+  expectedContractIdentity?: string
+  expectedCommitIdentity: string
+  expectedEnvironmentIdentity: string
+  consume(consumptionIdentity: string): boolean
 }): ControlledFreshCandidateTargetCapability {
   let parsed: unknown
   try {
@@ -372,23 +391,41 @@ export function authenticateControlledFreshCandidateReceipt(params: {
   } catch {
     throw new Error('CONTROLLED_RECEIPT_MALFORMED')
   }
+  if (params.serialized !== canonicalJson(parsed)) throw new Error('CONTROLLED_RECEIPT_NONCANONICAL')
   if (!exactReceiptShape(parsed)) throw new Error('CONTROLLED_RECEIPT_MALFORMED')
   if (
     parsed.runtime.identity !== (params.expectedRuntimeIdentity ?? CONTROLLED_FRESH_CANDIDATE_RUNTIME_IDENTITY)
     || parsed.runtime.contract !== (params.expectedContractIdentity ?? CONTROLLED_FRESH_CANDIDATE_CONTRACT_IDENTITY)
+    || parsed.runtime.commit !== params.expectedCommitIdentity
+    || parsed.runtime.environment !== params.expectedEnvironmentIdentity
   ) throw new Error('CONTROLLED_RECEIPT_CONTEXT_MISMATCH')
   const { seal, ...unsigned } = parsed
   const expected = receiptSeal(unsigned, params.key)
-  if (!timingSafeEqual(Buffer.from(seal, 'hex'), Buffer.from(expected, 'hex'))) {
+  const suppliedSeal = Buffer.from(seal, 'hex')
+  const expectedSeal = Buffer.from(expected, 'hex')
+  if (suppliedSeal.byteLength !== expectedSeal.byteLength || !timingSafeEqual(suppliedSeal, expectedSeal)) {
     throw new Error('CONTROLLED_RECEIPT_AUTHENTICATION_FAILED')
   }
-  if (replayedSeals.has(seal)) throw new Error('CONTROLLED_RECEIPT_REPLAYED')
-  replayedSeals.add(seal)
-  while (replayedSeals.size > MAX_REPLAY_SEALS) {
-    const oldest = replayedSeals.values().next().value as string | undefined
-    if (!oldest) break
-    replayedSeals.delete(oldest)
+  const consumptionIdentity = createHmac('sha256', keyBuffer(params.key))
+    .update(CONTROLLED_FRESH_CANDIDATE_RECEIPT_CONSUMPTION_DOMAIN)
+    .update('\0')
+    .update(seal)
+    .update('\0')
+    .update(parsed.runtime.identity)
+    .update('\0')
+    .update(parsed.runtime.contract)
+    .update('\0')
+    .update(parsed.runtime.commit)
+    .update('\0')
+    .update(parsed.runtime.environment)
+    .digest('hex')
+  let consumed = false
+  try {
+    consumed = params.consume(consumptionIdentity)
+  } catch {
+    throw new Error('CONTROLLED_RECEIPT_CONSUMPTION_FAILED')
   }
+  if (!consumed) throw new Error('CONTROLLED_RECEIPT_REPLAYED')
   const capability = Object.freeze(Object.create(null)) as ControlledFreshCandidateTargetCapability
   capabilityRegistry.set(capability, { receipt: structuredClone(parsed) })
   return capability

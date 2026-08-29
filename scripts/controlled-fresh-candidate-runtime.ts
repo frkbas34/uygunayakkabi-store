@@ -1,6 +1,10 @@
 import { pathToFileURL } from 'node:url'
 
-import type { ControlledFreshCandidatePublicReport } from '../src/lib/controlledFreshCandidateCreation'
+import {
+  createControlledFreshCandidateOperationScope,
+  type ControlledFreshCandidateOperationScope,
+  type ControlledFreshCandidatePublicReport,
+} from '../src/lib/controlledFreshCandidateCreation'
 import {
   verifyControlledFreshCandidateTarget,
   type ControlledFreshCandidateStrictTargetReport,
@@ -30,8 +34,9 @@ export type ControlledFreshCandidateRuntimeIo = {
 export type ControlledFreshCandidateRuntimeOptions = {
   argv: readonly string[]
   io?: ControlledFreshCandidateRuntimeIo
-  initializeCreation?: () => Promise<ControlledFreshCandidateRuntimeResource>
-  initializeVerification?: () => Promise<ControlledFreshCandidateVerificationResource>
+  initializeCreation?: (scope: ControlledFreshCandidateOperationScope) => Promise<ControlledFreshCandidateRuntimeResource>
+  initializeVerification?: (scope: ControlledFreshCandidateOperationScope) => Promise<ControlledFreshCandidateVerificationResource>
+  operationTimeoutMs?: number
 }
 
 const defaultIo: ControlledFreshCandidateRuntimeIo = {
@@ -109,9 +114,11 @@ export async function runControlledFreshCandidateRuntime(
   }
 
   if (decision.mode === 'create') {
+    const scope = createControlledFreshCandidateOperationScope({ timeoutMs: options.operationTimeoutMs })
     let resource: ControlledFreshCandidateRuntimeResource | null = null
     try {
-      resource = await (options.initializeCreation ?? initializeControlledFreshCandidateCreationRuntime)()
+      resource = await scope.run(() => (options.initializeCreation ?? initializeControlledFreshCandidateCreationRuntime)(scope))
+      if (resource.scope !== scope) throw new Error('controlled_runtime_scope_mismatch')
       const report = await executeControlledCreationResource(resource)
       io.stdout(JSON.stringify(report))
       await resource.destroy()
@@ -121,13 +128,16 @@ export async function runControlledFreshCandidateRuntime(
         try { await resource.destroy() } catch { /* sanitized terminal failure */ }
       }
       io.stderr('CONTROLLED_FRESH_CANDIDATE_INTERNAL_FAILURE')
+      scope.close()
       return 1
     }
   }
 
+  const scope = createControlledFreshCandidateOperationScope({ timeoutMs: options.operationTimeoutMs })
   let resource: ControlledFreshCandidateVerificationResource | null = null
   try {
-    resource = await (options.initializeVerification ?? initializeControlledFreshCandidateVerificationRuntime)()
+    resource = await scope.run(() => (options.initializeVerification ?? initializeControlledFreshCandidateVerificationRuntime)(scope))
+    if (resource.scope !== scope) throw new Error('controlled_runtime_scope_mismatch')
     const report = await verifyControlledFreshCandidateTarget({
       capability: resource.capability,
       dependencies: resource.dependencies,
@@ -140,6 +150,7 @@ export async function runControlledFreshCandidateRuntime(
       try { await resource.destroy() } catch { /* sanitized terminal failure */ }
     }
     io.stderr('CONTROLLED_FRESH_CANDIDATE_INTERNAL_FAILURE')
+    scope.close()
     return 1
   }
 }

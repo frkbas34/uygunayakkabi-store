@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 
 import {
   controlledFreshCandidateDigest,
+  createControlledFreshCandidateOperationScope,
   createControlledFreshCandidateManifestEvidence,
   fixedControlledFreshCandidateProduct,
 } from './controlledFreshCandidateCreation'
@@ -23,6 +24,8 @@ import {
 import type { FreshVisualDiscoveryPage } from './freshVisualProductDiscovery'
 
 const KEY = new Uint8Array(32).fill(41)
+const COMMIT_IDENTITY = '14af0deb7e1825eb5d349c89e1d36897e75fc5a0'
+const ENVIRONMENT_IDENTITY = 'strict-test-environment'
 
 function page(docs: unknown[], requestedPage = 1, limit = 100): FreshVisualDiscoveryPage {
   return {
@@ -70,6 +73,9 @@ function receipt(seed: number, options: {
     runtime: {
       identity: CONTROLLED_FRESH_CANDIDATE_RUNTIME_IDENTITY,
       contract: CONTROLLED_FRESH_CANDIDATE_CONTRACT_IDENTITY,
+      commit: COMMIT_IDENTITY,
+      environment: ENVIRONMENT_IDENTITY,
+      receiptDestinationDigest: 'b'.repeat(64),
     },
     stockCandidate: manifest.stockCandidate,
     expectedStateFingerprint: controlledFreshCandidateDigest(fixedControlledFreshCandidateProduct(manifest, 'pending')),
@@ -126,6 +132,9 @@ function capability(seed: number, options?: Parameters<typeof receipt>[1]): {
     capability: authenticateControlledFreshCandidateReceipt({
       serialized: serializeControlledFreshCandidateReceipt(sealed),
       key: KEY,
+      expectedCommitIdentity: COMMIT_IDENTITY,
+      expectedEnvironmentIdentity: ENVIRONMENT_IDENTITY,
+      consume: () => true,
     }),
     receipt: sealed,
   }
@@ -151,6 +160,7 @@ function verifierFixture(sealed: ControlledFreshCandidatePrivateReceipt, options
   }>
   malformedPagination?: boolean
   drift?: Surface
+  hang?: Surface
   teardown?: boolean
 } = {}) {
   const reads: string[] = []
@@ -190,27 +200,35 @@ function verifierFixture(sealed: ControlledFreshCandidatePrivateReceipt, options
     gateway: {
       readOwnedProduct: async (id) => {
         reads.push(`product:${id}`)
+        if (options.hang === 'product') return new Promise<never>(() => undefined)
         const call = count('product')
         return options.drift === 'product' && call >= 2 ? { ...baseProduct, title: 'drifted' } : structuredClone(baseProduct)
       },
       readMediaPage: async (id, requestedPage, limit) => {
         reads.push(`media:${id}`)
+        if (options.hang === 'media') return new Promise<never>(() => undefined)
         return surfacePage('media', baseMedia, requestedPage, limit)
       },
       readGeneratedGalleryOwnerPage: async (_ids, requestedPage, limit) => {
         reads.push('gallery')
+        if (options.hang === 'gallery') return new Promise<never>(() => undefined)
         return surfacePage('gallery', options.gallery ?? [], requestedPage, limit)
       },
-      readImageJobPage: async (_id, requestedPage, limit) =>
-        surfacePage('jobs', options.jobs ?? [], requestedPage, limit),
-      readQueueReceiptPage: async (_id, requestedPage, limit) =>
-        surfacePage('receipts', options.receipts ?? [], requestedPage, limit),
-      readBotEventPage: async (_id, requestedPage, limit) =>
-        surfacePage('botEvents', options.botEvents ?? [], requestedPage, limit),
-      readStoryJobPage: async (_id, requestedPage, limit) =>
-        surfacePage('storyJobs', options.storyJobs ?? [], requestedPage, limit),
+      readImageJobPage: async (_id, requestedPage, limit) => options.hang === 'jobs'
+        ? new Promise<never>(() => undefined)
+        : surfacePage('jobs', options.jobs ?? [], requestedPage, limit),
+      readQueueReceiptPage: async (_id, requestedPage, limit) => options.hang === 'receipts'
+        ? new Promise<never>(() => undefined)
+        : surfacePage('receipts', options.receipts ?? [], requestedPage, limit),
+      readBotEventPage: async (_id, requestedPage, limit) => options.hang === 'botEvents'
+        ? new Promise<never>(() => undefined)
+        : surfacePage('botEvents', options.botEvents ?? [], requestedPage, limit),
+      readStoryJobPage: async (_id, requestedPage, limit) => options.hang === 'storyJobs'
+        ? new Promise<never>(() => undefined)
+        : surfacePage('storyJobs', options.storyJobs ?? [], requestedPage, limit),
     },
     readMediaEvidence: async () => {
+      if (options.hang === 'evidence') return new Promise<never>(() => undefined)
       const evidenceCall = count('evidence')
       if (options.evidenceOk === false) return { ok: false, code: 'ORIGINAL_DECODE_FAILED' }
       const evidence = {
@@ -227,6 +245,9 @@ function verifierFixture(sealed: ControlledFreshCandidatePrivateReceipt, options
         : evidence
     },
     now: () => 1_000,
+    operationScope: options.hang
+      ? createControlledFreshCandidateOperationScope({ timeoutMs: 20 })
+      : undefined,
     teardown: async () => {
       reads.push('teardown')
       return options.teardown === false ? { ok: false } : { ok: true }
@@ -392,6 +413,9 @@ async function main(): Promise<void> {
     const modifiedCapability = authenticateControlledFreshCandidateReceipt({
       serialized: serializeControlledFreshCandidateReceipt(modified),
       key: KEY,
+      expectedCommitIdentity: COMMIT_IDENTITY,
+      expectedEnvironmentIdentity: ENVIRONMENT_IDENTITY,
+      consume: () => true,
     })
     const state = verifierFixture(modified)
     const result = await verifyControlledFreshCandidateTarget({ capability: modifiedCapability, dependencies: state.dependencies })
@@ -412,6 +436,9 @@ async function main(): Promise<void> {
     const modifiedCapability = authenticateControlledFreshCandidateReceipt({
       serialized: serializeControlledFreshCandidateReceipt(modified),
       key: KEY,
+      expectedCommitIdentity: COMMIT_IDENTITY,
+      expectedEnvironmentIdentity: ENVIRONMENT_IDENTITY,
+      consume: () => true,
     })
     const state = verifierFixture(modified)
     const result = await verifyControlledFreshCandidateTarget({ capability: modifiedCapability, dependencies: state.dependencies })
@@ -448,6 +475,9 @@ async function main(): Promise<void> {
     const modifiedCapability = authenticateControlledFreshCandidateReceipt({
       serialized: serializeControlledFreshCandidateReceipt(modified),
       key: KEY,
+      expectedCommitIdentity: COMMIT_IDENTITY,
+      expectedEnvironmentIdentity: ENVIRONMENT_IDENTITY,
+      consume: () => true,
     })
     const state = verifierFixture(modified)
     const result = await verifyControlledFreshCandidateTarget({ capability: modifiedCapability, dependencies: state.dependencies })
@@ -478,6 +508,20 @@ async function main(): Promise<void> {
         serialized: serializeControlledFreshCandidateReceipt(sealed),
         key: KEY,
         expectedRuntimeIdentity: 'cross-context' as typeof CONTROLLED_FRESH_CANDIDATE_RUNTIME_IDENTITY,
+        expectedCommitIdentity: COMMIT_IDENTITY,
+        expectedEnvironmentIdentity: ENVIRONMENT_IDENTITY,
+        consume: () => true,
+      }),
+      /CONTEXT_MISMATCH/,
+    )
+    assert.throws(
+      () => authenticateControlledFreshCandidateReceipt({
+        serialized: serializeControlledFreshCandidateReceipt(sealed),
+        key: KEY,
+        expectedContractIdentity: 'cross-contract',
+        expectedCommitIdentity: COMMIT_IDENTITY,
+        expectedEnvironmentIdentity: ENVIRONMENT_IDENTITY,
+        consume: () => true,
       }),
       /CONTEXT_MISMATCH/,
     )
@@ -489,6 +533,21 @@ async function main(): Promise<void> {
     assert.deepEqual(result.reasonCodes, ['RECEIPT_CAPABILITY_INVALID'])
     assert.equal(state.reads.some((entry) => entry.startsWith('product:')), false)
     assert.equal(state.reads.at(-1), 'teardown')
+  }
+
+  for (const hang of ['product', 'media', 'jobs', 'evidence'] as const) {
+    const authenticated = capability(80 + hang.length)
+    const state = verifierFixture(authenticated.receipt, { hang })
+    const started = Date.now()
+    const result = await verifyControlledFreshCandidateTarget({
+      capability: authenticated.capability,
+      dependencies: state.dependencies,
+    })
+    assert.equal(result.verdict, 'STRICT_FRESH_TARGET_UNSUPPORTED')
+    assert.ok(result.reasonCodes.includes('STRICT_TARGET_CAPTURE_UNSUPPORTED'))
+    assert.ok(Date.now() - started < 1_000)
+    assert.equal(state.reads.at(-1), 'teardown')
+    state.dependencies.operationScope?.close()
   }
 
   console.log('controlledFreshCandidateTargetVerifier: ALL OK')

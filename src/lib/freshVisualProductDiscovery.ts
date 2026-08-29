@@ -825,3 +825,147 @@ export function parseFreshVisualDiscoveryArgs(argv: readonly string[]): FreshVis
   if (!seen.has('--confirm-read-only')) return { ok: false, code: 'READ_ONLY_CONFIRMATION_REQUIRED' }
   return { ok: true, helpRequested: false }
 }
+
+export type FreshVisualStrictTargetGateway = {
+  readOwnedProduct(productId: number): Promise<unknown>
+  readMediaPage(productId: number, page: number, limit: number): Promise<FreshVisualDiscoveryPage>
+  readGeneratedGalleryOwnerPage(mediaIds: readonly (string | number)[], page: number, limit: number): Promise<FreshVisualDiscoveryPage>
+  readImageJobPage(productId: number, page: number, limit: number): Promise<FreshVisualDiscoveryPage>
+  readQueueReceiptPage(productId: number, page: number, limit: number): Promise<FreshVisualDiscoveryPage>
+  readBotEventPage(productId: number, page: number, limit: number): Promise<FreshVisualDiscoveryPage>
+  readStoryJobPage(productId: number, page: number, limit: number): Promise<FreshVisualDiscoveryPage>
+}
+
+export type FreshVisualStrictTargetDependencies = {
+  gateway: FreshVisualStrictTargetGateway
+  mediaRead?: VisualPilotMediaReadDependencies
+  readMediaEvidence?: (
+    media: Record<string, unknown>,
+    dependencies: VisualPilotMediaReadDependencies,
+  ) => Promise<VisualPilotMediaReadResult>
+  now?: () => number
+}
+
+export type FreshVisualStrictTargetSnapshot = {
+  product: Record<string, unknown>
+  media: Record<string, unknown>[]
+  galleryOwners: Record<string, unknown>[]
+  galleryOwnershipRead: boolean
+  jobs: Record<string, unknown>[]
+  receipts: Record<string, unknown>[]
+  botEvents: Record<string, unknown>[]
+  storyJobs: Record<string, unknown>[]
+  originalEvidence: VisualPilotMediaReadResult | null
+  observationDigest: string
+}
+
+export type FreshVisualStrictTargetCaptureResult =
+  | { ok: true; snapshot: FreshVisualStrictTargetSnapshot }
+  | { ok: false; code: string }
+
+/**
+ * Receipt-targeted evidence capture for the controlled-candidate verifier.
+ * It accepts one already-authenticated numeric identity, never enumerates
+ * Products, and intentionally keeps all captured records private.
+ */
+export async function captureFreshVisualStrictTargetSnapshot(params: {
+  productId: number
+  dependencies: FreshVisualStrictTargetDependencies
+}): Promise<FreshVisualStrictTargetCaptureResult> {
+  if (
+    !Number.isSafeInteger(params.productId)
+    || params.productId <= 0
+    || params.productId === FRESH_VISUAL_DISCOVERY_EXCLUDED_PRODUCT_ID
+  ) return { ok: false, code: 'STRICT_TARGET_IDENTITY_INVALID' }
+
+  const now = params.dependencies.now ?? Date.now
+  const deadline = now() + FRESH_VISUAL_DISCOVERY_OBSERVATION_TIMEOUT_MS
+  try {
+    let rawProduct: unknown
+    try {
+      rawProduct = await params.dependencies.gateway.readOwnedProduct(params.productId)
+    } catch {
+      throw new DiscoveryUnsupportedError('STRICT_TARGET_PRODUCT_READ_FAILED')
+    } finally {
+      assertObservationDeadline(deadline, now)
+    }
+    if (!isRecord(rawProduct) || numericId(rawProduct.id) !== params.productId) {
+      throw new DiscoveryUnsupportedError('STRICT_TARGET_PRODUCT_IDENTITY_MISMATCH')
+    }
+    const product = structuredClone(rawProduct) as RecordValue
+    const surface = async (
+      name: string,
+      reader: (page: number, limit: number) => Promise<FreshVisualDiscoveryPage>,
+    ) => readExhaustive({
+      readPage: reader,
+      limit: FRESH_VISUAL_DISCOVERY_PAGE_SIZE,
+      maxPages: FRESH_VISUAL_DISCOVERY_MAX_SURFACE_PAGES,
+      maxDocs: FRESH_VISUAL_DISCOVERY_PAGE_SIZE * FRESH_VISUAL_DISCOVERY_MAX_SURFACE_PAGES,
+      surface: `STRICT_TARGET_${name}`,
+      deadline,
+      now,
+    })
+
+    const media = await surface('MEDIA', (page, limit) =>
+      params.dependencies.gateway.readMediaPage(params.productId, page, limit))
+    const mediaIds = media
+      .map((entry) => relationshipId(entry.id))
+      .filter((id): id is string | number => id !== null)
+    const galleryOwnershipRead = mediaIds.length === media.length && mediaIds.length > 0 && mediaIds.length <= 500
+    const galleryOwners = galleryOwnershipRead
+      ? await surface('GENERATED_GALLERY_OWNER', (page, limit) =>
+          params.dependencies.gateway.readGeneratedGalleryOwnerPage(mediaIds, page, limit))
+      : []
+    const jobs = await surface('IMAGE_JOB', (page, limit) =>
+      params.dependencies.gateway.readImageJobPage(params.productId, page, limit))
+    const receipts = await surface('QUEUE_RECEIPT', (page, limit) =>
+      params.dependencies.gateway.readQueueReceiptPage(params.productId, page, limit))
+    const botEvents = await surface('BOT_EVENT', (page, limit) =>
+      params.dependencies.gateway.readBotEventPage(params.productId, page, limit))
+    const storyJobs = await surface('STORY_JOB', (page, limit) =>
+      params.dependencies.gateway.readStoryJobPage(params.productId, page, limit))
+
+    let originalEvidence: VisualPilotMediaReadResult | null = null
+    if (media.length === 1) {
+      try {
+        originalEvidence = await (params.dependencies.readMediaEvidence ?? readVisualPilotMediaEvidence)(media[0], {
+          ...params.dependencies.mediaRead,
+          timeoutMs: Math.max(1, Math.min(VISUAL_PILOT_MEDIA_TIMEOUT_MS, deadline - now())),
+          timeoutFailureCode: 'ORIGINAL_AGGREGATE_TIMEOUT',
+          maxBytes: Math.min(VISUAL_PILOT_MEDIA_MAX_BYTES, FRESH_VISUAL_DISCOVERY_MAX_AGGREGATE_BYTES),
+          byteLimitFailureCode: 'ORIGINAL_AGGREGATE_BYTE_LIMIT_EXCEEDED',
+          maxInputPixels: Math.min(VISUAL_PILOT_MEDIA_MAX_INPUT_PIXELS, FRESH_VISUAL_DISCOVERY_MAX_AGGREGATE_PIXELS),
+          pixelLimitFailureCode: 'ORIGINAL_AGGREGATE_PIXEL_LIMIT_EXCEEDED',
+        })
+      } catch {
+        throw new DiscoveryUnsupportedError('STRICT_TARGET_MEDIA_EVIDENCE_READ_FAILED')
+      } finally {
+        assertObservationDeadline(deadline, now)
+      }
+    }
+
+    const captured = {
+      product,
+      media,
+      galleryOwners,
+      galleryOwnershipRead,
+      jobs,
+      receipts,
+      botEvents,
+      storyJobs,
+      originalEvidence,
+    }
+    return {
+      ok: true,
+      snapshot: {
+        ...captured,
+        observationDigest: digest(captured),
+      },
+    }
+  } catch (error) {
+    return {
+      ok: false,
+      code: error instanceof DiscoveryUnsupportedError ? error.code : 'STRICT_TARGET_CAPTURE_UNSUPPORTED',
+    }
+  }
+}

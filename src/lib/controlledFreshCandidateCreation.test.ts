@@ -79,6 +79,8 @@ type FixtureOptions = {
   hangAt?: 'product-create' | 'media-create' | 'relationship-update' | 'finalization-read' | 'finalization-update'
   finalizationInterleave?: 'before-qualification' | 'between-qualification-and-lock' | 'before-update' | 'after-commit'
   teardown?: boolean
+  authorityClose?: boolean
+  failFinalPersist?: boolean
   now?: () => number
   consume?: () => Promise<boolean>
 }
@@ -90,10 +92,17 @@ function fixture(options: FixtureOptions = {}) {
   let media: Record<string, unknown> | null = null
   let productReads = 0
   let syntheticNow = 1_000
+  let teardownOccurred = false
   const now = options.now ?? (() => syntheticNow)
   const scope = createControlledFreshCandidateOperationScope({ now })
-  scope.registerCancellation(async () => {
+  let mutationRevoked = false
+  const markMutationRevoked = () => {
+    if (mutationRevoked) return
+    mutationRevoked = true
     events.push('mutation-revoke')
+  }
+  scope.registerCancellation(async () => {
+    markMutationRevoked()
   })
   const lateResult = <T>(phase: NonNullable<FixtureOptions['hangAt']>, result: T): Promise<T> | null => {
     if (options.hangAt !== phase) return null
@@ -223,13 +232,22 @@ function fixture(options: FixtureOptions = {}) {
     },
     persistPrivateReceipt: async (serialized) => {
       events.push('receipt-persist')
+      if (options.failFinalPersist && teardownOccurred) {
+        events.push('final-receipt-persist-failed')
+        throw new Error('synthetic final receipt persistence error')
+      }
       if (options.failAt === 'persist') throw new Error('synthetic persistence error')
       receipts.push(serialized)
     },
-    revokeMutationCapability: () => scope.cancel(),
+    revokeMutationCapability: async () => { markMutationRevoked() },
     teardown: async () => {
       events.push('teardown')
+      teardownOccurred = true
       return options.teardown === false ? { ok: false } : { ok: true }
+    },
+    closeAuthorityResources: async () => {
+      events.push('authority-close')
+      return options.authorityClose === false ? { ok: false } : { ok: true }
     },
   }
   return {
@@ -295,6 +313,8 @@ async function main(): Promise<void> {
     })
     assert.equal(state.events.filter((event) => event === 'product-create').length, 1)
     assert.equal(state.events.filter((event) => event === 'media-create').length, 1)
+    assert.ok(state.events.lastIndexOf('teardown') < state.events.lastIndexOf('receipt-persist'))
+    assert.ok(state.events.lastIndexOf('receipt-persist') < state.events.lastIndexOf('authority-close'))
 
     const finalSerialized = state.receipts.at(-1)
     assert.ok(finalSerialized)
@@ -593,6 +613,24 @@ async function main(): Promise<void> {
   }
 
   {
+    const state = fixture({ authorityClose: false })
+    const result = await createControlledFreshCandidate(input(124), state.dependencies)
+    assert.equal(result.verdict, 'CREATION_TEARDOWN_FAILED_RECOVERY_REQUIRED')
+    assert.deepEqual(result.reasonCodes, ['AUTHORITY_CLOSURE_FAILED'])
+    assert.equal(result.cleanupStatus, 'failed')
+    assert.ok(state.events.lastIndexOf('receipt-persist') < state.events.lastIndexOf('authority-close'))
+  }
+
+  {
+    const state = fixture({ failFinalPersist: true })
+    const result = await createControlledFreshCandidate(input(125), state.dependencies)
+    assert.equal(result.verdict, 'CREATION_RECOVERY_REQUIRED')
+    assert.deepEqual(result.reasonCodes, ['PRIVATE_RECEIPT_PERSIST_FAILED'])
+    assert.equal(state.events.filter((event) => event === 'final-receipt-persist-failed').length, 1)
+    assert.equal(state.events.at(-1), 'authority-close')
+  }
+
+  {
     let nowCalls = 0
     const state = fixture({
       consume: () => new Promise<boolean>(() => undefined),
@@ -605,36 +643,87 @@ async function main(): Promise<void> {
     assert.deepEqual(result.reasonCodes, ['DEADLINE_EXCEEDED'])
     assert.equal(state.events.includes('mutation-revoke'), true)
     assert.equal(state.events.includes('stock-lookup'), false)
-    assert.equal(state.events.at(-1), 'teardown')
+    assert.equal(state.events.at(-1), 'authority-close')
   }
 
   {
-    const scope = createControlledFreshCandidateOperationScope({ timeoutMs: 5 })
+    const lifecycle: string[] = []
+    const scope = createControlledFreshCandidateOperationScope({
+      timeoutMs: 5,
+      onOperationRegistered: () => { lifecycle.push('operation-registered') },
+      onCleanupRegistered: (generation) => { lifecycle.push(`cleanup-${generation}`) },
+      onStateChange: (state) => { lifecycle.push(`state-${state}`) },
+    })
     let cancellationAcknowledged = false
     let lateCleanupAcknowledged = false
     let lateMutationDispatches = 0
+    let releaseCancellation!: () => void
+    let releaseLateWork!: () => void
+    let releaseLateCleanup!: () => void
+    const cancellationGate = new Promise<void>((resolve) => { releaseCancellation = resolve })
+    const lateWorkGate = new Promise<void>((resolve) => { releaseLateWork = resolve })
+    const lateCleanupGate = new Promise<void>((resolve) => { releaseLateCleanup = resolve })
     scope.registerCancellation(async () => {
-      await new Promise((resolve) => setTimeout(resolve, 20))
+      await cancellationGate
       cancellationAcknowledged = true
     })
-    const started = Date.now()
     await assert.rejects(() => scope.run(async (signal) => {
-      await new Promise((resolve) => setTimeout(resolve, 25))
-      scope.registerTerminalization(new Promise<void>((resolve) => setTimeout(() => {
+      lifecycle.push('operation-callback')
+      await lateWorkGate
+      lifecycle.push(`late-work-released-${scope.state}`)
+      scope.registerTerminalization(async () => {
+        lifecycle.push('late-cleanup-started')
+        await lateCleanupGate
         lateCleanupAcknowledged = true
-        resolve()
-      }, 20)))
+      })
       if (!signal.aborted) lateMutationDispatches += 1
       return true
     }), /DEADLINE_EXCEEDED/)
     assert.equal(cancellationAcknowledged, false)
     assert.equal(lateCleanupAcknowledged, false)
-    await scope.drain()
+    let drained = false
+    const drain = scope.drain().then(() => { drained = true })
+    releaseCancellation()
+    releaseLateWork()
+    await new Promise<void>((resolve) => setImmediate(resolve))
+    assert.equal(drained, false, JSON.stringify(lifecycle))
+    releaseLateCleanup()
+    await drain
     assert.equal(cancellationAcknowledged, true)
     assert.equal(lateCleanupAcknowledged, true)
-    assert.ok(Date.now() - started >= 40)
     assert.equal(lateMutationDispatches, 0)
+    assert.equal(scope.state, 'CLOSED')
     scope.close()
+  }
+
+  {
+    const events: string[] = []
+    const cleanupGenerations: number[] = []
+    const scope = createControlledFreshCandidateOperationScope({
+      onOperationRegistered: () => { events.push('operation-registered') },
+      onCleanupRegistered: (generation) => { cleanupGenerations.push(generation) },
+      onStateChange: (state) => { events.push(`state:${state}`) },
+    })
+    await scope.run(async () => { events.push('operation-callback') })
+    scope.registerCancellation(async () => {
+      events.push('cleanup-one')
+      scope.registerTerminalization(async () => { events.push('cleanup-two') })
+    })
+    await scope.drain()
+    assert.ok(events.indexOf('operation-registered') < events.indexOf('operation-callback'))
+    assert.deepEqual(cleanupGenerations.length, 2)
+    assert.deepEqual(events.filter((event) => event.startsWith('state:')), [
+      'state:CANCELLING',
+      'state:SEALED_FOR_NON_CLEANUP',
+      'state:DRAINING_CLEANUP',
+      'state:CLOSED',
+    ])
+    let refusedCleanupRan = false
+    assert.throws(() => scope.registerTerminalization(async () => { refusedCleanupRan = true }), /DEADLINE_EXCEEDED/)
+    let refusedOperationRan = false
+    await assert.rejects(() => scope.run(async () => { refusedOperationRan = true }), /DEADLINE_EXCEEDED/)
+    assert.equal(refusedCleanupRan, false)
+    assert.equal(refusedOperationRan, false)
   }
 
   {
@@ -672,7 +761,10 @@ async function main(): Promise<void> {
     assert.deepEqual(result.reasonCodes, ['DEADLINE_EXCEEDED'], hangAt)
     assert.equal(state.events.filter((event) => event === 'mutation-revoke').length, 1)
     assert.equal(state.events.includes(`late-${hangAt}-settled`), true)
-    assert.ok(state.events.indexOf('mutation-revoke') < state.events.indexOf(`late-${hangAt}-settled`))
+    assert.ok(
+      state.events.indexOf('mutation-revoke') < state.events.indexOf(`late-${hangAt}-settled`),
+      hangAt,
+    )
     if (hangAt === 'product-create') assert.equal(state.events.includes('transaction-commit'), false)
     if (hangAt === 'media-create') assert.equal(state.events.includes('relationship-update'), false)
     if (hangAt === 'relationship-update') assert.equal(state.events.includes('product-finalize'), false)

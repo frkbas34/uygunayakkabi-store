@@ -110,11 +110,13 @@ export async function runControlledFreshCandidateRuntime(
     return 2
   }
 
-  if (process.env.PAYLOAD_DB_PUSH !== 'false') {
-    process.env.PAYLOAD_DB_PUSH = 'false'
-  }
-  if (process.env.PAYLOAD_DB_PUSH !== 'false') {
-    io.stderr('CONTROLLED_FRESH_CANDIDATE_REFUSED: PAYLOAD_DB_PUSH_FALSE_REQUIRED')
+  process.env.PAYLOAD_DB_PUSH = 'false'
+  process.env.PAYLOAD_DROP_DATABASE = 'false'
+  if (
+    process.env.PAYLOAD_DB_PUSH !== 'false'
+    || process.env.PAYLOAD_DROP_DATABASE !== 'false'
+  ) {
+    io.stderr('CONTROLLED_FRESH_CANDIDATE_REFUSED: DATABASE_MANAGEMENT_DISABLED_REQUIRED')
     return 2
   }
 
@@ -129,7 +131,12 @@ export async function runControlledFreshCandidateRuntime(
       resource = null
       await scope.cancel()
       await scope.drain()
-      if (!terminal.ok) throw new Error('controlled_runtime_terminalization_failed')
+      const terminalFailureAlreadyReported = report.reasonCodes.some((reason) => (
+        reason === 'TEARDOWN_FAILED' || reason === 'AUTHORITY_CLOSURE_FAILED'
+      ))
+      if (!terminal.ok && !terminalFailureAlreadyReported) {
+        throw new Error('controlled_runtime_terminalization_failed')
+      }
       scope.close()
       io.stdout(JSON.stringify(report))
       return creationExitCode(report)
@@ -139,8 +146,8 @@ export async function runControlledFreshCandidateRuntime(
       }
       await scope.cancel()
       await scope.drain()
-      io.stderr('CONTROLLED_FRESH_CANDIDATE_INTERNAL_FAILURE')
       scope.close()
+      io.stderr('CONTROLLED_FRESH_CANDIDATE_INTERNAL_FAILURE')
       return 1
     }
   }
@@ -168,8 +175,8 @@ export async function runControlledFreshCandidateRuntime(
     }
     await scope.cancel()
     await scope.drain()
-    io.stderr('CONTROLLED_FRESH_CANDIDATE_INTERNAL_FAILURE')
     scope.close()
+    io.stderr('CONTROLLED_FRESH_CANDIDATE_INTERNAL_FAILURE')
     return 1
   }
 }
@@ -179,6 +186,9 @@ const isMain = process.argv[1]
   : false
 
 if (isMain) {
+  // A promise that cannot reach terminal certainty must never fall through to
+  // Node's default successful exit merely because no referenced handles remain.
+  process.exitCode = 1
   void runControlledFreshCandidateRuntime({ argv: process.argv.slice(2) })
     .then((exitCode) => { process.exitCode = exitCode })
     .catch(() => { process.exitCode = 1 })

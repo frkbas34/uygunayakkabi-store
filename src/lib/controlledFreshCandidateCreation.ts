@@ -30,13 +30,21 @@ export class ControlledFreshCandidateDeadlineError extends Error {
   }
 }
 
+export type ControlledFreshCandidateOperationScopeState =
+  | 'OPEN'
+  | 'CANCELLING'
+  | 'SEALED_FOR_NON_CLEANUP'
+  | 'DRAINING_CLEANUP'
+  | 'CLOSED'
+
 export type ControlledFreshCandidateOperationScope = {
   readonly deadline: number
   readonly signal: AbortSignal
+  readonly state: ControlledFreshCandidateOperationScopeState
   assertActive(): void
   run<T>(operation: (signal: AbortSignal) => Promise<T>): Promise<T>
   registerCancellation(handler: () => Promise<void>): void
-  registerTerminalization(operation: Promise<unknown>): void
+  registerTerminalization(operation: () => Promise<unknown>): void
   cancel(): Promise<void>
   drain(): Promise<void>
   close(): void
@@ -45,6 +53,9 @@ export type ControlledFreshCandidateOperationScope = {
 export function createControlledFreshCandidateOperationScope(params: {
   timeoutMs?: number
   now?: () => number
+  onOperationRegistered?: () => void
+  onCleanupRegistered?: (generation: number) => void
+  onStateChange?: (state: ControlledFreshCandidateOperationScopeState) => void
 } = {}): ControlledFreshCandidateOperationScope {
   const now = params.now ?? Date.now
   const timeoutMs = params.timeoutMs ?? CONTROLLED_FRESH_CANDIDATE_EXECUTION_TIMEOUT_MS
@@ -59,69 +70,103 @@ export function createControlledFreshCandidateOperationScope(params: {
   const cancellationHandlers: Array<() => Promise<void>> = []
   const activeOperations = new Set<Promise<unknown>>()
   const terminalizations = new Set<Promise<unknown>>()
-  let cancellationStarted = false
-  let closed = false
+  let state: ControlledFreshCandidateOperationScopeState = 'OPEN'
+  let acceptedGeneration = 0
+  const transition = (next: ControlledFreshCandidateOperationScopeState): void => {
+    if (state === next) return
+    state = next
+    params.onStateChange?.(state)
+  }
 
-  const trackTerminalization = (operation: Promise<unknown>): void => {
-    const tracked = Promise.resolve(operation)
+  const trackTerminalization = (operation: () => Promise<unknown>): void => {
+    if (state === 'CLOSED') throw new ControlledFreshCandidateDeadlineError()
+    let resolveTracked!: (value: unknown) => void
+    let rejectTracked!: (reason?: unknown) => void
+    const tracked = new Promise<unknown>((resolve, reject) => {
+      resolveTracked = resolve
+      rejectTracked = reject
+    })
     terminalizations.add(tracked)
+    acceptedGeneration += 1
+    params.onCleanupRegistered?.(acceptedGeneration)
     tracked.then(
       () => terminalizations.delete(tracked),
       () => terminalizations.delete(tracked),
     )
+    Promise.resolve().then(operation).then(resolveTracked, rejectTracked)
   }
   const beginCancellation = (): void => {
-    if (cancellationStarted) return
-    cancellationStarted = true
+    if (state !== 'OPEN') return
+    transition('CANCELLING')
     controller.abort()
     const handlers = cancellationHandlers.splice(0)
-    for (const handler of handlers) trackTerminalization(Promise.resolve().then(handler))
+    for (const handler of handlers) trackTerminalization(handler)
   }
-  const drainTerminalizations = async (): Promise<void> => {
+  const drainAcceptedWork = async (includeOperations: boolean): Promise<void> => {
     for (;;) {
-      const pending = [...terminalizations]
-      if (pending.length === 0) return
+      const generation = acceptedGeneration
+      const pending = includeOperations
+        ? [...activeOperations, ...terminalizations]
+        : [...terminalizations]
+      if (pending.length === 0 && acceptedGeneration === generation) return
       await Promise.allSettled(pending)
     }
   }
   const cancel = async (): Promise<void> => {
     beginCancellation()
-    await drainTerminalizations()
+    if (state === 'CLOSED') return
+    await drainAcceptedWork(false)
   }
   const drain = async (): Promise<void> => {
     beginCancellation()
+    if (state === 'CLOSED') return
+    if (state === 'CANCELLING') transition('SEALED_FOR_NON_CLEANUP')
+    transition('DRAINING_CLEANUP')
     for (;;) {
+      const generation = acceptedGeneration
       const pending = [...activeOperations, ...terminalizations]
-      if (pending.length === 0) {
-        // Give cancellation-aware late constructors one turn to register the
-        // terminalization they discovered while their parent work settled.
-        await new Promise<void>((resolve) => setImmediate(resolve))
-        if (activeOperations.size === 0 && terminalizations.size === 0) return
-        continue
+      if (
+        pending.length === 0
+        && activeOperations.size === 0
+        && terminalizations.size === 0
+        && acceptedGeneration === generation
+      ) {
+        transition('CLOSED')
+        cancellationHandlers.splice(0)
+        return
       }
       await Promise.allSettled(pending)
     }
   }
   const assertActive = (): void => {
-    if (closed || controller.signal.aborted || now() >= deadline) {
+    if (state !== 'OPEN' || controller.signal.aborted || now() >= deadline) {
       throw new ControlledFreshCandidateDeadlineError()
     }
   }
   return {
     deadline,
     signal: controller.signal,
+    get state() { return state },
     assertActive,
     async run<T>(operation: (signal: AbortSignal) => Promise<T>): Promise<T> {
       assertActive()
-      let work: Promise<T>
-      try {
-        work = Promise.resolve(operation(controller.signal))
-      } catch (error) {
-        work = Promise.reject(error)
-      }
+      let resolveWork!: (value: T | PromiseLike<T>) => void
+      let rejectWork!: (reason?: unknown) => void
+      const work = new Promise<T>((resolve, reject) => {
+        resolveWork = resolve
+        rejectWork = reject
+      })
       activeOperations.add(work)
+      acceptedGeneration += 1
+      params.onOperationRegistered?.()
+      Promise.resolve().then(() => {
+        const operationResult = operation(controller.signal)
+        if (now() >= deadline) beginCancellation()
+        return operationResult
+      }).then(resolveWork, rejectWork)
       const remaining = Math.max(1, deadline - now())
       let timer: ReturnType<typeof setTimeout> | undefined
+      let removeAbortListener: (() => void) | undefined
       const outcome = await new Promise<
         | { state: 'fulfilled'; value: T }
         | { state: 'rejected'; error: unknown }
@@ -137,6 +182,9 @@ export function createControlledFreshCandidateOperationScope(params: {
           delivered = true
           resolve(value)
         }
+        const abort = () => deliver({ state: 'timeout' })
+        controller.signal.addEventListener('abort', abort, { once: true })
+        removeAbortListener = () => controller.signal.removeEventListener('abort', abort)
         work.then(
           (value) => deliver({ state: 'fulfilled', value }),
           (error: unknown) => deliver({ state: 'rejected', error }),
@@ -144,6 +192,7 @@ export function createControlledFreshCandidateOperationScope(params: {
         timer = setTimeout(() => deliver({ state: 'timeout' }), remaining)
       })
       if (timer) clearTimeout(timer)
+      removeAbortListener?.()
       if (outcome.state === 'timeout' || controller.signal.aborted || now() >= deadline) {
         // Do not await the work from inside its own timeout wrapper. The outer
         // terminal boundary calls drain(), which waits for this registered work
@@ -155,21 +204,26 @@ export function createControlledFreshCandidateOperationScope(params: {
       return outcome.value
     },
     registerCancellation(handler) {
-      if (closed) throw new ControlledFreshCandidateDeadlineError()
-      if (cancellationStarted) {
-        trackTerminalization(Promise.resolve().then(handler))
+      if (state === 'CLOSED') throw new ControlledFreshCandidateDeadlineError()
+      if (state !== 'OPEN') {
+        trackTerminalization(handler)
       } else {
         cancellationHandlers.push(handler)
       }
     },
     registerTerminalization(operation) {
-      if (closed) throw new ControlledFreshCandidateDeadlineError()
+      if (state === 'CLOSED') throw new ControlledFreshCandidateDeadlineError()
       trackTerminalization(operation)
     },
     cancel,
     drain,
     close() {
-      closed = true
+      if (state === 'CLOSED') return
+      beginCancellation()
+      if (activeOperations.size !== 0 || terminalizations.size !== 0) {
+        throw new Error('CONTROLLED_TERMINAL_SCOPE_NOT_DRAINED')
+      }
+      transition('CLOSED')
       cancellationHandlers.splice(0)
       // Settling operations retain their rejection observers; no late rejection
       // can become detached or unhandled after the scope is closed.
@@ -222,6 +276,7 @@ export type ControlledFreshCandidateCreationReasonCode =
   | 'FINALIZATION_FAILED'
   | 'FINALIZATION_READBACK_UNCERTAIN'
   | 'TEARDOWN_FAILED'
+  | 'AUTHORITY_CLOSURE_FAILED'
   | 'DEADLINE_EXCEEDED'
   | 'MUTATION_CAPABILITY_INVALID'
   | 'CONTROLLED_INPUT_INVALID'
@@ -321,6 +376,7 @@ export type ControlledFreshCandidateCreationDependencies = {
   persistPrivateReceipt(serialized: string, signal: AbortSignal): Promise<void>
   revokeMutationCapability(): Promise<void>
   teardown(): Promise<{ ok: true } | { ok: false }>
+  closeAuthorityResources(): Promise<{ ok: true } | { ok: false }>
 }
 
 type RecordValue = Record<string, unknown>
@@ -330,7 +386,7 @@ const DEPENDENCY_KEYS = [
   'beginProductTransaction', 'createProduct', 'commitProductTransaction',
   'rollbackProductTransaction', 'readProduct', 'createMedia', 'readMedia',
   'updateProductRelationship', 'finalizeProduct', 'persistPrivateReceipt',
-  'revokeMutationCapability', 'teardown',
+  'revokeMutationCapability', 'teardown', 'closeAuthorityResources',
 ] as const
 
 const CHANNEL_FIELDS = [
@@ -347,7 +403,7 @@ const CREATION_REASON_CODES = new Set<ControlledFreshCandidateCreationReasonCode
   'PRODUCT_IDENTITY_INVALID', 'PRODUCT_IDENTITY_RESERVED', 'PRODUCT_COMMIT_UNCERTAIN',
   'PRODUCT_STATE_MISMATCH', 'MEDIA_CREATE_FAILED', 'STORAGE_OUTCOME_UNCERTAIN',
   'MEDIA_STATE_MISMATCH', 'RELATIONSHIP_UPDATE_FAILED', 'PREFINALIZATION_STATE_MISMATCH',
-  'FINALIZATION_FAILED', 'FINALIZATION_READBACK_UNCERTAIN', 'TEARDOWN_FAILED',
+  'FINALIZATION_FAILED', 'FINALIZATION_READBACK_UNCERTAIN', 'TEARDOWN_FAILED', 'AUTHORITY_CLOSURE_FAILED',
   'DEADLINE_EXCEEDED', 'MUTATION_CAPABILITY_INVALID', 'CONTROLLED_INPUT_INVALID',
 ])
 
@@ -730,7 +786,7 @@ function assertDependencies(dependencies: ControlledFreshCandidateCreationDepend
     if (typeof dependencies[key] !== 'function') throw new Error('MUTATION_CAPABILITY_INVALID')
   }
   if (!isPlainRecord(dependencies.scope) || !hasExactOwnKeys(dependencies.scope, [
-    'deadline', 'signal', 'assertActive', 'run', 'registerCancellation',
+    'deadline', 'signal', 'state', 'assertActive', 'run', 'registerCancellation',
     'registerTerminalization', 'cancel', 'drain', 'close',
   ])) throw new Error('MUTATION_CAPABILITY_INVALID')
   if (!Number.isSafeInteger(dependencies.scope.deadline) || !(dependencies.scope.signal instanceof AbortSignal)) {
@@ -1240,14 +1296,8 @@ export async function createControlledFreshCandidate(
       : new ControlledCreationFailure('PRODUCT_STATE_MISMATCH', 'CREATION_RECOVERY_REQUIRED')
   }
 
+  try { await dependencies.revokeMutationCapability() } catch { /* terminal uncertainty is reported below */ }
   let teardownOk = false
-  if (receipt) {
-    try {
-      await mutateReceipt((draft) => { draft.teardown.attempted = true })
-    } catch {
-      // Teardown must still run after a revoked receipt writer.
-    }
-  }
   try {
     const teardown = await dependencies.teardown()
     teardownOk = teardown.ok
@@ -1258,13 +1308,21 @@ export async function createControlledFreshCandidate(
     try {
       await mutateReceipt((draft) => {
         draft.phase = 'teardown_observed'
+        draft.teardown.attempted = true
         draft.teardown.completed = teardownOk
         draft.cleanupStatus = teardownOk ? 'complete' : 'failed'
       })
     } catch {
-      teardownOk = false
       failure = failure ?? new ControlledCreationFailure('PRIVATE_RECEIPT_PERSIST_FAILED', 'CREATION_RECOVERY_REQUIRED')
     }
+  }
+
+  let authorityClosureOk = false
+  try {
+    const authorityClosure = await dependencies.closeAuthorityResources()
+    authorityClosureOk = authorityClosure.ok
+  } catch {
+    authorityClosureOk = false
   }
 
   const finalBudgets = receipt?.budgets ?? initialBudgets
@@ -1283,6 +1341,17 @@ export async function createControlledFreshCandidate(
       quarantineCertainty,
       commitCertainty,
       cleanupStatus,
+      ownerInputManifestMatch: true,
+    })
+  }
+  if (!authorityClosureOk) {
+    return basePublicReport(finalBudgets, {
+      verdict: 'CREATION_TEARDOWN_FAILED_RECOVERY_REQUIRED',
+      reasonCodes: ['AUTHORITY_CLOSURE_FAILED'],
+      phase: finalPhase,
+      quarantineCertainty,
+      commitCertainty,
+      cleanupStatus: 'failed',
       ownerInputManifestMatch: true,
     })
   }

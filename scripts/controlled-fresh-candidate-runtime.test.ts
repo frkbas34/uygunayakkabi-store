@@ -16,6 +16,7 @@ import {
   renameSync,
   rmSync,
   symlinkSync,
+  unlinkSync,
   writeFileSync,
 } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -28,6 +29,7 @@ import {
   createControlledFreshCandidateOperationScope,
   fixedControlledFreshCandidateProduct,
   type ControlledFreshCandidateCreationDependencies,
+  type ControlledFreshCandidateCreationInput,
   type ControlledFreshCandidateExecutionGrant,
 } from '../src/lib/controlledFreshCandidateCreation'
 import {
@@ -58,19 +60,16 @@ import {
   finalizeControlledFreshCandidateProductAtomically,
   initializeControlledFreshCandidateOwnerLedger,
   openControlledFreshCandidatePhysicalReceiptDestination,
+  parseControlledFreshCandidateMountInfo,
+  readControlledFreshCandidateMountInfo,
   readControlledFreshCandidatePrivateFile,
   readPhysicalReceiptBytes,
   CONTROLLED_FRESH_CANDIDATE_PHYSICAL_INPUT_LIMITS,
+  CONTROLLED_FRESH_CANDIDATE_MAX_MOUNTINFO_BYTES,
   type ControlledRuntimePayload,
 } from './controlled-fresh-candidate-runtime-resources'
 
-let posixLedgerEvidence: null | {
-  device: string
-  inode: string
-  markerMode: string
-  rootMode: string
-  uid: number
-} = null
+let posixLedgerEvidence = false
 
 function captureIo() {
   const stdout: string[] = []
@@ -86,27 +85,31 @@ function captureIo() {
 }
 
 function sanitizedChildEnvironment(additional: Record<string, string> = {}): NodeJS.ProcessEnv {
-  const inheritedOfflineNodeOptions = process.env.NODE_OPTIONS?.includes('--unhandled-rejections=strict')
-    ? process.env.NODE_OPTIONS
-    : '--unhandled-rejections=strict'
-
+  const offlineGuardPath = process.env.CONTROLLED_FRESH_CANDIDATE_OFFLINE_GUARD_PATH
+  if (offlineGuardPath && (!path.isAbsolute(offlineGuardPath) || /[\s"'\r\n]/u.test(offlineGuardPath))) {
+    throw new Error('controlled_offline_guard_path_invalid')
+  }
   return {
     Path: process.env.Path ?? process.env.PATH ?? '',
     PATH: process.env.PATH ?? process.env.Path ?? '',
     SystemRoot: process.env.SystemRoot ?? 'C:\\Windows',
     TEMP: process.env.TEMP ?? 'C:\\Windows\\Temp',
     TMP: process.env.TMP ?? 'C:\\Windows\\Temp',
-    NODE_OPTIONS: inheritedOfflineNodeOptions,
+    NODE_OPTIONS: offlineGuardPath
+      ? `--unhandled-rejections=strict --require=${offlineGuardPath}`
+      : '--unhandled-rejections=strict',
     NODE_ENV: 'test',
+    CI: '1',
+    NO_COLOR: '1',
     PAYLOAD_DB_PUSH: 'false',
+    PAYLOAD_DROP_DATABASE: 'false',
     ...additional,
   }
 }
 
 function child(args: string[]) {
-  const tsxCli = path.resolve('node_modules/tsx/dist/cli.mjs')
   const script = path.resolve('scripts/controlled-fresh-candidate-runtime.ts')
-  return spawnSync(process.execPath, [tsxCli, script, ...args], {
+  return spawnSync(process.execPath, ['--import', 'tsx', script, ...args], {
     cwd: process.cwd(),
     encoding: 'utf8',
     timeout: 10_000,
@@ -116,9 +119,8 @@ function child(args: string[]) {
 
 
 function asyncChild(code: string) {
-  const tsxCli = path.resolve('node_modules/tsx/dist/cli.mjs')
   return new Promise<{ status: number | null; signal: NodeJS.Signals | null; stdout: string; stderr: string }>((resolve, reject) => {
-    const processHandle = spawn(process.execPath, [tsxCli, '--eval', code], {
+    const processHandle = spawn(process.execPath, ['--import', 'tsx', '--eval', code], {
       cwd: process.cwd(),
       env: sanitizedChildEnvironment(),
       stdio: ['ignore', 'pipe', 'pipe'],
@@ -154,6 +156,8 @@ function asyncPosixPrimitiveChild(additional: Record<string, string>) {
   })
 }
 
+let posixChildCheckpoint = 'configuration'
+
 async function runPosixPrimitiveChildMode(): Promise<boolean> {
   const mode = process.env.CFC_POSIX_CHILD_MODE
   if (!mode) return false
@@ -164,9 +168,11 @@ async function runPosixPrimitiveChildMode(): Promise<boolean> {
   process.env.CONTROLLED_FRESH_CANDIDATE_OWNER_LEDGER_DIRECTORY = root
   process.env.CONTROLLED_FRESH_CANDIDATE_AUTHORIZATION_KEY_BASE64 = authorizationKey
   const scope = createControlledFreshCandidateOperationScope()
+  posixChildCheckpoint = 'ledger-open'
   const ledger = await initializeControlledFreshCandidateOwnerLedger(scope)
   try {
     if (mode === 'consume') {
+      posixChildCheckpoint = 'marker-consume'
       const consumed = createControlledFreshCandidateDurableReceiptConsumer(ledger)(identity)
       process.stdout.write(consumed ? 'CONSUMED\n' : 'REJECTED\n')
       return true
@@ -184,7 +190,9 @@ async function runPosixPrimitiveChildMode(): Promise<boolean> {
     process.stdout.write(consumed ? 'CONSUMED\n' : 'REJECTED\n')
     return true
   } finally {
+    posixChildCheckpoint = 'ledger-close'
     ledger.close()
+    posixChildCheckpoint = 'scope-close'
     scope.close()
   }
 }
@@ -356,6 +364,7 @@ async function main(): Promise<void> {
       const io = captureIo()
       let initialized = 0
       process.env.PAYLOAD_DB_PUSH = 'windows-refusal-sentinel'
+      process.env.PAYLOAD_DROP_DATABASE = 'windows-drop-refusal-sentinel'
       const code = await runControlledFreshCandidateRuntime({
         argv,
         io: io.io,
@@ -365,6 +374,7 @@ async function main(): Promise<void> {
       assert.equal(code, 2)
       assert.equal(initialized, 0)
       assert.equal(process.env.PAYLOAD_DB_PUSH, 'windows-refusal-sentinel')
+      assert.equal(process.env.PAYLOAD_DROP_DATABASE, 'windows-drop-refusal-sentinel')
       assert.deepEqual(io.stdout, [])
       assert.deepEqual(io.stderr, ['CONTROLLED_FRESH_CANDIDATE_REFUSED: POSIX_RUNTIME_REQUIRED'])
     }
@@ -373,11 +383,13 @@ async function main(): Promise<void> {
     const io = captureIo()
     let destroyed = 0
     process.env.PAYLOAD_DB_PUSH = 'synthetic-not-false'
+    process.env.PAYLOAD_DROP_DATABASE = 'true'
     const code = await runControlledFreshCandidateRuntime({
       argv: [CONTROLLED_FRESH_CANDIDATE_CREATE_CONFIRMATION],
       io: io.io,
       initializeCreation: async (scope) => {
         assert.equal(process.env.PAYLOAD_DB_PUSH, 'false')
+        assert.equal(process.env.PAYLOAD_DROP_DATABASE, 'false')
         return {
           creationInput: null as never,
           creationDependencies: {} as ControlledFreshCandidateCreationDependencies,
@@ -392,6 +404,97 @@ async function main(): Promise<void> {
     const report = JSON.parse(io.stdout[0] ?? '{}') as Record<string, unknown>
     assert.equal(report.eligibleForPublishing, false)
     assert.equal(JSON.stringify(report).includes('synthetic-not-false'), false)
+  }
+
+  {
+    let observedScope: ReturnType<typeof createControlledFreshCandidateOperationScope> | null = null
+    const outputStates: string[] = []
+    const code = await runControlledFreshCandidateRuntime({
+      argv: [CONTROLLED_FRESH_CANDIDATE_CREATE_CONFIRMATION],
+      io: {
+        stdout: () => { outputStates.push(observedScope?.state ?? 'missing') },
+        stderr: () => { outputStates.push(observedScope?.state ?? 'missing') },
+      },
+      initializeCreation: async (scope) => {
+        observedScope = scope
+        return {
+          creationInput: null as never,
+          creationDependencies: {} as ControlledFreshCandidateCreationDependencies,
+          scope,
+          destroy: async () => ({ ok: true }),
+        }
+      },
+    })
+    assert.equal(code, 3)
+    assert.deepEqual(outputStates, ['CLOSED'])
+  }
+
+  {
+    const io = captureIo()
+    const code = await runControlledFreshCandidateRuntime({
+      argv: [CONTROLLED_FRESH_CANDIDATE_CREATE_CONFIRMATION],
+      io: io.io,
+      initializeCreation: async (scope) => {
+        const unreachable = async () => { throw new Error('unreachable controlled mutation') }
+        const creationInput: ControlledFreshCandidateCreationInput = {
+          executionAuthorization: { identity: 'runtime-authority-close-test', token: new Uint8Array(32).fill(41) },
+          executionId: 'runtime-authority-close-execution',
+          authorizationContext: {
+            runtimeCommitIdentity: '14af0deb7e1825eb5d349c89e1d36897e75fc5a0',
+            environmentIdentity: 'runtime-authority-close-environment',
+            approvedReceiptDestinationDigest: 'f'.repeat(64),
+          },
+          manifest: {
+            identity: 'runtime-authority-close-manifest',
+            title: 'Synthetic offline controlled candidate',
+            positivePrice: 1,
+            provenanceStatement: 'Synthetic offline owner evidence.',
+            stockCandidate: 'SN9901',
+            original: {
+              bytes: new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10]),
+              mimeType: 'image/png',
+              width: 1,
+              height: 1,
+            },
+          },
+          receiptKey: new Uint8Array(32).fill(42),
+        }
+        const creationDependencies: ControlledFreshCandidateCreationDependencies = {
+          scope,
+          consumeExecutionAuthorization: async () => false,
+          stockExists: unreachable,
+          createTransactionRequest: unreachable,
+          beginProductTransaction: unreachable,
+          createProduct: unreachable,
+          commitProductTransaction: unreachable,
+          rollbackProductTransaction: unreachable,
+          readProduct: unreachable,
+          createMedia: unreachable,
+          readMedia: unreachable,
+          updateProductRelationship: unreachable,
+          finalizeProduct: unreachable,
+          persistPrivateReceipt: unreachable,
+          revokeMutationCapability: async () => undefined,
+          teardown: async () => ({ ok: true }),
+          closeAuthorityResources: async () => ({ ok: false }),
+        }
+        return {
+          creationInput,
+          creationDependencies,
+          scope,
+          destroy: async () => {
+            await scope.cancel()
+            await scope.drain()
+            return { ok: false }
+          },
+        }
+      },
+    })
+    assert.equal(code, 3)
+    assert.equal(io.stderr.length, 0)
+    assert.equal(io.stdout.length, 1)
+    const report = JSON.parse(io.stdout[0] ?? '{}') as { reasonCodes?: unknown }
+    assert.deepEqual(report.reasonCodes, ['AUTHORITY_CLOSURE_FAILED'])
   }
 
   {
@@ -488,6 +591,75 @@ async function main(): Promise<void> {
   }
 
   if (process.platform === 'linux') {
+    const exactMountInfo = (size: number): Buffer => {
+      const prefix = '36 25 0:32 / / rw - ext4 '
+      const suffix = ' rw\n'
+      const padding = size - Buffer.byteLength(prefix) - Buffer.byteLength(suffix)
+      assert.ok(padding >= 1)
+      return Buffer.from(`${prefix}${'x'.repeat(padding)}${suffix}`, 'utf8')
+    }
+    const mountInfoOperations = (bytes: Buffer, options: {
+      declaredSize?: number
+      changeMetadata?: boolean
+      closeFails?: boolean
+    } = {}) => {
+      let offset = 0
+      let statCalls = 0
+      return {
+        open: () => 91,
+        stat: () => {
+          statCalls += 1
+          return {
+            dev: 4n,
+            ino: 91n,
+            uid: BigInt(process.getuid!()),
+            mode: 0o100444n,
+            size: BigInt(options.declaredSize ?? 0),
+            nlink: 1n,
+            ctimeNs: options.changeMetadata && statCalls > 1 ? 2n : 1n,
+            mtimeNs: 1n,
+            isFile: () => true,
+          }
+        },
+        read: (_handle: number, buffer: Buffer, targetOffset: number, length: number) => {
+          const count = Math.min(length, bytes.byteLength - offset)
+          if (count <= 0) return 0
+          bytes.copy(buffer, targetOffset, offset, offset + count)
+          offset += count
+          return count
+        },
+        close: () => {
+          if (options.closeFails) throw new Error('RAW_MOUNTINFO_CLOSE_SENTINEL')
+        },
+      }
+    }
+    const exactCeilingMountInfo = exactMountInfo(CONTROLLED_FRESH_CANDIDATE_MAX_MOUNTINFO_BYTES)
+    const boundedMountInfo = readControlledFreshCandidateMountInfo(mountInfoOperations(exactCeilingMountInfo))
+    assert.equal(Buffer.byteLength(boundedMountInfo), CONTROLLED_FRESH_CANDIDATE_MAX_MOUNTINFO_BYTES)
+    assert.equal(parseControlledFreshCandidateMountInfo(boundedMountInfo)[0]?.filesystem, 'ext4')
+    await assert.rejects(async () => readControlledFreshCandidateMountInfo(
+      mountInfoOperations(exactMountInfo(CONTROLLED_FRESH_CANDIDATE_MAX_MOUNTINFO_BYTES + 1)),
+    ), /filesystem_unsupported/)
+    await assert.rejects(async () => readControlledFreshCandidateMountInfo(
+      mountInfoOperations(exactMountInfo(512), { changeMetadata: true }),
+    ), /filesystem_unsupported/)
+    await assert.rejects(async () => readControlledFreshCandidateMountInfo(
+      mountInfoOperations(exactMountInfo(512), { declaredSize: 513 }),
+    ), /filesystem_unsupported/)
+    await assert.rejects(async () => readControlledFreshCandidateMountInfo(
+      mountInfoOperations(Buffer.from([0xff, 0xfe, 0xfd])),
+    ), /filesystem_unsupported/)
+    await assert.rejects(async () => readControlledFreshCandidateMountInfo(
+      mountInfoOperations(exactMountInfo(512), { closeFails: true }),
+    ), /filesystem_unsupported/)
+    assert.throws(() => parseControlledFreshCandidateMountInfo('malformed mountinfo\n'), /filesystem_unsupported/)
+    assert.throws(() => parseControlledFreshCandidateMountInfo('x 25 0:32 / / rw - ext4 /dev/root rw\n'), /filesystem_unsupported/)
+    assert.throws(() => parseControlledFreshCandidateMountInfo('36 25 0:32 / / rw unknown - ext4 /dev/root rw\n'), /filesystem_unsupported/)
+    assert.throws(() => parseControlledFreshCandidateMountInfo('36 25 0:32 / / rw - ext4 /dev/root rw\n\n'), /filesystem_unsupported/)
+    const nativeMountInfo = readControlledFreshCandidateMountInfo()
+    assert.ok(Buffer.byteLength(nativeMountInfo) <= CONTROLLED_FRESH_CANDIDATE_MAX_MOUNTINFO_BYTES)
+    assert.ok(parseControlledFreshCandidateMountInfo(nativeMountInfo).length > 0)
+
     const temporaryRoot = mkdtempSync(path.join(process.cwd(), '.uygunayakkabi-cfc-posix-test-'))
     chmodSync(temporaryRoot, 0o700)
     const authorizationKey = Buffer.alloc(32, 71)
@@ -575,7 +747,11 @@ async function main(): Promise<void> {
         asyncPosixPrimitiveChild(childEnvironment),
         asyncPosixPrimitiveChild(childEnvironment),
       ])
-      assert.equal(concurrentChildren.every((result) => result.status === 0 && result.signal === null && result.stderr === ''), true)
+      assert.equal(
+        concurrentChildren.every((result) => result.status === 0 && result.signal === null && result.stderr === ''),
+        true,
+        JSON.stringify(concurrentChildren),
+      )
       assert.equal(concurrentChildren.filter((result) => result.stdout.trim() === 'CONSUMED').length, 1)
       assert.equal(concurrentChildren.filter((result) => result.stdout.trim() === 'REJECTED').length, 1)
       const restarted = await asyncPosixPrimitiveChild(childEnvironment)
@@ -701,6 +877,14 @@ async function main(): Promise<void> {
       linkSync(linkRacePath, `${linkRacePath}.alias`)
       await assert.rejects(() => linkRace, /file_authority_invalid/)
 
+      const removedLinkRacePath = path.join(physicalInputRoot, 'removed-link-race.bin')
+      const removedLinkRaceAlias = `${removedLinkRacePath}.alias`
+      createSizedPrivateFile(removedLinkRacePath, 32 * 1024)
+      const removedLinkRace = readControlledFreshCandidatePrivateFile(scope, removedLinkRacePath, ledger.device, 'manifest')
+      linkSync(removedLinkRacePath, removedLinkRaceAlias)
+      unlinkSync(removedLinkRaceAlias)
+      await assert.rejects(() => removedLinkRace, /file_authority_invalid/)
+
       const replacementPath = path.join(physicalInputRoot, 'replacement-race.bin')
       createSizedPrivateFile(replacementPath, 256 * 1024)
       const replacementRead = readControlledFreshCandidatePrivateFile(scope, replacementPath, ledger.device, 'original')
@@ -750,18 +934,70 @@ async function main(): Promise<void> {
         } finally { rmSync(windowsMountRoot, { recursive: true, force: true }) }
       }
 
+      const persistenceIntegrationRoot = path.join(temporaryRoot, 'production-persistence-ledger')
+      const persistenceLedgerState = await createTestLedger(persistenceIntegrationRoot, Buffer.alloc(32, 83))
+      const persistenceLedger = persistenceLedgerState.ledger
+      const persistenceScope = persistenceLedgerState.scope
+      const persistenceReceiptParent = path.join(temporaryRoot, 'production-persistence-receipts')
+      mkdirSync(persistenceReceiptParent, { mode: 0o700 })
+      chmodSync(persistenceReceiptParent, 0o700)
+      const persistenceReceiptPath = path.join(persistenceReceiptParent, 'final.receipt.json')
+      const persistenceDestination = openControlledFreshCandidatePhysicalReceiptDestination(
+        persistenceReceiptPath,
+        persistenceLedger.device,
+      )
+      const persistenceDigest = controlledFreshCandidateReceiptDestinationDigest({
+        destination: persistenceDestination,
+        runtimeCommitIdentity: '14af0deb7e1825eb5d349c89e1d36897e75fc5a0',
+        environmentIdentity: 'runtime-test-environment',
+      })
+      const persistenceGrant = executionGrant(persistenceDigest, 150)
+      const persistenceToken = createControlledFreshCandidateExecutionGrantToken(
+        persistenceGrant,
+        persistenceLedger.authorizationKey,
+      )
+      const productionPersistence = createControlledFreshCandidateReceiptPersistence({
+        receiptDestination: persistenceDestination,
+        destinationDigest: persistenceDigest,
+        executionId: persistenceGrant.executionIdentity,
+        ledger: persistenceLedger,
+      })
+      const persistenceEvents: string[] = []
+      const persistenceMutationActive = { current: true }
+      const persistenceRegistry = createControlledFreshCandidateTerminalResourceRegistry({
+        scope: persistenceScope,
+        mutationActive: persistenceMutationActive,
+        dispatcher: {
+          destroy: async () => { persistenceEvents.push('mutation-resources-torn-down') },
+        },
+      })
+      persistenceScope.registerCancellation(persistenceRegistry.terminalizeOwnedResources)
+      assert.equal(await productionPersistence.consume(persistenceGrant, persistenceToken, signal), true)
+      persistenceMutationActive.current = false
+      await persistenceRegistry.terminalizeOwnedResources()
+      const finalReceipt = sealedRuntimeReceipt(150, persistenceDigest)
+      await productionPersistence.persist(finalReceipt, signal)
+      persistenceEvents.push('final-receipt-durable')
+      assert.equal(readFileSync(persistenceReceiptPath, 'utf8'), finalReceipt)
+      assert.equal(readdirSync(persistenceReceiptParent).some((entry) => entry.endsWith('.next')), false)
+      persistenceDestination.close()
+      persistenceLedger.close()
+      persistenceEvents.push('authority-closed')
+      await persistenceScope.cancel()
+      await persistenceScope.drain()
+      persistenceScope.close()
+      assert.deepEqual(persistenceEvents, [
+        'mutation-resources-torn-down',
+        'final-receipt-durable',
+        'authority-closed',
+      ])
+
       const rootStat = fstatSync(ledger.rootHandle, { bigint: true })
       assert.equal(rootStat.uid, BigInt(process.getuid!()))
       assert.equal(rootStat.mode & 0o777n, 0o700n)
       assert.equal(rootStat.dev, ledger.device)
       assert.ok(rootStat.ino > 0n)
-      posixLedgerEvidence = {
-        device: rootStat.dev.toString(),
-        inode: rootStat.ino.toString(),
-        markerMode: (firstMarkerStat.mode & 0o777n).toString(8),
-        rootMode: (rootStat.mode & 0o777n).toString(8),
-        uid: process.getuid!(),
-      }
+      posixLedgerEvidence = true
 
       receiptA.close()
       receiptB.close()
@@ -775,10 +1011,11 @@ async function main(): Promise<void> {
   }
 
   if (process.env.CFC_POSIX_PRIMITIVE_ONLY === '1') {
+    assert.equal(posixLedgerEvidence, true)
     console.log(JSON.stringify({
       result: 'controlledFreshCandidateRuntime POSIX primitives: ALL OK',
       filesystem: 'ext4',
-      ledger: posixLedgerEvidence,
+      ledger: 'verified',
     }))
     return
   }
@@ -1174,6 +1411,192 @@ async function main(): Promise<void> {
   }
 
   {
+    const runtimeResourcesUrl = pathToFileURL(path.resolve('scripts/controlled-fresh-candidate-runtime-resources.ts')).href
+    const creationUrl = pathToFileURL(path.resolve('src/lib/controlledFreshCandidateCreation.ts')).href
+    const installedAdapterCode = `
+      let checkpoint = 'environment';
+      void (async () => {
+        const assert = (await import('node:assert/strict')).default;
+        const { EventEmitter } = await import('node:events');
+        checkpoint = 'resource-import';
+        const resourcesImport = await import(${JSON.stringify(runtimeResourcesUrl)});
+        const resources = resourcesImport.default ?? resourcesImport;
+        const creationImport = await import(${JSON.stringify(creationUrl)});
+        const creation = creationImport.default ?? creationImport;
+        const { createControlledFreshCandidateOperationScope } = creation;
+        checkpoint = 'environment-neutralization';
+        for (const hostile of ['true', 'TRUE', '1', 'yes']) {
+          checkpoint = 'environment-' + hostile.toLowerCase();
+          process.env.PAYLOAD_DROP_DATABASE = hostile;
+          process.env.PAYLOAD_DB_PUSH = hostile;
+          resources.configureControlledFreshCandidateProcessBoundary();
+          checkpoint = 'environment-' + hostile.toLowerCase() + '-assert';
+          assert.equal(process.env.PAYLOAD_DROP_DATABASE, 'false');
+          assert.equal(process.env.PAYLOAD_DB_PUSH, 'false');
+        }
+        checkpoint = 'adapter-import';
+        const postgresModule = await import('@payloadcms/db-postgres');
+        checkpoint = 'timer-isolation';
+        const nativeSetTimeout = globalThis.setTimeout;
+        let reconnectTimers = 0;
+        globalThis.setTimeout = ((...args) => {
+          reconnectTimers += 1;
+          return nativeSetTimeout(...args);
+        });
+        try {
+          for (const phase of ['initialization', 'normal-work', 'finalization', 'cancellation', 'teardown']) {
+            checkpoint = phase + '-setup';
+            const scope = createControlledFreshCandidateOperationScope();
+            const mutationActive = { current: true };
+            const counters = { connects: 0, poolEnds: 0, clientEnds: 0, dispatcherEnds: 0, ddlQueries: 0 };
+            let lastPool;
+            class FakeClient extends EventEmitter {
+              async end() { counters.clientEnds += 1; }
+              unref() {}
+            }
+            class FakePool extends EventEmitter {
+              constructor(options) { super(); this.options = options; this.client = new FakeClient(); lastPool = this; }
+              async connect() {
+                counters.connects += 1;
+                if (this.options.missing) throw new Error('database RAW_DATABASE_IDENTITY does not exist');
+                this.emit('connect', this.client);
+                if (this.options.phase === 'initialization') {
+                  this.client.emit('error', Object.assign(new Error('RAW_INITIALIZATION_ERROR'), { code: 'ECONNRESET' }));
+                }
+                return this.client;
+              }
+              async end() { counters.poolEnds += 1; }
+              async query() { counters.ddlQueries += 1; throw new Error('RAW_DDL_QUERY_SENTINEL'); }
+            }
+            const registry = resources.createControlledFreshCandidateTerminalResourceRegistry({
+              scope,
+              mutationActive,
+              dispatcher: { destroy: async () => { counters.dispatcherEnds += 1; } },
+            });
+            scope.registerCancellation(registry.terminalizeOwnedResources);
+            const ControlledPool = resources.createControlledFreshCandidatePoolConstructor({
+              basePool: FakePool,
+              onClient: registry.registerClient,
+              onConstructed: registry.registerPool,
+              onUnexpectedError: () => {
+                mutationActive.current = false;
+                scope.cancel().then(() => undefined, () => undefined);
+              },
+              canConstruct: () => scope.state !== 'CLOSED',
+              canConnect: () => scope.state === 'OPEN',
+            });
+            const databaseFactory = resources.createControlledFreshCandidateDatabaseAdapter({
+              postgresModule,
+              pg: { Pool: ControlledPool, Client: FakeClient },
+              pool: { phase },
+            });
+            const adapter = databaseFactory.init({ payload: { logger: { info() {}, error() {} } } });
+            assert.equal(adapter.disableCreateDatabase, true);
+            assert.equal(adapter.push, false);
+            assert.deepEqual(Object.keys(adapter.extensions), []);
+            assert.equal(Object.getOwnPropertyDescriptor(adapter, 'disableCreateDatabase').writable, false);
+            assert.equal(Object.getOwnPropertyDescriptor(adapter, 'push').writable, false);
+            await assert.rejects(() => adapter.createDatabase(), /database_management_forbidden/);
+            await assert.rejects(() => adapter.dropDatabase(), /database_management_forbidden/);
+            adapter.rejectInitializing = () => undefined;
+            checkpoint = phase + '-connect';
+            await adapter.connect();
+            const pool = lastPool;
+            assert.ok(pool);
+            const emitReconnectError = () => pool.client.emit(
+              'error', Object.assign(new Error('RAW_RECONNECT_ERROR'), { code: 'ECONNRESET' }),
+            );
+            if (phase === 'normal-work' || phase === 'finalization') emitReconnectError();
+            if (phase === 'cancellation') { await scope.cancel(); emitReconnectError(); }
+            if (phase === 'teardown') { await registry.terminalizeOwnedResources(); emitReconnectError(); }
+            checkpoint = phase + '-drain';
+            await scope.cancel();
+            await scope.drain();
+            scope.close();
+            checkpoint = phase + '-assert';
+            const connectsBeforeRefusal = counters.connects;
+            await assert.rejects(() => pool.connect(), /pool_revoked/);
+            assert.equal(counters.connects, connectsBeforeRefusal);
+            assert.equal(counters.connects, 1);
+            assert.equal(counters.ddlQueries, 0);
+            assert.equal(counters.dispatcherEnds, 1);
+            assert.equal(scope.state, 'CLOSED');
+          }
+
+          checkpoint = 'missing-database';
+          const scope = createControlledFreshCandidateOperationScope();
+          let poolConstructions = 0;
+          let connectAttempts = 0;
+          class MissingClient extends EventEmitter { async end() {} unref() {} }
+          class MissingPool extends EventEmitter {
+            constructor() { super(); poolConstructions += 1; }
+            async connect() { connectAttempts += 1; throw new Error('database RAW_MISSING_DATABASE does not exist'); }
+            async end() {}
+          }
+          const ControlledMissingPool = resources.createControlledFreshCandidatePoolConstructor({
+            basePool: MissingPool,
+            onClient: () => undefined,
+            onConstructed: () => undefined,
+            onUnexpectedError: () => undefined,
+            canConstruct: () => scope.state !== 'CLOSED',
+            canConnect: () => scope.state === 'OPEN',
+          });
+          const missingFactory = resources.createControlledFreshCandidateDatabaseAdapter({
+            postgresModule,
+            pg: { Pool: ControlledMissingPool, Client: MissingClient },
+            pool: {},
+          });
+          const missingAdapter = missingFactory.init({ payload: { logger: { info() {}, error() {} } } });
+          missingAdapter.rejectInitializing = () => undefined;
+          await assert.rejects(() => missingAdapter.connect(), /cannot connect to Postgres/);
+          await scope.cancel();
+          await scope.drain();
+          scope.close();
+          assert.equal(poolConstructions, 1);
+          assert.equal(connectAttempts, 1);
+          assert.equal(missingAdapter.disableCreateDatabase, true);
+          assert.equal(Object.getOwnPropertyDescriptor(missingAdapter, 'createDatabase').writable, false);
+          assert.equal(Object.getOwnPropertyDescriptor(missingAdapter, 'dropDatabase').writable, false);
+          assert.equal(reconnectTimers, 0);
+          console.log('CONTROLLED_INSTALLED_ADAPTER_BOUNDARY_OK');
+        } finally {
+          globalThis.setTimeout = nativeSetTimeout;
+        }
+      })().catch(() => { console.log('CONTROLLED_INSTALLED_ADAPTER_BOUNDARY_FAILED_' + checkpoint); process.exitCode = 1; });
+    `
+    const result = await asyncChild(installedAdapterCode)
+    assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`)
+    assert.equal(result.signal, null)
+    assert.equal(result.stdout.trim(), 'CONTROLLED_INSTALLED_ADAPTER_BOUNDARY_OK')
+    assert.equal(result.stderr, '')
+    for (const sentinel of ['RAW_DATABASE', 'RAW_DDL', 'RAW_RECONNECT', 'RAW_INITIALIZATION']) {
+      assert.equal(`${result.stdout}\n${result.stderr}`.includes(sentinel), false)
+    }
+  }
+
+  {
+    const runtimeUrl = pathToFileURL(path.resolve('scripts/controlled-fresh-candidate-runtime.ts')).href
+    const unresolvedTerminalCode = `
+      void (async () => {
+        const runtimeImport = await import(${JSON.stringify(runtimeUrl)});
+        const runtime = runtimeImport.default ?? runtimeImport;
+        process.exitCode = 1;
+        void runtime.runControlledFreshCandidateRuntime({
+          argv: [runtime.CONTROLLED_FRESH_CANDIDATE_CREATE_CONFIRMATION],
+          operationTimeoutMs: 5,
+          io: { stdout() {}, stderr() {} },
+          initializeCreation: async () => new Promise(() => undefined),
+        });
+      })();
+    `
+    const result = await asyncChild(unresolvedTerminalCode)
+    assert.equal(result.status, 1)
+    assert.equal(result.signal, null)
+    assert.equal(result.stdout, '')
+    assert.equal(result.stderr, '')
+  }
+
+  {
     const pgPackage = JSON.parse(readFileSync(path.resolve('node_modules/pg/package.json'), 'utf8')) as { version?: string }
     assert.equal(pgPackage.version, '8.16.3')
     const pgModule = await import('pg')
@@ -1232,7 +1655,7 @@ async function main(): Promise<void> {
       end: async () => { events.push('late-client-end') },
       unref: () => { events.push('late-client-unref') },
     })
-    scope.registerTerminalization(Promise.resolve().then(() => { events.push('late-cleanup-ack') }))
+    scope.registerTerminalization(async () => { events.push('late-cleanup-ack') })
     let terminal = false
     const drained = scope.drain().then(() => { terminal = true })
     await new Promise<void>((resolve) => setImmediate(resolve))
@@ -1240,12 +1663,42 @@ async function main(): Promise<void> {
     releaseDispatcher()
     await cancellation
     await drained
+    assert.equal(scope.state, 'CLOSED')
     assert.deepEqual(events.sort(), [
       'dispatcher-destroy', 'initial-pool-end', 'late-cleanup-ack', 'late-client-end',
       'late-client-unref', 'late-payload-destroy', 'late-pool-end',
     ].sort())
     assert.equal(events.filter((event) => event === 'dispatcher-destroy').length, 1)
     scope.close()
+  }
+
+  {
+    const scope = createControlledFreshCandidateOperationScope()
+    const mutationActive = { current: true }
+    const registry = createControlledFreshCandidateTerminalResourceRegistry({
+      scope,
+      mutationActive,
+      dispatcher: { destroy: async () => undefined },
+    })
+    scope.registerCancellation(registry.terminalizeOwnedResources)
+    await scope.drain()
+    assert.equal(scope.state, 'CLOSED')
+    let poolConstructions = 0
+    class RefusedPool extends (await import('node:events')).EventEmitter {
+      constructor() { super(); poolConstructions += 1 }
+      async connect() { throw new Error('must not connect') }
+      async end() { throw new Error('must not end') }
+    }
+    const ControlledRefusedPool = createControlledFreshCandidatePoolConstructor({
+      basePool: RefusedPool as unknown as typeof import('pg').Pool,
+      onClient: () => undefined,
+      onConstructed: registry.registerPool as (pool: InstanceType<typeof import('pg').Pool>) => void,
+      onUnexpectedError: () => undefined,
+      canConstruct: () => scope.state !== 'CLOSED',
+      canConnect: () => scope.state === 'OPEN',
+    })
+    assert.throws(() => new ControlledRefusedPool(), /pool_revoked/)
+    assert.equal(poolConstructions, 0)
   }
 
   for (const phase of ['initialization', 'normal-work', 'finalization', 'cancellation', 'teardown'] as const) {
@@ -1329,6 +1782,8 @@ async function main(): Promise<void> {
   assert.equal(runtimeSource.includes("parseControlledFreshCandidateRuntimeArgs(options.argv)"), true)
   assert.ok(runtimeSource.indexOf('parseControlledFreshCandidateRuntimeArgs(options.argv)') < runtimeSource.indexOf('options.initializeCreation ??'))
   assert.equal(resourcesSource.includes("process.env.PAYLOAD_DB_PUSH = 'false'"), true)
+  assert.equal(resourcesSource.includes("process.env.PAYLOAD_DROP_DATABASE = 'false'"), true)
+  assert.equal(resourcesSource.includes('disableCreateDatabase: true'), true)
   assert.equal(resourcesSource.includes('push: false'), true)
   assert.equal(resourcesSource.includes('VERCEL_BLOB_RETRIES'), true)
   assert.equal(resourcesSource.includes('CONTROLLED_FRESH_CANDIDATE_BLOB_RETRY_BUDGET = 0'), true)
@@ -1355,6 +1810,10 @@ async function main(): Promise<void> {
 }
 
 main().catch((error) => {
+  if (process.env.CFC_POSIX_CHILD_MODE) {
+    console.error(`CONTROLLED_POSIX_CHILD_FAILED_${posixChildCheckpoint}`)
+    process.exit(1)
+  }
   console.error(error instanceof Error ? error.stack ?? error.message : error)
   process.exit(1)
 })

@@ -547,7 +547,10 @@ async function main(): Promise<void> {
     assert.ok(result.reasonCodes.includes('STRICT_TARGET_CAPTURE_UNSUPPORTED'))
     assert.ok(Date.now() - started < 1_000)
     assert.equal(state.reads.at(-1), 'teardown')
-    state.dependencies.operationScope?.close()
+    assert.throws(
+      () => state.dependencies.operationScope?.close(),
+      /CONTROLLED_TERMINAL_SCOPE_NOT_DRAINED/,
+    )
   }
 
   console.log('controlledFreshCandidateTargetVerifier: ALL OK')

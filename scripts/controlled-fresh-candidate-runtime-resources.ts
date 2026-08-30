@@ -12,7 +12,6 @@ import {
   mkdirSync,
   openSync,
   readSync,
-  readFileSync,
   realpathSync,
   statfsSync,
   writeFileSync,
@@ -73,6 +72,7 @@ export const CONTROLLED_FRESH_CANDIDATE_COMMIT_IDENTITY_ENV = 'CONTROLLED_FRESH_
 export const CONTROLLED_FRESH_CANDIDATE_ENVIRONMENT_IDENTITY_ENV = 'CONTROLLED_FRESH_CANDIDATE_ENVIRONMENT_IDENTITY' as const
 export const CONTROLLED_FRESH_CANDIDATE_EXT4_MAGIC = 0xef53
 export const CONTROLLED_FRESH_CANDIDATE_MAX_ORIGINAL_BYTES = 10_000_000
+export const CONTROLLED_FRESH_CANDIDATE_MAX_MOUNTINFO_BYTES = 65_536
 
 export const CONTROLLED_FRESH_CANDIDATE_PHYSICAL_INPUT_LIMITS = Object.freeze({
   authority: CONTROLLED_FRESH_CANDIDATE_MAX_CANONICAL_JSON_BYTES,
@@ -389,6 +389,7 @@ export type ControlledFreshCandidateRuntimeResource = {
   creationInput: ControlledFreshCandidateCreationInput
   creationDependencies: ControlledFreshCandidateCreationDependencies
   destroy(): Promise<{ ok: true } | { ok: false }>
+  claimAuthorityClosure?(): void
   scope: ControlledFreshCandidateOperationScope
 }
 
@@ -459,8 +460,9 @@ function runtimePool(payload: ControlledRuntimePayload): VisualPilotRuntimePostg
   return pool as unknown as VisualPilotRuntimePostgresPool
 }
 
-function configureBlobProcessBoundary(): void {
+export function configureControlledFreshCandidateProcessBoundary(): void {
   process.env.PAYLOAD_DB_PUSH = 'false'
+  process.env.PAYLOAD_DROP_DATABASE = 'false'
   process.env.VERCEL_BLOB_RETRIES = String(CONTROLLED_FRESH_CANDIDATE_BLOB_RETRY_BUDGET)
   process.env.DEBUG = ''
   process.env.NEXT_PUBLIC_DEBUG = ''
@@ -485,13 +487,53 @@ export function createControlledFreshCandidatePoolConstructor(params: {
   onClient(client: InstanceType<typeof import('pg').Client>): void
   onConstructed(pool: InstanceType<typeof import('pg').Pool>): void
   onUnexpectedError(): void
+  canConstruct?: () => boolean
+  canConnect?: () => boolean
 }): typeof import('pg').Pool {
+  type PoolConnectCallback = Parameters<InstanceType<typeof import('pg').Pool>['connect']>[0]
+  const governedClients = new WeakSet<object>()
+  const governClient = (client: InstanceType<typeof import('pg').Client>): void => {
+    if (governedClients.has(client)) return
+    governedClients.add(client)
+    const nativePrependListener = client.prependListener.bind(client)
+    nativePrependListener('error', params.onUnexpectedError)
+    Object.defineProperty(client, 'prependListener', {
+      configurable: false,
+      enumerable: false,
+      writable: false,
+      value(event: string | symbol, listener: (...args: unknown[]) => void) {
+        // The installed adapter prepends an anonymous ECONNRESET listener whose
+        // only behavior is an unowned recursive reconnect timer. This boundary
+        // owns the first error listener and refuses later prepended error hooks.
+        if (event === 'error') return this
+        return nativePrependListener(event, listener)
+      },
+    })
+  }
   class ControlledPostgresPool extends params.basePool {
     constructor(options?: import('pg').PoolConfig) {
+      if (!(params.canConstruct?.() ?? true)) throw new Error('controlled_runtime_pool_revoked')
       super(options)
       this.prependListener('error', params.onUnexpectedError)
-      this.on('connect', params.onClient)
+      this.on('connect', (client) => {
+        governClient(client)
+        params.onClient(client)
+      })
       params.onConstructed(this)
+    }
+
+    connect(): Promise<import('pg').PoolClient>
+    connect(callback: PoolConnectCallback): void
+    connect(callback?: PoolConnectCallback): Promise<import('pg').PoolClient> | void {
+      if (!(params.canConnect?.() ?? true)) {
+        const error = new Error('controlled_runtime_pool_revoked')
+        if (callback) {
+          queueMicrotask(() => callback(error, undefined as never, () => undefined))
+          return
+        }
+        return Promise.reject(error)
+      }
+      return callback ? super.connect(callback) : super.connect()
     }
   }
   return ControlledPostgresPool
@@ -580,25 +622,124 @@ function assertControlledPosixRuntime(): void {
 }
 
 function decodeMountInfoField(value: string): string {
+  if (/\\(?![0-7]{3})/u.test(value)) throw new Error('controlled_runtime_filesystem_unsupported')
   return value.replace(/\\([0-7]{3})/gu, (_, octal: string) => String.fromCharCode(Number.parseInt(octal, 8)))
+}
+
+type ControlledMountInfoOperations = {
+  open(): number
+  stat(handle: number): ControlledPhysicalMetadata & { isFile(): boolean }
+  read(handle: number, buffer: Buffer, offset: number, length: number): number
+  close(handle: number): void
+}
+
+export function readControlledFreshCandidateMountInfo(
+  operations: ControlledMountInfoOperations = {
+    open: () => openSync('/proc/self/mountinfo', fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW),
+    stat: (handle) => fstatSync(handle, { bigint: true }),
+    read: (handle, buffer, offset, length) => readSync(handle, buffer, offset, length, null),
+    close: closeSync,
+  },
+): string {
+  let handle: number | null = null
+  let result: string | null = null
+  let failed = false
+  try {
+    handle = operations.open()
+    const before = operations.stat(handle)
+    if (
+      !before.isFile()
+      || before.ino <= 0n
+      || before.uid !== BigInt(process.getuid!())
+      || before.size < 0n
+      || before.size > BigInt(CONTROLLED_FRESH_CANDIDATE_MAX_MOUNTINFO_BYTES)
+      || before.nlink !== 1n
+    ) throw new Error('controlled_runtime_filesystem_unsupported')
+    const chunks: Buffer[] = []
+    let total = 0
+    for (;;) {
+      const remaining = CONTROLLED_FRESH_CANDIDATE_MAX_MOUNTINFO_BYTES + 1 - total
+      if (remaining <= 0) throw new Error('controlled_runtime_filesystem_unsupported')
+      const chunk = Buffer.alloc(Math.min(16 * 1024, remaining))
+      const count = operations.read(handle, chunk, 0, chunk.byteLength)
+      if (!Number.isSafeInteger(count) || count < 0 || count > chunk.byteLength) {
+        throw new Error('controlled_runtime_filesystem_unsupported')
+      }
+      if (count === 0) break
+      chunks.push(chunk.subarray(0, count))
+      total += count
+      if (total > CONTROLLED_FRESH_CANDIDATE_MAX_MOUNTINFO_BYTES) {
+        throw new Error('controlled_runtime_filesystem_unsupported')
+      }
+    }
+    const after = operations.stat(handle)
+    if (
+      !samePhysicalMetadata(before, after)
+      || (before.size > 0n && before.size !== BigInt(total))
+    ) throw new Error('controlled_runtime_filesystem_unsupported')
+    const bytes = Buffer.concat(chunks, total)
+    result = new TextDecoder('utf-8', { fatal: true, ignoreBOM: false }).decode(bytes)
+    if (!Buffer.from(result, 'utf8').equals(bytes)) throw new Error('controlled_runtime_filesystem_unsupported')
+  } catch {
+    failed = true
+  } finally {
+    if (handle !== null) {
+      try { operations.close(handle) } catch { failed = true }
+    }
+  }
+  if (failed || result === null) throw new Error('controlled_runtime_filesystem_unsupported')
+  return result
+}
+
+export function parseControlledFreshCandidateMountInfo(contents: string): Array<{
+  device: string
+  root: string
+  mountPoint: string
+  filesystem: string
+}> {
+  if (contents.length === 0 || contents.includes('\r')) {
+    throw new Error('controlled_runtime_filesystem_unsupported')
+  }
+  const lines = contents.split('\n')
+  if (lines.at(-1) === '') lines.pop()
+  if (lines.length === 0) throw new Error('controlled_runtime_filesystem_unsupported')
+  return lines.map((line) => {
+    if (line.length === 0) throw new Error('controlled_runtime_filesystem_unsupported')
+    const separators = line.match(/ - /gu)
+    if (separators?.length !== 1) throw new Error('controlled_runtime_filesystem_unsupported')
+    const [before, after] = line.split(' - ')
+    const fields = before?.split(' ') ?? []
+    const trailing = after?.split(' ') ?? []
+    if (
+      fields.length < 6
+      || trailing.length < 3
+      || fields.some((field) => field.length === 0)
+      || trailing.some((field) => field.length === 0)
+      || !/^[1-9]\d*$/u.test(fields[0] ?? '')
+      || !/^[1-9]\d*$/u.test(fields[1] ?? '')
+      || !/^\d+:\d+$/u.test(fields[2] ?? '')
+      || !(fields[3] ?? '')
+      || !(fields[4] ?? '').startsWith('/')
+      || (fields.slice(6).some((field) => !/^(?:(?:shared|master|propagate_from):[1-9]\d*|unbindable)$/u.test(field)))
+      || !/^[a-z0-9._-]+$/iu.test(trailing[0] ?? '')
+    ) throw new Error('controlled_runtime_filesystem_unsupported')
+    const root = decodeMountInfoField(fields[3] as string)
+    const mountPoint = decodeMountInfoField(fields[4] as string)
+    if (!root || !mountPoint.startsWith('/') || root.includes('\0') || mountPoint.includes('\0')) {
+      throw new Error('controlled_runtime_filesystem_unsupported')
+    }
+    return {
+      device: fields[2] as string,
+      root,
+      mountPoint,
+      filesystem: trailing[0] as string,
+    }
+  })
 }
 
 function assertNativeExt4Mount(targetPath: string): void {
   const resolved = path.resolve(targetPath)
-  const entries = readFileSync('/proc/self/mountinfo', 'utf8')
-    .split('\n')
-    .filter(Boolean)
-    .map((line) => {
-      const [before, after] = line.split(' - ')
-      const fields = before?.split(' ') ?? []
-      const trailing = after?.split(' ') ?? []
-      return {
-        device: fields[2] ?? '',
-        root: decodeMountInfoField(fields[3] ?? ''),
-        mountPoint: decodeMountInfoField(fields[4] ?? ''),
-        filesystem: trailing[0] ?? '',
-      }
-    })
+  const entries = parseControlledFreshCandidateMountInfo(readControlledFreshCandidateMountInfo())
     .filter((entry) => resolved === entry.mountPoint || resolved.startsWith(`${entry.mountPoint.replace(/\/$/u, '')}/`))
     .sort((left, right) => right.mountPoint.length - left.mountPoint.length)
   const authority = entries[0]
@@ -1251,28 +1392,86 @@ export function createControlledFreshCandidateTerminalResourceRegistry(params: {
   }
   const joinAfterCancellation = (): void => {
     if (!params.scope.signal.aborted) return
-    params.scope.registerTerminalization(terminalizeOwnedResources())
+    params.scope.registerTerminalization(terminalizeOwnedResources)
   }
   return {
     registerClient(client) {
+      if (params.scope.state === 'CLOSED') throw new Error('controlled_runtime_resource_registration_closed')
       clients.add(client)
       joinAfterCancellation()
     },
     registerPool(pool) {
+      if (params.scope.state === 'CLOSED') throw new Error('controlled_runtime_resource_registration_closed')
       pools.add(pool)
       joinAfterCancellation()
     },
     registerPayload(value) {
+      if (params.scope.state === 'CLOSED') throw new Error('controlled_runtime_resource_registration_closed')
       if (payload && payload !== value) throw new Error('controlled_runtime_payload_replacement_forbidden')
       payload = value
       joinAfterCancellation()
     },
     registerFallbackPool(value) {
+      if (params.scope.state === 'CLOSED') throw new Error('controlled_runtime_resource_registration_closed')
       if (fallbackPool && fallbackPool !== value) throw new Error('controlled_runtime_pool_replacement_forbidden')
       fallbackPool = value
       joinAfterCancellation()
     },
     terminalizeOwnedResources,
+  }
+}
+
+export function createControlledFreshCandidateDatabaseAdapter(params: {
+  postgresModule: typeof import('@payloadcms/db-postgres')
+  pg: typeof import('pg')
+  pool: import('pg').PoolConfig
+}) {
+  configureControlledFreshCandidateProcessBoundary()
+  const installedDatabaseAdapter = params.postgresModule.postgresAdapter({
+    disableCreateDatabase: true,
+    logger: false,
+    pg: params.pg,
+    pool: params.pool,
+    push: false,
+  })
+  return {
+    ...installedDatabaseAdapter,
+    init(...args: Parameters<typeof installedDatabaseAdapter.init>) {
+      const adapter = installedDatabaseAdapter.init(...args)
+      if (
+        !isPlainRecord(adapter)
+        || adapter.disableCreateDatabase !== true
+        || adapter.push !== false
+        || !isPlainRecord(adapter.extensions)
+        || Object.keys(adapter.extensions).length !== 0
+        || adapter.prodMigrations !== undefined
+        || adapter.readReplicaOptions !== undefined
+        || typeof adapter.connect !== 'function'
+      ) throw new Error('controlled_runtime_database_management_contract_missing')
+      const refuseDatabaseManagement = async () => {
+        throw new Error('controlled_runtime_database_management_forbidden')
+      }
+      try {
+        Object.defineProperties(adapter, {
+          disableCreateDatabase: { configurable: false, enumerable: true, value: true, writable: false },
+          push: { configurable: false, enumerable: true, value: false, writable: false },
+          createDatabase: { configurable: false, enumerable: true, value: refuseDatabaseManagement, writable: false },
+          dropDatabase: { configurable: false, enumerable: true, value: refuseDatabaseManagement, writable: false },
+        })
+      } catch {
+        throw new Error('controlled_runtime_database_management_contract_missing')
+      }
+      const installedConnect = adapter.connect as (...connectArgs: unknown[]) => Promise<unknown>
+      adapter.connect = async function controlledConnect(...connectArgs: unknown[]) {
+        process.env.PAYLOAD_DB_PUSH = 'false'
+        process.env.PAYLOAD_DROP_DATABASE = 'false'
+        if (this.disableCreateDatabase !== true || this.push !== false) {
+          throw new Error('controlled_runtime_database_management_contract_missing')
+        }
+        return installedConnect.apply(this, connectArgs)
+      }
+      return adapter
+    },
   }
 }
 
@@ -1288,7 +1487,10 @@ async function createPayloadBoundary(params: {
   dispatcher: { destroy(): Promise<void> }
   terminalizeOwnedResources(): Promise<void>
 }> {
-  if (process.env.PAYLOAD_DB_PUSH !== 'false') throw new Error('controlled_runtime_db_push_not_disabled')
+  if (
+    process.env.PAYLOAD_DB_PUSH !== 'false'
+    || process.env.PAYLOAD_DROP_DATABASE !== 'false'
+  ) throw new Error('controlled_runtime_database_management_not_disabled')
   const required = ['DATABASE_URI', 'PAYLOAD_SECRET', 'BLOB_READ_WRITE_TOKEN']
   if (required.some((key) => !process.env[key])) throw new Error('controlled_runtime_configuration_missing')
   const databaseUri = process.env.DATABASE_URI as string
@@ -1359,6 +1561,8 @@ async function createPayloadBoundary(params: {
     onClient: terminalResources.registerClient,
     onConstructed: terminalResources.registerPool,
     onUnexpectedError: governedPoolError,
+    canConstruct: () => params.scope.state !== 'CLOSED',
+    canConnect: () => params.scope.state === 'OPEN',
   })
   const controlledPgModule = {
     ...pgModule,
@@ -1433,15 +1637,15 @@ async function createPayloadBoundary(params: {
     idle_in_transaction_session_timeout: 40_000,
     ssl: databaseUri.includes('neon.tech') ? { rejectUnauthorized: false } : undefined,
   }
+  const controlledDatabaseAdapter = createControlledFreshCandidateDatabaseAdapter({
+    postgresModule,
+    pg: controlledPgModule,
+    pool: poolOptions,
+  })
   const baseConfig = {
     collections: [Products, Variants, isolatedMedia, Brands, Categories, BlogPosts, ImageGenerationJobs, BotEvents, StoryJobs],
     jobs: { tasks: [] },
-    db: postgresModule.postgresAdapter({
-      logger: false,
-      pg: controlledPgModule,
-      pool: poolOptions,
-      push: false,
-    }),
+    db: controlledDatabaseAdapter,
     editor: lexicalModule.lexicalEditor(),
     secret: payloadSecret,
     sharp: sharpModule.default,
@@ -1489,6 +1693,8 @@ export async function initializeControlledFreshCandidateCreationRuntime(
   let scratchDirectory: string | null = null
   let payloadBoundaryPromise: Promise<Awaited<ReturnType<typeof createPayloadBoundary>>> | null = null
   let teardownPromise: Promise<{ ok: true } | { ok: false }> | null = null
+  let authorityClosurePromise: Promise<{ ok: true } | { ok: false }> | null = null
+  let creationOwnsAuthorityClosure = false
   const teardown = () => {
     teardownPromise ??= (async () => {
       mutationActive.current = false
@@ -1502,15 +1708,28 @@ export async function initializeControlledFreshCandidateCreationRuntime(
       if (scratchDirectory) {
         try { await rm(scratchDirectory, { recursive: true, force: true }) } catch { ok = false }
       }
-      try { receiptDestination?.close() } catch { ok = false }
-      try { ledger?.close() } catch { ok = false }
       return ok ? { ok: true as const } : { ok: false as const }
     })()
     return teardownPromise
   }
+  const closeAuthorityResources = () => {
+    authorityClosurePromise ??= (async () => {
+      let ok = true
+      try { receiptDestination?.close() } catch { ok = false }
+      try { ledger?.close() } catch { ok = false }
+      receiptDestination = null
+      ledger = null
+      return ok ? { ok: true as const } : { ok: false as const }
+    })()
+    return authorityClosurePromise
+  }
   // This owner is installed before the first authority read or initialization.
   scope.registerCancellation(async () => {
-    if (!(await teardown()).ok) throw new Error('controlled_runtime_teardown_failed')
+    const teardownResult = await teardown()
+    const closureResult = creationOwnsAuthorityClosure
+      ? { ok: true as const }
+      : await closeAuthorityResources()
+    if (!teardownResult.ok || !closureResult.ok) throw new Error('controlled_runtime_teardown_failed')
   })
   ledger = await initializeControlledFreshCandidateOwnerLedger(scope)
   let runtimeInput: Awaited<ReturnType<typeof readRuntimeInput>>
@@ -1518,11 +1737,12 @@ export async function initializeControlledFreshCandidateCreationRuntime(
     runtimeInput = await readRuntimeInput(scope, ledger)
   } catch (error) {
     await teardown()
+    await closeAuthorityResources()
     throw error
   }
   const { input } = runtimeInput
   receiptDestination = runtimeInput.receiptDestination
-  configureBlobProcessBoundary()
+  configureControlledFreshCandidateProcessBoundary()
   const persistence = createControlledFreshCandidateReceiptPersistence({
     receiptDestination,
     destinationDigest: input.authorizationContext.approvedReceiptDestinationDigest,
@@ -1662,19 +1882,24 @@ export async function initializeControlledFreshCandidateCreationRuntime(
     persistPrivateReceipt: persistence.persist,
     async revokeMutationCapability() {
       mutationActive.current = false
-      await scope.cancel()
     },
     teardown,
+    closeAuthorityResources,
   }
   return {
     creationInput: input,
     creationDependencies: dependencies,
     scope,
+    claimAuthorityClosure() {
+      if (creationOwnsAuthorityClosure) throw new Error('controlled_runtime_authority_closure_already_claimed')
+      creationOwnsAuthorityClosure = true
+    },
     async destroy() {
       await scope.cancel()
-      const result = await teardown()
+      const teardownResult = await teardown()
+      const closureResult = await closeAuthorityResources()
       await scope.drain()
-      return result
+      return teardownResult.ok && closureResult.ok ? { ok: true } : { ok: false }
     },
   }
 }
@@ -1752,7 +1977,7 @@ export async function initializeControlledFreshCandidateVerificationRuntime(
   }
   receiptDestination.close()
   receiptDestination = null
-  configureBlobProcessBoundary()
+  configureControlledFreshCandidateProcessBoundary()
   try {
     scratchDirectory = await mkdtemp(path.join(ledger.root, '.uygunayakkabi-cfc-verify-'))
     const scratchAuthority = openPrivatePosixDirectory(scratchDirectory, ledger.device)
@@ -1795,5 +2020,6 @@ export async function initializeControlledFreshCandidateVerificationRuntime(
 export async function executeControlledCreationResource(
   resource: ControlledFreshCandidateRuntimeResource,
 ): Promise<ControlledFreshCandidatePublicReport> {
+  resource.claimAuthorityClosure?.()
   return createControlledFreshCandidate(resource.creationInput, resource.creationDependencies)
 }

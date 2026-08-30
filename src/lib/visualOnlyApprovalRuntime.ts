@@ -3,6 +3,10 @@ import type { Payload, PayloadRequest } from 'payload'
 
 import { runPayloadTransaction } from './payloadTransaction'
 import {
+  createVisualMutationLockSequence,
+  VISUAL_MUTATION_LOCK_ORDER,
+} from './visualMutationLockOrder'
+import {
   parseVisualOnlyV01Callback,
   planVisualOnlyV01Decision,
   VisualOnlyV01BoundaryError,
@@ -33,6 +37,9 @@ const IMAGE_JOB_COLLECTION_SLUG = 'image-generation-jobs'
 const IMAGE_JOB_DEFAULT_TABLE_NAME = 'image_generation_jobs'
 const PRODUCT_COLLECTION_SLUG = 'products'
 const PRODUCT_DEFAULT_TABLE_NAME = 'products'
+export const VISUAL_ONLY_APPROVAL_LOCK_ORDER = Object.freeze(
+  VISUAL_MUTATION_LOCK_ORDER.slice(0, 2),
+) as readonly ['image-generation-jobs', 'products']
 
 function unavailable(): never {
   throw new Error('VISUAL_ONLY_ATOMIC_RUNTIME_UNAVAILABLE')
@@ -100,6 +107,7 @@ export function createVisualOnlyV01PayloadAdapter(
   payload: Payload,
 ): VisualOnlyV01AtomicAdapter<PayloadRequest> {
   const runtime = payload as unknown as RuntimePayload
+  const lockSequences = new WeakMap<PayloadRequest, ReturnType<typeof createVisualMutationLockSequence>>()
   const readJob = (jobId: string, req?: PayloadRequest) => runtime.findByID({
     collection: IMAGE_JOB_COLLECTION_SLUG,
     id: Number(jobId),
@@ -157,6 +165,9 @@ export function createVisualOnlyV01PayloadAdapter(
       return runPayloadTransaction(payload, operation)
     },
     async claimJob(req, jobId) {
+      const sequence = createVisualMutationLockSequence(VISUAL_ONLY_APPROVAL_LOCK_ORDER)
+      sequence.acquire('image-generation-jobs')
+      lockSequences.set(req, sequence)
       const { db, jobTable } = await prepareVisualOnlyV01AtomicRuntime(runtime, req)
       const result = await db.execute(sql`
         UPDATE ${jobTable}
@@ -169,6 +180,9 @@ export function createVisualOnlyV01PayloadAdapter(
       return rowsFrom(result).length === 1
     },
     async lockProduct(req, productId) {
+      const sequence = lockSequences.get(req)
+      if (!sequence) throw new Error('VISUAL_MUTATION_LOCK_ORDER_VIOLATION')
+      sequence.acquire('products')
       const { db, productTable } = await prepareVisualOnlyV01AtomicRuntime(runtime, req)
       const result = await db.execute(sql`
         SELECT ${productTable.id}

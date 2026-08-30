@@ -5,7 +5,9 @@ import { runPayloadTransaction } from './payloadTransaction'
 import {
   prepareVisualOnlyV01AtomicRuntime,
   resolveVisualOnlyV01TableAuthority,
+  VISUAL_ONLY_APPROVAL_LOCK_ORDER,
 } from './visualOnlyApprovalRuntime'
+import { createVisualMutationLockSequence } from './visualMutationLockOrder'
 import type {
   VisualOnlyProvisioningAdapter,
   VisualOnlyQueueReceiptCensusIdentity,
@@ -227,6 +229,7 @@ export function createVisualOnlyV01PayloadProvisioningAdapter(
   payload: Payload,
 ): VisualOnlyProvisioningAdapter<PayloadRequest> {
   const runtime = payload as unknown as RuntimePayload
+  const lockSequences = new WeakMap<PayloadRequest, ReturnType<typeof createVisualMutationLockSequence>>()
   return {
     runAtomic(operation) {
       resolveVisualOnlyV01TableAuthority(runtime)
@@ -241,7 +244,18 @@ export function createVisualOnlyV01PayloadProvisioningAdapter(
     async requestHasTransaction(req) {
       return Boolean(await req.transactionID)
     },
+    async lockGenerationHistory(req) {
+      const sequence = createVisualMutationLockSequence(VISUAL_ONLY_APPROVAL_LOCK_ORDER)
+      sequence.acquire('image-generation-jobs')
+      lockSequences.set(req, sequence)
+      const { db, jobTable } = await prepareVisualOnlyV01AtomicRuntime(runtime, req)
+      await db.execute(sql`LOCK TABLE ${jobTable} IN SHARE ROW EXCLUSIVE MODE`)
+      return true
+    },
     async lockProduct(req, productId) {
+      const sequence = lockSequences.get(req)
+      if (!sequence) throw new Error('VISUAL_MUTATION_LOCK_ORDER_VIOLATION')
+      sequence.acquire('products')
       const { db, productTable } = await prepareVisualOnlyV01AtomicRuntime(runtime, req)
       const result = await db.execute(sql`
         SELECT ${productTable.id}

@@ -228,6 +228,10 @@ function fixture(options: { barrier?: Barrier; fault?: Fault; unrelatedQueue?: b
     async requestHasTransaction(request) {
       return Boolean(request.transactionID)
     },
+    async lockGenerationHistory(request) {
+      record('lockGenerationHistory', request)
+      return true
+    },
     async lockProduct(request, productId) {
       record('lockProduct', request)
       calls.locks += 1
@@ -840,6 +844,7 @@ async function testRequestIdentity(): Promise<void> {
   assert.ok(transactionEntries.every((entry) => entry.request === transactionRequest))
   assert.ok(postCommitEntries.every((entry) => entry.request === postCommitRequest))
   for (const operation of [
+    'lockGenerationHistory',
     'lockProduct',
     'readProduct',
     'readProductJobs',
@@ -849,6 +854,10 @@ async function testRequestIdentity(): Promise<void> {
     'readQueueReceiptCensusPage',
     'updateProduct',
   ]) assert.ok(transactionEntries.some((entry) => entry.operation === operation), operation)
+  assert.ok(
+    transactionEntries.findIndex((entry) => entry.operation === 'lockGenerationHistory')
+      < transactionEntries.findIndex((entry) => entry.operation === 'lockProduct'),
+  )
   assert.deepEqual(
     [...new Set(postCommitEntries.map((entry) => entry.operation))].sort(),
     ['readImageJob', 'readProduct', 'readQueueReceiptCensusPage'],
@@ -1181,6 +1190,8 @@ async function main(): Promise<void> {
   assert.doesNotMatch(visualPath, /jobs\.run|after\s*\(/)
   assert.ok(visualPath.indexOf('await provisionVisualOnlyV01') < visualPath.lastIndexOf('NextResponse.json({ ok: true })'))
   assert.match(runtimeSource, /FOR UPDATE/)
+  assert.match(runtimeSource, /LOCK TABLE \$\{jobTable\} IN SHARE ROW EXCLUSIVE MODE/)
+  assert.match(runtimeSource, /VISUAL_ONLY_APPROVAL_LOCK_ORDER/)
   assert.match(runtimeSource, /runtime\.jobs\.queue\(\{[\s\S]*?req,/)
   assert.match(runtimeSource, /createLocalReq\(\{\}, payload\)/)
   assert.match(runtimeSource, /Boolean\(await req\.transactionID\)/)

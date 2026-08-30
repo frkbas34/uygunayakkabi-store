@@ -2,11 +2,15 @@ import assert from 'node:assert/strict'
 import { spawn, spawnSync } from 'node:child_process'
 import {
   chmodSync,
+  closeSync,
   fstatSync,
+  ftruncateSync,
   fsyncSync,
+  linkSync,
   lstatSync,
   mkdirSync,
   mkdtempSync,
+  openSync,
   readFileSync,
   readdirSync,
   renameSync,
@@ -48,11 +52,15 @@ import {
   createControlledFreshCandidateExecutionGrantToken,
   createControlledFreshCandidatePoolConstructor,
   createControlledFreshCandidateReceiptPersistence,
+  createControlledFreshCandidateTerminalResourceRegistry,
   controlledFreshCandidateFilenameIsApproved,
   controlledFreshCandidateReceiptDestinationDigest,
   finalizeControlledFreshCandidateProductAtomically,
   initializeControlledFreshCandidateOwnerLedger,
   openControlledFreshCandidatePhysicalReceiptDestination,
+  readControlledFreshCandidatePrivateFile,
+  readPhysicalReceiptBytes,
+  CONTROLLED_FRESH_CANDIDATE_PHYSICAL_INPUT_LIMITS,
   type ControlledRuntimePayload,
 } from './controlled-fresh-candidate-runtime-resources'
 
@@ -450,8 +458,9 @@ async function main(): Promise<void> {
   {
     const io = captureIo()
     let cancellationEstablished = false
+    let releaseInitialization: (() => void) | null = null
     const started = Date.now()
-    const code = await runControlledFreshCandidateRuntime({
+    const execution = runControlledFreshCandidateRuntime({
       argv: [CONTROLLED_FRESH_CANDIDATE_CREATE_CONFIRMATION],
       io: io.io,
       operationTimeoutMs: 15,
@@ -462,9 +471,15 @@ async function main(): Promise<void> {
             resolve()
           }, 30)
         }))
-        return new Promise<never>(() => undefined)
+        return new Promise<never>((resolve) => { releaseInitialization = resolve })
       },
     })
+    await new Promise((resolve) => setTimeout(resolve, 25))
+    assert.deepEqual(io.stdout, [])
+    assert.deepEqual(io.stderr, [])
+    assert.ok(releaseInitialization)
+    releaseInitialization()
+    const code = await execution
     assert.equal(code, 1)
     assert.equal(cancellationEstablished, true)
     assert.ok(Date.now() - started >= 30)
@@ -636,6 +651,82 @@ async function main(): Promise<void> {
       assert.throws(() => openControlledFreshCandidatePhysicalReceiptDestination(
         path.join(linkedParent, 'linked.receipt.json'), ledger.device,
       ), /linked|authority|noncanonical/)
+
+      const physicalInputRoot = path.join(temporaryRoot, 'physical-inputs')
+      mkdirSync(physicalInputRoot, { mode: 0o700 })
+      chmodSync(physicalInputRoot, 0o700)
+      const createSizedPrivateFile = (filePath: string, size: number): void => {
+        const descriptor = openSync(filePath, 'w', 0o600)
+        try { ftruncateSync(descriptor, size) } finally { closeSync(descriptor) }
+        chmodSync(filePath, 0o600)
+      }
+      const markersBeforeInputFailures = readdirSync(ledger.authorizationDirectory).length
+        + readdirSync(ledger.receiptDirectory).length
+      for (const kind of ['authority', 'manifest', 'original'] as const) {
+        const oversizedPath = path.join(physicalInputRoot, `${kind}-oversized.bin`)
+        createSizedPrivateFile(oversizedPath, CONTROLLED_FRESH_CANDIDATE_PHYSICAL_INPUT_LIMITS[kind] + 1)
+        await assert.rejects(
+          () => readControlledFreshCandidatePrivateFile(scope, oversizedPath, ledger.device, kind),
+          /file_authority_invalid/,
+        )
+
+        const linkedPath = path.join(physicalInputRoot, `${kind}-linked.bin`)
+        createSizedPrivateFile(linkedPath, 1)
+        linkSync(linkedPath, `${linkedPath}.alias`)
+        await assert.rejects(
+          () => readControlledFreshCandidatePrivateFile(scope, linkedPath, ledger.device, kind),
+          /file_authority_invalid/,
+        )
+      }
+
+      const oversizedReceiptPath = path.join(receiptParent, 'oversized.receipt.json')
+      const oversizedReceipt = openControlledFreshCandidatePhysicalReceiptDestination(
+        oversizedReceiptPath,
+        ledger.device,
+      )
+      createSizedPrivateFile(oversizedReceiptPath, CONTROLLED_FRESH_CANDIDATE_PHYSICAL_INPUT_LIMITS.receipt + 1)
+      await assert.rejects(() => readPhysicalReceiptBytes(scope, oversizedReceipt), /receipt_authority_invalid/)
+      oversizedReceipt.close()
+
+      const linkedReceiptPath = path.join(receiptParent, 'hard-linked.receipt.json')
+      const linkedReceipt = openControlledFreshCandidatePhysicalReceiptDestination(linkedReceiptPath, ledger.device)
+      createSizedPrivateFile(linkedReceiptPath, 1)
+      linkSync(linkedReceiptPath, `${linkedReceiptPath}.alias`)
+      await assert.rejects(() => readPhysicalReceiptBytes(scope, linkedReceipt), /receipt_authority_invalid/)
+      linkedReceipt.close()
+
+      const linkRacePath = path.join(physicalInputRoot, 'link-race.bin')
+      createSizedPrivateFile(linkRacePath, 32 * 1024)
+      const linkRace = readControlledFreshCandidatePrivateFile(scope, linkRacePath, ledger.device, 'manifest')
+      linkSync(linkRacePath, `${linkRacePath}.alias`)
+      await assert.rejects(() => linkRace, /file_authority_invalid/)
+
+      const replacementPath = path.join(physicalInputRoot, 'replacement-race.bin')
+      createSizedPrivateFile(replacementPath, 256 * 1024)
+      const replacementRead = readControlledFreshCandidatePrivateFile(scope, replacementPath, ledger.device, 'original')
+      renameSync(replacementPath, `${replacementPath}.old`)
+      createSizedPrivateFile(replacementPath, 256 * 1024)
+      await assert.rejects(() => replacementRead, /file_authority_invalid/)
+
+      const sizeRacePath = path.join(physicalInputRoot, 'size-race.bin')
+      createSizedPrivateFile(sizeRacePath, 256 * 1024)
+      const sizeRace = readControlledFreshCandidatePrivateFile(scope, sizeRacePath, ledger.device, 'original')
+      const sizeRaceDescriptor = openSync(sizeRacePath, 'r+')
+      try { ftruncateSync(sizeRaceDescriptor, 128 * 1024) } finally { closeSync(sizeRaceDescriptor) }
+      await assert.rejects(() => sizeRace, /file_authority_invalid/)
+
+      const linkedFileTarget = path.join(physicalInputRoot, 'symlink-target.bin')
+      createSizedPrivateFile(linkedFileTarget, 1)
+      const linkedFilePath = path.join(physicalInputRoot, 'symlink-input.bin')
+      symlinkSync(linkedFileTarget, linkedFilePath, 'file')
+      await assert.rejects(
+        () => readControlledFreshCandidatePrivateFile(scope, linkedFilePath, ledger.device, 'manifest'),
+        /ELOOP|authority_invalid|linked/,
+      )
+      assert.equal(
+        readdirSync(ledger.authorizationDirectory).length + readdirSync(ledger.receiptDirectory).length,
+        markersBeforeInputFailures,
+      )
 
       const unsafeRoot = path.join(temporaryRoot, 'unsafe-root')
       mkdirSync(unsafeRoot, { mode: 0o700 })
@@ -1111,6 +1202,92 @@ async function main(): Promise<void> {
     assert.ok(pool.listenerCount('error') >= 1)
     await pool.end()
     assert.ok(pool.listenerCount('error') >= 1)
+    scope.close()
+  }
+
+  {
+    const scope = createControlledFreshCandidateOperationScope()
+    const mutationActive = { current: true }
+    const events: string[] = []
+    let releaseDispatcher: (() => void) | null = null
+    const registry = createControlledFreshCandidateTerminalResourceRegistry({
+      scope,
+      mutationActive,
+      dispatcher: {
+        destroy: () => new Promise<void>((resolve) => {
+          events.push('dispatcher-destroy')
+          releaseDispatcher = resolve
+        }),
+      },
+    })
+    scope.registerCancellation(registry.terminalizeOwnedResources)
+    registry.registerPool({ end: async () => { events.push('initial-pool-end') } })
+    const cancellation = scope.cancel()
+    await new Promise<void>((resolve) => setImmediate(resolve))
+    assert.equal(mutationActive.current, false)
+    assert.ok(releaseDispatcher)
+    registry.registerPayload({ destroy: async () => { events.push('late-payload-destroy') } })
+    registry.registerPool({ end: async () => { events.push('late-pool-end') } })
+    registry.registerClient({
+      end: async () => { events.push('late-client-end') },
+      unref: () => { events.push('late-client-unref') },
+    })
+    scope.registerTerminalization(Promise.resolve().then(() => { events.push('late-cleanup-ack') }))
+    let terminal = false
+    const drained = scope.drain().then(() => { terminal = true })
+    await new Promise<void>((resolve) => setImmediate(resolve))
+    assert.equal(terminal, false)
+    releaseDispatcher()
+    await cancellation
+    await drained
+    assert.deepEqual(events.sort(), [
+      'dispatcher-destroy', 'initial-pool-end', 'late-cleanup-ack', 'late-client-end',
+      'late-client-unref', 'late-payload-destroy', 'late-pool-end',
+    ].sort())
+    assert.equal(events.filter((event) => event === 'dispatcher-destroy').length, 1)
+    scope.close()
+  }
+
+  for (const phase of ['initialization', 'normal-work', 'finalization', 'cancellation', 'teardown'] as const) {
+    const pgModule = await import('pg')
+    const scope = createControlledFreshCandidateOperationScope()
+    const mutationActive = { current: true }
+    let teardownStarts = 0
+    const registry = createControlledFreshCandidateTerminalResourceRegistry({
+      scope,
+      mutationActive,
+      dispatcher: { destroy: async () => { teardownStarts += 1 } },
+    })
+    scope.registerCancellation(registry.terminalizeOwnedResources)
+    const ControlledPool = createControlledFreshCandidatePoolConstructor({
+      basePool: pgModule.Pool,
+      onClient: registry.registerClient,
+      onConstructed: registry.registerPool,
+      onUnexpectedError: () => {
+        mutationActive.current = false
+        scope.cancel().then(() => undefined, () => undefined)
+      },
+    })
+    const pool = new ControlledPool({ max: 1 })
+    if (phase === 'teardown') {
+      pool.end = async () => {
+        assert.doesNotThrow(() => pool.emit('error', new Error(`RAW_POOL_${phase}_SENTINEL`)))
+      }
+    }
+    if (phase === 'cancellation') {
+      const cancellation = scope.cancel()
+      assert.doesNotThrow(() => pool.emit('error', new Error(`RAW_POOL_${phase}_SENTINEL`)))
+      await cancellation
+    } else if (phase === 'teardown') {
+      await scope.cancel()
+    } else {
+      assert.doesNotThrow(() => pool.emit('error', new Error(`RAW_POOL_${phase}_SENTINEL`)))
+      await scope.cancel()
+    }
+    await scope.drain()
+    assert.equal(mutationActive.current, false, phase)
+    assert.equal(teardownStarts, 1, phase)
+    assert.ok(pool.listenerCount('error') >= 1, phase)
     scope.close()
   }
 

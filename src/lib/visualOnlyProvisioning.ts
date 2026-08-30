@@ -84,6 +84,7 @@ export type VisualOnlyProvisioningAdapter<TTransaction> = {
   runAtomic<T>(operation: (transaction: TTransaction) => Promise<T>): Promise<T>
   createPostCommitRequest(): Promise<TTransaction>
   requestHasTransaction(request: TTransaction): Promise<boolean>
+  lockGenerationHistory(transaction: TTransaction): Promise<boolean>
   lockProduct(transaction: TTransaction, productId: number): Promise<boolean>
   readProduct(transaction: TTransaction, productId: number): Promise<unknown>
   readProductJobs(transaction: TTransaction, productId: number): Promise<unknown[]>
@@ -429,6 +430,9 @@ export async function provisionVisualOnlyV01<TTransaction>(params: {
   let transactionRequest: TTransaction | undefined
   const atomicResult = await adapter.runAtomic(async (transaction) => {
     transactionRequest = transaction
+    if (!await adapter.lockGenerationHistory(transaction)) {
+      throw new Error('VISUAL_ONLY_PROVISIONING_GENERATION_LOCK_UNAVAILABLE')
+    }
     if (!await adapter.lockProduct(transaction, input.productId)) {
       throw new Error('VISUAL_ONLY_PROVISIONING_PRODUCT_LOCK_UNAVAILABLE')
     }

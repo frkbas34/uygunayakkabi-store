@@ -9,6 +9,7 @@ import {
 import {
   authenticateControlledFreshCandidateReceipt,
   authenticateControlledFreshCandidateReceiptBytes,
+  CONTROLLED_FRESH_CANDIDATE_MAX_CANONICAL_JSON_BYTES,
   readControlledFreshCandidateCapability,
   resealControlledFreshCandidateReceipt,
   serializeControlledFreshCandidateReceipt,
@@ -610,6 +611,7 @@ async function main(): Promise<void> {
   {
     const scope = createControlledFreshCandidateOperationScope({ timeoutMs: 5 })
     let cancellationAcknowledged = false
+    let lateCleanupAcknowledged = false
     let lateMutationDispatches = 0
     scope.registerCancellation(async () => {
       await new Promise((resolve) => setTimeout(resolve, 20))
@@ -617,15 +619,34 @@ async function main(): Promise<void> {
     })
     const started = Date.now()
     await assert.rejects(() => scope.run(async (signal) => {
-      await new Promise((resolve) => setTimeout(resolve, 35))
+      await new Promise((resolve) => setTimeout(resolve, 25))
+      scope.registerTerminalization(new Promise<void>((resolve) => setTimeout(() => {
+        lateCleanupAcknowledged = true
+        resolve()
+      }, 20)))
       if (!signal.aborted) lateMutationDispatches += 1
       return true
     }), /DEADLINE_EXCEEDED/)
+    assert.equal(cancellationAcknowledged, false)
+    assert.equal(lateCleanupAcknowledged, false)
+    await scope.drain()
     assert.equal(cancellationAcknowledged, true)
-    assert.ok(Date.now() - started >= 20)
-    await new Promise((resolve) => setTimeout(resolve, 20))
+    assert.equal(lateCleanupAcknowledged, true)
+    assert.ok(Date.now() - started >= 40)
     assert.equal(lateMutationDispatches, 0)
     scope.close()
+  }
+
+  {
+    let consumed = 0
+    assert.throws(() => authenticateControlledFreshCandidateReceiptBytes({
+      bytes: new Uint8Array(CONTROLLED_FRESH_CANDIDATE_MAX_CANONICAL_JSON_BYTES + 1),
+      key: RECEIPT_KEY,
+      expectedCommitIdentity: COMMIT_IDENTITY,
+      expectedEnvironmentIdentity: ENVIRONMENT_IDENTITY,
+      consume: () => { consumed += 1; return true },
+    }), /BYTES_INVALID/)
+    assert.equal(consumed, 0)
   }
 
   {

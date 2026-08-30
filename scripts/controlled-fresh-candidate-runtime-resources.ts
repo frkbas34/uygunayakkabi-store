@@ -11,6 +11,7 @@ import {
   lstatSync,
   mkdirSync,
   openSync,
+  readSync,
   readFileSync,
   realpathSync,
   statfsSync,
@@ -19,7 +20,6 @@ import {
 import {
   mkdtemp,
   open,
-  readFile,
   readdir,
   rename,
   rm,
@@ -44,6 +44,7 @@ import {
 } from '../src/lib/controlledFreshCandidateCreation'
 import {
   CONTROLLED_FRESH_CANDIDATE_CONTRACT_IDENTITY,
+  CONTROLLED_FRESH_CANDIDATE_MAX_CANONICAL_JSON_BYTES,
   CONTROLLED_FRESH_CANDIDATE_RUNTIME_IDENTITY,
   authenticateControlledFreshCandidateReceiptBytes,
   type ControlledFreshCandidateTargetCapability,
@@ -51,6 +52,10 @@ import {
 import type {
   ControlledFreshCandidateStrictTargetDependencies,
 } from '../src/lib/controlledFreshCandidateTargetVerifier'
+import {
+  orderVisualMutationLocks,
+  type VisualMutationLockSurface,
+} from '../src/lib/visualMutationLockOrder'
 import type { FreshVisualStrictTargetGateway } from '../src/lib/freshVisualProductDiscovery'
 import {
   createFreshVisualDiscoveryRuntimeGateway,
@@ -61,13 +66,22 @@ import {
 } from './visual-pilot-target-runtime-resources'
 
 export const CONTROLLED_FRESH_CANDIDATE_RUNTIME_INPUT_VERSION = 'controlled-fresh-candidate-runtime-input/v1' as const
-export const CONTROLLED_FRESH_CANDIDATE_RUNTIME_TEARDOWN_TIMEOUT_MS = 5_000
 export const CONTROLLED_FRESH_CANDIDATE_BLOB_RETRY_BUDGET = 0
 export const CONTROLLED_FRESH_CANDIDATE_OWNER_LEDGER_DIRECTORY_ENV = 'CONTROLLED_FRESH_CANDIDATE_OWNER_LEDGER_DIRECTORY' as const
 export const CONTROLLED_FRESH_CANDIDATE_AUTHORIZATION_KEY_ENV = 'CONTROLLED_FRESH_CANDIDATE_AUTHORIZATION_KEY_BASE64' as const
 export const CONTROLLED_FRESH_CANDIDATE_COMMIT_IDENTITY_ENV = 'CONTROLLED_FRESH_CANDIDATE_DEPLOYED_COMMIT_IDENTITY' as const
 export const CONTROLLED_FRESH_CANDIDATE_ENVIRONMENT_IDENTITY_ENV = 'CONTROLLED_FRESH_CANDIDATE_ENVIRONMENT_IDENTITY' as const
 export const CONTROLLED_FRESH_CANDIDATE_EXT4_MAGIC = 0xef53
+export const CONTROLLED_FRESH_CANDIDATE_MAX_ORIGINAL_BYTES = 10_000_000
+
+export const CONTROLLED_FRESH_CANDIDATE_PHYSICAL_INPUT_LIMITS = Object.freeze({
+  authority: CONTROLLED_FRESH_CANDIDATE_MAX_CANONICAL_JSON_BYTES,
+  manifest: CONTROLLED_FRESH_CANDIDATE_MAX_CANONICAL_JSON_BYTES,
+  receipt: CONTROLLED_FRESH_CANDIDATE_MAX_CANONICAL_JSON_BYTES,
+  original: CONTROLLED_FRESH_CANDIDATE_MAX_ORIGINAL_BYTES,
+})
+
+export type ControlledFreshCandidatePhysicalInputKind = keyof typeof CONTROLLED_FRESH_CANDIDATE_PHYSICAL_INPUT_LIMITS
 
 export function controlledFreshCandidateFilenameIsApproved(
   expectedFilename: string | null,
@@ -233,15 +247,16 @@ export async function finalizeControlledFreshCandidateProductAtomically(params: 
       await transaction.execute(sql.raw(setting))
       assertMutation()
     }
-    for (const table of [
-      tables.products,
-      tables.productRelationships,
-      tables.media,
-      tables.imageJobs,
-      tables.queueReceipts,
-      tables.botEvents,
-      tables.storyJobs,
-    ]) {
+    const lockAuthority = new Map<VisualMutationLockSurface, ControlledRelationalTable>([
+      ['image-generation-jobs', tables.imageJobs],
+      ['products', tables.products],
+      ['products-rels', tables.productRelationships],
+      ['media', tables.media],
+      ['payload-jobs', tables.queueReceipts],
+      ['bot-events', tables.botEvents],
+      ['story-jobs', tables.storyJobs],
+    ])
+    for (const table of orderVisualMutationLocks(lockAuthority)) {
       await transaction.execute(sql`LOCK TABLE ${table} IN SHARE ROW EXCLUSIVE MODE`)
       assertMutation()
     }
@@ -482,31 +497,6 @@ export function createControlledFreshCandidatePoolConstructor(params: {
   return ControlledPostgresPool
 }
 
-async function bounded<T>(operation: Promise<T>, timeoutMs: number): Promise<T> {
-  return new Promise<T>((resolve, reject) => {
-    let delivered = false
-    const timer = setTimeout(() => {
-      if (delivered) return
-      delivered = true
-      reject(new Error('controlled_runtime_deadline'))
-    }, timeoutMs)
-    operation.then(
-      (value) => {
-        if (delivered) return
-        delivered = true
-        clearTimeout(timer)
-        resolve(value)
-      },
-      (error: unknown) => {
-        if (delivered) return
-        delivered = true
-        clearTimeout(timer)
-        reject(error)
-      },
-    )
-  })
-}
-
 function normalizePayloadPage(value: RecordValue, page: number, limit: number): {
   docs: unknown[]
   totalDocs: number
@@ -688,10 +678,81 @@ function ensurePrivateChildDirectory(parent: PosixDirectoryAuthority, basename: 
   return openPrivatePosixDirectory(childPath, parent.device)
 }
 
-async function readPrivatePosixFile(
+type ControlledPhysicalMetadata = {
+  dev: bigint
+  ino: bigint
+  uid: bigint
+  mode: bigint
+  size: bigint
+  nlink: bigint
+  ctimeNs: bigint
+  mtimeNs: bigint
+}
+
+function physicalMetadata(stat: ControlledPhysicalMetadata): readonly bigint[] {
+  return [stat.dev, stat.ino, stat.uid, stat.mode, stat.size, stat.nlink, stat.ctimeNs, stat.mtimeNs]
+}
+
+function samePhysicalMetadata(left: ControlledPhysicalMetadata, right: ControlledPhysicalMetadata): boolean {
+  const leftValues = physicalMetadata(left)
+  const rightValues = physicalMetadata(right)
+  return leftValues.every((value, index) => value === rightValues[index])
+}
+
+async function readBoundedPrivateDescriptor(params: {
+  scope: ControlledFreshCandidateOperationScope
+  handle: number
+  descriptorPath: string
+  expectedDevice: bigint
+  maximumBytes: number
+  failureCode: string
+}): Promise<Buffer> {
+  const before = fstatSync(params.handle, { bigint: true })
+  if (
+    !before.isFile()
+    || before.dev !== params.expectedDevice
+    || before.ino <= 0n
+    || before.uid !== BigInt(process.getuid!())
+    || (before.mode & 0o777n) !== 0o600n
+    || before.size < 0n
+    || before.size > BigInt(params.maximumBytes)
+    || before.nlink !== 1n
+  ) throw new Error(params.failureCode)
+
+  params.scope.assertActive()
+  const size = Number(before.size)
+  const bytes = Buffer.alloc(size)
+  let offset = 0
+  while (offset < size) {
+    params.scope.assertActive()
+    const requested = Math.min(64 * 1024, size - offset)
+    const count = readSync(params.handle, bytes, offset, requested, offset)
+    if (!Number.isSafeInteger(count) || count <= 0 || count > requested) {
+      throw new Error(params.failureCode)
+    }
+    offset += count
+    await new Promise<void>((resolve) => setImmediate(resolve))
+  }
+  const extra = Buffer.alloc(1)
+  if (readSync(params.handle, extra, 0, 1, size) !== 0) throw new Error(params.failureCode)
+
+  const after = fstatSync(params.handle, { bigint: true })
+  const current = lstatSync(params.descriptorPath, { bigint: true })
+  if (
+    !samePhysicalMetadata(before, after)
+    || !current.isFile()
+    || current.isSymbolicLink()
+    || !samePhysicalMetadata(before, current)
+  ) throw new Error(params.failureCode)
+  params.scope.assertActive()
+  return bytes
+}
+
+export async function readControlledFreshCandidatePrivateFile(
   scope: ControlledFreshCandidateOperationScope,
   filePath: string,
   expectedDevice: bigint,
+  kind: ControlledFreshCandidatePhysicalInputKind,
 ): Promise<Buffer> {
   if (!path.isAbsolute(filePath) || path.resolve(filePath) !== filePath) {
     throw new Error('controlled_runtime_path_noncanonical')
@@ -705,14 +766,14 @@ async function readPrivatePosixFile(
       `/proc/self/fd/${parent.handle}/${basename}`,
       fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW,
     )
-    const opened = fstatSync(handle, { bigint: true })
-    if (
-      !opened.isFile()
-      || opened.dev !== expectedDevice
-      || opened.uid !== BigInt(process.getuid!())
-      || (opened.mode & 0o077n) !== 0n
-    ) throw new Error('controlled_runtime_file_authority_invalid')
-    return await scope.run((signal) => readFile(`/proc/self/fd/${handle}`, { signal }))
+    return await readBoundedPrivateDescriptor({
+      scope,
+      handle,
+      descriptorPath: `/proc/self/fd/${parent.handle}/${basename}`,
+      expectedDevice,
+      maximumBytes: CONTROLLED_FRESH_CANDIDATE_PHYSICAL_INPUT_LIMITS[kind],
+      failureCode: 'controlled_runtime_file_authority_invalid',
+    })
   } finally {
     if (handle !== null) closeSync(handle)
     closeSync(parent.handle)
@@ -745,7 +806,7 @@ export function openControlledFreshCandidatePhysicalReceiptDestination(
   }
 }
 
-async function readPhysicalReceiptBytes(
+export async function readPhysicalReceiptBytes(
   scope: ControlledFreshCandidateOperationScope,
   destination: ControlledFreshCandidatePhysicalReceiptDestination,
 ): Promise<Buffer> {
@@ -756,14 +817,14 @@ async function readPhysicalReceiptBytes(
       `/proc/self/fd/${destination.handle}/${destination.basename}`,
       fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW,
     )
-    const opened = fstatSync(handle, { bigint: true })
-    if (
-      !opened.isFile()
-      || opened.dev !== destination.device
-      || opened.uid !== BigInt(process.getuid!())
-      || (opened.mode & 0o077n) !== 0n
-    ) throw new Error('controlled_runtime_receipt_authority_invalid')
-    return await scope.run((signal) => readFile(`/proc/self/fd/${handle}`, { signal }))
+    return await readBoundedPrivateDescriptor({
+      scope,
+      handle,
+      descriptorPath: `/proc/self/fd/${destination.handle}/${destination.basename}`,
+      expectedDevice: destination.device,
+      maximumBytes: CONTROLLED_FRESH_CANDIDATE_PHYSICAL_INPUT_LIMITS.receipt,
+      failureCode: 'controlled_runtime_receipt_authority_invalid',
+    })
   } finally {
     if (handle !== null) closeSync(handle)
   }
@@ -824,7 +885,7 @@ async function readRuntimeInput(
   if (!manifestPath || !path.isAbsolute(manifestPath)) throw new Error('controlled_runtime_configuration_missing')
   let parsed: unknown
   try {
-    const manifestBytes = await readPrivatePosixFile(scope, manifestPath, ledger.device)
+    const manifestBytes = await readControlledFreshCandidatePrivateFile(scope, manifestPath, ledger.device, 'manifest')
     parsed = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(manifestBytes))
   } catch {
     throw new Error('controlled_runtime_input_unavailable')
@@ -844,12 +905,12 @@ async function readRuntimeInput(
   const receiptDestination = openControlledFreshCandidatePhysicalReceiptDestination(parsed.receiptPath, ledger.device)
   let original: Buffer
   try {
-    original = await readPrivatePosixFile(scope, parsed.originalPath, ledger.device)
+    original = await readControlledFreshCandidatePrivateFile(scope, parsed.originalPath, ledger.device, 'original')
   } catch (error) {
     receiptDestination.close()
     throw error
   }
-  if (original.byteLength < 1 || original.byteLength > 10_000_000) {
+  if (original.byteLength < 1 || original.byteLength > CONTROLLED_FRESH_CANDIDATE_MAX_ORIGINAL_BYTES) {
     receiptDestination.close()
     throw new Error('controlled_runtime_input_invalid')
   }
@@ -1107,6 +1168,114 @@ export function createControlledFreshCandidateReceiptPersistence(params: {
   }
 }
 
+type ControlledTerminalClient = {
+  end(): Promise<unknown>
+  unref?(): void
+}
+
+type ControlledTerminalPool = {
+  end(): Promise<unknown>
+}
+
+type ControlledTerminalPayload = {
+  destroy(): Promise<void>
+}
+
+export function createControlledFreshCandidateTerminalResourceRegistry(params: {
+  scope: ControlledFreshCandidateOperationScope
+  mutationActive: { current: boolean }
+  dispatcher: { destroy(): Promise<void> }
+}): {
+  registerClient(client: ControlledTerminalClient): void
+  registerPool(pool: ControlledTerminalPool): void
+  registerPayload(payload: ControlledTerminalPayload): void
+  registerFallbackPool(pool: ControlledTerminalPool): void
+  terminalizeOwnedResources(): Promise<void>
+} {
+  const clients = new Set<ControlledTerminalClient>()
+  const pools = new Set<ControlledTerminalPool>()
+  const startedClients = new Set<ControlledTerminalClient>()
+  const startedPools = new Set<ControlledTerminalPool>()
+  let payload: ControlledTerminalPayload | null = null
+  let fallbackPool: ControlledTerminalPool | null = null
+  let dispatcherStarted = false
+  let payloadStarted = false
+  let fallbackPoolStarted = false
+  let terminalizationFailed = false
+  let running: Promise<void> | null = null
+
+  const terminalizeOwnedResources = (): Promise<void> => {
+    params.mutationActive.current = false
+    if (running) return running
+    const pass = (async () => {
+      for (;;) {
+        const operations: Promise<unknown>[] = []
+        if (!dispatcherStarted) {
+          dispatcherStarted = true
+          operations.push(Promise.resolve().then(() => params.dispatcher.destroy()))
+        }
+        for (const client of clients) {
+          if (startedClients.has(client)) continue
+          startedClients.add(client)
+          operations.push(Promise.resolve().then(async () => {
+            try { await client.end() } finally {
+              try { client.unref?.() } catch { /* the client is already terminal */ }
+            }
+          }))
+        }
+        for (const pool of pools) {
+          if (startedPools.has(pool)) continue
+          startedPools.add(pool)
+          operations.push(Promise.resolve().then(() => pool.end()))
+        }
+        if (payload && !payloadStarted) {
+          payloadStarted = true
+          operations.push(Promise.resolve().then(() => payload?.destroy()))
+        }
+        if (fallbackPool && !pools.has(fallbackPool) && !fallbackPoolStarted) {
+          fallbackPoolStarted = true
+          operations.push(Promise.resolve().then(() => fallbackPool?.end()))
+        }
+        if (operations.length === 0) break
+        const results = await Promise.allSettled(operations)
+        if (results.some((result) => result.status === 'rejected')) terminalizationFailed = true
+      }
+      if (terminalizationFailed) throw new Error('controlled_runtime_teardown_failed')
+    })()
+    running = pass
+    pass.then(
+      () => { if (running === pass) running = null },
+      () => { if (running === pass) running = null },
+    )
+    return pass
+  }
+  const joinAfterCancellation = (): void => {
+    if (!params.scope.signal.aborted) return
+    params.scope.registerTerminalization(terminalizeOwnedResources())
+  }
+  return {
+    registerClient(client) {
+      clients.add(client)
+      joinAfterCancellation()
+    },
+    registerPool(pool) {
+      pools.add(pool)
+      joinAfterCancellation()
+    },
+    registerPayload(value) {
+      if (payload && payload !== value) throw new Error('controlled_runtime_payload_replacement_forbidden')
+      payload = value
+      joinAfterCancellation()
+    },
+    registerFallbackPool(value) {
+      if (fallbackPool && fallbackPool !== value) throw new Error('controlled_runtime_pool_replacement_forbidden')
+      fallbackPool = value
+      joinAfterCancellation()
+    },
+    terminalizeOwnedResources,
+  }
+}
+
 async function createPayloadBoundary(params: {
   uploadCallbacks: { current: import('../src/lib/controlledFreshCandidateCreation').ControlledFreshCandidateUploadCallbacks | null }
   expectedFilename: { current: string | null }
@@ -1160,58 +1329,12 @@ async function createPayloadBoundary(params: {
     bodyTimeout: 15_000,
   })
   undiciModule.setGlobalDispatcher(dispatcher)
-  const ownedClients = new Set<InstanceType<typeof pgModule.Client>>()
-  const ownedPools = new Set<InstanceType<typeof pgModule.Pool>>()
-  let ControlledPostgresClient: typeof pgModule.Client
-  ControlledPostgresClient = new Proxy(pgModule.Client, {
-    construct(target, args, newTarget) {
-      params.scope.assertActive()
-      const client = Reflect.construct(target, args, newTarget) as InstanceType<typeof pgModule.Client>
-      if (newTarget === ControlledPostgresClient) ownedClients.add(client)
-      return client
-    },
+  const terminalResources = createControlledFreshCandidateTerminalResourceRegistry({
+    scope: params.scope,
+    mutationActive: params.mutationActive,
+    dispatcher,
   })
-  let transportClose: Promise<void> | null = null
-  const destroyTransport = () => {
-    transportClose ??= dispatcher.destroy()
-    return transportClose
-  }
-  let payloadForCancellation: ControlledRuntimePayload | null = null
-  let poolForCancellation: VisualPilotRuntimePostgresPool | null = null
-  let payloadDestroyStarted = false
-  let poolEndStarted = false
-  let terminalizationPromise: Promise<void> | null = null
-  const terminalizeOwnedResources = (): Promise<void> => {
-    terminalizationPromise ??= (async () => {
-      params.mutationActive.current = false
-      const clients = [...ownedClients]
-      const pools = [...ownedPools]
-      let ok = true
-      const terminalResults = await Promise.allSettled([
-        destroyTransport(),
-        ...clients.filter((client) => !(client as { _ending?: boolean })._ending).map(async (client) => {
-          try { await client.end() } finally {
-            try { client.unref() } catch { /* the socket was already made terminal */ }
-          }
-        }),
-        ...pools.filter((ownedPool) => !(ownedPool as { ending?: boolean }).ending).map(async (ownedPool) => {
-          await ownedPool.end()
-        }),
-      ])
-      if (terminalResults.some((result) => result.status === 'rejected')) ok = false
-      if (payloadForCancellation && !payloadDestroyStarted) {
-        payloadDestroyStarted = true
-        try { await bounded(payloadForCancellation.destroy(), CONTROLLED_FRESH_CANDIDATE_RUNTIME_TEARDOWN_TIMEOUT_MS) } catch { ok = false }
-      }
-      if (poolForCancellation && !ownedPools.has(poolForCancellation as InstanceType<typeof pgModule.Pool>) && !poolEndStarted) {
-        poolEndStarted = true
-        try { await bounded(poolForCancellation.end(), CONTROLLED_FRESH_CANDIDATE_RUNTIME_TEARDOWN_TIMEOUT_MS) } catch { ok = false }
-      }
-      if (!ok) throw new Error('controlled_runtime_teardown_failed')
-    })()
-    return terminalizationPromise
-  }
-  params.scope.registerCancellation(terminalizeOwnedResources)
+  params.scope.registerCancellation(terminalResources.terminalizeOwnedResources)
   const governedPoolError = (): void => {
     params.mutationActive.current = false
     params.scope.cancel().then(
@@ -1219,10 +1342,22 @@ async function createPayloadBoundary(params: {
       () => undefined,
     )
   }
+  let ControlledPostgresClient: typeof pgModule.Client
+  ControlledPostgresClient = new Proxy(pgModule.Client, {
+    construct(target, args, newTarget) {
+      params.scope.assertActive()
+      const client = Reflect.construct(target, args, newTarget) as InstanceType<typeof pgModule.Client>
+      if (newTarget === ControlledPostgresClient) {
+        client.prependListener('error', governedPoolError)
+        terminalResources.registerClient(client)
+      }
+      return client
+    },
+  })
   const ControlledPostgresPool = createControlledFreshCandidatePoolConstructor({
     basePool: pgModule.Pool,
-    onClient: (client) => ownedClients.add(client),
-    onConstructed: (pool) => ownedPools.add(pool),
+    onClient: terminalResources.registerClient,
+    onConstructed: terminalResources.registerPool,
     onUnexpectedError: governedPoolError,
   })
   const controlledPgModule = {
@@ -1319,24 +1454,24 @@ async function createPayloadBoundary(params: {
   let payload: ControlledRuntimePayload
   try {
     payload = await payloadModule.getPayload({ config }) as unknown as ControlledRuntimePayload
-    payloadForCancellation = payload
+    terminalResources.registerPayload(payload)
     if (params.scope.signal.aborted) {
-      await terminalizeOwnedResources()
+      await terminalResources.terminalizeOwnedResources()
       throw new Error('controlled_runtime_deadline')
     }
   } catch (error) {
-    try { await terminalizeOwnedResources() } catch { /* initialization remains failed closed */ }
+    try { await terminalResources.terminalizeOwnedResources() } catch { /* initialization remains failed closed */ }
     throw error
   }
   let pool: VisualPilotRuntimePostgresPool
   try {
     pool = runtimePool(payload)
-    poolForCancellation = pool
+    terminalResources.registerFallbackPool(pool)
   } catch {
-    try { await terminalizeOwnedResources() } catch { /* initialization remains failed closed */ }
+    try { await terminalResources.terminalizeOwnedResources() } catch { /* initialization remains failed closed */ }
     throw new Error('controlled_runtime_pool_unavailable')
   }
-  return { payload, pool, dispatcher, terminalizeOwnedResources }
+  return { payload, pool, dispatcher, terminalizeOwnedResources: terminalResources.terminalizeOwnedResources }
 }
 
 export async function initializeControlledFreshCandidateCreationRuntime(
@@ -1360,17 +1495,12 @@ export async function initializeControlledFreshCandidateCreationRuntime(
       let ok = true
       if (payloadBoundaryPromise) {
         try {
-          const boundary = await bounded(payloadBoundaryPromise, CONTROLLED_FRESH_CANDIDATE_RUNTIME_TEARDOWN_TIMEOUT_MS)
-          await bounded(boundary.terminalizeOwnedResources(), CONTROLLED_FRESH_CANDIDATE_RUNTIME_TEARDOWN_TIMEOUT_MS * 3)
+          const boundary = await payloadBoundaryPromise
+          await boundary.terminalizeOwnedResources()
         } catch { ok = false }
       }
       if (scratchDirectory) {
-        try {
-          await bounded(
-            rm(scratchDirectory, { recursive: true, force: true }),
-            CONTROLLED_FRESH_CANDIDATE_RUNTIME_TEARDOWN_TIMEOUT_MS,
-          )
-        } catch { ok = false }
+        try { await rm(scratchDirectory, { recursive: true, force: true }) } catch { ok = false }
       }
       try { receiptDestination?.close() } catch { ok = false }
       try { ledger?.close() } catch { ok = false }
@@ -1541,8 +1671,9 @@ export async function initializeControlledFreshCandidateCreationRuntime(
     creationDependencies: dependencies,
     scope,
     async destroy() {
+      await scope.cancel()
       const result = await teardown()
-      scope.close()
+      await scope.drain()
       return result
     },
   }
@@ -1569,17 +1700,12 @@ export async function initializeControlledFreshCandidateVerificationRuntime(
       let ok = true
       if (payloadBoundaryPromise) {
         try {
-          const boundary = await bounded(payloadBoundaryPromise, CONTROLLED_FRESH_CANDIDATE_RUNTIME_TEARDOWN_TIMEOUT_MS)
-          await bounded(boundary.terminalizeOwnedResources(), CONTROLLED_FRESH_CANDIDATE_RUNTIME_TEARDOWN_TIMEOUT_MS * 3)
+          const boundary = await payloadBoundaryPromise
+          await boundary.terminalizeOwnedResources()
         } catch { ok = false }
       }
       if (scratchDirectory) {
-        try {
-          await bounded(
-            rm(scratchDirectory, { recursive: true, force: true }),
-            CONTROLLED_FRESH_CANDIDATE_RUNTIME_TEARDOWN_TIMEOUT_MS,
-          )
-        } catch { ok = false }
+        try { await rm(scratchDirectory, { recursive: true, force: true }) } catch { ok = false }
       }
       try { receiptDestination?.close() } catch { ok = false }
       try { ledger?.close() } catch { ok = false }
@@ -1631,7 +1757,13 @@ export async function initializeControlledFreshCandidateVerificationRuntime(
     scratchDirectory = await mkdtemp(path.join(ledger.root, '.uygunayakkabi-cfc-verify-'))
     const scratchAuthority = openPrivatePosixDirectory(scratchDirectory, ledger.device)
     closeSync(scratchAuthority.handle)
-    payloadBoundaryPromise = scope.run(() => createPayloadBoundary({ uploadCallbacks, expectedFilename, mutationActive, scratchDirectory: scratchDirectory as string, scope }))
+    payloadBoundaryPromise = createPayloadBoundary({
+      uploadCallbacks,
+      expectedFilename,
+      mutationActive,
+      scratchDirectory: scratchDirectory as string,
+      scope,
+    })
   } catch (error) {
     await teardown()
     throw error
@@ -1652,8 +1784,9 @@ export async function initializeControlledFreshCandidateVerificationRuntime(
     },
     scope,
     async destroy() {
+      await scope.cancel()
       const result = await teardown()
-      scope.close()
+      await scope.drain()
       return result
     },
   }

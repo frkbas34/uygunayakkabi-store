@@ -36,7 +36,9 @@ export type ControlledFreshCandidateOperationScope = {
   assertActive(): void
   run<T>(operation: (signal: AbortSignal) => Promise<T>): Promise<T>
   registerCancellation(handler: () => Promise<void>): void
+  registerTerminalization(operation: Promise<unknown>): void
   cancel(): Promise<void>
+  drain(): Promise<void>
   close(): void
 }
 
@@ -56,16 +58,49 @@ export function createControlledFreshCandidateOperationScope(params: {
   const controller = new AbortController()
   const cancellationHandlers: Array<() => Promise<void>> = []
   const activeOperations = new Set<Promise<unknown>>()
-  let cancellation: Promise<void> | null = null
+  const terminalizations = new Set<Promise<unknown>>()
+  let cancellationStarted = false
   let closed = false
 
-  const cancel = (): Promise<void> => {
-    if (cancellation) return cancellation
+  const trackTerminalization = (operation: Promise<unknown>): void => {
+    const tracked = Promise.resolve(operation)
+    terminalizations.add(tracked)
+    tracked.then(
+      () => terminalizations.delete(tracked),
+      () => terminalizations.delete(tracked),
+    )
+  }
+  const beginCancellation = (): void => {
+    if (cancellationStarted) return
+    cancellationStarted = true
     controller.abort()
     const handlers = cancellationHandlers.splice(0)
-    cancellation = Promise.allSettled(handlers.map((handler) => Promise.resolve().then(handler)))
-      .then(() => undefined)
-    return cancellation
+    for (const handler of handlers) trackTerminalization(Promise.resolve().then(handler))
+  }
+  const drainTerminalizations = async (): Promise<void> => {
+    for (;;) {
+      const pending = [...terminalizations]
+      if (pending.length === 0) return
+      await Promise.allSettled(pending)
+    }
+  }
+  const cancel = async (): Promise<void> => {
+    beginCancellation()
+    await drainTerminalizations()
+  }
+  const drain = async (): Promise<void> => {
+    beginCancellation()
+    for (;;) {
+      const pending = [...activeOperations, ...terminalizations]
+      if (pending.length === 0) {
+        // Give cancellation-aware late constructors one turn to register the
+        // terminalization they discovered while their parent work settled.
+        await new Promise<void>((resolve) => setImmediate(resolve))
+        if (activeOperations.size === 0 && terminalizations.size === 0) return
+        continue
+      }
+      await Promise.allSettled(pending)
+    }
   }
   const assertActive = (): void => {
     if (closed || controller.signal.aborted || now() >= deadline) {
@@ -110,19 +145,29 @@ export function createControlledFreshCandidateOperationScope(params: {
       })
       if (timer) clearTimeout(timer)
       if (outcome.state === 'timeout' || controller.signal.aborted || now() >= deadline) {
-        // Cancellation handlers own and acknowledge the terminal state of every
-        // mutable resource. The work promise remains observed until it settles.
-        await cancel()
+        // Do not await the work from inside its own timeout wrapper. The outer
+        // terminal boundary calls drain(), which waits for this registered work
+        // and every cancellation acknowledgement to reach a fixed point.
+        beginCancellation()
         throw new ControlledFreshCandidateDeadlineError()
       }
       if (outcome.state === 'rejected') throw outcome.error
       return outcome.value
     },
     registerCancellation(handler) {
-      if (closed || controller.signal.aborted) throw new ControlledFreshCandidateDeadlineError()
-      cancellationHandlers.push(handler)
+      if (closed) throw new ControlledFreshCandidateDeadlineError()
+      if (cancellationStarted) {
+        trackTerminalization(Promise.resolve().then(handler))
+      } else {
+        cancellationHandlers.push(handler)
+      }
+    },
+    registerTerminalization(operation) {
+      if (closed) throw new ControlledFreshCandidateDeadlineError()
+      trackTerminalization(operation)
     },
     cancel,
+    drain,
     close() {
       closed = true
       cancellationHandlers.splice(0)
@@ -685,12 +730,15 @@ function assertDependencies(dependencies: ControlledFreshCandidateCreationDepend
     if (typeof dependencies[key] !== 'function') throw new Error('MUTATION_CAPABILITY_INVALID')
   }
   if (!isPlainRecord(dependencies.scope) || !hasExactOwnKeys(dependencies.scope, [
-    'deadline', 'signal', 'assertActive', 'run', 'registerCancellation', 'cancel', 'close',
+    'deadline', 'signal', 'assertActive', 'run', 'registerCancellation',
+    'registerTerminalization', 'cancel', 'drain', 'close',
   ])) throw new Error('MUTATION_CAPABILITY_INVALID')
   if (!Number.isSafeInteger(dependencies.scope.deadline) || !(dependencies.scope.signal instanceof AbortSignal)) {
     throw new Error('MUTATION_CAPABILITY_INVALID')
   }
-  for (const key of ['assertActive', 'run', 'registerCancellation', 'cancel', 'close'] as const) {
+  for (const key of [
+    'assertActive', 'run', 'registerCancellation', 'registerTerminalization', 'cancel', 'drain', 'close',
+  ] as const) {
     if (typeof dependencies.scope[key] !== 'function') throw new Error('MUTATION_CAPABILITY_INVALID')
   }
 }

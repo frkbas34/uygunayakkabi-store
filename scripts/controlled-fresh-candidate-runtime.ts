@@ -127,13 +127,18 @@ export async function runControlledFreshCandidateRuntime(
       const report = await executeControlledCreationResource(resource)
       const terminal = await resource.destroy()
       resource = null
-      if (!terminal.ok || scope.signal.aborted) throw new Error('controlled_runtime_terminalization_failed')
+      await scope.cancel()
+      await scope.drain()
+      if (!terminal.ok) throw new Error('controlled_runtime_terminalization_failed')
+      scope.close()
       io.stdout(JSON.stringify(report))
       return creationExitCode(report)
     } catch {
       if (resource) {
         try { await resource.destroy() } catch { /* sanitized terminal failure */ }
       }
+      await scope.cancel()
+      await scope.drain()
       io.stderr('CONTROLLED_FRESH_CANDIDATE_INTERNAL_FAILURE')
       scope.close()
       return 1
@@ -151,13 +156,18 @@ export async function runControlledFreshCandidateRuntime(
     })
     const terminal = await resource.destroy()
     resource = null
-    if (!terminal.ok || scope.signal.aborted) throw new Error('controlled_runtime_terminalization_failed')
+    await scope.cancel()
+    await scope.drain()
+    if (!terminal.ok) throw new Error('controlled_runtime_terminalization_failed')
+    scope.close()
     io.stdout(JSON.stringify(report))
     return verificationExitCode(report)
   } catch {
     if (resource) {
       try { await resource.destroy() } catch { /* sanitized terminal failure */ }
     }
+    await scope.cancel()
+    await scope.drain()
     io.stderr('CONTROLLED_FRESH_CANDIDATE_INTERNAL_FAILURE')
     scope.close()
     return 1

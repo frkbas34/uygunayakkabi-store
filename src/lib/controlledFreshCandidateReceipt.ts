@@ -10,6 +10,7 @@ export const CONTROLLED_FRESH_CANDIDATE_CONTRACT_IDENTITY = 'controlled-fresh-ca
 export const CONTROLLED_FRESH_CANDIDATE_RECEIPT_DOMAIN = 'uygunayakkabi:controlled-fresh-candidate:private-receipt:v1' as const
 export const CONTROLLED_FRESH_CANDIDATE_RECEIPT_CONSUMPTION_DOMAIN = 'uygunayakkabi:controlled-fresh-candidate:receipt-consumption:v1' as const
 export const CONTROLLED_FRESH_CANDIDATE_MAX_STORAGE_OBJECTS = 4
+export const CONTROLLED_FRESH_CANDIDATE_MAX_CANONICAL_JSON_BYTES = 65_536
 
 export const CONTROLLED_FRESH_CANDIDATE_PHASES = [
   'authorization_consumed',
@@ -446,7 +447,10 @@ export function authenticateControlledFreshCandidateReceiptBytes(params: {
   expectedReceiptDestinationDigest?: string
   consume(consumptionIdentity: string): boolean
 }): ControlledFreshCandidateTargetCapability {
-  if (!(params.bytes instanceof Uint8Array)) throw new Error('CONTROLLED_RECEIPT_BYTES_INVALID')
+  if (
+    !(params.bytes instanceof Uint8Array)
+    || params.bytes.byteLength > CONTROLLED_FRESH_CANDIDATE_MAX_CANONICAL_JSON_BYTES
+  ) throw new Error('CONTROLLED_RECEIPT_BYTES_INVALID')
   const bytes = Buffer.from(params.bytes)
   if (bytes.byteLength >= 3 && bytes[0] === 0xef && bytes[1] === 0xbb && bytes[2] === 0xbf) {
     throw new Error('CONTROLLED_RECEIPT_BYTES_INVALID')

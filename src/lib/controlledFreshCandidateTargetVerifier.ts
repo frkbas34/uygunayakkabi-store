@@ -193,9 +193,11 @@ function receiptConstructionIsComplete(
     && receipt.finalization.observed === true
     && receipt.commitCertainty === 'committed_observed'
     && receipt.quarantineCertainty === 'pending_observed'
-    && receipt.teardown.attempted === true
-    && receipt.teardown.completed === true
-    && receipt.cleanupStatus === 'complete'
+    && receipt.mutationResourceTeardown.attempted === true
+    && receipt.mutationResourceTeardown.completed === true
+    && receipt.mutationResourceTeardown.status === 'complete'
+    && receipt.authorityClosure.status === 'pending_not_attested'
+    && receipt.authorityClosure.boundary === 'outside_durable_receipt'
 }
 
 function assessSnapshot(params: {
@@ -299,7 +301,7 @@ export async function verifyControlledFreshCandidateTarget(params: {
     phase: receipt.phase,
     quarantineCertainty: receipt.quarantineCertainty,
     commitCertainty: receipt.commitCertainty,
-    cleanupStatus: receipt.cleanupStatus,
+    cleanupStatus: receipt.mutationResourceTeardown.status,
   }
   const productId = receipt.product.id
   const mediaId = receipt.media.id

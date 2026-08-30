@@ -330,7 +330,15 @@ async function main(): Promise<void> {
     assert.equal(receipt.media.id, 501)
     assert.equal(receipt.storageLedger.length, 1)
     assert.equal(receipt.storageLedger[0]?.state, 'known_present')
-    assert.equal(receipt.teardown.completed, true)
+    assert.deepEqual(receipt.mutationResourceTeardown, {
+      attempted: true,
+      completed: true,
+      status: 'complete',
+    })
+    assert.deepEqual(receipt.authorityClosure, {
+      status: 'pending_not_attested',
+      boundary: 'outside_durable_receipt',
+    })
     assert.throws(
       () => authenticateReceipt({ serialized: finalSerialized, consume }),
       /REPLAYED/,
@@ -344,6 +352,29 @@ async function main(): Promise<void> {
         draft.phase = 'authorization_consumed'
       }),
       /PHASE_REGRESSION/,
+    )
+    const legacy = JSON.parse(finalSerialized) as Record<string, unknown>
+    legacy.version = 'controlled-fresh-candidate-private/v1'
+    const legacyRuntime = legacy.runtime as Record<string, unknown>
+    legacyRuntime.identity = 'controlled-fresh-candidate-runtime/v1'
+    legacyRuntime.contract = 'controlled-fresh-candidate-contract/v1'
+    assert.throws(
+      () => authenticateReceipt({ serialized: JSON.stringify(legacy) }),
+      /CONTROLLED_RECEIPT_MALFORMED/,
+    )
+
+    const overclaiming = JSON.parse(finalSerialized) as Record<string, unknown>
+    ;(overclaiming.authorityClosure as Record<string, unknown>).status = 'complete'
+    assert.throws(
+      () => authenticateReceipt({ serialized: JSON.stringify(overclaiming) }),
+      /CONTROLLED_RECEIPT_MALFORMED/,
+    )
+
+    const contradictory = JSON.parse(finalSerialized) as Record<string, unknown>
+    ;(contradictory.mutationResourceTeardown as Record<string, unknown>).status = 'failed'
+    assert.throws(
+      () => authenticateReceipt({ serialized: JSON.stringify(contradictory) }),
+      /CONTROLLED_RECEIPT_MALFORMED/,
     )
   }
 
@@ -613,12 +644,29 @@ async function main(): Promise<void> {
   }
 
   {
+    const successfulState = fixture()
+    const successfulResult = await createControlledFreshCandidate(input(124), successfulState.dependencies)
+    assert.equal(successfulResult.cleanupStatus, 'complete')
     const state = fixture({ authorityClose: false })
     const result = await createControlledFreshCandidate(input(124), state.dependencies)
     assert.equal(result.verdict, 'CREATION_TEARDOWN_FAILED_RECOVERY_REQUIRED')
     assert.deepEqual(result.reasonCodes, ['AUTHORITY_CLOSURE_FAILED'])
     assert.equal(result.cleanupStatus, 'failed')
     assert.ok(state.events.lastIndexOf('receipt-persist') < state.events.lastIndexOf('authority-close'))
+    assert.equal(state.receipts.at(-1), successfulState.receipts.at(-1))
+    const durable = readControlledFreshCandidateCapability(authenticateReceipt({
+      serialized: state.receipts.at(-1) ?? '',
+    }))
+    assert.deepEqual(durable.mutationResourceTeardown, {
+      attempted: true,
+      completed: true,
+      status: 'complete',
+    })
+    assert.deepEqual(durable.authorityClosure, {
+      status: 'pending_not_attested',
+      boundary: 'outside_durable_receipt',
+    })
+    assert.equal('cleanupStatus' in durable, false)
   }
 
   {

@@ -3,12 +3,12 @@ import {
   timingSafeEqual,
 } from 'node:crypto'
 
-export const CONTROLLED_FRESH_CANDIDATE_PRIVATE_VERSION = 'controlled-fresh-candidate-private/v1' as const
+export const CONTROLLED_FRESH_CANDIDATE_PRIVATE_VERSION = 'controlled-fresh-candidate-private/v2' as const
 export const CONTROLLED_FRESH_CANDIDATE_MANIFEST_VERSION = 'controlled-fresh-candidate-manifest/v1' as const
-export const CONTROLLED_FRESH_CANDIDATE_RUNTIME_IDENTITY = 'controlled-fresh-candidate-runtime/v1' as const
-export const CONTROLLED_FRESH_CANDIDATE_CONTRACT_IDENTITY = 'controlled-fresh-candidate-contract/v1' as const
-export const CONTROLLED_FRESH_CANDIDATE_RECEIPT_DOMAIN = 'uygunayakkabi:controlled-fresh-candidate:private-receipt:v1' as const
-export const CONTROLLED_FRESH_CANDIDATE_RECEIPT_CONSUMPTION_DOMAIN = 'uygunayakkabi:controlled-fresh-candidate:receipt-consumption:v1' as const
+export const CONTROLLED_FRESH_CANDIDATE_RUNTIME_IDENTITY = 'controlled-fresh-candidate-runtime/v2' as const
+export const CONTROLLED_FRESH_CANDIDATE_CONTRACT_IDENTITY = 'controlled-fresh-candidate-contract/v2' as const
+export const CONTROLLED_FRESH_CANDIDATE_RECEIPT_DOMAIN = 'uygunayakkabi:controlled-fresh-candidate:private-receipt:v2' as const
+export const CONTROLLED_FRESH_CANDIDATE_RECEIPT_CONSUMPTION_DOMAIN = 'uygunayakkabi:controlled-fresh-candidate:receipt-consumption:v2' as const
 export const CONTROLLED_FRESH_CANDIDATE_MAX_STORAGE_OBJECTS = 4
 export const CONTROLLED_FRESH_CANDIDATE_MAX_CANONICAL_JSON_BYTES = 65_536
 
@@ -133,14 +133,18 @@ export type ControlledFreshCandidatePrivateReceipt = {
   budgets: ControlledFreshCandidateMutationBudget
   quarantineCertainty: ControlledFreshCandidateQuarantineCertainty
   commitCertainty: ControlledFreshCandidateCommitCertainty
-  cleanupStatus: ControlledFreshCandidateCleanupStatus
   finalization: {
     requested: boolean
     observed: boolean
   }
-  teardown: {
+  mutationResourceTeardown: {
     attempted: boolean
     completed: boolean
+    status: ControlledFreshCandidateCleanupStatus
+  }
+  authorityClosure: {
+    status: 'pending_not_attested'
+    boundary: 'outside_durable_receipt'
   }
   seal: string
 }
@@ -285,7 +289,7 @@ function exactReceiptShape(value: unknown): value is ControlledFreshCandidatePri
     'version', 'executionAuthorization', 'executionId', 'manifest', 'runtime',
     'stockCandidate', 'expectedStateFingerprint', 'product', 'media', 'storageLedger',
     'transactions', 'phase', 'budgets', 'quarantineCertainty', 'commitCertainty',
-    'cleanupStatus', 'finalization', 'teardown', 'seal',
+    'finalization', 'mutationResourceTeardown', 'authorityClosure', 'seal',
   ])) return false
   if (!isPlainRecord(value.executionAuthorization) || !hasExactOwnKeys(value.executionAuthorization, ['identity', 'digest', 'consumed'])) return false
   if (!isPlainRecord(value.runtime) || !hasExactOwnKeys(value.runtime, [
@@ -295,7 +299,8 @@ function exactReceiptShape(value: unknown): value is ControlledFreshCandidatePri
   if (!isPlainRecord(value.media) || !hasExactOwnKeys(value.media, ['state', 'id', 'productId', 'expectedFilename', 'actualFilename'])) return false
   if (!isPlainRecord(value.transactions) || !hasExactOwnKeys(value.transactions, ['productCreate', 'mediaCreate', 'relationshipUpdate', 'finalization'])) return false
   if (!isPlainRecord(value.finalization) || !hasExactOwnKeys(value.finalization, ['requested', 'observed'])) return false
-  if (!isPlainRecord(value.teardown) || !hasExactOwnKeys(value.teardown, ['attempted', 'completed'])) return false
+  if (!isPlainRecord(value.mutationResourceTeardown) || !hasExactOwnKeys(value.mutationResourceTeardown, ['attempted', 'completed', 'status'])) return false
+  if (!isPlainRecord(value.authorityClosure) || !hasExactOwnKeys(value.authorityClosure, ['status', 'boundary'])) return false
   if (!Array.isArray(value.storageLedger) || value.storageLedger.length > CONTROLLED_FRESH_CANDIDATE_MAX_STORAGE_OBJECTS) return false
   const ordinals = new Set<number>()
   for (const entry of value.storageLedger) {
@@ -336,11 +341,29 @@ function exactReceiptShape(value: unknown): value is ControlledFreshCandidatePri
     && exactBudget(value.budgets)
     && ['unknown', 'blocked_observed', 'pending_observed', 'not_blocked'].includes(String(value.quarantineCertainty))
     && ['unknown', 'rollback_requested', 'committed_observed'].includes(String(value.commitCertainty))
-    && ['not_started', 'complete', 'failed', 'unknown'].includes(String(value.cleanupStatus))
     && typeof value.finalization.requested === 'boolean'
     && typeof value.finalization.observed === 'boolean'
-    && typeof value.teardown.attempted === 'boolean'
-    && typeof value.teardown.completed === 'boolean'
+    && typeof value.mutationResourceTeardown.attempted === 'boolean'
+    && typeof value.mutationResourceTeardown.completed === 'boolean'
+    && (
+      (
+        value.mutationResourceTeardown.attempted === false
+        && value.mutationResourceTeardown.completed === false
+        && value.mutationResourceTeardown.status === 'not_started'
+      )
+      || (
+        value.mutationResourceTeardown.attempted === true
+        && value.mutationResourceTeardown.completed === true
+        && value.mutationResourceTeardown.status === 'complete'
+      )
+      || (
+        value.mutationResourceTeardown.attempted === true
+        && value.mutationResourceTeardown.completed === false
+        && ['failed', 'unknown'].includes(String(value.mutationResourceTeardown.status))
+      )
+    )
+    && value.authorityClosure.status === 'pending_not_attested'
+    && value.authorityClosure.boundary === 'outside_durable_receipt'
     && exactDigest(value.seal)
 }
 

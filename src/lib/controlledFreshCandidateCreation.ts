@@ -895,9 +895,12 @@ function initialReceipt(params: {
     budgets: emptyBudget(),
     quarantineCertainty: 'unknown',
     commitCertainty: 'unknown',
-    cleanupStatus: 'not_started',
     finalization: { requested: false, observed: false },
-    teardown: { attempted: false, completed: false },
+    mutationResourceTeardown: { attempted: false, completed: false, status: 'not_started' },
+    authorityClosure: {
+      status: 'pending_not_attested',
+      boundary: 'outside_durable_receipt',
+    },
   }
 }
 
@@ -1308,9 +1311,9 @@ export async function createControlledFreshCandidate(
     try {
       await mutateReceipt((draft) => {
         draft.phase = 'teardown_observed'
-        draft.teardown.attempted = true
-        draft.teardown.completed = teardownOk
-        draft.cleanupStatus = teardownOk ? 'complete' : 'failed'
+        draft.mutationResourceTeardown.attempted = true
+        draft.mutationResourceTeardown.completed = teardownOk
+        draft.mutationResourceTeardown.status = teardownOk ? 'complete' : 'failed'
       })
     } catch {
       failure = failure ?? new ControlledCreationFailure('PRIVATE_RECEIPT_PERSIST_FAILED', 'CREATION_RECOVERY_REQUIRED')
@@ -1329,7 +1332,7 @@ export async function createControlledFreshCandidate(
   const finalPhase = receipt?.phase ?? 'not_started'
   const quarantineCertainty = receipt?.quarantineCertainty ?? 'unknown'
   const commitCertainty = receipt?.commitCertainty ?? 'unknown'
-  const cleanupStatus = receipt?.cleanupStatus ?? (teardownOk ? 'complete' : 'failed')
+  const cleanupStatus: ControlledFreshCandidateCleanupStatus = teardownOk && authorityClosureOk ? 'complete' : 'failed'
   if (!teardownOk) {
     const knownFinal = receipt?.finalization.observed === true && commitCertainty === 'committed_observed'
     return basePublicReport(finalBudgets, {

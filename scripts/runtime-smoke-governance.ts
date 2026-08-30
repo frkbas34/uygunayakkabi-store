@@ -339,7 +339,29 @@ assert.ok(!/blobModule\.(?:del|list|head)|sendTelegram|generateProductImages|que
 assertIncludes(controlledCandidateCreation, "status: 'draft'", 'controlled Product draft invariant')
 assertIncludes(controlledCandidateCreation, 'sellable: false', 'controlled Product non-sellable invariant')
 assertIncludes(controlledCandidateCreation, 'eligibleForPublishing: false', 'controlled public publishing denial')
-assertIncludes(controlledCandidateReceipt, "controlled-fresh-candidate-private/v1", 'controlled private receipt version')
+assertIncludes(controlledCandidateReceipt, "controlled-fresh-candidate-private/v2", 'controlled private receipt version')
+assert.ok(
+  !controlledCandidateReceipt.includes('controlled-fresh-candidate-private/v1'),
+  'controlled private receipt governance must reject the legacy v1 identity',
+)
+assertIncludes(controlledCandidateReceipt, 'mutationResourceTeardown', 'controlled mutation-resource teardown attestation')
+assertIncludes(controlledCandidateReceipt, "status: 'pending_not_attested'", 'controlled authority-closure pending attestation')
+assertIncludes(controlledCandidateReceipt, "boundary: 'outside_durable_receipt'", 'controlled authority-closure attestation boundary')
+assertIncludes(
+  controlledCandidateReceipt,
+  "value.authorityClosure.status === 'pending_not_attested'",
+  'controlled authority-closure exact pending validation',
+)
+assertIncludes(
+  controlledCandidateReceipt,
+  "value.authorityClosure.boundary === 'outside_durable_receipt'",
+  'controlled authority-closure exact boundary validation',
+)
+assert.ok(
+  !controlledCandidateReceipt.includes("authorityClosure.status === 'complete'")
+    && !controlledCandidateReceipt.includes("authorityClosure: { status: 'complete'"),
+  'durable receipt must not attest completed authority closure',
+)
 assertIncludes(controlledCandidateReceipt, "createHmac('sha256'", 'controlled receipt HMAC')
 assertIncludes(controlledCandidateReceipt, 'timingSafeEqual', 'controlled receipt constant-time authentication')
 assertIncludes(controlledCandidateReceipt, 'CONTROLLED_RECEIPT_REPLAYED', 'controlled receipt replay refusal')

@@ -117,9 +117,9 @@ function receipt(seed: number, options: {
     },
     quarantineCertainty: 'pending_observed',
     commitCertainty: 'committed_observed',
-    cleanupStatus: 'complete',
     finalization: { requested: true, observed: !options.incomplete },
-    teardown: { attempted: true, completed: true },
+    mutationResourceTeardown: { attempted: true, completed: true, status: 'complete' },
+    authorityClosure: { status: 'pending_not_attested', boundary: 'outside_durable_receipt' },
   }, KEY)
 }
 
@@ -286,6 +286,11 @@ async function main(): Promise<void> {
     assert.deepEqual(result.reasonCodes, ['STRICT_TARGET_READY'])
     assert.equal(result.eligibleForVisualOnlyGeneration, true)
     assert.equal(result.eligibleForPublishing, false)
+    assert.deepEqual(authenticated.receipt.authorityClosure, {
+      status: 'pending_not_attested',
+      boundary: 'outside_durable_receipt',
+    })
+    assert.equal('authorityClosure' in result, false)
     assert.equal(state.reads.filter((entry) => entry === 'product:77').length, 2)
     assert.equal(state.reads.at(-1), 'teardown')
     assertSanitized(result, authenticated.receipt)

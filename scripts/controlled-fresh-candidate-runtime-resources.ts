@@ -484,7 +484,19 @@ export function createControlledFreshCandidateBoundaryLoggerConfiguration(): {
 
 export function createControlledFreshCandidatePoolConstructor(params: {
   basePool: typeof import('pg').Pool
-  onClient(client: InstanceType<typeof import('pg').Client>): void
+  onClient(client: InstanceType<typeof import('pg').Client>, pool: InstanceType<typeof import('pg').Pool>): void
+  onClientAcquired(
+    client: InstanceType<typeof import('pg').Client>,
+    pool: InstanceType<typeof import('pg').Pool>,
+    release: (error?: Error | boolean) => void,
+  ): void
+  onClientReleased(
+    client: InstanceType<typeof import('pg').Client>,
+    pool: InstanceType<typeof import('pg').Pool>,
+    succeeded: boolean,
+    destructionRequested: boolean,
+  ): void
+  onClientDestroyed(client: InstanceType<typeof import('pg').Client>, pool: InstanceType<typeof import('pg').Pool>): void
   onConstructed(pool: InstanceType<typeof import('pg').Pool>): void
   onUnexpectedError(): void
   canConstruct?: () => boolean
@@ -517,9 +529,39 @@ export function createControlledFreshCandidatePoolConstructor(params: {
       this.prependListener('error', params.onUnexpectedError)
       this.on('connect', (client) => {
         governClient(client)
-        params.onClient(client)
+        params.onClient(client, this)
       })
+      this.on('remove', (client) => params.onClientDestroyed(client, this))
       params.onConstructed(this)
+    }
+
+    private governAcquisition(
+      client: import('pg').PoolClient,
+      nativeRelease: (error?: Error | boolean) => void,
+    ): import('pg').PoolClient {
+      governClient(client)
+      let released = false
+      const controlledRelease = (error?: Error | boolean): void => {
+        if (released) return
+        released = true
+        let succeeded = false
+        try {
+          nativeRelease(error)
+          succeeded = true
+        } catch {
+          params.onUnexpectedError()
+        } finally {
+          params.onClientReleased(client, this, succeeded, Boolean(error))
+        }
+      }
+      client.release = controlledRelease
+      try {
+        params.onClientAcquired(client, this, controlledRelease)
+      } catch {
+        controlledRelease(new Error('controlled_runtime_pool_client_registration_failed'))
+        throw new Error('controlled_runtime_pool_client_registration_failed')
+      }
+      return client
     }
 
     connect(): Promise<import('pg').PoolClient>
@@ -533,7 +575,21 @@ export function createControlledFreshCandidatePoolConstructor(params: {
         }
         return Promise.reject(error)
       }
-      return callback ? super.connect(callback) : super.connect()
+      if (callback) {
+        return super.connect((error, client, release) => {
+          if (error || !client) {
+            callback(error, client, release)
+            return
+          }
+          try {
+            const governed = this.governAcquisition(client, release)
+            callback(undefined, governed, governed.release)
+          } catch {
+            callback(new Error('controlled_runtime_pool_client_registration_failed'), undefined as never, () => undefined)
+          }
+        })
+      }
+      return super.connect().then((client) => this.governAcquisition(client, client.release.bind(client)))
     }
   }
   return ControlledPostgresPool
@@ -1318,6 +1374,8 @@ type ControlledTerminalPool = {
   end(): Promise<unknown>
 }
 
+type ControlledTerminalPoolClientRelease = (error?: Error | boolean) => void
+
 type ControlledTerminalPayload = {
   destroy(): Promise<void>
 }
@@ -1329,6 +1387,19 @@ export function createControlledFreshCandidateTerminalResourceRegistry(params: {
 }): {
   registerClient(client: ControlledTerminalClient): void
   registerPool(pool: ControlledTerminalPool): void
+  registerPoolClient(client: ControlledTerminalClient, pool: ControlledTerminalPool): void
+  registerPoolClientAcquisition(
+    client: ControlledTerminalClient,
+    pool: ControlledTerminalPool,
+    release: ControlledTerminalPoolClientRelease,
+  ): void
+  registerPoolClientRelease(
+    client: ControlledTerminalClient,
+    pool: ControlledTerminalPool,
+    succeeded: boolean,
+    destructionRequested: boolean,
+  ): void
+  registerPoolClientDestruction(client: ControlledTerminalClient, pool: ControlledTerminalPool): void
   registerPayload(payload: ControlledTerminalPayload): void
   registerFallbackPool(pool: ControlledTerminalPool): void
   terminalizeOwnedResources(): Promise<void>
@@ -1337,6 +1408,20 @@ export function createControlledFreshCandidateTerminalResourceRegistry(params: {
   const pools = new Set<ControlledTerminalPool>()
   const startedClients = new Set<ControlledTerminalClient>()
   const startedPools = new Set<ControlledTerminalPool>()
+  const poolClients = new Map<ControlledTerminalClient, {
+    pool: ControlledTerminalPool
+    acquisitionPending: boolean
+    acquisitionSettled: Promise<void>
+    settleAcquisition(): void
+    checkedOut: boolean
+    release: ControlledTerminalPoolClientRelease | null
+    releaseStarted: boolean
+    releaseFailed: boolean
+    destroyed: boolean
+    destructionPending: boolean
+    destructionSettled: Promise<void>
+    settleDestruction(): void
+  }>()
   let payload: ControlledTerminalPayload | null = null
   let fallbackPool: ControlledTerminalPool | null = null
   let dispatcherStarted = false
@@ -1350,35 +1435,77 @@ export function createControlledFreshCandidateTerminalResourceRegistry(params: {
     if (running) return running
     const pass = (async () => {
       for (;;) {
-        const operations: Promise<unknown>[] = []
+        const resourceOperations: Promise<unknown>[] = []
         if (!dispatcherStarted) {
           dispatcherStarted = true
-          operations.push(Promise.resolve().then(() => params.dispatcher.destroy()))
+          resourceOperations.push(Promise.resolve().then(() => params.dispatcher.destroy()))
         }
         for (const client of clients) {
+          if (poolClients.has(client)) continue
           if (startedClients.has(client)) continue
           startedClients.add(client)
-          operations.push(Promise.resolve().then(async () => {
+          resourceOperations.push(Promise.resolve().then(async () => {
             try { await client.end() } finally {
               try { client.unref?.() } catch { /* the client is already terminal */ }
             }
           }))
         }
-        for (const pool of pools) {
-          if (startedPools.has(pool)) continue
-          startedPools.add(pool)
-          operations.push(Promise.resolve().then(() => pool.end()))
+        for (const state of poolClients.values()) {
+          if (state.destructionPending) {
+            resourceOperations.push(state.destructionSettled)
+            continue
+          }
+          if (state.acquisitionPending) {
+            resourceOperations.push(state.acquisitionSettled)
+            continue
+          }
+          if (!state.checkedOut || state.releaseStarted) continue
+          state.releaseStarted = true
+          resourceOperations.push(Promise.resolve().then(() => {
+            const release = state.release
+            if (!release) throw new Error('controlled_runtime_pool_client_release_missing')
+            release(new Error('controlled_runtime_pool_client_destroyed'))
+            if (state.checkedOut || state.releaseFailed) {
+              throw new Error('controlled_runtime_pool_client_release_failed')
+            }
+          }))
         }
         if (payload && !payloadStarted) {
           payloadStarted = true
-          operations.push(Promise.resolve().then(() => payload?.destroy()))
+          resourceOperations.push(Promise.resolve().then(() => payload?.destroy()))
+        }
+        if (resourceOperations.length > 0) {
+          const results = await Promise.allSettled(resourceOperations)
+          if (results.some((result) => result.status === 'rejected')) terminalizationFailed = true
+          continue
+        }
+
+        const poolOperations: Promise<unknown>[] = []
+        for (const pool of pools) {
+          if (startedPools.has(pool)) continue
+          const governed = [...poolClients.values()].filter((state) => state.pool === pool)
+          if (governed.some((state) => state.acquisitionPending || state.checkedOut)) continue
+          startedPools.add(pool)
+          const awaitingRemoval = governed.filter((state) => !state.destroyed)
+          for (const state of awaitingRemoval) state.destructionPending = true
+          poolOperations.push(Promise.resolve().then(async () => {
+            try {
+              await pool.end()
+            } catch {
+              for (const state of awaitingRemoval) {
+                state.destructionPending = false
+                state.settleDestruction()
+              }
+              throw new Error('controlled_runtime_pool_end_failed')
+            }
+          }))
         }
         if (fallbackPool && !pools.has(fallbackPool) && !fallbackPoolStarted) {
           fallbackPoolStarted = true
-          operations.push(Promise.resolve().then(() => fallbackPool?.end()))
+          poolOperations.push(Promise.resolve().then(() => fallbackPool?.end()))
         }
-        if (operations.length === 0) break
-        const results = await Promise.allSettled(operations)
+        if (poolOperations.length === 0) break
+        const results = await Promise.allSettled(poolOperations)
         if (results.some((result) => result.status === 'rejected')) terminalizationFailed = true
       }
       if (terminalizationFailed) throw new Error('controlled_runtime_teardown_failed')
@@ -1394,6 +1521,35 @@ export function createControlledFreshCandidateTerminalResourceRegistry(params: {
     if (!params.scope.signal.aborted) return
     params.scope.registerTerminalization(terminalizeOwnedResources)
   }
+  const registerPoolClient = (client: ControlledTerminalClient, pool: ControlledTerminalPool): void => {
+    if (params.scope.state === 'CLOSED') throw new Error('controlled_runtime_resource_registration_closed')
+    const existing = poolClients.get(client)
+    if (existing) {
+      if (existing.pool !== pool) throw new Error('controlled_runtime_pool_client_reassignment_forbidden')
+      return
+    }
+    if (startedClients.has(client)) throw new Error('controlled_runtime_pool_client_registration_late')
+    clients.delete(client)
+    let settleAcquisition = (): void => undefined
+    const acquisitionSettled = new Promise<void>((resolve) => { settleAcquisition = resolve })
+    let settleDestruction = (): void => undefined
+    const destructionSettled = new Promise<void>((resolve) => { settleDestruction = resolve })
+    poolClients.set(client, {
+      pool,
+      acquisitionPending: true,
+      acquisitionSettled,
+      settleAcquisition,
+      checkedOut: false,
+      release: null,
+      releaseStarted: false,
+      releaseFailed: false,
+      destroyed: false,
+      destructionPending: false,
+      destructionSettled,
+      settleDestruction,
+    })
+    joinAfterCancellation()
+  }
   return {
     registerClient(client) {
       if (params.scope.state === 'CLOSED') throw new Error('controlled_runtime_resource_registration_closed')
@@ -1403,6 +1559,58 @@ export function createControlledFreshCandidateTerminalResourceRegistry(params: {
     registerPool(pool) {
       if (params.scope.state === 'CLOSED') throw new Error('controlled_runtime_resource_registration_closed')
       pools.add(pool)
+      joinAfterCancellation()
+    },
+    registerPoolClient,
+    registerPoolClientAcquisition(client, pool, release) {
+      if (params.scope.state === 'CLOSED') throw new Error('controlled_runtime_resource_registration_closed')
+      let state = poolClients.get(client)
+      if (!state) {
+        registerPoolClient(client, pool)
+        state = poolClients.get(client)
+      }
+      if (!state || state.pool !== pool) throw new Error('controlled_runtime_pool_client_reassignment_forbidden')
+      if (state.checkedOut) throw new Error('controlled_runtime_pool_client_double_acquisition')
+      state.checkedOut = true
+      state.release = release
+      state.releaseStarted = false
+      state.releaseFailed = false
+      state.destroyed = false
+      state.destructionPending = false
+      let settleDestruction = (): void => undefined
+      state.destructionSettled = new Promise<void>((resolve) => { settleDestruction = resolve })
+      state.settleDestruction = settleDestruction
+      state.acquisitionPending = false
+      state.settleAcquisition()
+      joinAfterCancellation()
+    },
+    registerPoolClientRelease(client, pool, succeeded, destructionRequested) {
+      const state = poolClients.get(client)
+      if (!state || state.pool !== pool) {
+        terminalizationFailed = true
+        return
+      }
+      state.acquisitionPending = false
+      state.settleAcquisition()
+      if (succeeded) {
+        state.checkedOut = false
+        state.release = null
+        state.releaseStarted = true
+        state.destructionPending = destructionRequested && !state.destroyed
+      } else {
+        state.releaseFailed = true
+      }
+      joinAfterCancellation()
+    },
+    registerPoolClientDestruction(client, pool) {
+      const state = poolClients.get(client)
+      if (!state || state.pool !== pool) {
+        terminalizationFailed = true
+        return
+      }
+      state.destroyed = true
+      state.destructionPending = false
+      state.settleDestruction()
       joinAfterCancellation()
     },
     registerPayload(value) {
@@ -1558,7 +1766,10 @@ async function createPayloadBoundary(params: {
   })
   const ControlledPostgresPool = createControlledFreshCandidatePoolConstructor({
     basePool: pgModule.Pool,
-    onClient: terminalResources.registerClient,
+    onClient: terminalResources.registerPoolClient,
+    onClientAcquired: terminalResources.registerPoolClientAcquisition,
+    onClientReleased: terminalResources.registerPoolClientRelease,
+    onClientDestroyed: terminalResources.registerPoolClientDestruction,
     onConstructed: terminalResources.registerPool,
     onUnexpectedError: governedPoolError,
     canConstruct: () => params.scope.state !== 'CLOSED',

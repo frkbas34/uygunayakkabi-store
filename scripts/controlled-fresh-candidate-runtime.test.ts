@@ -298,9 +298,9 @@ function sealedRuntimeReceipt(seed: number, receiptDestinationDigest = 'd'.repea
     },
     quarantineCertainty: 'unknown',
     commitCertainty: 'unknown',
-    cleanupStatus: 'not_started',
     finalization: { requested: false, observed: false },
-    teardown: { attempted: false, completed: false },
+    mutationResourceTeardown: { attempted: false, completed: false, status: 'not_started' },
+    authorityClosure: { status: 'pending_not_attested', boundary: 'outside_durable_receipt' },
   }, new Uint8Array(32).fill(61)))
 }
 
@@ -1439,33 +1439,112 @@ async function main(): Promise<void> {
         checkpoint = 'timer-isolation';
         const nativeSetTimeout = globalThis.setTimeout;
         let reconnectTimers = 0;
-        globalThis.setTimeout = ((...args) => {
+        const scheduledReconnects = [];
+        globalThis.setTimeout = ((callback, _delay, ...args) => {
           reconnectTimers += 1;
-          return nativeSetTimeout(...args);
+          scheduledReconnects.push(() => callback(...args));
+          return { ref() { return this; }, unref() { return this; }, hasRef() { return false; } };
         });
         try {
+          checkpoint = 'faulted-reconnect-control';
+          const faultCounters = { connects: 0, reconnects: 0, poolEnds: 0 };
+          let faultedPool;
+          class FaultedClient extends EventEmitter {
+            constructor() { super(); this.release = () => undefined; }
+            async end() {}
+            unref() {}
+          }
+          class FaultedPool extends EventEmitter {
+            constructor() { super(); this.client = new FaultedClient(); faultedPool = this; }
+            async connect() {
+              faultCounters.connects += 1;
+              if (faultCounters.connects > 1) {
+                faultCounters.reconnects += 1;
+                throw new Error('RAW_RECONNECT_REJECTION');
+              }
+              return this.client;
+            }
+            async end() { faultCounters.poolEnds += 1; }
+          }
+          const faultedFactory = resources.createControlledFreshCandidateDatabaseAdapter({
+            postgresModule,
+            // Deliberately omit the production PoolClient prependListener refusal
+            // so the installed adapter's former recurring timer chain is observable.
+            pg: { Pool: FaultedPool, Client: FaultedClient },
+            pool: {},
+          });
+          const faultedAdapter = faultedFactory.init({ payload: { logger: { info() {}, error() {} } } });
+          faultedAdapter.rejectInitializing = () => undefined;
+          await faultedAdapter.connect();
+          assert.ok(faultedPool);
+          faultedPool.client.emit('error', Object.assign(new Error('RAW_RECONNECT_CONTROL'), { code: 'ECONNRESET' }));
+          await Promise.resolve();
+          await Promise.resolve();
+          assert.equal(faultCounters.connects, 2);
+          assert.equal(faultCounters.reconnects, 1);
+          assert.equal(reconnectTimers, 1);
+          assert.equal(scheduledReconnects.length, 1);
+          scheduledReconnects.shift()();
+          await Promise.resolve();
+          await Promise.resolve();
+          assert.equal(faultCounters.connects, 3);
+          assert.equal(faultCounters.reconnects, 2);
+          assert.equal(reconnectTimers, 2);
+          assert.equal(scheduledReconnects.length, 1);
+          faultedPool.client.removeAllListeners();
+          await faultedPool.end();
+
+          reconnectTimers = 0;
+          scheduledReconnects.length = 0;
           for (const phase of ['initialization', 'normal-work', 'finalization', 'cancellation', 'teardown']) {
             checkpoint = phase + '-setup';
             const scope = createControlledFreshCandidateOperationScope();
             const mutationActive = { current: true };
-            const counters = { connects: 0, poolEnds: 0, clientEnds: 0, dispatcherEnds: 0, ddlQueries: 0 };
+            const counters = {
+              connects: 0, reconnects: 0, lateConnections: 0,
+              poolEnds: 0, clientEnds: 0, clientRemovals: 0, dispatcherEnds: 0, ddlQueries: 0,
+            };
             let lastPool;
             class FakeClient extends EventEmitter {
+              constructor() { super(); this.release = () => undefined; }
               async end() { counters.clientEnds += 1; }
               unref() {}
             }
             class FakePool extends EventEmitter {
-              constructor(options) { super(); this.options = options; this.client = new FakeClient(); lastPool = this; }
+              constructor(options) {
+                super();
+                this.options = options;
+                this.client = new FakeClient();
+                this.checkedOut = false;
+                lastPool = this;
+              }
               async connect() {
+                if (scope.state !== 'OPEN') counters.lateConnections += 1;
                 counters.connects += 1;
-                if (this.options.missing) throw new Error('database RAW_DATABASE_IDENTITY does not exist');
-                this.emit('connect', this.client);
-                if (this.options.phase === 'initialization') {
-                  this.client.emit('error', Object.assign(new Error('RAW_INITIALIZATION_ERROR'), { code: 'ECONNRESET' }));
+                if (counters.connects > 1) {
+                  counters.reconnects += 1;
+                  throw new Error('RAW_RECONNECT_REJECTION');
                 }
+                if (this.options.missing) throw new Error('database RAW_DATABASE_IDENTITY does not exist');
+                this.checkedOut = true;
+                let released = false;
+                this.client.release = (error) => {
+                  if (released) throw new Error('RAW_DOUBLE_RELEASE');
+                  released = true;
+                  this.checkedOut = false;
+                  if (error) void this.client.end().then(() => {
+                    counters.clientRemovals += 1;
+                    this.emit('remove', this.client);
+                  });
+                };
+                this.emit('connect', this.client);
                 return this.client;
               }
-              async end() { counters.poolEnds += 1; }
+              async end() {
+                if (this.checkedOut) throw new Error('RAW_POOL_END_WITH_CHECKOUT');
+                if (counters.clientRemovals !== 1) throw new Error('RAW_POOL_END_BEFORE_CLIENT_REMOVAL');
+                counters.poolEnds += 1;
+              }
               async query() { counters.ddlQueries += 1; throw new Error('RAW_DDL_QUERY_SENTINEL'); }
             }
             const registry = resources.createControlledFreshCandidateTerminalResourceRegistry({
@@ -1476,7 +1555,10 @@ async function main(): Promise<void> {
             scope.registerCancellation(registry.terminalizeOwnedResources);
             const ControlledPool = resources.createControlledFreshCandidatePoolConstructor({
               basePool: FakePool,
-              onClient: registry.registerClient,
+              onClient: registry.registerPoolClient,
+              onClientAcquired: registry.registerPoolClientAcquisition,
+              onClientReleased: registry.registerPoolClientRelease,
+              onClientDestroyed: registry.registerPoolClientDestruction,
               onConstructed: registry.registerPool,
               onUnexpectedError: () => {
                 mutationActive.current = false;
@@ -1506,7 +1588,7 @@ async function main(): Promise<void> {
             const emitReconnectError = () => pool.client.emit(
               'error', Object.assign(new Error('RAW_RECONNECT_ERROR'), { code: 'ECONNRESET' }),
             );
-            if (phase === 'normal-work' || phase === 'finalization') emitReconnectError();
+            if (phase === 'initialization' || phase === 'normal-work' || phase === 'finalization') emitReconnectError();
             if (phase === 'cancellation') { await scope.cancel(); emitReconnectError(); }
             if (phase === 'teardown') { await registry.terminalizeOwnedResources(); emitReconnectError(); }
             checkpoint = phase + '-drain';
@@ -1518,8 +1600,14 @@ async function main(): Promise<void> {
             await assert.rejects(() => pool.connect(), /pool_revoked/);
             assert.equal(counters.connects, connectsBeforeRefusal);
             assert.equal(counters.connects, 1);
+            assert.equal(counters.reconnects, 0);
+            assert.equal(counters.lateConnections, 0);
+            assert.equal(reconnectTimers, 0);
             assert.equal(counters.ddlQueries, 0);
             assert.equal(counters.dispatcherEnds, 1);
+            assert.equal(counters.clientEnds, 1);
+            assert.equal(counters.clientRemovals, 1);
+            assert.equal(counters.poolEnds, 1);
             assert.equal(scope.state, 'CLOSED');
           }
 
@@ -1535,7 +1623,10 @@ async function main(): Promise<void> {
           }
           const ControlledMissingPool = resources.createControlledFreshCandidatePoolConstructor({
             basePool: MissingPool,
-            onClient: () => undefined,
+              onClient: () => undefined,
+            onClientAcquired: () => undefined,
+            onClientReleased: () => undefined,
+            onClientDestroyed: () => undefined,
             onConstructed: () => undefined,
             onUnexpectedError: () => undefined,
             canConstruct: () => scope.state !== 'CLOSED',
@@ -1575,6 +1666,111 @@ async function main(): Promise<void> {
   }
 
   {
+    const runtimeResourcesUrl = pathToFileURL(path.resolve('scripts/controlled-fresh-candidate-runtime-resources.ts')).href
+    const creationUrl = pathToFileURL(path.resolve('src/lib/controlledFreshCandidateCreation.ts')).href
+    const realPoolTeardownCode = `
+      void (async () => {
+        const assert = (await import('node:assert/strict')).default;
+        const { EventEmitter } = await import('node:events');
+        const pgImport = await import('pg');
+        const pg = pgImport.default ?? pgImport;
+        const resourcesImport = await import(${JSON.stringify(runtimeResourcesUrl)});
+        const resources = resourcesImport.default ?? resourcesImport;
+        const creationImport = await import(${JSON.stringify(creationUrl)});
+        const creation = creationImport.default ?? creationImport;
+        let physicalEnds = 0;
+        class SyntheticClient extends EventEmitter {
+          constructor() {
+            super();
+            this._queryable = true;
+            this._ending = false;
+          }
+          connect(callback) { queueMicrotask(() => callback()); }
+          end(callback) {
+            physicalEnds += 1;
+            this._ending = true;
+            if (callback) queueMicrotask(callback);
+            queueMicrotask(() => this.emit('end'));
+            return Promise.resolve();
+          }
+          unref() {}
+        }
+
+        const formerPool = new pg.Pool({ Client: SyntheticClient, max: 1, idleTimeoutMillis: 0 });
+        let formerReleaseEvents = 0;
+        formerPool.on('release', () => { formerReleaseEvents += 1; });
+        const formerlyCheckedOut = await formerPool.connect();
+        await formerlyCheckedOut.end();
+        let formerPoolEndSettled = false;
+        void formerPool.end().then(() => { formerPoolEndSettled = true; });
+        await Promise.resolve();
+        await Promise.resolve();
+        assert.equal(formerPoolEndSettled, false);
+        assert.equal(formerPool.totalCount, 1);
+        assert.equal(formerReleaseEvents, 0);
+
+        const scope = creation.createControlledFreshCandidateOperationScope();
+        const mutationActive = { current: true };
+        const registry = resources.createControlledFreshCandidateTerminalResourceRegistry({
+          scope,
+          mutationActive,
+          dispatcher: { destroy: async () => undefined },
+        });
+        scope.registerCancellation(registry.terminalizeOwnedResources);
+        const ControlledPool = resources.createControlledFreshCandidatePoolConstructor({
+          basePool: pg.Pool,
+          onClient: registry.registerPoolClient,
+          onClientAcquired: registry.registerPoolClientAcquisition,
+          onClientReleased: registry.registerPoolClientRelease,
+          onClientDestroyed: registry.registerPoolClientDestruction,
+          onConstructed: registry.registerPool,
+          onUnexpectedError: () => {
+            mutationActive.current = false;
+            scope.cancel().then(() => undefined, () => undefined);
+          },
+          canConstruct: () => scope.state !== 'CLOSED',
+          canConnect: () => scope.state === 'OPEN',
+        });
+        const pool = new ControlledPool({ Client: SyntheticClient, max: 1, idleTimeoutMillis: 0 });
+        let controlledReleaseEvents = 0;
+        let controlledRemoveEvents = 0;
+        pool.on('release', (error) => {
+          assert.ok(error instanceof Error);
+          controlledReleaseEvents += 1;
+        });
+        pool.on('remove', () => { controlledRemoveEvents += 1; });
+        const nativeControlledPoolEnd = pool.end.bind(pool);
+        pool.end = async () => {
+          assert.equal(controlledRemoveEvents, 1);
+          await nativeControlledPoolEnd();
+        };
+        const checkedOut = await pool.connect();
+        assert.equal(pool.totalCount, 1);
+        assert.equal(pool.idleCount, 0);
+        const directEndBefore = physicalEnds;
+        await scope.cancel();
+        await scope.drain();
+        assert.equal(scope.state, 'CLOSED');
+        assert.equal(pool.ending, true);
+        assert.equal(pool.ended, true);
+        assert.equal(pool.totalCount, 0);
+        assert.equal(pool.idleCount, 0);
+        assert.equal(pool.waitingCount, 0);
+        assert.equal(controlledReleaseEvents, 1);
+        assert.equal(controlledRemoveEvents, 1);
+        assert.equal(physicalEnds, directEndBefore + 1);
+        assert.doesNotThrow(() => checkedOut.release());
+        console.log('CONTROLLED_REAL_PG_POOL_TEARDOWN_CLOSED');
+      })().catch(() => { process.exitCode = 1; });
+    `
+    const result = await asyncChild(realPoolTeardownCode)
+    assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`)
+    assert.equal(result.signal, null)
+    assert.equal(result.stdout.trim(), 'CONTROLLED_REAL_PG_POOL_TEARDOWN_CLOSED')
+    assert.equal(result.stderr, '')
+  }
+
+  {
     const runtimeUrl = pathToFileURL(path.resolve('scripts/controlled-fresh-candidate-runtime.ts')).href
     const unresolvedTerminalCode = `
       void (async () => {
@@ -1608,6 +1804,9 @@ async function main(): Promise<void> {
     const ControlledPool = createControlledFreshCandidatePoolConstructor({
       basePool: pgModule.Pool,
       onClient: () => undefined,
+      onClientAcquired: () => undefined,
+      onClientReleased: () => undefined,
+      onClientDestroyed: () => undefined,
       onConstructed: (pool) => ownedPools.add(pool),
       onUnexpectedError: () => {
         mutationActive.current = false
@@ -1692,6 +1891,9 @@ async function main(): Promise<void> {
     const ControlledRefusedPool = createControlledFreshCandidatePoolConstructor({
       basePool: RefusedPool as unknown as typeof import('pg').Pool,
       onClient: () => undefined,
+      onClientAcquired: () => undefined,
+      onClientReleased: () => undefined,
+      onClientDestroyed: () => undefined,
       onConstructed: registry.registerPool as (pool: InstanceType<typeof import('pg').Pool>) => void,
       onUnexpectedError: () => undefined,
       canConstruct: () => scope.state !== 'CLOSED',
@@ -1714,7 +1916,10 @@ async function main(): Promise<void> {
     scope.registerCancellation(registry.terminalizeOwnedResources)
     const ControlledPool = createControlledFreshCandidatePoolConstructor({
       basePool: pgModule.Pool,
-      onClient: registry.registerClient,
+      onClient: registry.registerPoolClient,
+      onClientAcquired: registry.registerPoolClientAcquisition,
+      onClientReleased: registry.registerPoolClientRelease,
+      onClientDestroyed: registry.registerPoolClientDestruction,
       onConstructed: registry.registerPool,
       onUnexpectedError: () => {
         mutationActive.current = false

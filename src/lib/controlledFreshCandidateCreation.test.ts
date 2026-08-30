@@ -8,6 +8,7 @@ import {
 } from './controlledFreshCandidateCreation'
 import {
   authenticateControlledFreshCandidateReceipt,
+  authenticateControlledFreshCandidateReceiptBytes,
   readControlledFreshCandidateCapability,
   resealControlledFreshCandidateReceipt,
   serializeControlledFreshCandidateReceipt,
@@ -88,23 +89,19 @@ function fixture(options: FixtureOptions = {}) {
   let media: Record<string, unknown> | null = null
   let productReads = 0
   let syntheticNow = 1_000
-  let settleMediaHang: (() => void) | null = null
-  const lateSettlers: Array<() => void> = []
   const now = options.now ?? (() => syntheticNow)
   const scope = createControlledFreshCandidateOperationScope({ now })
   scope.registerCancellation(async () => {
     events.push('mutation-revoke')
-    settleMediaHang?.()
-    for (const settle of lateSettlers.splice(0)) settle()
   })
   const lateResult = <T>(phase: NonNullable<FixtureOptions['hangAt']>, result: T): Promise<T> | null => {
     if (options.hangAt !== phase) return null
     syntheticNow = scope.deadline
     return new Promise<T>((resolve) => {
-      lateSettlers.push(() => {
+      setTimeout(() => {
         events.push(`late-${phase}-settled`)
         resolve(result)
-      })
+      }, 15)
     })
   }
   const productId = options.productId === undefined ? 77 : options.productId
@@ -160,20 +157,20 @@ function fixture(options: FixtureOptions = {}) {
       if (options.mediaHang) {
         syntheticNow = 46_000
         return new Promise<null>((resolve) => {
-          settleMediaHang = () => {
+          setTimeout(() => {
             events.push('late-media-settled')
             resolve(null)
-          }
+          }, 15)
         })
       }
       if (options.lateBeforeUpload) {
         events.push('pre-upload-hook')
         syntheticNow = scope.deadline
         await new Promise<void>((resolve) => {
-          lateSettlers.push(() => {
+          setTimeout(() => {
             events.push('late-pre-upload-settled')
             resolve()
-          })
+          }, 15)
         })
       }
       await uploads.beforeUpload(file.name)
@@ -369,6 +366,35 @@ async function main(): Promise<void> {
       duplicateKey,
     ]) {
       assert.throws(() => authenticateReceipt({ serialized: noncanonical }), /NONCANONICAL|MALFORMED/)
+    }
+
+    const validBytes = Buffer.from(serialized, 'utf8')
+    assert.doesNotThrow(() => authenticateControlledFreshCandidateReceiptBytes({
+      bytes: validBytes,
+      key: RECEIPT_KEY,
+      expectedCommitIdentity: COMMIT_IDENTITY,
+      expectedEnvironmentIdentity: ENVIRONMENT_IDENTITY,
+      expectedReceiptDestinationDigest: RECEIPT_DESTINATION_DIGEST,
+      consume: () => true,
+    }))
+    for (const invalidBytes of [
+      Buffer.concat([Buffer.from([0xef, 0xbb, 0xbf]), validBytes]),
+      Buffer.from([0xc0, 0xaf]),
+      Buffer.from([0xe2, 0x82]),
+      Buffer.from([0xed, 0xa0, 0x80]),
+      Buffer.from([0xf4, 0x90, 0x80, 0x80]),
+      Buffer.concat([validBytes, Buffer.from([0x80])]),
+    ]) {
+      let consumed = 0
+      assert.throws(() => authenticateControlledFreshCandidateReceiptBytes({
+        bytes: invalidBytes,
+        key: RECEIPT_KEY,
+        expectedCommitIdentity: COMMIT_IDENTITY,
+        expectedEnvironmentIdentity: ENVIRONMENT_IDENTITY,
+        expectedReceiptDestinationDigest: RECEIPT_DESTINATION_DIGEST,
+        consume: () => { consumed += 1; return true },
+      }), /BYTES_INVALID/)
+      assert.equal(consumed, 0)
     }
 
     for (const substitution of ['77', 77, true, null]) {
@@ -582,8 +608,30 @@ async function main(): Promise<void> {
   }
 
   {
+    const scope = createControlledFreshCandidateOperationScope({ timeoutMs: 5 })
+    let cancellationAcknowledged = false
+    let lateMutationDispatches = 0
+    scope.registerCancellation(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 20))
+      cancellationAcknowledged = true
+    })
+    const started = Date.now()
+    await assert.rejects(() => scope.run(async (signal) => {
+      await new Promise((resolve) => setTimeout(resolve, 35))
+      if (!signal.aborted) lateMutationDispatches += 1
+      return true
+    }), /DEADLINE_EXCEEDED/)
+    assert.equal(cancellationAcknowledged, true)
+    assert.ok(Date.now() - started >= 20)
+    await new Promise((resolve) => setTimeout(resolve, 20))
+    assert.equal(lateMutationDispatches, 0)
+    scope.close()
+  }
+
+  {
     const state = fixture({ mediaHang: true })
     const result = await createControlledFreshCandidate(input(36), state.dependencies)
+    await new Promise((resolve) => setTimeout(resolve, 20))
     assert.deepEqual(result.reasonCodes, ['DEADLINE_EXCEEDED'])
     assert.equal(state.events.includes('mutation-revoke'), true)
     assert.equal(state.events.includes('relationship-update'), false)
@@ -599,6 +647,7 @@ async function main(): Promise<void> {
   ] as const) {
     const state = fixture({ hangAt })
     const result = await createControlledFreshCandidate(input(80 + hangAt.length), state.dependencies)
+    await new Promise((resolve) => setTimeout(resolve, 20))
     assert.deepEqual(result.reasonCodes, ['DEADLINE_EXCEEDED'], hangAt)
     assert.equal(state.events.filter((event) => event === 'mutation-revoke').length, 1)
     assert.equal(state.events.includes(`late-${hangAt}-settled`), true)
@@ -613,6 +662,7 @@ async function main(): Promise<void> {
   {
     const state = fixture({ lateBeforeUpload: true })
     const result = await createControlledFreshCandidate(input(98), state.dependencies)
+    await new Promise((resolve) => setTimeout(resolve, 20))
     assert.deepEqual(result.reasonCodes, ['DEADLINE_EXCEEDED'])
     assert.equal(state.events.includes('pre-upload-hook'), true)
     assert.equal(state.events.includes('late-pre-upload-settled'), true)

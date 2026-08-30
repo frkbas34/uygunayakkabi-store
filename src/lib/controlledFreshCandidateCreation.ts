@@ -55,6 +55,7 @@ export function createControlledFreshCandidateOperationScope(params: {
   }
   const controller = new AbortController()
   const cancellationHandlers: Array<() => Promise<void>> = []
+  const activeOperations = new Set<Promise<unknown>>()
   let cancellation: Promise<void> | null = null
   let closed = false
 
@@ -83,21 +84,34 @@ export function createControlledFreshCandidateOperationScope(params: {
       } catch (error) {
         work = Promise.reject(error)
       }
+      activeOperations.add(work)
       const remaining = Math.max(1, deadline - now())
       let timer: ReturnType<typeof setTimeout> | undefined
-      const timeout = new Promise<{ state: 'timeout' }>((resolve) => {
-        timer = setTimeout(() => resolve({ state: 'timeout' }), remaining)
-      })
-      const outcome = await Promise.race([
+      const outcome = await new Promise<
+        | { state: 'fulfilled'; value: T }
+        | { state: 'rejected'; error: unknown }
+        | { state: 'timeout' }
+      >((resolve) => {
+        let delivered = false
+        const deliver = (value:
+          | { state: 'fulfilled'; value: T }
+          | { state: 'rejected'; error: unknown }
+          | { state: 'timeout' },
+        ) => {
+          if (delivered) return
+          delivered = true
+          resolve(value)
+        }
         work.then(
-          (value) => ({ state: 'fulfilled' as const, value }),
-          (error: unknown) => ({ state: 'rejected' as const, error }),
-        ),
-        timeout,
-      ])
+          (value) => deliver({ state: 'fulfilled', value }),
+          (error: unknown) => deliver({ state: 'rejected', error }),
+        ).then(() => activeOperations.delete(work))
+        timer = setTimeout(() => deliver({ state: 'timeout' }), remaining)
+      })
       if (timer) clearTimeout(timer)
       if (outcome.state === 'timeout' || controller.signal.aborted || now() >= deadline) {
-        void work.catch(() => undefined)
+        // Cancellation handlers own and acknowledge the terminal state of every
+        // mutable resource. The work promise remains observed until it settles.
         await cancel()
         throw new ControlledFreshCandidateDeadlineError()
       }
@@ -112,6 +126,9 @@ export function createControlledFreshCandidateOperationScope(params: {
     close() {
       closed = true
       cancellationHandlers.splice(0)
+      // Settling operations retain their rejection observers; no late rejection
+      // can become detached or unhandled after the scope is closed.
+      for (const operation of activeOperations) operation.then(() => undefined, () => undefined)
     },
   }
 }

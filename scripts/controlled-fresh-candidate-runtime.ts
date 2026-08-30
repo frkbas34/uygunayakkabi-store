@@ -105,6 +105,11 @@ export async function runControlledFreshCandidateRuntime(
     return 2
   }
 
+  if (process.platform !== 'linux') {
+    io.stderr('CONTROLLED_FRESH_CANDIDATE_REFUSED: POSIX_RUNTIME_REQUIRED')
+    return 2
+  }
+
   if (process.env.PAYLOAD_DB_PUSH !== 'false') {
     process.env.PAYLOAD_DB_PUSH = 'false'
   }
@@ -120,8 +125,10 @@ export async function runControlledFreshCandidateRuntime(
       resource = await scope.run(() => (options.initializeCreation ?? initializeControlledFreshCandidateCreationRuntime)(scope))
       if (resource.scope !== scope) throw new Error('controlled_runtime_scope_mismatch')
       const report = await executeControlledCreationResource(resource)
+      const terminal = await resource.destroy()
+      resource = null
+      if (!terminal.ok || scope.signal.aborted) throw new Error('controlled_runtime_terminalization_failed')
       io.stdout(JSON.stringify(report))
-      await resource.destroy()
       return creationExitCode(report)
     } catch {
       if (resource) {
@@ -142,8 +149,10 @@ export async function runControlledFreshCandidateRuntime(
       capability: resource.capability,
       dependencies: resource.dependencies,
     })
+    const terminal = await resource.destroy()
+    resource = null
+    if (!terminal.ok || scope.signal.aborted) throw new Error('controlled_runtime_terminalization_failed')
     io.stdout(JSON.stringify(report))
-    await resource.destroy()
     return verificationExitCode(report)
   } catch {
     if (resource) {

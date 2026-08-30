@@ -5,13 +5,18 @@ import {
 } from 'node:crypto'
 import {
   closeSync,
+  constants as fsConstants,
+  fstatSync,
   fsyncSync,
+  lstatSync,
+  mkdirSync,
   openSync,
+  readFileSync,
   realpathSync,
+  statfsSync,
   writeFileSync,
 } from 'node:fs'
 import {
-  mkdir,
   mkdtemp,
   open,
   readFile,
@@ -19,13 +24,13 @@ import {
   rename,
   rm,
 } from 'node:fs/promises'
-import { tmpdir } from 'node:os'
 import path from 'node:path'
 
 import {
   CONTROLLED_FRESH_CANDIDATE_AUTHORIZATION_DOMAIN,
   CONTROLLED_FRESH_CANDIDATE_EXECUTION_TIMEOUT_MS,
   controlledFreshCandidateDigest,
+  controlledFreshCandidateMediaMatches,
   controlledFreshCandidateProductMatches,
   createControlledFreshCandidate,
   createControlledFreshCandidateOperationScope,
@@ -38,7 +43,9 @@ import {
   type ControlledFreshCandidatePublicReport,
 } from '../src/lib/controlledFreshCandidateCreation'
 import {
-  authenticateControlledFreshCandidateReceipt,
+  CONTROLLED_FRESH_CANDIDATE_CONTRACT_IDENTITY,
+  CONTROLLED_FRESH_CANDIDATE_RUNTIME_IDENTITY,
+  authenticateControlledFreshCandidateReceiptBytes,
   type ControlledFreshCandidateTargetCapability,
 } from '../src/lib/controlledFreshCandidateReceipt'
 import type {
@@ -60,6 +67,7 @@ export const CONTROLLED_FRESH_CANDIDATE_OWNER_LEDGER_DIRECTORY_ENV = 'CONTROLLED
 export const CONTROLLED_FRESH_CANDIDATE_AUTHORIZATION_KEY_ENV = 'CONTROLLED_FRESH_CANDIDATE_AUTHORIZATION_KEY_BASE64' as const
 export const CONTROLLED_FRESH_CANDIDATE_COMMIT_IDENTITY_ENV = 'CONTROLLED_FRESH_CANDIDATE_DEPLOYED_COMMIT_IDENTITY' as const
 export const CONTROLLED_FRESH_CANDIDATE_ENVIRONMENT_IDENTITY_ENV = 'CONTROLLED_FRESH_CANDIDATE_ENVIRONMENT_IDENTITY' as const
+export const CONTROLLED_FRESH_CANDIDATE_EXT4_MAGIC = 0xef53
 
 export function controlledFreshCandidateFilenameIsApproved(
   expectedFilename: string | null,
@@ -78,6 +86,86 @@ export type ControlledRuntimePayload = FreshVisualDiscoveryRuntimePayload & {
   findByID(args: RecordValue): Promise<unknown>
   destroy(): Promise<void>
   db?: unknown
+  collections?: Record<string, { config?: { slug?: unknown; dbName?: unknown } } | undefined>
+}
+
+type ControlledRelationalTable = Record<string, unknown>
+
+type ControlledFinalizationTableAuthority = {
+  products: ControlledRelationalTable
+  productRelationships: ControlledRelationalTable
+  media: ControlledRelationalTable
+  imageJobs: ControlledRelationalTable
+  queueReceipts: ControlledRelationalTable
+  botEvents: ControlledRelationalTable
+  storyJobs: ControlledRelationalTable
+}
+
+const CONTROLLED_FINALIZATION_COLLECTION_TABLES = [
+  ['products', 'products'],
+  ['media', 'media'],
+  ['image-generation-jobs', 'image_generation_jobs'],
+  ['payload-jobs', 'payload_jobs'],
+  ['bot-events', 'bot_events'],
+  ['story-jobs', 'story_jobs'],
+] as const
+
+function resolveControlledFinalizationTableAuthority(
+  payload: ControlledRuntimePayload,
+  db: Record<string, unknown>,
+): ControlledFinalizationTableAuthority {
+  if (!(db.tableNameMap instanceof Map) || !isPlainRecord(db.tables)) {
+    throw new Error('controlled_finalization_table_unavailable')
+  }
+  const tables = db.tables as Record<string, ControlledRelationalTable | undefined>
+  const resolved = new Map<string, ControlledRelationalTable>()
+  for (const [collectionSlug, defaultTableName] of CONTROLLED_FINALIZATION_COLLECTION_TABLES) {
+    const collection = payload.collections?.[collectionSlug]?.config
+    const physicalName = db.tableNameMap.get(defaultTableName)
+    const owners = [...db.tableNameMap.entries()].filter(([, mapped]) => mapped === physicalName)
+    if (
+      collection?.slug !== collectionSlug
+      || collection.dbName !== undefined
+      || physicalName !== defaultTableName
+      || owners.length !== 1
+      || owners[0]?.[0] !== defaultTableName
+      || !tables[physicalName]
+    ) throw new Error('controlled_finalization_table_unavailable')
+    resolved.set(defaultTableName, tables[physicalName])
+  }
+  const relationshipName = db.tableNameMap.get('products_rels')
+  const relationshipOwners = [...db.tableNameMap.entries()].filter(([, mapped]) => mapped === relationshipName)
+  if (
+    relationshipName !== 'products_rels'
+    || relationshipOwners.length !== 1
+    || relationshipOwners[0]?.[0] !== 'products_rels'
+    || !tables.products_rels
+  ) throw new Error('controlled_finalization_table_unavailable')
+  const products = resolved.get('products') as ControlledRelationalTable
+  const media = resolved.get('media') as ControlledRelationalTable
+  const imageJobs = resolved.get('image_generation_jobs') as ControlledRelationalTable
+  const queueReceipts = resolved.get('payload_jobs') as ControlledRelationalTable
+  const botEvents = resolved.get('bot_events') as ControlledRelationalTable
+  const storyJobs = resolved.get('story_jobs') as ControlledRelationalTable
+  if (
+    !products.id
+    || !tables.products_rels.id || !tables.products_rels.order || !tables.products_rels.parent
+    || !tables.products_rels.path || !tables.products_rels.mediaID
+    || !media.id || !media.product
+    || !imageJobs.id || !imageJobs.product
+    || !queueReceipts.id || !queueReceipts.taskSlug || !queueReceipts.input
+    || !botEvents.id || !botEvents.product
+    || !storyJobs.id || !storyJobs.product
+  ) throw new Error('controlled_finalization_table_unavailable')
+  return {
+    products,
+    productRelationships: tables.products_rels,
+    media,
+    imageJobs,
+    queueReceipts,
+    botEvents,
+    storyJobs,
+  }
 }
 
 export async function finalizeControlledFreshCandidateProductAtomically(params: {
@@ -103,14 +191,9 @@ export async function finalizeControlledFreshCandidateProductAtomically(params: 
     || typeof db.beginTransaction !== 'function'
     || typeof db.commitTransaction !== 'function'
     || typeof db.rollbackTransaction !== 'function'
-    || !(db.tableNameMap instanceof Map)
-    || !isPlainRecord(db.schema)
     || !isPlainRecord(db.sessions)
   ) throw new Error('controlled_finalization_transaction_unavailable')
-  const tableName = db.tableNameMap.get('products')
-  if (typeof tableName !== 'string' || !tableName) throw new Error('controlled_finalization_table_unavailable')
-  const productTable = db.schema[tableName] as Record<string, unknown> | undefined
-  if (!productTable || !('id' in productTable)) throw new Error('controlled_finalization_table_unavailable')
+  const tables = resolveControlledFinalizationTableAuthority(params.payload, db)
   const [request, drizzleModule] = await Promise.all([
     params.createRequest
       ? params.createRequest()
@@ -118,24 +201,54 @@ export async function finalizeControlledFreshCandidateProductAtomically(params: 
     import('drizzle-orm'),
   ])
   assertMutation()
-  const transactionId = await (db.beginTransaction as () => Promise<unknown>)()
+  const transactionId = await (db.beginTransaction as (options: Record<string, unknown>) => Promise<unknown>)({
+    isolationLevel: 'read committed',
+    accessMode: 'read write',
+    deferrable: false,
+  })
   if (typeof transactionId !== 'string' || !transactionId) throw new Error('controlled_finalization_transaction_unavailable')
+  assertMutation()
   request.transactionID = transactionId
   let committed = false
   try {
     const session = (db.sessions as Record<string, unknown>)[transactionId]
     if (!isPlainRecord(session) || !isPlainRecord(session.db)) throw new Error('controlled_finalization_transaction_unavailable')
     const transaction = session.db as {
+      execute(statement: unknown): Promise<unknown>
       select(selection: Record<string, unknown>): {
         from(table: Record<string, unknown>): {
           where(condition: unknown): { for(mode: 'update'): Promise<unknown[]> }
         }
       }
     }
+    if (typeof transaction.execute !== 'function' || typeof transaction.select !== 'function') {
+      throw new Error('controlled_finalization_transaction_unavailable')
+    }
+    const sql = drizzleModule.sql
+    for (const setting of [
+      "SET LOCAL statement_timeout = '40000ms'",
+      "SET LOCAL lock_timeout = '10000ms'",
+      "SET LOCAL idle_in_transaction_session_timeout = '40000ms'",
+    ]) {
+      await transaction.execute(sql.raw(setting))
+      assertMutation()
+    }
+    for (const table of [
+      tables.products,
+      tables.productRelationships,
+      tables.media,
+      tables.imageJobs,
+      tables.queueReceipts,
+      tables.botEvents,
+      tables.storyJobs,
+    ]) {
+      await transaction.execute(sql`LOCK TABLE ${table} IN SHARE ROW EXCLUSIVE MODE`)
+      assertMutation()
+    }
     const locked = await transaction
-      .select({ id: productTable.id })
-      .from(productTable)
-      .where(drizzleModule.eq(productTable.id as never, params.productId))
+      .select({ id: tables.products.id })
+      .from(tables.products)
+      .where(drizzleModule.eq(tables.products.id as never, params.productId))
       .for('update')
     if (!Array.isArray(locked) || locked.length !== 1) throw new Error('controlled_finalization_cas_missed')
     assertMutation()
@@ -156,6 +269,58 @@ export async function finalizeControlledFreshCandidateProductAtomically(params: 
       })
       || !isPlainRecord(current)
       || !isPlainRecord(current.workflow)
+    ) throw new Error('controlled_finalization_cas_missed')
+    const readSurface = async (collection: string, where: Record<string, unknown>) => {
+      const page = normalizePayloadPage(await params.payload.find({
+        collection,
+        where,
+        req: request,
+        depth: 0,
+        page: 1,
+        limit: 2,
+        sort: 'id',
+        overrideAccess: true,
+        pagination: true,
+      }), 1, 2)
+      assertMutation()
+      return page
+    }
+    const media = await readSurface('media', { product: { equals: params.productId } })
+    if (
+      media.totalDocs !== 1
+      || media.docs.length !== 1
+      || !controlledFreshCandidateMediaMatches({
+        media: media.docs[0],
+        manifest: params.manifest,
+        productId: params.productId,
+        mediaId: params.mediaId,
+      })
+    ) throw new Error('controlled_finalization_cas_missed')
+    const galleryOwners = await readSurface('products', { 'generativeGallery.image': { equals: params.mediaId } })
+    const imageJobs = await readSurface('image-generation-jobs', { product: { equals: params.productId } })
+    const botEvents = await readSurface('bot-events', { product: { equals: params.productId } })
+    const storyJobs = await readSurface('story-jobs', { product: { equals: params.productId } })
+    if (
+      galleryOwners.totalDocs !== 0
+      || imageJobs.totalDocs !== 0
+      || botEvents.totalDocs !== 0
+      || storyJobs.totalDocs !== 0
+    ) throw new Error('controlled_finalization_cas_missed')
+    const queueResult = await transaction.execute(sql`
+      SELECT count(*)::text AS total_docs
+      FROM ${tables.queueReceipts}
+      INNER JOIN ${tables.imageJobs}
+        ON ${tables.imageJobs.id}::text = (${tables.queueReceipts.input} ->> 'jobId')
+      WHERE ${tables.queueReceipts.taskSlug} = 'image-gen'
+        AND ${tables.imageJobs.product} = ${params.productId}
+    `)
+    const queueRows = isPlainRecord(queueResult) && Array.isArray(queueResult.rows)
+      ? queueResult.rows
+      : Array.isArray(queueResult) ? queueResult : []
+    if (
+      queueRows.length !== 1
+      || !isPlainRecord(queueRows[0])
+      || queueRows[0].total_docs !== '0'
     ) throw new Error('controlled_finalization_cas_missed')
     assertMutation()
     const updated = await params.payload.update({
@@ -300,18 +465,46 @@ export function createControlledFreshCandidateBoundaryLoggerConfiguration(): {
   }
 }
 
-async function bounded<T>(operation: Promise<T>, timeoutMs: number): Promise<T> {
-  let timer: ReturnType<typeof setTimeout> | undefined
-  try {
-    return await Promise.race([
-      operation,
-      new Promise<T>((_resolve, reject) => {
-        timer = setTimeout(() => reject(new Error('controlled_runtime_deadline')), timeoutMs)
-      }),
-    ])
-  } finally {
-    if (timer) clearTimeout(timer)
+export function createControlledFreshCandidatePoolConstructor(params: {
+  basePool: typeof import('pg').Pool
+  onClient(client: InstanceType<typeof import('pg').Client>): void
+  onConstructed(pool: InstanceType<typeof import('pg').Pool>): void
+  onUnexpectedError(): void
+}): typeof import('pg').Pool {
+  class ControlledPostgresPool extends params.basePool {
+    constructor(options?: import('pg').PoolConfig) {
+      super(options)
+      this.prependListener('error', params.onUnexpectedError)
+      this.on('connect', params.onClient)
+      params.onConstructed(this)
+    }
   }
+  return ControlledPostgresPool
+}
+
+async function bounded<T>(operation: Promise<T>, timeoutMs: number): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    let delivered = false
+    const timer = setTimeout(() => {
+      if (delivered) return
+      delivered = true
+      reject(new Error('controlled_runtime_deadline'))
+    }, timeoutMs)
+    operation.then(
+      (value) => {
+        if (delivered) return
+        delivered = true
+        clearTimeout(timer)
+        resolve(value)
+      },
+      (error: unknown) => {
+        if (delivered) return
+        delivered = true
+        clearTimeout(timer)
+        reject(error)
+      },
+    )
+  })
 }
 
 function normalizePayloadPage(value: RecordValue, page: number, limit: number): {
@@ -373,15 +566,237 @@ function createStrictGateway(
   }
 }
 
-export function controlledFreshCandidateReceiptDestinationDigest(receiptPath: string): string {
-  if (!path.isAbsolute(receiptPath)) throw new Error('controlled_runtime_input_invalid')
-  const canonicalPath = process.platform === 'win32'
-    ? path.resolve(receiptPath).replaceAll('\\', '/').toLowerCase()
-    : path.resolve(receiptPath)
+type PosixDirectoryAuthority = {
+  path: string
+  handle: number
+  device: bigint
+  inode: bigint
+}
+
+// Threat model: the fixed root is current-UID controlled at 0700, markers are
+// 0600, and no untrusted same-UID process is authorized to alter the root. The
+// checks below additionally reject observable link, mount, path, device, and
+// inode substitution; they do not claim protection from a hostile same-UID peer.
+
+export type ControlledFreshCandidatePhysicalReceiptDestination = PosixDirectoryAuthority & {
+  basename: string
+  close(): void
+}
+
+function assertControlledPosixRuntime(): void {
+  if (process.platform !== 'linux' || typeof process.getuid !== 'function') {
+    throw new Error('controlled_runtime_platform_unsupported')
+  }
+}
+
+function decodeMountInfoField(value: string): string {
+  return value.replace(/\\([0-7]{3})/gu, (_, octal: string) => String.fromCharCode(Number.parseInt(octal, 8)))
+}
+
+function assertNativeExt4Mount(targetPath: string): void {
+  const resolved = path.resolve(targetPath)
+  const entries = readFileSync('/proc/self/mountinfo', 'utf8')
+    .split('\n')
+    .filter(Boolean)
+    .map((line) => {
+      const [before, after] = line.split(' - ')
+      const fields = before?.split(' ') ?? []
+      const trailing = after?.split(' ') ?? []
+      return {
+        device: fields[2] ?? '',
+        root: decodeMountInfoField(fields[3] ?? ''),
+        mountPoint: decodeMountInfoField(fields[4] ?? ''),
+        filesystem: trailing[0] ?? '',
+      }
+    })
+    .filter((entry) => resolved === entry.mountPoint || resolved.startsWith(`${entry.mountPoint.replace(/\/$/u, '')}/`))
+    .sort((left, right) => right.mountPoint.length - left.mountPoint.length)
+  const authority = entries[0]
+  if (!authority || authority.filesystem !== 'ext4' || authority.root !== '/') {
+    throw new Error('controlled_runtime_filesystem_unsupported')
+  }
+  if (
+    authority.mountPoint !== '/'
+    && entries.some((entry) => entry !== authority && entry.device === authority.device)
+  ) throw new Error('controlled_runtime_filesystem_unsupported')
+  const statfs = statfsSync(resolved)
+  if (Number(statfs.type) !== CONTROLLED_FRESH_CANDIDATE_EXT4_MAGIC) {
+    throw new Error('controlled_runtime_filesystem_unsupported')
+  }
+}
+
+function assertNoLinkedPathComponents(targetPath: string): void {
+  const resolved = path.resolve(targetPath)
+  if (!path.isAbsolute(targetPath) || targetPath !== resolved) {
+    throw new Error('controlled_runtime_path_noncanonical')
+  }
+  const parsed = path.parse(resolved)
+  let cursor = parsed.root
+  for (const component of resolved.slice(parsed.root.length).split(path.sep).filter(Boolean)) {
+    cursor = path.join(cursor, component)
+    const stat = lstatSync(cursor, { bigint: true })
+    if (stat.isSymbolicLink()) throw new Error('controlled_runtime_path_linked')
+  }
+  if (realpathSync(resolved) !== resolved) throw new Error('controlled_runtime_path_noncanonical')
+}
+
+function openPrivatePosixDirectory(directoryPath: string, expectedDevice?: bigint): PosixDirectoryAuthority {
+  assertControlledPosixRuntime()
+  assertNoLinkedPathComponents(directoryPath)
+  assertNativeExt4Mount(directoryPath)
+  const before = lstatSync(directoryPath, { bigint: true })
+  if (
+    !before.isDirectory()
+    || before.isSymbolicLink()
+    || before.uid !== BigInt(process.getuid!())
+    || (before.mode & 0o777n) !== 0o700n
+    || (expectedDevice !== undefined && before.dev !== expectedDevice)
+  ) throw new Error('controlled_runtime_directory_authority_invalid')
+  const handle = openSync(
+    directoryPath,
+    fsConstants.O_RDONLY | fsConstants.O_DIRECTORY | fsConstants.O_NOFOLLOW,
+  )
+  try {
+    const opened = fstatSync(handle, { bigint: true })
+    const descriptorPath = `/proc/self/fd/${handle}`
+    if (
+      opened.dev !== before.dev
+      || opened.ino !== before.ino
+      || !opened.isDirectory()
+      || opened.uid !== BigInt(process.getuid!())
+      || (opened.mode & 0o777n) !== 0o700n
+      || realpathSync(descriptorPath) !== directoryPath
+    ) throw new Error('controlled_runtime_directory_authority_invalid')
+    return { path: directoryPath, handle, device: opened.dev, inode: opened.ino }
+  } catch (error) {
+    closeSync(handle)
+    throw error
+  }
+}
+
+function ensurePrivateChildDirectory(parent: PosixDirectoryAuthority, basename: string): PosixDirectoryAuthority {
+  if (!/^[a-z0-9-]+$/u.test(basename)) throw new Error('controlled_runtime_directory_authority_invalid')
+  const childPath = path.join(parent.path, basename)
+  let created = false
+  try {
+    mkdirSync(`/proc/self/fd/${parent.handle}/${basename}`, { mode: 0o700 })
+    created = true
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error
+  }
+  if (created) fsyncSync(parent.handle)
+  return openPrivatePosixDirectory(childPath, parent.device)
+}
+
+async function readPrivatePosixFile(
+  scope: ControlledFreshCandidateOperationScope,
+  filePath: string,
+  expectedDevice: bigint,
+): Promise<Buffer> {
+  if (!path.isAbsolute(filePath) || path.resolve(filePath) !== filePath) {
+    throw new Error('controlled_runtime_path_noncanonical')
+  }
+  const basename = path.basename(filePath)
+  if (!basename || basename === '.' || basename === '..') throw new Error('controlled_runtime_path_noncanonical')
+  const parent = openPrivatePosixDirectory(path.dirname(filePath), expectedDevice)
+  let handle: number | null = null
+  try {
+    handle = openSync(
+      `/proc/self/fd/${parent.handle}/${basename}`,
+      fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW,
+    )
+    const opened = fstatSync(handle, { bigint: true })
+    if (
+      !opened.isFile()
+      || opened.dev !== expectedDevice
+      || opened.uid !== BigInt(process.getuid!())
+      || (opened.mode & 0o077n) !== 0n
+    ) throw new Error('controlled_runtime_file_authority_invalid')
+    return await scope.run((signal) => readFile(`/proc/self/fd/${handle}`, { signal }))
+  } finally {
+    if (handle !== null) closeSync(handle)
+    closeSync(parent.handle)
+  }
+}
+
+export function openControlledFreshCandidatePhysicalReceiptDestination(
+  receiptPath: string,
+  expectedDevice: bigint,
+): ControlledFreshCandidatePhysicalReceiptDestination {
+  if (!path.isAbsolute(receiptPath) || path.resolve(receiptPath) !== receiptPath) {
+    throw new Error('controlled_runtime_path_noncanonical')
+  }
+  const basename = path.basename(receiptPath)
+  if (!/^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$/u.test(basename) || basename.endsWith('.')) {
+    throw new Error('controlled_runtime_path_noncanonical')
+  }
+  const parent = openPrivatePosixDirectory(path.dirname(receiptPath), expectedDevice)
+  return {
+    ...parent,
+    basename,
+    close: (() => {
+      let closed = false
+      return () => {
+        if (closed) return
+        closed = true
+        closeSync(parent.handle)
+      }
+    })(),
+  }
+}
+
+async function readPhysicalReceiptBytes(
+  scope: ControlledFreshCandidateOperationScope,
+  destination: ControlledFreshCandidatePhysicalReceiptDestination,
+): Promise<Buffer> {
+  if (!directoryAuthorityIsCurrent(destination)) throw new Error('controlled_runtime_receipt_authority_invalid')
+  let handle: number | null = null
+  try {
+    handle = openSync(
+      `/proc/self/fd/${destination.handle}/${destination.basename}`,
+      fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW,
+    )
+    const opened = fstatSync(handle, { bigint: true })
+    if (
+      !opened.isFile()
+      || opened.dev !== destination.device
+      || opened.uid !== BigInt(process.getuid!())
+      || (opened.mode & 0o077n) !== 0n
+    ) throw new Error('controlled_runtime_receipt_authority_invalid')
+    return await scope.run((signal) => readFile(`/proc/self/fd/${handle}`, { signal }))
+  } finally {
+    if (handle !== null) closeSync(handle)
+  }
+}
+
+export function controlledFreshCandidateReceiptDestinationDigest(params: {
+  destination: Pick<ControlledFreshCandidatePhysicalReceiptDestination, 'device' | 'inode' | 'basename'>
+  runtimeCommitIdentity: string
+  environmentIdentity: string
+}): string {
+  if (
+    params.destination.device < 0n
+    || params.destination.inode <= 0n
+    || !/^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$/u.test(params.destination.basename)
+    || !exactContextIdentity(params.runtimeCommitIdentity)
+    || !exactContextIdentity(params.environmentIdentity)
+  ) throw new Error('controlled_runtime_input_invalid')
   return createHash('sha256')
-    .update('uygunayakkabi:controlled-fresh-candidate:receipt-destination:v1')
+    .update('uygunayakkabi:controlled-fresh-candidate:receipt-destination:v2')
     .update('\0')
-    .update(canonicalPath)
+    .update(params.destination.device.toString())
+    .update('\0')
+    .update(params.destination.inode.toString())
+    .update('\0')
+    .update(params.destination.basename)
+    .update('\0')
+    .update(CONTROLLED_FRESH_CANDIDATE_CONTRACT_IDENTITY)
+    .update('\0')
+    .update(CONTROLLED_FRESH_CANDIDATE_RUNTIME_IDENTITY)
+    .update('\0')
+    .update(params.runtimeCommitIdentity)
+    .update('\0')
+    .update(params.environmentIdentity)
     .digest('hex')
 }
 
@@ -398,15 +813,19 @@ export function createControlledFreshCandidateExecutionGrantToken(
     .digest()
 }
 
-async function readRuntimeInput(scope: ControlledFreshCandidateOperationScope): Promise<{
+async function readRuntimeInput(
+  scope: ControlledFreshCandidateOperationScope,
+  ledger: ControlledFreshCandidateOwnerLedger,
+): Promise<{
   input: ControlledFreshCandidateCreationInput
-  receiptPath: string
+  receiptDestination: ControlledFreshCandidatePhysicalReceiptDestination
 }> {
   const manifestPath = process.env.CONTROLLED_FRESH_CANDIDATE_PRIVATE_MANIFEST_PATH
   if (!manifestPath || !path.isAbsolute(manifestPath)) throw new Error('controlled_runtime_configuration_missing')
   let parsed: unknown
   try {
-    parsed = JSON.parse(await scope.run((signal) => readFile(manifestPath, { encoding: 'utf8', signal })))
+    const manifestBytes = await readPrivatePosixFile(scope, manifestPath, ledger.device)
+    parsed = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(manifestBytes))
   } catch {
     throw new Error('controlled_runtime_input_unavailable')
   }
@@ -422,19 +841,31 @@ async function readRuntimeInput(scope: ControlledFreshCandidateOperationScope): 
     || parsed.runtimeCommitIdentity !== configuredCommit
     || parsed.environmentIdentity !== configuredEnvironment
   ) throw new Error('controlled_runtime_context_mismatch')
-  const original = await scope.run((signal) => readFile(parsed.originalPath, { signal }))
+  const receiptDestination = openControlledFreshCandidatePhysicalReceiptDestination(parsed.receiptPath, ledger.device)
+  let original: Buffer
+  try {
+    original = await readPrivatePosixFile(scope, parsed.originalPath, ledger.device)
+  } catch (error) {
+    receiptDestination.close()
+    throw error
+  }
   if (original.byteLength < 1 || original.byteLength > 10_000_000) {
+    receiptDestination.close()
     throw new Error('controlled_runtime_input_invalid')
   }
   return {
-    receiptPath: parsed.receiptPath,
+    receiptDestination,
     input: {
       executionAuthorization: { identity: parsed.authorizationIdentity, token },
       executionId: parsed.executionId,
       authorizationContext: {
         runtimeCommitIdentity: parsed.runtimeCommitIdentity,
         environmentIdentity: parsed.environmentIdentity,
-        approvedReceiptDestinationDigest: controlledFreshCandidateReceiptDestinationDigest(parsed.receiptPath),
+        approvedReceiptDestinationDigest: controlledFreshCandidateReceiptDestinationDigest({
+          destination: receiptDestination,
+          runtimeCommitIdentity: parsed.runtimeCommitIdentity,
+          environmentIdentity: parsed.environmentIdentity,
+        }),
       },
       manifest: {
         identity: parsed.manifestIdentity,
@@ -459,81 +890,170 @@ export type ControlledFreshCandidateOwnerLedger = {
   authorizationDirectory: string
   receiptDirectory: string
   authorizationKey: Buffer
+  device: bigint
+  rootHandle: number
+  authorizationHandle: number
+  receiptHandle: number
+  close(): void
 }
 
-function normalizedOwnerPath(value: string): string {
-  const resolved = path.resolve(value)
-  return process.platform === 'win32' ? resolved.toLowerCase() : resolved
-}
-
-async function initializeOwnerLedger(scope: ControlledFreshCandidateOperationScope): Promise<ControlledFreshCandidateOwnerLedger> {
+export async function initializeControlledFreshCandidateOwnerLedger(
+  scope: ControlledFreshCandidateOperationScope,
+): Promise<ControlledFreshCandidateOwnerLedger> {
+  assertControlledPosixRuntime()
   const configuredRoot = process.env[CONTROLLED_FRESH_CANDIDATE_OWNER_LEDGER_DIRECTORY_ENV]
+  if (!configuredRoot || !path.isAbsolute(configuredRoot)) {
+    throw new Error('controlled_runtime_owner_ledger_missing')
+  }
+  const rootAuthority = openPrivatePosixDirectory(configuredRoot)
+  let authorizationAuthority: PosixDirectoryAuthority | null = null
+  let receiptAuthority: PosixDirectoryAuthority | null = null
+  try {
+    authorizationAuthority = ensurePrivateChildDirectory(rootAuthority, 'creation-authorizations-v2')
+    receiptAuthority = ensurePrivateChildDirectory(rootAuthority, 'receipt-consumptions-v1')
+  } catch (error) {
+    if (authorizationAuthority) closeSync(authorizationAuthority.handle)
+    if (receiptAuthority) closeSync(receiptAuthority.handle)
+    closeSync(rootAuthority.handle)
+    throw error
+  }
+  scope.assertActive()
   const authorizationKeyText = process.env[CONTROLLED_FRESH_CANDIDATE_AUTHORIZATION_KEY_ENV]
-  if (!configuredRoot || !path.isAbsolute(configuredRoot) || !authorizationKeyText) {
+  if (!authorizationKeyText) {
+    closeSync(authorizationAuthority.handle)
+    closeSync(receiptAuthority.handle)
+    closeSync(rootAuthority.handle)
     throw new Error('controlled_runtime_owner_ledger_missing')
   }
   const authorizationKey = exactBase64(authorizationKeyText, 32, 128)
-  if (!authorizationKey) throw new Error('controlled_runtime_owner_ledger_invalid')
-  const root = path.resolve(configuredRoot)
-  const authorizationDirectory = path.join(root, 'creation-authorizations-v2')
-  const receiptDirectory = path.join(root, 'receipt-consumptions-v1')
-  await scope.run(async () => {
-    await mkdir(root, { recursive: true, mode: 0o700 })
-    await mkdir(authorizationDirectory, { recursive: true, mode: 0o700 })
-    await mkdir(receiptDirectory, { recursive: true, mode: 0o700 })
-  })
-  let actualRoot: string
-  try {
-    actualRoot = realpathSync(root)
-  } catch {
+  if (!authorizationKey) {
+    closeSync(authorizationAuthority.handle)
+    closeSync(receiptAuthority.handle)
+    closeSync(rootAuthority.handle)
     throw new Error('controlled_runtime_owner_ledger_invalid')
   }
-  if (normalizedOwnerPath(actualRoot) !== normalizedOwnerPath(root)) {
-    throw new Error('controlled_runtime_owner_ledger_invalid')
+  let closed = false
+  return {
+    root: rootAuthority.path,
+    authorizationDirectory: authorizationAuthority.path,
+    receiptDirectory: receiptAuthority.path,
+    authorizationKey,
+    device: rootAuthority.device,
+    rootHandle: rootAuthority.handle,
+    authorizationHandle: authorizationAuthority.handle,
+    receiptHandle: receiptAuthority.handle,
+    close() {
+      if (closed) return
+      closed = true
+      closeSync(receiptAuthority.handle)
+      closeSync(authorizationAuthority.handle)
+      closeSync(rootAuthority.handle)
+    },
   }
-  return { root, authorizationDirectory, receiptDirectory, authorizationKey }
 }
 
 export function createControlledFreshCandidateDurableReceiptConsumer(
-  receiptDirectory: string,
+  ledger: Pick<ControlledFreshCandidateOwnerLedger, 'receiptDirectory' | 'receiptHandle' | 'device'>,
 ): (consumptionIdentity: string) => boolean {
-  const fixedDirectory = path.resolve(receiptDirectory)
   return (consumptionIdentity) => {
     if (!/^[0-9a-f]{64}$/.test(consumptionIdentity)) return false
-    const markerPath = path.join(fixedDirectory, `${consumptionIdentity}.used`)
-    let descriptor: number | null = null
-    try {
-      descriptor = openSync(markerPath, 'wx', 0o600)
-      writeFileSync(descriptor, 'controlled receipt consumed v1\n', 'utf8')
-      fsyncSync(descriptor)
-      return true
-    } catch {
-      return false
-    } finally {
-      if (descriptor !== null) {
-        try { closeSync(descriptor) } catch { /* persistence uncertainty fails closed on replay */ }
-      }
+    if (!directoryAuthorityIsCurrent({
+      path: ledger.receiptDirectory,
+      handle: ledger.receiptHandle,
+      device: ledger.device,
+    })) return false
+    return createControlledFreshCandidateDurableMarker({
+      directoryHandle: ledger.receiptHandle,
+      markerDigest: consumptionIdentity,
+      content: 'controlled receipt consumed v1\n',
+    })
+  }
+}
+
+function directoryAuthorityIsCurrent(
+  authority: Pick<PosixDirectoryAuthority, 'path' | 'handle' | 'device'> & Partial<Pick<PosixDirectoryAuthority, 'inode'>>,
+): boolean {
+  try {
+    const opened = fstatSync(authority.handle, { bigint: true })
+    const current = lstatSync(authority.path, { bigint: true })
+    return opened.isDirectory()
+      && !current.isSymbolicLink()
+      && opened.dev === authority.device
+      && current.dev === opened.dev
+      && current.ino === opened.ino
+      && (authority.inode === undefined || opened.ino === authority.inode)
+      && opened.uid === BigInt(process.getuid!())
+      && (opened.mode & 0o777n) === 0o700n
+      && realpathSync(`/proc/self/fd/${authority.handle}`) === authority.path
+      && Number(statfsSync(`/proc/self/fd/${authority.handle}`).type) === CONTROLLED_FRESH_CANDIDATE_EXT4_MAGIC
+  } catch {
+    return false
+  }
+}
+
+export function createControlledFreshCandidateDurableMarker(params: {
+  directoryHandle: number
+  markerDigest: string
+  content: string
+  syncFile?: (handle: number) => void
+  syncDirectory?: (handle: number) => void
+}): boolean {
+  if (!/^[0-9a-f]{64}$/u.test(params.markerDigest) || !params.content) return false
+  const markerPath = `/proc/self/fd/${params.directoryHandle}/${params.markerDigest}.used`
+  const syncFile = params.syncFile ?? fsyncSync
+  const syncDirectory = params.syncDirectory ?? fsyncSync
+  let descriptor: number | null = null
+  try {
+    descriptor = openSync(
+      markerPath,
+      fsConstants.O_CREAT | fsConstants.O_EXCL | fsConstants.O_WRONLY | fsConstants.O_NOFOLLOW,
+      0o600,
+    )
+    writeFileSync(descriptor, params.content, 'utf8')
+    syncFile(descriptor)
+    closeSync(descriptor)
+    descriptor = null
+    syncDirectory(params.directoryHandle)
+    return true
+  } catch {
+    return false
+  } finally {
+    if (descriptor !== null) {
+      try { closeSync(descriptor) } catch { /* persistence uncertainty fails closed on replay */ }
     }
   }
 }
 
 export function createControlledFreshCandidateReceiptPersistence(params: {
-  receiptPath: string
+  receiptDestination: ControlledFreshCandidatePhysicalReceiptDestination
+  destinationDigest: string
   executionId: string
   ledger: ControlledFreshCandidateOwnerLedger
 }): {
   persist(serialized: string, signal: AbortSignal): Promise<void>
   consume(grant: ControlledFreshCandidateExecutionGrant, token: Uint8Array, signal: AbortSignal): Promise<boolean>
 } {
-  const { receiptPath, executionId, ledger } = params
-  const safeExecution = executionId.replace(/[^a-z0-9-]/gi, '-').slice(0, 80)
-  const temporaryPath = `${receiptPath}.${safeExecution}.next`
-  const destinationDigest = controlledFreshCandidateReceiptDestinationDigest(receiptPath)
+  const { receiptDestination, destinationDigest, executionId, ledger } = params
+  if (receiptDestination.device !== ledger.device || !/^[0-9a-f]{64}$/u.test(destinationDigest)) {
+    throw new Error('controlled_runtime_receipt_filesystem_mismatch')
+  }
+  const temporaryBasename = `.${createHash('sha256').update(executionId).digest('hex')}.next`
+  const receiptDirectoryPath = `/proc/self/fd/${receiptDestination.handle}`
+  const temporaryPath = `${receiptDirectoryPath}/${temporaryBasename}`
+  const receiptPath = `${receiptDirectoryPath}/${receiptDestination.basename}`
   let receiptOwned = false
   return {
     async persist(serialized, signal) {
-      if (!receiptOwned || signal.aborted) throw new Error('controlled_receipt_not_owned')
-      const temporaryReceipt = await open(temporaryPath, 'wx', 0o600)
+      if (
+        !receiptOwned
+        || signal.aborted
+        || !directoryAuthorityIsCurrent(receiptDestination)
+      ) throw new Error('controlled_receipt_not_owned')
+      const temporaryReceipt = await open(
+        temporaryPath,
+        fsConstants.O_CREAT | fsConstants.O_EXCL | fsConstants.O_WRONLY | fsConstants.O_NOFOLLOW,
+        0o600,
+      )
       try {
         await temporaryReceipt.writeFile(serialized, 'utf8')
         await temporaryReceipt.sync()
@@ -542,9 +1062,19 @@ export function createControlledFreshCandidateReceiptPersistence(params: {
       }
       if (signal.aborted) throw new Error('controlled_receipt_persist_revoked')
       await rename(temporaryPath, receiptPath)
+      fsyncSync(receiptDestination.handle)
     },
     async consume(grant, token, signal) {
-      if (signal.aborted || grant.approvedReceiptDestinationDigest !== destinationDigest) return false
+      if (
+        signal.aborted
+        || grant.approvedReceiptDestinationDigest !== destinationDigest
+        || !directoryAuthorityIsCurrent(receiptDestination)
+        || !directoryAuthorityIsCurrent({
+          path: ledger.authorizationDirectory,
+          handle: ledger.authorizationHandle,
+          device: ledger.device,
+        })
+      ) return false
       const expectedToken = createControlledFreshCandidateExecutionGrantToken(grant, ledger.authorizationKey)
       const suppliedToken = Buffer.from(token)
       if (suppliedToken.byteLength !== expectedToken.byteLength || !timingSafeEqual(suppliedToken, expectedToken)) return false
@@ -553,18 +1083,21 @@ export function createControlledFreshCandidateReceiptPersistence(params: {
         .update('\0consumption\0')
         .update(serializeControlledFreshCandidateExecutionGrant(grant))
         .digest('hex')
-      const markerPath = path.join(ledger.authorizationDirectory, `${markerDigest}.used`)
       try {
-        const marker = await open(markerPath, 'wx', 0o600)
-        try {
-          await marker.writeFile('controlled creation authorization consumed v2\n', 'utf8')
-          await marker.sync()
-        } finally {
-          await marker.close()
-        }
+        if (!createControlledFreshCandidateDurableMarker({
+          directoryHandle: ledger.authorizationHandle,
+          markerDigest,
+          content: 'controlled creation authorization consumed v2\n',
+        })) return false
         if (signal.aborted) return false
-        const reservedReceipt = await open(receiptPath, 'wx', 0o600)
-        await reservedReceipt.close()
+        const reservedReceipt = await open(
+          receiptPath,
+          fsConstants.O_CREAT | fsConstants.O_EXCL | fsConstants.O_WRONLY | fsConstants.O_NOFOLLOW,
+          0o600,
+        )
+        try { await reservedReceipt.sync() } finally { await reservedReceipt.close() }
+        fsyncSync(receiptDestination.handle)
+        if (signal.aborted || !directoryAuthorityIsCurrent(receiptDestination)) return false
         receiptOwned = true
         return true
       } catch {
@@ -628,6 +1161,7 @@ async function createPayloadBoundary(params: {
   })
   undiciModule.setGlobalDispatcher(dispatcher)
   const ownedClients = new Set<InstanceType<typeof pgModule.Client>>()
+  const ownedPools = new Set<InstanceType<typeof pgModule.Pool>>()
   let ControlledPostgresClient: typeof pgModule.Client
   ControlledPostgresClient = new Proxy(pgModule.Client, {
     construct(target, args, newTarget) {
@@ -646,30 +1180,56 @@ async function createPayloadBoundary(params: {
   let poolForCancellation: VisualPilotRuntimePostgresPool | null = null
   let payloadDestroyStarted = false
   let poolEndStarted = false
-  const terminalizeOwnedResources = async (): Promise<void> => {
-    params.mutationActive.current = false
-    const clients = [...ownedClients]
-    let ok = true
-    const terminalResults = await Promise.allSettled([
-      destroyTransport(),
-      ...clients.filter((client) => !(client as { _ending?: boolean })._ending).map(async (client) => {
-        try { await client.end() } finally {
-          try { client.unref() } catch { /* the socket was already made terminal */ }
-        }
-      }),
-    ])
-    if (terminalResults.some((result) => result.status === 'rejected')) ok = false
-    if (payloadForCancellation && !payloadDestroyStarted) {
-      payloadDestroyStarted = true
-      try { await bounded(payloadForCancellation.destroy(), CONTROLLED_FRESH_CANDIDATE_RUNTIME_TEARDOWN_TIMEOUT_MS) } catch { ok = false }
-    }
-    if (poolForCancellation && !poolEndStarted) {
-      poolEndStarted = true
-      try { await bounded(poolForCancellation.end(), CONTROLLED_FRESH_CANDIDATE_RUNTIME_TEARDOWN_TIMEOUT_MS) } catch { ok = false }
-    }
-    if (!ok) throw new Error('controlled_runtime_teardown_failed')
+  let terminalizationPromise: Promise<void> | null = null
+  const terminalizeOwnedResources = (): Promise<void> => {
+    terminalizationPromise ??= (async () => {
+      params.mutationActive.current = false
+      const clients = [...ownedClients]
+      const pools = [...ownedPools]
+      let ok = true
+      const terminalResults = await Promise.allSettled([
+        destroyTransport(),
+        ...clients.filter((client) => !(client as { _ending?: boolean })._ending).map(async (client) => {
+          try { await client.end() } finally {
+            try { client.unref() } catch { /* the socket was already made terminal */ }
+          }
+        }),
+        ...pools.filter((ownedPool) => !(ownedPool as { ending?: boolean }).ending).map(async (ownedPool) => {
+          await ownedPool.end()
+        }),
+      ])
+      if (terminalResults.some((result) => result.status === 'rejected')) ok = false
+      if (payloadForCancellation && !payloadDestroyStarted) {
+        payloadDestroyStarted = true
+        try { await bounded(payloadForCancellation.destroy(), CONTROLLED_FRESH_CANDIDATE_RUNTIME_TEARDOWN_TIMEOUT_MS) } catch { ok = false }
+      }
+      if (poolForCancellation && !ownedPools.has(poolForCancellation as InstanceType<typeof pgModule.Pool>) && !poolEndStarted) {
+        poolEndStarted = true
+        try { await bounded(poolForCancellation.end(), CONTROLLED_FRESH_CANDIDATE_RUNTIME_TEARDOWN_TIMEOUT_MS) } catch { ok = false }
+      }
+      if (!ok) throw new Error('controlled_runtime_teardown_failed')
+    })()
+    return terminalizationPromise
   }
   params.scope.registerCancellation(terminalizeOwnedResources)
+  const governedPoolError = (): void => {
+    params.mutationActive.current = false
+    params.scope.cancel().then(
+      () => undefined,
+      () => undefined,
+    )
+  }
+  const ControlledPostgresPool = createControlledFreshCandidatePoolConstructor({
+    basePool: pgModule.Pool,
+    onClient: (client) => ownedClients.add(client),
+    onConstructed: (pool) => ownedPools.add(pool),
+    onUnexpectedError: governedPoolError,
+  })
+  const controlledPgModule = {
+    ...pgModule,
+    Client: ControlledPostgresClient,
+    Pool: ControlledPostgresPool,
+  } as unknown as typeof import('pg')
   const baseUrl = `https://${storeId}.public.blob.vercel-storage.com`
   const controlledAdapter = () => ({
     name: 'controlled-vercel-blob',
@@ -741,7 +1301,12 @@ async function createPayloadBoundary(params: {
   const baseConfig = {
     collections: [Products, Variants, isolatedMedia, Brands, Categories, BlogPosts, ImageGenerationJobs, BotEvents, StoryJobs],
     jobs: { tasks: [] },
-    db: postgresModule.postgresAdapter({ logger: false, pool: poolOptions, push: false }),
+    db: postgresModule.postgresAdapter({
+      logger: false,
+      pg: controlledPgModule,
+      pool: poolOptions,
+      push: false,
+    }),
     editor: lexicalModule.lexicalEditor(),
     secret: payloadSecret,
     sharp: sharpModule.default,
@@ -774,65 +1339,20 @@ async function createPayloadBoundary(params: {
   return { payload, pool, dispatcher, terminalizeOwnedResources }
 }
 
-function createCachedTeardown(params: {
-  terminalizeOwnedResources(): Promise<void>
-  scratchDirectory: string
-  mutationActive: { current: boolean }
-}): () => Promise<{ ok: true } | { ok: false }> {
-  let cached: Promise<{ ok: true } | { ok: false }> | null = null
-  return () => {
-    if (cached) return cached
-    cached = (async () => {
-      params.mutationActive.current = false
-      let ok = true
-      try {
-        await bounded(params.terminalizeOwnedResources(), CONTROLLED_FRESH_CANDIDATE_RUNTIME_TEARDOWN_TIMEOUT_MS * 3)
-      } catch { ok = false }
-      try {
-        await bounded(rm(params.scratchDirectory, { recursive: true, force: true }), CONTROLLED_FRESH_CANDIDATE_RUNTIME_TEARDOWN_TIMEOUT_MS)
-      } catch { ok = false }
-      return ok ? { ok: true } : { ok: false }
-    })()
-    return cached
-  }
-}
-
 export async function initializeControlledFreshCandidateCreationRuntime(
   providedScope?: ControlledFreshCandidateOperationScope,
 ): Promise<ControlledFreshCandidateRuntimeResource> {
+  assertControlledPosixRuntime()
   const scope = providedScope ?? createControlledFreshCandidateOperationScope({
     timeoutMs: CONTROLLED_FRESH_CANDIDATE_EXECUTION_TIMEOUT_MS,
-  })
-  configureBlobProcessBoundary()
-  const { input, receiptPath } = await readRuntimeInput(scope)
-  const ledger = await initializeOwnerLedger(scope)
-  const persistence = createControlledFreshCandidateReceiptPersistence({
-    receiptPath,
-    executionId: input.executionId,
-    ledger,
   })
   const uploadCallbacks = { current: null as import('../src/lib/controlledFreshCandidateCreation').ControlledFreshCandidateUploadCallbacks | null }
   const expectedFilename = { current: null as string | null }
   const mutationActive = { current: false }
+  let ledger: ControlledFreshCandidateOwnerLedger | null = null
+  let receiptDestination: ControlledFreshCandidatePhysicalReceiptDestination | null = null
   let scratchDirectory: string | null = null
   let payloadBoundaryPromise: Promise<Awaited<ReturnType<typeof createPayloadBoundary>>> | null = null
-  const assertMutation = (signal: AbortSignal): void => {
-    scope.assertActive()
-    if (signal.aborted || !mutationActive.current) throw new Error('controlled_mutation_capability_revoked')
-  }
-  const ensurePayloadBoundary = async (signal: AbortSignal) => {
-    assertMutation(signal)
-    if (!payloadBoundaryPromise) {
-      payloadBoundaryPromise = (async () => {
-        scratchDirectory = await mkdtemp(path.join(tmpdir(), 'uygunayakkabi-cfc-'))
-        if ((await readdir(scratchDirectory)).length !== 0) throw new Error('controlled_runtime_scratch_not_empty')
-        return createPayloadBoundary({ uploadCallbacks, expectedFilename, mutationActive, scratchDirectory, scope })
-      })()
-    }
-    const boundary = await payloadBoundaryPromise
-    assertMutation(signal)
-    return boundary
-  }
   let teardownPromise: Promise<{ ok: true } | { ok: false }> | null = null
   const teardown = () => {
     teardownPromise ??= (async () => {
@@ -841,12 +1361,7 @@ export async function initializeControlledFreshCandidateCreationRuntime(
       if (payloadBoundaryPromise) {
         try {
           const boundary = await bounded(payloadBoundaryPromise, CONTROLLED_FRESH_CANDIDATE_RUNTIME_TEARDOWN_TIMEOUT_MS)
-          const boundaryTeardown = createCachedTeardown({
-            terminalizeOwnedResources: boundary.terminalizeOwnedResources,
-            scratchDirectory: scratchDirectory as string,
-            mutationActive,
-          })
-          if (!(await boundaryTeardown()).ok) ok = false
+          await bounded(boundary.terminalizeOwnedResources(), CONTROLLED_FRESH_CANDIDATE_RUNTIME_TEARDOWN_TIMEOUT_MS * 3)
         } catch { ok = false }
       }
       if (scratchDirectory) {
@@ -857,9 +1372,51 @@ export async function initializeControlledFreshCandidateCreationRuntime(
           )
         } catch { ok = false }
       }
+      try { receiptDestination?.close() } catch { ok = false }
+      try { ledger?.close() } catch { ok = false }
       return ok ? { ok: true as const } : { ok: false as const }
     })()
     return teardownPromise
+  }
+  // This owner is installed before the first authority read or initialization.
+  scope.registerCancellation(async () => {
+    if (!(await teardown()).ok) throw new Error('controlled_runtime_teardown_failed')
+  })
+  ledger = await initializeControlledFreshCandidateOwnerLedger(scope)
+  let runtimeInput: Awaited<ReturnType<typeof readRuntimeInput>>
+  try {
+    runtimeInput = await readRuntimeInput(scope, ledger)
+  } catch (error) {
+    await teardown()
+    throw error
+  }
+  const { input } = runtimeInput
+  receiptDestination = runtimeInput.receiptDestination
+  configureBlobProcessBoundary()
+  const persistence = createControlledFreshCandidateReceiptPersistence({
+    receiptDestination,
+    destinationDigest: input.authorizationContext.approvedReceiptDestinationDigest,
+    executionId: input.executionId,
+    ledger,
+  })
+  const assertMutation = (signal: AbortSignal): void => {
+    scope.assertActive()
+    if (signal.aborted || !mutationActive.current) throw new Error('controlled_mutation_capability_revoked')
+  }
+  const ensurePayloadBoundary = async (signal: AbortSignal) => {
+    assertMutation(signal)
+    if (!payloadBoundaryPromise) {
+      payloadBoundaryPromise = (async () => {
+        scratchDirectory = await mkdtemp(path.join(ledger.root, '.uygunayakkabi-cfc-'))
+        const scratchAuthority = openPrivatePosixDirectory(scratchDirectory, ledger.device)
+        closeSync(scratchAuthority.handle)
+        if ((await readdir(scratchDirectory)).length !== 0) throw new Error('controlled_runtime_scratch_not_empty')
+        return createPayloadBoundary({ uploadCallbacks, expectedFilename, mutationActive, scratchDirectory, scope })
+      })()
+    }
+    const boundary = await payloadBoundaryPromise
+    assertMutation(signal)
+    return boundary
   }
   const dependencies: ControlledFreshCandidateCreationDependencies = {
     scope,
@@ -994,40 +1551,97 @@ export async function initializeControlledFreshCandidateCreationRuntime(
 export async function initializeControlledFreshCandidateVerificationRuntime(
   providedScope?: ControlledFreshCandidateOperationScope,
 ): Promise<ControlledFreshCandidateVerificationResource> {
+  assertControlledPosixRuntime()
   const scope = providedScope ?? createControlledFreshCandidateOperationScope({
     timeoutMs: CONTROLLED_FRESH_CANDIDATE_EXECUTION_TIMEOUT_MS,
   })
-  configureBlobProcessBoundary()
+  const uploadCallbacks = { current: null as import('../src/lib/controlledFreshCandidateCreation').ControlledFreshCandidateUploadCallbacks | null }
+  const expectedFilename = { current: null as string | null }
+  const mutationActive = { current: false }
+  let ledger: ControlledFreshCandidateOwnerLedger | null = null
+  let receiptDestination: ControlledFreshCandidatePhysicalReceiptDestination | null = null
+  let scratchDirectory: string | null = null
+  let payloadBoundaryPromise: Promise<Awaited<ReturnType<typeof createPayloadBoundary>>> | null = null
+  let teardownPromise: Promise<{ ok: true } | { ok: false }> | null = null
+  const teardown = () => {
+    teardownPromise ??= (async () => {
+      mutationActive.current = false
+      let ok = true
+      if (payloadBoundaryPromise) {
+        try {
+          const boundary = await bounded(payloadBoundaryPromise, CONTROLLED_FRESH_CANDIDATE_RUNTIME_TEARDOWN_TIMEOUT_MS)
+          await bounded(boundary.terminalizeOwnedResources(), CONTROLLED_FRESH_CANDIDATE_RUNTIME_TEARDOWN_TIMEOUT_MS * 3)
+        } catch { ok = false }
+      }
+      if (scratchDirectory) {
+        try {
+          await bounded(
+            rm(scratchDirectory, { recursive: true, force: true }),
+            CONTROLLED_FRESH_CANDIDATE_RUNTIME_TEARDOWN_TIMEOUT_MS,
+          )
+        } catch { ok = false }
+      }
+      try { receiptDestination?.close() } catch { ok = false }
+      try { ledger?.close() } catch { ok = false }
+      return ok ? { ok: true as const } : { ok: false as const }
+    })()
+    return teardownPromise
+  }
+  scope.registerCancellation(async () => {
+    if (!(await teardown()).ok) throw new Error('controlled_runtime_teardown_failed')
+  })
+  ledger = await initializeControlledFreshCandidateOwnerLedger(scope)
   const receiptPath = process.env.CONTROLLED_FRESH_CANDIDATE_RECEIPT_PATH
   const keyText = process.env.CONTROLLED_FRESH_CANDIDATE_RECEIPT_KEY_BASE64
-  if (!receiptPath || !path.isAbsolute(receiptPath) || !keyText) throw new Error('controlled_runtime_configuration_missing')
+  if (!receiptPath || !path.isAbsolute(receiptPath) || !keyText) {
+    await teardown()
+    throw new Error('controlled_runtime_configuration_missing')
+  }
   const key = exactBase64(keyText, 32, 128)
   const commitIdentity = process.env[CONTROLLED_FRESH_CANDIDATE_COMMIT_IDENTITY_ENV]
   const environmentIdentity = process.env[CONTROLLED_FRESH_CANDIDATE_ENVIRONMENT_IDENTITY_ENV]
   if (!key || !exactContextIdentity(commitIdentity) || !exactContextIdentity(environmentIdentity)) {
+    await teardown()
     throw new Error('controlled_runtime_configuration_missing')
   }
-  const ledger = await initializeOwnerLedger(scope)
-  const capability = authenticateControlledFreshCandidateReceipt({
-    serialized: await scope.run((signal) => readFile(receiptPath, { encoding: 'utf8', signal })),
-    key,
-    expectedCommitIdentity: commitIdentity,
-    expectedEnvironmentIdentity: environmentIdentity,
-    consume: createControlledFreshCandidateDurableReceiptConsumer(ledger.receiptDirectory),
-  })
-  const scratchDirectory = await mkdtemp(path.join(tmpdir(), 'uygunayakkabi-cfc-verify-'))
-  const uploadCallbacks = { current: null as import('../src/lib/controlledFreshCandidateCreation').ControlledFreshCandidateUploadCallbacks | null }
-  const expectedFilename = { current: null as string | null }
-  const mutationActive = { current: false }
-  let payloadBoundary: Awaited<ReturnType<typeof createPayloadBoundary>>
+  let capability: ControlledFreshCandidateTargetCapability
   try {
-    payloadBoundary = await scope.run(() => createPayloadBoundary({ uploadCallbacks, expectedFilename, mutationActive, scratchDirectory, scope }))
+    receiptDestination = openControlledFreshCandidatePhysicalReceiptDestination(receiptPath, ledger.device)
+    const destinationDigest = controlledFreshCandidateReceiptDestinationDigest({
+      destination: receiptDestination,
+      runtimeCommitIdentity: commitIdentity,
+      environmentIdentity,
+    })
+    capability = authenticateControlledFreshCandidateReceiptBytes({
+      bytes: await readPhysicalReceiptBytes(scope, receiptDestination),
+      key,
+      expectedCommitIdentity: commitIdentity,
+      expectedEnvironmentIdentity: environmentIdentity,
+      expectedReceiptDestinationDigest: destinationDigest,
+      consume: createControlledFreshCandidateDurableReceiptConsumer(ledger),
+    })
   } catch (error) {
-    await rm(scratchDirectory, { recursive: true, force: true })
+    await teardown()
     throw error
   }
-  const { payload, pool, terminalizeOwnedResources } = payloadBoundary
-  const teardown = createCachedTeardown({ terminalizeOwnedResources, scratchDirectory, mutationActive })
+  receiptDestination.close()
+  receiptDestination = null
+  configureBlobProcessBoundary()
+  try {
+    scratchDirectory = await mkdtemp(path.join(ledger.root, '.uygunayakkabi-cfc-verify-'))
+    const scratchAuthority = openPrivatePosixDirectory(scratchDirectory, ledger.device)
+    closeSync(scratchAuthority.handle)
+    payloadBoundaryPromise = scope.run(() => createPayloadBoundary({ uploadCallbacks, expectedFilename, mutationActive, scratchDirectory: scratchDirectory as string, scope }))
+  } catch (error) {
+    await teardown()
+    throw error
+  }
+  let payloadBoundary: Awaited<ReturnType<typeof createPayloadBoundary>>
+  try { payloadBoundary = await payloadBoundaryPromise } catch (error) {
+    await teardown()
+    throw error
+  }
+  const { payload, pool } = payloadBoundary
   return {
     capability,
     dependencies: {

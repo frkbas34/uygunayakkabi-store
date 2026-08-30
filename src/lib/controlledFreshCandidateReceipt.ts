@@ -383,6 +383,7 @@ export function authenticateControlledFreshCandidateReceipt(params: {
   expectedContractIdentity?: string
   expectedCommitIdentity: string
   expectedEnvironmentIdentity: string
+  expectedReceiptDestinationDigest?: string
   consume(consumptionIdentity: string): boolean
 }): ControlledFreshCandidateTargetCapability {
   let parsed: unknown
@@ -398,6 +399,10 @@ export function authenticateControlledFreshCandidateReceipt(params: {
     || parsed.runtime.contract !== (params.expectedContractIdentity ?? CONTROLLED_FRESH_CANDIDATE_CONTRACT_IDENTITY)
     || parsed.runtime.commit !== params.expectedCommitIdentity
     || parsed.runtime.environment !== params.expectedEnvironmentIdentity
+    || (
+      params.expectedReceiptDestinationDigest !== undefined
+      && parsed.runtime.receiptDestinationDigest !== params.expectedReceiptDestinationDigest
+    )
   ) throw new Error('CONTROLLED_RECEIPT_CONTEXT_MISMATCH')
   const { seal, ...unsigned } = parsed
   const expected = receiptSeal(unsigned, params.key)
@@ -429,6 +434,42 @@ export function authenticateControlledFreshCandidateReceipt(params: {
   const capability = Object.freeze(Object.create(null)) as ControlledFreshCandidateTargetCapability
   capabilityRegistry.set(capability, { receipt: structuredClone(parsed) })
   return capability
+}
+
+export function authenticateControlledFreshCandidateReceiptBytes(params: {
+  bytes: Uint8Array
+  key: Uint8Array
+  expectedRuntimeIdentity?: string
+  expectedContractIdentity?: string
+  expectedCommitIdentity: string
+  expectedEnvironmentIdentity: string
+  expectedReceiptDestinationDigest?: string
+  consume(consumptionIdentity: string): boolean
+}): ControlledFreshCandidateTargetCapability {
+  if (!(params.bytes instanceof Uint8Array)) throw new Error('CONTROLLED_RECEIPT_BYTES_INVALID')
+  const bytes = Buffer.from(params.bytes)
+  if (bytes.byteLength >= 3 && bytes[0] === 0xef && bytes[1] === 0xbb && bytes[2] === 0xbf) {
+    throw new Error('CONTROLLED_RECEIPT_BYTES_INVALID')
+  }
+  let serialized: string
+  try {
+    serialized = new TextDecoder('utf-8', { fatal: true, ignoreBOM: false }).decode(bytes)
+  } catch {
+    throw new Error('CONTROLLED_RECEIPT_BYTES_INVALID')
+  }
+  if (!Buffer.from(serialized, 'utf8').equals(bytes)) {
+    throw new Error('CONTROLLED_RECEIPT_BYTES_INVALID')
+  }
+  return authenticateControlledFreshCandidateReceipt({
+    serialized,
+    key: params.key,
+    expectedRuntimeIdentity: params.expectedRuntimeIdentity,
+    expectedContractIdentity: params.expectedContractIdentity,
+    expectedCommitIdentity: params.expectedCommitIdentity,
+    expectedEnvironmentIdentity: params.expectedEnvironmentIdentity,
+    expectedReceiptDestinationDigest: params.expectedReceiptDestinationDigest,
+    consume: params.consume,
+  })
 }
 
 export function readControlledFreshCandidateCapability(

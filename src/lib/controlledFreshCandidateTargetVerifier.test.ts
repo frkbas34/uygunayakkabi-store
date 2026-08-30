@@ -468,6 +468,35 @@ async function main(): Promise<void> {
   }
 
   {
+    const base = receipt(73)
+    const unsigned = structuredClone(base) as Partial<ControlledFreshCandidatePrivateReceipt>
+    delete unsigned.seal
+    unsigned.mutationResourceTeardown = { attempted: false, completed: false, status: 'not_started' }
+    const modified = sealControlledFreshCandidateReceipt(
+      unsigned as Omit<ControlledFreshCandidatePrivateReceipt, 'seal'>,
+      KEY,
+    )
+    const modifiedCapability = authenticateControlledFreshCandidateReceipt({
+      serialized: serializeControlledFreshCandidateReceipt(modified),
+      key: KEY,
+      expectedCommitIdentity: COMMIT_IDENTITY,
+      expectedEnvironmentIdentity: ENVIRONMENT_IDENTITY,
+      consume: () => true,
+    })
+    const state = verifierFixture(modified)
+    const result = await verifyControlledFreshCandidateTarget({
+      capability: modifiedCapability,
+      dependencies: state.dependencies,
+    })
+    assert.ok(result.reasonCodes.includes('RECEIPT_CONSTRUCTION_INCOMPLETE'))
+    assert.equal(result.eligibleForVisualOnlyGeneration, false)
+    assert.equal(state.reads.some((entry) => entry.startsWith('product:')), false)
+    assert.equal(JSON.stringify(result).includes('authorityClosure'), false)
+    assert.equal(JSON.stringify(result).includes('pending_not_attested'), false)
+    assert.equal(JSON.stringify(result).includes('outside_durable_receipt'), false)
+  }
+
+  {
     const base = receipt(72)
     const unsigned = structuredClone(base) as Partial<ControlledFreshCandidatePrivateReceipt>
     delete unsigned.seal

@@ -1560,6 +1560,7 @@ async function main(): Promise<void> {
               onClientReleased: registry.registerPoolClientRelease,
               onClientDestroyed: registry.registerPoolClientDestruction,
               onConstructed: registry.registerPool,
+              onPoolAcquisitionStarted: registry.registerPoolAcquisition,
               onUnexpectedError: () => {
                 mutationActive.current = false;
                 scope.cancel().then(() => undefined, () => undefined);
@@ -1628,6 +1629,7 @@ async function main(): Promise<void> {
             onClientReleased: () => undefined,
             onClientDestroyed: () => undefined,
             onConstructed: () => undefined,
+            onPoolAcquisitionStarted: () => () => undefined,
             onUnexpectedError: () => undefined,
             canConstruct: () => scope.state !== 'CLOSED',
             canConnect: () => scope.state === 'OPEN',
@@ -1724,6 +1726,7 @@ async function main(): Promise<void> {
           onClientReleased: registry.registerPoolClientRelease,
           onClientDestroyed: registry.registerPoolClientDestruction,
           onConstructed: registry.registerPool,
+          onPoolAcquisitionStarted: registry.registerPoolAcquisition,
           onUnexpectedError: () => {
             mutationActive.current = false;
             scope.cancel().then(() => undefined, () => undefined);
@@ -1771,6 +1774,405 @@ async function main(): Promise<void> {
   }
 
   {
+    const runtimeResourcesUrl = pathToFileURL(path.resolve('scripts/controlled-fresh-candidate-runtime-resources.ts')).href
+    const creationUrl = pathToFileURL(path.resolve('src/lib/controlledFreshCandidateCreation.ts')).href
+    const inFlightPoolCode = `
+      void (async () => {
+        const assert = (await import('node:assert/strict')).default;
+        const { EventEmitter } = await import('node:events');
+        const pgImport = await import('pg');
+        const pg = pgImport.default ?? pgImport;
+        const resourcesImport = await import(${JSON.stringify(runtimeResourcesUrl)});
+        const resources = resourcesImport.default ?? resourcesImport;
+        const creationImport = await import(${JSON.stringify(creationUrl)});
+        const creation = creationImport.default ?? creationImport;
+
+        const turn = () => new Promise((resolve) => setImmediate(resolve));
+        const delayedClient = (delayRemoval = false) => {
+          const pendingConnections = [];
+          const pendingEnds = [];
+          const state = { starts: 0, endRequests: 0, endCompletions: 0 };
+          class SyntheticClient extends EventEmitter {
+            constructor() {
+              super();
+              this._queryable = true;
+              this._ending = false;
+            }
+            connect(callback) {
+              state.starts += 1;
+              pendingConnections.push({ client: this, callback });
+            }
+            end(callback) {
+              state.endRequests += 1;
+              this._ending = true;
+              const complete = () => {
+                state.endCompletions += 1;
+                if (callback) callback();
+                queueMicrotask(() => this.emit('end'));
+              };
+              if (delayRemoval) pendingEnds.push(complete);
+              else queueMicrotask(complete);
+              return Promise.resolve();
+            }
+            unref() {}
+          }
+          return {
+            SyntheticClient,
+            state,
+            get pendingConnections() { return pendingConnections.length; },
+            succeed() {
+              const pending = pendingConnections.shift();
+              assert.ok(pending);
+              queueMicrotask(() => pending.callback());
+            },
+            fail() {
+              const pending = pendingConnections.shift();
+              assert.ok(pending);
+              queueMicrotask(() => pending.callback(new Error('SYNTHETIC_CONNECT_FAILURE')));
+            },
+            completeEnds() {
+              for (const complete of pendingEnds.splice(0)) complete();
+            },
+          };
+        };
+
+        const harness = (clientControl, PoolBase = pg.Pool) => {
+          const states = [];
+          const scope = creation.createControlledFreshCandidateOperationScope({
+            onStateChange: (state) => states.push(state),
+          });
+          const mutationActive = { current: true };
+          const registry = resources.createControlledFreshCandidateTerminalResourceRegistry({
+            scope,
+            mutationActive,
+            dispatcher: { destroy: async () => undefined },
+          });
+          scope.registerCancellation(registry.terminalizeOwnedResources);
+          let pendingAcquisitions = 0;
+          let maximumPendingAcquisitions = 0;
+          let releaseEvents = 0;
+          let removeEvents = 0;
+          let poolEndCalls = 0;
+          let unexpectedErrors = 0;
+          const ControlledPool = resources.createControlledFreshCandidatePoolConstructor({
+            basePool: PoolBase,
+            onClient: registry.registerPoolClient,
+            onClientAcquired: registry.registerPoolClientAcquisition,
+            onClientReleased: registry.registerPoolClientRelease,
+            onClientDestroyed: registry.registerPoolClientDestruction,
+            onConstructed: registry.registerPool,
+            onPoolAcquisitionStarted(pool) {
+              pendingAcquisitions += 1;
+              maximumPendingAcquisitions = Math.max(maximumPendingAcquisitions, pendingAcquisitions);
+              const settle = registry.registerPoolAcquisition(pool);
+              let settled = false;
+              return () => {
+                if (settled) return;
+                settled = true;
+                pendingAcquisitions -= 1;
+                settle();
+              };
+            },
+            onUnexpectedError: () => {
+              unexpectedErrors += 1;
+              mutationActive.current = false;
+              scope.cancel().then(() => undefined, () => undefined);
+            },
+            canConstruct: () => scope.state !== 'CLOSED',
+            canConnect: () => scope.state === 'OPEN',
+          });
+          const pool = new ControlledPool({ Client: clientControl.SyntheticClient, max: 1, idleTimeoutMillis: 0 });
+          pool.on('release', (error) => {
+            assert.ok(error instanceof Error);
+            releaseEvents += 1;
+          });
+          pool.on('remove', () => { removeEvents += 1; });
+          const nativeEnd = pool.end.bind(pool);
+          pool.end = async () => {
+            poolEndCalls += 1;
+            assert.equal(pendingAcquisitions, 0);
+            await nativeEnd();
+          };
+          return {
+            scope,
+            registry,
+            mutationActive,
+            pool,
+            states,
+            get pendingAcquisitions() { return pendingAcquisitions; },
+            get maximumPendingAcquisitions() { return maximumPendingAcquisitions; },
+            get releaseEvents() { return releaseEvents; },
+            get removeEvents() { return removeEvents; },
+            get poolEndCalls() { return poolEndCalls; },
+            get unexpectedErrors() { return unexpectedErrors; },
+          };
+        };
+
+        {
+          const control = delayedClient(true);
+          const state = harness(control);
+          const acquired = state.pool.connect();
+          assert.equal(control.state.starts, 1);
+          assert.equal(control.pendingConnections, 1);
+          assert.equal(state.pendingAcquisitions, 1);
+          assert.equal(state.maximumPendingAcquisitions, 1);
+          let cancellationSettled = false;
+          const cancellation = state.scope.cancel().then(() => { cancellationSettled = true; });
+          await turn();
+          assert.equal(cancellationSettled, false);
+          assert.equal(state.poolEndCalls, 0);
+          assert.equal(state.pool.ending, false);
+          control.succeed();
+          const client = await acquired;
+          await turn();
+          assert.equal(state.pendingAcquisitions, 0);
+          assert.equal(state.releaseEvents, 1);
+          assert.equal(state.removeEvents, 0);
+          assert.equal(control.state.endRequests, 1);
+          assert.equal(control.state.endCompletions, 0);
+          assert.equal(state.poolEndCalls, 0);
+          assert.equal(cancellationSettled, false);
+          control.completeEnds();
+          await cancellation;
+          await state.scope.drain();
+          assert.equal(state.scope.state, 'CLOSED');
+          assert.equal(state.mutationActive.current, false);
+          assert.equal(state.poolEndCalls, 1);
+          assert.equal(state.pool.ending, true);
+          assert.equal(state.pool.ended, true);
+          assert.equal(state.pool.totalCount, 0);
+          assert.equal(state.pool.idleCount, 0);
+          assert.equal(state.pool.waitingCount, 0);
+          assert.equal(state.releaseEvents, 1);
+          assert.equal(state.removeEvents, 1);
+          assert.equal(control.state.endRequests, 1);
+          assert.equal(control.state.endCompletions, 1);
+          assert.doesNotThrow(() => client.release());
+          assert.equal(state.states.at(-1), 'CLOSED');
+        }
+
+        {
+          const control = delayedClient();
+          const state = harness(control);
+          let callbackCalls = 0;
+          let callbackClient;
+          const callbackCompleted = new Promise((resolve, reject) => {
+            state.pool.connect((error, client) => {
+              callbackCalls += 1;
+              if (error || !client) return reject(error ?? new Error('CLIENT_MISSING'));
+              callbackClient = client;
+              resolve();
+            });
+          });
+          assert.equal(state.pendingAcquisitions, 1);
+          const firstCancellation = state.scope.cancel();
+          const repeatedCancellation = state.scope.cancel();
+          queueMicrotask(() => control.succeed());
+          await callbackCompleted;
+          await Promise.all([firstCancellation, repeatedCancellation]);
+          await state.scope.drain();
+          assert.equal(callbackCalls, 1);
+          assert.ok(callbackClient);
+          assert.equal(state.maximumPendingAcquisitions, 1);
+          assert.equal(state.pendingAcquisitions, 0);
+          assert.equal(state.releaseEvents, 1);
+          assert.equal(state.removeEvents, 1);
+          assert.equal(state.poolEndCalls, 1);
+          assert.equal(state.pool.totalCount, 0);
+          assert.equal(state.scope.state, 'CLOSED');
+          assert.doesNotThrow(() => callbackClient.release());
+        }
+
+        {
+          const control = delayedClient();
+          const state = harness(control);
+          let rejected = 0;
+          const acquisition = state.pool.connect().then(
+            () => { throw new Error('UNEXPECTED_CONNECT_SUCCESS'); },
+            () => { rejected += 1; },
+          );
+          const cancellation = state.scope.cancel();
+          control.fail();
+          await acquisition;
+          await cancellation;
+          await state.scope.drain();
+          assert.equal(rejected, 1);
+          assert.equal(state.pendingAcquisitions, 0);
+          assert.equal(state.releaseEvents, 0);
+          assert.equal(state.removeEvents, 0);
+          assert.equal(state.poolEndCalls, 1);
+          assert.equal(state.pool.totalCount, 0);
+          assert.equal(state.scope.state, 'CLOSED');
+        }
+
+        {
+          const control = delayedClient();
+          const state = harness(control);
+          let callbackCalls = 0;
+          const callbackCompleted = new Promise((resolve) => {
+            state.pool.connect((error, client) => {
+              callbackCalls += 1;
+              assert.ok(error instanceof Error);
+              assert.equal(client, undefined);
+              resolve();
+            });
+          });
+          const cancellation = state.scope.cancel();
+          control.fail();
+          await callbackCompleted;
+          await cancellation;
+          await state.scope.drain();
+          assert.equal(callbackCalls, 1);
+          assert.equal(state.pendingAcquisitions, 0);
+          assert.equal(state.releaseEvents, 0);
+          assert.equal(state.removeEvents, 0);
+          assert.equal(state.poolEndCalls, 1);
+          assert.equal(state.pool.totalCount, 0);
+          assert.equal(state.scope.state, 'CLOSED');
+        }
+
+        {
+          const control = delayedClient();
+          const state = harness(control);
+          const acquired = state.pool.connect();
+          assert.doesNotThrow(() => state.pool.emit('error', new Error('RAW_PENDING_POOL_ERROR_SENTINEL')));
+          const drained = state.scope.drain();
+          control.succeed();
+          const client = await acquired;
+          await drained;
+          assert.equal(state.unexpectedErrors, 1);
+          assert.equal(state.releaseEvents, 1);
+          assert.equal(state.removeEvents, 1);
+          assert.equal(state.poolEndCalls, 1);
+          assert.equal(state.pool.totalCount, 0);
+          assert.equal(state.scope.state, 'CLOSED');
+          assert.doesNotThrow(() => client.release());
+        }
+
+        {
+          let failedRelease;
+          class OneShotReleaseFailurePool extends pg.Pool {
+            _release(client, idleListener, error) {
+              if (!failedRelease) {
+                failedRelease = { client, idleListener, error };
+                throw new Error('SYNTHETIC_RELEASE_FAILURE');
+              }
+              return super._release(client, idleListener, error);
+            }
+            completeFailedReleaseForTest() {
+              assert.ok(failedRelease);
+              return super._release(failedRelease.client, failedRelease.idleListener, failedRelease.error);
+            }
+          }
+          const control = delayedClient();
+          const state = harness(control, OneShotReleaseFailurePool);
+          const acquisition = state.pool.connect();
+          control.succeed();
+          const client = await acquisition;
+          await assert.rejects(
+            () => state.registry.terminalizeOwnedResources(),
+            /controlled_runtime_teardown_failed/,
+          );
+          assert.equal(state.unexpectedErrors, 1);
+          assert.equal(state.releaseEvents, 0);
+          assert.equal(state.removeEvents, 0);
+          assert.equal(state.poolEndCalls, 0);
+          assert.equal(state.pool.totalCount, 1);
+          state.pool.completeFailedReleaseForTest();
+          await turn();
+          await turn();
+          assert.equal(state.releaseEvents, 1);
+          assert.equal(state.removeEvents, 1);
+          assert.equal(state.pool.totalCount, 0);
+          await state.pool.end();
+          await state.scope.cancel();
+          await state.scope.drain();
+          assert.equal(state.scope.state, 'CLOSED');
+          assert.equal(state.poolEndCalls, 1);
+          assert.equal(state.pool.ended, true);
+          assert.doesNotThrow(() => client.release());
+        }
+
+        {
+          const control = delayedClient();
+          const scope = creation.createControlledFreshCandidateOperationScope();
+          const mutationActive = { current: true };
+          const registry = resources.createControlledFreshCandidateTerminalResourceRegistry({
+            scope,
+            mutationActive,
+            dispatcher: { destroy: async () => undefined },
+          });
+          scope.registerCancellation(registry.terminalizeOwnedResources);
+          let releaseEvents = 0;
+          let removeEvents = 0;
+          let checkedOut;
+          class VulnerablePool extends pg.Pool {
+            constructor(options) {
+              super(options);
+              this.on('connect', (client) => registry.registerPoolClient(client, this));
+              this.on('remove', (client) => registry.registerPoolClientDestruction(client, this));
+              registry.registerPool(this);
+            }
+            connect() {
+              return super.connect().then((client) => {
+                const nativeRelease = client.release.bind(client);
+                let released = false;
+                const controlledRelease = (error) => {
+                  if (released) return;
+                  released = true;
+                  let succeeded = false;
+                  try {
+                    nativeRelease(error);
+                    succeeded = true;
+                  } finally {
+                    registry.registerPoolClientRelease(client, this, succeeded, Boolean(error));
+                  }
+                };
+                client.release = controlledRelease;
+                registry.registerPoolClientAcquisition(client, this, controlledRelease);
+                return client;
+              });
+            }
+          }
+          const pool = new VulnerablePool({ Client: control.SyntheticClient, max: 1, idleTimeoutMillis: 0 });
+          pool.on('release', () => { releaseEvents += 1; });
+          pool.on('remove', () => { removeEvents += 1; });
+          const acquisition = pool.connect();
+          let cancellationSettled = false;
+          const cancellation = scope.cancel().then(() => { cancellationSettled = true; });
+          await turn();
+          assert.equal(pool.ending, true);
+          assert.equal(cancellationSettled, false);
+          control.succeed();
+          checkedOut = await acquisition;
+          await turn();
+          assert.equal(pool.totalCount, 1);
+          assert.equal(pool.idleCount, 0);
+          assert.equal(releaseEvents, 0);
+          assert.equal(removeEvents, 0);
+          assert.equal(control.state.endRequests, 0);
+          assert.equal(cancellationSettled, false);
+          checkedOut.release(new Error('TEST_ONLY_FAULT_CLEANUP'));
+          await cancellation;
+          await scope.drain();
+          assert.equal(scope.state, 'CLOSED');
+          assert.equal(pool.totalCount, 0);
+          assert.equal(releaseEvents, 1);
+          assert.equal(removeEvents, 1);
+          assert.equal(control.state.endRequests, 1);
+        }
+
+        console.log('CONTROLLED_REAL_PG_POOL_IN_FLIGHT_TEARDOWN_CLOSED');
+      })().catch(() => { process.exitCode = 1; });
+    `
+    const result = await asyncChild(inFlightPoolCode)
+    assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`)
+    assert.equal(result.signal, null)
+    assert.equal(result.stdout.trim(), 'CONTROLLED_REAL_PG_POOL_IN_FLIGHT_TEARDOWN_CLOSED')
+    assert.equal(result.stderr, '')
+  }
+
+  {
     const runtimeUrl = pathToFileURL(path.resolve('scripts/controlled-fresh-candidate-runtime.ts')).href
     const unresolvedTerminalCode = `
       void (async () => {
@@ -1808,6 +2210,7 @@ async function main(): Promise<void> {
       onClientReleased: () => undefined,
       onClientDestroyed: () => undefined,
       onConstructed: (pool) => ownedPools.add(pool),
+      onPoolAcquisitionStarted: () => () => undefined,
       onUnexpectedError: () => {
         mutationActive.current = false
         scope.cancel().then(() => undefined, () => undefined)
@@ -1895,6 +2298,7 @@ async function main(): Promise<void> {
       onClientReleased: () => undefined,
       onClientDestroyed: () => undefined,
       onConstructed: registry.registerPool as (pool: InstanceType<typeof import('pg').Pool>) => void,
+      onPoolAcquisitionStarted: () => () => undefined,
       onUnexpectedError: () => undefined,
       canConstruct: () => scope.state !== 'CLOSED',
       canConnect: () => scope.state === 'OPEN',
@@ -1921,6 +2325,7 @@ async function main(): Promise<void> {
       onClientReleased: registry.registerPoolClientRelease,
       onClientDestroyed: registry.registerPoolClientDestruction,
       onConstructed: registry.registerPool,
+      onPoolAcquisitionStarted: registry.registerPoolAcquisition,
       onUnexpectedError: () => {
         mutationActive.current = false
         scope.cancel().then(() => undefined, () => undefined)
@@ -1947,6 +2352,92 @@ async function main(): Promise<void> {
     assert.equal(teardownStarts, 1, phase)
     assert.ok(pool.listenerCount('error') >= 1, phase)
     scope.close()
+  }
+
+  {
+    const governanceSource = readFileSync(path.resolve('scripts/runtime-smoke-governance.ts'), 'utf8')
+    const receiptSource = readFileSync(path.resolve('src/lib/controlledFreshCandidateReceipt.ts'), 'utf8')
+    const replaceProtection = (source: string, active: string, weakened: string): string => {
+      assert.equal(source.includes(active), true, active)
+      const result = source.replace(active, weakened)
+      assert.notEqual(result, source)
+      return result
+    }
+    const faults = [
+      {
+        name: 'private-v2-disconnected-token',
+        source: replaceProtection(
+          receiptSource,
+          "export const CONTROLLED_FRESH_CANDIDATE_PRIVATE_VERSION = 'controlled-fresh-candidate-private/v2' as const",
+          "export const CONTROLLED_FRESH_CANDIDATE_PRIVATE_VERSION = 'controlled-fresh-candidate-private/v1' as const // controlled-fresh-candidate-private/v2",
+        ),
+      },
+      {
+        name: 'private-v1-comment-preserved-rejection',
+        source: replaceProtection(
+          receiptSource,
+          'return value.version === CONTROLLED_FRESH_CANDIDATE_PRIVATE_VERSION',
+          'return true /* value.version === CONTROLLED_FRESH_CANDIDATE_PRIVATE_VERSION */',
+        ),
+      },
+      {
+        name: 'mutation-teardown-comment-preserved-predicate',
+        source: replaceProtection(
+          receiptSource,
+          "&& ['failed', 'unknown'].includes(String(value.mutationResourceTeardown.status))",
+          "&& true /* ['failed', 'unknown'].includes(String(value.mutationResourceTeardown.status)) */",
+        ),
+      },
+      {
+        name: 'pending-status-comment-preserved-predicate',
+        source: replaceProtection(
+          receiptSource,
+          "&& value.authorityClosure.status === 'pending_not_attested'",
+          "&& true /* value.authorityClosure.status === 'pending_not_attested' */",
+        ),
+      },
+      {
+        name: 'outside-boundary-comment-preserved-predicate',
+        source: replaceProtection(
+          receiptSource,
+          "&& value.authorityClosure.boundary === 'outside_durable_receipt'",
+          "&& true /* value.authorityClosure.boundary === 'outside_durable_receipt' */",
+        ),
+      },
+    ] as const
+    const runGovernanceCopy = (candidateReceiptSource: string) => {
+      const root = mkdtempSync(path.join(tmpdir(), 'cfc-semantic-governance-'))
+      try {
+        const scriptDirectory = path.join(root, 'scripts')
+        const libraryDirectory = path.join(root, 'src', 'lib')
+        mkdirSync(scriptDirectory, { recursive: true })
+        mkdirSync(libraryDirectory, { recursive: true })
+        const governancePath = path.join(scriptDirectory, 'runtime-smoke-governance.ts')
+        writeFileSync(governancePath, governanceSource, 'utf8')
+        writeFileSync(path.join(libraryDirectory, 'controlledFreshCandidateReceipt.ts'), candidateReceiptSource, 'utf8')
+        return spawnSync(process.execPath, [
+          path.resolve('node_modules/tsx/dist/cli.mjs'),
+          governancePath,
+        ], {
+          cwd: process.cwd(),
+          encoding: 'utf8',
+          env: sanitizedChildEnvironment(),
+        })
+      } finally {
+        rmSync(root, { recursive: true, force: true })
+      }
+    }
+    const baseline = runGovernanceCopy(receiptSource)
+    assert.equal(baseline.status, 0, `${baseline.stdout}\n${baseline.stderr}`)
+    assert.equal(baseline.signal, null)
+    assert.equal(baseline.stdout.includes('runtimeSmokeGovernance: 21 read-only smoke commands checked - ALL OK'), true)
+    assert.equal(baseline.stderr, '')
+    for (const fault of faults) {
+      const result = runGovernanceCopy(fault.source)
+      assert.notEqual(result.status, 0, `${fault.name} must fail semantic governance`)
+      assert.equal(result.signal, null, fault.name)
+      assert.equal(result.stdout.includes('ALL OK'), false, fault.name)
+    }
   }
 
   {

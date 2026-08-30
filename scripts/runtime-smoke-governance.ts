@@ -1,6 +1,20 @@
 import assert from 'node:assert'
 import { existsSync, readFileSync } from 'node:fs'
 
+import {
+  authenticateControlledFreshCandidateReceipt,
+  CONTROLLED_FRESH_CANDIDATE_CONTRACT_IDENTITY,
+  CONTROLLED_FRESH_CANDIDATE_MANIFEST_VERSION,
+  CONTROLLED_FRESH_CANDIDATE_PRIVATE_VERSION,
+  CONTROLLED_FRESH_CANDIDATE_RECEIPT_CONSUMPTION_DOMAIN,
+  CONTROLLED_FRESH_CANDIDATE_RECEIPT_DOMAIN,
+  CONTROLLED_FRESH_CANDIDATE_RUNTIME_IDENTITY,
+  readControlledFreshCandidateCapability,
+  sealControlledFreshCandidateReceipt,
+  serializeControlledFreshCandidateReceipt,
+  type ControlledFreshCandidatePrivateReceipt,
+} from '../src/lib/controlledFreshCandidateReceipt'
+
 type PackageJson = {
   scripts?: Record<string, string>
 }
@@ -20,6 +34,163 @@ function read(filePath: string): string {
 
 function assertIncludes(haystack: string, needle: string, label: string): void {
   assert.ok(haystack.includes(needle), `${label} must include: ${needle}`)
+}
+
+const CONTROLLED_RECEIPT_GOVERNANCE_KEY = new Uint8Array(32).fill(83)
+const CONTROLLED_RECEIPT_GOVERNANCE_COMMIT = '921b2b7a98d36e99bb1427979d4561edd7881b11'
+const CONTROLLED_RECEIPT_GOVERNANCE_ENVIRONMENT = 'runtime-smoke-governance-offline'
+
+function controlledReceiptGovernanceFixture(): Omit<ControlledFreshCandidatePrivateReceipt, 'seal'> {
+  const filename = 'cfc-governance-execution-0001-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.png'
+  return {
+    version: CONTROLLED_FRESH_CANDIDATE_PRIVATE_VERSION,
+    executionAuthorization: { identity: 'governance-owner-0001', digest: '1'.repeat(64), consumed: true },
+    executionId: 'governance-execution-0001',
+    manifest: {
+      version: CONTROLLED_FRESH_CANDIDATE_MANIFEST_VERSION,
+      identity: 'governance-manifest-0001',
+      digest: '2'.repeat(64),
+      title: 'Offline governance candidate',
+      positivePrice: 1,
+      provenanceStatement: 'Synthetic offline governance evidence.',
+      stockCandidate: 'SN9001',
+      visualFamily: 'generic',
+      productFamily: 'shoes',
+      productType: 'shoe',
+      original: {
+        filename,
+        contentDigest: '3'.repeat(64),
+        mimeType: 'image/png',
+        byteSize: 4,
+        width: 1,
+        height: 1,
+      },
+    },
+    runtime: {
+      identity: CONTROLLED_FRESH_CANDIDATE_RUNTIME_IDENTITY,
+      contract: CONTROLLED_FRESH_CANDIDATE_CONTRACT_IDENTITY,
+      commit: CONTROLLED_RECEIPT_GOVERNANCE_COMMIT,
+      environment: CONTROLLED_RECEIPT_GOVERNANCE_ENVIRONMENT,
+      receiptDestinationDigest: '4'.repeat(64),
+    },
+    stockCandidate: 'SN9001',
+    expectedStateFingerprint: '5'.repeat(64),
+    product: { state: 'retained', id: 77, fingerprint: '6'.repeat(64) },
+    media: {
+      state: 'retained',
+      id: 501,
+      productId: 77,
+      expectedFilename: filename,
+      actualFilename: filename,
+    },
+    storageLedger: [{ ordinal: 1, filename, state: 'known_present' }],
+    transactions: {
+      productCreate: { intent: 'dispatched', certainty: 'observed' },
+      mediaCreate: { intent: 'dispatched', certainty: 'observed' },
+      relationshipUpdate: { intent: 'dispatched', certainty: 'observed' },
+      finalization: { intent: 'dispatched', certainty: 'observed' },
+    },
+    phase: 'teardown_observed',
+    budgets: {
+      stockCandidates: 1,
+      stockLookups: 1,
+      productCreates: 1,
+      mediaCreates: 1,
+      productRelationshipUpdates: 1,
+      productFinalizationUpdates: 1,
+      explicitMediaUpdates: 0,
+      canonicalMediaMetadataUpdates: 1,
+      logicalStorageUploads: 1,
+      productDeletes: 0,
+      mediaDeletes: 0,
+      variantMutations: 0,
+      storageDeletes: 0,
+      automaticMediaDetachUpdates: 0,
+      automaticRequarantineUpdates: 0,
+      otherRecordMutations: 0,
+      operatorRetries: 0,
+      replacementExecutions: 0,
+    },
+    quarantineCertainty: 'pending_observed',
+    commitCertainty: 'committed_observed',
+    finalization: { requested: true, observed: true },
+    mutationResourceTeardown: { attempted: true, completed: true, status: 'complete' },
+    authorityClosure: { status: 'pending_not_attested', boundary: 'outside_durable_receipt' },
+  }
+}
+
+function assertControlledReceiptSemanticGovernance(): void {
+  assert.equal(CONTROLLED_FRESH_CANDIDATE_PRIVATE_VERSION, 'controlled-fresh-candidate-private/v2')
+  assert.equal(CONTROLLED_FRESH_CANDIDATE_MANIFEST_VERSION, 'controlled-fresh-candidate-manifest/v1')
+  assert.equal(CONTROLLED_FRESH_CANDIDATE_RUNTIME_IDENTITY, 'controlled-fresh-candidate-runtime/v2')
+  assert.equal(CONTROLLED_FRESH_CANDIDATE_CONTRACT_IDENTITY, 'controlled-fresh-candidate-contract/v2')
+  assert.equal(CONTROLLED_FRESH_CANDIDATE_RECEIPT_DOMAIN, 'uygunayakkabi:controlled-fresh-candidate:private-receipt:v2')
+  assert.equal(CONTROLLED_FRESH_CANDIDATE_RECEIPT_CONSUMPTION_DOMAIN, 'uygunayakkabi:controlled-fresh-candidate:receipt-consumption:v2')
+
+  const unsigned = controlledReceiptGovernanceFixture()
+  const sealed = sealControlledFreshCandidateReceipt(unsigned, CONTROLLED_RECEIPT_GOVERNANCE_KEY)
+  const serialized = serializeControlledFreshCandidateReceipt(sealed)
+  let consumptionIdentity = ''
+  const capability = authenticateControlledFreshCandidateReceipt({
+    serialized,
+    key: CONTROLLED_RECEIPT_GOVERNANCE_KEY,
+    expectedCommitIdentity: CONTROLLED_RECEIPT_GOVERNANCE_COMMIT,
+    expectedEnvironmentIdentity: CONTROLLED_RECEIPT_GOVERNANCE_ENVIRONMENT,
+    consume(identity) {
+      consumptionIdentity = identity
+      return true
+    },
+  })
+  assert.match(consumptionIdentity, /^[0-9a-f]{64}$/)
+  const authenticated = readControlledFreshCandidateCapability(capability)
+  assert.deepEqual(authenticated.mutationResourceTeardown, { attempted: true, completed: true, status: 'complete' })
+  assert.deepEqual(authenticated.authorityClosure, {
+    status: 'pending_not_attested',
+    boundary: 'outside_durable_receipt',
+  })
+  assert.throws(() => authenticateControlledFreshCandidateReceipt({
+    serialized,
+    key: CONTROLLED_RECEIPT_GOVERNANCE_KEY,
+    expectedCommitIdentity: CONTROLLED_RECEIPT_GOVERNANCE_COMMIT,
+    expectedEnvironmentIdentity: CONTROLLED_RECEIPT_GOVERNANCE_ENVIRONMENT,
+    consume: () => false,
+  }), /CONTROLLED_RECEIPT_REPLAYED/)
+
+  const rejects = (label: string, transform: (candidate: Record<string, unknown>) => void): void => {
+    const candidate = structuredClone(unsigned) as unknown as Record<string, unknown>
+    transform(candidate)
+    assert.throws(
+      () => sealControlledFreshCandidateReceipt(
+        candidate as unknown as Omit<ControlledFreshCandidatePrivateReceipt, 'seal'>,
+        CONTROLLED_RECEIPT_GOVERNANCE_KEY,
+      ),
+      /CONTROLLED_RECEIPT_SHAPE_INVALID/,
+      label,
+    )
+  }
+  rejects('private v1 receipt', (candidate) => { candidate.version = 'controlled-fresh-candidate-private/v1' })
+  rejects('private receipt cannot use manifest v1 as its version', (candidate) => {
+    candidate.version = CONTROLLED_FRESH_CANDIDATE_MANIFEST_VERSION
+  })
+  rejects('missing mutation teardown', (candidate) => { delete candidate.mutationResourceTeardown })
+  rejects('contradictory mutation teardown', (candidate) => {
+    candidate.mutationResourceTeardown = { attempted: true, completed: false, status: 'complete' }
+  })
+  rejects('missing authority status', (candidate) => {
+    delete (candidate.authorityClosure as Record<string, unknown>).status
+  })
+  rejects('completed durable authority closure', (candidate) => {
+    ;(candidate.authorityClosure as Record<string, unknown>).status = 'complete'
+  })
+  rejects('missing durable authority boundary', (candidate) => {
+    delete (candidate.authorityClosure as Record<string, unknown>).boundary
+  })
+  rejects('authority closure claimed inside receipt', (candidate) => {
+    ;(candidate.authorityClosure as Record<string, unknown>).boundary = 'inside_durable_receipt'
+  })
+  rejects('additional authority closure field', (candidate) => {
+    ;(candidate.authorityClosure as Record<string, unknown>).attested = true
+  })
 }
 
 function assertCommandDocumentedNearConfirmation(docText: string, smokeName: string, label: string): void {
@@ -339,29 +510,7 @@ assert.ok(!/blobModule\.(?:del|list|head)|sendTelegram|generateProductImages|que
 assertIncludes(controlledCandidateCreation, "status: 'draft'", 'controlled Product draft invariant')
 assertIncludes(controlledCandidateCreation, 'sellable: false', 'controlled Product non-sellable invariant')
 assertIncludes(controlledCandidateCreation, 'eligibleForPublishing: false', 'controlled public publishing denial')
-assertIncludes(controlledCandidateReceipt, "controlled-fresh-candidate-private/v2", 'controlled private receipt version')
-assert.ok(
-  !controlledCandidateReceipt.includes('controlled-fresh-candidate-private/v1'),
-  'controlled private receipt governance must reject the legacy v1 identity',
-)
-assertIncludes(controlledCandidateReceipt, 'mutationResourceTeardown', 'controlled mutation-resource teardown attestation')
-assertIncludes(controlledCandidateReceipt, "status: 'pending_not_attested'", 'controlled authority-closure pending attestation')
-assertIncludes(controlledCandidateReceipt, "boundary: 'outside_durable_receipt'", 'controlled authority-closure attestation boundary')
-assertIncludes(
-  controlledCandidateReceipt,
-  "value.authorityClosure.status === 'pending_not_attested'",
-  'controlled authority-closure exact pending validation',
-)
-assertIncludes(
-  controlledCandidateReceipt,
-  "value.authorityClosure.boundary === 'outside_durable_receipt'",
-  'controlled authority-closure exact boundary validation',
-)
-assert.ok(
-  !controlledCandidateReceipt.includes("authorityClosure.status === 'complete'")
-    && !controlledCandidateReceipt.includes("authorityClosure: { status: 'complete'"),
-  'durable receipt must not attest completed authority closure',
-)
+assertControlledReceiptSemanticGovernance()
 assertIncludes(controlledCandidateReceipt, "createHmac('sha256'", 'controlled receipt HMAC')
 assertIncludes(controlledCandidateReceipt, 'timingSafeEqual', 'controlled receipt constant-time authentication')
 assertIncludes(controlledCandidateReceipt, 'CONTROLLED_RECEIPT_REPLAYED', 'controlled receipt replay refusal')

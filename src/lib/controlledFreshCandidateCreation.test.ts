@@ -374,7 +374,7 @@ async function main(): Promise<void> {
     ;(contradictory.mutationResourceTeardown as Record<string, unknown>).status = 'failed'
     assert.throws(
       () => authenticateReceipt({ serialized: JSON.stringify(contradictory) }),
-      /CONTROLLED_RECEIPT_MALFORMED/,
+      /CONTROLLED_RECEIPT_AUTHENTICATION_FAILED/,
     )
   }
 
@@ -772,6 +772,35 @@ async function main(): Promise<void> {
     await assert.rejects(() => scope.run(async () => { refusedOperationRan = true }), /DEADLINE_EXCEEDED/)
     assert.equal(refusedCleanupRan, false)
     assert.equal(refusedOperationRan, false)
+  }
+
+  {
+    const states: string[] = []
+    const scope = createControlledFreshCandidateOperationScope({
+      onStateChange: (state) => { states.push(state) },
+    })
+    let mutationActive = true
+    scope.registerCancellation(async () => {
+      mutationActive = false
+      throw new Error('RAW_STICKY_TERMINAL_FAILURE_SENTINEL')
+    })
+    let authoritativeFailure: unknown
+    await assert.rejects(() => scope.cancel(), (error: unknown) => {
+      authoritativeFailure = error
+      assert.equal((error as Error).message, 'CONTROLLED_TERMINAL_CLEANUP_UNCERTAIN')
+      assert.equal((error as Error).message.includes('RAW_STICKY_TERMINAL_FAILURE_SENTINEL'), false)
+      return true
+    })
+    assert.equal(scope.state, 'TERMINAL_UNCERTAIN')
+    assert.equal(mutationActive, false)
+    scope.registerTerminalization(async () => undefined)
+    await assert.rejects(() => scope.cancel(), (error: unknown) => error === authoritativeFailure)
+    await assert.rejects(() => scope.drain(), (error: unknown) => error === authoritativeFailure)
+    assert.throws(() => scope.close(), (error: unknown) => error === authoritativeFailure)
+    scope.registerCancellation(async () => undefined)
+    await assert.rejects(() => scope.cancel(), (error: unknown) => error === authoritativeFailure)
+    assert.equal(scope.state, 'TERMINAL_UNCERTAIN')
+    assert.equal(states.includes('CLOSED'), false)
   }
 
   {

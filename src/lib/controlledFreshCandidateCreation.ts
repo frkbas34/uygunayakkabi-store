@@ -30,11 +30,18 @@ export class ControlledFreshCandidateDeadlineError extends Error {
   }
 }
 
+export class ControlledFreshCandidateTerminalUncertaintyError extends Error {
+  constructor() {
+    super('CONTROLLED_TERMINAL_CLEANUP_UNCERTAIN')
+  }
+}
+
 export type ControlledFreshCandidateOperationScopeState =
   | 'OPEN'
   | 'CANCELLING'
   | 'SEALED_FOR_NON_CLEANUP'
   | 'DRAINING_CLEANUP'
+  | 'TERMINAL_UNCERTAIN'
   | 'CLOSED'
 
 export type ControlledFreshCandidateOperationScope = {
@@ -70,12 +77,34 @@ export function createControlledFreshCandidateOperationScope(params: {
   const cancellationHandlers: Array<() => Promise<void>> = []
   const activeOperations = new Set<Promise<unknown>>()
   const terminalizations = new Set<Promise<unknown>>()
+  const knownTerminalizations = new WeakSet<Promise<unknown>>()
+  const recordedFailedTerminalizations = new WeakSet<Promise<unknown>>()
   let state: ControlledFreshCandidateOperationScopeState = 'OPEN'
   let acceptedGeneration = 0
+  let cleanupFailureCount = 0
+  const terminalUncertainty = new ControlledFreshCandidateTerminalUncertaintyError()
   const transition = (next: ControlledFreshCandidateOperationScopeState): void => {
     if (state === next) return
     state = next
     params.onStateChange?.(state)
+  }
+
+  const recordCleanupFailure = (operation: Promise<unknown>): void => {
+    if (recordedFailedTerminalizations.has(operation)) return
+    recordedFailedTerminalizations.add(operation)
+    cleanupFailureCount += 1
+    transition('TERMINAL_UNCERTAIN')
+  }
+  const throwIfCleanupUncertain = (): void => {
+    if (cleanupFailureCount > 0) throw terminalUncertainty
+  }
+  const settleAndInspect = async (pending: Promise<unknown>[]): Promise<void> => {
+    const results = await Promise.allSettled(pending)
+    for (let index = 0; index < results.length; index += 1) {
+      if (results[index]?.status === 'rejected' && knownTerminalizations.has(pending[index])) {
+        recordCleanupFailure(pending[index])
+      }
+    }
   }
 
   const trackTerminalization = (operation: () => Promise<unknown>): void => {
@@ -87,11 +116,15 @@ export function createControlledFreshCandidateOperationScope(params: {
       rejectTracked = reject
     })
     terminalizations.add(tracked)
+    knownTerminalizations.add(tracked)
     acceptedGeneration += 1
     params.onCleanupRegistered?.(acceptedGeneration)
     tracked.then(
       () => terminalizations.delete(tracked),
-      () => terminalizations.delete(tracked),
+      () => {
+        recordCleanupFailure(tracked)
+        terminalizations.delete(tracked)
+      },
     )
     Promise.resolve().then(operation).then(resolveTracked, rejectTracked)
   }
@@ -108,20 +141,24 @@ export function createControlledFreshCandidateOperationScope(params: {
       const pending = includeOperations
         ? [...activeOperations, ...terminalizations]
         : [...terminalizations]
-      if (pending.length === 0 && acceptedGeneration === generation) return
-      await Promise.allSettled(pending)
+      if (pending.length === 0 && acceptedGeneration === generation) {
+        throwIfCleanupUncertain()
+        return
+      }
+      await settleAndInspect(pending)
     }
   }
   const cancel = async (): Promise<void> => {
     beginCancellation()
     if (state === 'CLOSED') return
     await drainAcceptedWork(false)
+    throwIfCleanupUncertain()
   }
   const drain = async (): Promise<void> => {
     beginCancellation()
     if (state === 'CLOSED') return
     if (state === 'CANCELLING') transition('SEALED_FOR_NON_CLEANUP')
-    transition('DRAINING_CLEANUP')
+    if (cleanupFailureCount === 0) transition('DRAINING_CLEANUP')
     for (;;) {
       const generation = acceptedGeneration
       const pending = [...activeOperations, ...terminalizations]
@@ -131,11 +168,12 @@ export function createControlledFreshCandidateOperationScope(params: {
         && terminalizations.size === 0
         && acceptedGeneration === generation
       ) {
+        throwIfCleanupUncertain()
         transition('CLOSED')
         cancellationHandlers.splice(0)
         return
       }
-      await Promise.allSettled(pending)
+      await settleAndInspect(pending)
     }
   }
   const assertActive = (): void => {
@@ -220,6 +258,7 @@ export function createControlledFreshCandidateOperationScope(params: {
     close() {
       if (state === 'CLOSED') return
       beginCancellation()
+      throwIfCleanupUncertain()
       if (activeOperations.size !== 0 || terminalizations.size !== 0) {
         throw new Error('CONTROLLED_TERMINAL_SCOPE_NOT_DRAINED')
       }

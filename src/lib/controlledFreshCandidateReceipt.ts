@@ -345,23 +345,7 @@ function exactReceiptShape(value: unknown): value is ControlledFreshCandidatePri
     && typeof value.finalization.observed === 'boolean'
     && typeof value.mutationResourceTeardown.attempted === 'boolean'
     && typeof value.mutationResourceTeardown.completed === 'boolean'
-    && (
-      (
-        value.mutationResourceTeardown.attempted === false
-        && value.mutationResourceTeardown.completed === false
-        && value.mutationResourceTeardown.status === 'not_started'
-      )
-      || (
-        value.mutationResourceTeardown.attempted === true
-        && value.mutationResourceTeardown.completed === true
-        && value.mutationResourceTeardown.status === 'complete'
-      )
-      || (
-        value.mutationResourceTeardown.attempted === true
-        && value.mutationResourceTeardown.completed === false
-        && ['failed', 'unknown'].includes(String(value.mutationResourceTeardown.status))
-      )
-    )
+    && ['not_started', 'complete', 'failed', 'unknown'].includes(String(value.mutationResourceTeardown.status))
     && value.authorityClosure.status === 'pending_not_attested'
     && value.authorityClosure.boundary === 'outside_durable_receipt'
     && exactDigest(value.seal)
@@ -434,6 +418,14 @@ export function authenticateControlledFreshCandidateReceipt(params: {
   const expectedSeal = Buffer.from(expected, 'hex')
   if (suppliedSeal.byteLength !== expectedSeal.byteLength || !timingSafeEqual(suppliedSeal, expectedSeal)) {
     throw new Error('CONTROLLED_RECEIPT_AUTHENTICATION_FAILED')
+  }
+  const completedTeardownEligible = (
+    parsed.mutationResourceTeardown.attempted === true
+    && parsed.mutationResourceTeardown.completed === true
+    && parsed.mutationResourceTeardown.status === 'complete'
+  )
+  if (!completedTeardownEligible) {
+    throw new Error('CONTROLLED_RECEIPT_TEARDOWN_INCOMPLETE')
   }
   const consumptionIdentity = createHmac('sha256', keyBuffer(params.key))
     .update(CONTROLLED_FRESH_CANDIDATE_RECEIPT_CONSUMPTION_DOMAIN)

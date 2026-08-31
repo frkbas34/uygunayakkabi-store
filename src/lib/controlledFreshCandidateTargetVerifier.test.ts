@@ -469,31 +469,91 @@ async function main(): Promise<void> {
 
   {
     const base = receipt(73)
-    const unsigned = structuredClone(base) as Partial<ControlledFreshCandidatePrivateReceipt>
-    delete unsigned.seal
-    unsigned.mutationResourceTeardown = { attempted: false, completed: false, status: 'not_started' }
-    const modified = sealControlledFreshCandidateReceipt(
-      unsigned as Omit<ControlledFreshCandidatePrivateReceipt, 'seal'>,
-      KEY,
-    )
-    const modifiedCapability = authenticateControlledFreshCandidateReceipt({
-      serialized: serializeControlledFreshCandidateReceipt(modified),
+    const incompleteTuples = [
+      { attempted: false, completed: false, status: 'not_started' as const },
+      { attempted: true, completed: false, status: 'failed' as const },
+      { attempted: true, completed: false, status: 'unknown' as const },
+      { attempted: true, completed: false, status: 'complete' as const },
+      { attempted: false, completed: true, status: 'complete' as const },
+      { attempted: true, completed: true, status: 'failed' as const },
+      { attempted: false, completed: false, status: 'complete' as const },
+    ]
+    for (const tuple of incompleteTuples) {
+      const unsigned = structuredClone(base) as Partial<ControlledFreshCandidatePrivateReceipt>
+      delete unsigned.seal
+      unsigned.mutationResourceTeardown = tuple
+      const modified = sealControlledFreshCandidateReceipt(
+        unsigned as Omit<ControlledFreshCandidatePrivateReceipt, 'seal'>,
+        KEY,
+      )
+      let consumptionCalls = 0
+      let producedCapability: ControlledFreshCandidateTargetCapability | null = null
+      assert.throws(() => {
+        producedCapability = authenticateControlledFreshCandidateReceipt({
+          serialized: serializeControlledFreshCandidateReceipt(modified),
+          key: KEY,
+          expectedCommitIdentity: COMMIT_IDENTITY,
+          expectedEnvironmentIdentity: ENVIRONMENT_IDENTITY,
+          consume: () => { consumptionCalls += 1; return true },
+        })
+      }, /CONTROLLED_RECEIPT_TEARDOWN_INCOMPLETE/)
+      assert.equal(producedCapability, null)
+      assert.equal(consumptionCalls, 0)
+      assert.throws(() => authenticateControlledFreshCandidateReceipt({
+        serialized: serializeControlledFreshCandidateReceipt(modified),
+        key: KEY,
+        expectedCommitIdentity: COMMIT_IDENTITY,
+        expectedEnvironmentIdentity: ENVIRONMENT_IDENTITY,
+        consume: () => { consumptionCalls += 1; return true },
+      }), /CONTROLLED_RECEIPT_TEARDOWN_INCOMPLETE/)
+      assert.equal(consumptionCalls, 0)
+    }
+
+    for (const invalidTeardown of [
+      { attempted: true, completed: false, status: 'uncertain' },
+      { attempted: true, completed: false, status: 'other' },
+      { attempted: true, completed: true, status: 'complete', additional: true },
+      undefined,
+    ]) {
+      const unsigned = structuredClone(base) as unknown as Record<string, unknown>
+      delete unsigned.seal
+      if (invalidTeardown === undefined) delete unsigned.mutationResourceTeardown
+      else unsigned.mutationResourceTeardown = invalidTeardown
+      assert.throws(
+        () => sealControlledFreshCandidateReceipt(
+          unsigned as unknown as Omit<ControlledFreshCandidatePrivateReceipt, 'seal'>,
+          KEY,
+        ),
+        /CONTROLLED_RECEIPT_SHAPE_INVALID/,
+      )
+    }
+
+    const complete = receipt(74)
+    const consumed = new Set<string>()
+    let consumptionCalls = 0
+    const consume = (identity: string): boolean => {
+      consumptionCalls += 1
+      if (consumed.has(identity)) return false
+      consumed.add(identity)
+      return true
+    }
+    const completeCapability = authenticateControlledFreshCandidateReceipt({
+      serialized: serializeControlledFreshCandidateReceipt(complete),
       key: KEY,
       expectedCommitIdentity: COMMIT_IDENTITY,
       expectedEnvironmentIdentity: ENVIRONMENT_IDENTITY,
-      consume: () => true,
+      consume,
     })
-    const state = verifierFixture(modified)
-    const result = await verifyControlledFreshCandidateTarget({
-      capability: modifiedCapability,
-      dependencies: state.dependencies,
-    })
-    assert.ok(result.reasonCodes.includes('RECEIPT_CONSTRUCTION_INCOMPLETE'))
-    assert.equal(result.eligibleForVisualOnlyGeneration, false)
-    assert.equal(state.reads.some((entry) => entry.startsWith('product:')), false)
-    assert.equal(JSON.stringify(result).includes('authorityClosure'), false)
-    assert.equal(JSON.stringify(result).includes('pending_not_attested'), false)
-    assert.equal(JSON.stringify(result).includes('outside_durable_receipt'), false)
+    assert.ok(completeCapability)
+    assert.equal(consumptionCalls, 1)
+    assert.throws(() => authenticateControlledFreshCandidateReceipt({
+      serialized: serializeControlledFreshCandidateReceipt(complete),
+      key: KEY,
+      expectedCommitIdentity: COMMIT_IDENTITY,
+      expectedEnvironmentIdentity: ENVIRONMENT_IDENTITY,
+      consume,
+    }), /CONTROLLED_RECEIPT_REPLAYED/)
+    assert.equal(consumptionCalls, 2)
   }
 
   {

@@ -156,6 +156,41 @@ function assertControlledReceiptSemanticGovernance(): void {
     consume: () => false,
   }), /CONTROLLED_RECEIPT_REPLAYED/)
 
+  for (const mutationResourceTeardown of [
+    { attempted: false, completed: false, status: 'not_started' as const },
+    { attempted: true, completed: false, status: 'failed' as const },
+    { attempted: true, completed: false, status: 'unknown' as const },
+    { attempted: true, completed: false, status: 'complete' as const },
+    { attempted: false, completed: true, status: 'complete' as const },
+    { attempted: true, completed: true, status: 'failed' as const },
+  ]) {
+    const incomplete = sealControlledFreshCandidateReceipt({
+      ...structuredClone(unsigned),
+      mutationResourceTeardown,
+    }, CONTROLLED_RECEIPT_GOVERNANCE_KEY)
+    const incompleteSerialized = serializeControlledFreshCandidateReceipt(incomplete)
+    let incompleteConsumptionCalls = 0
+    assert.throws(() => authenticateControlledFreshCandidateReceipt({
+      serialized: incompleteSerialized,
+      key: CONTROLLED_RECEIPT_GOVERNANCE_KEY,
+      expectedCommitIdentity: CONTROLLED_RECEIPT_GOVERNANCE_COMMIT,
+      expectedEnvironmentIdentity: CONTROLLED_RECEIPT_GOVERNANCE_ENVIRONMENT,
+      consume: () => { incompleteConsumptionCalls += 1; return true },
+    }), /CONTROLLED_RECEIPT_TEARDOWN_INCOMPLETE/)
+    assert.equal(incompleteConsumptionCalls, 0)
+
+    const tampered = JSON.parse(incompleteSerialized) as ControlledFreshCandidatePrivateReceipt
+    tampered.seal = tampered.seal === '0'.repeat(64) ? '1'.repeat(64) : '0'.repeat(64)
+    assert.throws(() => authenticateControlledFreshCandidateReceipt({
+      serialized: JSON.stringify(tampered),
+      key: CONTROLLED_RECEIPT_GOVERNANCE_KEY,
+      expectedCommitIdentity: CONTROLLED_RECEIPT_GOVERNANCE_COMMIT,
+      expectedEnvironmentIdentity: CONTROLLED_RECEIPT_GOVERNANCE_ENVIRONMENT,
+      consume: () => { incompleteConsumptionCalls += 1; return true },
+    }), /CONTROLLED_RECEIPT_AUTHENTICATION_FAILED/)
+    assert.equal(incompleteConsumptionCalls, 0)
+  }
+
   const rejects = (label: string, transform: (candidate: Record<string, unknown>) => void): void => {
     const candidate = structuredClone(unsigned) as unknown as Record<string, unknown>
     transform(candidate)
@@ -173,8 +208,11 @@ function assertControlledReceiptSemanticGovernance(): void {
     candidate.version = CONTROLLED_FRESH_CANDIDATE_MANIFEST_VERSION
   })
   rejects('missing mutation teardown', (candidate) => { delete candidate.mutationResourceTeardown })
-  rejects('contradictory mutation teardown', (candidate) => {
-    candidate.mutationResourceTeardown = { attempted: true, completed: false, status: 'complete' }
+  rejects('uncertain mutation teardown status', (candidate) => {
+    candidate.mutationResourceTeardown = { attempted: true, completed: false, status: 'uncertain' }
+  })
+  rejects('additional mutation teardown property', (candidate) => {
+    candidate.mutationResourceTeardown = { attempted: true, completed: true, status: 'complete', additional: true }
   })
   rejects('missing authority status', (candidate) => {
     delete (candidate.authorityClosure as Record<string, unknown>).status

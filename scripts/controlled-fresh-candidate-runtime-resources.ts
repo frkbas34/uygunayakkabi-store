@@ -568,10 +568,15 @@ export function createControlledFreshCandidatePoolConstructor(params: {
     connect(): Promise<import('pg').PoolClient>
     connect(callback: PoolConnectCallback): void
     connect(callback?: PoolConnectCallback): Promise<import('pg').PoolClient> | void {
+      const reportCallbackException = (): void => {
+        try { params.onUnexpectedError() } catch { /* remain inside the governed callback boundary */ }
+      }
       if (!(params.canConnect?.() ?? true)) {
         const error = new Error('controlled_runtime_pool_revoked')
         if (callback) {
-          queueMicrotask(() => callback(error, undefined as never, () => undefined))
+          queueMicrotask(() => {
+            try { callback(error, undefined as never, () => undefined) } catch { reportCallbackException() }
+          })
           return
         }
         return Promise.reject(error)
@@ -584,33 +589,60 @@ export function createControlledFreshCandidatePoolConstructor(params: {
         settlePoolAcquisition()
       }
       if (callback) {
-        let callbackInvoked = false
+        let installedCallbackObserved = false
+        let consumerCallbackDelivered = false
+        const deliverConsumerCallback = (
+          error: Error | undefined,
+          client: import('pg').PoolClient | undefined,
+          release: (error?: Error | boolean) => void,
+        ): void => {
+          if (consumerCallbackDelivered) {
+            reportCallbackException()
+            return
+          }
+          consumerCallbackDelivered = true
+          try {
+            callback(error, client as never, release)
+          } catch {
+            reportCallbackException()
+          }
+        }
         try {
           return super.connect((error, client, release) => {
-            if (callbackInvoked) {
-              params.onUnexpectedError()
+            if (installedCallbackObserved) {
+              reportCallbackException()
               settlePoolAcquisitionOnce()
               return
             }
-            callbackInvoked = true
+            installedCallbackObserved = true
+            let deliveryError = error ?? (
+              client ? undefined : new Error('controlled_runtime_pool_connection_failed')
+            )
+            let deliveryClient = client
+            let deliveryRelease = release
             try {
-              if (error || !client) {
-                callback(error, client, release)
-                return
-              }
-              try {
+              if (!error && client) {
                 const governed = this.governAcquisition(client, release)
-                callback(undefined, governed, governed.release)
-              } catch {
-                callback(new Error('controlled_runtime_pool_client_registration_failed'), undefined as never, () => undefined)
+                deliveryClient = governed
+                deliveryRelease = governed.release
               }
+            } catch {
+              deliveryError = new Error('controlled_runtime_pool_client_registration_failed')
+              deliveryClient = undefined as never
+              deliveryRelease = () => undefined
             } finally {
               settlePoolAcquisitionOnce()
             }
+            deliverConsumerCallback(deliveryError, deliveryClient, deliveryRelease)
           })
-        } catch (error) {
+        } catch {
           settlePoolAcquisitionOnce()
-          throw error
+          deliverConsumerCallback(
+            new Error('controlled_runtime_pool_connection_failed'),
+            undefined,
+            () => undefined,
+          )
+          return
         }
       }
       let pending: Promise<import('pg').PoolClient>
@@ -1851,7 +1883,7 @@ async function createPayloadBoundary(params: {
     onConstructed: terminalResources.registerPool,
     onPoolAcquisitionStarted: terminalResources.registerPoolAcquisition,
     onUnexpectedError: governedPoolError,
-    canConstruct: () => params.scope.state !== 'CLOSED',
+    canConstruct: () => params.scope.state === 'OPEN',
     canConnect: () => params.scope.state === 'OPEN',
   })
   const controlledPgModule = {
@@ -2185,11 +2217,12 @@ export async function initializeControlledFreshCandidateCreationRuntime(
       creationOwnsAuthorityClosure = true
     },
     async destroy() {
-      await scope.cancel()
+      let ok = true
+      try { await scope.cancel() } catch { ok = false }
       const teardownResult = await teardown()
       const closureResult = await closeAuthorityResources()
-      await scope.drain()
-      return teardownResult.ok && closureResult.ok ? { ok: true } : { ok: false }
+      try { await scope.drain() } catch { ok = false }
+      return ok && teardownResult.ok && closureResult.ok ? { ok: true } : { ok: false }
     },
   }
 }
@@ -2299,10 +2332,11 @@ export async function initializeControlledFreshCandidateVerificationRuntime(
     },
     scope,
     async destroy() {
-      await scope.cancel()
+      let ok = true
+      try { await scope.cancel() } catch { ok = false }
       const result = await teardown()
-      await scope.drain()
-      return result
+      try { await scope.drain() } catch { ok = false }
+      return ok && result.ok ? { ok: true } : { ok: false }
     },
   }
 }

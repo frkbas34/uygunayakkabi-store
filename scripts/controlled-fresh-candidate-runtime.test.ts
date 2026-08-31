@@ -1854,10 +1854,18 @@ async function main(): Promise<void> {
           let removeEvents = 0;
           let poolEndCalls = 0;
           let unexpectedErrors = 0;
+          let clientRegistrations = 0;
+          let acquisitionRegistrations = 0;
           const ControlledPool = resources.createControlledFreshCandidatePoolConstructor({
             basePool: PoolBase,
-            onClient: registry.registerPoolClient,
-            onClientAcquired: registry.registerPoolClientAcquisition,
+            onClient(client, pool) {
+              clientRegistrations += 1;
+              registry.registerPoolClient(client, pool);
+            },
+            onClientAcquired(client, pool, release) {
+              acquisitionRegistrations += 1;
+              registry.registerPoolClientAcquisition(client, pool, release);
+            },
             onClientReleased: registry.registerPoolClientRelease,
             onClientDestroyed: registry.registerPoolClientDestruction,
             onConstructed: registry.registerPool,
@@ -1905,6 +1913,8 @@ async function main(): Promise<void> {
             get removeEvents() { return removeEvents; },
             get poolEndCalls() { return poolEndCalls; },
             get unexpectedErrors() { return unexpectedErrors; },
+            get clientRegistrations() { return clientRegistrations; },
+            get acquisitionRegistrations() { return acquisitionRegistrations; },
           };
         };
 
@@ -2009,6 +2019,124 @@ async function main(): Promise<void> {
           const control = delayedClient();
           const state = harness(control);
           let callbackCalls = 0;
+          let errorDeliveries = 0;
+          let callbackObserved;
+          const observed = new Promise((resolve) => { callbackObserved = resolve; });
+          state.pool.connect((error, client) => {
+            callbackCalls += 1;
+            if (error) errorDeliveries += 1;
+            assert.equal(client, undefined);
+            callbackObserved();
+            throw new Error('RAW_CALLBACK_ACQUISITION_ERROR_THROW_SENTINEL');
+          });
+          control.fail();
+          await observed;
+          await state.scope.cancel();
+          await state.scope.drain();
+          assert.equal(callbackCalls, 1);
+          assert.equal(errorDeliveries, 1);
+          assert.equal(state.unexpectedErrors, 1);
+          assert.equal(state.pendingAcquisitions, 0);
+          assert.equal(state.releaseEvents, 0);
+          assert.equal(state.removeEvents, 0);
+          assert.equal(state.poolEndCalls, 1);
+          assert.equal(state.scope.state, 'CLOSED');
+        }
+
+        {
+          const control = delayedClient();
+          class SynchronousConnectFailurePool extends pg.Pool {
+            connect() { throw new Error('RAW_SYNCHRONOUS_CONNECT_FAILURE_SENTINEL'); }
+          }
+          const state = harness(control, SynchronousConnectFailurePool);
+          let callbackCalls = 0;
+          let errorDeliveries = 0;
+          state.pool.connect((error, client) => {
+            callbackCalls += 1;
+            if (error) errorDeliveries += 1;
+            assert.equal(client, undefined);
+          });
+          assert.equal(callbackCalls, 1);
+          assert.equal(errorDeliveries, 1);
+          assert.equal(state.pendingAcquisitions, 0);
+          await state.scope.cancel();
+          await state.scope.drain();
+          assert.equal(state.releaseEvents, 0);
+          assert.equal(state.removeEvents, 0);
+          assert.equal(state.poolEndCalls, 1);
+          assert.equal(state.scope.state, 'CLOSED');
+        }
+
+        {
+          const control = delayedClient();
+          const state = harness(control);
+          let callbackCalls = 0;
+          let successDeliveries = 0;
+          let errorDeliveries = 0;
+          let callbackObserved;
+          const observed = new Promise((resolve) => { callbackObserved = resolve; });
+          state.pool.connect((error, client) => {
+            callbackCalls += 1;
+            if (error) errorDeliveries += 1;
+            else {
+              successDeliveries += 1;
+              assert.ok(client);
+            }
+            callbackObserved();
+            throw new Error('RAW_CALLBACK_THROW_SENTINEL');
+          });
+          control.succeed();
+          await observed;
+          await turn();
+          await state.scope.cancel();
+          await state.scope.drain();
+          assert.equal(callbackCalls, 1);
+          assert.equal(successDeliveries, 1);
+          assert.equal(errorDeliveries, 0);
+          assert.equal(state.unexpectedErrors, 1);
+          assert.equal(state.clientRegistrations, 1);
+          assert.equal(state.acquisitionRegistrations, 1);
+          assert.equal(state.maximumPendingAcquisitions, 1);
+          assert.equal(state.pendingAcquisitions, 0);
+          assert.equal(state.releaseEvents, 1);
+          assert.equal(state.removeEvents, 1);
+          assert.equal(state.poolEndCalls, 1);
+          assert.equal(state.pool.totalCount, 0);
+          assert.equal(state.scope.state, 'CLOSED');
+        }
+
+        {
+          const control = delayedClient();
+          const state = harness(control);
+          let callbackCalls = 0;
+          let callbackObserved;
+          const observed = new Promise((resolve) => { callbackObserved = resolve; });
+          state.pool.connect((error, client) => {
+            callbackCalls += 1;
+            assert.equal(error, undefined);
+            assert.ok(client);
+            void state.scope.cancel().then(() => undefined, () => undefined);
+            callbackObserved();
+            throw new Error('RAW_CALLBACK_CANCEL_THROW_SENTINEL');
+          });
+          control.succeed();
+          await observed;
+          await state.scope.cancel();
+          await state.scope.cancel();
+          await state.scope.drain();
+          assert.equal(callbackCalls, 1);
+          assert.equal(state.unexpectedErrors, 1);
+          assert.equal(state.pendingAcquisitions, 0);
+          assert.equal(state.releaseEvents, 1);
+          assert.equal(state.removeEvents, 1);
+          assert.equal(state.poolEndCalls, 1);
+          assert.equal(state.scope.state, 'CLOSED');
+        }
+
+        {
+          const control = delayedClient();
+          const state = harness(control);
+          let callbackCalls = 0;
           const callbackCompleted = new Promise((resolve) => {
             state.pool.connect((error, client) => {
               callbackCalls += 1;
@@ -2068,29 +2196,28 @@ async function main(): Promise<void> {
           const state = harness(control, OneShotReleaseFailurePool);
           const acquisition = state.pool.connect();
           control.succeed();
-          const client = await acquisition;
-          await assert.rejects(
-            () => state.registry.terminalizeOwnedResources(),
-            /controlled_runtime_teardown_failed/,
-          );
+          await acquisition;
+          let authoritativeFailure;
+          await assert.rejects(() => state.scope.cancel(), (error) => {
+            authoritativeFailure = error;
+            assert.equal(error.message, 'CONTROLLED_TERMINAL_CLEANUP_UNCERTAIN');
+            return true;
+          });
           assert.equal(state.unexpectedErrors, 1);
+          assert.equal(state.mutationActive.current, false);
           assert.equal(state.releaseEvents, 0);
           assert.equal(state.removeEvents, 0);
           assert.equal(state.poolEndCalls, 0);
           assert.equal(state.pool.totalCount, 1);
-          state.pool.completeFailedReleaseForTest();
-          await turn();
-          await turn();
-          assert.equal(state.releaseEvents, 1);
-          assert.equal(state.removeEvents, 1);
-          assert.equal(state.pool.totalCount, 0);
-          await state.pool.end();
-          await state.scope.cancel();
-          await state.scope.drain();
-          assert.equal(state.scope.state, 'CLOSED');
-          assert.equal(state.poolEndCalls, 1);
-          assert.equal(state.pool.ended, true);
-          assert.doesNotThrow(() => client.release());
+          assert.equal(state.pool.ending, false);
+          assert.equal(state.scope.state, 'TERMINAL_UNCERTAIN');
+          await assert.rejects(() => state.scope.cancel(), (error) => error === authoritativeFailure);
+          await assert.rejects(() => state.scope.drain(), (error) => error === authoritativeFailure);
+          assert.throws(() => state.scope.close(), (error) => error === authoritativeFailure);
+          await assert.rejects(() => state.registry.terminalizeOwnedResources(), /controlled_runtime_teardown_failed/);
+          assert.equal(state.scope.state, 'TERMINAL_UNCERTAIN');
+          assert.equal(state.pool.totalCount, 1);
+          assert.equal(state.poolEndCalls, 0);
         }
 
         {
@@ -2162,13 +2289,46 @@ async function main(): Promise<void> {
           assert.equal(control.state.endRequests, 1);
         }
 
-        console.log('CONTROLLED_REAL_PG_POOL_IN_FLIGHT_TEARDOWN_CLOSED');
-      })().catch(() => { process.exitCode = 1; });
+        {
+          let reviewedCallbackCalls = 0;
+          const reviewedCatchAndReinvoke = (callback) => {
+            try {
+              callback(undefined, {});
+            } catch {
+              callback(new Error('controlled_runtime_pool_client_registration_failed'));
+            }
+          };
+          reviewedCatchAndReinvoke((error) => {
+            reviewedCallbackCalls += 1;
+            if (!error) throw new Error('RAW_REVIEWED_CALLBACK_THROW_SENTINEL');
+          });
+          assert.equal(reviewedCallbackCalls, 2);
+        }
+
+        {
+          const control = delayedClient();
+          const scope = creation.createControlledFreshCandidateOperationScope();
+          const pool = new pg.Pool({ Client: control.SyntheticClient, max: 1, idleTimeoutMillis: 0 });
+          const acquisition = pool.connect();
+          await scope.drain();
+          assert.equal(scope.state, 'CLOSED');
+          control.succeed();
+          const ungovernedClient = await acquisition;
+          assert.equal(pool.totalCount, 1);
+          assert.equal(pool.idleCount, 0);
+          ungovernedClient.release(new Error('TEST_ONLY_MISSING_CENSUS_DISPOSAL'));
+          await turn();
+          await pool.end();
+          assert.equal(pool.totalCount, 0);
+        }
+
+        console.log('CONTROLLED_REAL_PG_POOL_IN_FLIGHT_GOVERNANCE_VERIFIED');
+      })().catch(() => { process.stderr.write('CONTROLLED_CHILD_ASSERTION_FAILED'); process.exitCode = 1; });
     `
     const result = await asyncChild(inFlightPoolCode)
     assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`)
     assert.equal(result.signal, null)
-    assert.equal(result.stdout.trim(), 'CONTROLLED_REAL_PG_POOL_IN_FLIGHT_TEARDOWN_CLOSED')
+    assert.equal(result.stdout.trim(), 'CONTROLLED_REAL_PG_POOL_IN_FLIGHT_GOVERNANCE_VERIFIED')
     assert.equal(result.stderr, '')
   }
 
@@ -2363,6 +2523,20 @@ async function main(): Promise<void> {
       assert.notEqual(result, source)
       return result
     }
+    const completedTeardownGate = `  const completedTeardownEligible = (
+    parsed.mutationResourceTeardown.attempted === true
+    && parsed.mutationResourceTeardown.completed === true
+    && parsed.mutationResourceTeardown.status === 'complete'
+  )
+  if (!completedTeardownEligible) {
+    throw new Error('CONTROLLED_RECEIPT_TEARDOWN_INCOMPLETE')
+  }
+`
+    const replayRefusal = "  if (!consumed) throw new Error('CONTROLLED_RECEIPT_REPLAYED')\n"
+    const moveGateAfterConsumption = (): string => {
+      const withoutGate = replaceProtection(receiptSource, completedTeardownGate, '')
+      return replaceProtection(withoutGate, replayRefusal, `${replayRefusal}${completedTeardownGate}`)
+    }
     const faults = [
       {
         name: 'private-v2-disconnected-token',
@@ -2384,8 +2558,107 @@ async function main(): Promise<void> {
         name: 'mutation-teardown-comment-preserved-predicate',
         source: replaceProtection(
           receiptSource,
-          "&& ['failed', 'unknown'].includes(String(value.mutationResourceTeardown.status))",
-          "&& true /* ['failed', 'unknown'].includes(String(value.mutationResourceTeardown.status)) */",
+          "&& ['not_started', 'complete', 'failed', 'unknown'].includes(String(value.mutationResourceTeardown.status))",
+          "&& true /* ['not_started', 'complete', 'failed', 'unknown'].includes(String(value.mutationResourceTeardown.status)) */",
+        ),
+      },
+      {
+        name: 'completed-teardown-gate-removed',
+        source: replaceProtection(receiptSource, completedTeardownGate, ''),
+      },
+      {
+        name: 'completed-teardown-gate-after-consumption',
+        source: moveGateAfterConsumption(),
+      },
+      {
+        name: 'completed-teardown-gate-structural-only',
+        source: replaceProtection(
+          receiptSource,
+          completedTeardownGate,
+          completedTeardownGate.replace(
+            `  const completedTeardownEligible = (
+    parsed.mutationResourceTeardown.attempted === true
+    && parsed.mutationResourceTeardown.completed === true
+    && parsed.mutationResourceTeardown.status === 'complete'
+  )`,
+            '  const completedTeardownEligible = exactReceiptShape(parsed)',
+          ),
+        ),
+      },
+      {
+        name: 'completed-teardown-gate-attempted-only',
+        source: replaceProtection(
+          receiptSource,
+          completedTeardownGate,
+          completedTeardownGate.replace(
+            `    parsed.mutationResourceTeardown.attempted === true
+    && parsed.mutationResourceTeardown.completed === true
+    && parsed.mutationResourceTeardown.status === 'complete'`,
+            '    parsed.mutationResourceTeardown.attempted === true',
+          ),
+        ),
+      },
+      {
+        name: 'completed-teardown-gate-completed-only',
+        source: replaceProtection(
+          receiptSource,
+          completedTeardownGate,
+          completedTeardownGate.replace(
+            `    parsed.mutationResourceTeardown.attempted === true
+    && parsed.mutationResourceTeardown.completed === true
+    && parsed.mutationResourceTeardown.status === 'complete'`,
+            '    parsed.mutationResourceTeardown.completed === true',
+          ),
+        ),
+      },
+      {
+        name: 'completed-teardown-gate-status-only',
+        source: replaceProtection(
+          receiptSource,
+          completedTeardownGate,
+          completedTeardownGate.replace(
+            `    parsed.mutationResourceTeardown.attempted === true
+    && parsed.mutationResourceTeardown.completed === true
+    && parsed.mutationResourceTeardown.status === 'complete'`,
+            "    parsed.mutationResourceTeardown.status === 'complete'",
+          ),
+        ),
+      },
+      {
+        name: 'completed-teardown-gate-comment-preserved-true',
+        source: replaceProtection(
+          receiptSource,
+          completedTeardownGate,
+          completedTeardownGate.replace(
+            `  const completedTeardownEligible = (
+    parsed.mutationResourceTeardown.attempted === true
+    && parsed.mutationResourceTeardown.completed === true
+    && parsed.mutationResourceTeardown.status === 'complete'
+  )`,
+            `  const completedTeardownEligible = true /*
+    parsed.mutationResourceTeardown.attempted === true
+    && parsed.mutationResourceTeardown.completed === true
+    && parsed.mutationResourceTeardown.status === 'complete'
+  */`,
+          ),
+        ),
+      },
+      {
+        name: 'completed-teardown-gate-disconnected',
+        source: replaceProtection(
+          receiptSource,
+          completedTeardownGate,
+          `  const disconnectedCompletedTeardownEligible = (
+    parsed.mutationResourceTeardown.attempted === true
+    && parsed.mutationResourceTeardown.completed === true
+    && parsed.mutationResourceTeardown.status === 'complete'
+  )
+  void disconnectedCompletedTeardownEligible
+  const completedTeardownEligible = true
+  if (!completedTeardownEligible) {
+    throw new Error('CONTROLLED_RECEIPT_TEARDOWN_INCOMPLETE')
+  }
+`,
         ),
       },
       {
@@ -2437,6 +2710,127 @@ async function main(): Promise<void> {
       assert.notEqual(result.status, 0, `${fault.name} must fail semantic governance`)
       assert.equal(result.signal, null, fault.name)
       assert.equal(result.stdout.includes('ALL OK'), false, fault.name)
+    }
+  }
+
+  {
+    const creationSource = readFileSync(path.resolve('src/lib/controlledFreshCandidateCreation.ts'), 'utf8')
+    const receiptSource = readFileSync(path.resolve('src/lib/controlledFreshCandidateReceipt.ts'), 'utf8')
+    const replaceProtection = (source: string, active: string, weakened: string): string => {
+      assert.equal(source.includes(active), true, active)
+      const result = source.replace(active, weakened)
+      assert.notEqual(result, source)
+      return result
+    }
+    const rejectionObserver = `      () => {
+        recordCleanupFailure(tracked)
+        terminalizations.delete(tracked)
+      },`
+    const settledInspection = `  const settleAndInspect = async (pending: Promise<unknown>[]): Promise<void> => {
+    const results = await Promise.allSettled(pending)
+    for (let index = 0; index < results.length; index += 1) {
+      if (results[index]?.status === 'rejected' && knownTerminalizations.has(pending[index])) {
+        recordCleanupFailure(pending[index])
+      }
+    }
+  }`
+    const ignoreSettledRejections = `  const settleAndInspect = async (pending: Promise<unknown>[]): Promise<void> => {
+    await Promise.allSettled(pending)
+  }`
+    const withoutRejectedObserver = (source: string): string => replaceProtection(
+      source,
+      rejectionObserver,
+      '      () => terminalizations.delete(tracked),',
+    )
+    const terminalFaults = [
+      {
+        name: 'rejected-terminalization-deleted-without-record',
+        source: replaceProtection(
+          withoutRejectedObserver(creationSource),
+          '    knownTerminalizations.add(tracked)\n',
+          '',
+        ),
+      },
+      {
+        name: 'all-settled-rejections-ignored',
+        source: replaceProtection(
+          withoutRejectedObserver(creationSource),
+          settledInspection,
+          ignoreSettledRejections,
+        ),
+      },
+      {
+        name: 'sticky-terminal-failure-cleared-by-success',
+        source: replaceProtection(
+          creationSource,
+          '      () => terminalizations.delete(tracked),',
+          `      () => {
+        cleanupFailureCount = 0
+        terminalizations.delete(tracked)
+      },`,
+        ),
+      },
+      {
+        name: 'closed-despite-retained-terminal-failure',
+        source: replaceProtection(
+          creationSource,
+          `        throwIfCleanupUncertain()
+        transition('CLOSED')`,
+          `        transition('CLOSED')
+        throwIfCleanupUncertain()`,
+        ),
+      },
+    ] as const
+    const runTerminalGovernanceCopy = (candidateCreationSource: string) => {
+      const root = mkdtempSync(path.join(tmpdir(), 'cfc-terminal-governance-'))
+      try {
+        const libraryDirectory = path.join(root, 'src', 'lib')
+        mkdirSync(libraryDirectory, { recursive: true })
+        const creationPath = path.join(libraryDirectory, 'controlledFreshCandidateCreation.ts')
+        writeFileSync(creationPath, candidateCreationSource, 'utf8')
+        writeFileSync(path.join(libraryDirectory, 'controlledFreshCandidateReceipt.ts'), receiptSource, 'utf8')
+        const harnessPath = path.join(root, 'terminal-governance.mjs')
+        writeFileSync(harnessPath, `
+          import assert from 'node:assert/strict';
+          const imported = await import(${JSON.stringify(pathToFileURL(creationPath).href)});
+          const creation = imported.default ?? imported;
+          const states = [];
+          const scope = creation.createControlledFreshCandidateOperationScope({ onStateChange: (state) => states.push(state) });
+          let mutationActive = true;
+          scope.registerCancellation(async () => { mutationActive = false; throw new Error('RAW_TERMINAL_FAULT_SENTINEL'); });
+          let authoritativeFailure;
+          await assert.rejects(() => scope.cancel(), (error) => {
+            authoritativeFailure = error;
+            return error.message === 'CONTROLLED_TERMINAL_CLEANUP_UNCERTAIN';
+          });
+          scope.registerTerminalization(async () => undefined);
+          await assert.rejects(() => scope.cancel(), (error) => error === authoritativeFailure);
+          await assert.rejects(() => scope.drain(), (error) => error === authoritativeFailure);
+          assert.throws(() => scope.close(), (error) => error === authoritativeFailure);
+          assert.equal(scope.state, 'TERMINAL_UNCERTAIN');
+          assert.equal(states.includes('CLOSED'), false);
+          assert.equal(mutationActive, false);
+          process.stdout.write('CONTROLLED_TERMINAL_GOVERNANCE_ALL_OK');
+        `, 'utf8')
+        return spawnSync(process.execPath, ['--import', 'tsx', harnessPath], {
+          cwd: process.cwd(),
+          encoding: 'utf8',
+          env: sanitizedChildEnvironment(),
+        })
+      } finally {
+        rmSync(root, { recursive: true, force: true })
+      }
+    }
+    const baseline = runTerminalGovernanceCopy(creationSource)
+    assert.equal(baseline.status, 0, `${baseline.stdout}\n${baseline.stderr}`)
+    assert.equal(baseline.signal, null)
+    assert.equal(baseline.stdout, 'CONTROLLED_TERMINAL_GOVERNANCE_ALL_OK')
+    assert.equal(baseline.stderr, '')
+    for (const fault of terminalFaults) {
+      const result = runTerminalGovernanceCopy(fault.source)
+      assert.notEqual(result.status, 0, `${fault.name} must fail terminal governance`)
+      assert.equal(result.signal, null, fault.name)
+      assert.equal(result.stdout.includes('ALL_OK'), false, fault.name)
     }
   }
 

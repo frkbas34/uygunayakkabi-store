@@ -44,7 +44,14 @@ function controlledReceiptGovernanceFixture(): Omit<ControlledFreshCandidatePriv
   const filename = 'cfc-governance-execution-0001-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.png'
   return {
     version: CONTROLLED_FRESH_CANDIDATE_PRIVATE_VERSION,
-    executionAuthorization: { identity: 'governance-owner-0001', digest: '1'.repeat(64), consumed: true },
+    executionAuthorization: {
+      identity: 'governance-owner-0001',
+      digest: '1'.repeat(64),
+      issuedAt: '2030-01-01T00:00:00.000Z',
+      notBefore: '2030-01-01T00:00:00.000Z',
+      expiresAt: '2030-01-01T00:30:00.000Z',
+      consumed: true,
+    },
     executionId: 'governance-execution-0001',
     manifest: {
       version: CONTROLLED_FRESH_CANDIDATE_MANIFEST_VERSION,
@@ -120,12 +127,12 @@ function controlledReceiptGovernanceFixture(): Omit<ControlledFreshCandidatePriv
 }
 
 function assertControlledReceiptSemanticGovernance(): void {
-  assert.equal(CONTROLLED_FRESH_CANDIDATE_PRIVATE_VERSION, 'controlled-fresh-candidate-private/v2')
+  assert.equal(CONTROLLED_FRESH_CANDIDATE_PRIVATE_VERSION, 'controlled-fresh-candidate-private/v3')
   assert.equal(CONTROLLED_FRESH_CANDIDATE_MANIFEST_VERSION, 'controlled-fresh-candidate-manifest/v1')
-  assert.equal(CONTROLLED_FRESH_CANDIDATE_RUNTIME_IDENTITY, 'controlled-fresh-candidate-runtime/v2')
-  assert.equal(CONTROLLED_FRESH_CANDIDATE_CONTRACT_IDENTITY, 'controlled-fresh-candidate-contract/v2')
-  assert.equal(CONTROLLED_FRESH_CANDIDATE_RECEIPT_DOMAIN, 'uygunayakkabi:controlled-fresh-candidate:private-receipt:v2')
-  assert.equal(CONTROLLED_FRESH_CANDIDATE_RECEIPT_CONSUMPTION_DOMAIN, 'uygunayakkabi:controlled-fresh-candidate:receipt-consumption:v2')
+  assert.equal(CONTROLLED_FRESH_CANDIDATE_RUNTIME_IDENTITY, 'controlled-fresh-candidate-runtime/v3')
+  assert.equal(CONTROLLED_FRESH_CANDIDATE_CONTRACT_IDENTITY, 'controlled-fresh-candidate-contract/v3')
+  assert.equal(CONTROLLED_FRESH_CANDIDATE_RECEIPT_DOMAIN, 'uygunayakkabi:controlled-fresh-candidate:private-receipt:v3')
+  assert.equal(CONTROLLED_FRESH_CANDIDATE_RECEIPT_CONSUMPTION_DOMAIN, 'uygunayakkabi:controlled-fresh-candidate:receipt-consumption:v3')
 
   const unsigned = controlledReceiptGovernanceFixture()
   const sealed = sealControlledFreshCandidateReceipt(unsigned, CONTROLLED_RECEIPT_GOVERNANCE_KEY)
@@ -518,11 +525,26 @@ const controlledCandidateReceipt = read('src/lib/controlledFreshCandidateReceipt
 const controlledCandidateVerifier = read('src/lib/controlledFreshCandidateTargetVerifier.ts')
 const controlledCandidateTests = scripts['test:controlled-fresh-candidate'] ?? ''
 assertIncludes(controlledCandidateTests, 'controlledFreshCandidateCreation.test.ts', 'controlled candidate creation tests')
+assertIncludes(controlledCandidateTests, 'controlledFreshCandidateAuthorization.test.ts', 'controlled candidate authorization tests')
+assertIncludes(controlledCandidateTests, 'controlledFreshCandidateObservation.test.ts', 'controlled candidate observation tests')
 assertIncludes(controlledCandidateTests, 'controlledFreshCandidateTargetVerifier.test.ts', 'controlled candidate verifier tests')
+assertIncludes(controlledCandidateTests, 'controlled-fresh-candidate-readiness.test.ts', 'controlled candidate readiness tests')
 assertIncludes(controlledCandidateTests, 'controlled-fresh-candidate-runtime.test.ts', 'controlled candidate runtime tests')
 assertIncludes(scripts['test:safe'] ?? '', 'npm run test:controlled-fresh-candidate', 'safe suite controlled candidate tests')
 assert.ok(!(scripts['test:safe'] ?? '').includes('smoke:controlled-fresh-candidate'), 'test:safe must not execute controlled candidate runtime')
-assert.ok(!Object.keys(scripts).some((name) => name !== 'test:controlled-fresh-candidate' && name.includes('controlled-fresh-candidate')), 'controlled candidate must have no routine runtime npm command')
+assert.deepEqual(
+  Object.keys(scripts).filter((name) => name.includes('controlled-fresh-candidate')).sort(),
+  [
+    'controlled-fresh-candidate:observe',
+    'controlled-fresh-candidate:package',
+    'controlled-fresh-candidate:readiness',
+    'test:controlled-fresh-candidate',
+  ],
+  'controlled candidate exposes only offline preparation, boolean readiness, read-only observation, and tests',
+)
+assertIncludes(scripts['controlled-fresh-candidate:package'] ?? '', 'controlled-fresh-candidate-package-builder.ts', 'controlled offline package command')
+assertIncludes(scripts['controlled-fresh-candidate:readiness'] ?? '', 'controlled-fresh-candidate-secret-contract.ts', 'controlled secret readiness command')
+assertIncludes(scripts['controlled-fresh-candidate:observe'] ?? '', 'controlled-fresh-candidate-observer.ts', 'controlled read-only observer command')
 assertIncludes(controlledCandidateScript, '--confirm-controlled-fresh-candidate-create', 'controlled creation exact confirmation')
 assertIncludes(controlledCandidateScript, '--confirm-controlled-fresh-candidate-receipt-verification', 'controlled verification exact confirmation')
 assertIncludes(controlledCandidateScript, 'RUNTIME_MODES_MIXED', 'controlled mutually exclusive modes')

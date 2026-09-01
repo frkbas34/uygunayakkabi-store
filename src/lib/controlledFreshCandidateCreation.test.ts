@@ -1,8 +1,11 @@
 import assert from 'node:assert/strict'
 
 import {
+  CONTROLLED_FRESH_CANDIDATE_AUTHORIZATION_VERSION,
   createControlledFreshCandidateOperationScope,
   createControlledFreshCandidate,
+  deriveControlledFreshCandidateAuthorizationIdentity,
+  prepareControlledFreshCandidateManifest,
   type ControlledFreshCandidateCreationDependencies,
   type ControlledFreshCandidateCreationInput,
 } from './controlledFreshCandidateCreation'
@@ -13,18 +16,27 @@ import {
   readControlledFreshCandidateCapability,
   resealControlledFreshCandidateReceipt,
   serializeControlledFreshCandidateReceipt,
+  CONTROLLED_FRESH_CANDIDATE_CONTRACT_IDENTITY,
+  CONTROLLED_FRESH_CANDIDATE_RUNTIME_IDENTITY,
 } from './controlledFreshCandidateReceipt'
 
 const RECEIPT_KEY = new Uint8Array(32).fill(17)
 const COMMIT_IDENTITY = '14af0deb7e1825eb5d349c89e1d36897e75fc5a0'
 const ENVIRONMENT_IDENTITY = 'controlled-test-environment'
 const RECEIPT_DESTINATION_DIGEST = 'a'.repeat(64)
+const AUTHORIZATION_TEST_NOW = Date.now()
 
 function input(seed = 0): ControlledFreshCandidateCreationInput {
-  return {
+  const issuedAt = new Date(AUTHORIZATION_TEST_NOW - 1_000).toISOString()
+  const notBefore = issuedAt
+  const expiresAt = new Date(Date.parse(issuedAt) + 30 * 60 * 1_000).toISOString()
+  const candidate: ControlledFreshCandidateCreationInput = {
     executionAuthorization: {
-      identity: `owner-auth-${1000 + seed}`,
+      identity: 'cfc-auth-pending',
       token: new Uint8Array(32).fill(23 + seed),
+      issuedAt,
+      notBefore,
+      expiresAt,
     },
     executionId: `execution-${1000 + seed}`,
     authorizationContext: {
@@ -47,6 +59,24 @@ function input(seed = 0): ControlledFreshCandidateCreationInput {
     },
     receiptKey: RECEIPT_KEY,
   }
+  const manifest = prepareControlledFreshCandidateManifest({
+    executionId: candidate.executionId,
+    manifest: candidate.manifest,
+  })
+  candidate.executionAuthorization.identity = deriveControlledFreshCandidateAuthorizationIdentity({
+    version: CONTROLLED_FRESH_CANDIDATE_AUTHORIZATION_VERSION,
+    executionIdentity: candidate.executionId,
+    manifestDigest: manifest.digest,
+    contractIdentity: CONTROLLED_FRESH_CANDIDATE_CONTRACT_IDENTITY,
+    runtimeIdentity: CONTROLLED_FRESH_CANDIDATE_RUNTIME_IDENTITY,
+    runtimeCommitIdentity: candidate.authorizationContext.runtimeCommitIdentity,
+    environmentIdentity: candidate.authorizationContext.environmentIdentity,
+    approvedReceiptDestinationDigest: candidate.authorizationContext.approvedReceiptDestinationDigest,
+    issuedAt,
+    notBefore,
+    expiresAt,
+  })
+  return candidate
 }
 
 function authenticateReceipt(params: {
@@ -872,6 +902,48 @@ async function main(): Promise<void> {
     const state = fixture({ failAt: 'persist' })
     const result = await createControlledFreshCandidate(input(38), state.dependencies)
     assert.deepEqual(result.reasonCodes, ['PRIVATE_RECEIPT_PERSIST_FAILED'])
+    assert.equal(state.events.includes('stock-lookup'), false)
+    assert.equal(state.events.includes('product-create'), false)
+  }
+
+  {
+    const candidate = input(39)
+    const expiresAt = Date.parse(candidate.executionAuthorization.expiresAt)
+    const observations = [expiresAt - 1, expiresAt]
+    const state = fixture()
+    const result = await createControlledFreshCandidate(candidate, state.dependencies, {
+      now: () => observations.shift() ?? expiresAt,
+    })
+    assert.deepEqual(result.reasonCodes, ['EXECUTION_AUTHORIZATION_REJECTED'])
+    assert.equal(state.events.includes('consume-auth'), true)
+    assert.equal(state.events.includes('receipt-persist'), true)
+    assert.equal(state.events.includes('stock-lookup'), false)
+    assert.equal(state.events.includes('product-create'), false)
+  }
+
+
+  {
+    const candidate = input(41)
+    const expiresAt = Date.parse(candidate.executionAuthorization.expiresAt)
+    const state = fixture()
+    const result = await createControlledFreshCandidate(candidate, state.dependencies, { now: () => expiresAt })
+    assert.deepEqual(result.reasonCodes, ['EXECUTION_AUTHORIZATION_REJECTED'])
+    assert.equal(state.events.includes('consume-auth'), false)
+    assert.equal(state.events.includes('receipt-persist'), false)
+    assert.equal(state.events.includes('stock-lookup'), false)
+    assert.equal(state.events.includes('product-create'), false)
+  }
+
+  {
+    const candidate = input(40)
+    const active = Date.parse(candidate.executionAuthorization.notBefore) + 10
+    const observations = [active, active - 1]
+    const state = fixture()
+    const result = await createControlledFreshCandidate(candidate, state.dependencies, {
+      now: () => observations.shift() ?? active - 1,
+    })
+    assert.deepEqual(result.reasonCodes, ['EXECUTION_AUTHORIZATION_REJECTED'])
+    assert.equal(state.events.includes('consume-auth'), true)
     assert.equal(state.events.includes('stock-lookup'), false)
     assert.equal(state.events.includes('product-create'), false)
   }

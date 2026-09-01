@@ -1,6 +1,28 @@
 ﻿# PROJECT STATE — Uygunayakkabi
 
-_Last updated: 2026-07-26 (D-501 deployed through PR #7; desktop and Chrome DevTools 390px visual smokes passed.)_
+_Last updated: 2026-09-01 (controlled-candidate Readiness Repair 1 implemented locally; independent review pending.)_
+
+## Controlled-candidate Readiness Repair 1 - 2026-09-01 (LOCAL COMMIT CANDIDATE, INDEPENDENT REVIEW PENDING)
+
+- The approved eight-commit controlled-candidate release through
+  `5daecabf304709c4106616c52fe971e315305dfb` is deployed, and canonical homepage
+  availability was verified. That evidence does not Production-verify the
+  controlled-candidate feature or authorize a controlled execution.
+- Readiness Repair 1 locally implements the exact native-ext4 ledger binding,
+  versioned 30-minute single-use authorization, governed disconnected package
+  builder, authenticated operation-bound terminal-resource observation, and
+  presence-only secret-injection contract. It is pending the separately assigned
+  independent review after the authorized local commit.
+- The controlled-candidate Production-readiness preflight remains `BLOCKED`.
+  Actual WSL secret values are absent/untouched by this milestone, secret
+  correctness and Production connectivity were not tested, no candidate was
+  selected, and no controlled execution occurred.
+- Separate Owner gates remain mandatory for candidate selection, WSL secret
+  configuration, Production connectivity, and execution. Product 349 remains
+  excluded and undisclosed. Publishing remains prohibited and every public
+  readiness surface keeps `eligibleForPublishing=false`.
+- Whole-project progress is `UNKNOWN / NOT_CANONICALLY_DEFINED`; this state file
+  has no canonical weighted whole-project percentage.
 
 ## Operator Decision - 2026-07-26 (Protected-Brand Backlog Deferred)
 

@@ -24,10 +24,13 @@ import path from 'node:path'
 import { pathToFileURL } from 'node:url'
 
 import {
+  CONTROLLED_FRESH_CANDIDATE_AUTHORIZATION_VERSION,
   controlledFreshCandidateDigest,
   createControlledFreshCandidateManifestEvidence,
   createControlledFreshCandidateOperationScope,
+  deriveControlledFreshCandidateAuthorizationIdentity,
   fixedControlledFreshCandidateProduct,
+  prepareControlledFreshCandidateManifest,
   type ControlledFreshCandidateCreationDependencies,
   type ControlledFreshCandidateCreationInput,
   type ControlledFreshCandidateExecutionGrant,
@@ -41,6 +44,11 @@ import {
   type ControlledFreshCandidateTargetCapability,
 } from '../src/lib/controlledFreshCandidateReceipt'
 import {
+  authenticateControlledFreshCandidateObservation,
+  createControlledFreshCandidateObservationState,
+  serializeControlledFreshCandidateObservation,
+} from '../src/lib/controlledFreshCandidateObservation'
+import {
   CONTROLLED_FRESH_CANDIDATE_CREATE_CONFIRMATION,
   CONTROLLED_FRESH_CANDIDATE_VERIFY_CONFIRMATION,
   controlledFreshCandidateRuntimeUsage,
@@ -49,9 +57,11 @@ import {
 } from './controlled-fresh-candidate-runtime'
 import {
   createControlledFreshCandidateBoundaryLoggerConfiguration,
+  createControlledFreshCandidateAtomicSnapshotPersistence,
   createControlledFreshCandidateDurableMarker,
   createControlledFreshCandidateDurableReceiptConsumer,
   createControlledFreshCandidateExecutionGrantToken,
+  createControlledFreshCandidateOperationDirectory,
   createControlledFreshCandidatePoolConstructor,
   createControlledFreshCandidateReceiptPersistence,
   createControlledFreshCandidateTerminalResourceRegistry,
@@ -64,6 +74,7 @@ import {
   readControlledFreshCandidateMountInfo,
   readControlledFreshCandidatePrivateFile,
   readPhysicalReceiptBytes,
+  writeControlledFreshCandidatePrivateFileExclusive,
   CONTROLLED_FRESH_CANDIDATE_PHYSICAL_INPUT_LIMITS,
   CONTROLLED_FRESH_CANDIDATE_MAX_MOUNTINFO_BYTES,
   type ControlledRuntimePayload,
@@ -81,6 +92,14 @@ function captureIo() {
       stdout: (text: string) => { stdout.push(text) },
       stderr: (text: string) => { stderr.push(text) },
     },
+  }
+}
+
+function inertObservationHooks() {
+  return {
+    completeObservation: (report: unknown, terminalOk: boolean) => { void report; void terminalOk },
+    failObservation: () => undefined,
+    closeObservation: () => undefined,
   }
 }
 
@@ -140,7 +159,7 @@ function asyncPosixPrimitiveChild(additional: Record<string, string>) {
   return new Promise<{ status: number | null; signal: NodeJS.Signals | null; stdout: string; stderr: string }>((resolve, reject) => {
     const testEntryPath = process.env.CFC_POSIX_TEST_ENTRY_PATH ?? process.argv[1]
     if (!testEntryPath) throw new Error('posix_child_entry_unavailable')
-    const processHandle = spawn(process.execPath, [testEntryPath], {
+    const processHandle = spawn(process.execPath, ['--import', 'tsx', testEntryPath], {
       cwd: process.cwd(),
       env: sanitizedChildEnvironment(additional),
       stdio: ['ignore', 'pipe', 'pipe'],
@@ -167,9 +186,10 @@ async function runPosixPrimitiveChildMode(): Promise<boolean> {
   if (!root || !authorizationKey || !identity) throw new Error('posix_child_configuration_invalid')
   process.env.CONTROLLED_FRESH_CANDIDATE_OWNER_LEDGER_DIRECTORY = root
   process.env.CONTROLLED_FRESH_CANDIDATE_AUTHORIZATION_KEY_BASE64 = authorizationKey
+  process.env.CFC_NATIVE_EXT4_TEST_ONLY = '1'
   const scope = createControlledFreshCandidateOperationScope()
   posixChildCheckpoint = 'ledger-open'
-  const ledger = await initializeControlledFreshCandidateOwnerLedger(scope)
+  const ledger = await initializeControlledFreshCandidateOwnerLedger(scope, { testOnlyApprovedRoot: root })
   try {
     if (mode === 'consume') {
       posixChildCheckpoint = 'marker-consume'
@@ -206,14 +226,16 @@ async function createTestLedger(root: string, authorizationKey: Buffer) {
 async function openTestLedger(root: string, authorizationKey: Buffer) {
   process.env.CONTROLLED_FRESH_CANDIDATE_OWNER_LEDGER_DIRECTORY = root
   process.env.CONTROLLED_FRESH_CANDIDATE_AUTHORIZATION_KEY_BASE64 = authorizationKey.toString('base64')
+  process.env.CFC_NATIVE_EXT4_TEST_ONLY = '1'
   const scope = createControlledFreshCandidateOperationScope()
-  const ledger = await initializeControlledFreshCandidateOwnerLedger(scope)
+  const ledger = await initializeControlledFreshCandidateOwnerLedger(scope, { testOnlyApprovedRoot: root })
   return { ledger, scope }
 }
 
 function executionGrant(destinationDigest: string, seed: number): ControlledFreshCandidateExecutionGrant {
-  return {
-    authorizationIdentity: `runtime-owner-grant-${seed}`,
+  const issuedAt = new Date(Date.now() - 1_000).toISOString()
+  const unsigned = {
+    version: CONTROLLED_FRESH_CANDIDATE_AUTHORIZATION_VERSION,
     executionIdentity: `runtime-execution-${seed}`,
     manifestDigest: controlledFreshCandidateDigest({ seed, stockCandidate: `SN${String(3000 + seed).padStart(4, '0')}` }),
     contractIdentity: CONTROLLED_FRESH_CANDIDATE_CONTRACT_IDENTITY,
@@ -221,7 +243,11 @@ function executionGrant(destinationDigest: string, seed: number): ControlledFres
     runtimeCommitIdentity: '14af0deb7e1825eb5d349c89e1d36897e75fc5a0',
     environmentIdentity: 'runtime-test-environment',
     approvedReceiptDestinationDigest: destinationDigest,
+    issuedAt,
+    notBefore: issuedAt,
+    expiresAt: new Date(Date.parse(issuedAt) + 30 * 60 * 1_000).toISOString(),
   }
+  return { ...unsigned, authorizationIdentity: deriveControlledFreshCandidateAuthorizationIdentity(unsigned) }
 }
 
 function sealedRuntimeReceipt(seed: number, receiptDestinationDigest = 'd'.repeat(64)): string {
@@ -247,6 +273,9 @@ function sealedRuntimeReceipt(seed: number, receiptDestinationDigest = 'd'.repea
     executionAuthorization: {
       identity: `runtime-owner-${seed}`,
       digest: controlledFreshCandidateDigest(`runtime-token-${seed}`),
+      issuedAt: new Date(Date.now() - 1_000).toISOString(),
+      notBefore: new Date(Date.now() - 1_000).toISOString(),
+      expiresAt: new Date(Date.now() + 29 * 60 * 1_000).toISOString(),
       consumed: true,
     },
     executionId: `runtime-execution-${seed}`,
@@ -306,6 +335,9 @@ function sealedRuntimeReceipt(seed: number, receiptDestinationDigest = 'd'.repea
 
 async function main(): Promise<void> {
   if (await runPosixPrimitiveChildMode()) return
+  if (process.env.CONTROLLED_FRESH_CANDIDATE_OFFLINE_GUARD_PATH) {
+    assert.throws(() => fetch('https://transport.invalid'), /CONTROLLED_FRESH_CANDIDATE_OFFLINE_TRANSPORT_BLOCKED/)
+  }
   assert.deepEqual(parseControlledFreshCandidateRuntimeArgs([]), {
     ok: false,
     code: 'RUNTIME_CONFIRMATION_REQUIRED',
@@ -391,6 +423,7 @@ async function main(): Promise<void> {
         assert.equal(process.env.PAYLOAD_DB_PUSH, 'false')
         assert.equal(process.env.PAYLOAD_DROP_DATABASE, 'false')
         return {
+          ...inertObservationHooks(),
           creationInput: null as never,
           creationDependencies: {} as ControlledFreshCandidateCreationDependencies,
           scope,
@@ -418,6 +451,7 @@ async function main(): Promise<void> {
       initializeCreation: async (scope) => {
         observedScope = scope
         return {
+          ...inertObservationHooks(),
           creationInput: null as never,
           creationDependencies: {} as ControlledFreshCandidateCreationDependencies,
           scope,
@@ -437,7 +471,13 @@ async function main(): Promise<void> {
       initializeCreation: async (scope) => {
         const unreachable = async () => { throw new Error('unreachable controlled mutation') }
         const creationInput: ControlledFreshCandidateCreationInput = {
-          executionAuthorization: { identity: 'runtime-authority-close-test', token: new Uint8Array(32).fill(41) },
+          executionAuthorization: {
+            identity: 'runtime-authority-close-test',
+            token: new Uint8Array(32).fill(41),
+            issuedAt: new Date(Date.now() - 1_000).toISOString(),
+            notBefore: new Date(Date.now() - 1_000).toISOString(),
+            expiresAt: new Date(Date.now() + 60_000).toISOString(),
+          },
           executionId: 'runtime-authority-close-execution',
           authorizationContext: {
             runtimeCommitIdentity: '14af0deb7e1825eb5d349c89e1d36897e75fc5a0',
@@ -459,6 +499,23 @@ async function main(): Promise<void> {
           },
           receiptKey: new Uint8Array(32).fill(42),
         }
+        const preparedManifest = prepareControlledFreshCandidateManifest({
+          executionId: creationInput.executionId,
+          manifest: creationInput.manifest,
+        })
+        creationInput.executionAuthorization.identity = deriveControlledFreshCandidateAuthorizationIdentity({
+          version: CONTROLLED_FRESH_CANDIDATE_AUTHORIZATION_VERSION,
+          executionIdentity: creationInput.executionId,
+          manifestDigest: preparedManifest.digest,
+          contractIdentity: CONTROLLED_FRESH_CANDIDATE_CONTRACT_IDENTITY,
+          runtimeIdentity: CONTROLLED_FRESH_CANDIDATE_RUNTIME_IDENTITY,
+          runtimeCommitIdentity: creationInput.authorizationContext.runtimeCommitIdentity,
+          environmentIdentity: creationInput.authorizationContext.environmentIdentity,
+          approvedReceiptDestinationDigest: creationInput.authorizationContext.approvedReceiptDestinationDigest,
+          issuedAt: creationInput.executionAuthorization.issuedAt,
+          notBefore: creationInput.executionAuthorization.notBefore,
+          expiresAt: creationInput.executionAuthorization.expiresAt,
+        })
         const creationDependencies: ControlledFreshCandidateCreationDependencies = {
           scope,
           consumeExecutionAuthorization: async () => false,
@@ -479,14 +536,11 @@ async function main(): Promise<void> {
           closeAuthorityResources: async () => ({ ok: false }),
         }
         return {
+          ...inertObservationHooks(),
           creationInput,
           creationDependencies,
           scope,
-          destroy: async () => {
-            await scope.cancel()
-            await scope.drain()
-            return { ok: false }
-          },
+          destroy: async () => ({ ok: false }),
         }
       },
     })
@@ -513,6 +567,7 @@ async function main(): Promise<void> {
       argv: [CONTROLLED_FRESH_CANDIDATE_VERIFY_CONFIRMATION],
       io: io.io,
       initializeVerification: async (scope) => ({
+        ...inertObservationHooks(),
         capability: Object.freeze(Object.create(null)) as ControlledFreshCandidateTargetCapability,
         dependencies: {
           gateway: {
@@ -660,7 +715,8 @@ async function main(): Promise<void> {
     assert.ok(Buffer.byteLength(nativeMountInfo) <= CONTROLLED_FRESH_CANDIDATE_MAX_MOUNTINFO_BYTES)
     assert.ok(parseControlledFreshCandidateMountInfo(nativeMountInfo).length > 0)
 
-    const temporaryRoot = mkdtempSync(path.join(process.cwd(), '.uygunayakkabi-cfc-posix-test-'))
+    const nativeTestParent = process.env.CFC_POSIX_TEST_NATIVE_ROOT ?? process.cwd()
+    const temporaryRoot = mkdtempSync(path.join(nativeTestParent, '.uygunayakkabi-cfc-posix-test-'))
     chmodSync(temporaryRoot, 0o700)
     const authorizationKey = Buffer.alloc(32, 71)
     const ledgerState = await createTestLedger(path.join(temporaryRoot, 'owner-ledger'), authorizationKey)
@@ -680,6 +736,62 @@ async function main(): Promise<void> {
       })
       const signal = new AbortController().signal
 
+      const observationOperationId = '11111111-1111-4111-8111-111111111111'
+      const observationOperation = createControlledFreshCandidateOperationDirectory(ledger, observationOperationId)
+      const observationPath = path.join(observationOperation.path, 'observation.json')
+      const observationDestination = openControlledFreshCandidatePhysicalReceiptDestination(
+        observationPath,
+        ledger.device,
+      )
+      const observationKey = new Uint8Array(32).fill(72)
+      let observationNow = Date.now()
+      const initialObservationState = createControlledFreshCandidateObservationState({
+        operationId: observationOperationId,
+        key: observationKey,
+        now: () => observationNow,
+        persist: () => undefined,
+      })
+      writeControlledFreshCandidatePrivateFileExclusive({
+        destination: observationDestination,
+        bytes: Buffer.from(serializeControlledFreshCandidateObservation(initialObservationState.current())),
+      })
+      const observationState = createControlledFreshCandidateObservationState({
+        operationId: observationOperationId,
+        key: observationKey,
+        now: () => observationNow,
+        persist: createControlledFreshCandidateAtomicSnapshotPersistence(observationDestination),
+      })
+      const observedSequences: number[] = []
+      const readers = Array.from({ length: 4 }, async () => {
+        const { readFile } = await import('node:fs/promises')
+        for (let index = 0; index < 30; index += 1) {
+          const report = authenticateControlledFreshCandidateObservation({
+            bytes: await readFile(observationPath),
+            key: observationKey,
+            expectedOperationId: observationOperationId,
+            now: observationNow,
+          })
+          observedSequences.push(report.sequence)
+          await new Promise<void>((resolve) => setImmediate(resolve))
+        }
+      })
+      const writer = (async () => {
+        for (let index = 0; index < 20; index += 1) {
+          observationNow += 1
+          observationState.publish((draft) => {
+            draft.phase = 'initializing'
+            draft.resources.pendingAcquisitions = index % 2
+          })
+          await new Promise<void>((resolve) => setImmediate(resolve))
+        }
+      })()
+      await Promise.all([...readers, writer])
+      assert.equal(observedSequences.length, 120)
+      assert.ok(observedSequences.every((sequence) => Number.isSafeInteger(sequence) && sequence >= 0 && sequence <= 20))
+      assert.equal(readdirSync(observationOperation.path).some((entry) => entry.endsWith('.next')), false)
+      observationDestination.close()
+      closeSync(observationOperation.handle)
+
       const receiptA = destination('a.receipt.json')
       const receiptB = destination('b.receipt.json')
       const grant = executionGrant(digest(receiptA), 1)
@@ -690,11 +802,11 @@ async function main(): Promise<void> {
       const alternate = createControlledFreshCandidateReceiptPersistence({
         receiptDestination: receiptB, destinationDigest: digest(receiptB), executionId: grant.executionIdentity, ledger,
       })
-      assert.equal(await first.consume(grant, token, signal), true)
-      assert.equal(await alternate.consume(grant, token, signal), false)
+      assert.equal(await first.consume(grant, token, signal, Date.now()), true)
+      assert.equal(await alternate.consume(grant, token, signal, Date.now()), false)
       assert.equal(await createControlledFreshCandidateReceiptPersistence({
         receiptDestination: receiptA, destinationDigest: digest(receiptA), executionId: grant.executionIdentity, ledger,
-      }).consume(grant, token, signal), false)
+      }).consume(grant, token, signal, Date.now()), false)
 
       const receiptC = destination('c.receipt.json')
       const concurrentGrant = executionGrant(digest(receiptC), 2)
@@ -702,10 +814,10 @@ async function main(): Promise<void> {
       const concurrentResults = await Promise.all([
         createControlledFreshCandidateReceiptPersistence({
           receiptDestination: receiptC, destinationDigest: digest(receiptC), executionId: concurrentGrant.executionIdentity, ledger,
-        }).consume(concurrentGrant, concurrentToken, signal),
+        }).consume(concurrentGrant, concurrentToken, signal, Date.now()),
         createControlledFreshCandidateReceiptPersistence({
           receiptDestination: receiptC, destinationDigest: digest(receiptC), executionId: concurrentGrant.executionIdentity, ledger,
-        }).consume(concurrentGrant, concurrentToken, signal),
+        }).consume(concurrentGrant, concurrentToken, signal, Date.now()),
       ])
       assert.deepEqual([...concurrentResults].sort(), [false, true])
 
@@ -720,8 +832,29 @@ async function main(): Promise<void> {
         { ...boundGrant, environmentIdentity: 'changed-environment' },
         { ...boundGrant, runtimeCommitIdentity: 'changed-commit' },
         { ...boundGrant, approvedReceiptDestinationDigest: 'f'.repeat(64) },
-      ]) assert.equal(await boundPersistence.consume(changed, boundToken, signal), false)
-      assert.equal(await boundPersistence.consume(boundGrant, boundToken, signal), true)
+      ]) assert.equal(await boundPersistence.consume(changed, boundToken, signal, Date.now()), false)
+      assert.equal(await boundPersistence.consume(boundGrant, boundToken, signal, Date.now()), true)
+
+      const receiptExpired = destination('expired.receipt.json')
+      const expiredGrant = executionGrant(digest(receiptExpired), 30)
+      const expiredToken = createControlledFreshCandidateExecutionGrantToken(expiredGrant, authorizationKey)
+      const authorizationMarkersBeforeExpiry = readdirSync(ledger.authorizationDirectory).length
+      const expiredPersistence = createControlledFreshCandidateReceiptPersistence({
+        receiptDestination: receiptExpired,
+        destinationDigest: digest(receiptExpired),
+        executionId: expiredGrant.executionIdentity,
+        ledger,
+        now: () => Date.parse(expiredGrant.expiresAt),
+      })
+      assert.equal(await expiredPersistence.consume(
+        expiredGrant,
+        expiredToken,
+        signal,
+        Date.parse(expiredGrant.expiresAt) - 1,
+      ), false)
+      assert.equal(readdirSync(ledger.authorizationDirectory).length, authorizationMarkersBeforeExpiry)
+      assert.equal(lstatSync(path.join(receiptParent, 'expired.receipt.json'), { throwIfNoEntry: false }), undefined)
+      receiptExpired.close()
 
       const consume = createControlledFreshCandidateDurableReceiptConsumer(ledger)
       const firstIdentity = controlledFreshCandidateDigest({ receipt: 0 })
@@ -819,7 +952,7 @@ async function main(): Promise<void> {
         destinationDigest: replacementGrant.approvedReceiptDestinationDigest,
         executionId: replacementGrant.executionIdentity,
         ledger,
-      }).consume(replacementGrant, createControlledFreshCandidateExecutionGrantToken(replacementGrant, authorizationKey), signal), false)
+      }).consume(replacementGrant, createControlledFreshCandidateExecutionGrantToken(replacementGrant, authorizationKey), signal, Date.now()), false)
       replacedDestination.close()
 
       const linkedParent = path.join(temporaryRoot, 'linked-parent')
@@ -972,7 +1105,7 @@ async function main(): Promise<void> {
         },
       })
       persistenceScope.registerCancellation(persistenceRegistry.terminalizeOwnedResources)
-      assert.equal(await productionPersistence.consume(persistenceGrant, persistenceToken, signal), true)
+      assert.equal(await productionPersistence.consume(persistenceGrant, persistenceToken, signal, Date.now()), true)
       persistenceMutationActive.current = false
       await persistenceRegistry.terminalizeOwnedResources()
       const finalReceipt = sealedRuntimeReceipt(150, persistenceDigest)
@@ -2539,11 +2672,11 @@ async function main(): Promise<void> {
     }
     const faults = [
       {
-        name: 'private-v2-disconnected-token',
+        name: 'private-v3-disconnected-token',
         source: replaceProtection(
           receiptSource,
-          "export const CONTROLLED_FRESH_CANDIDATE_PRIVATE_VERSION = 'controlled-fresh-candidate-private/v2' as const",
-          "export const CONTROLLED_FRESH_CANDIDATE_PRIVATE_VERSION = 'controlled-fresh-candidate-private/v1' as const // controlled-fresh-candidate-private/v2",
+          "export const CONTROLLED_FRESH_CANDIDATE_PRIVATE_VERSION = 'controlled-fresh-candidate-private/v3' as const",
+          "export const CONTROLLED_FRESH_CANDIDATE_PRIVATE_VERSION = 'controlled-fresh-candidate-private/v1' as const // controlled-fresh-candidate-private/v3",
         ),
       },
       {

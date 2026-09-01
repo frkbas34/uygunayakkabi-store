@@ -22,7 +22,9 @@ import {
 export const CONTROLLED_FRESH_CANDIDATE_PUBLIC_VERSION = 'controlled-fresh-candidate-public/v1' as const
 export const CONTROLLED_FRESH_CANDIDATE_EXECUTION_TIMEOUT_MS = 45_000
 export const CONTROLLED_FRESH_CANDIDATE_RESERVED_PRODUCT_ID = 349
-export const CONTROLLED_FRESH_CANDIDATE_AUTHORIZATION_DOMAIN = 'uygunayakkabi:controlled-fresh-candidate:execution-authorization:v2' as const
+export const CONTROLLED_FRESH_CANDIDATE_AUTHORIZATION_VERSION = 'controlled-fresh-candidate-execution-authorization/v3' as const
+export const CONTROLLED_FRESH_CANDIDATE_AUTHORIZATION_DOMAIN = 'uygunayakkabi:controlled-fresh-candidate:execution-authorization:v3' as const
+export const CONTROLLED_FRESH_CANDIDATE_MAX_AUTHORIZATION_WINDOW_MS = 30 * 60 * 1_000
 
 export class ControlledFreshCandidateDeadlineError extends Error {
   constructor() {
@@ -351,6 +353,9 @@ export type ControlledFreshCandidateCreationInput = {
   executionAuthorization: {
     identity: string
     token: Uint8Array
+    issuedAt: string
+    notBefore: string
+    expiresAt: string
   }
   executionId: string
   authorizationContext: {
@@ -363,6 +368,7 @@ export type ControlledFreshCandidateCreationInput = {
 }
 
 export type ControlledFreshCandidateExecutionGrant = {
+  version: typeof CONTROLLED_FRESH_CANDIDATE_AUTHORIZATION_VERSION
   authorizationIdentity: string
   executionIdentity: string
   manifestDigest: string
@@ -371,6 +377,23 @@ export type ControlledFreshCandidateExecutionGrant = {
   runtimeCommitIdentity: string
   environmentIdentity: string
   approvedReceiptDestinationDigest: string
+  issuedAt: string
+  notBefore: string
+  expiresAt: string
+}
+
+export type ControlledFreshCandidateUnsignedExecutionGrant = Omit<
+  ControlledFreshCandidateExecutionGrant,
+  'authorizationIdentity'
+>
+
+export function deriveControlledFreshCandidateAuthorizationIdentity(
+  grant: ControlledFreshCandidateUnsignedExecutionGrant,
+): string {
+  return `cfc-auth-${controlledFreshCandidateDigest({
+    domain: CONTROLLED_FRESH_CANDIDATE_AUTHORIZATION_DOMAIN,
+    grant,
+  })}`
 }
 
 export function serializeControlledFreshCandidateExecutionGrant(
@@ -387,7 +410,12 @@ export type ControlledFreshCandidateUploadCallbacks = {
 
 export type ControlledFreshCandidateCreationDependencies = {
   scope: ControlledFreshCandidateOperationScope
-  consumeExecutionAuthorization(grant: ControlledFreshCandidateExecutionGrant, token: Uint8Array, signal: AbortSignal): Promise<boolean>
+  consumeExecutionAuthorization(
+    grant: ControlledFreshCandidateExecutionGrant,
+    token: Uint8Array,
+    signal: AbortSignal,
+    authorizationObservedAt: number,
+  ): Promise<boolean>
   stockExists(stockCandidate: string, signal: AbortSignal): Promise<boolean>
   createTransactionRequest(signal: AbortSignal): Promise<unknown>
   beginProductTransaction(request: unknown, signal: AbortSignal): Promise<boolean>
@@ -466,6 +494,107 @@ function hasExactOwnKeys(value: RecordValue, expected: readonly string[]): boole
   return JSON.stringify(Object.keys(value).sort()) === JSON.stringify([...expected].sort())
 }
 
+function canonicalUtcTimestampMillis(value: unknown): number | null {
+  if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/u.test(value)) return null
+  const millis = Date.parse(value)
+  return Number.isSafeInteger(millis) && new Date(millis).toISOString() === value ? millis : null
+}
+
+export function controlledFreshCandidateAuthorizationWindowIsCanonical(params: {
+  issuedAt: unknown
+  notBefore: unknown
+  expiresAt: unknown
+}): boolean {
+  const issuedAt = canonicalUtcTimestampMillis(params.issuedAt)
+  const notBefore = canonicalUtcTimestampMillis(params.notBefore)
+  const expiresAt = canonicalUtcTimestampMillis(params.expiresAt)
+  return issuedAt !== null
+    && notBefore !== null
+    && expiresAt !== null
+    && issuedAt <= notBefore
+    && notBefore < expiresAt
+    && expiresAt - issuedAt > 0
+    && expiresAt - issuedAt <= CONTROLLED_FRESH_CANDIDATE_MAX_AUTHORIZATION_WINDOW_MS
+}
+
+export function assertControlledFreshCandidateAuthorizationWindowActive(params: {
+  issuedAt: unknown
+  notBefore: unknown
+  expiresAt: unknown
+  observedAt: number
+  previousObservedAt?: number
+}): void {
+  if (!controlledFreshCandidateAuthorizationWindowIsCanonical(params)) {
+    throw new Error('CONTROLLED_EXECUTION_AUTHORIZATION_INVALID')
+  }
+  if (
+    !Number.isSafeInteger(params.observedAt)
+    || Object.is(params.observedAt, -0)
+    || (params.previousObservedAt !== undefined && (
+      !Number.isSafeInteger(params.previousObservedAt)
+      || params.observedAt < params.previousObservedAt
+    ))
+  ) throw new Error('CONTROLLED_EXECUTION_AUTHORIZATION_CLOCK_INVALID')
+  const notBefore = Date.parse(params.notBefore as string)
+  const expiresAt = Date.parse(params.expiresAt as string)
+  if (params.observedAt < notBefore || params.observedAt >= expiresAt) {
+    throw new Error('CONTROLLED_EXECUTION_AUTHORIZATION_INACTIVE')
+  }
+}
+
+export function controlledFreshCandidateExecutionGrantIsCanonical(
+  value: unknown,
+): value is ControlledFreshCandidateExecutionGrant {
+  if (!isPlainRecord(value) || !hasExactOwnKeys(value, [
+    'version', 'authorizationIdentity', 'executionIdentity', 'manifestDigest',
+    'contractIdentity', 'runtimeIdentity', 'runtimeCommitIdentity', 'environmentIdentity',
+    'approvedReceiptDestinationDigest', 'issuedAt', 'notBefore', 'expiresAt',
+  ])) return false
+  const unsigned = { ...value } as RecordValue
+  delete unsigned.authorizationIdentity
+  return value.version === CONTROLLED_FRESH_CANDIDATE_AUTHORIZATION_VERSION
+    && typeof value.authorizationIdentity === 'string'
+    && value.authorizationIdentity === deriveControlledFreshCandidateAuthorizationIdentity(
+      unsigned as ControlledFreshCandidateUnsignedExecutionGrant,
+    )
+    && typeof value.executionIdentity === 'string' && /^[a-z0-9][a-z0-9:_-]{7,127}$/i.test(value.executionIdentity)
+    && typeof value.manifestDigest === 'string' && /^[0-9a-f]{64}$/u.test(value.manifestDigest)
+    && value.contractIdentity === CONTROLLED_FRESH_CANDIDATE_CONTRACT_IDENTITY
+    && value.runtimeIdentity === CONTROLLED_FRESH_CANDIDATE_RUNTIME_IDENTITY
+    && typeof value.runtimeCommitIdentity === 'string'
+    && value.runtimeCommitIdentity.trim() === value.runtimeCommitIdentity
+    && value.runtimeCommitIdentity.length >= 1 && value.runtimeCommitIdentity.length <= 160
+    && /^[a-z0-9][a-z0-9._:/-]*$/i.test(value.runtimeCommitIdentity)
+    && typeof value.environmentIdentity === 'string'
+    && value.environmentIdentity.trim() === value.environmentIdentity
+    && value.environmentIdentity.length >= 1 && value.environmentIdentity.length <= 160
+    && /^[a-z0-9][a-z0-9._:/-]*$/i.test(value.environmentIdentity)
+    && typeof value.approvedReceiptDestinationDigest === 'string'
+    && /^[0-9a-f]{64}$/u.test(value.approvedReceiptDestinationDigest)
+    && controlledFreshCandidateAuthorizationWindowIsCanonical({
+      issuedAt: value.issuedAt,
+      notBefore: value.notBefore,
+      expiresAt: value.expiresAt,
+    })
+}
+
+export function assertControlledFreshCandidateAuthorizationActive(params: {
+  grant: ControlledFreshCandidateExecutionGrant
+  observedAt: number
+  previousObservedAt?: number
+}): void {
+  if (!controlledFreshCandidateExecutionGrantIsCanonical(params.grant)) {
+    throw new Error('CONTROLLED_EXECUTION_AUTHORIZATION_INVALID')
+  }
+  assertControlledFreshCandidateAuthorizationWindowActive({
+    issuedAt: params.grant.issuedAt,
+    notBefore: params.grant.notBefore,
+    expiresAt: params.grant.expiresAt,
+    observedAt: params.observedAt,
+    previousObservedAt: params.previousObservedAt,
+  })
+}
+
 function canonicalPositiveId(value: unknown): number | null {
   const candidate = isPlainRecord(value) ? value.id : value
   if (typeof candidate === 'number' && Number.isSafeInteger(candidate) && candidate > 0) return candidate
@@ -542,12 +671,38 @@ function sanitizedExecutionNamespace(executionId: string): string {
   return executionId.toLowerCase().replace(/[^a-z0-9-]/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '').slice(0, 64)
 }
 
+export function prepareControlledFreshCandidateManifest(params: {
+  executionId: string
+  manifest: ControlledFreshCandidateManifestInput
+}): ControlledFreshCandidateManifestEvidence {
+  const namespace = sanitizedExecutionNamespace(params.executionId)
+  if (!namespace) throw new Error('CONTROLLED_INPUT_INVALID')
+  const filenameIdentity = controlledFreshCandidateDigest({
+    domain: 'uygunayakkabi:controlled-fresh-candidate:filename:v1',
+    executionId: params.executionId,
+    manifestIdentity: params.manifest.identity,
+    title: params.manifest.title,
+    positivePrice: params.manifest.positivePrice,
+    provenanceStatement: params.manifest.provenanceStatement,
+    stockCandidate: params.manifest.stockCandidate,
+    original: {
+      contentDigest: createHash('sha256').update(params.manifest.original.bytes).digest('hex'),
+      mimeType: params.manifest.original.mimeType,
+      byteSize: params.manifest.original.bytes.byteLength,
+      width: params.manifest.original.width,
+      height: params.manifest.original.height,
+    },
+  })
+  const expectedFilename = `cfc-${namespace}-${filenameIdentity.slice(0, 32)}.${extensionForMime(params.manifest.original.mimeType)}`
+  return createControlledFreshCandidateManifestEvidence({ input: params.manifest, expectedFilename })
+}
+
 function validateCreationInput(input: ControlledFreshCandidateCreationInput): boolean {
   if (
     !isPlainRecord(input)
     || !hasExactOwnKeys(input, ['executionAuthorization', 'executionId', 'authorizationContext', 'manifest', 'receiptKey'])
     || !isPlainRecord(input.executionAuthorization)
-    || !hasExactOwnKeys(input.executionAuthorization, ['identity', 'token'])
+    || !hasExactOwnKeys(input.executionAuthorization, ['identity', 'token', 'issuedAt', 'notBefore', 'expiresAt'])
     || !isPlainRecord(input.authorizationContext)
     || !hasExactOwnKeys(input.authorizationContext, [
       'runtimeCommitIdentity', 'environmentIdentity', 'approvedReceiptDestinationDigest',
@@ -560,6 +715,9 @@ function validateCreationInput(input: ControlledFreshCandidateCreationInput): bo
     || !hasExactOwnKeys(input.manifest.original, ['bytes', 'mimeType', 'width', 'height'])
     || typeof input.executionAuthorization.identity !== 'string'
     || !(input.executionAuthorization.token instanceof Uint8Array)
+    || typeof input.executionAuthorization.issuedAt !== 'string'
+    || typeof input.executionAuthorization.notBefore !== 'string'
+    || typeof input.executionAuthorization.expiresAt !== 'string'
     || typeof input.executionId !== 'string'
     || typeof input.authorizationContext.runtimeCommitIdentity !== 'string'
     || typeof input.authorizationContext.environmentIdentity !== 'string'
@@ -579,6 +737,9 @@ function validateCreationInput(input: ControlledFreshCandidateCreationInput): bo
     && /^[a-z0-9][a-z0-9._:/-]*$/i.test(value)
   return /^[a-z0-9][a-z0-9:_-]{7,127}$/i.test(input.executionAuthorization.identity)
     && input.executionAuthorization.token.byteLength === 32
+    && canonicalUtcTimestampMillis(input.executionAuthorization.issuedAt) !== null
+    && canonicalUtcTimestampMillis(input.executionAuthorization.notBefore) !== null
+    && canonicalUtcTimestampMillis(input.executionAuthorization.expiresAt) !== null
     && /^[a-z0-9][a-z0-9:_-]{7,127}$/i.test(input.executionId)
     && exactContext(input.authorizationContext.runtimeCommitIdentity)
     && exactContext(input.authorizationContext.environmentIdentity)
@@ -902,6 +1063,9 @@ function initialReceipt(params: {
     executionAuthorization: {
       identity: params.input.executionAuthorization.identity,
       digest: controlledFreshCandidateDigest(Buffer.from(params.input.executionAuthorization.token).toString('base64')),
+      issuedAt: params.input.executionAuthorization.issuedAt,
+      notBefore: params.input.executionAuthorization.notBefore,
+      expiresAt: params.input.executionAuthorization.expiresAt,
       consumed: true,
     },
     executionId: params.input.executionId,
@@ -946,6 +1110,7 @@ function initialReceipt(params: {
 export async function createControlledFreshCandidate(
   input: ControlledFreshCandidateCreationInput,
   dependencies: ControlledFreshCandidateCreationDependencies,
+  options: { now?: () => number } = {},
 ): Promise<ControlledFreshCandidatePublicReport> {
   const initialBudgets = emptyBudget()
   if (!validateCreationInput(input)) return basePublicReport(initialBudgets)
@@ -955,28 +1120,14 @@ export async function createControlledFreshCandidate(
     return basePublicReport(initialBudgets, { reasonCodes: ['MUTATION_CAPABILITY_INVALID'] })
   }
 
-  const namespace = sanitizedExecutionNamespace(input.executionId)
-  if (!namespace) return basePublicReport(initialBudgets)
-  const filenameIdentity = controlledFreshCandidateDigest({
-    domain: 'uygunayakkabi:controlled-fresh-candidate:filename:v1',
-    executionId: input.executionId,
-    manifestIdentity: input.manifest.identity,
-    title: input.manifest.title,
-    positivePrice: input.manifest.positivePrice,
-    provenanceStatement: input.manifest.provenanceStatement,
-    stockCandidate: input.manifest.stockCandidate,
-    original: {
-      contentDigest: createHash('sha256').update(input.manifest.original.bytes).digest('hex'),
-      mimeType: input.manifest.original.mimeType,
-      byteSize: input.manifest.original.bytes.byteLength,
-      width: input.manifest.original.width,
-      height: input.manifest.original.height,
-    },
-  })
-  const expectedFilename = `cfc-${namespace}-${filenameIdentity.slice(0, 32)}.${extensionForMime(input.manifest.original.mimeType)}`
-  const manifest = createControlledFreshCandidateManifestEvidence({ input: input.manifest, expectedFilename })
-  const executionGrant: ControlledFreshCandidateExecutionGrant = {
-    authorizationIdentity: input.executionAuthorization.identity,
+  let manifest: ControlledFreshCandidateManifestEvidence
+  try {
+    manifest = prepareControlledFreshCandidateManifest({ executionId: input.executionId, manifest: input.manifest })
+  } catch {
+    return basePublicReport(initialBudgets)
+  }
+  const unsignedExecutionGrant: ControlledFreshCandidateUnsignedExecutionGrant = {
+    version: CONTROLLED_FRESH_CANDIDATE_AUTHORIZATION_VERSION,
     executionIdentity: input.executionId,
     manifestDigest: manifest.digest,
     contractIdentity: CONTROLLED_FRESH_CANDIDATE_CONTRACT_IDENTITY,
@@ -984,6 +1135,16 @@ export async function createControlledFreshCandidate(
     runtimeCommitIdentity: input.authorizationContext.runtimeCommitIdentity,
     environmentIdentity: input.authorizationContext.environmentIdentity,
     approvedReceiptDestinationDigest: input.authorizationContext.approvedReceiptDestinationDigest,
+    issuedAt: input.executionAuthorization.issuedAt,
+    notBefore: input.executionAuthorization.notBefore,
+    expiresAt: input.executionAuthorization.expiresAt,
+  }
+  const executionGrant: ControlledFreshCandidateExecutionGrant = {
+    ...unsignedExecutionGrant,
+    authorizationIdentity: deriveControlledFreshCandidateAuthorizationIdentity(unsignedExecutionGrant),
+  }
+  if (input.executionAuthorization.identity !== executionGrant.authorizationIdentity) {
+    return basePublicReport(initialBudgets, { reasonCodes: ['EXECUTION_AUTHORIZATION_REJECTED'] })
   }
   const expectedStateFingerprint = controlledFreshCandidateDigest(
     fixedControlledFreshCandidateProduct(manifest, 'pending'),
@@ -991,6 +1152,22 @@ export async function createControlledFreshCandidate(
   let receipt: ControlledFreshCandidatePrivateReceipt | null = null
   let persistChain: Promise<void> = Promise.resolve()
   let failure: ControlledCreationFailure | null = null
+  const authorizationNow = options.now ?? Date.now
+  let previousAuthorizationObservation: number | undefined
+  const observeAuthorization = (): number => {
+    const observedAt = authorizationNow()
+    try {
+      assertControlledFreshCandidateAuthorizationActive({
+        grant: executionGrant,
+        observedAt,
+        previousObservedAt: previousAuthorizationObservation,
+      })
+    } catch {
+      throw new ControlledCreationFailure('EXECUTION_AUTHORIZATION_REJECTED')
+    }
+    previousAuthorizationObservation = observedAt
+    return observedAt
+  }
 
   const revokeForDeadline = async (): Promise<never> => {
     try {
@@ -1052,10 +1229,12 @@ export async function createControlledFreshCandidate(
 
   try {
     await assertDeadline()
+    const authorizationObservedAt = observeAuthorization()
     const consumed = await bounded((signal) => dependencies.consumeExecutionAuthorization(
       executionGrant,
       Buffer.from(input.executionAuthorization.token),
       signal,
+      authorizationObservedAt,
     ))
     if (!consumed) throw new ControlledCreationFailure('EXECUTION_AUTHORIZATION_REJECTED')
     receipt = sealControlledFreshCandidateReceipt(
@@ -1071,9 +1250,11 @@ export async function createControlledFreshCandidate(
     receipt = resealControlledFreshCandidateReceipt(receipt, input.receiptKey, () => undefined)
     let stockCollision: boolean
     try {
+      observeAuthorization()
       stockCollision = await bounded((signal) => dependencies.stockExists(manifest.stockCandidate, signal))
       await assertDeadline()
-    } catch {
+    } catch (error) {
+      if (error instanceof ControlledCreationFailure) throw error
       throw new ControlledCreationFailure('STOCK_LOOKUP_FAILED')
     }
     if (stockCollision) throw new ControlledCreationFailure('STOCK_COLLISION')

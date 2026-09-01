@@ -128,7 +128,6 @@ export async function runControlledFreshCandidateRuntime(
       if (resource.scope !== scope) throw new Error('controlled_runtime_scope_mismatch')
       const report = await executeControlledCreationResource(resource)
       const terminal = await resource.destroy()
-      resource = null
       await scope.cancel()
       await scope.drain()
       const terminalFailureAlreadyReported = report.reasonCodes.some((reason) => (
@@ -138,15 +137,20 @@ export async function runControlledFreshCandidateRuntime(
         throw new Error('controlled_runtime_terminalization_failed')
       }
       scope.close()
+      resource.completeObservation(report, terminal.ok)
+      resource.closeObservation()
+      resource = null
       io.stdout(JSON.stringify(report))
       return creationExitCode(report)
     } catch {
       if (resource) {
         try { await resource.destroy() } catch { /* sanitized terminal failure */ }
       }
-      await scope.cancel()
-      await scope.drain()
-      scope.close()
+      try { await scope.cancel() } catch { /* sanitized terminal failure */ }
+      try { await scope.drain() } catch { /* terminal uncertainty remains non-successful */ }
+      try { scope.close() } catch { /* terminal uncertainty remains non-successful */ }
+      try { resource?.failObservation() } catch { /* observation failure is sticky */ }
+      try { resource?.closeObservation() } catch { /* sanitized observation closure */ }
       io.stderr('CONTROLLED_FRESH_CANDIDATE_INTERNAL_FAILURE')
       return 1
     }
@@ -162,20 +166,24 @@ export async function runControlledFreshCandidateRuntime(
       dependencies: resource.dependencies,
     })
     const terminal = await resource.destroy()
-    resource = null
     await scope.cancel()
     await scope.drain()
     if (!terminal.ok) throw new Error('controlled_runtime_terminalization_failed')
     scope.close()
+    resource.completeObservation(report, terminal.ok)
+    resource.closeObservation()
+    resource = null
     io.stdout(JSON.stringify(report))
     return verificationExitCode(report)
   } catch {
     if (resource) {
       try { await resource.destroy() } catch { /* sanitized terminal failure */ }
     }
-    await scope.cancel()
-    await scope.drain()
-    scope.close()
+    try { await scope.cancel() } catch { /* sanitized terminal failure */ }
+    try { await scope.drain() } catch { /* terminal uncertainty remains non-successful */ }
+    try { scope.close() } catch { /* terminal uncertainty remains non-successful */ }
+    try { resource?.failObservation() } catch { /* observation failure is sticky */ }
+    try { resource?.closeObservation() } catch { /* sanitized observation closure */ }
     io.stderr('CONTROLLED_FRESH_CANDIDATE_INTERNAL_FAILURE')
     return 1
   }

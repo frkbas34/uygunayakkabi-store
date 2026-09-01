@@ -66,6 +66,9 @@ function receipt(seed: number, options: {
     executionAuthorization: {
       identity: `strict-owner-${seed}`,
       digest: controlledFreshCandidateDigest(`strict-token-${seed}`),
+      issuedAt: new Date(Date.now() - 1_000).toISOString(),
+      notBefore: new Date(Date.now() - 1_000).toISOString(),
+      expiresAt: new Date(Date.now() + 29 * 60 * 1_000).toISOString(),
       consumed: true,
     },
     executionId: `strict-execution-${seed}`,

@@ -3,14 +3,15 @@ import {
   timingSafeEqual,
 } from 'node:crypto'
 
-export const CONTROLLED_FRESH_CANDIDATE_PRIVATE_VERSION = 'controlled-fresh-candidate-private/v2' as const
+export const CONTROLLED_FRESH_CANDIDATE_PRIVATE_VERSION = 'controlled-fresh-candidate-private/v3' as const
 export const CONTROLLED_FRESH_CANDIDATE_MANIFEST_VERSION = 'controlled-fresh-candidate-manifest/v1' as const
-export const CONTROLLED_FRESH_CANDIDATE_RUNTIME_IDENTITY = 'controlled-fresh-candidate-runtime/v2' as const
-export const CONTROLLED_FRESH_CANDIDATE_CONTRACT_IDENTITY = 'controlled-fresh-candidate-contract/v2' as const
-export const CONTROLLED_FRESH_CANDIDATE_RECEIPT_DOMAIN = 'uygunayakkabi:controlled-fresh-candidate:private-receipt:v2' as const
-export const CONTROLLED_FRESH_CANDIDATE_RECEIPT_CONSUMPTION_DOMAIN = 'uygunayakkabi:controlled-fresh-candidate:receipt-consumption:v2' as const
+export const CONTROLLED_FRESH_CANDIDATE_RUNTIME_IDENTITY = 'controlled-fresh-candidate-runtime/v3' as const
+export const CONTROLLED_FRESH_CANDIDATE_CONTRACT_IDENTITY = 'controlled-fresh-candidate-contract/v3' as const
+export const CONTROLLED_FRESH_CANDIDATE_RECEIPT_DOMAIN = 'uygunayakkabi:controlled-fresh-candidate:private-receipt:v3' as const
+export const CONTROLLED_FRESH_CANDIDATE_RECEIPT_CONSUMPTION_DOMAIN = 'uygunayakkabi:controlled-fresh-candidate:receipt-consumption:v3' as const
 export const CONTROLLED_FRESH_CANDIDATE_MAX_STORAGE_OBJECTS = 4
 export const CONTROLLED_FRESH_CANDIDATE_MAX_CANONICAL_JSON_BYTES = 65_536
+export const CONTROLLED_FRESH_CANDIDATE_RECEIPT_MAX_AUTHORIZATION_WINDOW_MS = 30 * 60 * 1_000
 
 export const CONTROLLED_FRESH_CANDIDATE_PHASES = [
   'authorization_consumed',
@@ -81,6 +82,9 @@ export type ControlledFreshCandidatePrivateReceipt = {
   executionAuthorization: {
     identity: string
     digest: string
+    issuedAt: string
+    notBefore: string
+    expiresAt: string
     consumed: true
   }
   executionId: string
@@ -195,6 +199,12 @@ function exactDigest(value: unknown): value is string {
   return typeof value === 'string' && /^[0-9a-f]{64}$/.test(value)
 }
 
+function exactCanonicalUtcTimestamp(value: unknown): value is string {
+  if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/u.test(value)) return false
+  const millis = Date.parse(value)
+  return Number.isSafeInteger(millis) && new Date(millis).toISOString() === value
+}
+
 function exactIdentity(value: unknown): value is string {
   return typeof value === 'string' && /^[a-z0-9][a-z0-9:_-]{7,127}$/i.test(value)
 }
@@ -291,7 +301,9 @@ function exactReceiptShape(value: unknown): value is ControlledFreshCandidatePri
     'transactions', 'phase', 'budgets', 'quarantineCertainty', 'commitCertainty',
     'finalization', 'mutationResourceTeardown', 'authorityClosure', 'seal',
   ])) return false
-  if (!isPlainRecord(value.executionAuthorization) || !hasExactOwnKeys(value.executionAuthorization, ['identity', 'digest', 'consumed'])) return false
+  if (!isPlainRecord(value.executionAuthorization) || !hasExactOwnKeys(value.executionAuthorization, [
+    'identity', 'digest', 'issuedAt', 'notBefore', 'expiresAt', 'consumed',
+  ])) return false
   if (!isPlainRecord(value.runtime) || !hasExactOwnKeys(value.runtime, [
     'identity', 'contract', 'commit', 'environment', 'receiptDestinationDigest',
   ])) return false
@@ -312,9 +324,18 @@ function exactReceiptShape(value: unknown): value is ControlledFreshCandidatePri
   const productId = value.product.id
   const mediaId = value.media.id
   const mediaProductId = value.media.productId
+  const issuedAt = Date.parse(String(value.executionAuthorization.issuedAt))
+  const notBefore = Date.parse(String(value.executionAuthorization.notBefore))
+  const expiresAt = Date.parse(String(value.executionAuthorization.expiresAt))
   return value.version === CONTROLLED_FRESH_CANDIDATE_PRIVATE_VERSION
     && exactIdentity(value.executionAuthorization.identity)
     && exactDigest(value.executionAuthorization.digest)
+    && exactCanonicalUtcTimestamp(value.executionAuthorization.issuedAt)
+    && exactCanonicalUtcTimestamp(value.executionAuthorization.notBefore)
+    && exactCanonicalUtcTimestamp(value.executionAuthorization.expiresAt)
+    && issuedAt <= notBefore
+    && notBefore < expiresAt
+    && expiresAt - issuedAt <= CONTROLLED_FRESH_CANDIDATE_RECEIPT_MAX_AUTHORIZATION_WINDOW_MS
     && value.executionAuthorization.consumed === true
     && exactIdentity(value.executionId)
     && exactManifest(value.manifest)

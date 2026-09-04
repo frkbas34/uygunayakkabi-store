@@ -12,7 +12,6 @@ import {
 import path from 'node:path'
 
 import {
-  CONTROLLED_FRESH_CANDIDATE_APPROVED_LEDGER_ROOT,
   CONTROLLED_FRESH_CANDIDATE_AUTHORIZATION_KEY_ENV,
   CONTROLLED_FRESH_CANDIDATE_COMMIT_IDENTITY_ENV,
   CONTROLLED_FRESH_CANDIDATE_ENVIRONMENT_IDENTITY_ENV,
@@ -21,10 +20,15 @@ import {
 } from './controlled-fresh-candidate-runtime-resources'
 import {
   CONTROLLED_FRESH_CANDIDATE_RUNTIME_ENVIRONMENT_ALLOWLIST,
-  buildControlledFreshCandidateChildEnvironment,
   controlledFreshCandidateSecretReadiness,
+  parseControlledFreshCandidateSecretReadinessArgs,
   runControlledFreshCandidateSecretReadiness,
 } from './controlled-fresh-candidate-secret-contract'
+import {
+  CONTROLLED_FRESH_CANDIDATE_PRODUCTION_ENVIRONMENT_IDENTITY,
+  buildControlledFreshCandidateConfigurationEnvironment,
+  buildControlledFreshCandidateExecutionEnvironment,
+} from './controlled-fresh-candidate-secret-loader'
 import {
   CONTROLLED_FRESH_CANDIDATE_OFFLINE_INPUT_PATH_ENV,
   CONTROLLED_FRESH_CANDIDATE_OFFLINE_INPUT_VERSION,
@@ -84,14 +88,14 @@ async function nativePackageTests(): Promise<void> {
     expiresAt: new Date(now + 5 * 60_000).toISOString(),
   }
   writeFileSync(inputPath, canonicalJson(ownerInput), { mode: 0o600 })
-  const environment: NodeJS.ProcessEnv = {
+  const environment = {
     [CONTROLLED_FRESH_CANDIDATE_OWNER_LEDGER_DIRECTORY_ENV]: root,
     [CONTROLLED_FRESH_CANDIDATE_AUTHORIZATION_KEY_ENV]: authorizationKey.toString('base64'),
     [CONTROLLED_FRESH_CANDIDATE_RECEIPT_KEY_ENV]: receiptKey.toString('base64'),
     [CONTROLLED_FRESH_CANDIDATE_COMMIT_IDENTITY_ENV]: '5daecabf304709c4106616c52fe971e315305dfb',
-    [CONTROLLED_FRESH_CANDIDATE_ENVIRONMENT_IDENTITY_ENV]: 'synthetic-offline-test',
+    [CONTROLLED_FRESH_CANDIDATE_ENVIRONMENT_IDENTITY_ENV]: CONTROLLED_FRESH_CANDIDATE_PRODUCTION_ENVIRONMENT_IDENTITY,
     [CONTROLLED_FRESH_CANDIDATE_OFFLINE_INPUT_PATH_ENV]: inputPath,
-  }
+  } as NodeJS.ProcessEnv
   const previousFlag = process.env.CFC_NATIVE_EXT4_TEST_ONLY
   process.env.CFC_NATIVE_EXT4_TEST_ONLY = '1'
   try {
@@ -113,6 +117,42 @@ async function nativePackageTests(): Promise<void> {
     assert.equal(privateManifest.includes(receiptKey.toString('base64')), false)
     assert.equal(privateManifest.includes('productId'), false)
     assert.equal(privateManifest.includes('mediaId'), false)
+
+    const configurationEnvironment = buildControlledFreshCandidateConfigurationEnvironment({
+      secrets: {
+        [CONTROLLED_FRESH_CANDIDATE_AUTHORIZATION_KEY_ENV]: authorizationKey.toString('base64'),
+        [CONTROLLED_FRESH_CANDIDATE_RECEIPT_KEY_ENV]: receiptKey.toString('base64'),
+        DATABASE_URI: 'postgres://synthetic.invalid/readiness-test',
+        PAYLOAD_SECRET: 'synthetic-payload-secret',
+        BLOB_READ_WRITE_TOKEN: 'synthetic-blob-token',
+      },
+      deployedCommitIdentity: environment[CONTROLLED_FRESH_CANDIDATE_COMMIT_IDENTITY_ENV] as string,
+    })
+    const executionEnvironment = await buildControlledFreshCandidateExecutionEnvironment({
+      configurationEnvironment,
+      packageResult: prepared,
+      now,
+      testOnlyLedgerRoot: root,
+    })
+    const executionReady = controlledFreshCandidateSecretReadiness(executionEnvironment, {
+      stage: 'execution',
+      ledgerReady: true,
+      operationPackageAuthenticated: true,
+    })
+    assert.equal(executionReady.executionReady, true)
+    assert.equal(executionReady.readyForSelectedStage, true)
+    assert.equal(executionReady.packagePrepared, true)
+    assert.equal(executionReady.authorizationCreated, true)
+    assert.equal(executionReady.eligibleForPublishing, false)
+    await assert.rejects(() => buildControlledFreshCandidateExecutionEnvironment({
+      configurationEnvironment,
+      packageResult: {
+        ...prepared,
+        receiptPath: path.join(root, 'operations-v1', 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb', 'private-receipt.json'),
+      },
+      now,
+      testOnlyLedgerRoot: root,
+    }))
 
     const expiredOperationId = 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee'
     writeFileSync(inputPath, canonicalJson({
@@ -198,35 +238,81 @@ async function nativePackageTests(): Promise<void> {
 
 async function main(): Promise<void> {
   const secret = 'do-not-disclose-secret-value'
-  const environment: NodeJS.ProcessEnv = Object.fromEntries(
-    CONTROLLED_FRESH_CANDIDATE_RUNTIME_ENVIRONMENT_ALLOWLIST.map((name) => [name, secret]),
-  )
-  environment[CONTROLLED_FRESH_CANDIDATE_OWNER_LEDGER_DIRECTORY_ENV] = CONTROLLED_FRESH_CANDIDATE_APPROVED_LEDGER_ROOT
-  environment.PAYLOAD_DB_PUSH = 'false'
-  environment.PAYLOAD_DROP_DATABASE = 'false'
-  environment.UNRELATED_AMBIENT_SECRET = secret
-  const report = controlledFreshCandidateSecretReadiness(environment)
-  assert.equal(report.ready, true)
+  const environment = buildControlledFreshCandidateConfigurationEnvironment({
+    secrets: {
+      [CONTROLLED_FRESH_CANDIDATE_AUTHORIZATION_KEY_ENV]: Buffer.alloc(32, 31).toString('base64'),
+      [CONTROLLED_FRESH_CANDIDATE_RECEIPT_KEY_ENV]: Buffer.alloc(32, 32).toString('base64'),
+      DATABASE_URI: 'postgres://synthetic.invalid/readiness',
+      PAYLOAD_SECRET: secret,
+      BLOB_READ_WRITE_TOKEN: 'synthetic-blob-token',
+    },
+    deployedCommitIdentity: 'c'.repeat(40),
+  })
+  const report = controlledFreshCandidateSecretReadiness(environment, { stage: 'configuration', ledgerReady: true })
+  assert.equal(report.configurationReady, true)
+  assert.equal(report.executionReady, false)
+  assert.equal(report.readyForSelectedStage, true)
+  assert.equal(report.candidateSelected, false)
+  assert.equal(report.packagePrepared, false)
+  assert.equal(report.authorizationCreated, false)
+  assert.equal(report.eligibleForPublishing, false)
+  for (const name of [
+    'CONTROLLED_FRESH_CANDIDATE_PRIVATE_MANIFEST_PATH',
+    'CONTROLLED_FRESH_CANDIDATE_RECEIPT_PATH',
+    'CONTROLLED_FRESH_CANDIDATE_OBSERVATION_PATH',
+  ] as const) {
+    assert.equal(report.variables[name].presence, 'ABSENT')
+    assert.equal(report.variables[name].requirement, 'NOT_REQUIRED')
+  }
   assert.equal(JSON.stringify(report).includes(secret), false)
-  const child = buildControlledFreshCandidateChildEnvironment(environment)
-  assert.deepEqual(Object.keys(child).sort(), [...CONTROLLED_FRESH_CANDIDATE_RUNTIME_ENVIRONMENT_ALLOWLIST].sort())
-  assert.equal(child.UNRELATED_AMBIENT_SECRET, undefined)
-  assert.equal(child.PAYLOAD_DB_PUSH, 'false')
-  assert.equal(child.PAYLOAD_DROP_DATABASE, 'false')
 
-  const absent = controlledFreshCandidateSecretReadiness({})
-  assert.equal(absent.ready, false)
-  assert.ok(Object.values(absent.variables).every((value) => value === 'ABSENT'))
+  const absent = controlledFreshCandidateSecretReadiness({}, { stage: 'configuration', ledgerReady: false })
+  assert.equal(absent.configurationReady, false)
+  assert.ok(Object.values(absent.variables).every((value) => value.presence === 'ABSENT'))
   const empty = controlledFreshCandidateSecretReadiness(Object.fromEntries(
     CONTROLLED_FRESH_CANDIDATE_RUNTIME_ENVIRONMENT_ALLOWLIST.map((name) => [name, '']),
-  ))
-  assert.ok(Object.values(empty.variables).every((value) => value === 'PRESENT_EMPTY'))
+  ), { stage: 'execution', ledgerReady: true, operationPackageAuthenticated: true })
+  assert.ok(Object.values(empty.variables).every((value) => value.presence === 'PRESENT_EMPTY'))
+  assert.equal(empty.executionReady, false)
+
+  const additional = controlledFreshCandidateSecretReadiness({ ...environment, UNEXPECTED: secret }, {
+    stage: 'configuration',
+    ledgerReady: true,
+  })
+  assert.equal(additional.configurationReady, false)
+  assert.equal(additional.additionalVariablesPresent, true)
+  const unsafeFlags = controlledFreshCandidateSecretReadiness({ ...environment, PAYLOAD_DB_PUSH: 'true' }, {
+    stage: 'configuration',
+    ledgerReady: true,
+  })
+  assert.equal(unsafeFlags.configurationReady, false)
+  const mutatedIdentity = controlledFreshCandidateSecretReadiness({
+    ...environment,
+    [CONTROLLED_FRESH_CANDIDATE_ENVIRONMENT_IDENTITY_ENV]: 'caller-controlled',
+  }, { stage: 'configuration', ledgerReady: true })
+  assert.equal(mutatedIdentity.configurationReady, false)
+  const commitMismatch = controlledFreshCandidateSecretReadiness({
+    ...environment,
+    [CONTROLLED_FRESH_CANDIDATE_COMMIT_IDENTITY_ENV]: 'legacy',
+  }, { stage: 'configuration', ledgerReady: true })
+  assert.equal(commitMismatch.configurationReady, false)
 
   const readinessOutput: string[] = []
-  assert.equal(runControlledFreshCandidateSecretReadiness(['--readiness'], {}, (text) => readinessOutput.push(text)), 3)
+  assert.equal(runControlledFreshCandidateSecretReadiness({
+    argv: ['--readiness', '--stage=configuration'],
+    environment: {},
+    ledgerReady: false,
+    write: (text) => readinessOutput.push(text),
+  }), 3)
   assert.equal(readinessOutput.join('').includes(secret), false)
-  assert.equal(runControlledFreshCandidateSecretReadiness(['--help'], {}, () => undefined), 0)
-  assert.equal(runControlledFreshCandidateSecretReadiness(['--readiness', secret], {}, () => undefined), 2)
+  assert.equal(runControlledFreshCandidateSecretReadiness({
+    argv: ['--help'], environment: {}, ledgerReady: false, write: () => undefined,
+  }), 0)
+  assert.equal(runControlledFreshCandidateSecretReadiness({
+    argv: ['--readiness', secret], environment: {}, ledgerReady: false, write: () => undefined,
+  }), 2)
+  assert.deepEqual(parseControlledFreshCandidateSecretReadinessArgs(['--readiness']), { ok: false })
+  assert.deepEqual(parseControlledFreshCandidateSecretReadinessArgs(['--readiness', '--stage=legacy']), { ok: false })
 
   assert.deepEqual(parseControlledFreshCandidatePackageBuilderArgs(['--help']), { ok: true, help: true, mode: null })
   assert.deepEqual(parseControlledFreshCandidatePackageBuilderArgs(['--readiness']), { ok: true, help: false, mode: 'readiness' })

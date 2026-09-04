@@ -53,7 +53,7 @@ import {
   CONTROLLED_FRESH_CANDIDATE_VERIFY_CONFIRMATION,
   controlledFreshCandidateRuntimeUsage,
   parseControlledFreshCandidateRuntimeArgs,
-  runControlledFreshCandidateRuntime,
+  runControlledFreshCandidateRuntime as runControlledFreshCandidateRuntimeProduction,
 } from './controlled-fresh-candidate-runtime'
 import {
   createControlledFreshCandidateBoundaryLoggerConfiguration,
@@ -81,6 +81,15 @@ import {
 } from './controlled-fresh-candidate-runtime-resources'
 
 let posixLedgerEvidence = false
+
+function runControlledFreshCandidateRuntime(
+  options: Parameters<typeof runControlledFreshCandidateRuntimeProduction>[0],
+) {
+  return runControlledFreshCandidateRuntimeProduction({
+    ...options,
+    testOnlyBypassExecutionReadiness: true,
+  })
+}
 
 function captureIo() {
   const stdout: string[] = []
@@ -411,6 +420,28 @@ async function main(): Promise<void> {
       assert.deepEqual(io.stderr, ['CONTROLLED_FRESH_CANDIDATE_REFUSED: POSIX_RUNTIME_REQUIRED'])
     }
   } else {
+  {
+    const io = captureIo()
+    let initialized = 0
+    const code = await runControlledFreshCandidateRuntimeProduction({
+      argv: [CONTROLLED_FRESH_CANDIDATE_CREATE_CONFIRMATION],
+      io: io.io,
+      initializeCreation: async () => { initialized += 1; throw new Error('must not initialize') },
+    })
+    assert.equal(code, 2)
+    assert.equal(initialized, 0)
+    assert.deepEqual(io.stderr, ['CONTROLLED_FRESH_CANDIDATE_REFUSED: EXECUTION_READINESS_REQUIRED'])
+  }
+  {
+    const io = captureIo()
+    const code = await runControlledFreshCandidateRuntime({
+      argv: [CONTROLLED_FRESH_CANDIDATE_CREATE_CONFIRMATION],
+      io: io.io,
+    })
+    assert.equal(code, 2)
+    assert.deepEqual(io.stdout, [])
+    assert.deepEqual(io.stderr, ['CONTROLLED_FRESH_CANDIDATE_REFUSED: EXECUTION_READINESS_REQUIRED'])
+  }
   {
     const io = captureIo()
     let destroyed = 0

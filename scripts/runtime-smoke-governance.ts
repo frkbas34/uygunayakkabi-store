@@ -520,6 +520,14 @@ assert.ok(!/\b(?:INSERT|UPDATE|DELETE|ALTER|DROP|CREATE|TRUNCATE)\b/i.test(fresh
 
 const controlledCandidateScript = read('scripts/controlled-fresh-candidate-runtime.ts')
 const controlledCandidateResources = read('scripts/controlled-fresh-candidate-runtime-resources.ts')
+const controlledCandidateSecretContract = read('scripts/controlled-fresh-candidate-secret-contract.ts')
+const controlledCandidateSecretLoader = read('scripts/controlled-fresh-candidate-secret-loader.ts')
+const controlledCandidateSecretBootstrap = read('scripts/controlled-fresh-candidate-secret-bootstrap.ts')
+const controlledCandidateConnectivity = read('scripts/controlled-fresh-candidate-connectivity.ts')
+const controlledCandidateConnectivityQueryBlock = controlledCandidateConnectivity.slice(
+  controlledCandidateConnectivity.indexOf('CONTROLLED_FRESH_CANDIDATE_CONNECTIVITY_QUERIES'),
+  controlledCandidateConnectivity.indexOf('] as const)', controlledCandidateConnectivity.indexOf('CONTROLLED_FRESH_CANDIDATE_CONNECTIVITY_QUERIES')) + '] as const)'.length,
+)
 const controlledCandidateCreation = read('src/lib/controlledFreshCandidateCreation.ts')
 const controlledCandidateReceipt = read('src/lib/controlledFreshCandidateReceipt.ts')
 const controlledCandidateVerifier = read('src/lib/controlledFreshCandidateTargetVerifier.ts')
@@ -529,21 +537,32 @@ assertIncludes(controlledCandidateTests, 'controlledFreshCandidateAuthorization.
 assertIncludes(controlledCandidateTests, 'controlledFreshCandidateObservation.test.ts', 'controlled candidate observation tests')
 assertIncludes(controlledCandidateTests, 'controlledFreshCandidateTargetVerifier.test.ts', 'controlled candidate verifier tests')
 assertIncludes(controlledCandidateTests, 'controlled-fresh-candidate-readiness.test.ts', 'controlled candidate readiness tests')
+assertIncludes(controlledCandidateTests, 'controlled-fresh-candidate-secret-loader.test.ts', 'controlled candidate loader tests')
+assertIncludes(controlledCandidateTests, 'controlled-fresh-candidate-secret-bootstrap.test.ts', 'controlled candidate bootstrap tests')
+assertIncludes(controlledCandidateTests, 'controlled-fresh-candidate-connectivity.test.ts', 'controlled candidate connectivity tests')
 assertIncludes(controlledCandidateTests, 'controlled-fresh-candidate-runtime.test.ts', 'controlled candidate runtime tests')
 assertIncludes(scripts['test:safe'] ?? '', 'npm run test:controlled-fresh-candidate', 'safe suite controlled candidate tests')
 assert.ok(!(scripts['test:safe'] ?? '').includes('smoke:controlled-fresh-candidate'), 'test:safe must not execute controlled candidate runtime')
 assert.deepEqual(
   Object.keys(scripts).filter((name) => name.includes('controlled-fresh-candidate')).sort(),
   [
+    'controlled-fresh-candidate:bootstrap',
+    'controlled-fresh-candidate:connectivity',
     'controlled-fresh-candidate:observe',
     'controlled-fresh-candidate:package',
     'controlled-fresh-candidate:readiness',
     'test:controlled-fresh-candidate',
+    'test:controlled-fresh-candidate-bootstrap',
+    'test:controlled-fresh-candidate-connectivity',
+    'test:controlled-fresh-candidate-loader',
+    'test:controlled-fresh-candidate-readiness',
   ],
-  'controlled candidate exposes only offline preparation, boolean readiness, read-only observation, and tests',
+  'controlled candidate exposes only governed bootstrap, readiness, connectivity, offline preparation, read-only observation, and tests',
 )
 assertIncludes(scripts['controlled-fresh-candidate:package'] ?? '', 'controlled-fresh-candidate-package-builder.ts', 'controlled offline package command')
 assertIncludes(scripts['controlled-fresh-candidate:readiness'] ?? '', 'controlled-fresh-candidate-secret-contract.ts', 'controlled secret readiness command')
+assertIncludes(scripts['controlled-fresh-candidate:bootstrap'] ?? '', 'controlled-fresh-candidate-secret-bootstrap.ts', 'controlled secret bootstrap command')
+assertIncludes(scripts['controlled-fresh-candidate:connectivity'] ?? '', 'controlled-fresh-candidate-connectivity.ts', 'controlled connectivity command')
 assertIncludes(scripts['controlled-fresh-candidate:observe'] ?? '', 'controlled-fresh-candidate-observer.ts', 'controlled read-only observer command')
 assertIncludes(controlledCandidateScript, '--confirm-controlled-fresh-candidate-create', 'controlled creation exact confirmation')
 assertIncludes(controlledCandidateScript, '--confirm-controlled-fresh-candidate-receipt-verification', 'controlled verification exact confirmation')
@@ -558,6 +577,32 @@ assertIncludes(controlledCandidateResources, 'fsConstants.O_CREAT | fsConstants.
 assertIncludes(controlledCandidateResources, 'syncDirectory(params.directoryHandle)', 'controlled durable marker directory acknowledgement')
 assertIncludes(controlledCandidateResources, 'CONTROLLED_FRESH_CANDIDATE_EXT4_MAGIC', 'controlled native ext4 boundary')
 assertIncludes(controlledCandidateScript, 'POSIX_RUNTIME_REQUIRED', 'controlled Windows fail-closed boundary')
+assertIncludes(controlledCandidateScript, 'EXECUTION_READINESS_REQUIRED', 'controlled execution-stage readiness boundary')
+assertIncludes(controlledCandidateScript, "options.testOnlyBypassExecutionReadiness === true\n    && process.env.NODE_ENV === 'test'", 'controlled test-only readiness bypass boundary')
+assertIncludes(controlledCandidateSecretContract, 'controlled-fresh-candidate-secret-contract/v2', 'controlled two-stage readiness contract')
+assertIncludes(controlledCandidateSecretContract, "stage: 'configuration'", 'controlled configuration readiness stage')
+assertIncludes(controlledCandidateSecretContract, 'operationPackageAuthenticated', 'controlled execution package authentication requirement')
+assertIncludes(controlledCandidateSecretLoader, '/home/w11/.config/uygunayakkabi/controlled-fresh-candidate/runtime-secrets.env', 'controlled canonical native-WSL secret source')
+assertIncludes(controlledCandidateSecretLoader, 'Object.create(null)', 'controlled null-prototype environment')
+assertIncludes(controlledCandidateSecretLoader, 'fsConstants.O_NOFOLLOW', 'controlled secret no-follow open')
+assertIncludes(controlledCandidateSecretLoader, 'pathBefore.nlink !== 1n', 'controlled secret single-link boundary')
+assertIncludes(controlledCandidateSecretLoader, 'CONTROLLED_FRESH_CANDIDATE_EXT4_MAGIC', 'controlled secret ext4 boundary')
+assertIncludes(controlledCandidateSecretLoader, 'timingSafeEqual(authorizationKey, receiptKey)', 'controlled independent key enforcement')
+assert.ok(!/\b(?:exec|execFile|spawn|fork)\s*\(/u.test(controlledCandidateSecretLoader), 'controlled loader must not execute a process')
+assert.ok(!/\b(?:eval|source)\s*\(/u.test(controlledCandidateSecretLoader), 'controlled loader must not evaluate shell content')
+assertIncludes(controlledCandidateSecretBootstrap, 'fsConstants.O_EXCL', 'controlled bootstrap exclusive temp creation')
+assertIncludes(controlledCandidateSecretBootstrap, 'linkSync(temporaryPath, destinationPath)', 'controlled bootstrap no-overwrite atomic publication')
+assertIncludes(controlledCandidateSecretBootstrap, 'fsyncDirectory(directoryPath', 'controlled bootstrap directory durability')
+assertIncludes(controlledCandidateConnectivity, "'BEGIN TRANSACTION READ ONLY'", 'controlled connectivity explicit read-only transaction')
+assertIncludes(controlledCandidateConnectivity, "'SHOW transaction_read_only'", 'controlled connectivity server read-only assertion')
+assertIncludes(controlledCandidateConnectivity, "'SELECT 1 AS controlled_liveness'", 'controlled connectivity constant liveness query')
+assertIncludes(controlledCandidateConnectivity, "'ROLLBACK'", 'controlled connectivity rollback')
+assertIncludes(controlledCandidateConnectivity, 'closeCalls = 1', 'controlled connectivity exactly-once close accounting')
+assertIncludes(controlledCandidateConnectivity, "await import('pg')", 'controlled connectivity installed direct pg client')
+assert.ok(!controlledCandidateConnectivity.includes('payload'), 'controlled connectivity must not initialize Payload')
+assert.ok(controlledCandidateConnectivityQueryBlock.length > '] as const)'.length, 'controlled connectivity query block must be present')
+assert.ok(!/\b(?:INSERT|UPDATE|DELETE|ALTER|DROP|CREATE|TRUNCATE|COPY|MERGE)\b/iu.test(controlledCandidateConnectivityQueryBlock), 'controlled connectivity must contain no mutation query')
+assert.ok(!/\b(?:products?|media|349)\b/iu.test(controlledCandidateConnectivityQueryBlock), 'controlled connectivity must contain no Product or Media query')
 assertIncludes(controlledCandidateResources, 'controlledFreshCandidateFilenameIsApproved(expected, data.filename)', 'controlled pre-upload filename equality')
 assertIncludes(controlledCandidateResources, 'overwriteExistingFiles: false', 'controlled overwrite disabled')
 assertIncludes(controlledCandidateResources, 'tasks: []', 'controlled Payload jobs disabled')

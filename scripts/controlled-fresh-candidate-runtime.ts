@@ -16,6 +16,13 @@ import {
   type ControlledFreshCandidateRuntimeResource,
   type ControlledFreshCandidateVerificationResource,
 } from './controlled-fresh-candidate-runtime-resources'
+import {
+  CONTROLLED_FRESH_CANDIDATE_RUNTIME_ENVIRONMENT_ALLOWLIST,
+  controlledFreshCandidateSecretReadiness,
+} from './controlled-fresh-candidate-secret-contract'
+import {
+  controlledFreshCandidateExecutionEnvironmentIsAuthenticated,
+} from './controlled-fresh-candidate-secret-loader'
 
 export const CONTROLLED_FRESH_CANDIDATE_CREATE_CONFIRMATION = '--confirm-controlled-fresh-candidate-create' as const
 export const CONTROLLED_FRESH_CANDIDATE_VERIFY_CONFIRMATION = '--confirm-controlled-fresh-candidate-receipt-verification' as const
@@ -34,6 +41,8 @@ export type ControlledFreshCandidateRuntimeIo = {
 export type ControlledFreshCandidateRuntimeOptions = {
   argv: readonly string[]
   io?: ControlledFreshCandidateRuntimeIo
+  executionEnvironment?: NodeJS.ProcessEnv
+  testOnlyBypassExecutionReadiness?: boolean
   initializeCreation?: (scope: ControlledFreshCandidateOperationScope) => Promise<ControlledFreshCandidateRuntimeResource>
   initializeVerification?: (scope: ControlledFreshCandidateOperationScope) => Promise<ControlledFreshCandidateVerificationResource>
   operationTimeoutMs?: number
@@ -99,7 +108,7 @@ export async function runControlledFreshCandidateRuntime(
     io.stdout(controlledFreshCandidateRuntimeUsage())
     return 0
   }
-  if (!decision.ok) {
+  if ('code' in decision) {
     io.stderr(`CONTROLLED_FRESH_CANDIDATE_REFUSED: ${decision.code}`)
     io.stdout(controlledFreshCandidateRuntimeUsage())
     return 2
@@ -108,6 +117,35 @@ export async function runControlledFreshCandidateRuntime(
   if (process.platform !== 'linux') {
     io.stderr('CONTROLLED_FRESH_CANDIDATE_REFUSED: POSIX_RUNTIME_REQUIRED')
     return 2
+  }
+
+  const testOnlyBypassExecutionReadiness = options.testOnlyBypassExecutionReadiness === true
+    && process.env.NODE_ENV === 'test'
+    && (options.initializeCreation !== undefined || options.initializeVerification !== undefined)
+  const requiresExecutionReadiness = !testOnlyBypassExecutionReadiness
+  if (requiresExecutionReadiness) {
+    const environment = options.executionEnvironment
+    if (!environment || !controlledFreshCandidateExecutionEnvironmentIsAuthenticated(environment)) {
+      io.stderr('CONTROLLED_FRESH_CANDIDATE_REFUSED: EXECUTION_READINESS_REQUIRED')
+      return 2
+    }
+    const readiness = controlledFreshCandidateSecretReadiness(environment, {
+      stage: 'execution',
+      ledgerReady: true,
+      operationPackageAuthenticated: true,
+    })
+    if (!readiness.executionReady) {
+      io.stderr('CONTROLLED_FRESH_CANDIDATE_REFUSED: EXECUTION_READINESS_REQUIRED')
+      return 2
+    }
+    for (const name of CONTROLLED_FRESH_CANDIDATE_RUNTIME_ENVIRONMENT_ALLOWLIST) {
+      const value = environment[name]
+      if (value === undefined) {
+        io.stderr('CONTROLLED_FRESH_CANDIDATE_REFUSED: EXECUTION_READINESS_REQUIRED')
+        return 2
+      }
+      process.env[name] = value
+    }
   }
 
   process.env.PAYLOAD_DB_PUSH = 'false'

@@ -1,6 +1,53 @@
 ﻿# PROJECT STATE — Uygunayakkabi
 
-_Last updated: 2026-09-01 (controlled-candidate Readiness Repair 1 implemented locally; independent review pending.)_
+_Last updated: 2026-09-04 (controlled-candidate activation-readiness configuration route repaired locally; independent review pending.)_
+
+## Controlled-candidate Activation Readiness Configuration Route Repair 1 - 2026-09-04 (LOCAL, INDEPENDENT REVIEW PENDING)
+
+- The source-level blocker
+  `CONTROLLED_CANDIDATE_ACTIVATION_READINESS_BLOCKED_CONFIGURATION_ROUTE_UNDEFINED`
+  is repaired locally. The one canonical local source is the native-WSL
+  `runtime-secrets.env` path documented in the controlled-candidate runbook; it
+  persists exactly authorization key, receipt/observation key, database URI,
+  Payload secret, and Blob token at the governed `0700` directory / `0600`
+  single-link file boundary.
+- A strict non-shell loader validates ext4, ownership, mode, symlink/hard-link,
+  descriptor identity, bounded stable bytes, fatal UTF-8, exact keys, duplicate,
+  extra, missing, empty, canonical base64, minimum key size, and independent
+  authorization/receipt keys. It creates a null-prototype child environment
+  containing only the controlled allowlist and fixed safety values; it never
+  inherits arbitrary ambient variables or mutates `process.env`.
+- The versioned readiness contract now separates `configuration` from
+  `execution`. Configuration readiness does not require operation paths and
+  cannot claim selection, package preparation, authorization, execution, or
+  publishing. Execution readiness requires all 14 entries and a single
+  canonical package-builder result whose manifest, original evidence,
+  authorization v3 token/window/destination binding, and observation v1 seal
+  authenticate. The default runtime refuses without an authenticated execution
+  environment.
+- The fixed non-secret Production environment identity is
+  `uygunayakkabi-controlled-candidate-production-v1`. It remains independent of
+  branch, URL, database identity, and deployed commit identity.
+- The governed bootstrap generates independent 256-bit keys, uses no-echo TTY
+  input for externally supplied values, refuses overwrite, publishes only a
+  fully written and flushed file without replacement, and reports uncertain
+  persistence as recovery-required without automatic cleanup or rotation.
+- The connectivity-only command uses one direct installed `pg.Client`, no
+  Payload or pool, no retry/reconnect, and only `BEGIN TRANSACTION READ ONLY`,
+  `SHOW transaction_read_only`, constant `SELECT 1`, `ROLLBACK`, and exactly-once
+  close. Timeout, rollback, or close uncertainty cannot report success.
+- Focused authorization/creation/observation/target/loader/bootstrap/readiness/
+  connectivity/runtime tests, runtime-smoke semantic governance, typecheck,
+  targeted ESLint, full lint, and `test:safe` pass in a credential-absent,
+  transport-blocked environment. Real bootstrap and Production connectivity
+  were not run. No real secret was read or configured; no candidate, package,
+  grant, receipt, Product/Media/database/Blob mutation, provider, Telegram,
+  queue, publishing, Shopier, advertising, dispatch, push, or deploy occurred.
+- Separate Owner gates remain mandatory for real local secret bootstrap or
+  maintenance, candidate selection/package preparation, Production
+  connectivity, and one controlled execution. Independent repair review is the
+  exact next gate. Whole-project progress remains
+  `UNKNOWN / NOT_CANONICALLY_DEFINED`.
 
 ## Controlled-candidate Readiness Repair 1 - 2026-09-01 (LOCAL COMMIT CANDIDATE, INDEPENDENT REVIEW PENDING)
 

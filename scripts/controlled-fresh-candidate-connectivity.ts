@@ -102,7 +102,6 @@ async function bounded<T>(operation: Promise<T>, timeoutMs: number): Promise<T> 
       operation,
       new Promise<T>((_, reject) => {
         timer = setTimeout(() => reject(new ControlledFreshCandidateConnectivityTimeoutError()), timeoutMs)
-        timer.unref()
       }),
     ])
   } finally {

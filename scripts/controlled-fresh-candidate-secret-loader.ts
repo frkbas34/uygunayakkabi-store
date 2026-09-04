@@ -71,6 +71,7 @@ export type ControlledFreshCandidateConfigurationErrorCode =
   | 'CONTROLLED_CONFIGURATION_FILESYSTEM_INVALID'
   | 'CONTROLLED_CONFIGURATION_FILE_INVALID'
   | 'CONTROLLED_CONFIGURATION_FILE_UNSTABLE'
+  | 'CONTROLLED_CONFIGURATION_FILE_CLEANUP_UNCERTAIN'
   | 'CONTROLLED_CONFIGURATION_ENCODING_INVALID'
   | 'CONTROLLED_CONFIGURATION_FORMAT_INVALID'
   | 'CONTROLLED_CONFIGURATION_KEY_INVALID'
@@ -106,6 +107,7 @@ type SecretReadTestHooks = {
   beforeOpen?(): void
   afterOpen?(handle: number): void
   beforeFinalStat?(handle: number): void
+  closeHandle?(handle: number): void
   observedFilesystemType?: bigint
   expectedUid?: number
   expectedGid?: number
@@ -352,6 +354,9 @@ export function readControlledFreshCandidatePersistentSecrets(
   } catch {
     fail('CONTROLLED_CONFIGURATION_FILE_INVALID')
   }
+  let result: Record<ControlledFreshCandidatePersistentSecretName, string> | undefined
+  let authoritativeFailure: unknown
+  let authoritativeFailureCaptured = false
   try {
     const openedBefore = fstatSync(handle, { bigint: true }) as BigMetadata
     if (!metadataStable(pathBefore, openedBefore) || !openedBefore.isFile()) {
@@ -383,10 +388,21 @@ export function readControlledFreshCandidatePersistentSecrets(
       || !metadataStable(directoryBefore, directoryAfter)
       || realpathSync(secretPath) !== secretPath
     ) fail('CONTROLLED_CONFIGURATION_FILE_UNSTABLE')
-    return parsePersistentSecrets(bytes.subarray(0, expectedSize))
-  } finally {
-    closeSync(handle)
+    result = parsePersistentSecrets(bytes.subarray(0, expectedSize))
+  } catch (error) {
+    authoritativeFailure = error
+    authoritativeFailureCaptured = true
   }
+  let cleanupFailed = false
+  try {
+    ;(options.testOnly?.closeHandle ?? closeSync)(handle)
+  } catch {
+    cleanupFailed = true
+  }
+  if (authoritativeFailureCaptured) throw authoritativeFailure
+  if (cleanupFailed) fail('CONTROLLED_CONFIGURATION_FILE_CLEANUP_UNCERTAIN')
+  if (!result) fail('CONTROLLED_CONFIGURATION_FILE_UNSTABLE')
+  return result
 }
 
 export function validateControlledFreshCandidateEmptyLedger(options: {

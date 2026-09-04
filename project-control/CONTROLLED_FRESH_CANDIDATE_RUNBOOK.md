@@ -1,6 +1,6 @@
 # Controlled Fresh Candidate Operator Runbook
 
-Status: local Activation Readiness Configuration Route Repair 1 contract. This runbook does not authorize
+Status: local Activation Readiness Configuration Route Repair 2 contract. This runbook does not authorize
 Production connectivity, candidate selection, package preparation with real
 inputs, execution, generation, publishing, Shopier, advertising, or dispatch.
 
@@ -51,6 +51,13 @@ UID/GID, mode `0600`, link count one, bounded in size, and opened with
 no-follow descriptor validation. BOM, NUL, invalid UTF-8, duplicate, additional,
 missing, empty, malformed, unstable, symlinked, hard-linked, or replaced input
 fails closed.
+
+The loader closes its validated descriptor exactly once. A body/metadata/format
+failure remains authoritative if close also fails. If an otherwise successful
+read cannot close conclusively, readiness fails with the stable sanitized
+`CONTROLLED_CONFIGURATION_FILE_CLEANUP_UNCERTAIN` code. No raw filesystem error,
+stack, secret path, or secret value is returned, and uncertain state is never
+deleted or replaced automatically.
 
 The persistent file contains exactly these five names and nothing else:
 
@@ -156,6 +163,24 @@ fixed status, lifecycle counters, readiness/read-only/liveness/rollback/close
 booleans, zero-mutation assertion, and `eligibleForPublishing:false`. It never
 reports a connection string, host, database/server identity, raw error, or
 stack. Real Production connectivity was not run by this repair.
+
+Each bounded operation keeps its timeout referenced until the operation settles
+and clears it afterward. An unresolved Promise therefore reaches its explicit
+timeout instead of permitting the CJS/tsx process to disappear, while a settled
+operation leaves no artificial process-liveness handle. Late settlement is
+observed, timeout cannot become success, and rollback/close uncertainty remains
+sticky.
+
+Repair 1 review evidence showed that the connectivity test could previously exit
+`0` with empty output before completing. Release was withheld despite that
+review's approval label. Repair 2 completion governance now requires the exact
+62/62 parent sentinel, including a 60/60 sanitized-child run and a fault control
+that reproduces and rejects the prior empty-output exit-0 ordering. Five
+consecutive direct runs completed at 62/62. Executed isolated source mutations
+cover two-stage readiness, runtime stage separation, fixed read-only SQL,
+Payload/Product/Media exclusion, Product 349 exclusion, no write/DDL, no retry or
+reconnect, sticky cleanup uncertainty, and exactly-once close. These tests used
+no real secret and made no Production connection.
 
 ## Offline package preparation
 

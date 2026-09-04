@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import {
   appendFileSync,
   chmodSync,
+  closeSync,
   linkSync,
   mkdtempSync,
   renameSync,
@@ -85,6 +86,40 @@ function main(): void {
     assert.deepEqual(Object.keys(secrets), [...CONTROLLED_FRESH_CANDIDATE_PERSISTENT_SECRET_ALLOWLIST])
     assert.equal(secrets.PAYLOAD_SECRET, SYNTHETIC_PAYLOAD)
     assert.equal(rmSync(markerPath, { force: true }), undefined)
+
+    writeCanonical()
+    let successfulReadCloseCalls = 0
+    const cleanupFailure = expectConfigurationError(() => readControlledFreshCandidatePersistentSecrets({
+      testOnlySecretPath: secretPath,
+      testOnly: {
+        closeHandle: (handle) => {
+          successfulReadCloseCalls += 1
+          closeSync(handle)
+          throw new Error(`${SYNTHETIC_PAYLOAD}:${secretPath}:raw-close-failure`)
+        },
+      },
+    }))
+    assert.equal(cleanupFailure.code, 'CONTROLLED_CONFIGURATION_FILE_CLEANUP_UNCERTAIN')
+    assert.equal(successfulReadCloseCalls, 1)
+    assert.equal(cleanupFailure.message.includes(SYNTHETIC_PAYLOAD), false)
+    assert.equal(cleanupFailure.message.includes(secretPath), false)
+
+    writeCanonical(Buffer.from('not-an-assignment\n'))
+    let authoritativeFailureCloseCalls = 0
+    const authoritativeFailure = expectConfigurationError(() => readControlledFreshCandidatePersistentSecrets({
+      testOnlySecretPath: secretPath,
+      testOnly: {
+        closeHandle: (handle) => {
+          authoritativeFailureCloseCalls += 1
+          closeSync(handle)
+          throw new Error(`${SYNTHETIC_PAYLOAD}:${secretPath}:raw-close-failure`)
+        },
+      },
+    }))
+    assert.equal(authoritativeFailure.code, 'CONTROLLED_CONFIGURATION_FORMAT_INVALID')
+    assert.equal(authoritativeFailureCloseCalls, 1)
+    assert.equal(authoritativeFailure.message.includes(SYNTHETIC_PAYLOAD), false)
+    assert.equal(authoritativeFailure.message.includes(secretPath), false)
 
     const child = buildControlledFreshCandidateConfigurationEnvironment({
       secrets,

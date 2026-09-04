@@ -524,6 +524,11 @@ const controlledCandidateSecretContract = read('scripts/controlled-fresh-candida
 const controlledCandidateSecretLoader = read('scripts/controlled-fresh-candidate-secret-loader.ts')
 const controlledCandidateSecretBootstrap = read('scripts/controlled-fresh-candidate-secret-bootstrap.ts')
 const controlledCandidateConnectivity = read('scripts/controlled-fresh-candidate-connectivity.ts')
+const controlledCandidateConnectivityTest = read('scripts/controlled-fresh-candidate-connectivity.test.ts')
+const controlledCandidateConnectivityBounded = controlledCandidateConnectivity.slice(
+  controlledCandidateConnectivity.indexOf('async function bounded'),
+  controlledCandidateConnectivity.indexOf('function exactReadOnlyResult'),
+)
 const controlledCandidateConnectivityQueryBlock = controlledCandidateConnectivity.slice(
   controlledCandidateConnectivity.indexOf('CONTROLLED_FRESH_CANDIDATE_CONNECTIVITY_QUERIES'),
   controlledCandidateConnectivity.indexOf('] as const)', controlledCandidateConnectivity.indexOf('CONTROLLED_FRESH_CANDIDATE_CONNECTIVITY_QUERIES')) + '] as const)'.length,
@@ -588,6 +593,9 @@ assertIncludes(controlledCandidateSecretLoader, 'fsConstants.O_NOFOLLOW', 'contr
 assertIncludes(controlledCandidateSecretLoader, 'pathBefore.nlink !== 1n', 'controlled secret single-link boundary')
 assertIncludes(controlledCandidateSecretLoader, 'CONTROLLED_FRESH_CANDIDATE_EXT4_MAGIC', 'controlled secret ext4 boundary')
 assertIncludes(controlledCandidateSecretLoader, 'timingSafeEqual(authorizationKey, receiptKey)', 'controlled independent key enforcement')
+assertIncludes(controlledCandidateSecretLoader, 'CONTROLLED_CONFIGURATION_FILE_CLEANUP_UNCERTAIN', 'controlled loader cleanup uncertainty code')
+assertIncludes(controlledCandidateSecretLoader, 'authoritativeFailureCaptured', 'controlled loader authoritative failure precedence')
+assertIncludes(controlledCandidateSecretLoader, '(options.testOnly?.closeHandle ?? closeSync)(handle)', 'controlled loader exactly-once close adapter')
 assert.ok(!/\b(?:exec|execFile|spawn|fork)\s*\(/u.test(controlledCandidateSecretLoader), 'controlled loader must not execute a process')
 assert.ok(!/\b(?:eval|source)\s*\(/u.test(controlledCandidateSecretLoader), 'controlled loader must not evaluate shell content')
 assertIncludes(controlledCandidateSecretBootstrap, 'fsConstants.O_EXCL', 'controlled bootstrap exclusive temp creation')
@@ -598,6 +606,13 @@ assertIncludes(controlledCandidateConnectivity, "'SHOW transaction_read_only'", 
 assertIncludes(controlledCandidateConnectivity, "'SELECT 1 AS controlled_liveness'", 'controlled connectivity constant liveness query')
 assertIncludes(controlledCandidateConnectivity, "'ROLLBACK'", 'controlled connectivity rollback')
 assertIncludes(controlledCandidateConnectivity, 'closeCalls = 1', 'controlled connectivity exactly-once close accounting')
+assert.ok(!controlledCandidateConnectivityBounded.includes('.unref()'), 'controlled connectivity timeout must remain process-live')
+assertIncludes(controlledCandidateConnectivityTest, 'const DIRECT_CASE_COUNT = CORE_CASE_COUNT + PARENT_COMPLETION_CASE_COUNT', 'controlled connectivity exact completion count')
+assertIncludes(controlledCandidateConnectivityTest, 'parent rejects reproduced empty-output exit-zero vulnerability', 'controlled connectivity parent completion integrity')
+assertIncludes(controlledCandidateConnectivityTest, 'connectivity-unref-early-exit', 'controlled connectivity early-exit source mutation')
+assertIncludes(controlledCandidateConnectivityTest, 'semantic mutation runtime-accepts-configuration-stage', 'controlled runtime readiness source mutation')
+assertIncludes(controlledCandidateConnectivityTest, 'MUTATION_HARNESS_OK:', 'controlled semantic mutation child sentinel')
+assertIncludes(controlledCandidateConnectivityTest, 'CONTROLLED_CONNECTIVITY_TEST_INCOMPLETE', 'controlled connectivity referenced runner watchdog')
 assertIncludes(controlledCandidateConnectivity, "await import('pg')", 'controlled connectivity installed direct pg client')
 assert.ok(!controlledCandidateConnectivity.includes('payload'), 'controlled connectivity must not initialize Payload')
 assert.ok(controlledCandidateConnectivityQueryBlock.length > '] as const)'.length, 'controlled connectivity query block must be present')

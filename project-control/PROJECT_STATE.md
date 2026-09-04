@@ -1,8 +1,37 @@
 ﻿# PROJECT STATE — Uygunayakkabi
 
-_Last updated: 2026-09-04 (controlled-candidate activation-readiness configuration route repaired locally; independent review pending.)_
+_Last updated: 2026-09-04 (controlled-candidate activation-readiness configuration route Repair 2 completed locally; independent closure review pending.)_
 
-## Controlled-candidate Activation Readiness Configuration Route Repair 1 - 2026-09-04 (LOCAL, INDEPENDENT REVIEW PENDING)
+## Controlled-candidate Activation Readiness Configuration Route Repair 2 - 2026-09-04 (LOCAL, UNPUSHED, INDEPENDENT CLOSURE REVIEW PENDING)
+
+- The first Repair 1 review carried an approval label, but its own evidence
+  reproduced a release-blocking test-integrity anomaly: the direct connectivity
+  test exited `0` with no output before its cases or final sentinel completed.
+  Release was withheld. Repair 2 preserves that historical finding rather than
+  treating the earlier label or exit code as validation.
+- Root-cause instrumentation proved that the production `bounded()` helper's
+  unref'd timeout was the only event-loop handle after a caught connect failure;
+  a pending Promise continuation did not keep the CJS/tsx process alive. The
+  timeout protecting each governed operation is now referenced until settlement
+  and cleared in `finally`, so unresolved work reaches an explicit timeout while
+  successful work terminates naturally without a leaked handle.
+- The repaired completion-integrity runner requires every assertion and cleanup
+  to finish before counting a case, rejects duplicates and missing cases, and
+  requires zero active clients, pending operations, unexpected rejections, and
+  raw-error disclosures. Direct execution reaches the exact
+  `controlledFreshCandidateConnectivity: 62/62 cases - ALL OK` sentinel; its
+  real sanitized child reaches 60/60 cases, and the parent rejects a reproduced
+  empty-output exit-0 fault. Five consecutive direct executions completed with
+  the exact 62/62 sentinel.
+- Isolated source-copy controls execute nine two-stage-readiness mutations, one
+  runtime-stage mutation, and 23 connectivity mutations. Each mutated module is
+  loaded in a fresh, transport-blocked child and fails for the intended reason;
+  temporary trees are removed after every case.
+- Persistent-secret descriptor close is attempted exactly once. A prior
+  authoritative validation failure remains authoritative; a close failure after
+  an otherwise successful read returns the stable sanitized
+  `CONTROLLED_CONFIGURATION_FILE_CLEANUP_UNCERTAIN` code and cannot become
+  readiness success, expose a path/raw OS error, or trigger deletion/replacement.
 
 - The source-level blocker
   `CONTROLLED_CANDIDATE_ACTIVATION_READINESS_BLOCKED_CONFIGURATION_ROUTE_UNDEFINED`
@@ -37,16 +66,18 @@ _Last updated: 2026-09-04 (controlled-candidate activation-readiness configurati
   `SHOW transaction_read_only`, constant `SELECT 1`, `ROLLBACK`, and exactly-once
   close. Timeout, rollback, or close uncertainty cannot report success.
 - Focused authorization/creation/observation/target/loader/bootstrap/readiness/
-  connectivity/runtime tests, runtime-smoke semantic governance, typecheck,
-  targeted ESLint, full lint, and `test:safe` pass in a credential-absent,
-  transport-blocked environment. Real bootstrap and Production connectivity
-  were not run. No real secret was read or configured; no candidate, package,
-  grant, receipt, Product/Media/database/Blob mutation, provider, Telegram,
-  queue, publishing, Shopier, advertising, dispatch, push, or deploy occurred.
+  connectivity/runtime tests, runtime-smoke governance, typecheck, targeted
+  ESLint, full lint, explicit `test:safe`, and final `npm run validate` all pass
+  in a credential-absent, transport-blocked environment with strict unhandled-
+  rejection handling. Real bootstrap and Production connectivity were not run.
+  No real secret was read or configured; no candidate, package, grant, receipt,
+  Product/Media/database/Blob mutation, provider, Telegram, queue, publishing,
+  Shopier, advertising, dispatch, push, or deploy occurred.
 - Separate Owner gates remain mandatory for real local secret bootstrap or
   maintenance, candidate selection/package preparation, Production
-  connectivity, and one controlled execution. Independent repair review is the
-  exact next gate. Whole-project progress remains
+  connectivity, and one controlled execution. This Repair 2 candidate remains
+  local and unpushed; actual Production readiness is unverified. Independent
+  Repair 2 closure review is the exact next gate. Whole-project progress remains
   `UNKNOWN / NOT_CANONICALLY_DEFINED`.
 
 ## Controlled-candidate Readiness Repair 1 - 2026-09-01 (LOCAL COMMIT CANDIDATE, INDEPENDENT REVIEW PENDING)

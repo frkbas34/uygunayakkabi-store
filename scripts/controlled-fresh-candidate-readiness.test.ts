@@ -122,7 +122,7 @@ async function nativePackageTests(): Promise<void> {
       secrets: {
         [CONTROLLED_FRESH_CANDIDATE_AUTHORIZATION_KEY_ENV]: authorizationKey.toString('base64'),
         [CONTROLLED_FRESH_CANDIDATE_RECEIPT_KEY_ENV]: receiptKey.toString('base64'),
-        DATABASE_URI: 'postgres://synthetic.invalid/readiness-test',
+        DATABASE_URI: 'postgresql://synthetic-user:synthetic-password@synthetic.invalid/readiness-test',
         PAYLOAD_SECRET: 'synthetic-payload-secret',
         BLOB_READ_WRITE_TOKEN: 'synthetic-blob-token',
       },
@@ -242,7 +242,7 @@ async function main(): Promise<void> {
     secrets: {
       [CONTROLLED_FRESH_CANDIDATE_AUTHORIZATION_KEY_ENV]: Buffer.alloc(32, 31).toString('base64'),
       [CONTROLLED_FRESH_CANDIDATE_RECEIPT_KEY_ENV]: Buffer.alloc(32, 32).toString('base64'),
-      DATABASE_URI: 'postgres://synthetic.invalid/readiness',
+      DATABASE_URI: 'postgresql://synthetic-user:synthetic-password@synthetic.invalid/readiness',
       PAYLOAD_SECRET: secret,
       BLOB_READ_WRITE_TOKEN: 'synthetic-blob-token',
     },

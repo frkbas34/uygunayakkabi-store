@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import { spawnSync, type SpawnSyncReturns } from 'node:child_process'
 import {
+  chmodSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
@@ -20,7 +21,11 @@ import {
   runControlledFreshCandidateConnectivity,
   type ControlledFreshCandidatePgClient,
 } from './controlled-fresh-candidate-connectivity'
-import { buildControlledFreshCandidateConfigurationEnvironment } from './controlled-fresh-candidate-secret-loader'
+import {
+  CONTROLLED_FRESH_CANDIDATE_PERSISTENT_SECRET_ALLOWLIST,
+  buildControlledFreshCandidateConfigurationEnvironment,
+  loadControlledFreshCandidateConfigurationEnvironment,
+} from './controlled-fresh-candidate-secret-loader'
 import {
   CONTROLLED_FRESH_CANDIDATE_AUTHORIZATION_KEY_ENV,
   CONTROLLED_FRESH_CANDIDATE_COMMIT_IDENTITY_ENV,
@@ -34,10 +39,10 @@ const SYNTHETIC_COMMIT = 'b'.repeat(40)
 const SYNTHETIC_SECRET = 'synthetic-connectivity-secret-never-output'
 const TEST_MODE_ENV = 'CFC_CONNECTIVITY_TEST_MODE'
 const MUTATION_MODE_ENV = 'CFC_CONNECTIVITY_MUTATION_MODE'
-const BEHAVIORAL_CASE_COUNT = 27
+const BEHAVIORAL_CASE_COUNT = 30
 const READINESS_MUTATION_CASE_COUNT = 9
 const RUNTIME_MUTATION_CASE_COUNT = 1
-const CONNECTIVITY_MUTATION_CASE_COUNT = 23
+const CONNECTIVITY_MUTATION_CASE_COUNT = 24
 const CORE_CASE_COUNT = BEHAVIORAL_CASE_COUNT
   + READINESS_MUTATION_CASE_COUNT
   + RUNTIME_MUTATION_CASE_COUNT
@@ -175,12 +180,27 @@ function configurationEnvironment(): NodeJS.ProcessEnv {
     secrets: {
       [CONTROLLED_FRESH_CANDIDATE_AUTHORIZATION_KEY_ENV]: Buffer.alloc(32, 21).toString('base64'),
       [CONTROLLED_FRESH_CANDIDATE_RECEIPT_KEY_ENV]: Buffer.alloc(32, 22).toString('base64'),
-      DATABASE_URI: 'postgres://synthetic.invalid/connectivity-test',
+      DATABASE_URI: 'postgresql://synthetic-user:synthetic-password@synthetic.invalid/connectivity-test',
       PAYLOAD_SECRET: SYNTHETIC_SECRET,
       BLOB_READ_WRITE_TOKEN: 'synthetic-blob-token',
     },
     deployedCommitIdentity: SYNTHETIC_COMMIT,
   })
+}
+
+const CONNECTIVITY_SECRET_VALUES = Object.freeze({
+  [CONTROLLED_FRESH_CANDIDATE_AUTHORIZATION_KEY_ENV]: Buffer.alloc(32, 21).toString('base64'),
+  [CONTROLLED_FRESH_CANDIDATE_RECEIPT_KEY_ENV]: Buffer.alloc(32, 22).toString('base64'),
+  DATABASE_URI: 'postgresql://synthetic-user:synthetic-password@synthetic.invalid/connectivity-test?sslmode=verify-full',
+  PAYLOAD_SECRET: SYNTHETIC_SECRET,
+  BLOB_READ_WRITE_TOKEN: 'synthetic-blob-token',
+})
+
+function serializeConnectivitySecrets(overrides: Record<string, string> = {}): string {
+  const values = { ...CONNECTIVITY_SECRET_VALUES, ...overrides } as Record<string, string>
+  return `${CONTROLLED_FRESH_CANDIDATE_PERSISTENT_SECRET_ALLOWLIST
+    .map((name) => `${name}=${values[name]}`)
+    .join('\n')}\n`
 }
 
 async function execute(
@@ -269,7 +289,7 @@ export function validateControlledFreshCandidateEmptyLedger() { return true }
 `
 
 const CONNECTIVITY_RESOURCES_STUB = `
-export const CONTROLLED_FRESH_CANDIDATE_COMMIT_IDENTITY_ENV = 'CONTROLLED_FRESH_CANDIDATE_DEPLOYED_COMMIT'
+export const CONTROLLED_FRESH_CANDIDATE_COMMIT_IDENTITY_ENV = 'CONTROLLED_FRESH_CANDIDATE_DEPLOYED_COMMIT_IDENTITY'
 export const CONTROLLED_FRESH_CANDIDATE_OBSERVATION_PATH_ENV = 'CONTROLLED_FRESH_CANDIDATE_OBSERVATION_PATH'
 export const CONTROLLED_FRESH_CANDIDATE_PRIVATE_MANIFEST_PATH_ENV = 'CONTROLLED_FRESH_CANDIDATE_PRIVATE_MANIFEST_PATH'
 export const CONTROLLED_FRESH_CANDIDATE_RECEIPT_PATH_ENV = 'CONTROLLED_FRESH_CANDIDATE_RECEIPT_PATH'
@@ -309,42 +329,65 @@ class Client {
     if (mode === 'close-failure') throw new Error('synthetic-close-failure');
   }
 }
-const report = await candidate.executeControlledFreshCandidateConnectivity({
-  client: new Client(),
-  configurationReady: true,
-  connectTimeoutMs: 15,
-  queryTimeoutMs: 15,
-  closeTimeoutMs: 15,
-});
-if (mode === 'wrong-read-only') {
-  assert.notEqual(report.status, 'VERIFIED', label);
-  assert.equal(report.readOnlyConfirmed, false, label);
-} else if (mode === 'retry') {
-  assert.equal(report.status, 'FAILED_CLOSED', label);
-  assert.equal(connectCalls, 1, label);
-} else if (mode === 'reconnect') {
-  assert.equal(report.status, 'VERIFIED', label);
-  assert.equal(reconnectListeners, 0, label);
-} else if (mode === 'rollback-failure') {
-  assert.equal(report.status, 'TERMINAL_UNCERTAIN', label);
-  assert.equal(report.rollbackConfirmed, false, label);
-} else if (mode === 'close-failure') {
-  assert.equal(report.status, 'TERMINAL_UNCERTAIN', label);
-  assert.equal(report.naturalClose, false, label);
-} else if (mode === 'unref-early-exit') {
-  assert.equal(report.status, 'TERMINAL_UNCERTAIN', label);
+if (mode === 'prevalidation-order') {
+  let clientFactoryCalls = 0;
+  const output = [];
+  const exitCode = await candidate.runControlledFreshCandidateConnectivity({
+    argv: ['--confirm-controlled-fresh-candidate-production-connectivity'],
+    ambientEnvironment: { CONTROLLED_FRESH_CANDIDATE_DEPLOYED_COMMIT_IDENTITY: 'b'.repeat(40) },
+    dependencies: {
+      platform: 'linux',
+      repositoryReady: () => true,
+      ledgerReady: () => true,
+      loadEnvironment: () => { throw new Error('synthetic-invalid-secret'); },
+      createClient: async () => { clientFactoryCalls += 1; return new Client(); },
+    },
+    write: (text) => output.push(text),
+  });
+  const failure = JSON.parse(output.join(''));
+  assert.equal(exitCode, 3, label);
+  assert.equal(failure.failureStage, 'SECRET_CONFIGURATION', label);
+  assert.equal(clientFactoryCalls, 0, label);
+  assert.equal(connectCalls, 0, label);
+  assert.equal(calls.length, 0, label);
 } else {
-  assert.equal(report.status, 'VERIFIED', label);
-  assert.deepEqual(calls, [
-    'connect',
-    'BEGIN TRANSACTION READ ONLY',
-    'SHOW transaction_read_only',
-    'SELECT 1 AS controlled_liveness',
-    'ROLLBACK',
-    'end',
-  ], label);
+  const report = await candidate.executeControlledFreshCandidateConnectivity({
+    client: new Client(),
+    configurationReady: true,
+    connectTimeoutMs: 15,
+    queryTimeoutMs: 15,
+    closeTimeoutMs: 15,
+  });
+  if (mode === 'wrong-read-only') {
+    assert.notEqual(report.status, 'VERIFIED', label);
+    assert.equal(report.readOnlyConfirmed, false, label);
+  } else if (mode === 'retry') {
+    assert.equal(report.status, 'FAILED_CLOSED', label);
+    assert.equal(connectCalls, 1, label);
+  } else if (mode === 'reconnect') {
+    assert.equal(report.status, 'VERIFIED', label);
+    assert.equal(reconnectListeners, 0, label);
+  } else if (mode === 'rollback-failure') {
+    assert.equal(report.status, 'TERMINAL_UNCERTAIN', label);
+    assert.equal(report.rollbackConfirmed, false, label);
+  } else if (mode === 'close-failure') {
+    assert.equal(report.status, 'TERMINAL_UNCERTAIN', label);
+    assert.equal(report.naturalClose, false, label);
+  } else if (mode === 'unref-early-exit') {
+    assert.equal(report.status, 'TERMINAL_UNCERTAIN', label);
+  } else {
+    assert.equal(report.status, 'VERIFIED', label);
+    assert.deepEqual(calls, [
+      'connect',
+      'BEGIN TRANSACTION READ ONLY',
+      'SHOW transaction_read_only',
+      'SELECT 1 AS controlled_liveness',
+      'ROLLBACK',
+      'end',
+    ], label);
+  }
+  assert.equal(endCalls, 1, label);
 }
-assert.equal(endCalls, 1, label);
 assert.notEqual(globalThis.__CFC_PAYLOAD_IMPORTED__, true, label);
 process.stdout.write('MUTATION_HARNESS_OK:' + label);
 `
@@ -709,10 +752,12 @@ const connectivityFaults: SourceFault[] = [
       source,
       `    } catch {
       terminalUncertain = true
+      result.failureStage = 'CLOSE'
       result.naturalClose = false
     }`,
       `    } catch {
       terminalUncertain = false
+      result.failureStage = 'NONE'
       result.naturalClose = true
     }`,
     ),
@@ -735,6 +780,16 @@ const connectivityFaults: SourceFault[] = [
       '        timer = setTimeout(() => reject(new ControlledFreshCandidateConnectivityTimeoutError()), timeoutMs)',
       `        timer = setTimeout(() => reject(new ControlledFreshCandidateConnectivityTimeoutError()), timeoutMs)
         timer.unref()`,
+      ),
+  },
+  {
+    name: 'connectivity-client-before-secret-validation',
+    mode: 'prevalidation-order',
+    mutate: (source) => replaceExact(
+      source,
+      '  let environment: NodeJS.ProcessEnv',
+      `  await (dependencies.createClient ?? createInstalledPgClient)(Object.create(null) as NodeJS.ProcessEnv)
+  let environment: NodeJS.ProcessEnv`,
     ),
   },
 ]
@@ -838,6 +893,7 @@ async function runSuite(includeParentCompletionCases: boolean): Promise<{ comple
   const success = await execute(successClient)
   await check('successful connect read-only liveness rollback and close', () => {
     assert.equal(success.status, 'VERIFIED')
+    assert.equal(success.failureStage, 'NONE')
     assert.equal(success.readOnlyConfirmed, true)
     assert.equal(success.livenessConfirmed, true)
     assert.equal(success.rollbackConfirmed, true)
@@ -851,6 +907,7 @@ async function runSuite(includeParentCompletionCases: boolean): Promise<{ comple
   const connectFailed = await execute(connectFailure)
   await check('connect rejection is sanitized and closed', () => {
     assert.equal(connectFailed.status, 'FAILED_CLOSED')
+    assert.equal(connectFailed.failureStage, 'CONNECT')
     assert.deepEqual(connectFailure.calls, ['connect', 'end'])
     assert.equal(connectFailure.endCalls, 1)
   })
@@ -869,6 +926,7 @@ async function runSuite(includeParentCompletionCases: boolean): Promise<{ comple
   const beginFailure = await execute(beginFailureClient)
   await check('begin failure stops before application queries', () => {
     assert.equal(beginFailure.status, 'FAILED_CLOSED')
+    assert.equal(beginFailure.failureStage, 'BEGIN')
     assert.deepEqual(beginFailureClient.calls, ['connect', 'BEGIN TRANSACTION READ ONLY', 'end'])
   })
 
@@ -876,6 +934,7 @@ async function runSuite(includeParentCompletionCases: boolean): Promise<{ comple
   const readOnlyQueryFailure = await execute(readOnlyQueryClient)
   await check('read-only-state query failure rolls back', () => {
     assert.equal(readOnlyQueryFailure.status, 'FAILED_CLOSED')
+    assert.equal(readOnlyQueryFailure.failureStage, 'READ_ONLY')
     assert.equal(readOnlyQueryFailure.rollbackConfirmed, true)
     assert.deepEqual(readOnlyQueryClient.calls, [
       'connect', 'BEGIN TRANSACTION READ ONLY', 'SHOW transaction_read_only', 'ROLLBACK', 'end',
@@ -892,6 +951,7 @@ async function runSuite(includeParentCompletionCases: boolean): Promise<{ comple
   const livenessQueryFailure = await execute(livenessQueryClient)
   await check('liveness query failure rolls back', () => {
     assert.equal(livenessQueryFailure.status, 'FAILED_CLOSED')
+    assert.equal(livenessQueryFailure.failureStage, 'LIVENESS')
     assert.equal(livenessQueryFailure.rollbackConfirmed, true)
   })
 
@@ -905,6 +965,7 @@ async function runSuite(includeParentCompletionCases: boolean): Promise<{ comple
   const rollbackFailure = await execute(rollbackFailureClient)
   await check('rollback rejection is terminal uncertainty', () => {
     assert.equal(rollbackFailure.status, 'TERMINAL_UNCERTAIN')
+    assert.equal(rollbackFailure.failureStage, 'ROLLBACK')
     assert.equal(rollbackFailure.rollbackConfirmed, false)
     assert.equal(rollbackFailureClient.endCalls, 1)
   })
@@ -923,6 +984,7 @@ async function runSuite(includeParentCompletionCases: boolean): Promise<{ comple
   const closeFailure = await execute(closeFailureClient)
   await check('close rejection prevents success', () => {
     assert.equal(closeFailure.status, 'TERMINAL_UNCERTAIN')
+    assert.equal(closeFailure.failureStage, 'CLOSE')
     assert.equal(closeFailure.naturalClose, false)
     assert.equal(closeFailureClient.endCalls, 1)
   })
@@ -1050,6 +1112,165 @@ async function runSuite(includeParentCompletionCases: boolean): Promise<{ comple
     assert.equal(cliExit, 0)
     assert.equal(cliOutput.join('').includes(SYNTHETIC_SECRET), false)
     assert.equal(cliOutput.join('').includes('synthetic.invalid'), false)
+  })
+
+  await check('pre-connect failures expose only stable sanitized stages', async () => {
+    const cases = [
+      { stage: 'REPOSITORY', dependencies: { repositoryReady: () => false } },
+      { stage: 'LEDGER', dependencies: { repositoryReady: () => true, ledgerReady: () => false } },
+      {
+        stage: 'SECRET_CONFIGURATION',
+        dependencies: { repositoryReady: () => true, ledgerReady: () => true, loadEnvironment: () => { throw new Error(SYNTHETIC_SECRET) } },
+      },
+      {
+        stage: 'CONFIGURATION_READINESS',
+        dependencies: { repositoryReady: () => true, ledgerReady: () => true, loadEnvironment: () => Object.create(null) },
+      },
+      {
+        stage: 'CLIENT_CONSTRUCTION',
+        configurationReady: true,
+        dependencies: {
+          repositoryReady: () => true,
+          ledgerReady: () => true,
+          loadEnvironment: () => configurationEnvironment(),
+          createClient: async () => { throw new Error(SYNTHETIC_SECRET) },
+        },
+      },
+    ] as const
+    for (const entry of cases) {
+      const output: string[] = []
+      const exit = await runControlledFreshCandidateConnectivity({
+        argv: [CONTROLLED_FRESH_CANDIDATE_CONNECTIVITY_CONFIRMATION],
+        ambientEnvironment: { [CONTROLLED_FRESH_CANDIDATE_COMMIT_IDENTITY_ENV]: SYNTHETIC_COMMIT },
+        dependencies: { platform: 'linux', ...entry.dependencies },
+        write: (text) => output.push(text),
+      })
+      const report = JSON.parse(output.join('')) as Record<string, unknown>
+      assert.equal(exit, 3, entry.stage)
+      assert.equal(report.status, 'FAILED_CLOSED', entry.stage)
+      assert.equal(report.failureStage, entry.stage, entry.stage)
+      assert.equal(report.configurationReady, entry.configurationReady === true, entry.stage)
+      assert.equal(report.connectAttempts, 0, entry.stage)
+      assert.equal(report.queryCount, 0, entry.stage)
+      assert.equal(output.join('').includes(SYNTHETIC_SECRET), false, entry.stage)
+    }
+  })
+
+  await check('real temporary secret loader rejects invalid configuration before client construction', async () => {
+    if (process.platform !== 'linux') return
+    const root = mkdtempSync('/home/w11/.local/share/cfc-connectivity-secret-validation-')
+    chmodSync(root, 0o700)
+    const secretPath = path.join(root, 'runtime-secrets.env')
+    try {
+      const invalidCases = {
+        encodedUsernameWhitespace: { DATABASE_URI: 'postgresql://%20%20:pass@synthetic.invalid/connectivity-test' },
+        encodedPasswordUnicodeWhitespace: { DATABASE_URI: 'postgresql://user:%E2%80%83@synthetic.invalid/connectivity-test' },
+        doubleEncodedDatabaseWhitespace: { DATABASE_URI: 'postgresql://user:pass@synthetic.invalid/%2520' },
+        malformedQueryEncoding: { DATABASE_URI: 'postgresql://user:pass@synthetic.invalid/connectivity-test?sslmode=%' },
+        unknownCredentialQuery: { DATABASE_URI: 'postgresql://user:pass@synthetic.invalid/connectivity-test?password=unexpected' },
+        duplicateQuery: { DATABASE_URI: 'postgresql://user:pass@synthetic.invalid/connectivity-test?sslmode=verify-full&sslmode=verify-full' },
+        embeddedOpaqueWhitespace: { PAYLOAD_SECRET: 'synthetic payload secret' },
+        oversizedOpaqueSecret: { BLOB_READ_WRITE_TOKEN: 'x'.repeat(8_193) },
+      }
+      for (const [label, overrides] of Object.entries(invalidCases)) {
+        writeFileSync(secretPath, serializeConnectivitySecrets(overrides), { mode: 0o600 })
+        chmodSync(secretPath, 0o600)
+        let clientFactoryCalls = 0
+        let clientObjectsConstructed = 0
+        const output: string[] = []
+        const exit = await runControlledFreshCandidateConnectivity({
+          argv: [CONTROLLED_FRESH_CANDIDATE_CONNECTIVITY_CONFIRMATION],
+          ambientEnvironment: { [CONTROLLED_FRESH_CANDIDATE_COMMIT_IDENTITY_ENV]: SYNTHETIC_COMMIT },
+          dependencies: {
+            platform: 'linux',
+            repositoryReady: () => true,
+            ledgerReady: () => true,
+            loadEnvironment: (identity) => loadControlledFreshCandidateConfigurationEnvironment({
+              deployedCommitIdentity: identity,
+              testOnlySecretPath: secretPath,
+            }),
+            createClient: async () => {
+              clientFactoryCalls += 1
+              clientObjectsConstructed += 1
+              return new SyntheticClient()
+            },
+          },
+          write: (text) => output.push(text),
+        })
+        const report = JSON.parse(output.join('')) as Record<string, unknown>
+        assert.equal(exit, 3, label)
+        assert.equal(report.status, 'FAILED_CLOSED', label)
+        assert.equal(report.failureStage, 'SECRET_CONFIGURATION', label)
+        assert.equal(report.configurationReady, false, label)
+        assert.equal(report.connectAttempts, 0, label)
+        assert.equal(report.queryCount, 0, label)
+        assert.equal(report.rollbackAttempts, 0, label)
+        assert.equal(report.closeCalls, 0, label)
+        assert.equal(clientFactoryCalls, 0, label)
+        assert.equal(clientObjectsConstructed, 0, label)
+        const publicFailure = output.join('')
+        for (const value of Object.values({ ...CONNECTIVITY_SECRET_VALUES, ...overrides })) {
+          assert.equal(publicFailure.includes(value), false, label)
+        }
+        assert.equal(publicFailure.includes('synthetic.invalid'), false, label)
+        assert.equal(publicFailure.includes('password'), false, label)
+      }
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  await check('real temporary secret loader permits valid policy before the synthetic client phase', async () => {
+    if (process.platform !== 'linux') return
+    const root = mkdtempSync('/home/w11/.local/share/cfc-connectivity-secret-valid-')
+    chmodSync(root, 0o700)
+    const secretPath = path.join(root, 'runtime-secrets.env')
+    try {
+      writeFileSync(secretPath, serializeConnectivitySecrets(), { mode: 0o600 })
+      chmodSync(secretPath, 0o600)
+      let clientFactoryCalls = 0
+      let clientObjectsConstructed = 0
+      const client = new SyntheticClient()
+      const output: string[] = []
+      const exit = await runControlledFreshCandidateConnectivity({
+        argv: [CONTROLLED_FRESH_CANDIDATE_CONNECTIVITY_CONFIRMATION],
+        ambientEnvironment: { [CONTROLLED_FRESH_CANDIDATE_COMMIT_IDENTITY_ENV]: SYNTHETIC_COMMIT },
+        dependencies: {
+          platform: 'linux',
+          repositoryReady: () => true,
+          ledgerReady: () => true,
+          loadEnvironment: (identity) => loadControlledFreshCandidateConfigurationEnvironment({
+            deployedCommitIdentity: identity,
+            testOnlySecretPath: secretPath,
+          }),
+          createClient: async () => {
+            clientFactoryCalls += 1
+            clientObjectsConstructed += 1
+            return client
+          },
+        },
+        write: (text) => output.push(text),
+      })
+      const report = JSON.parse(output.join('')) as Record<string, unknown>
+      assert.equal(exit, 0)
+      assert.equal(report.status, 'VERIFIED')
+      assert.equal(report.failureStage, 'NONE')
+      assert.equal(clientFactoryCalls, 1)
+      assert.equal(clientObjectsConstructed, 1)
+      assert.deepEqual(client.calls, [
+        'connect',
+        'BEGIN TRANSACTION READ ONLY',
+        'SHOW transaction_read_only',
+        'SELECT 1 AS controlled_liveness',
+        'ROLLBACK',
+        'end',
+      ])
+      for (const value of Object.values(CONNECTIVITY_SECRET_VALUES)) {
+        assert.equal(output.join('').includes(value), false)
+      }
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
   })
 
   const refusedOutput: string[] = []

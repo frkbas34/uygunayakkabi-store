@@ -13,7 +13,7 @@ import {
 import { readControlledFreshCandidatePersistentSecrets } from './controlled-fresh-candidate-secret-loader'
 
 const EXTERNAL = Object.freeze({
-  DATABASE_URI: 'postgres://synthetic.invalid/bootstrap-test',
+  DATABASE_URI: 'postgresql://synthetic-user:synthetic-password@synthetic.invalid/bootstrap-test?sslmode=verify-full&channel_binding=require',
   PAYLOAD_SECRET: 'synthetic-payload-secret',
   BLOB_READ_WRITE_TOKEN: 'synthetic-blob-token',
 })
@@ -39,6 +39,38 @@ async function main(): Promise<void> {
   const approvedLedgerBefore = readdirSync('/home/w11/.local/share/uygunayakkabi/controlled-fresh-candidate')
   const fixtures: string[] = []
   try {
+    for (const [name, providedSecrets] of Object.entries({
+      controlCharacter: { ...EXTERNAL, DATABASE_URI: '\u0016' },
+      missingDatabasePassword: { ...EXTERNAL, DATABASE_URI: 'postgresql://synthetic-user@synthetic.invalid/bootstrap-test' },
+      missingDatabaseName: { ...EXTERNAL, DATABASE_URI: 'postgresql://synthetic-user:synthetic-password@synthetic.invalid/' },
+      encodedUsernameWhitespace: { ...EXTERNAL, DATABASE_URI: 'postgresql://%20%20:synthetic-password@synthetic.invalid/bootstrap-test' },
+      encodedPasswordWhitespace: { ...EXTERNAL, DATABASE_URI: 'postgresql://synthetic-user:%20%20@synthetic.invalid/bootstrap-test' },
+      encodedDatabaseWhitespace: { ...EXTERNAL, DATABASE_URI: 'postgresql://synthetic-user:synthetic-password@synthetic.invalid/%20%20' },
+      encodedControlCharacter: { ...EXTERNAL, DATABASE_URI: 'postgresql://synthetic-user:synthetic-password%0a@synthetic.invalid/bootstrap-test' },
+      encodedUnicodeWhitespace: { ...EXTERNAL, DATABASE_URI: 'postgresql://synthetic-user:%E2%80%83@synthetic.invalid/bootstrap-test' },
+      doubleEncodedWhitespace: { ...EXTERNAL, DATABASE_URI: 'postgresql://synthetic-user:%2520@synthetic.invalid/bootstrap-test' },
+      malformedPercentEncoding: { ...EXTERNAL, DATABASE_URI: 'postgresql://synthetic-user:synthetic-password%@synthetic.invalid/bootstrap-test' },
+      unknownQueryParameter: { ...EXTERNAL, DATABASE_URI: 'postgresql://synthetic-user:synthetic-password@synthetic.invalid/bootstrap-test?password=unexpected' },
+      duplicateQueryParameter: { ...EXTERNAL, DATABASE_URI: 'postgresql://synthetic-user:synthetic-password@synthetic.invalid/bootstrap-test?sslmode=verify-full&sslmode=verify-full' },
+      shortPayloadSecret: { ...EXTERNAL, PAYLOAD_SECRET: 'short' },
+      shortBlobToken: { ...EXTERNAL, BLOB_READ_WRITE_TOKEN: 'short' },
+      embeddedOpaqueWhitespace: { ...EXTERNAL, PAYLOAD_SECRET: 'synthetic payload secret' },
+      unicodeOpaqueSeparator: { ...EXTERNAL, BLOB_READ_WRITE_TOKEN: 'synthetic\u2029blob-token' },
+      oversizedOpaqueSecret: { ...EXTERNAL, PAYLOAD_SECRET: 'x'.repeat(8_193) },
+      pastedEscapeSequence: { ...EXTERNAL, BLOB_READ_WRITE_TOKEN: '\u001b[2~' },
+      surroundingWhitespace: { ...EXTERNAL, PAYLOAD_SECRET: ` ${EXTERNAL.PAYLOAD_SECRET}` },
+    })) {
+      const invalid = createFixture()
+      fixtures.push(invalid.root)
+      const rejected = await bootstrapControlledFreshCandidateSecrets({
+        interactive: true,
+        providedSecrets,
+        testOnlyDestinationPath: invalid.destination,
+      })
+      assert.equal(rejected.status, 'REFUSED', name)
+      assert.equal(readdirSync(invalid.root).length, 0, name)
+    }
+
     const normal = createFixture()
     fixtures.push(normal.root)
     let keyCall = 0

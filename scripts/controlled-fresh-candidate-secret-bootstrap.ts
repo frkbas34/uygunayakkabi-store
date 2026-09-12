@@ -22,6 +22,7 @@ import {
   CONTROLLED_FRESH_CANDIDATE_PERSISTENT_SECRET_ALLOWLIST,
   CONTROLLED_FRESH_CANDIDATE_SECRET_SOURCE_DIRECTORY,
   CONTROLLED_FRESH_CANDIDATE_SECRET_SOURCE_PATH,
+  controlledFreshCandidateExternalSecretsAreValid,
   readControlledFreshCandidatePersistentSecrets,
   type ControlledFreshCandidatePersistentSecretName,
 } from './controlled-fresh-candidate-secret-loader'
@@ -82,14 +83,6 @@ function report(status: ControlledFreshCandidateBootstrapStatus, values?: {
     durable: values?.durable === true,
     eligibleForPublishing: false,
   }
-}
-
-function validExternalValue(value: unknown): value is string {
-  return typeof value === 'string'
-    && value.length > 0
-    && !value.includes('\0')
-    && !value.includes('\r')
-    && !value.includes('\n')
 }
 
 function assertLinux(): void {
@@ -165,11 +158,7 @@ export async function bootstrapControlledFreshCandidateSecrets(
   try {
     assertLinux()
     if (!options.interactive) return report('REFUSED')
-    if (
-      !validExternalValue(options.providedSecrets.DATABASE_URI)
-      || !validExternalValue(options.providedSecrets.PAYLOAD_SECRET)
-      || !validExternalValue(options.providedSecrets.BLOB_READ_WRITE_TOKEN)
-    ) return report('REFUSED')
+    if (!controlledFreshCandidateExternalSecretsAreValid(options.providedSecrets)) return report('REFUSED')
     const destinationPath = options.testOnlyDestinationPath ?? CONTROLLED_FRESH_CANDIDATE_SECRET_SOURCE_PATH
     if (options.testOnlyDestinationPath === undefined) ensureCanonicalDestinationDirectory()
     const directoryPath = path.dirname(destinationPath)

@@ -16,7 +16,7 @@ import {
 } from './controlled-fresh-candidate-runtime-resources'
 
 export const CONTROLLED_FRESH_CANDIDATE_CONNECTIVITY_VERSION =
-  'controlled-fresh-candidate-connectivity/v1' as const
+  'controlled-fresh-candidate-connectivity/v2' as const
 export const CONTROLLED_FRESH_CANDIDATE_CONNECTIVITY_CONFIRMATION =
   '--confirm-controlled-fresh-candidate-production-connectivity' as const
 export const CONTROLLED_FRESH_CANDIDATE_CONNECTIVITY_QUERIES = Object.freeze([
@@ -44,9 +44,28 @@ export type ControlledFreshCandidateConnectivityStatus =
   | 'FAILED_CLOSED'
   | 'TERMINAL_UNCERTAIN'
 
+export type ControlledFreshCandidateConnectivityFailureStage =
+  | 'NONE'
+  | 'ARGUMENTS'
+  | 'PLATFORM'
+  | 'AMBIENT_ENVIRONMENT'
+  | 'COMMIT_IDENTITY'
+  | 'REPOSITORY'
+  | 'LEDGER'
+  | 'SECRET_CONFIGURATION'
+  | 'CONFIGURATION_READINESS'
+  | 'CLIENT_CONSTRUCTION'
+  | 'CONNECT'
+  | 'BEGIN'
+  | 'READ_ONLY'
+  | 'LIVENESS'
+  | 'ROLLBACK'
+  | 'CLOSE'
+
 export type ControlledFreshCandidateConnectivityReport = {
   version: typeof CONTROLLED_FRESH_CANDIDATE_CONNECTIVITY_VERSION
   status: ControlledFreshCandidateConnectivityStatus
+  failureStage: ControlledFreshCandidateConnectivityFailureStage
   configurationReady: boolean
   readOnlyConfirmed: boolean
   livenessConfirmed: boolean
@@ -77,10 +96,14 @@ type ConnectivityDependencies = {
   closeTimeoutMs?: number
 }
 
-function baseReport(status: ControlledFreshCandidateConnectivityStatus): ControlledFreshCandidateConnectivityReport {
+function baseReport(
+  status: ControlledFreshCandidateConnectivityStatus,
+  failureStage: ControlledFreshCandidateConnectivityFailureStage = 'NONE',
+): ControlledFreshCandidateConnectivityReport {
   return {
     version: CONTROLLED_FRESH_CANDIDATE_CONNECTIVITY_VERSION,
     status,
+    failureStage,
     configurationReady: false,
     readOnlyConfirmed: false,
     livenessConfirmed: false,
@@ -124,7 +147,7 @@ export async function executeControlledFreshCandidateConnectivity(params: {
   queryTimeoutMs?: number
   closeTimeoutMs?: number
 }): Promise<ControlledFreshCandidateConnectivityReport> {
-  const result = baseReport('FAILED_CLOSED')
+  const result = baseReport('FAILED_CLOSED', 'CONNECT')
   result.configurationReady = true
   let transactionStarted = false
   let rollbackAttempted = false
@@ -132,12 +155,14 @@ export async function executeControlledFreshCandidateConnectivity(params: {
   try {
     result.connectAttempts = 1
     await bounded(params.client.connect(), params.connectTimeoutMs ?? CONTROLLED_FRESH_CANDIDATE_CONNECT_TIMEOUT_MS)
+    result.failureStage = 'BEGIN'
     result.queryCount += 1
     await bounded(
       params.client.query(CONTROLLED_FRESH_CANDIDATE_CONNECTIVITY_QUERIES[0]),
       params.queryTimeoutMs ?? CONTROLLED_FRESH_CANDIDATE_QUERY_TIMEOUT_MS,
     )
     transactionStarted = true
+    result.failureStage = 'READ_ONLY'
     result.queryCount += 1
     const readOnly = await bounded(
       params.client.query(CONTROLLED_FRESH_CANDIDATE_CONNECTIVITY_QUERIES[1]),
@@ -145,6 +170,7 @@ export async function executeControlledFreshCandidateConnectivity(params: {
     )
     if (!exactReadOnlyResult(readOnly)) throw new Error('CONTROLLED_CONNECTIVITY_READ_ONLY_NOT_CONFIRMED')
     result.readOnlyConfirmed = true
+    result.failureStage = 'LIVENESS'
     result.queryCount += 1
     const liveness = await bounded(
       params.client.query(CONTROLLED_FRESH_CANDIDATE_CONNECTIVITY_QUERIES[2]),
@@ -152,6 +178,7 @@ export async function executeControlledFreshCandidateConnectivity(params: {
     )
     if (!exactLivenessResult(liveness)) throw new Error('CONTROLLED_CONNECTIVITY_LIVENESS_NOT_CONFIRMED')
     result.livenessConfirmed = true
+    result.failureStage = 'ROLLBACK'
     rollbackAttempted = true
     result.rollbackAttempts = 1
     result.queryCount += 1
@@ -176,6 +203,7 @@ export async function executeControlledFreshCandidateConnectivity(params: {
         transactionStarted = false
         result.rollbackConfirmed = true
       } catch (rollbackError) {
+        result.failureStage = 'ROLLBACK'
         if (rollbackError instanceof ControlledFreshCandidateConnectivityTimeoutError) terminalUncertain = true
         terminalUncertain = true
       }
@@ -187,6 +215,7 @@ export async function executeControlledFreshCandidateConnectivity(params: {
       result.naturalClose = true
     } catch {
       terminalUncertain = true
+      result.failureStage = 'CLOSE'
       result.naturalClose = false
     }
   }
@@ -196,7 +225,10 @@ export async function executeControlledFreshCandidateConnectivity(params: {
     && result.livenessConfirmed
     && result.rollbackConfirmed
     && result.naturalClose
-  ) result.status = 'VERIFIED'
+  ) {
+    result.status = 'VERIFIED'
+    result.failureStage = 'NONE'
+  }
   return result
 }
 
@@ -272,12 +304,12 @@ export async function runControlledFreshCandidateConnectivity(params: {
     return 0
   }
   if (!decision.ok) {
-    write(JSON.stringify(baseReport('REFUSED')))
+    write(JSON.stringify(baseReport('REFUSED', 'ARGUMENTS')))
     return 2
   }
   const dependencies = params.dependencies ?? {}
   if ((dependencies.platform ?? process.platform) !== 'linux') {
-    write(JSON.stringify(baseReport('REFUSED')))
+    write(JSON.stringify(baseReport('REFUSED', 'PLATFORM')))
     return 2
   }
   if ([
@@ -285,41 +317,70 @@ export async function runControlledFreshCandidateConnectivity(params: {
     CONTROLLED_FRESH_CANDIDATE_RECEIPT_PATH_ENV,
     CONTROLLED_FRESH_CANDIDATE_OBSERVATION_PATH_ENV,
   ].some((name) => params.ambientEnvironment[name] !== undefined)) {
-    write(JSON.stringify(baseReport('REFUSED')))
+    write(JSON.stringify(baseReport('REFUSED', 'AMBIENT_ENVIRONMENT')))
     return 2
   }
   const deployedCommitIdentity = params.ambientEnvironment[CONTROLLED_FRESH_CANDIDATE_COMMIT_IDENTITY_ENV]
   if (typeof deployedCommitIdentity !== 'string' || !/^[0-9a-f]{40}$/u.test(deployedCommitIdentity)) {
-    write(JSON.stringify(baseReport('REFUSED')))
+    write(JSON.stringify(baseReport('REFUSED', 'COMMIT_IDENTITY')))
     return 2
   }
+  let repositoryReady = false
   try {
-    const repositoryReady = (dependencies.repositoryReady ?? canonicalRepositoryReady)(deployedCommitIdentity)
-    const ledgerReady = (dependencies.ledgerReady ?? (() => validateControlledFreshCandidateEmptyLedger()))()
-    if (!repositoryReady || !ledgerReady) throw new Error('CONTROLLED_CONNECTIVITY_PREFLIGHT_REFUSED')
-    const environment = (dependencies.loadEnvironment
+    repositoryReady = (dependencies.repositoryReady ?? canonicalRepositoryReady)(deployedCommitIdentity)
+  } catch { /* sanitized below */ }
+  if (!repositoryReady) {
+    write(JSON.stringify(baseReport('FAILED_CLOSED', 'REPOSITORY')))
+    return 3
+  }
+  let ledgerReady = false
+  try {
+    ledgerReady = (dependencies.ledgerReady ?? (() => validateControlledFreshCandidateEmptyLedger()))()
+  } catch { /* sanitized below */ }
+  if (!ledgerReady) {
+    write(JSON.stringify(baseReport('FAILED_CLOSED', 'LEDGER')))
+    return 3
+  }
+  let environment: NodeJS.ProcessEnv
+  try {
+    environment = (dependencies.loadEnvironment
       ?? ((identity: string) => loadControlledFreshCandidateConfigurationEnvironment({ deployedCommitIdentity: identity })))(deployedCommitIdentity)
-    const readiness = controlledFreshCandidateSecretReadiness(environment, {
+  } catch {
+    write(JSON.stringify(baseReport('FAILED_CLOSED', 'SECRET_CONFIGURATION')))
+    return 3
+  }
+  let readiness
+  try {
+    readiness = controlledFreshCandidateSecretReadiness(environment, {
       stage: 'configuration',
       ledgerReady: true,
     })
-    if (!readiness.configurationReady || readiness.executionReady) {
-      throw new Error('CONTROLLED_CONNECTIVITY_CONFIGURATION_REFUSED')
-    }
-    const client = await (dependencies.createClient ?? createInstalledPgClient)(environment)
-    const result = await executeControlledFreshCandidateConnectivity({
-      client,
-      configurationReady: true,
-      connectTimeoutMs: dependencies.connectTimeoutMs,
-      queryTimeoutMs: dependencies.queryTimeoutMs,
-      closeTimeoutMs: dependencies.closeTimeoutMs,
-    })
-    write(JSON.stringify(result))
-    return result.status === 'VERIFIED' ? 0 : 3
   } catch {
-    write(JSON.stringify(baseReport('FAILED_CLOSED')))
+    write(JSON.stringify(baseReport('FAILED_CLOSED', 'CONFIGURATION_READINESS')))
     return 3
   }
+  if (!readiness.configurationReady || readiness.executionReady) {
+    write(JSON.stringify(baseReport('FAILED_CLOSED', 'CONFIGURATION_READINESS')))
+    return 3
+  }
+  let client: ControlledFreshCandidatePgClient
+  try {
+    client = await (dependencies.createClient ?? createInstalledPgClient)(environment)
+  } catch {
+    const report = baseReport('FAILED_CLOSED', 'CLIENT_CONSTRUCTION')
+    report.configurationReady = true
+    write(JSON.stringify(report))
+    return 3
+  }
+  const result = await executeControlledFreshCandidateConnectivity({
+    client,
+    configurationReady: true,
+    connectTimeoutMs: dependencies.connectTimeoutMs,
+    queryTimeoutMs: dependencies.queryTimeoutMs,
+    closeTimeoutMs: dependencies.closeTimeoutMs,
+  })
+  write(JSON.stringify(result))
+  return result.status === 'VERIFIED' ? 0 : 3
 }
 
 const isMain = process.argv[1]

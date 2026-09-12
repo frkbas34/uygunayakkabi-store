@@ -61,6 +61,12 @@ export const CONTROLLED_FRESH_CANDIDATE_PERSISTENT_SECRET_ALLOWLIST = Object.fre
   'BLOB_READ_WRITE_TOKEN',
 ] as const)
 
+export const CONTROLLED_FRESH_CANDIDATE_EXTERNAL_SECRET_ALLOWLIST = Object.freeze([
+  'DATABASE_URI',
+  'PAYLOAD_SECRET',
+  'BLOB_READ_WRITE_TOKEN',
+] as const)
+
 export type ControlledFreshCandidatePersistentSecretName =
   (typeof CONTROLLED_FRESH_CANDIDATE_PERSISTENT_SECRET_ALLOWLIST)[number]
 
@@ -74,6 +80,7 @@ export type ControlledFreshCandidateConfigurationErrorCode =
   | 'CONTROLLED_CONFIGURATION_FILE_CLEANUP_UNCERTAIN'
   | 'CONTROLLED_CONFIGURATION_ENCODING_INVALID'
   | 'CONTROLLED_CONFIGURATION_FORMAT_INVALID'
+  | 'CONTROLLED_CONFIGURATION_SECRET_VALUE_INVALID'
   | 'CONTROLLED_CONFIGURATION_KEY_INVALID'
   | 'CONTROLLED_CONFIGURATION_KEYS_REUSED'
   | 'CONTROLLED_CONFIGURATION_COMMIT_INVALID'
@@ -199,6 +206,135 @@ function exactBase64Key(value: unknown): Buffer | null {
 function exactFullGitSha(value: unknown): value is string {
   return typeof value === 'string' && /^[0-9a-f]{40}$/u.test(value)
 }
+
+// CONTROLLED_FRESH_CANDIDATE_SECRET_VALIDATION_BLOCK_BEGIN
+const CONTROLLED_FRESH_CANDIDATE_EXTERNAL_SECRET_MAX_LENGTH = 8_192
+const CONTROLLED_FRESH_CANDIDATE_DATABASE_COMPONENT_MAX_LENGTH = 2_048
+const CONTROLLED_FRESH_CANDIDATE_OPAQUE_SECRET_MIN_LENGTH = 16
+const CONTROLLED_FRESH_CANDIDATE_PROHIBITED_SECRET_CHARACTER = /[\p{White_Space}\p{Cc}\p{Cf}]/u
+const CONTROLLED_FRESH_CANDIDATE_NESTED_PERCENT_ESCAPE = /%[0-9a-f]{2}/iu
+const CONTROLLED_FRESH_CANDIDATE_DATABASE_QUERY_POLICY = Object.freeze({
+  channel_binding: 'require',
+  sslmode: 'verify-full',
+} as const)
+
+function boundedSecretString(
+  value: unknown,
+  minimumLength: number,
+  maximumLength = CONTROLLED_FRESH_CANDIDATE_EXTERNAL_SECRET_MAX_LENGTH,
+): value is string {
+  return typeof value === 'string'
+    && value.length >= minimumLength
+    && value.length <= maximumLength
+    && value === value.trim()
+    && !CONTROLLED_FRESH_CANDIDATE_PROHIBITED_SECRET_CHARACTER.test(value)
+}
+
+function decodeDatabaseUriComponent(encoded: string): string | null {
+  if (!boundedSecretString(encoded, 1, CONTROLLED_FRESH_CANDIDATE_DATABASE_COMPONENT_MAX_LENGTH)) return null
+  let decoded: string
+  try {
+    // Exactly one semantic decode is authoritative. A remaining percent escape
+    // is rejected, not decoded again, so nested encoding cannot smuggle a
+    // prohibited character or change the accepted component's meaning.
+    decoded = decodeURIComponent(encoded)
+  } catch {
+    return null
+  }
+  return boundedSecretString(decoded, 1, CONTROLLED_FRESH_CANDIDATE_DATABASE_COMPONENT_MAX_LENGTH)
+    && !CONTROLLED_FRESH_CANDIDATE_NESTED_PERCENT_ESCAPE.test(decoded)
+    ? decoded
+    : null
+}
+
+function validDatabaseUriQuery(rawQuery: string | null, parsed: URL): boolean {
+  if (rawQuery === null) return parsed.search.length === 0
+  if (rawQuery.length === 0 || parsed.search !== `?${rawQuery}`) return false
+  const pairs = rawQuery.split('&')
+  if (pairs.length < 1 || pairs.length > Object.keys(CONTROLLED_FRESH_CANDIDATE_DATABASE_QUERY_POLICY).length) {
+    return false
+  }
+  const observed = new Set<string>()
+  for (const pair of pairs) {
+    const separator = pair.indexOf('=')
+    if (separator <= 0 || separator !== pair.lastIndexOf('=')) return false
+    const rawName = pair.slice(0, separator)
+    const rawValue = pair.slice(separator + 1)
+    const name = decodeDatabaseUriComponent(rawName)
+    const value = decodeDatabaseUriComponent(rawValue)
+    if (!name || !value || name !== rawName || value !== rawValue || observed.has(name)) return false
+    if (!Object.hasOwn(CONTROLLED_FRESH_CANDIDATE_DATABASE_QUERY_POLICY, name)) return false
+    const expected = CONTROLLED_FRESH_CANDIDATE_DATABASE_QUERY_POLICY[
+      name as keyof typeof CONTROLLED_FRESH_CANDIDATE_DATABASE_QUERY_POLICY
+    ]
+    if (value !== expected) return false
+    observed.add(name)
+  }
+  const parsedEntries = [...parsed.searchParams.entries()]
+  return parsedEntries.length === pairs.length
+    && parsedEntries.every(([name, value]) => observed.has(name)
+      && CONTROLLED_FRESH_CANDIDATE_DATABASE_QUERY_POLICY[
+        name as keyof typeof CONTROLLED_FRESH_CANDIDATE_DATABASE_QUERY_POLICY
+      ] === value)
+}
+
+function structurallyValidDatabaseUri(value: unknown): value is string {
+  if (!boundedSecretString(value, 1)) return false
+  try {
+    // This full decode is validation-only: it rejects malformed percent syntax
+    // and bounds the decoded representation. Individual components below are
+    // decoded exactly once and are never replaced with this value.
+    const decodedValue = decodeURIComponent(value)
+    if (decodedValue.length > CONTROLLED_FRESH_CANDIDATE_EXTERNAL_SECRET_MAX_LENGTH) return false
+    if (!/^postgres(?:ql)?:\/\//u.test(value) || value.includes('\\') || value.includes('#')) return false
+    const parsed = new URL(value)
+    const authorityStart = value.indexOf('://') + 3
+    const pathStart = value.indexOf('/', authorityStart)
+    if (pathStart < authorityStart) return false
+    const queryStart = value.indexOf('?', pathStart)
+    const rawAuthority = value.slice(authorityStart, pathStart)
+    const rawPath = value.slice(pathStart, queryStart === -1 ? value.length : queryStart)
+    const rawQuery = queryStart === -1 ? null : value.slice(queryStart + 1)
+    const userInfoEnd = rawAuthority.lastIndexOf('@')
+    const rawUserInfo = userInfoEnd === -1 ? '' : rawAuthority.slice(0, userInfoEnd)
+    const credentialSeparator = rawUserInfo.indexOf(':')
+    const rawUsername = credentialSeparator === -1 ? '' : rawUserInfo.slice(0, credentialSeparator)
+    const rawPassword = credentialSeparator === -1 ? '' : rawUserInfo.slice(credentialSeparator + 1)
+    const rawHost = userInfoEnd === -1 ? '' : rawAuthority.slice(userInfoEnd + 1)
+    if (
+      !['postgres:', 'postgresql:'].includes(parsed.protocol)
+      || userInfoEnd <= 0
+      || rawAuthority.indexOf('@') !== userInfoEnd
+      || credentialSeparator <= 0
+      || rawUsername !== parsed.username
+      || rawPassword !== parsed.password
+      || rawHost !== parsed.host
+      || rawPath !== parsed.pathname
+      || decodeDatabaseUriComponent(parsed.username) === null
+      || decodeDatabaseUriComponent(parsed.password) === null
+      || decodeDatabaseUriComponent(parsed.hostname) === null
+      || decodeDatabaseUriComponent(parsed.pathname.slice(1)) === null
+      || (parsed.port.length > 0 && (!/^\d{1,5}$/u.test(parsed.port) || Number(parsed.port) < 1))
+      || parsed.hash.length !== 0
+      || !validDatabaseUriQuery(rawQuery, parsed)
+    ) return false
+    return true
+  } catch {
+    return false
+  }
+}
+
+export function controlledFreshCandidateExternalSecretsAreValid(
+  values: unknown,
+): values is Record<(typeof CONTROLLED_FRESH_CANDIDATE_EXTERNAL_SECRET_ALLOWLIST)[number], string> {
+  if (!isPlainRecord(values) || !exactOwnKeys(values, CONTROLLED_FRESH_CANDIDATE_EXTERNAL_SECRET_ALLOWLIST)) {
+    return false
+  }
+  return structurallyValidDatabaseUri(values.DATABASE_URI)
+    && boundedSecretString(values.PAYLOAD_SECRET, CONTROLLED_FRESH_CANDIDATE_OPAQUE_SECRET_MIN_LENGTH)
+    && boundedSecretString(values.BLOB_READ_WRITE_TOKEN, CONTROLLED_FRESH_CANDIDATE_OPAQUE_SECRET_MIN_LENGTH)
+}
+// CONTROLLED_FRESH_CANDIDATE_SECRET_VALIDATION_BLOCK_END
 
 function metadataStable(left: BigMetadata, right: BigMetadata): boolean {
   return left.dev === right.dev
@@ -434,6 +570,11 @@ export function buildControlledFreshCandidateConfigurationEnvironment(params: {
   if (!exactOwnKeys(params.secrets as Record<string, unknown>, CONTROLLED_FRESH_CANDIDATE_PERSISTENT_SECRET_ALLOWLIST)) {
     fail('CONTROLLED_CONFIGURATION_FORMAT_INVALID')
   }
+  if (!controlledFreshCandidateExternalSecretsAreValid({
+    DATABASE_URI: params.secrets.DATABASE_URI,
+    PAYLOAD_SECRET: params.secrets.PAYLOAD_SECRET,
+    BLOB_READ_WRITE_TOKEN: params.secrets.BLOB_READ_WRITE_TOKEN,
+  })) fail('CONTROLLED_CONFIGURATION_SECRET_VALUE_INVALID')
   const authorizationKey = exactBase64Key(params.secrets[CONTROLLED_FRESH_CANDIDATE_AUTHORIZATION_KEY_ENV])
   const receiptKey = exactBase64Key(params.secrets[CONTROLLED_FRESH_CANDIDATE_RECEIPT_KEY_ENV])
   if (!authorizationKey || !receiptKey) fail('CONTROLLED_CONFIGURATION_KEY_INVALID')

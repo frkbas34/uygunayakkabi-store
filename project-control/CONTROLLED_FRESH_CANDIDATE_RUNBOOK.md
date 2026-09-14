@@ -150,7 +150,12 @@ The command first requires Linux/WSL, configuration readiness, the exact clean
 `main` checkout at the supplied deployed SHA, an empty approved ledger, safe
 database flags, and absence of all three operation-bound inputs. It uses one
 direct installed `pg.Client`, no Payload initialization and no pool, retry, or
-reconnect path. The only SQL sequence is:
+reconnect path. `DATABASE_URI` must contain exactly `sslmode=verify-full` and
+`channel_binding=require` (in either order). The client enables channel binding
+and rejects the connection before SQL unless the installed adapter actually
+selects `SCRAM-SHA-256-PLUS`; preference-only fallback to ordinary SCRAM is not
+accepted. No PostgreSQL startup `options`, replacement startup parameter,
+environment override, or session-setting query is used. The only SQL sequence is:
 
 1. `BEGIN TRANSACTION READ ONLY`
 2. `SHOW transaction_read_only`
@@ -174,9 +179,11 @@ sticky.
 Repair 1 review evidence showed that the connectivity test could previously exit
 `0` with empty output before completing. Release was withheld despite that
 review's approval label. Repair 2 completion governance now requires the exact
-62/62 parent sentinel, including a 60/60 sanitized-child run and a fault control
+74/74 parent sentinel, including a 72/72 sanitized-child run and a fault control
 that reproduces and rejects the prior empty-output exit-0 ordering. Five
-consecutive direct runs completed at 62/62. Executed isolated source mutations
+consecutive direct runs completed at 62/62 before this connect-path repair.
+The current suite additionally executes installed-adapter, startup-options, and
+strict channel-binding regression/mutation controls. Executed isolated source mutations
 cover two-stage readiness, runtime stage separation, fixed read-only SQL,
 Payload/Product/Media exclusion, Product 349 exclusion, no write/DDL, no retry or
 reconnect, sticky cleanup uncertainty, and exactly-once close. These tests used

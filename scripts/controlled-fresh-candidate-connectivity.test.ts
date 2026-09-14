@@ -16,10 +16,14 @@ import { pathToFileURL } from 'node:url'
 import {
   CONTROLLED_FRESH_CANDIDATE_CONNECTIVITY_CONFIRMATION,
   CONTROLLED_FRESH_CANDIDATE_CONNECTIVITY_QUERIES,
+  createControlledFreshCandidatePgClient,
+  createInstalledPgClient,
   executeControlledFreshCandidateConnectivity,
   parseControlledFreshCandidateConnectivityArgs,
   runControlledFreshCandidateConnectivity,
   type ControlledFreshCandidatePgClient,
+  type ControlledFreshCandidatePgClientConfig,
+  type ControlledFreshCandidatePgClientConstructor,
 } from './controlled-fresh-candidate-connectivity'
 import {
   CONTROLLED_FRESH_CANDIDATE_PERSISTENT_SECRET_ALLOWLIST,
@@ -39,10 +43,10 @@ const SYNTHETIC_COMMIT = 'b'.repeat(40)
 const SYNTHETIC_SECRET = 'synthetic-connectivity-secret-never-output'
 const TEST_MODE_ENV = 'CFC_CONNECTIVITY_TEST_MODE'
 const MUTATION_MODE_ENV = 'CFC_CONNECTIVITY_MUTATION_MODE'
-const BEHAVIORAL_CASE_COUNT = 30
+const BEHAVIORAL_CASE_COUNT = 34
 const READINESS_MUTATION_CASE_COUNT = 9
 const RUNTIME_MUTATION_CASE_COUNT = 1
-const CONNECTIVITY_MUTATION_CASE_COUNT = 24
+const CONNECTIVITY_MUTATION_CASE_COUNT = 28
 const CORE_CASE_COUNT = BEHAVIORAL_CASE_COUNT
   + READINESS_MUTATION_CASE_COUNT
   + RUNTIME_MUTATION_CASE_COUNT
@@ -175,12 +179,54 @@ class SyntheticClient implements ControlledFreshCandidatePgClient {
   }
 }
 
+class InstrumentedPgClient implements ControlledFreshCandidatePgClient {
+  static constructions = 0
+  static lastConfig: ControlledFreshCandidatePgClientConfig | null = null
+  static forceFallback = false
+  readonly connection = {
+    emit: (_event: 'error', error: Error): boolean => {
+      this.emittedErrors.push(error)
+      return true
+    },
+  }
+  readonly emittedErrors: Error[] = []
+  readonly enableChannelBinding: boolean
+  saslSession: { mechanism?: unknown } | null = null
+  baseSaslCalls = 0
+
+  constructor(config: ControlledFreshCandidatePgClientConfig) {
+    InstrumentedPgClient.constructions += 1
+    InstrumentedPgClient.lastConfig = config
+    this.enableChannelBinding = config.enableChannelBinding
+  }
+
+  static reset(): void {
+    InstrumentedPgClient.constructions = 0
+    InstrumentedPgClient.lastConfig = null
+    InstrumentedPgClient.forceFallback = false
+  }
+
+  _handleAuthSASL(message: { mechanisms: readonly string[] }): void {
+    this.baseSaslCalls += 1
+    const plusOffered = message.mechanisms.includes('SCRAM-SHA-256-PLUS')
+    this.saslSession = {
+      mechanism: this.enableChannelBinding && plusOffered && !InstrumentedPgClient.forceFallback
+        ? 'SCRAM-SHA-256-PLUS'
+        : 'SCRAM-SHA-256',
+    }
+  }
+
+  async connect(): Promise<void> {}
+  async query(): Promise<{ rows: Array<Record<string, unknown>> }> { return { rows: [] } }
+  async end(): Promise<void> {}
+}
+
 function configurationEnvironment(): NodeJS.ProcessEnv {
   return buildControlledFreshCandidateConfigurationEnvironment({
     secrets: {
       [CONTROLLED_FRESH_CANDIDATE_AUTHORIZATION_KEY_ENV]: Buffer.alloc(32, 21).toString('base64'),
       [CONTROLLED_FRESH_CANDIDATE_RECEIPT_KEY_ENV]: Buffer.alloc(32, 22).toString('base64'),
-      DATABASE_URI: 'postgresql://synthetic-user:synthetic-password@synthetic.invalid/connectivity-test',
+      DATABASE_URI: 'postgresql://synthetic-user:synthetic-password@synthetic.invalid/connectivity-test?sslmode=verify-full&channel_binding=require',
       PAYLOAD_SECRET: SYNTHETIC_SECRET,
       BLOB_READ_WRITE_TOKEN: 'synthetic-blob-token',
     },
@@ -191,7 +237,7 @@ function configurationEnvironment(): NodeJS.ProcessEnv {
 const CONNECTIVITY_SECRET_VALUES = Object.freeze({
   [CONTROLLED_FRESH_CANDIDATE_AUTHORIZATION_KEY_ENV]: Buffer.alloc(32, 21).toString('base64'),
   [CONTROLLED_FRESH_CANDIDATE_RECEIPT_KEY_ENV]: Buffer.alloc(32, 22).toString('base64'),
-  DATABASE_URI: 'postgresql://synthetic-user:synthetic-password@synthetic.invalid/connectivity-test?sslmode=verify-full',
+  DATABASE_URI: 'postgresql://synthetic-user:synthetic-password@synthetic.invalid/connectivity-test?sslmode=verify-full&channel_binding=require',
   PAYLOAD_SECRET: SYNTHETIC_SECRET,
   BLOB_READ_WRITE_TOKEN: 'synthetic-blob-token',
 })
@@ -284,6 +330,7 @@ export function controlledFreshCandidateSecretReadiness() {
 `
 
 const CONNECTIVITY_LOADER_STUB = `
+export function controlledFreshCandidateExternalSecretsAreValid() { return true }
 export function loadControlledFreshCandidateConfigurationEnvironment() { return Object.create(null) }
 export function validateControlledFreshCandidateEmptyLedger() { return true }
 `
@@ -305,9 +352,29 @@ const mode = ${JSON.stringify(mode)};
 let connectCalls = 0;
 let endCalls = 0;
 let reconnectListeners = 0;
+let baseSaslCalls = 0;
 const calls = [];
+const clientConfigs = [];
+const channelBindingErrors = [];
 class Client {
+  constructor(config = {}) {
+    this.config = config;
+    this.enableChannelBinding = config.enableChannelBinding === true;
+    this.connection = { emit: (event, error) => { channelBindingErrors.push({ event, error }); return true; } };
+    this.saslSession = null;
+    clientConfigs.push(config);
+  }
   on() { reconnectListeners += 1; return this; }
+  _handleAuthSASL(message) {
+    baseSaslCalls += 1;
+    this.saslSession = {
+      mechanism: mode === 'channel-fallback'
+        ? 'SCRAM-SHA-256'
+        : this.enableChannelBinding && message.mechanisms.includes('SCRAM-SHA-256-PLUS')
+          ? 'SCRAM-SHA-256-PLUS'
+          : 'SCRAM-SHA-256',
+    };
+  }
   async connect() {
     connectCalls += 1;
     calls.push('connect');
@@ -329,7 +396,24 @@ class Client {
     if (mode === 'close-failure') throw new Error('synthetic-close-failure');
   }
 }
-if (mode === 'prevalidation-order') {
+const factoryEnvironment = {
+  DATABASE_URI: 'postgresql://synthetic-user:synthetic-password@synthetic.invalid/connectivity-test?sslmode=verify-full&channel_binding=require',
+  PAYLOAD_SECRET: 'synthetic-payload-secret',
+  BLOB_READ_WRITE_TOKEN: 'synthetic-blob-token',
+};
+if (mode === 'client-contract') {
+  candidate.createControlledFreshCandidatePgClient(factoryEnvironment, Client);
+  assert.equal(clientConfigs.length, 1, label);
+  assert.equal(clientConfigs[0].enableChannelBinding, true, label);
+  assert.equal(clientConfigs[0].keepAlive, false, label);
+  assert.equal(Object.hasOwn(clientConfigs[0], 'options'), false, label);
+} else if (mode === 'channel-require' || mode === 'channel-fallback') {
+  const client = candidate.createControlledFreshCandidatePgClient(factoryEnvironment, Client);
+  client._handleAuthSASL({ mechanisms: mode === 'channel-require' ? ['SCRAM-SHA-256'] : ['SCRAM-SHA-256-PLUS', 'SCRAM-SHA-256'] });
+  assert.equal(channelBindingErrors.length, 1, label);
+  assert.equal(channelBindingErrors[0].event, 'error', label);
+  if (mode === 'channel-require') assert.equal(baseSaslCalls, 0, label);
+} else if (mode === 'prevalidation-order') {
   let clientFactoryCalls = 0;
   const output = [];
   const exitCode = await candidate.runControlledFreshCandidateConnectivity({
@@ -792,6 +876,43 @@ const connectivityFaults: SourceFault[] = [
   let environment: NodeJS.ProcessEnv`,
     ),
   },
+  {
+    name: 'connectivity-startup-options-reintroduced',
+    mode: 'client-contract',
+    mutate: (source) => replaceExact(
+      source,
+      '    keepAlive: false,\n',
+      "    keepAlive: false,\n    options: '-c default_transaction_read_only=on',\n",
+    ),
+  },
+  {
+    name: 'connectivity-channel-binding-client-disabled',
+    mode: 'client-contract',
+    mutate: (source) => replaceExact(source, '    enableChannelBinding: true,', '    enableChannelBinding: false,'),
+  },
+  {
+    name: 'connectivity-channel-binding-advertisement-not-required',
+    mode: 'channel-require',
+    mutate: (source) => replaceExact(
+      source,
+      `      if (!Array.isArray(message?.mechanisms) || !message.mechanisms.includes(requiredMechanism)) {
+        this.connection.emit('error', new Error('CONTROLLED_CONNECTIVITY_CHANNEL_BINDING_REQUIRED'))
+        return
+      }`,
+      '      void message',
+    ),
+  },
+  {
+    name: 'connectivity-channel-binding-negotiation-not-verified',
+    mode: 'channel-fallback',
+    mutate: (source) => replaceExact(
+      source,
+      `      if (this.saslSession?.mechanism !== requiredMechanism) {
+        this.connection.emit('error', new Error('CONTROLLED_CONNECTIVITY_CHANNEL_BINDING_NOT_NEGOTIATED'))
+      }`,
+      '      void this.saslSession',
+    ),
+  },
 ]
 
 assert.equal(readinessFaults.length, READINESS_MUTATION_CASE_COUNT)
@@ -1114,6 +1235,111 @@ async function runSuite(includeParentCompletionCases: boolean): Promise<{ comple
     assert.equal(cliOutput.join('').includes('synthetic.invalid'), false)
   })
 
+  await check('real installed pg client preserves the exact safe connection contract without startup options', async () => {
+    type InstalledPgClientInspection = ControlledFreshCandidatePgClient & {
+      enableChannelBinding: boolean
+      _connectionTimeoutMillis: number
+      connectionParameters: {
+        host: string
+        port: number
+        ssl: boolean | Record<string, unknown>
+        connect_timeout: number
+        keepalives: number
+        application_name?: string
+        options?: string
+      }
+      getStartupConf(): Record<string, unknown>
+    }
+    const client = await createInstalledPgClient(configurationEnvironment()) as InstalledPgClientInspection
+    const startup = client.getStartupConf()
+    assert.equal(client.connectionParameters.host, 'synthetic.invalid')
+    assert.equal(client.connectionParameters.port, 5432)
+    assert.equal(typeof client.connectionParameters.ssl, 'object')
+    assert.notEqual((client.connectionParameters.ssl as Record<string, unknown>).rejectUnauthorized, false)
+    assert.equal(client.connectionParameters.connect_timeout, 10)
+    assert.equal(client._connectionTimeoutMillis, 10_000)
+    assert.equal(client.connectionParameters.keepalives, 0)
+    assert.equal(client.connectionParameters.application_name, 'controlled-fresh-candidate-connectivity-v1')
+    assert.equal(client.connectionParameters.options, undefined)
+    assert.equal(client.enableChannelBinding, true)
+    assert.equal(Object.hasOwn(startup, 'options'), false)
+    assert.deepEqual(Object.keys(startup).sort(), ['application_name', 'database', 'user'])
+    await client.end()
+  })
+
+  await check('client factory enables and verifies SCRAM-SHA-256-PLUS when offered', () => {
+    InstrumentedPgClient.reset()
+    const client = createControlledFreshCandidatePgClient(
+      configurationEnvironment(),
+      InstrumentedPgClient as ControlledFreshCandidatePgClientConstructor,
+    ) as InstrumentedPgClient
+    const config = InstrumentedPgClient.lastConfig
+    assert.ok(config)
+    assert.deepEqual(Object.keys(config).sort(), [
+      'application_name',
+      'connectionString',
+      'connectionTimeoutMillis',
+      'enableChannelBinding',
+      'keepAlive',
+    ])
+    assert.equal(config.connectionString, CONNECTIVITY_SECRET_VALUES.DATABASE_URI)
+    assert.equal(config.connectionTimeoutMillis, 10_000)
+    assert.equal(config.enableChannelBinding, true)
+    assert.equal(config.keepAlive, false)
+    client._handleAuthSASL({ mechanisms: ['SCRAM-SHA-256-PLUS', 'SCRAM-SHA-256'] })
+    assert.equal(client.baseSaslCalls, 1)
+    assert.equal(client.saslSession?.mechanism, 'SCRAM-SHA-256-PLUS')
+    assert.equal(client.emittedErrors.length, 0)
+  })
+
+  await check('client factory rejects absent or silently downgraded channel binding before SQL', () => {
+    InstrumentedPgClient.reset()
+    const absent = createControlledFreshCandidatePgClient(
+      configurationEnvironment(),
+      InstrumentedPgClient as ControlledFreshCandidatePgClientConstructor,
+    ) as InstrumentedPgClient
+    absent._handleAuthSASL({ mechanisms: ['SCRAM-SHA-256'] })
+    assert.equal(absent.baseSaslCalls, 0)
+    assert.equal(absent.emittedErrors.length, 1)
+
+    InstrumentedPgClient.reset()
+    InstrumentedPgClient.forceFallback = true
+    const downgraded = createControlledFreshCandidatePgClient(
+      configurationEnvironment(),
+      InstrumentedPgClient as ControlledFreshCandidatePgClientConstructor,
+    ) as InstrumentedPgClient
+    downgraded._handleAuthSASL({ mechanisms: ['SCRAM-SHA-256-PLUS', 'SCRAM-SHA-256'] })
+    assert.equal(downgraded.baseSaslCalls, 1)
+    assert.equal(downgraded.saslSession?.mechanism, 'SCRAM-SHA-256')
+    assert.equal(downgraded.emittedErrors.length, 1)
+  })
+
+  await check('misleading channel-binding URIs and unsupported clients fail before construction', () => {
+    for (const databaseUri of [
+      'postgresql://synthetic-user:synthetic-password@synthetic.invalid/connectivity-test',
+      'postgresql://synthetic-user:synthetic-password@synthetic.invalid/connectivity-test?sslmode=verify-full',
+      'postgresql://synthetic-user:synthetic-password@synthetic.invalid/connectivity-test?channel_binding=require',
+      'postgresql://synthetic-user:synthetic-password@synthetic.invalid/connectivity-test?sslmode=verify-full&channel_binding=prefer',
+    ]) {
+      InstrumentedPgClient.reset()
+      assert.throws(() => createControlledFreshCandidatePgClient(
+        { ...configurationEnvironment(), DATABASE_URI: databaseUri },
+        InstrumentedPgClient as ControlledFreshCandidatePgClientConstructor,
+      ))
+      assert.equal(InstrumentedPgClient.constructions, 0)
+    }
+
+    let unsupportedConstructions = 0
+    class UnsupportedPgClient {
+      constructor() { unsupportedConstructions += 1 }
+    }
+    assert.throws(() => createControlledFreshCandidatePgClient(
+      configurationEnvironment(),
+      UnsupportedPgClient as unknown as ControlledFreshCandidatePgClientConstructor,
+    ))
+    assert.equal(unsupportedConstructions, 0)
+  })
+
   await check('pre-connect failures expose only stable sanitized stages', async () => {
     const cases = [
       { stage: 'REPOSITORY', dependencies: { repositoryReady: () => false } },
@@ -1124,7 +1350,15 @@ async function runSuite(includeParentCompletionCases: boolean): Promise<{ comple
       },
       {
         stage: 'CONFIGURATION_READINESS',
-        dependencies: { repositoryReady: () => true, ledgerReady: () => true, loadEnvironment: () => Object.create(null) },
+        dependencies: {
+          repositoryReady: () => true,
+          ledgerReady: () => true,
+          loadEnvironment: () => ({
+            DATABASE_URI: CONNECTIVITY_SECRET_VALUES.DATABASE_URI,
+            PAYLOAD_SECRET: CONNECTIVITY_SECRET_VALUES.PAYLOAD_SECRET,
+            BLOB_READ_WRITE_TOKEN: CONNECTIVITY_SECRET_VALUES.BLOB_READ_WRITE_TOKEN,
+          }),
+        },
       },
       {
         stage: 'CLIENT_CONSTRUCTION',
@@ -1163,6 +1397,9 @@ async function runSuite(includeParentCompletionCases: boolean): Promise<{ comple
     const secretPath = path.join(root, 'runtime-secrets.env')
     try {
       const invalidCases = {
+        missingRequiredQuery: { DATABASE_URI: 'postgresql://user:pass@synthetic.invalid/connectivity-test' },
+        missingChannelBinding: { DATABASE_URI: 'postgresql://user:pass@synthetic.invalid/connectivity-test?sslmode=verify-full' },
+        missingVerifyFull: { DATABASE_URI: 'postgresql://user:pass@synthetic.invalid/connectivity-test?channel_binding=require' },
         encodedUsernameWhitespace: { DATABASE_URI: 'postgresql://%20%20:pass@synthetic.invalid/connectivity-test' },
         encodedPasswordUnicodeWhitespace: { DATABASE_URI: 'postgresql://user:%E2%80%83@synthetic.invalid/connectivity-test' },
         doubleEncodedDatabaseWhitespace: { DATABASE_URI: 'postgresql://user:pass@synthetic.invalid/%2520' },

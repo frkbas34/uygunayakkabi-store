@@ -38,14 +38,12 @@ const SYNTHETIC_COMMIT = 'a'.repeat(40)
 const SYNTHETIC_AUTHORIZATION_KEY = Buffer.alloc(32, 11).toString('base64')
 const SYNTHETIC_RECEIPT_KEY = Buffer.alloc(32, 12).toString('base64')
 const SYNTHETIC_DATABASE = 'postgresql://synthetic-user:synthetic-password@synthetic.invalid/offline'
+const SYNTHETIC_DATABASE_WITH_REQUIRED_QUERY = `${SYNTHETIC_DATABASE}?sslmode=verify-full&channel_binding=require`
 const SYNTHETIC_PAYLOAD = 'literal-$(not-executed)-${HOME};offline'
 const SYNTHETIC_BLOB = 'synthetic-blob-token-offline'
 const VALID_DATABASE_URIS = Object.freeze([
-  SYNTHETIC_DATABASE,
-  `${SYNTHETIC_DATABASE}?channel_binding=require`,
-  `${SYNTHETIC_DATABASE}?sslmode=verify-full`,
   `${SYNTHETIC_DATABASE}?channel_binding=require&sslmode=verify-full`,
-  `${SYNTHETIC_DATABASE}?sslmode=verify-full&channel_binding=require`,
+  SYNTHETIC_DATABASE_WITH_REQUIRED_QUERY,
 ])
 
 const ENCODED_PROHIBITED_COMPONENTS = Object.freeze({
@@ -58,6 +56,9 @@ const ENCODED_PROHIBITED_COMPONENTS = Object.freeze({
 })
 
 const INVALID_DATABASE_URIS = Object.freeze({
+  missingRequiredQuery: SYNTHETIC_DATABASE,
+  missingChannelBinding: `${SYNTHETIC_DATABASE}?sslmode=verify-full`,
+  missingVerifyFull: `${SYNTHETIC_DATABASE}?channel_binding=require`,
   encodedUsernameSpaces: 'postgresql://%20%20:pass@synthetic.invalid/offline',
   encodedPasswordSpaces: 'postgresql://user:%20%20@synthetic.invalid/offline',
   encodedDatabaseSpaces: 'postgresql://user:pass@synthetic.invalid/%20%20',
@@ -120,7 +121,7 @@ const INVALID_OPAQUE_SECRETS = Object.freeze({
 const canonicalValues = {
   [CONTROLLED_FRESH_CANDIDATE_AUTHORIZATION_KEY_ENV]: SYNTHETIC_AUTHORIZATION_KEY,
   [CONTROLLED_FRESH_CANDIDATE_RECEIPT_KEY_ENV]: SYNTHETIC_RECEIPT_KEY,
-  DATABASE_URI: SYNTHETIC_DATABASE,
+  DATABASE_URI: SYNTHETIC_DATABASE_WITH_REQUIRED_QUERY,
   PAYLOAD_SECRET: SYNTHETIC_PAYLOAD,
   BLOB_READ_WRITE_TOKEN: SYNTHETIC_BLOB,
 }
@@ -184,10 +185,12 @@ const candidate = await import(${JSON.stringify(pathToFileURL(modulePath).href)}
 const label = ${JSON.stringify(label)};
 const values = {
   DATABASE_URI: label === 'decoded-component-validation'
-    ? 'postgresql://%20%20:pass@synthetic.invalid/offline'
+    ? 'postgresql://%20%20:pass@synthetic.invalid/offline?sslmode=verify-full&channel_binding=require'
     : label === 'query-validation'
       ? 'postgresql://user:pass@synthetic.invalid/offline?password=unexpected'
-      : 'postgresql://user:pass@synthetic.invalid/offline',
+      : label === 'required-query-policy'
+        ? 'postgresql://user:pass@synthetic.invalid/offline?sslmode=verify-full'
+        : 'postgresql://user:pass@synthetic.invalid/offline?sslmode=verify-full&channel_binding=require',
   PAYLOAD_SECRET: label === 'opaque-whitespace-validation'
     ? 'synthetic payload secret'
     : 'synthetic-payload-secret',
@@ -240,6 +243,14 @@ function runValidationMutationControls(): void {
         source,
         '      || !validDatabaseUriQuery(rawQuery, parsed)',
         '      || false /* query validation removed by mutation */',
+      ),
+    },
+    {
+      label: 'required-query-policy',
+      mutant: replaceExact(
+        source,
+        '  if (pairs.length !== Object.keys(CONTROLLED_FRESH_CANDIDATE_DATABASE_QUERY_POLICY).length) {',
+        '  if (pairs.length < 1 || pairs.length > Object.keys(CONTROLLED_FRESH_CANDIDATE_DATABASE_QUERY_POLICY).length) {',
       ),
     },
     {

@@ -5,6 +5,7 @@ import {
   controlledFreshCandidateSecretReadiness,
 } from './controlled-fresh-candidate-secret-contract'
 import {
+  controlledFreshCandidateExternalSecretsAreValid,
   loadControlledFreshCandidateConfigurationEnvironment,
   validateControlledFreshCandidateEmptyLedger,
 } from './controlled-fresh-candidate-secret-loader'
@@ -83,6 +84,29 @@ export type ControlledFreshCandidatePgClient = {
   connect(): Promise<void>
   query(query: string): Promise<{ rows: Array<Record<string, unknown>> }>
   end(): Promise<void>
+}
+
+export type ControlledFreshCandidatePgClientConfig = {
+  connectionString: string
+  connectionTimeoutMillis: number
+  application_name: string
+  enableChannelBinding: true
+  keepAlive: false
+}
+
+type ControlledFreshCandidateSaslMessage = {
+  mechanisms: readonly string[]
+}
+
+type ControlledFreshCandidatePgClientInternals = ControlledFreshCandidatePgClient & {
+  connection: { emit(event: 'error', error: Error): boolean }
+  saslSession?: { mechanism?: unknown } | null
+  _handleAuthSASL(message: ControlledFreshCandidateSaslMessage): void
+}
+
+export type ControlledFreshCandidatePgClientConstructor = {
+  new(config: ControlledFreshCandidatePgClientConfig): ControlledFreshCandidatePgClientInternals
+  readonly prototype: Pick<ControlledFreshCandidatePgClientInternals, '_handleAuthSASL'>
 }
 
 type ConnectivityDependencies = {
@@ -256,17 +280,51 @@ function canonicalRepositoryReady(deployedCommitIdentity: string): boolean {
     && status.stdout.length === 0
 }
 
-async function createInstalledPgClient(environment: NodeJS.ProcessEnv): Promise<ControlledFreshCandidatePgClient> {
-  const databaseUri = environment.DATABASE_URI
-  if (typeof databaseUri !== 'string' || databaseUri.length === 0) throw new Error('CONTROLLED_CONNECTIVITY_CONFIGURATION_INVALID')
-  const pg = await import('pg')
-  const Client = pg.Client
-  return new Client({
-    connectionString: databaseUri,
+export function createControlledFreshCandidatePgClient(
+  environment: NodeJS.ProcessEnv,
+  PgClient: ControlledFreshCandidatePgClientConstructor,
+): ControlledFreshCandidatePgClient {
+  const externalSecrets = {
+    DATABASE_URI: environment.DATABASE_URI,
+    PAYLOAD_SECRET: environment.PAYLOAD_SECRET,
+    BLOB_READ_WRITE_TOKEN: environment.BLOB_READ_WRITE_TOKEN,
+  }
+  if (!controlledFreshCandidateExternalSecretsAreValid(externalSecrets)) {
+    throw new Error('CONTROLLED_CONNECTIVITY_CONFIGURATION_INVALID')
+  }
+  if (typeof PgClient.prototype._handleAuthSASL !== 'function') {
+    throw new Error('CONTROLLED_CONNECTIVITY_CHANNEL_BINDING_UNSUPPORTED')
+  }
+
+  const requiredMechanism = 'SCRAM-SHA-256-PLUS' as const
+  class ChannelBindingRequiredClient extends PgClient {
+    override _handleAuthSASL(message: ControlledFreshCandidateSaslMessage): void {
+      if (!Array.isArray(message?.mechanisms) || !message.mechanisms.includes(requiredMechanism)) {
+        this.connection.emit('error', new Error('CONTROLLED_CONNECTIVITY_CHANNEL_BINDING_REQUIRED'))
+        return
+      }
+      super._handleAuthSASL(message)
+      if (this.saslSession?.mechanism !== requiredMechanism) {
+        this.connection.emit('error', new Error('CONTROLLED_CONNECTIVITY_CHANNEL_BINDING_NOT_NEGOTIATED'))
+      }
+    }
+  }
+
+  return new ChannelBindingRequiredClient({
+    connectionString: externalSecrets.DATABASE_URI,
     connectionTimeoutMillis: CONTROLLED_FRESH_CANDIDATE_CONNECT_TIMEOUT_MS,
     application_name: 'controlled-fresh-candidate-connectivity-v1',
-    options: '-c default_transaction_read_only=on -c statement_timeout=5000 -c lock_timeout=1000 -c idle_in_transaction_session_timeout=5000',
-  }) as unknown as ControlledFreshCandidatePgClient
+    enableChannelBinding: true,
+    keepAlive: false,
+  })
+}
+
+export async function createInstalledPgClient(environment: NodeJS.ProcessEnv): Promise<ControlledFreshCandidatePgClient> {
+  const pg = await import('pg')
+  return createControlledFreshCandidatePgClient(
+    environment,
+    pg.Client as unknown as ControlledFreshCandidatePgClientConstructor,
+  )
 }
 
 export function parseControlledFreshCandidateConnectivityArgs(argv: readonly string[]):
@@ -345,6 +403,11 @@ export async function runControlledFreshCandidateConnectivity(params: {
   try {
     environment = (dependencies.loadEnvironment
       ?? ((identity: string) => loadControlledFreshCandidateConfigurationEnvironment({ deployedCommitIdentity: identity })))(deployedCommitIdentity)
+    if (!controlledFreshCandidateExternalSecretsAreValid({
+      DATABASE_URI: environment.DATABASE_URI,
+      PAYLOAD_SECRET: environment.PAYLOAD_SECRET,
+      BLOB_READ_WRITE_TOKEN: environment.BLOB_READ_WRITE_TOKEN,
+    })) throw new Error('CONTROLLED_CONNECTIVITY_CONFIGURATION_INVALID')
   } catch {
     write(JSON.stringify(baseReport('FAILED_CLOSED', 'SECRET_CONFIGURATION')))
     return 3

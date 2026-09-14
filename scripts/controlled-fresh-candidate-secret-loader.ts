@@ -248,10 +248,10 @@ function decodeDatabaseUriComponent(encoded: string): string | null {
 }
 
 function validDatabaseUriQuery(rawQuery: string | null, parsed: URL): boolean {
-  if (rawQuery === null) return parsed.search.length === 0
+  if (rawQuery === null) return false
   if (rawQuery.length === 0 || parsed.search !== `?${rawQuery}`) return false
   const pairs = rawQuery.split('&')
-  if (pairs.length < 1 || pairs.length > Object.keys(CONTROLLED_FRESH_CANDIDATE_DATABASE_QUERY_POLICY).length) {
+  if (pairs.length !== Object.keys(CONTROLLED_FRESH_CANDIDATE_DATABASE_QUERY_POLICY).length) {
     return false
   }
   const observed = new Set<string>()

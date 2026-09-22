@@ -1,6 +1,6 @@
 # Controlled Fresh Candidate Operator Runbook
 
-Status: local Activation Readiness Configuration Route Repair 2 contract. This runbook does not authorize
+Status: pilot runtime-hardening and candidate-manifest source contract. This runbook does not authorize
 Production connectivity, candidate selection, package preparation with real
 inputs, execution, generation, publishing, Shopier, advertising, or dispatch.
 
@@ -36,6 +36,113 @@ window is at most 30 minutes. Before-`notBefore`, at-expiry, expired,
 non-canonical, backward-clock, legacy, mixed-version, and replayed grants fail
 closed. Expiry never renews or recycles a grant. After consumption there is no
 automatic retry, extension, replacement, or new authorization.
+
+Package preparation does not create owner execution authority. Owner
+authorization v1 is a separate mode-`0600`, immutable HMAC record with a maximum
+30-minute lifetime. It binds the exact operation, package digest, candidate
+digest, released commit, Production environment, centralized runtime-budget
+identity, mutation envelope, and external-effect envelope. The one-process
+launcher atomically renames it to the consumed identity before runtime
+initialization. Missing, expired, altered, already-consumed, replacement, or
+scope-widened authorization is refused; there is no renewal or retry route.
+
+## Actual runtime transport and workload boundary
+
+The connectivity probe and actual Payload/Postgres runtime share the same
+installed-`pg` security adapter. The canonical URI must contain exactly
+`sslmode=verify-full&channel_binding=require` (order is immaterial). Before it is
+given to `pg`, those policy tokens are validated and replaced by explicit
+`rejectUnauthorized:true`, Node's unchanged `checkServerIdentity`, and
+`enableChannelBinding:true`. Application reads, application mutations, and Blob
+writes remain locked until the installed client has completed authenticated
+`SCRAM-SHA-256-PLUS` final verification. Missing PLUS support, ordinary SCRAM selection, or a
+changed private `pg` authentication boundary fails before application access.
+
+The runtime Pool is fixed at `max:1`, `min:0`; parallelism and automatic retry
+are zero. The complete launcher-to-runtime deadline is at most 45 seconds. The
+central budget identity covers one Pool, one client, one connection attempt,
+one checked-out client at a time, four transactions, the statically derived SQL
+ceiling, bounded application/Product/Media/Blob calls, and bounded cleanup.
+Every permitted count is checked before the next effect and every terminal
+runtime result reports sanitized `actual` and `maximum` counters. Any second
+client/connection, unrecognized SQL, budget exhaustion, timeout, or cleanup
+uncertainty is non-successful and cannot trigger a retry.
+
+### Consolidated R1 candidate (local, uncommitted)
+
+This R1 patch is `VALIDATED_UNCOMMITTED` following offline Windows and native
+WSL validation on 2026-09-15; independent review is pending. It is not released
+or Production-verified. The eleven repair
+boundaries are: loader-owned canonical URI validation with an opaque pg brand;
+installed adapter bootstrap release on both outcomes; undefined storage-hook
+return (no Media metadata update); early refusal of every ambient `PG*` key;
+receipt v4 descriptors for the complete original/derivative set in both strict
+snapshots; Ed25519 authenticated release evidence before secret loading;
+contained SASL event rejection and final PLUS verification; phase-bound exact
+installed SQL grammar/columns/parameters/transactions and one-write caps;
+one setup/runtime/cleanup budget; reserved physical shutdown time inside the
+45-second deadline; native Linux temp paths with disabled TSX disk caching.
+
+Product relationship attachment uses the installed atomic array-push path,
+never general array replacement (which deletes unrelated empty array tables).
+Only one new `products_images` row may be inserted; no DELETE is permitted.
+New Product/Media IDs are bound once, before any subsequent write. The fixed
+Product state and downstream prohibitions remain unchanged.
+
+Release trust is separately owner-provisioned public Ed25519 SPKI DER in the
+private-mode `release-trust.json` under the canonical owner ledger root, with
+version `controlled-fresh-candidate-release-trust/v1`. The operation directory
+requires canonical `release-attestation.json` signed with the matching external
+release authority: exact source SHA, project `prj_2eCrDWsYcYLMMY8AsHVIOxPh1gQr`,
+deployment ID, `Production`, `READY`, alias `www.uygunayakkabi.com`, issued/verified/
+expiry UTC timestamps (at most 30 minutes), operation/package digest, and exact
+owner authorization identity and byte digest. No signing key is loaded by the
+runtime, and no evidence is generated from local Git. Missing trust, evidence,
+signature, binding or current validity refuses execution before secrets.
+Provisioning genuine release evidence requires separate owner authority; this
+source-only repair creates none and does not authorize a pilot.
+
+Every terminal runtime report uses the original scope budget. Shutdown counts
+dispatcher, client/destructive release, pool, Payload and private file/scratch
+closure attempts once; late/failed/unobserved physical cleanup remains
+`UNKNOWN_OUTCOME_RECOVERY_REQUIRED`, never safe retry. The deadline is a
+wall-clock application bound, not a guarantee against a frozen OS/event loop.
+R2 preserves one absolute `deadlineAt = startedAt + 45_000` through launcher,
+authorization consumption, both runtime modes and the independent strict
+verifier. Consumption cannot add its elapsed time back; exhausted consumption
+refuses runtime entry with recovery-required/UNKNOWN disposition. Cleanup and
+terminal output are bounded by that same deadline, never a re-anchored duration.
+Known complete success may retain OBSERVED; every recovery/partial/unknown or
+new verdict permanently marks the shared budget UNKNOWN even when cleanup
+succeeds. Only a proven zero-action local validation refusal is exempt.
+Finalization authority uses installed Drizzle tables: root `products_rels` is
+derived from the mapped Product table plus `relationshipsSuffix` (no map entry
+is installed for it); image evidence uses `products_images.image_id`. The real
+schema is checked before stock qualification/transactions/application writes;
+no `products_rels.mediaID` contract exists. Existing Product-row CAS, seven
+ordered table locks and mutation/transaction/SQL budgets are unchanged.
+Native offline validation uses Linux `/tmp`, an external native fixture root,
+`TSX_DISABLE_CACHE=1`, strict rejections and the external-transport guard.
+Typechecking disables incremental cache writes. The pre-existing ignored
+`tsconfig.tsbuildinfo` was refreshed by the initial typecheck and retained;
+it was not deleted, restored, staged, or added to the source candidate.
+
+Offline evidence: controlled-candidate aggregate, installed pg/pg-pool/adapter
+and storage-hook boundaries, all focused suites, typecheck, targeted ESLint,
+repository lint, `test:safe`, and `validate` passed. Native WSL additionally
+passed secret-loader, bootstrap, readiness, authenticated release-file loading,
+connectivity (74/74, including the runtime-stage semantic mutant), and runtime
+tests. Failure regressions cover all seven accounting stages and bounded
+physical teardown. Only synthetic credentials/fixtures were used, with strict
+rejections, disabled database management, and the 8/8 transport-guard self-test.
+No real secret, network, SQL, Product/Media/Blob, provider, Telegram, queue,
+publishing, deployment, or pilot action occurred. Exactly 25 previously approved
+reviewer-created malformed cache files were individually removed before repair;
+the two empty directories were removed non-recursively. The pre-existing ignored
+native fixture was retained. Staging, commit, fetch and push remain forbidden.
+
+Sole next task:
+`8C-VL-FRESH-PRODUCT-ACCELERATION-CONTROLLED-CANDIDATE-PILOT-RUNTIME-HARDENING-AND-MANIFEST-CONTRACT-CONSOLIDATED-REPAIR-R1-INDEPENDENT-REVIEW`.
 
 ## Canonical native-WSL secret source
 
@@ -199,14 +306,13 @@ npm run controlled-fresh-candidate:package -- --readiness
 npm run controlled-fresh-candidate:package -- --synthetic-dry-run
 ```
 
-Real preparation remains blocked until the Owner separately approves candidate
-selection and supplies a private canonical offline input file through the
-documented process-environment path. The governed preparation form is shown
-only as a placeholder:
+Real preparation remains blocked until the Owner supplies one canonical v2
+manifest based on the sanitized template at
+`project-control/controlled-fresh-candidate-owner-input-template.json`. The
+governed native-WSL form is:
 
 ```text
-export CONTROLLED_FRESH_CANDIDATE_OFFLINE_INPUT_PATH=<OWNER_SUPPLIED_PRIVATE_EXT4_PATH>
-npm run controlled-fresh-candidate:package -- --prepare --confirm-controlled-fresh-candidate-package-preparation
+wsl.exe -d Ubuntu -u w11 --exec /usr/bin/env -i HOME=/home/w11 USER=w11 LOGNAME=w11 PATH=/home/w11/.local/bin:/usr/bin:/bin CONTROLLED_FRESH_CANDIDATE_OFFLINE_INPUT_PATH=<OWNER_SUPPLIED_PRIVATE_EXT4_PATH> /home/w11/.local/bin/node /mnt/c/Projects/uygunayakkabi-store/node_modules/tsx/dist/cli.mjs /mnt/c/Projects/uygunayakkabi-store/scripts/controlled-fresh-candidate-package-builder.ts --prepare --confirm-controlled-fresh-candidate-package-preparation
 ```
 
 The input may contain only offline owner evidence and original bytes. It may
@@ -217,6 +323,50 @@ the authenticated pre-start observation first, and writes the private runtime
 manifest last. HMAC keys are never written into the package. A failure is
 recovery-required; do not infer no-op from file presence and do not retry,
 delete, replace, renew, or clean uncertain durable evidence.
+
+## Separate authorization, execution, and strict verification commands
+
+These commands are documentation only and are not authorization to run them.
+They accept an immutable operation UUID, never a secret, target selector,
+module path, callback, socket, loader, client factory, or code fragment.
+
+Owner authorization creation:
+
+```text
+wsl.exe -d Ubuntu -u w11 --exec /usr/bin/env -i HOME=/home/w11 USER=w11 LOGNAME=w11 PATH=/home/w11/.local/bin:/usr/bin:/bin /home/w11/.local/bin/node /mnt/c/Projects/uygunayakkabi-store/node_modules/tsx/dist/cli.mjs /mnt/c/Projects/uygunayakkabi-store/scripts/controlled-fresh-candidate-owner-authorization.ts --operation=<IMMUTABLE_OPERATION_UUID> --confirm-controlled-fresh-candidate-owner-authorization
+```
+
+One-shot creation launcher:
+
+```text
+wsl.exe -d Ubuntu -u w11 --exec /usr/bin/env -i HOME=/home/w11 USER=w11 LOGNAME=w11 PATH=/home/w11/.local/bin:/usr/bin:/bin /home/w11/.local/bin/node /mnt/c/Projects/uygunayakkabi-store/node_modules/tsx/dist/cli.mjs /mnt/c/Projects/uygunayakkabi-store/scripts/controlled-fresh-candidate-launcher.ts --operation=<IMMUTABLE_OPERATION_UUID> --confirm-controlled-fresh-candidate-one-shot-execution
+```
+
+Separate read-only strict verifier:
+
+```text
+wsl.exe -d Ubuntu -u w11 --exec /usr/bin/env -i HOME=/home/w11 USER=w11 LOGNAME=w11 PATH=/home/w11/.local/bin:/usr/bin:/bin /home/w11/.local/bin/node /mnt/c/Projects/uygunayakkabi-store/node_modules/tsx/dist/cli.mjs /mnt/c/Projects/uygunayakkabi-store/scripts/controlled-fresh-candidate-strict-verifier.ts --operation=<IMMUTABLE_OPERATION_UUID> --confirm-controlled-fresh-candidate-strict-read-only-verification
+```
+
+The verifier does not import or invoke the creation runtime. It authenticates
+the exact consumed owner authorization and durable receipt, takes two bounded
+stable snapshots of only the authorized Product, and returns exactly one of
+`STRICT_FRESH_TARGET_READY`, `FAILED_CLOSED_BEFORE_MUTATION`,
+`PARTIAL_SIDE_EFFECT_RECONCILIATION_REQUIRED`, or
+`UNKNOWN_OUTCOME_RECOVERY_REQUIRED`. Process exit zero and
+`CREATION_COMMITTED_QUARANTINED` are not sufficient success evidence.
+
+## Consolidated missing owner candidate input
+
+Before any real package preparation, provide all of the following together in
+one private canonical manifest; none is inferred: new candidate identity, an
+unused `SNdddd` stock candidate, Product title, positive price, provenance
+statement, original-media identity, safe original basename, exact original
+byte SHA-256, MIME type, pixel width and height, native-WSL private absolute
+original path, exact released 40-character commit, canonical UTC creation and
+expiry timestamps no more than 30 minutes apart, exact committed runtime-budget
+identity, fixed mutation/external envelopes, declared Blob maximum `4`, and the
+canonical manifest SHA-256. Do not place secrets in that file or in chat.
 
 ## Read-only observation
 

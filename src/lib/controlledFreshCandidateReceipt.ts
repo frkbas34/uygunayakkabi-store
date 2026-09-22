@@ -3,11 +3,11 @@ import {
   timingSafeEqual,
 } from 'node:crypto'
 
-export const CONTROLLED_FRESH_CANDIDATE_PRIVATE_VERSION = 'controlled-fresh-candidate-private/v3' as const
+export const CONTROLLED_FRESH_CANDIDATE_PRIVATE_VERSION = 'controlled-fresh-candidate-private/v4' as const
 export const CONTROLLED_FRESH_CANDIDATE_MANIFEST_VERSION = 'controlled-fresh-candidate-manifest/v1' as const
 export const CONTROLLED_FRESH_CANDIDATE_RUNTIME_IDENTITY = 'controlled-fresh-candidate-runtime/v3' as const
 export const CONTROLLED_FRESH_CANDIDATE_CONTRACT_IDENTITY = 'controlled-fresh-candidate-contract/v3' as const
-export const CONTROLLED_FRESH_CANDIDATE_RECEIPT_DOMAIN = 'uygunayakkabi:controlled-fresh-candidate:private-receipt:v3' as const
+export const CONTROLLED_FRESH_CANDIDATE_RECEIPT_DOMAIN = 'uygunayakkabi:controlled-fresh-candidate:private-receipt:v4' as const
 export const CONTROLLED_FRESH_CANDIDATE_RECEIPT_CONSUMPTION_DOMAIN = 'uygunayakkabi:controlled-fresh-candidate:receipt-consumption:v3' as const
 export const CONTROLLED_FRESH_CANDIDATE_MAX_STORAGE_OBJECTS = 4
 export const CONTROLLED_FRESH_CANDIDATE_MAX_CANONICAL_JSON_BYTES = 65_536
@@ -34,6 +34,32 @@ export type ControlledFreshCandidateCleanupStatus = 'not_started' | 'complete' |
 export type ControlledFreshCandidateIntentState = 'not_started' | 'persisted' | 'dispatched'
 export type ControlledFreshCandidateObservedCertainty = 'unknown' | 'failed' | 'observed'
 export type ControlledFreshCandidateStorageState = 'intended' | 'known_present' | 'uncertain'
+
+export type ControlledFreshCandidateBlobMetadata = {
+  key: string
+  contentDigest: string
+  byteSize: number
+  mimeType: 'image/jpeg' | 'image/png' | 'image/webp'
+  width: number
+  height: number
+}
+export type ControlledFreshCandidateBlobDescriptor = ControlledFreshCandidateBlobMetadata & {
+  candidateIdentity: string
+  originalContentDigest: string
+  operationId: string
+  authorizationIdentity: string
+  authorizationDigest: string
+}
+
+export function controlledFreshCandidateBlobDescriptor(
+  receipt: ControlledFreshCandidatePrivateReceipt,
+  metadata: ControlledFreshCandidateBlobMetadata,
+): ControlledFreshCandidateBlobDescriptor {
+  return { ...metadata, candidateIdentity: receipt.manifest.identity,
+    originalContentDigest: receipt.manifest.original.contentDigest, operationId: receipt.executionId,
+    authorizationIdentity: receipt.executionAuthorization.identity,
+    authorizationDigest: receipt.executionAuthorization.digest }
+}
 
 export type ControlledFreshCandidateMutationBudget = {
   stockCandidates: number
@@ -114,6 +140,7 @@ export type ControlledFreshCandidatePrivateReceipt = {
     ordinal: number
     filename: string
     state: ControlledFreshCandidateStorageState
+    descriptor: ControlledFreshCandidateBlobDescriptor
   }>
   transactions: {
     productCreate: {
@@ -294,7 +321,7 @@ function exactTransactionStage(value: unknown): boolean {
     && ['unknown', 'failed', 'observed'].includes(String(value.certainty))
 }
 
-function exactReceiptShape(value: unknown): value is ControlledFreshCandidatePrivateReceipt {
+function exactReceiptShape(value: unknown, verifyBindings = true): value is ControlledFreshCandidatePrivateReceipt {
   if (!isPlainRecord(value) || !hasExactOwnKeys(value, [
     'version', 'executionAuthorization', 'executionId', 'manifest', 'runtime',
     'stockCandidate', 'expectedStateFingerprint', 'product', 'media', 'storageLedger',
@@ -315,11 +342,39 @@ function exactReceiptShape(value: unknown): value is ControlledFreshCandidatePri
   if (!isPlainRecord(value.authorityClosure) || !hasExactOwnKeys(value.authorityClosure, ['status', 'boundary'])) return false
   if (!Array.isArray(value.storageLedger) || value.storageLedger.length > CONTROLLED_FRESH_CANDIDATE_MAX_STORAGE_OBJECTS) return false
   const ordinals = new Set<number>()
+  const filenames = new Set<string>()
   for (const entry of value.storageLedger) {
-    if (!isPlainRecord(entry) || !hasExactOwnKeys(entry, ['ordinal', 'filename', 'state'])) return false
+    if (!isPlainRecord(entry) || !hasExactOwnKeys(entry, ['ordinal', 'filename', 'state', 'descriptor'])) return false
     if (!exactSafeInteger(entry.ordinal, 1, CONTROLLED_FRESH_CANDIDATE_MAX_STORAGE_OBJECTS) || ordinals.has(entry.ordinal)) return false
     if (!exactFilename(entry.filename) || !['intended', 'known_present', 'uncertain'].includes(String(entry.state))) return false
+    const descriptor = entry.descriptor
+    if (!isPlainRecord(descriptor) || !hasExactOwnKeys(descriptor, [
+      'key', 'contentDigest', 'byteSize', 'mimeType', 'width', 'height', 'candidateIdentity',
+      'originalContentDigest', 'operationId', 'authorizationIdentity', 'authorizationDigest',
+    ]) || filenames.has(entry.filename) || descriptor.key !== entry.filename
+      || !exactDigest(descriptor.contentDigest) || !exactSafeInteger(descriptor.byteSize, 1, 10_000_000)
+      || !['image/jpeg', 'image/png', 'image/webp'].includes(String(descriptor.mimeType))
+      || !exactSafeInteger(descriptor.width, 1, 20_000) || !exactSafeInteger(descriptor.height, 1, 20_000)
+      || !isPlainRecord(value.manifest) || !isPlainRecord(value.manifest.original)
+      || verifyBindings && (descriptor.candidateIdentity !== value.manifest.identity
+      || descriptor.originalContentDigest !== value.manifest.original.contentDigest
+      || descriptor.operationId !== value.executionId
+      || descriptor.authorizationIdentity !== value.executionAuthorization.identity
+      || descriptor.authorizationDigest !== value.executionAuthorization.digest)) return false
+    const originalMetadata = value.manifest.original
+    if (verifyBindings && entry.filename === originalMetadata.filename) {
+      if (['contentDigest', 'byteSize', 'mimeType', 'width', 'height']
+        .some((key) => descriptor[key] !== originalMetadata[key])) return false
+    } else if (verifyBindings) {
+      const original = String(value.manifest.original.filename)
+      const extension = original.slice(original.lastIndexOf('.'))
+      const stem = original.slice(0, -extension.length)
+      if (![300, 600, 1200].some((size) => entry.filename === `${stem}-${size}x${size}${extension}`
+        && descriptor.width === size && descriptor.height === size)
+        || descriptor.mimeType !== value.manifest.original.mimeType) return false
+    }
     ordinals.add(entry.ordinal)
+    filenames.add(entry.filename)
   }
   const productId = value.product.id
   const mediaId = value.media.id
@@ -422,7 +477,7 @@ export function authenticateControlledFreshCandidateReceipt(params: {
     throw new Error('CONTROLLED_RECEIPT_MALFORMED')
   }
   if (params.serialized !== canonicalJson(parsed)) throw new Error('CONTROLLED_RECEIPT_NONCANONICAL')
-  if (!exactReceiptShape(parsed)) throw new Error('CONTROLLED_RECEIPT_MALFORMED')
+  if (!exactReceiptShape(parsed, false)) throw new Error('CONTROLLED_RECEIPT_MALFORMED')
   if (
     parsed.runtime.identity !== (params.expectedRuntimeIdentity ?? CONTROLLED_FRESH_CANDIDATE_RUNTIME_IDENTITY)
     || parsed.runtime.contract !== (params.expectedContractIdentity ?? CONTROLLED_FRESH_CANDIDATE_CONTRACT_IDENTITY)
@@ -440,6 +495,7 @@ export function authenticateControlledFreshCandidateReceipt(params: {
   if (suppliedSeal.byteLength !== expectedSeal.byteLength || !timingSafeEqual(suppliedSeal, expectedSeal)) {
     throw new Error('CONTROLLED_RECEIPT_AUTHENTICATION_FAILED')
   }
+  if (!exactReceiptShape(parsed)) throw new Error('CONTROLLED_RECEIPT_MALFORMED')
   const completedTeardownEligible = (
     parsed.mutationResourceTeardown.attempted === true
     && parsed.mutationResourceTeardown.completed === true

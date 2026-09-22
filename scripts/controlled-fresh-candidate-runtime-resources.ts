@@ -1,5 +1,6 @@
 import {
   createHash,
+  randomUUID,
   createHmac,
   timingSafeEqual,
 } from 'node:crypto'
@@ -25,6 +26,7 @@ import {
   rm,
 } from 'node:fs/promises'
 import path from 'node:path'
+import { getTableColumns, getTableName } from 'drizzle-orm'
 
 import {
   CONTROLLED_FRESH_CANDIDATE_AUTHORIZATION_DOMAIN,
@@ -33,6 +35,8 @@ import {
   assertControlledFreshCandidateAuthorizationActive,
   controlledFreshCandidateExecutionGrantIsCanonical,
   controlledFreshCandidateDigest,
+  controlledFreshCandidateBoundedShutdown,
+  registerControlledFreshCandidatePhysicalShutdown,
   controlledFreshCandidateMediaMatches,
   controlledFreshCandidateProductMatches,
   createControlledFreshCandidate,
@@ -52,6 +56,7 @@ import {
   authenticateControlledFreshCandidateReceiptBytes,
   readControlledFreshCandidateCapability,
   type ControlledFreshCandidateTargetCapability,
+  type ControlledFreshCandidateBlobDescriptor,
 } from '../src/lib/controlledFreshCandidateReceipt'
 import type {
   ControlledFreshCandidateStrictTargetDependencies,
@@ -68,6 +73,7 @@ import {
   type VisualMutationLockSurface,
 } from '../src/lib/visualMutationLockOrder'
 import type { FreshVisualStrictTargetGateway } from '../src/lib/freshVisualProductDiscovery'
+import { readVisualPilotMediaEvidence } from '../src/lib/visualPilotMediaEvidence'
 import {
   createFreshVisualDiscoveryRuntimeGateway,
   type FreshVisualDiscoveryRuntimePayload,
@@ -75,8 +81,20 @@ import {
 import {
   type VisualPilotRuntimePostgresPool,
 } from './visual-pilot-target-runtime-resources'
+import {
+  controlledFreshCandidateBudgetForScope,
+  CONTROLLED_FRESH_CANDIDATE_QUEUE_RECEIPTS_SQL,
+  validateControlledFreshCandidatePilotManifest,
+  type ControlledFreshCandidatePilotManifest,
+  type ControlledFreshCandidateRuntimeBudget,
+  type ControlledFreshCandidateRuntimeBudgetReport,
+} from '../src/lib/controlledFreshCandidatePilotContract'
+import {
+  createControlledFreshCandidateSecurePgClientConstructor,
+  controlledFreshCandidateSecurePgConfig,
+} from './controlled-fresh-candidate-pg-security'
 
-export const CONTROLLED_FRESH_CANDIDATE_RUNTIME_INPUT_VERSION = 'controlled-fresh-candidate-runtime-input/v2' as const
+export const CONTROLLED_FRESH_CANDIDATE_RUNTIME_INPUT_VERSION = 'controlled-fresh-candidate-runtime-input/v3' as const
 export const CONTROLLED_FRESH_CANDIDATE_BLOB_RETRY_BUDGET = 0
 export const CONTROLLED_FRESH_CANDIDATE_APPROVED_LEDGER_ROOT = '/home/w11/.local/share/uygunayakkabi/controlled-fresh-candidate' as const
 export const CONTROLLED_FRESH_CANDIDATE_OWNER_LEDGER_DIRECTORY_ENV = 'CONTROLLED_FRESH_CANDIDATE_OWNER_LEDGER_DIRECTORY' as const
@@ -90,6 +108,69 @@ export const CONTROLLED_FRESH_CANDIDATE_OBSERVATION_PATH_ENV = 'CONTROLLED_FRESH
 export const CONTROLLED_FRESH_CANDIDATE_EXT4_MAGIC = 0xef53
 export const CONTROLLED_FRESH_CANDIDATE_MAX_ORIGINAL_BYTES = 10_000_000
 export const CONTROLLED_FRESH_CANDIDATE_MAX_MOUNTINFO_BYTES = 65_536
+
+export function serializeControlledFreshCandidateUploads<T>(handler: (input: T) => Promise<undefined>) {
+  let tail = Promise.resolve<undefined>(undefined)
+  let requested = 0
+  return (input: T): Promise<undefined> => {
+    requested += 1
+    if (requested > 4) return Promise.reject(new Error('CONTROLLED_BLOB_WRITE_BUDGET_EXHAUSTED'))
+    // Installed storage hooks dispatch Promise.all; serializing here keeps
+    // intent ordinals deterministic and stops all later writes after failure.
+    const next = tail.then(() => handler(input))
+    tail = next
+    next.catch(() => undefined)
+    return next
+  }
+}
+
+export type ControlledFreshCandidateBlobObservationIo = {
+  list(prefix: string): Promise<{ keys: readonly string[]; hasMore: boolean }>
+  head(key: string): Promise<{ key: string; url: string; byteSize: number; mimeType: string; contentDigest?: string; width?: number; height?: number }>
+  read(key: string, url: string, signal: AbortSignal): Promise<{ contentDigest: string; byteSize: number; mimeType: string; width: number; height: number }>
+}
+
+export async function observeControlledFreshCandidateBlobSet(params: {
+  expected: readonly ControlledFreshCandidateBlobDescriptor[]
+  origin: string
+  signal: AbortSignal
+  budget: ControlledFreshCandidateRuntimeBudget
+  io: ControlledFreshCandidateBlobObservationIo
+}): Promise<readonly ControlledFreshCandidateBlobDescriptor[]> {
+  const original = params.expected[0]
+  if (!original || params.expected.length > 4 || new Set(params.expected.map((item) => item.key)).size !== params.expected.length) {
+    throw new Error('CONTROLLED_BLOB_EXPECTED_SET_INVALID')
+  }
+  const prefix = original.key.slice(0, original.key.lastIndexOf('.'))
+  const assertActive = () => { if (params.signal.aborted) throw new Error('CONTROLLED_BLOB_OBSERVATION_ABORTED') }
+  assertActive()
+  params.budget.blobObservation()
+  const listed = await params.io.list(prefix)
+  if (listed.hasMore || listed.keys.length !== params.expected.length || new Set(listed.keys).size !== listed.keys.length
+    || listed.keys.some((key) => !params.expected.some((item) => item.key === key))) throw new Error('CONTROLLED_BLOB_OBSERVED_SET_INVALID')
+  const observed: ControlledFreshCandidateBlobDescriptor[] = []
+  for (const expected of [...params.expected].sort((a, b) => a.key.localeCompare(b.key))) {
+    assertActive()
+    params.budget.blobObservation()
+    const head = await params.io.head(expected.key)
+    if (head.key !== expected.key || head.url !== `${params.origin}/${expected.key}`
+      || head.byteSize !== expected.byteSize || head.mimeType !== expected.mimeType) throw new Error('CONTROLLED_BLOB_HEAD_MISMATCH')
+    let evidence = head
+    if (!/^[a-f0-9]{64}$/u.test(head.contentDigest ?? '') || !head.width || !head.height) {
+      assertActive()
+      params.budget.blobObservation()
+      evidence = { ...head, ...await params.io.read(expected.key, head.url, params.signal) }
+    }
+    assertActive()
+    if (evidence.contentDigest !== expected.contentDigest || evidence.byteSize !== expected.byteSize
+      || evidence.mimeType !== expected.mimeType || evidence.width !== expected.width || evidence.height !== expected.height) {
+      throw new Error('CONTROLLED_BLOB_CONTENT_MISMATCH')
+    }
+    observed.push({ ...expected, key: head.key, contentDigest: evidence.contentDigest, byteSize: evidence.byteSize,
+      mimeType: expected.mimeType, width: evidence.width, height: evidence.height })
+  }
+  return observed
+}
 
 export const CONTROLLED_FRESH_CANDIDATE_PHYSICAL_INPUT_LIMITS = Object.freeze({
   authority: CONTROLLED_FRESH_CANDIDATE_MAX_CANONICAL_JSON_BYTES,
@@ -141,7 +222,7 @@ const CONTROLLED_FINALIZATION_COLLECTION_TABLES = [
   ['story-jobs', 'story_jobs'],
 ] as const
 
-function resolveControlledFinalizationTableAuthority(
+export function resolveControlledFinalizationTableAuthority(
   payload: ControlledRuntimePayload,
   db: Record<string, unknown>,
 ): ControlledFinalizationTableAuthority {
@@ -164,14 +245,39 @@ function resolveControlledFinalizationTableAuthority(
     ) throw new Error('controlled_finalization_table_unavailable')
     resolved.set(defaultTableName, tables[physicalName])
   }
-  const relationshipName = db.tableNameMap.get('products_rels')
-  const relationshipOwners = [...db.tableNameMap.entries()].filter(([, mapped]) => mapped === relationshipName)
+  // Installed Drizzle build derives root relationship tables from the resolved
+  // collection table and relationshipsSuffix; it does NOT add a map entry.
+  const relationshipName = `${db.tableNameMap.get('products')}${db.relationshipsSuffix}`
   if (
-    relationshipName !== 'products_rels'
-    || relationshipOwners.length !== 1
-    || relationshipOwners[0]?.[0] !== 'products_rels'
-    || !tables.products_rels
+    db.relationshipsSuffix !== '_rels'
+    || relationshipName !== 'products_rels'
+    || !tables[relationshipName]
+    || [...db.tableNameMap.values()].some((mapped) => mapped === relationshipName)
   ) throw new Error('controlled_finalization_table_unavailable')
+  const imageName = db.tableNameMap.get('products_images')
+  const imageOwners = [...db.tableNameMap.entries()].filter(([, mapped]) => mapped === imageName)
+  if (imageName !== 'products_images' || imageOwners.length !== 1
+    || imageOwners[0]?.[0] !== 'products_images' || !tables[imageName]) {
+    throw new Error('controlled_finalization_table_unavailable')
+  }
+  const requireColumns = (name: string, required: Record<string, string>): void => {
+    const table = tables[name]
+    try {
+      if (!table || getTableName(table as never) !== name) throw new Error()
+      const columns = getTableColumns(table as never) as Record<string, { name: string }>
+      if (Object.entries(required).some(([key, physical]) => columns[key]?.name !== physical || table[key] !== columns[key])) {
+        throw new Error()
+      }
+    } catch { throw new Error('controlled_finalization_table_unavailable') }
+  }
+  requireColumns(relationshipName, {}) // The operation locks this table, not its variant columns.
+  requireColumns(imageName, { image: 'image_id', _parentID: '_parent_id', _order: '_order', id: 'id' })
+  requireColumns('products', { id: 'id' })
+  requireColumns('media', { id: 'id', product: 'product_id' })
+  requireColumns('image_generation_jobs', { id: 'id', product: 'product_id' })
+  requireColumns('payload_jobs', { taskSlug: 'task_slug', input: 'input' })
+  requireColumns('bot_events', { id: 'id', product: 'product_id' })
+  requireColumns('story_jobs', { id: 'id', product: 'product_id' })
   const products = resolved.get('products') as ControlledRelationalTable
   const media = resolved.get('media') as ControlledRelationalTable
   const imageJobs = resolved.get('image_generation_jobs') as ControlledRelationalTable
@@ -180,11 +286,9 @@ function resolveControlledFinalizationTableAuthority(
   const storyJobs = resolved.get('story_jobs') as ControlledRelationalTable
   if (
     !products.id
-    || !tables.products_rels.id || !tables.products_rels.order || !tables.products_rels.parent
-    || !tables.products_rels.path || !tables.products_rels.mediaID
     || !media.id || !media.product
     || !imageJobs.id || !imageJobs.product
-    || !queueReceipts.id || !queueReceipts.taskSlug || !queueReceipts.input
+    || !queueReceipts.taskSlug || !queueReceipts.input
     || !botEvents.id || !botEvents.product
     || !storyJobs.id || !storyJobs.product
   ) throw new Error('controlled_finalization_table_unavailable')
@@ -199,6 +303,7 @@ function resolveControlledFinalizationTableAuthority(
   }
 }
 
+const enteredFinalizationPhases = new WeakSet<object>()
 export async function finalizeControlledFreshCandidateProductAtomically(params: {
   payload: ControlledRuntimePayload
   scope: ControlledFreshCandidateOperationScope
@@ -209,7 +314,15 @@ export async function finalizeControlledFreshCandidateProductAtomically(params: 
   blockedStateFingerprint: string
   signal: AbortSignal
   createRequest?: () => Promise<{ transactionID?: string }>
+  runtimeBudget?: ControlledFreshCandidateRuntimeBudget
 }): Promise<{ affected: number }> {
+  if (params.runtimeBudget && !enteredFinalizationPhases.has(params)) {
+    const entered = { ...params }
+    enteredFinalizationPhases.add(entered)
+    return params.runtimeBudget.withSqlPhase({ phase: 'finalize', table: 'products', identity: params.productId,
+      maximumStatements: 14, data: { workflow: fixedControlledFreshCandidateProduct(params.manifest, 'pending').workflow } }, () =>
+      finalizeControlledFreshCandidateProductAtomically(entered))
+  }
   const assertMutation = (): void => {
     params.scope.assertActive()
     if (params.signal.aborted || !params.mutationActive.current) throw new Error('controlled_mutation_capability_revoked')
@@ -240,6 +353,7 @@ export async function finalizeControlledFreshCandidateProductAtomically(params: 
   if (typeof transactionId !== 'string' || !transactionId) throw new Error('controlled_finalization_transaction_unavailable')
   assertMutation()
   request.transactionID = transactionId
+  ;(request as { context?: RecordValue }).context = { ...((request as { context?: RecordValue }).context ?? {}), isVisualStatusUpdate: true }
   let committed = false
   try {
     const session = (db.sessions as Record<string, unknown>)[transactionId]
@@ -284,9 +398,11 @@ export async function finalizeControlledFreshCandidateProductAtomically(params: 
       .for('update')
     if (!Array.isArray(locked) || locked.length !== 1) throw new Error('controlled_finalization_cas_missed')
     assertMutation()
-    const current = await params.payload.findByID({
+    params.runtimeBudget?.applicationRead('products')
+    const currentRead = () => params.payload.findByID({
       collection: 'products', id: params.productId, req: request, depth: 0, disableErrors: true, overrideAccess: true,
     })
+    const current = await (params.runtimeBudget ? params.runtimeBudget.withSqlPhase({ phase: 'read', table: 'products', identity: params.productId }, currentRead) : currentRead())
     assertMutation()
     const expectedFingerprint = controlledFreshCandidateDigest(
       fixedControlledFreshCandidateProduct(params.manifest, 'blocked', params.mediaId),
@@ -303,9 +419,11 @@ export async function finalizeControlledFreshCandidateProductAtomically(params: 
       || !isPlainRecord(current.workflow)
     ) throw new Error('controlled_finalization_cas_missed')
     const readSurface = async (collection: string, where: Record<string, unknown>) => {
-      const page = normalizePayloadPage(await params.payload.find({
+      params.runtimeBudget?.applicationRead(collection)
+      const performRead = () => params.payload.find({
         collection,
         where,
+        ...(['image-generation-jobs', 'bot-events', 'story-jobs'].includes(collection) ? { select: { id: true, product: true } } : {}),
         req: request,
         depth: 0,
         page: 1,
@@ -313,7 +431,11 @@ export async function finalizeControlledFreshCandidateProductAtomically(params: 
         sort: 'id',
         overrideAccess: true,
         pagination: true,
-      }), 1, 2)
+      })
+      const page = normalizePayloadPage(await (params.runtimeBudget ? params.runtimeBudget.withSqlPhase({
+        phase: collection === 'products' ? 'gallery' : 'read', table: collection.replaceAll('-', '_'),
+        identity: collection === 'products' ? params.mediaId : params.productId,
+      }, performRead) : performRead()), 1, 2)
       assertMutation()
       return page
     }
@@ -338,7 +460,7 @@ export async function finalizeControlledFreshCandidateProductAtomically(params: 
       || botEvents.totalDocs !== 0
       || storyJobs.totalDocs !== 0
     ) throw new Error('controlled_finalization_cas_missed')
-    const queueResult = await transaction.execute(sql`
+    const queueRead = () => transaction.execute(sql`
       SELECT count(*)::text AS total_docs
       FROM ${tables.queueReceipts}
       INNER JOIN ${tables.imageJobs}
@@ -346,6 +468,7 @@ export async function finalizeControlledFreshCandidateProductAtomically(params: 
       WHERE ${tables.queueReceipts.taskSlug} = 'image-gen'
         AND ${tables.imageJobs.product} = ${params.productId}
     `)
+    const queueResult = await (params.runtimeBudget ? params.runtimeBudget.withSqlPhase({ phase: 'queue', table: 'payload_jobs', identity: params.productId, maximumStatements: 1 }, queueRead) : queueRead())
     const queueRows = isPlainRecord(queueResult) && Array.isArray(queueResult.rows)
       ? queueResult.rows
       : Array.isArray(queueResult) ? queueResult : []
@@ -355,7 +478,8 @@ export async function finalizeControlledFreshCandidateProductAtomically(params: 
       || queueRows[0].total_docs !== '0'
     ) throw new Error('controlled_finalization_cas_missed')
     assertMutation()
-    const updated = await params.payload.update({
+    params.runtimeBudget?.applicationMutation('products')
+    const update = () => params.payload.update({
       collection: 'products',
       id: params.productId,
       data: { workflow: { ...current.workflow, confirmationStatus: 'pending' } },
@@ -363,6 +487,8 @@ export async function finalizeControlledFreshCandidateProductAtomically(params: 
       depth: 0,
       overrideAccess: true,
     })
+    const updated = await (params.runtimeBudget ? params.runtimeBudget.withSqlPhase({ phase: 'finalize', table: 'products',
+      identity: params.productId, maximumStatements: 4, data: { workflow: fixedControlledFreshCandidateProduct(params.manifest, 'pending').workflow } }, update) : update())
     assertMutation()
     if (!controlledFreshCandidateProductMatches({
       product: updated,
@@ -384,6 +510,7 @@ export async function finalizeControlledFreshCandidateProductAtomically(params: 
 
 type ControlledRuntimeInputFile = {
   version: typeof CONTROLLED_FRESH_CANDIDATE_RUNTIME_INPUT_VERSION
+  pilotManifest: ControlledFreshCandidatePilotManifest
   authorizationIdentity: string
   authorizationTokenBase64: string
   issuedAt: string
@@ -413,6 +540,7 @@ export type ControlledFreshCandidateRuntimeResource = {
   completeObservation(report: ControlledFreshCandidatePublicReport, terminalOk: boolean): void
   failObservation(): void
   closeObservation(): void
+  runtimeBudgetReport?(): ControlledFreshCandidateRuntimeBudgetReport
   scope: ControlledFreshCandidateOperationScope
 }
 
@@ -423,6 +551,7 @@ export type ControlledFreshCandidateVerificationResource = {
   completeObservation(report: import('../src/lib/controlledFreshCandidateTargetVerifier').ControlledFreshCandidateStrictTargetReport, terminalOk: boolean): void
   failObservation(): void
   closeObservation(): void
+  runtimeBudgetReport?(): ControlledFreshCandidateRuntimeBudgetReport
   scope: ControlledFreshCandidateOperationScope
 }
 
@@ -453,13 +582,16 @@ function exactContextIdentity(value: unknown): value is string {
 
 function exactRuntimeInput(value: unknown): value is ControlledRuntimeInputFile {
   if (!isPlainRecord(value) || !hasExactOwnKeys(value, [
-    'version', 'authorizationIdentity', 'authorizationTokenBase64', 'executionId',
+    'version', 'pilotManifest', 'authorizationIdentity', 'authorizationTokenBase64', 'executionId',
     'issuedAt', 'notBefore', 'expiresAt',
     'manifestIdentity', 'title', 'positivePrice', 'provenanceStatement', 'stockCandidate',
     'originalPath', 'originalMimeType', 'originalWidth', 'originalHeight', 'receiptPath',
     'observationPath', 'runtimeCommitIdentity', 'environmentIdentity',
   ])) return false
   return value.version === CONTROLLED_FRESH_CANDIDATE_RUNTIME_INPUT_VERSION
+    && validateControlledFreshCandidatePilotManifest(value.pilotManifest, {
+      expectedCommitIdentity: typeof value.runtimeCommitIdentity === 'string' ? value.runtimeCommitIdentity : undefined,
+    })
     && typeof value.authorizationIdentity === 'string' && /^[a-z0-9][a-z0-9:_-]{7,127}$/i.test(value.authorizationIdentity)
     && typeof value.authorizationTokenBase64 === 'string'
     && typeof value.issuedAt === 'string'
@@ -483,6 +615,14 @@ function exactRuntimeInput(value: unknown): value is ControlledRuntimeInputFile 
     && path.resolve(value.observationPath) !== path.resolve(value.receiptPath)
     && exactContextIdentity(value.runtimeCommitIdentity)
     && exactContextIdentity(value.environmentIdentity)
+    && value.manifestIdentity === value.pilotManifest.candidateIdentity
+    && value.title === value.pilotManifest.title
+    && value.positivePrice === value.pilotManifest.positivePrice
+    && value.provenanceStatement === value.pilotManifest.provenance
+    && value.stockCandidate === value.pilotManifest.stockCandidate
+    && value.originalMimeType === value.pilotManifest.original.mimeType
+    && value.originalWidth === value.pilotManifest.original.width
+    && value.originalHeight === value.pilotManifest.original.height
 }
 
 function runtimePool(payload: ControlledRuntimePayload): VisualPilotRuntimePostgresPool {
@@ -732,32 +872,50 @@ function createStrictGateway(
   payload: ControlledRuntimePayload,
   pool: VisualPilotRuntimePostgresPool,
   scope: ControlledFreshCandidateOperationScope,
+  runtimeBudget: ControlledFreshCandidateRuntimeBudget,
 ): FreshVisualStrictTargetGateway {
   const discovery = createFreshVisualDiscoveryRuntimeGateway(payload, pool)
-  const read = async <T>(signal: AbortSignal, operation: () => Promise<T>): Promise<T> => {
+  const census = (collection: string, productId: number, page: number, limit: number) => payload.find({
+    collection, where: { product: { equals: productId } }, select: { id: true, product: true },
+    depth: 0, page, limit, sort: 'id', overrideAccess: true, pagination: true,
+  }).then((result) => normalizePayloadPage(result, page, limit))
+  const read = async <T>(collection: string, signal: AbortSignal, operation: () => Promise<T>, identity: number, phase: 'read' | 'gallery' | 'queue' = 'read'): Promise<T> => {
     scope.assertActive()
     if (signal.aborted) throw new Error('controlled_runtime_deadline')
-    const result = await operation()
+    runtimeBudget.applicationRead(collection)
+    const result = await runtimeBudget.withSqlPhase({ phase, table: collection.replaceAll('-', '_'), identity }, operation)
     scope.assertActive()
     if (signal.aborted) throw new Error('controlled_runtime_deadline')
     return result
   }
   return {
     async readOwnedProduct(productId, signal) {
-      return read(signal, () => payload.findByID({
+      return read('products', signal, () => payload.findByID({
         collection: 'products',
         id: productId,
         depth: 0,
         disableErrors: true,
         overrideAccess: true,
-      }))
+      }), productId)
     },
-    readMediaPage: (productId, page, limit, signal) => read(signal, () => discovery.readMediaPage(productId, page, limit)),
-    readGeneratedGalleryOwnerPage: (mediaIds, page, limit, signal) => read(signal, () => discovery.readGeneratedGalleryOwnerPage(mediaIds, page, limit)),
-    readImageJobPage: (productId, page, limit, signal) => read(signal, () => discovery.readImageJobPage(productId, page, limit)),
-    readQueueReceiptPage: (productId, page, limit, signal) => read(signal, () => discovery.readQueueReceiptPage(productId, page, limit)),
-    readBotEventPage: (productId, page, limit, signal) => read(signal, () => discovery.readBotEventPage(productId, page, limit)),
-    readStoryJobPage: (productId, page, limit, signal) => read(signal, () => discovery.readStoryJobPage(productId, page, limit)),
+    readMediaPage: (productId, page, limit, signal) => read('media', signal, () => discovery.readMediaPage(productId, page, limit), productId),
+    readGeneratedGalleryOwnerPage: (mediaIds, page, limit, signal) => {
+      if (mediaIds.length !== 1 || typeof mediaIds[0] !== 'number') throw new Error('CONTROLLED_SQL_GALLERY_IDENTITY_INVALID')
+      return read('products', signal, () => payload.find({ collection: 'products',
+        where: { 'generativeGallery.image': { equals: mediaIds[0] } }, depth: 0, page, limit,
+        sort: 'id', overrideAccess: true, pagination: true }).then((result) => normalizePayloadPage(result, page, limit)), mediaIds[0], 'gallery')
+    },
+    readImageJobPage: (productId, page, limit, signal) => read('image-generation-jobs', signal, () => census('image-generation-jobs', productId, page, limit), productId),
+    readQueueReceiptPage: (productId, page, limit, signal) => read('payload-jobs', signal, async () => {
+      if (page !== 1 || limit !== 100) throw new Error('CONTROLLED_SQL_QUEUE_WINDOW_INVALID')
+      const result = await pool.query(CONTROLLED_FRESH_CANDIDATE_QUEUE_RECEIPTS_SQL, [productId, limit, 0])
+      if (!isPlainRecord(result) || !Array.isArray(result.rows) || result.rows.length !== 1 || !isPlainRecord(result.rows[0])) throw new Error('CONTROLLED_SQL_QUEUE_RESULT_INVALID')
+      const row = result.rows[0]
+      if (row.total_docs !== '0' || !Array.isArray(row.docs) || row.docs.length) throw new Error('CONTROLLED_SQL_QUEUE_NOT_EMPTY')
+      return { docs: [], totalDocs: 0, page: 1, totalPages: 0, hasNextPage: false, limit }
+    }, productId, 'queue'),
+    readBotEventPage: (productId, page, limit, signal) => read('bot-events', signal, () => census('bot-events', productId, page, limit), productId),
+    readStoryJobPage: (productId, page, limit, signal) => read('story-jobs', signal, () => census('story-jobs', productId, page, limit), productId),
   }
 }
 
@@ -1351,6 +1509,14 @@ async function readRuntimeInput(
     observationDestination.close()
     throw new Error('controlled_runtime_input_invalid')
   }
+  if (
+    path.basename(parsed.originalPath) !== parsed.pilotManifest.original.filename
+    || createHash('sha256').update(original).digest('hex') !== parsed.pilotManifest.original.contentDigest
+  ) {
+    receiptDestination.close()
+    observationDestination.close()
+    throw new Error('controlled_runtime_input_invalid')
+  }
   return {
     receiptDestination,
     observationDestination,
@@ -1835,6 +2001,7 @@ export function createControlledFreshCandidateReceiptPersistence(params: {
 type ControlledTerminalClient = {
   end(): Promise<unknown>
   unref?(): void
+  connection?: { stream?: { destroy(): unknown; destroyed?: boolean } }
 }
 
 type ControlledTerminalPool = {
@@ -1908,6 +2075,24 @@ export function createControlledFreshCandidateTerminalResourceRegistry(params: {
   let poolShutdownStarted = false
   let poolShutdownSettled = false
   let poolShutdownPending = 0
+  const cleanupBudget = controlledFreshCandidateBudgetForScope(params.scope)
+  const cleanupClients = new Set<ControlledTerminalClient>()
+  const countClientCleanup = (client: ControlledTerminalClient) => {
+    if (!cleanupClients.has(client)) { cleanupClients.add(client); cleanupBudget.cleanup() }
+  }
+  registerControlledFreshCandidatePhysicalShutdown(params.scope, () => {
+    terminalizationFailed = true
+    params.mutationActive.current = false
+    controlledFreshCandidateBudgetForScope(params.scope).markUncertain()
+    for (const client of new Set([...clients, ...poolClients.keys()])) {
+      countClientCleanup(client)
+      try { client.connection?.stream?.destroy() } catch { /* physical certainty is never inferred */ }
+    }
+    if (!dispatcherStarted) { dispatcherStarted = true; cleanupBudget.cleanup(); void Promise.resolve().then(() => params.dispatcher.destroy()).catch(() => undefined) }
+    for (const pool of new Set([...pools, ...(fallbackPool ? [fallbackPool] : [])])) {
+      if (!startedPools.has(pool)) { startedPools.add(pool); cleanupBudget.cleanup(); void Promise.resolve().then(() => pool.end()).catch(() => undefined) }
+    }
+  })
 
   const observeResources = (): void => {
     try {
@@ -1937,12 +2122,14 @@ export function createControlledFreshCandidateTerminalResourceRegistry(params: {
         const resourceOperations: Promise<unknown>[] = []
         if (!dispatcherStarted) {
           dispatcherStarted = true
+          cleanupBudget.cleanup()
           resourceOperations.push(Promise.resolve().then(() => params.dispatcher.destroy()))
         }
         for (const client of clients) {
           if (poolClients.has(client)) continue
           if (startedClients.has(client)) continue
           startedClients.add(client)
+          countClientCleanup(client)
           resourceOperations.push(Promise.resolve().then(async () => {
             try { await client.end() } finally {
               clients.delete(client)
@@ -1965,6 +2152,7 @@ export function createControlledFreshCandidateTerminalResourceRegistry(params: {
           }
           if (!state.checkedOut || state.releaseStarted) continue
           state.releaseStarted = true
+          for (const [client, clientState] of poolClients) if (clientState === state) countClientCleanup(client)
           destructiveReleaseRequested += 1
           observeResources()
           resourceOperations.push(Promise.resolve().then(() => {
@@ -1978,10 +2166,15 @@ export function createControlledFreshCandidateTerminalResourceRegistry(params: {
         }
         if (payload && !payloadStarted) {
           payloadStarted = true
+          cleanupBudget.cleanup()
           resourceOperations.push(Promise.resolve().then(() => payload?.destroy()))
         }
         if (resourceOperations.length > 0) {
-          const results = await Promise.allSettled(resourceOperations)
+          const results = await controlledFreshCandidateBoundedShutdown(params.scope, Promise.allSettled(resourceOperations), () => {
+            for (const client of new Set([...clients, ...poolClients.keys()])) {
+              try { client.connection?.stream?.destroy() } catch { /* physical closure uncertain */ }
+            }
+          })
           if (results.some((result) => result.status === 'rejected')) terminalizationFailed = true
           continue
         }
@@ -1993,6 +2186,8 @@ export function createControlledFreshCandidateTerminalResourceRegistry(params: {
           const governed = [...poolClients.values()].filter((state) => state.pool === pool)
           if (governed.some((state) => state.acquisitionPending || state.checkedOut)) continue
           startedPools.add(pool)
+          cleanupBudget.cleanup()
+          for (const [client, state] of poolClients) if (state.pool === pool) countClientCleanup(client)
           poolShutdownStarted = true
           poolShutdownPending += 1
           poolShutdownSettled = false
@@ -2017,6 +2212,7 @@ export function createControlledFreshCandidateTerminalResourceRegistry(params: {
         }
         if (fallbackPool && !pools.has(fallbackPool) && !fallbackPoolStarted) {
           fallbackPoolStarted = true
+          cleanupBudget.cleanup()
           poolShutdownStarted = true
           poolShutdownPending += 1
           poolShutdownSettled = false
@@ -2028,7 +2224,11 @@ export function createControlledFreshCandidateTerminalResourceRegistry(params: {
           }))
         }
         if (poolOperations.length === 0) break
-        const results = await Promise.allSettled(poolOperations)
+        const results = await controlledFreshCandidateBoundedShutdown(params.scope, Promise.allSettled(poolOperations), () => {
+          for (const client of poolClients.keys()) {
+            try { client.connection?.stream?.destroy() } catch { /* physical closure uncertain */ }
+          }
+        })
         if (results.some((result) => result.status === 'rejected')) terminalizationFailed = true
       }
       if (terminalizationFailed) throw new Error('controlled_runtime_teardown_failed')
@@ -2036,7 +2236,7 @@ export function createControlledFreshCandidateTerminalResourceRegistry(params: {
     running = pass
     pass.then(
       () => { if (running === pass) running = null },
-      () => { if (running === pass) running = null },
+      () => { terminalizationFailed = true },
     )
     return pass
   }
@@ -2196,6 +2396,7 @@ export function createControlledFreshCandidateDatabaseAdapter(params: {
   postgresModule: typeof import('@payloadcms/db-postgres')
   pg: typeof import('pg')
   pool: import('pg').PoolConfig
+  runtimeBudget?: ControlledFreshCandidateRuntimeBudget
 }) {
   configureControlledFreshCandidateProcessBoundary()
   const installedDatabaseAdapter = params.postgresModule.postgresAdapter({
@@ -2239,7 +2440,55 @@ export function createControlledFreshCandidateDatabaseAdapter(params: {
         if (this.disableCreateDatabase !== true || this.push !== false) {
           throw new Error('controlled_runtime_database_management_contract_missing')
         }
-        return installedConnect.apply(this, connectArgs)
+        if (this.pool) throw new Error('controlled_runtime_adapter_reconnect_forbidden')
+        if (params.runtimeBudget) {
+          const { getTableName, getTableColumns } = await import('drizzle-orm')
+          if (!isPlainRecord(this.tables)) throw new Error('CONTROLLED_SQL_SCHEMA_MISSING')
+          const columns = new Map<string, ReadonlySet<string>>()
+          const encoders = new Map<string, ReadonlyMap<string, (value: unknown) => unknown>>()
+          for (const table of Object.values(this.tables)) {
+            const name = getTableName(table as never)
+            const names = Object.values(getTableColumns(table as never)).map((column) => (column as { name: string }).name)
+            if (columns.has(name)) throw new Error('CONTROLLED_SQL_SCHEMA_AMBIGUOUS')
+            columns.set(name, new Set(names))
+            encoders.set(name, new Map(Object.values(getTableColumns(table as never)).map((column) => {
+              const encoder = column as { name: string; mapToDriverValue(value: unknown): unknown }
+              return [encoder.name, (value: unknown) => encoder.mapToDriverValue(value)]
+            })))
+          }
+          params.runtimeBudget.registerSqlColumns(columns, encoders)
+        }
+        const acquired = new Set<import('pg').PoolClient>()
+        const restore: Array<() => void> = []
+        const BasePool = this.pg.Pool
+        // Only the installed bootstrap checkout receives this short-lived
+        // facade. Suppress its unbounded ECONNRESET reconnect listener.
+        const BootstrapPool = new Proxy(BasePool, { construct(target, args, newTarget) {
+          const pool = Reflect.construct(target, args, newTarget) as import('pg').Pool
+          const connect = pool.connect
+          pool.connect = (async () => {
+            const client = await connect.call(pool)
+            acquired.add(client)
+            // A separate facade avoids Proxy invariant violations against the
+            // controlled client's immutable prependListener property.
+            return Object.freeze({ prependListener(event: string) {
+              if (event !== 'error') throw new Error('controlled_runtime_bootstrap_contract_changed')
+              return this
+            } }) as unknown as import('pg').PoolClient
+          }) as typeof pool.connect
+          restore.push(() => { pool.connect = connect })
+          return pool
+        } })
+        this.pg = { ...this.pg, Pool: BootstrapPool }
+        try { return await (params.runtimeBudget
+          ? params.runtimeBudget.withSqlPhase({ phase: 'bootstrap', maximumStatements: 8 }, () => installedConnect.apply(this, connectArgs))
+          : installedConnect.apply(this, connectArgs)) } finally {
+          // Restore normal acquisition before any application work. Capacity
+          // stays exactly one; bootstrap success AND failure release ownership.
+          this.pg = { ...this.pg, Pool: BasePool }
+          for (const restoreConnect of restore) restoreConnect()
+          for (const client of acquired) client.release()
+        }
       }
       return adapter
     },
@@ -2252,6 +2501,7 @@ async function createPayloadBoundary(params: {
   mutationActive: { current: boolean }
   scratchDirectory: string
   scope: ControlledFreshCandidateOperationScope
+  runtimeBudget: ControlledFreshCandidateRuntimeBudget
   observeResources?: (resources: ControlledFreshCandidateObservationResources) => void
 }): Promise<{
   payload: ControlledRuntimePayload
@@ -2317,8 +2567,18 @@ async function createPayloadBoundary(params: {
       () => undefined,
     )
   }
+  const SecurePostgresClient = createControlledFreshCandidateSecurePgClientConstructor(
+    pgModule.Client as unknown as import('./controlled-fresh-candidate-pg-security').ControlledFreshCandidatePgClientConstructor,
+    {
+      clientConstructed: params.runtimeBudget.clientConstructed,
+      connectionAttempted: params.runtimeBudget.connectionAttempted,
+      sql: params.runtimeBudget.sql,
+      channelBindingConfirmed: params.runtimeBudget.channelBindingConfirmed,
+      securityRejected: governedPoolError,
+    },
+  ) as unknown as typeof pgModule.Client
   let ControlledPostgresClient: typeof pgModule.Client
-  ControlledPostgresClient = new Proxy(pgModule.Client, {
+  ControlledPostgresClient = new Proxy(SecurePostgresClient, {
     construct(target, args, newTarget) {
       params.scope.assertActive()
       const client = Reflect.construct(target, args, newTarget) as InstanceType<typeof pgModule.Client>
@@ -2332,10 +2592,19 @@ async function createPayloadBoundary(params: {
   const ControlledPostgresPool = createControlledFreshCandidatePoolConstructor({
     basePool: pgModule.Pool,
     onClient: terminalResources.registerPoolClient,
-    onClientAcquired: terminalResources.registerPoolClientAcquisition,
-    onClientReleased: terminalResources.registerPoolClientRelease,
+    onClientAcquired(client, pool, release) {
+      params.runtimeBudget.clientAcquired()
+      terminalResources.registerPoolClientAcquisition(client, pool, release)
+    },
+    onClientReleased(client, pool, succeeded, destructionRequested) {
+      params.runtimeBudget.clientReleased()
+      terminalResources.registerPoolClientRelease(client, pool, succeeded, destructionRequested)
+    },
     onClientDestroyed: terminalResources.registerPoolClientDestruction,
-    onConstructed: terminalResources.registerPool,
+    onConstructed(pool) {
+      params.runtimeBudget.poolConstructed()
+      terminalResources.registerPool(pool)
+    },
     onPoolAcquisitionStarted: terminalResources.registerPoolAcquisition,
     onUnexpectedError: governedPoolError,
     canConstruct: () => params.scope.state === 'OPEN',
@@ -2351,15 +2620,22 @@ async function createPayloadBoundary(params: {
     name: 'controlled-vercel-blob',
     generateURL: ({ filename }: { filename: string }) => `${baseUrl}/${encodeURIComponent(filename)}`,
     handleDelete: async () => { throw new Error('controlled_storage_delete_denied') },
-    handleUpload: async ({ file }: { file: { buffer: Buffer; filename: string; mimeType: string } }) => {
+    handleUpload: serializeControlledFreshCandidateUploads(async ({ file }: { file: { buffer: Buffer; filename: string; mimeType: string } }) => {
       if (!params.mutationActive.current) throw new Error('controlled_mutation_capability_revoked')
       const callbacks = params.uploadCallbacks.current
       if (!callbacks) throw new Error('controlled_upload_callbacks_missing')
-      await callbacks.beforeUpload(file.filename)
+      const metadata = await sharpModule.default(file.buffer, { limitInputPixels: 40_000_000 }).metadata()
+      if (!metadata.width || !metadata.height) throw new Error('controlled_blob_dimensions_missing')
+      await callbacks.beforeUpload(file.filename, {
+        key: file.filename, contentDigest: createHash('sha256').update(file.buffer).digest('hex'),
+        byteSize: file.buffer.byteLength, mimeType: file.mimeType as 'image/jpeg' | 'image/png' | 'image/webp',
+        width: metadata.width, height: metadata.height,
+      })
       params.scope.assertActive()
       if (!params.mutationActive.current) throw new Error('controlled_mutation_capability_revoked')
       let completed = false
       try {
+        params.runtimeBudget.blobCall()
         const result = await blobModule.put(file.filename, file.buffer, {
           access: 'public',
           addRandomSuffix: false,
@@ -2375,13 +2651,15 @@ async function createPayloadBoundary(params: {
         }
         await callbacks.afterUpload(file.filename)
         completed = true
-        return { filename: file.filename }
+        // The installed cloud afterChange hook calls payload.update() whenever
+        // a handler returns metadata. Blob evidence lives in the receipt only.
+        return undefined
       } finally {
         if (!completed) {
           try { await callbacks.uploadUncertain(file.filename) } catch { /* receipt failure already closes the boundary */ }
         }
       }
-    },
+    }),
     staticHandler: async () => { throw new Error('controlled_runtime_server_disabled') },
   })
 
@@ -2390,6 +2668,7 @@ async function createPayloadBoundary(params: {
     if (!controlledFreshCandidateFilenameIsApproved(expected, data.filename)) {
       throw new Error('controlled_media_filename_changed')
     }
+    params.runtimeBudget.capturePreparedDocument(data)
     return data
   }
   const isolatedMedia = {
@@ -2403,25 +2682,32 @@ async function createPayloadBoundary(params: {
       staticDir: params.scratchDirectory,
     },
   }
-  const poolOptions = {
+  const poolOptions = controlledFreshCandidateSecurePgConfig(databaseUri, {
     Client: ControlledPostgresClient,
-    connectionString: databaseUri,
+    max: 1,
+    min: 0,
     connectionTimeoutMillis: 10_000,
     idleTimeoutMillis: 1_000,
     statement_timeout: 40_000,
     query_timeout: 42_000,
     lock_timeout: 10_000,
     idle_in_transaction_session_timeout: 40_000,
-    ssl: databaseUri.includes('neon.tech') ? { rejectUnauthorized: false } : undefined,
-  }
+  }) as import('pg').PoolConfig
   const controlledDatabaseAdapter = createControlledFreshCandidateDatabaseAdapter({
     postgresModule,
     pg: controlledPgModule,
     pool: poolOptions,
+    runtimeBudget: params.runtimeBudget,
   })
   const baseConfig = {
-    collections: [Products, Variants, isolatedMedia, Brands, Categories, BlogPosts, ImageGenerationJobs, BotEvents, StoryJobs],
+    collections: [{ ...Products, hooks: { ...Products.hooks, beforeChange: [...(Products.hooks?.beforeChange ?? []),
+      async ({ data, operation }: { data: RecordValue; operation: string }) => {
+        if (operation === 'create') params.runtimeBudget.capturePreparedDocument(data)
+        return data
+      }] } }, Variants, isolatedMedia, Brands, Categories, BlogPosts, ImageGenerationJobs, BotEvents, StoryJobs],
     jobs: { tasks: [] },
+    typescript: { autoGenerate: false },
+    telemetry: false,
     db: controlledDatabaseAdapter,
     editor: lexicalModule.lexicalEditor(),
     secret: payloadSecret,
@@ -2434,8 +2720,10 @@ async function createPayloadBoundary(params: {
   const config = payloadModule.buildConfig(storageConfig as Parameters<typeof payloadModule.buildConfig>[0])
   let payload: ControlledRuntimePayload
   try {
-    payload = await payloadModule.getPayload({ config }) as unknown as ControlledRuntimePayload
+    const ownedPayload = new payloadModule.BasePayload()
+    payload = ownedPayload as unknown as ControlledRuntimePayload
     terminalResources.registerPayload(payload)
+    await ownedPayload.init({ config, disableOnInit: true })
     if (params.scope.signal.aborted) {
       await terminalResources.terminalizeOwnedResources()
       throw new Error('controlled_runtime_deadline')
@@ -2462,6 +2750,7 @@ export async function initializeControlledFreshCandidateCreationRuntime(
   const scope = providedScope ?? createControlledFreshCandidateOperationScope({
     timeoutMs: CONTROLLED_FRESH_CANDIDATE_EXECUTION_TIMEOUT_MS,
   })
+  const runtimeBudget = controlledFreshCandidateBudgetForScope(scope)
   const uploadCallbacks = { current: null as import('../src/lib/controlledFreshCandidateCreation').ControlledFreshCandidateUploadCallbacks | null }
   const expectedFilename = { current: null as string | null }
   const mutationActive = { current: false }
@@ -2480,12 +2769,13 @@ export async function initializeControlledFreshCandidateCreationRuntime(
       let ok = true
       if (payloadBoundaryPromise) {
         try {
-          const boundary = await payloadBoundaryPromise
-          await boundary.terminalizeOwnedResources()
+          const boundary = await controlledFreshCandidateBoundedShutdown(scope, payloadBoundaryPromise)
+          await controlledFreshCandidateBoundedShutdown(scope, boundary.terminalizeOwnedResources())
         } catch { ok = false }
       }
       if (scratchDirectory) {
-        try { await rm(scratchDirectory, { recursive: true, force: true }) } catch { ok = false }
+        runtimeBudget.cleanup()
+        try { await controlledFreshCandidateBoundedShutdown(scope, rm(scratchDirectory, { recursive: true, force: true })) } catch { ok = false; runtimeBudget.markUncertain() }
       }
       return ok ? { ok: true as const } : { ok: false as const }
     })()
@@ -2494,7 +2784,9 @@ export async function initializeControlledFreshCandidateCreationRuntime(
   const closeAuthorityResources = () => {
     authorityClosurePromise ??= (async () => {
       let ok = true
+      if (receiptDestination) runtimeBudget.cleanup()
       try { receiptDestination?.close() } catch { ok = false }
+      if (ledger) runtimeBudget.cleanup()
       try { ledger?.close() } catch { ok = false }
       receiptDestination = null
       ledger = null
@@ -2502,6 +2794,25 @@ export async function initializeControlledFreshCandidateCreationRuntime(
     })()
     return authorityClosurePromise
   }
+  const closeObservationResources = () => {
+    const ownedObservation = observation
+    const ownedDestination = observationDestination
+    observation = null
+    observationDestination = null
+    if (ownedObservation || ownedDestination) runtimeBudget.cleanup()
+    try {
+      if (ownedObservation) ownedObservation.close()
+      else ownedDestination?.close()
+    } catch { runtimeBudget.markUncertain(); throw new Error('controlled_observation_close_failed') }
+  }
+  registerControlledFreshCandidatePhysicalShutdown(scope, () => {
+    mutationActive.current = false
+    // Synchronous private-handle closure must be accounted before the terminal
+    // deadline report, even when asynchronous pool/dispatcher cleanup stalls.
+    void closeAuthorityResources().then((result) => { if (!result.ok) runtimeBudget.markUncertain() })
+      .catch(() => runtimeBudget.markUncertain())
+    closeObservationResources()
+  })
   // This owner is installed before the first authority read or initialization.
   scope.registerCancellation(async () => {
     const teardownResult = await teardown()
@@ -2531,8 +2842,7 @@ export async function initializeControlledFreshCandidateCreationRuntime(
       mode: 'create',
     })
   } catch (error) {
-    receiptDestination.close()
-    observationDestination.close()
+    closeObservationResources()
     await teardown()
     await closeAuthorityResources()
     throw error
@@ -2564,11 +2874,15 @@ export async function initializeControlledFreshCandidateCreationRuntime(
           mutationActive,
           scratchDirectory,
           scope,
+          runtimeBudget,
           observeResources: (resources) => observation?.observeResources(resources),
         })
       })()
     }
     const boundary = await payloadBoundaryPromise
+    // The real schema is available after read-only adapter initialization and
+    // must pass before stock qualification, transactions or application writes.
+    resolveControlledFinalizationTableAuthority(boundary.payload, boundary.payload.db as Record<string, unknown>)
     assertMutation(signal)
     return boundary
   }
@@ -2582,7 +2896,8 @@ export async function initializeControlledFreshCandidateCreationRuntime(
     async stockExists(stockCandidate, signal) {
       const { payload } = await ensurePayloadBoundary(signal)
       assertMutation(signal)
-      const result = normalizePayloadPage(await payload.find({
+      runtimeBudget.applicationRead('products')
+      const result = normalizePayloadPage(await runtimeBudget.withSqlPhase({ phase: 'stock', table: 'products', identity: stockCandidate }, () => payload.find({
         collection: 'products',
         where: { stockNumber: { equals: stockCandidate } },
         depth: 0,
@@ -2591,7 +2906,7 @@ export async function initializeControlledFreshCandidateCreationRuntime(
         sort: 'id',
         overrideAccess: true,
         pagination: true,
-      }), 1, 2)
+      })), 1, 2)
       assertMutation(signal)
       return result.totalDocs > 0
     },
@@ -2605,7 +2920,7 @@ export async function initializeControlledFreshCandidateCreationRuntime(
       assertMutation(signal)
       const req = request as { transactionID?: unknown }
       if (!isPlainRecord(payload.db) || typeof payload.db.beginTransaction !== 'function') return false
-      const transactionId = await payload.db.beginTransaction()
+      const transactionId = await runtimeBudget.withSqlPhase({ phase: 'begin', maximumStatements: 1 }, () => (payload.db as { beginTransaction(): Promise<unknown> }).beginTransaction())
       assertMutation(signal)
       if (typeof transactionId !== 'string' || !transactionId) return false
       req.transactionID = transactionId
@@ -2614,7 +2929,11 @@ export async function initializeControlledFreshCandidateCreationRuntime(
     async createProduct(request, data, signal) {
       const { payload } = await ensurePayloadBoundary(signal)
       assertMutation(signal)
-      return payload.create({ collection: 'products', data, req: request, depth: 0, overrideAccess: true })
+      runtimeBudget.applicationMutation('products')
+      const created = await runtimeBudget.withSqlPhase({ phase: 'product-create', table: 'products', data }, () =>
+        payload.create({ collection: 'products', data, req: request, depth: 0, overrideAccess: true }))
+      runtimeBudget.recordCreatedIdentity('products', isPlainRecord(created) ? created.id : null)
+      return created
     },
     async commitProductTransaction(request, signal) {
       const { payload } = await ensurePayloadBoundary(signal)
@@ -2623,7 +2942,7 @@ export async function initializeControlledFreshCandidateCreationRuntime(
       if (!isPlainRecord(payload.db) || typeof payload.db.commitTransaction !== 'function' || typeof req.transactionID !== 'string') {
         throw new Error('controlled_transaction_unavailable')
       }
-      await payload.db.commitTransaction(req.transactionID)
+      await runtimeBudget.withSqlPhase({ phase: 'commit', maximumStatements: 1 }, () => (payload.db as { commitTransaction(id: string): Promise<void> }).commitTransaction(req.transactionID as string))
       assertMutation(signal)
       delete req.transactionID
     },
@@ -2636,11 +2955,13 @@ export async function initializeControlledFreshCandidateCreationRuntime(
       }
       const transactionId = req.transactionID
       delete req.transactionID
-      await payload.db.rollbackTransaction(transactionId)
+      await runtimeBudget.withSqlPhase({ phase: 'rollback', maximumStatements: 1 }, () => (payload.db as { rollbackTransaction(id: string): Promise<void> }).rollbackTransaction(transactionId))
     },
     async readProduct(productId, signal) {
       const { payload } = await ensurePayloadBoundary(signal)
-      const result = await payload.findByID({ collection: 'products', id: productId, depth: 0, disableErrors: true, overrideAccess: true })
+      runtimeBudget.applicationRead('products')
+      const result = await runtimeBudget.withSqlPhase({ phase: 'read', table: 'products', identity: productId }, () =>
+        payload.findByID({ collection: 'products', id: productId, depth: 0, disableErrors: true, overrideAccess: true }))
       assertMutation(signal)
       return result
     },
@@ -2650,14 +2971,18 @@ export async function initializeControlledFreshCandidateCreationRuntime(
       uploadCallbacks.current = params.uploads
       expectedFilename.current = params.file.name
       try {
-        return await payload.create({
+        runtimeBudget.applicationMutation('media')
+        const created = await runtimeBudget.withSqlPhase({ phase: 'media-create', table: 'media',
+          data: { ...params.data, filename: params.file.name, mimeType: params.file.mimetype, filesize: params.file.size } }, () => payload.create({
           collection: 'media',
           data: params.data,
           file: params.file,
           depth: 0,
           overrideAccess: true,
           overwriteExistingFiles: false,
-        })
+        }))
+        runtimeBudget.recordCreatedIdentity('media', isPlainRecord(created) ? created.id : null)
+        return created
       } finally {
         uploadCallbacks.current = null
         expectedFilename.current = null
@@ -2665,14 +2990,20 @@ export async function initializeControlledFreshCandidateCreationRuntime(
     },
     async readMedia(mediaId, signal) {
       const { payload } = await ensurePayloadBoundary(signal)
-      const result = await payload.findByID({ collection: 'media', id: mediaId, depth: 0, disableErrors: true, overrideAccess: true })
+      runtimeBudget.applicationRead('media')
+      const result = await runtimeBudget.withSqlPhase({ phase: 'read', table: 'media', identity: mediaId, identityField: 'id' }, () =>
+        payload.findByID({ collection: 'media', id: mediaId, depth: 0, disableErrors: true, overrideAccess: true }))
       assertMutation(signal)
       return result
     },
     async updateProductRelationship(productId, mediaId, signal) {
       const { payload } = await ensurePayloadBoundary(signal)
       assertMutation(signal)
-      return payload.update({ collection: 'products', id: productId, data: { images: [{ image: mediaId }] }, depth: 0, overrideAccess: true })
+      runtimeBudget.applicationMutation('products')
+      const { createLocalReq } = await import('payload')
+      const req = await createLocalReq({ context: { isVisualStatusUpdate: true } }, payload as never)
+      return runtimeBudget.withSqlPhase({ phase: 'relationship', table: 'products', identity: productId, maximumStatements: 12 }, () =>
+        payload.update({ collection: 'products', id: productId, data: { images: { $push: [{ id: randomUUID(), image: mediaId }] } }, req, depth: 0, overrideAccess: true }))
     },
     async finalizeProduct(params) {
       const { payload } = await ensurePayloadBoundary(params.signal)
@@ -2680,6 +3011,7 @@ export async function initializeControlledFreshCandidateCreationRuntime(
         payload,
         scope,
         mutationActive,
+        runtimeBudget,
         ...params,
       })
     },
@@ -2704,11 +3036,8 @@ export async function initializeControlledFreshCandidateCreationRuntime(
     failObservation() {
       observation?.fail()
     },
-    closeObservation() {
-      observation?.close()
-      observation = null
-      observationDestination = null
-    },
+    closeObservation: closeObservationResources,
+    runtimeBudgetReport: runtimeBudget.report,
     async destroy() {
       let ok = true
       try { await scope.cancel() } catch { ok = false }
@@ -2727,6 +3056,7 @@ export async function initializeControlledFreshCandidateVerificationRuntime(
   const scope = providedScope ?? createControlledFreshCandidateOperationScope({
     timeoutMs: CONTROLLED_FRESH_CANDIDATE_EXECUTION_TIMEOUT_MS,
   })
+  const runtimeBudget = controlledFreshCandidateBudgetForScope(scope)
   const uploadCallbacks = { current: null as import('../src/lib/controlledFreshCandidateCreation').ControlledFreshCandidateUploadCallbacks | null }
   const expectedFilename = { current: null as string | null }
   const mutationActive = { current: false }
@@ -2737,21 +3067,52 @@ export async function initializeControlledFreshCandidateVerificationRuntime(
   let scratchDirectory: string | null = null
   let payloadBoundaryPromise: Promise<Awaited<ReturnType<typeof createPayloadBoundary>>> | null = null
   let teardownPromise: Promise<{ ok: true } | { ok: false }> | null = null
+  let authorityClosureResult: { ok: true } | { ok: false } | null = null
+  const closeAuthorityResources = () => {
+    if (authorityClosureResult) return authorityClosureResult
+    let ok = true
+    const ownedReceipt = receiptDestination
+    const ownedLedger = ledger
+    receiptDestination = null
+    ledger = null
+    if (ownedReceipt) runtimeBudget.cleanup()
+    try { ownedReceipt?.close() } catch { ok = false; runtimeBudget.markUncertain() }
+    if (ownedLedger) runtimeBudget.cleanup()
+    try { ownedLedger?.close() } catch { ok = false; runtimeBudget.markUncertain() }
+    authorityClosureResult = ok ? { ok: true as const } : { ok: false as const }
+    return authorityClosureResult
+  }
+  const closeObservationResources = () => {
+    const ownedObservation = observation
+    const ownedDestination = observationDestination
+    observation = null
+    observationDestination = null
+    if (ownedObservation || ownedDestination) runtimeBudget.cleanup()
+    try {
+      if (ownedObservation) ownedObservation.close()
+      else ownedDestination?.close()
+    } catch { runtimeBudget.markUncertain(); throw new Error('controlled_observation_close_failed') }
+  }
+  registerControlledFreshCandidatePhysicalShutdown(scope, () => {
+    mutationActive.current = false
+    closeAuthorityResources()
+    closeObservationResources()
+  })
   const teardown = () => {
     teardownPromise ??= (async () => {
       mutationActive.current = false
       let ok = true
       if (payloadBoundaryPromise) {
         try {
-          const boundary = await payloadBoundaryPromise
-          await boundary.terminalizeOwnedResources()
+          const boundary = await controlledFreshCandidateBoundedShutdown(scope, payloadBoundaryPromise)
+          await controlledFreshCandidateBoundedShutdown(scope, boundary.terminalizeOwnedResources())
         } catch { ok = false }
       }
       if (scratchDirectory) {
-        try { await rm(scratchDirectory, { recursive: true, force: true }) } catch { ok = false }
+        runtimeBudget.cleanup()
+        try { await controlledFreshCandidateBoundedShutdown(scope, rm(scratchDirectory, { recursive: true, force: true })) } catch { ok = false; runtimeBudget.markUncertain() }
       }
-      try { receiptDestination?.close() } catch { ok = false }
-      try { ledger?.close() } catch { ok = false }
+      if (!closeAuthorityResources().ok) ok = false
       return ok ? { ok: true as const } : { ok: false as const }
     })()
     return teardownPromise
@@ -2795,10 +3156,14 @@ export async function initializeControlledFreshCandidateVerificationRuntime(
       expectedReceiptDestinationDigest: destinationDigest,
       consume: createControlledFreshCandidateDurableReceiptConsumer(ledger),
     })
+    const authorizedReceipt = readControlledFreshCandidateCapability(capability)
+    runtimeBudget.recordCreatedIdentity('products', authorizedReceipt.product.id)
+    runtimeBudget.recordCreatedIdentity('media', authorizedReceipt.media.id)
   } catch (error) {
     await teardown()
     throw error
   }
+  runtimeBudget.cleanup()
   receiptDestination.close()
   receiptDestination = null
   try {
@@ -2822,7 +3187,7 @@ export async function initializeControlledFreshCandidateVerificationRuntime(
       poolShutdownSettled: false,
     })
   } catch (error) {
-    try { observationDestination?.close() } catch { /* sanitized initialization failure */ }
+    try { closeObservationResources() } catch { /* sanitized initialization failure */ }
     await teardown()
     throw error
   }
@@ -2837,6 +3202,7 @@ export async function initializeControlledFreshCandidateVerificationRuntime(
       mutationActive,
       scratchDirectory: scratchDirectory as string,
       scope,
+      runtimeBudget,
       observeResources: (resources) => observation?.observeResources(resources),
     })
   } catch (error) {
@@ -2852,7 +3218,33 @@ export async function initializeControlledFreshCandidateVerificationRuntime(
   return {
     capability,
     dependencies: {
-      gateway: createStrictGateway(payload, pool, scope),
+      gateway: createStrictGateway(payload, pool, scope, runtimeBudget),
+      async readBlobSet(expected, signal, snapshot) {
+        const token = process.env.BLOB_READ_WRITE_TOKEN ?? ''
+        const storeId = token.match(/^vercel_blob_rw_([a-z\d]+)_[a-z\d]+$/iu)?.[1]?.toLowerCase()
+        if (!storeId) throw new Error('CONTROLLED_BLOB_STORE_INVALID')
+        const origin = `https://${storeId}.public.blob.vercel-storage.com`
+        const blob = await import('@vercel/blob')
+        return observeControlledFreshCandidateBlobSet({ expected, origin, signal, budget: runtimeBudget, io: {
+          async list(prefix) {
+            const result = await blob.list({ prefix, limit: 5, token })
+            return { keys: result.blobs.map((item) => item.pathname), hasMore: result.hasMore }
+          },
+          async head(key) {
+            const result = await blob.head(`${origin}/${key}`, { token })
+            return { key: result.pathname, url: result.url, byteSize: result.size, mimeType: result.contentType }
+          },
+          async read(key, url, readSignal) {
+            if (key === snapshot.media[0]?.filename && snapshot.originalEvidence?.ok) return snapshot.originalEvidence
+            const evidence = await readVisualPilotMediaEvidence({ url, mimeType: expected.find((item) => item.key === key)?.mimeType }, {
+              signal: readSignal, maxRedirects: 0, maxBytes: expected.find((item) => item.key === key)?.byteSize,
+              canonicalOrigin: origin, timeoutMs: Math.max(1, Math.min(15_000, scope.deadline - Date.now())),
+            })
+            if (!evidence.ok) throw new Error('CONTROLLED_BLOB_CONTENT_UNAVAILABLE')
+            return evidence
+          },
+        } })
+      },
       mediaRead: { canonicalOrigin: process.env.NEXT_PUBLIC_SERVER_URL ?? 'https://www.uygunayakkabi.com' },
       operationScope: scope,
       teardown,
@@ -2864,11 +3256,8 @@ export async function initializeControlledFreshCandidateVerificationRuntime(
     failObservation() {
       observation?.fail()
     },
-    closeObservation() {
-      observation?.close()
-      observation = null
-      observationDestination = null
-    },
+    closeObservation: closeObservationResources,
+    runtimeBudgetReport: runtimeBudget.report,
     async destroy() {
       let ok = true
       try { await scope.cancel() } catch { ok = false }

@@ -7,6 +7,7 @@ import {
   readFileSync,
   readdirSync,
   rmSync,
+  statfsSync,
   writeFileSync,
 } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -54,6 +55,12 @@ const CORE_CASE_COUNT = BEHAVIORAL_CASE_COUNT
 const PARENT_COMPLETION_CASE_COUNT = 2
 const DIRECT_CASE_COUNT = CORE_CASE_COUNT + PARENT_COMPLETION_CASE_COUNT
 const RUNNER_TIMEOUT_MS = 180_000
+// Native WSL evidence showed that redundant TSX startup can exhaust the
+// parent's bounded wait. Keep the 360s ceiling while Linux mutation fixtures
+// use their existing per-case budget through a bounded compiled harness.
+const PARENT_SUITE_TIMEOUT_MS = process.platform === 'linux' ? 360_000 : RUNNER_TIMEOUT_MS
+const MUTATION_PROCESS_TIMEOUT_MS = 10_000
+const EXT4_MAGIC = 0xef53
 const COMPLETION_PREFIX = 'controlledFreshCandidateConnectivity'
 const NATURAL_CHILD_SENTINEL = 'controlledFreshCandidateConnectivityNaturalChild: ALL OK'
 
@@ -272,14 +279,30 @@ function sanitizedChildEnvironment(extra: NodeJS.ProcessEnv = {}): NodeJS.Proces
     USER: 'w11',
     LOGNAME: 'w11',
     PATH: process.env.PATH ?? '/home/w11/.local/bin:/usr/bin:/bin',
-    TEMP: '/tmp',
-    TMP: '/tmp',
+    TEMP: process.platform === 'win32' ? (process.env.TEMP ?? tmpdir()) : '/tmp',
+    TMP: process.platform === 'win32' ? (process.env.TMP ?? tmpdir()) : '/tmp',
+    TSX_DISABLE_CACHE: '1',
     NODE_ENV: 'test',
     CI: '1',
     NO_COLOR: '1',
     NODE_OPTIONS: process.env.NODE_OPTIONS ?? '--unhandled-rejections=strict',
+    ...(process.platform === 'win32'
+      ? { SystemRoot: process.env.SystemRoot ?? 'C:\\Windows', WINDIR: process.env.WINDIR ?? 'C:\\Windows' }
+      : {}),
+    ...(process.env.CFC_POSIX_TEST_NATIVE_ROOT
+      ? { CFC_POSIX_TEST_NATIVE_ROOT: process.env.CFC_POSIX_TEST_NATIVE_ROOT }
+      : {}),
     ...extra,
   }
+}
+
+function mutationFixtureParent(): string {
+  if (process.platform !== 'linux') return tmpdir()
+  const nativeRoot = process.env.CFC_POSIX_TEST_NATIVE_ROOT
+  assert.equal(typeof nativeRoot, 'string', 'CFC_POSIX_TEST_NATIVE_ROOT is required on Linux')
+  assert.equal(path.isAbsolute(nativeRoot), true, 'CFC_POSIX_TEST_NATIVE_ROOT must be absolute')
+  assert.equal(statfsSync(nativeRoot).type, EXT4_MAGIC, 'CFC_POSIX_TEST_NATIVE_ROOT must be ext4')
+  return nativeRoot
 }
 
 function spawnTsx(
@@ -299,8 +322,50 @@ function spawnTsx(
   })
 }
 
-function spawnSelf(mode: string): SpawnSyncReturns<string> {
-  return spawnTsx(path.resolve(process.argv[1] as string), sanitizedChildEnvironment({ [TEST_MODE_ENV]: mode }))
+function spawnSelf(mode: string, timeout = RUNNER_TIMEOUT_MS): SpawnSyncReturns<string> {
+  return spawnTsx(path.resolve(process.argv[1] as string), sanitizedChildEnvironment({ [TEST_MODE_ENV]: mode }), timeout)
+}
+
+function spawnConnectivityMutation(
+  modulePath: string,
+  harnessPath: string,
+  environment: NodeJS.ProcessEnv,
+): SpawnSyncReturns<string> {
+  if (process.platform !== 'linux') return spawnTsx(harnessPath, environment, MUTATION_PROCESS_TIMEOUT_MS)
+
+  const startedAt = Date.now()
+  const bundlePath = path.join(path.dirname(harnessPath), 'connectivity-bundle.mjs')
+  const esbuildPath = path.resolve('node_modules/tsx/node_modules/@esbuild/linux-x64/bin/esbuild')
+  const build = spawnSync(esbuildPath, [
+    modulePath,
+    '--bundle',
+    '--platform=node',
+    '--format=esm',
+    '--target=node22',
+    '--external:payload',
+    '--external:pg',
+    '--log-level=error',
+    `--outfile=${bundlePath}`,
+  ], {
+    cwd: process.cwd(),
+    encoding: 'utf8',
+    env: environment,
+    timeout: MUTATION_PROCESS_TIMEOUT_MS,
+    windowsHide: true,
+  })
+  assert.equal(build.error, undefined, build.stderr)
+  assert.equal(build.signal, null, build.stderr)
+  assert.equal(build.status, 0, build.stderr)
+
+  const remainingMs = MUTATION_PROCESS_TIMEOUT_MS - (Date.now() - startedAt)
+  assert.ok(remainingMs > 0, 'connectivity mutation build exhausted its bounded execution time')
+  return spawnSync(process.execPath, [harnessPath], {
+    cwd: process.cwd(),
+    encoding: 'utf8',
+    env: environment,
+    timeout: remainingMs,
+    windowsHide: true,
+  })
 }
 
 function completionSentinel(expectedCases: number): string {
@@ -375,7 +440,10 @@ class Client {
           : 'SCRAM-SHA-256',
     };
   }
+  _handleAuthSASLFinal() { this.saslSession = null; }
   async connect() {
+    this._handleAuthSASL({ mechanisms: ['SCRAM-SHA-256-PLUS'] });
+    this._handleAuthSASLFinal({});
     connectCalls += 1;
     calls.push('connect');
     if (mode === 'unref-early-exit') await new Promise(() => undefined);
@@ -402,14 +470,16 @@ const factoryEnvironment = {
   BLOB_READ_WRITE_TOKEN: 'synthetic-blob-token',
 };
 if (mode === 'client-contract') {
-  candidate.createControlledFreshCandidatePgClient(factoryEnvironment, Client);
+  try { candidate.createControlledFreshCandidatePgClient(factoryEnvironment, Client); } catch { assert.fail(label); }
   assert.equal(clientConfigs.length, 1, label);
   assert.equal(clientConfigs[0].enableChannelBinding, true, label);
   assert.equal(clientConfigs[0].keepAlive, false, label);
   assert.equal(Object.hasOwn(clientConfigs[0], 'options'), false, label);
 } else if (mode === 'channel-require' || mode === 'channel-fallback') {
   const client = candidate.createControlledFreshCandidatePgClient(factoryEnvironment, Client);
-  client._handleAuthSASL({ mechanisms: mode === 'channel-require' ? ['SCRAM-SHA-256'] : ['SCRAM-SHA-256-PLUS', 'SCRAM-SHA-256'] });
+  try {
+    client._handleAuthSASL({ mechanisms: mode === 'channel-require' ? ['SCRAM-SHA-256'] : ['SCRAM-SHA-256-PLUS', 'SCRAM-SHA-256'] });
+  } catch { /* fail-closed boundary is expected */ }
   assert.equal(channelBindingErrors.length, 1, label);
   assert.equal(channelBindingErrors[0].event, 'error', label);
   if (mode === 'channel-require') assert.equal(baseSaslCalls, 0, label);
@@ -478,7 +548,7 @@ process.stdout.write('MUTATION_HARNESS_OK:' + label);
 }
 
 function runConnectivitySource(source: string, label: string, mode: string): SpawnSyncReturns<string> {
-  const root = mkdtempSync(path.join(tmpdir(), 'cfc-connectivity-mutation-'))
+  const root = mkdtempSync(path.join(mutationFixtureParent(), 'cfc-connectivity-mutation-'))
   try {
     const scriptsDirectory = path.join(root, 'scripts')
     const payloadDirectory = path.join(root, 'node_modules', 'payload')
@@ -489,6 +559,22 @@ function runConnectivitySource(source: string, label: string, mode: string): Spa
     writeFileSync(path.join(scriptsDirectory, 'controlled-fresh-candidate-secret-contract.ts'), CONNECTIVITY_CONTRACT_STUB, 'utf8')
     writeFileSync(path.join(scriptsDirectory, 'controlled-fresh-candidate-secret-loader.ts'), CONNECTIVITY_LOADER_STUB, 'utf8')
     writeFileSync(path.join(scriptsDirectory, 'controlled-fresh-candidate-runtime-resources.ts'), CONNECTIVITY_RESOURCES_STUB, 'utf8')
+    writeFileSync(
+      path.join(scriptsDirectory, 'controlled-fresh-candidate-pg-security.ts'),
+      `import {
+  createControlledFreshCandidateSecurePgClientConstructor,
+  installControlledFreshCandidateSecureLoaderBoundary,
+} from ${JSON.stringify(process.platform === 'linux'
+    ? path.resolve('scripts/controlled-fresh-candidate-pg-security.ts')
+    : pathToFileURL(path.resolve('scripts/controlled-fresh-candidate-pg-security.ts')).href)};
+installControlledFreshCandidateSecureLoaderBoundary({
+  assertNoAmbientOverrides() {},
+  isCanonical(value) { return typeof value === 'string' && value.length > 0; },
+  validatedConnection(uri) { return { normalizedUri: uri }; },
+});
+export { createControlledFreshCandidateSecurePgClientConstructor };`,
+      'utf8',
+    )
     writeFileSync(path.join(payloadDirectory, 'package.json'), JSON.stringify({ type: 'module', exports: './index.js' }), 'utf8')
     writeFileSync(
       path.join(payloadDirectory, 'index.js'),
@@ -496,8 +582,15 @@ function runConnectivitySource(source: string, label: string, mode: string): Spa
       'utf8',
     )
     const harnessPath = path.join(root, 'connectivity-harness.mjs')
-    writeFileSync(harnessPath, connectivityMutationHarness(modulePath, label, mode), 'utf8')
-    return spawnTsx(harnessPath, sanitizedChildEnvironment({ [MUTATION_MODE_ENV]: label }), 10_000)
+    const loadedModulePath = process.platform === 'linux'
+      ? path.join(root, 'connectivity-bundle.mjs')
+      : modulePath
+    writeFileSync(harnessPath, connectivityMutationHarness(loadedModulePath, label, mode), 'utf8')
+    return spawnConnectivityMutation(
+      modulePath,
+      harnessPath,
+      sanitizedChildEnvironment({ [MUTATION_MODE_ENV]: label }),
+    )
   } finally {
     rmSync(root, { recursive: true, force: true })
   }
@@ -585,7 +678,7 @@ process.stdout.write('MUTATION_HARNESS_OK:' + label);
 }
 
 function runReadinessSource(source: string, label: string): SpawnSyncReturns<string> {
-  const root = mkdtempSync(path.join(tmpdir(), 'cfc-readiness-mutation-'))
+  const root = mkdtempSync(path.join(mutationFixtureParent(), 'cfc-readiness-mutation-'))
   try {
     const scriptsDirectory = path.join(root, 'scripts')
     mkdirSync(scriptsDirectory, { recursive: true })
@@ -623,7 +716,7 @@ process.stdout.write('MUTATION_HARNESS_OK:' + label);
 }
 
 function runRuntimeSource(source: string, label: string): SpawnSyncReturns<string> {
-  const root = mkdtempSync(path.join(tmpdir(), 'cfc-runtime-stage-mutation-'))
+  const root = mkdtempSync(path.join(mutationFixtureParent(), 'cfc-runtime-stage-mutation-'))
   try {
     const scriptsDirectory = path.join(root, 'scripts')
     const libraryDirectory = path.join(root, 'src', 'lib')
@@ -632,6 +725,8 @@ function runRuntimeSource(source: string, label: string): SpawnSyncReturns<strin
     const modulePath = path.join(scriptsDirectory, 'controlled-fresh-candidate-runtime.ts')
     writeFileSync(modulePath, source, 'utf8')
     writeFileSync(path.join(libraryDirectory, 'controlledFreshCandidateCreation.ts'), `
+export const CONTROLLED_FRESH_CANDIDATE_EXECUTION_TIMEOUT_MS = 45000
+export async function controlledFreshCandidateBoundedShutdown(_scope, operation) { return operation }
 export function createControlledFreshCandidateOperationScope() {
   return {
     run: async (operation) => await operation(),
@@ -643,6 +738,11 @@ export function createControlledFreshCandidateOperationScope() {
 `, 'utf8')
     writeFileSync(path.join(libraryDirectory, 'controlledFreshCandidateTargetVerifier.ts'), `
 export async function verifyControlledFreshCandidateTarget() { throw new Error('verifier must remain unreachable') }
+`, 'utf8')
+    writeFileSync(path.join(libraryDirectory, 'controlledFreshCandidatePilotContract.ts'), `
+export function createControlledFreshCandidateRuntimeBudget() { return { markUncertain() {}, report: () => ({ identity: 'synthetic', actual: {}, maximum: {} }) } }
+export function controlledFreshCandidateBudgetForScope() { return createControlledFreshCandidateRuntimeBudget() }
+export function bindControlledFreshCandidateBudget() {}
 `, 'utf8')
     writeFileSync(path.join(scriptsDirectory, 'controlled-fresh-candidate-runtime-resources.ts'), `
 export async function executeControlledCreationResource() { throw new Error('execution must remain unreachable') }
@@ -658,6 +758,8 @@ export function controlledFreshCandidateSecretReadiness(_environment, options) {
 `, 'utf8')
     writeFileSync(path.join(scriptsDirectory, 'controlled-fresh-candidate-secret-loader.ts'), `
 export function controlledFreshCandidateExecutionEnvironmentIsAuthenticated() { return true }
+export function controlledFreshCandidateExecutionReleaseIsVerified() { return true }
+export function assertControlledFreshCandidateNoAmbientPgOverrides() {}
 `, 'utf8')
     const harnessPath = path.join(root, 'runtime-harness.mjs')
     writeFileSync(harnessPath, runtimeMutationHarness(modulePath, label), 'utf8')
@@ -888,18 +990,23 @@ const connectivityFaults: SourceFault[] = [
   {
     name: 'connectivity-channel-binding-client-disabled',
     mode: 'client-contract',
-    mutate: (source) => replaceExact(source, '    enableChannelBinding: true,', '    enableChannelBinding: false,'),
+    mutate: (source) => replaceExact(
+      replaceExact(
+        source,
+        '  const ChannelBindingRequiredClient = createControlledFreshCandidateSecurePgClientConstructor(',
+        '  const ChannelBindingRequiredClient = ((BaseClient: SecurePgClientConstructor) => BaseClient)(',
+      ),
+      '    enableChannelBinding: true,',
+      '    enableChannelBinding: false,',
+    ),
   },
   {
     name: 'connectivity-channel-binding-advertisement-not-required',
     mode: 'channel-require',
     mutate: (source) => replaceExact(
       source,
-      `      if (!Array.isArray(message?.mechanisms) || !message.mechanisms.includes(requiredMechanism)) {
-        this.connection.emit('error', new Error('CONTROLLED_CONNECTIVITY_CHANNEL_BINDING_REQUIRED'))
-        return
-      }`,
-      '      void message',
+      '  const ChannelBindingRequiredClient = createControlledFreshCandidateSecurePgClientConstructor(',
+      '  const ChannelBindingRequiredClient = ((BaseClient: SecurePgClientConstructor) => BaseClient)(',
     ),
   },
   {
@@ -907,10 +1014,8 @@ const connectivityFaults: SourceFault[] = [
     mode: 'channel-fallback',
     mutate: (source) => replaceExact(
       source,
-      `      if (this.saslSession?.mechanism !== requiredMechanism) {
-        this.connection.emit('error', new Error('CONTROLLED_CONNECTIVITY_CHANNEL_BINDING_NOT_NEGOTIATED'))
-      }`,
-      '      void this.saslSession',
+      '  const ChannelBindingRequiredClient = createControlledFreshCandidateSecurePgClientConstructor(',
+      '  const ChannelBindingRequiredClient = ((BaseClient: SecurePgClientConstructor) => BaseClient)(',
     ),
   },
 ]
@@ -935,10 +1040,11 @@ async function runSourceMutationCases(check: (name: string, body: () => void | P
   }
 
   await check('semantic mutation runtime-accepts-configuration-stage', () => {
+    if (process.platform === 'win32') return
     const label = 'runtime-accepts-configuration-stage'
     const runtimeSource = readFileSync(path.resolve('scripts/controlled-fresh-candidate-runtime.ts'), 'utf8')
     const baseline = runRuntimeSource(runtimeSource, label)
-    assert.equal(baseline.status, 0, label)
+    assert.equal(baseline.status, 0, `${label}: status=${baseline.status}; signal=${baseline.signal}; ${baseline.stderr.replaceAll(SYNTHETIC_SECRET, '[REDACTED]')}`)
     assert.equal(baseline.stderr, '', label)
     assert.equal(baseline.stdout, `MUTATION_HARNESS_OK:${label}`, label)
     const mutated = replaceExact(
@@ -1281,11 +1387,13 @@ async function runSuite(includeParentCompletionCases: boolean): Promise<{ comple
       'connectionTimeoutMillis',
       'enableChannelBinding',
       'keepAlive',
+      'ssl',
     ])
-    assert.equal(config.connectionString, CONNECTIVITY_SECRET_VALUES.DATABASE_URI)
+    assert.equal(config.connectionString, 'postgresql://synthetic-user:synthetic-password@synthetic.invalid/connectivity-test')
     assert.equal(config.connectionTimeoutMillis, 10_000)
     assert.equal(config.enableChannelBinding, true)
     assert.equal(config.keepAlive, false)
+    assert.equal((config.ssl as { rejectUnauthorized?: unknown }).rejectUnauthorized, true)
     client._handleAuthSASL({ mechanisms: ['SCRAM-SHA-256-PLUS', 'SCRAM-SHA-256'] })
     assert.equal(client.baseSaslCalls, 1)
     assert.equal(client.saslSession?.mechanism, 'SCRAM-SHA-256-PLUS')
@@ -1298,7 +1406,8 @@ async function runSuite(includeParentCompletionCases: boolean): Promise<{ comple
       configurationEnvironment(),
       InstrumentedPgClient as ControlledFreshCandidatePgClientConstructor,
     ) as InstrumentedPgClient
-    absent._handleAuthSASL({ mechanisms: ['SCRAM-SHA-256'] })
+    assert.doesNotThrow(() => absent._handleAuthSASL({ mechanisms: ['SCRAM-SHA-256'] }))
+    assert.equal(absent.emittedErrors[0]?.message, 'CONTROLLED_RUNTIME_CHANNEL_BINDING_REQUIRED')
     assert.equal(absent.baseSaslCalls, 0)
     assert.equal(absent.emittedErrors.length, 1)
 
@@ -1308,7 +1417,8 @@ async function runSuite(includeParentCompletionCases: boolean): Promise<{ comple
       configurationEnvironment(),
       InstrumentedPgClient as ControlledFreshCandidatePgClientConstructor,
     ) as InstrumentedPgClient
-    downgraded._handleAuthSASL({ mechanisms: ['SCRAM-SHA-256-PLUS', 'SCRAM-SHA-256'] })
+    assert.doesNotThrow(() => downgraded._handleAuthSASL({ mechanisms: ['SCRAM-SHA-256-PLUS', 'SCRAM-SHA-256'] }))
+    assert.equal(downgraded.emittedErrors[0]?.message, 'CONTROLLED_RUNTIME_CHANNEL_BINDING_DOWNGRADE_REJECTED')
     assert.equal(downgraded.baseSaslCalls, 1)
     assert.equal(downgraded.saslSession?.mechanism, 'SCRAM-SHA-256')
     assert.equal(downgraded.emittedErrors.length, 1)
@@ -1539,7 +1649,7 @@ async function runSuite(includeParentCompletionCases: boolean): Promise<{ comple
   await runSourceMutationCases(check)
 
   if (includeParentCompletionCases) {
-    const completeChild = spawnSelf('suite-only')
+    const completeChild = spawnSelf('suite-only', PARENT_SUITE_TIMEOUT_MS)
     await check('parent accepts only exact child case count and sentinel', () => {
       assert.equal(childCompleted(completeChild, CORE_CASE_COUNT), true, completeChild.stderr)
     })

@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { createHash } from 'node:crypto'
 import {
   chmodSync,
   linkSync,
@@ -39,6 +40,14 @@ import {
   runControlledFreshCandidatePackageBuilder,
 } from './controlled-fresh-candidate-package-builder'
 import { parseControlledFreshCandidateObserverArgs } from './controlled-fresh-candidate-observer'
+import {
+  CONTROLLED_FRESH_CANDIDATE_CREATION_ENVELOPE,
+  CONTROLLED_FRESH_CANDIDATE_EXTERNAL_EFFECT_ENVELOPE,
+  CONTROLLED_FRESH_CANDIDATE_RUNTIME_BUDGET_IDENTITY,
+  controlledFreshCandidatePilotDigest,
+  type ControlledFreshCandidatePilotManifest,
+} from '../src/lib/controlledFreshCandidatePilotContract'
+import { authorizeControlledFreshCandidateOperation } from './controlled-fresh-candidate-owner-authorization'
 
 function stableValue(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(stableValue)
@@ -72,27 +81,42 @@ async function nativePackageTests(): Promise<void> {
   }).png().toBuffer()
   writeFileSync(originalPath, png, { mode: 0o600 })
   const now = Date.now()
-  const ownerInput = {
+  const exactCommitIdentity = '5daecabf304709c4106616c52fe971e315305dfb'
+  const unsignedOwnerInput: Omit<ControlledFreshCandidatePilotManifest, 'manifestDigest'> = {
     version: CONTROLLED_FRESH_CANDIDATE_OFFLINE_INPUT_VERSION,
-    manifestIdentity: 'synthetic-manifest-0001',
+    candidateIdentity: 'synthetic-manifest-0001',
+    existingProductId: null,
     title: 'Synthetic offline package candidate',
     positivePrice: 1,
-    provenanceStatement: 'Synthetic offline package-builder evidence only.',
+    provenance: 'Synthetic offline package-builder evidence only.',
     stockCandidate: 'SN9001',
-    originalPath,
-    originalMimeType: 'image/png',
-    originalWidth: 1,
-    originalHeight: 1,
-    issuedAt: new Date(now - 1_000).toISOString(),
-    notBefore: new Date(now - 1_000).toISOString(),
+    original: {
+      identity: 'synthetic-original-0001',
+      filename: path.basename(originalPath),
+      contentDigest: createHash('sha256').update(png).digest('hex'),
+      mimeType: 'image/png',
+      width: 1,
+      height: 1,
+    },
+    declaredBlobObjectMaximum: 4,
+    creationEnvelope: CONTROLLED_FRESH_CANDIDATE_CREATION_ENVELOPE,
+    externalEffectEnvelope: CONTROLLED_FRESH_CANDIDATE_EXTERNAL_EFFECT_ENVELOPE,
+    runtimeBudgetIdentity: CONTROLLED_FRESH_CANDIDATE_RUNTIME_BUDGET_IDENTITY,
+    exactCommitIdentity,
+    createdAt: new Date(now - 1_000).toISOString(),
     expiresAt: new Date(now + 5 * 60_000).toISOString(),
+  }
+  const ownerInput = {
+    ...unsignedOwnerInput,
+    manifestDigest: controlledFreshCandidatePilotDigest(unsignedOwnerInput),
+    originalPath,
   }
   writeFileSync(inputPath, canonicalJson(ownerInput), { mode: 0o600 })
   const environment = {
     [CONTROLLED_FRESH_CANDIDATE_OWNER_LEDGER_DIRECTORY_ENV]: root,
     [CONTROLLED_FRESH_CANDIDATE_AUTHORIZATION_KEY_ENV]: authorizationKey.toString('base64'),
     [CONTROLLED_FRESH_CANDIDATE_RECEIPT_KEY_ENV]: receiptKey.toString('base64'),
-    [CONTROLLED_FRESH_CANDIDATE_COMMIT_IDENTITY_ENV]: '5daecabf304709c4106616c52fe971e315305dfb',
+    [CONTROLLED_FRESH_CANDIDATE_COMMIT_IDENTITY_ENV]: exactCommitIdentity,
     [CONTROLLED_FRESH_CANDIDATE_ENVIRONMENT_IDENTITY_ENV]: CONTROLLED_FRESH_CANDIDATE_PRODUCTION_ENVIRONMENT_IDENTITY,
     [CONTROLLED_FRESH_CANDIDATE_OFFLINE_INPUT_PATH_ENV]: inputPath,
   } as NodeJS.ProcessEnv
@@ -128,6 +152,12 @@ async function nativePackageTests(): Promise<void> {
       },
       deployedCommitIdentity: environment[CONTROLLED_FRESH_CANDIDATE_COMMIT_IDENTITY_ENV] as string,
     })
+    await authorizeControlledFreshCandidateOperation({
+      configurationEnvironment,
+      packageResult: prepared,
+      now,
+      testOnlyLedgerRoot: root,
+    })
     const executionEnvironment = await buildControlledFreshCandidateExecutionEnvironment({
       configurationEnvironment,
       packageResult: prepared,
@@ -155,11 +185,18 @@ async function nativePackageTests(): Promise<void> {
     }))
 
     const expiredOperationId = 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee'
-    writeFileSync(inputPath, canonicalJson({
-      ...ownerInput,
-      issuedAt: new Date(now - 60_000).toISOString(),
-      notBefore: new Date(now - 60_000).toISOString(),
+    const expiredUnsignedBase = { ...ownerInput } as Partial<typeof ownerInput>
+    delete expiredUnsignedBase.originalPath
+    delete expiredUnsignedBase.manifestDigest
+    const expiredUnsigned = {
+      ...expiredUnsignedBase,
+      createdAt: new Date(now - 60_000).toISOString(),
       expiresAt: new Date(now).toISOString(),
+    }
+    writeFileSync(inputPath, canonicalJson({
+      ...expiredUnsigned,
+      manifestDigest: controlledFreshCandidatePilotDigest(expiredUnsigned),
+      originalPath,
     }), { mode: 0o600 })
     await assert.rejects(() => prepareControlledFreshCandidatePackage({
       environment,
@@ -176,6 +213,30 @@ async function nativePackageTests(): Promise<void> {
       path.join(root, 'operations-v1', expiredOperationId),
       { throwIfNoEntry: false },
     ), undefined)
+
+    const duplicateOperationId = '99999999-9999-4999-8999-999999999999'
+    const duplicateInput = canonicalJson(ownerInput).replace(
+      '"title":"Synthetic offline package candidate"',
+      '"title":"Duplicate title must fail closed","title":"Synthetic offline package candidate"',
+    )
+    assert.notEqual(duplicateInput, canonicalJson(ownerInput))
+    writeFileSync(inputPath, duplicateInput, { mode: 0o600 })
+    await assert.rejects(() => prepareControlledFreshCandidatePackage({
+      environment,
+      now: () => now,
+      operationId: () => duplicateOperationId,
+      testOnlyLedgerRoot: root,
+    }), (error: unknown) => {
+      assert.ok(error instanceof ControlledFreshCandidatePackagePreparationError)
+      assert.equal(error.partialOperation, false)
+      assert.equal(error.operationId, null)
+      return true
+    })
+    assert.equal(lstatSync(
+      path.join(root, 'operations-v1', duplicateOperationId),
+      { throwIfNoEntry: false },
+    ), undefined)
+
     writeFileSync(inputPath, canonicalJson(ownerInput), { mode: 0o600 })
     const partialOperationId = 'ffffffff-ffff-4fff-8fff-ffffffffffff'
     await assert.rejects(() => prepareControlledFreshCandidatePackage({

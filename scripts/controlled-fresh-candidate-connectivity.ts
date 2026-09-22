@@ -15,6 +15,10 @@ import {
   CONTROLLED_FRESH_CANDIDATE_PRIVATE_MANIFEST_PATH_ENV,
   CONTROLLED_FRESH_CANDIDATE_RECEIPT_PATH_ENV,
 } from './controlled-fresh-candidate-runtime-resources'
+import {
+  createControlledFreshCandidateSecurePgClientConstructor,
+  type ControlledFreshCandidatePgClientConstructor as SecurePgClientConstructor,
+} from './controlled-fresh-candidate-pg-security'
 
 export const CONTROLLED_FRESH_CANDIDATE_CONNECTIVITY_VERSION =
   'controlled-fresh-candidate-connectivity/v2' as const
@@ -292,31 +296,16 @@ export function createControlledFreshCandidatePgClient(
   if (!controlledFreshCandidateExternalSecretsAreValid(externalSecrets)) {
     throw new Error('CONTROLLED_CONNECTIVITY_CONFIGURATION_INVALID')
   }
-  if (typeof PgClient.prototype._handleAuthSASL !== 'function') {
-    throw new Error('CONTROLLED_CONNECTIVITY_CHANNEL_BINDING_UNSUPPORTED')
-  }
-
-  const requiredMechanism = 'SCRAM-SHA-256-PLUS' as const
-  class ChannelBindingRequiredClient extends PgClient {
-    override _handleAuthSASL(message: ControlledFreshCandidateSaslMessage): void {
-      if (!Array.isArray(message?.mechanisms) || !message.mechanisms.includes(requiredMechanism)) {
-        this.connection.emit('error', new Error('CONTROLLED_CONNECTIVITY_CHANNEL_BINDING_REQUIRED'))
-        return
-      }
-      super._handleAuthSASL(message)
-      if (this.saslSession?.mechanism !== requiredMechanism) {
-        this.connection.emit('error', new Error('CONTROLLED_CONNECTIVITY_CHANNEL_BINDING_NOT_NEGOTIATED'))
-      }
-    }
-  }
-
+  const ChannelBindingRequiredClient = createControlledFreshCandidateSecurePgClientConstructor(
+    PgClient as unknown as SecurePgClientConstructor,
+  )
   return new ChannelBindingRequiredClient({
     connectionString: externalSecrets.DATABASE_URI,
     connectionTimeoutMillis: CONTROLLED_FRESH_CANDIDATE_CONNECT_TIMEOUT_MS,
     application_name: 'controlled-fresh-candidate-connectivity-v1',
     enableChannelBinding: true,
     keepAlive: false,
-  })
+  }) as unknown as ControlledFreshCandidatePgClient
 }
 
 export async function createInstalledPgClient(environment: NodeJS.ProcessEnv): Promise<ControlledFreshCandidatePgClient> {

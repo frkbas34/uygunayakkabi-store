@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 import { chmodSync, closeSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { pathToFileURL } from 'node:url'
 import path from 'node:path'
@@ -13,6 +13,17 @@ import {
   type ControlledFreshCandidateManifestInput,
   type ControlledFreshCandidateUnsignedExecutionGrant,
 } from '../src/lib/controlledFreshCandidateCreation'
+import {
+  CONTROLLED_FRESH_CANDIDATE_CREATION_ENVELOPE,
+  CONTROLLED_FRESH_CANDIDATE_EXTERNAL_EFFECT_ENVELOPE,
+  CONTROLLED_FRESH_CANDIDATE_OWNER_INPUT_VERSION,
+  CONTROLLED_FRESH_CANDIDATE_RUNTIME_BUDGET_IDENTITY,
+  controlledFreshCandidateCanonicalJson,
+  controlledFreshCandidatePilotDigest,
+  validateControlledFreshCandidateOwnerInput,
+  type ControlledFreshCandidateOwnerInput,
+  type ControlledFreshCandidatePilotManifest,
+} from '../src/lib/controlledFreshCandidatePilotContract'
 import {
   createControlledFreshCandidateObservationState,
   serializeControlledFreshCandidateObservation,
@@ -34,26 +45,18 @@ import {
   validateControlledFreshCandidateApprovedLedgerRoot,
   writeControlledFreshCandidatePrivateFileExclusive,
 } from './controlled-fresh-candidate-runtime-resources'
+import {
+  loadControlledFreshCandidateConfigurationEnvironment,
+} from './controlled-fresh-candidate-secret-loader'
+import {
+  controlledFreshCandidateCanonicalRepositoryCommit,
+} from './controlled-fresh-candidate-owner-authorization'
 
-export const CONTROLLED_FRESH_CANDIDATE_OFFLINE_INPUT_VERSION = 'controlled-fresh-candidate-offline-owner-input/v1' as const
+export const CONTROLLED_FRESH_CANDIDATE_OFFLINE_INPUT_VERSION = CONTROLLED_FRESH_CANDIDATE_OWNER_INPUT_VERSION
 export const CONTROLLED_FRESH_CANDIDATE_OFFLINE_INPUT_PATH_ENV = 'CONTROLLED_FRESH_CANDIDATE_OFFLINE_INPUT_PATH' as const
 export const CONTROLLED_FRESH_CANDIDATE_PACKAGE_CONFIRMATION = '--confirm-controlled-fresh-candidate-package-preparation' as const
 
-type OfflineOwnerInput = {
-  version: typeof CONTROLLED_FRESH_CANDIDATE_OFFLINE_INPUT_VERSION
-  manifestIdentity: string
-  title: string
-  positivePrice: number
-  provenanceStatement: string
-  stockCandidate: string
-  originalPath: string
-  originalMimeType: 'image/jpeg' | 'image/png' | 'image/webp'
-  originalWidth: number
-  originalHeight: number
-  issuedAt: string
-  notBefore: string
-  expiresAt: string
-}
+type OfflineOwnerInput = ControlledFreshCandidateOwnerInput
 
 type PackageBuilderMode = 'readiness' | 'synthetic-dry-run' | 'prepare'
 
@@ -77,10 +80,6 @@ function isPlainRecord(value: unknown): value is Record<string, unknown> {
   return prototype === Object.prototype || prototype === null
 }
 
-function hasExactOwnKeys(value: Record<string, unknown>, expected: readonly string[]): boolean {
-  return JSON.stringify(Object.keys(value).sort()) === JSON.stringify([...expected].sort())
-}
-
 function stableValue(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(stableValue)
   if (!isPlainRecord(value)) return value
@@ -96,29 +95,6 @@ function exactContext(value: unknown): value is string {
     && value.trim() === value
     && value.length >= 1 && value.length <= 160
     && /^[a-z0-9][a-z0-9._:/-]*$/iu.test(value)
-}
-
-function exactOfflineInput(value: unknown): value is OfflineOwnerInput {
-  if (!isPlainRecord(value) || !hasExactOwnKeys(value, [
-    'version', 'manifestIdentity', 'title', 'positivePrice', 'provenanceStatement',
-    'stockCandidate', 'originalPath', 'originalMimeType', 'originalWidth', 'originalHeight',
-    'issuedAt', 'notBefore', 'expiresAt',
-  ])) return false
-  return value.version === CONTROLLED_FRESH_CANDIDATE_OFFLINE_INPUT_VERSION
-    && typeof value.manifestIdentity === 'string' && /^[a-z0-9][a-z0-9:_-]{7,127}$/iu.test(value.manifestIdentity)
-    && typeof value.title === 'string' && value.title.trim() === value.title && value.title.length >= 1 && value.title.length <= 160
-    && typeof value.positivePrice === 'number' && Number.isFinite(value.positivePrice) && value.positivePrice > 0 && !Object.is(value.positivePrice, -0)
-    && typeof value.provenanceStatement === 'string' && value.provenanceStatement.trim() === value.provenanceStatement
-    && value.provenanceStatement.length >= 1 && value.provenanceStatement.length <= 1_000
-    && typeof value.stockCandidate === 'string' && /^SN\d{4}$/u.test(value.stockCandidate)
-    && typeof value.originalPath === 'string' && path.isAbsolute(value.originalPath) && path.resolve(value.originalPath) === value.originalPath
-    && ['image/jpeg', 'image/png', 'image/webp'].includes(String(value.originalMimeType))
-    && typeof value.originalWidth === 'number' && Number.isSafeInteger(value.originalWidth) && value.originalWidth > 0 && value.originalWidth <= 20_000
-    && typeof value.originalHeight === 'number' && Number.isSafeInteger(value.originalHeight) && value.originalHeight > 0 && value.originalHeight <= 20_000
-    && value.originalWidth * value.originalHeight <= 40_000_000
-    && typeof value.issuedAt === 'string'
-    && typeof value.notBefore === 'string'
-    && typeof value.expiresAt === 'string'
 }
 
 function exactBase64(value: string | undefined, minimum: number, maximum: number): Buffer | null {
@@ -137,13 +113,14 @@ async function validateOriginalBytes(input: OfflineOwnerInput, bytes: Buffer): P
     .raw()
     .toBuffer({ resolveWithObject: true })
   const format = (await sharp(bytes, { failOn: 'error', limitInputPixels: 40_000_000 }).metadata()).format
-  const expectedFormat = input.originalMimeType === 'image/jpeg'
+  const expectedFormat = input.original.mimeType === 'image/jpeg'
     ? 'jpeg'
-    : input.originalMimeType === 'image/png' ? 'png' : 'webp'
+    : input.original.mimeType === 'image/png' ? 'png' : 'webp'
   if (
     format !== expectedFormat
-    || decoded.info.width !== input.originalWidth
-    || decoded.info.height !== input.originalHeight
+    || decoded.info.width !== input.original.width
+    || decoded.info.height !== input.original.height
+    || createHash('sha256').update(bytes).digest('hex') !== input.original.contentDigest
   ) throw new Error('controlled_package_original_invalid')
 }
 
@@ -166,23 +143,44 @@ async function runSyntheticDryValidation(): Promise<void> {
     const originalPath = path.join(temporaryDirectory, 'synthetic-original.png')
     writeFileSync(originalPath, bytes, { mode: 0o600, flag: 'wx' })
     const now = Date.now()
-    const synthetic: OfflineOwnerInput = {
+    const unsignedSynthetic: Omit<ControlledFreshCandidatePilotManifest, 'manifestDigest'> = {
       version: CONTROLLED_FRESH_CANDIDATE_OFFLINE_INPUT_VERSION,
-      manifestIdentity: 'synthetic-dry-validation',
+      candidateIdentity: 'synthetic-dry-validation',
+      existingProductId: null,
       title: 'Synthetic dry validation',
       positivePrice: 1,
-      provenanceStatement: 'Synthetic offline validation only.',
+      provenance: 'Synthetic offline validation only.',
       stockCandidate: 'SN9000',
-      originalPath,
-      originalMimeType: 'image/png',
-      originalWidth: 1,
-      originalHeight: 1,
-      issuedAt: new Date(now).toISOString(),
-      notBefore: new Date(now).toISOString(),
+      original: {
+        identity: 'synthetic-original-media',
+        filename: path.basename(originalPath),
+        contentDigest: createHash('sha256').update(bytes).digest('hex'),
+        mimeType: 'image/png',
+        width: 1,
+        height: 1,
+      },
+      declaredBlobObjectMaximum: 4,
+      creationEnvelope: CONTROLLED_FRESH_CANDIDATE_CREATION_ENVELOPE,
+      externalEffectEnvelope: CONTROLLED_FRESH_CANDIDATE_EXTERNAL_EFFECT_ENVELOPE,
+      runtimeBudgetIdentity: CONTROLLED_FRESH_CANDIDATE_RUNTIME_BUDGET_IDENTITY,
+      exactCommitIdentity: '1'.repeat(40),
+      createdAt: new Date(now).toISOString(),
       expiresAt: new Date(now + 60_000).toISOString(),
     }
-    if (!exactOfflineInput(synthetic)) throw new Error('controlled_package_synthetic_input_invalid')
-    assertControlledFreshCandidateAuthorizationWindowActive({ ...synthetic, observedAt: now })
+    const synthetic: OfflineOwnerInput = {
+      ...unsignedSynthetic,
+      manifestDigest: controlledFreshCandidatePilotDigest(unsignedSynthetic),
+      originalPath,
+    }
+    if (!validateControlledFreshCandidateOwnerInput(synthetic, { now, expectedCommitIdentity: '1'.repeat(40) })) {
+      throw new Error('controlled_package_synthetic_input_invalid')
+    }
+    assertControlledFreshCandidateAuthorizationWindowActive({
+      issuedAt: synthetic.createdAt,
+      notBefore: synthetic.createdAt,
+      expiresAt: synthetic.expiresAt,
+      observedAt: now,
+    })
     await validateOriginalBytes(synthetic, bytes)
   } finally {
     rmSync(temporaryDirectory, { recursive: true, force: true })
@@ -254,6 +252,11 @@ export async function prepareControlledFreshCandidatePackage(params: {
   manifestPath: string
   receiptPath: string
   observationPath: string
+  authorizationPath: string
+  candidateDigest: string
+  packageDigest: string
+  runtimeCommitIdentity: string
+  environmentIdentity: string
   expiresAt: string
   eligibleForPublishing: false
 }> {
@@ -298,12 +301,15 @@ export async function prepareControlledFreshCandidatePackage(params: {
     } catch {
       throw new Error('controlled_package_input_invalid')
     }
-    if (!exactOfflineInput(parsed)) throw new Error('controlled_package_input_invalid')
     const now = params.now ?? Date.now
     const initialObservedAt = now()
+    if (!validateControlledFreshCandidateOwnerInput(parsed, {
+      now: initialObservedAt,
+      expectedCommitIdentity: runtimeCommitIdentity,
+    })) throw new Error('controlled_package_input_invalid')
     assertControlledFreshCandidateAuthorizationWindowActive({
-      issuedAt: parsed.issuedAt,
-      notBefore: parsed.notBefore,
+      issuedAt: parsed.createdAt,
+      notBefore: parsed.createdAt,
       expiresAt: parsed.expiresAt,
       observedAt: initialObservedAt,
     })
@@ -316,21 +322,22 @@ export async function prepareControlledFreshCandidatePackage(params: {
     const manifestPath = path.join(operation.path, 'runtime-input.json')
     const receiptPath = path.join(operation.path, 'private-receipt.json')
     const observationPath = path.join(operation.path, 'observation.json')
+    const authorizationPath = path.join(operation.path, 'owner-authorization.json')
     const manifestDestination = openControlledFreshCandidatePhysicalReceiptDestination(manifestPath, ledger.device)
     const receiptDestination = openControlledFreshCandidatePhysicalReceiptDestination(receiptPath, ledger.device)
     const observationDestination = openControlledFreshCandidatePhysicalReceiptDestination(observationPath, ledger.device)
     destinations.push(manifestDestination, receiptDestination, observationDestination)
     const manifestInput: ControlledFreshCandidateManifestInput = {
-      identity: parsed.manifestIdentity,
+      identity: parsed.candidateIdentity,
       title: parsed.title,
       positivePrice: parsed.positivePrice,
-      provenanceStatement: parsed.provenanceStatement,
+      provenanceStatement: parsed.provenance,
       stockCandidate: parsed.stockCandidate,
       original: {
         bytes: originalBytes,
-        mimeType: parsed.originalMimeType,
-        width: parsed.originalWidth,
-        height: parsed.originalHeight,
+        mimeType: parsed.original.mimeType,
+        width: parsed.original.width,
+        height: parsed.original.height,
       },
     }
     const manifest = prepareControlledFreshCandidateManifest({ executionId: operationId, manifest: manifestInput })
@@ -348,8 +355,8 @@ export async function prepareControlledFreshCandidatePackage(params: {
       runtimeCommitIdentity,
       environmentIdentity,
       approvedReceiptDestinationDigest: destinationDigest,
-      issuedAt: parsed.issuedAt,
-      notBefore: parsed.notBefore,
+      issuedAt: parsed.createdAt,
+      notBefore: parsed.createdAt,
       expiresAt: parsed.expiresAt,
     }
     const grant: ControlledFreshCandidateExecutionGrant = {
@@ -367,34 +374,50 @@ export async function prepareControlledFreshCandidatePackage(params: {
       destination: observationDestination,
       bytes: Buffer.from(serializeControlledFreshCandidateObservation(observationState.current()), 'utf8'),
     })
+    const pilotManifest = { ...parsed } as Partial<OfflineOwnerInput>
+    delete pilotManifest.originalPath
     const runtimeInput = {
       version: CONTROLLED_FRESH_CANDIDATE_RUNTIME_INPUT_VERSION,
+      pilotManifest: pilotManifest as ControlledFreshCandidatePilotManifest,
       authorizationIdentity: grant.authorizationIdentity,
       authorizationTokenBase64: token.toString('base64'),
       issuedAt: grant.issuedAt,
       notBefore: grant.notBefore,
       expiresAt: grant.expiresAt,
       executionId: operationId,
-      manifestIdentity: parsed.manifestIdentity,
+      manifestIdentity: parsed.candidateIdentity,
       title: parsed.title,
       positivePrice: parsed.positivePrice,
-      provenanceStatement: parsed.provenanceStatement,
+      provenanceStatement: parsed.provenance,
       stockCandidate: parsed.stockCandidate,
       originalPath: parsed.originalPath,
-      originalMimeType: parsed.originalMimeType,
-      originalWidth: parsed.originalWidth,
-      originalHeight: parsed.originalHeight,
+      originalMimeType: parsed.original.mimeType,
+      originalWidth: parsed.original.width,
+      originalHeight: parsed.original.height,
       receiptPath,
       observationPath,
       runtimeCommitIdentity,
       environmentIdentity,
     }
     params.testOnlyBeforeFinalManifestWrite?.()
+    const runtimeInputBytes = Buffer.from(controlledFreshCandidateCanonicalJson(runtimeInput), 'utf8')
     writeControlledFreshCandidatePrivateFileExclusive({
       destination: manifestDestination,
-      bytes: Buffer.from(canonicalJson(runtimeInput), 'utf8'),
+      bytes: runtimeInputBytes,
     })
-    return { operationId, manifestPath, receiptPath, observationPath, expiresAt: grant.expiresAt, eligibleForPublishing: false }
+    return {
+      operationId,
+      manifestPath,
+      receiptPath,
+      observationPath,
+      authorizationPath,
+      candidateDigest: parsed.manifestDigest,
+      packageDigest: createHash('sha256').update(runtimeInputBytes).digest('hex'),
+      runtimeCommitIdentity,
+      environmentIdentity,
+      expiresAt: grant.expiresAt,
+      eligibleForPublishing: false,
+    }
   } catch {
     throw new ControlledFreshCandidatePackagePreparationError(operationCreated ? operationId : null)
   } finally {
@@ -472,7 +495,21 @@ const isMain = process.argv[1]
 
 if (isMain) {
   process.exitCode = 1
-  void runControlledFreshCandidatePackageBuilder({ argv: process.argv.slice(2), environment: process.env })
+  const argv = process.argv.slice(2)
+  const cliEnvironment = (() => {
+    if (!argv.includes('--prepare')) return process.env
+    const commit = controlledFreshCandidateCanonicalRepositoryCommit()
+    const offlineInputPath = process.env[CONTROLLED_FRESH_CANDIDATE_OFFLINE_INPUT_PATH_ENV]
+    if (!commit || !offlineInputPath) return Object.create(null) as NodeJS.ProcessEnv
+    try {
+      const environment = loadControlledFreshCandidateConfigurationEnvironment({ deployedCommitIdentity: commit })
+      environment[CONTROLLED_FRESH_CANDIDATE_OFFLINE_INPUT_PATH_ENV] = offlineInputPath
+      return environment
+    } catch {
+      return Object.create(null) as NodeJS.ProcessEnv
+    }
+  })()
+  void runControlledFreshCandidatePackageBuilder({ argv, environment: cliEnvironment })
     .then((code) => { process.exitCode = code })
     .catch(() => { process.exitCode = 1 })
 }

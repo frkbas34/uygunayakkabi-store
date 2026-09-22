@@ -1,4 +1,4 @@
-import { timingSafeEqual } from 'node:crypto'
+import { createHash, timingSafeEqual } from 'node:crypto'
 import {
   closeSync,
   constants as fsConstants,
@@ -11,6 +11,7 @@ import {
   statfsSync,
 } from 'node:fs'
 import path from 'node:path'
+import { installControlledFreshCandidateSecureLoaderBoundary } from './controlled-fresh-candidate-pg-security'
 
 import {
   assertControlledFreshCandidateAuthorizationActive,
@@ -26,6 +27,17 @@ import {
   CONTROLLED_FRESH_CANDIDATE_CONTRACT_IDENTITY,
   CONTROLLED_FRESH_CANDIDATE_RUNTIME_IDENTITY,
 } from '../src/lib/controlledFreshCandidateReceipt'
+import {
+  controlledFreshCandidateCanonicalJson,
+  validateControlledFreshCandidatePilotManifest,
+  type ControlledFreshCandidatePilotManifest,
+} from '../src/lib/controlledFreshCandidatePilotContract'
+import {
+  validateControlledFreshCandidateOwnerAuthorization,
+  authenticateControlledFreshCandidateReleaseAttestation,
+  controlledFreshCandidateReleaseIsAuthenticated,
+  type ControlledFreshCandidateReleaseAttestation,
+} from '../src/lib/controlledFreshCandidatePilotAuthorization'
 import {
   CONTROLLED_FRESH_CANDIDATE_APPROVED_LEDGER_ROOT,
   CONTROLLED_FRESH_CANDIDATE_AUTHORIZATION_KEY_ENV,
@@ -134,12 +146,18 @@ export type ControlledFreshCandidateOperationPackageResult = Readonly<{
   manifestPath: string
   receiptPath: string
   observationPath: string
+  authorizationPath: string
+  candidateDigest: string
+  packageDigest: string
+  runtimeCommitIdentity: string
+  environmentIdentity: string
   expiresAt: string
   eligibleForPublishing: false
 }>
 
 type RuntimeInput = {
   version: typeof CONTROLLED_FRESH_CANDIDATE_RUNTIME_INPUT_VERSION
+  pilotManifest: ControlledFreshCandidatePilotManifest
   authorizationIdentity: string
   authorizationTokenBase64: string
   issuedAt: string
@@ -162,9 +180,68 @@ type RuntimeInput = {
 }
 
 const authenticatedExecutionEnvironments = new WeakSet<object>()
+const releaseEnvironments = new WeakMap<object, ControlledFreshCandidateReleaseAttestation>()
+
+export function controlledFreshCandidateExecutionReleaseIsVerified(environment: NodeJS.ProcessEnv): boolean {
+  const release = releaseEnvironments.get(environment)
+  return !!release && controlledFreshCandidateReleaseIsAuthenticated(release)
+}
+
+// Public deployment evidence only. Trust is separately provisioned by the
+// owner, never embedded in or accepted from the attestation itself. Missing
+// trust/evidence fails closed: this code does not invent Production proof.
+export async function loadControlledFreshCandidateReleaseAttestation(params: {
+  packageResult: ControlledFreshCandidateOperationPackageResult
+  authorizationState: 'available' | 'consumed'
+  timeoutMs: number
+  testOnlyLedgerRoot?: string
+}): Promise<ControlledFreshCandidateReleaseAttestation> {
+  assertControlledFreshCandidateNoAmbientPgOverrides()
+  assertLinux()
+  if (!isPlainRecord(params.packageResult) || !exactOperationPackageShape(params.packageResult)
+    || !['available', 'consumed'].includes(params.authorizationState)
+    || !Number.isSafeInteger(params.timeoutMs) || params.timeoutMs <= 0 || params.timeoutMs > 30_000) {
+    throw new Error('CONTROLLED_RELEASE_ATTESTATION_INVALID')
+  }
+  if (params.testOnlyLedgerRoot !== undefined && process.env.NODE_ENV !== 'test') {
+    throw new Error('CONTROLLED_RELEASE_ATTESTATION_INVALID')
+  }
+  const root = params.testOnlyLedgerRoot ?? CONTROLLED_FRESH_CANDIDATE_APPROVED_LEDGER_ROOT
+  const metadata = assertPrivateDirectory(root)
+  const directory = path.join(root, 'operations-v1', params.packageResult.operationId)
+  assertPrivateDirectory(directory)
+  const scope = createControlledFreshCandidateOperationScope({ timeoutMs: params.timeoutMs, totalTimeoutMs: params.timeoutMs })
+  const read = async (filename: string): Promise<unknown> => {
+    const bytes = await readControlledFreshCandidatePrivateFile(scope, filename, metadata.dev, 'authority')
+    const serialized = new TextDecoder('utf-8', { fatal: true }).decode(bytes)
+    const value: unknown = JSON.parse(serialized)
+    if (controlledFreshCandidateCanonicalJson(value) !== serialized) throw new Error('CONTROLLED_RELEASE_ATTESTATION_INVALID')
+    return value
+  }
+  try {
+    const trust = await read(path.join(root, 'release-trust.json'))
+    if (!isPlainRecord(trust) || !exactOwnKeys(trust, ['version', 'ed25519PublicKeyDerBase64'])
+      || trust.version !== 'controlled-fresh-candidate-release-trust/v1'
+      || typeof trust.ed25519PublicKeyDerBase64 !== 'string') throw new Error('CONTROLLED_RELEASE_ATTESTATION_INVALID')
+    const owner = await read(path.join(directory, params.authorizationState === 'available'
+      ? 'owner-authorization.json' : 'owner-authorization.consumed.json'))
+    if (!isPlainRecord(owner) || typeof owner.authorizationIdentity !== 'string'
+      || !/^cfc-owner-auth-[0-9a-f]{64}$/u.test(owner.authorizationIdentity)) throw new Error('CONTROLLED_RELEASE_ATTESTATION_INVALID')
+    return authenticateControlledFreshCandidateReleaseAttestation(
+      await read(path.join(directory, 'release-attestation.json')), trust.ed25519PublicKeyDerBase64,
+      { sourceCommit: params.packageResult.runtimeCommitIdentity, operationId: params.packageResult.operationId,
+        packageDigest: params.packageResult.packageDigest, authorizationIdentity: owner.authorizationIdentity,
+        authorizationDigest: createHash('sha256').update(controlledFreshCandidateCanonicalJson(owner)).digest('hex') },
+    )
+  } finally {
+    await scope.cancel()
+    await scope.drain()
+    scope.close()
+  }
+}
 
 const RUNTIME_INPUT_KEYS = Object.freeze([
-  'version', 'authorizationIdentity', 'authorizationTokenBase64', 'issuedAt', 'notBefore', 'expiresAt',
+  'version', 'pilotManifest', 'authorizationIdentity', 'authorizationTokenBase64', 'issuedAt', 'notBefore', 'expiresAt',
   'executionId', 'manifestIdentity', 'title', 'positivePrice', 'provenanceStatement', 'stockCandidate',
   'originalPath', 'originalMimeType', 'originalWidth', 'originalHeight', 'receiptPath', 'observationPath',
   'runtimeCommitIdentity', 'environmentIdentity',
@@ -278,7 +355,11 @@ function validDatabaseUriQuery(rawQuery: string | null, parsed: URL): boolean {
       ] === value)
 }
 
+let lastValidatedCanonicalUri: string | null = null
+let canonicalUriValidationCount = 0
 function structurallyValidDatabaseUri(value: unknown): value is string {
+  if (typeof value === 'string' && value === lastValidatedCanonicalUri) return true
+  canonicalUriValidationCount += 1
   if (!boundedSecretString(value, 1)) return false
   try {
     // This full decode is validation-only: it rejects malformed percent syntax
@@ -318,6 +399,7 @@ function structurallyValidDatabaseUri(value: unknown): value is string {
       || parsed.hash.length !== 0
       || !validDatabaseUriQuery(rawQuery, parsed)
     ) return false
+    lastValidatedCanonicalUri = value
     return true
   } catch {
     return false
@@ -335,6 +417,35 @@ export function controlledFreshCandidateExternalSecretsAreValid(
     && boundedSecretString(values.BLOB_READ_WRITE_TOKEN, CONTROLLED_FRESH_CANDIDATE_OPAQUE_SECRET_MIN_LENGTH)
 }
 // CONTROLLED_FRESH_CANDIDATE_SECRET_VALIDATION_BLOCK_END
+
+// One canonical validator; the pg boundary carries its result, not a stripped
+// URI that would subsequently be mistaken for unvalidated owner input.
+export const controlledFreshCandidateDatabaseUriIsCanonical = structurallyValidDatabaseUri
+export function controlledFreshCandidateCanonicalUriValidationCount(): number { return canonicalUriValidationCount }
+const validatedPgConnections = new Map<string, Readonly<{ normalizedUri: string }>>()
+export function controlledFreshCandidateValidatedPgConnection(uri: string): Readonly<{ normalizedUri: string }> {
+  const cached = validatedPgConnections.get(uri)
+  if (cached) return cached
+  if (!structurallyValidDatabaseUri(uri)) throw new Error('CONTROLLED_RUNTIME_DATABASE_URI_POLICY_INVALID')
+  const parsed = new URL(uri)
+  parsed.search = ''
+  const validated = Object.freeze({ normalizedUri: parsed.toString() })
+  validatedPgConnections.set(uri, validated)
+  return validated
+}
+
+export function assertControlledFreshCandidateNoAmbientPgOverrides(
+  environment: NodeJS.ProcessEnv = process.env,
+): void {
+  if (Object.keys(environment).some((key) => /^PG/iu.test(key) && environment[key] !== undefined)) {
+    throw new Error('CONTROLLED_RUNTIME_AMBIENT_PG_OVERRIDE_FORBIDDEN')
+  }
+}
+installControlledFreshCandidateSecureLoaderBoundary({
+  assertNoAmbientOverrides: assertControlledFreshCandidateNoAmbientPgOverrides,
+  isCanonical: controlledFreshCandidateDatabaseUriIsCanonical,
+  validatedConnection: controlledFreshCandidateValidatedPgConnection,
+})
 
 function metadataStable(left: BigMetadata, right: BigMetadata): boolean {
   return left.dev === right.dev
@@ -570,11 +681,9 @@ export function buildControlledFreshCandidateConfigurationEnvironment(params: {
   if (!exactOwnKeys(params.secrets as Record<string, unknown>, CONTROLLED_FRESH_CANDIDATE_PERSISTENT_SECRET_ALLOWLIST)) {
     fail('CONTROLLED_CONFIGURATION_FORMAT_INVALID')
   }
-  if (!controlledFreshCandidateExternalSecretsAreValid({
-    DATABASE_URI: params.secrets.DATABASE_URI,
-    PAYLOAD_SECRET: params.secrets.PAYLOAD_SECRET,
-    BLOB_READ_WRITE_TOKEN: params.secrets.BLOB_READ_WRITE_TOKEN,
-  })) fail('CONTROLLED_CONFIGURATION_SECRET_VALUE_INVALID')
+  if (!boundedSecretString(params.secrets.PAYLOAD_SECRET, CONTROLLED_FRESH_CANDIDATE_OPAQUE_SECRET_MIN_LENGTH)
+    || !boundedSecretString(params.secrets.BLOB_READ_WRITE_TOKEN, CONTROLLED_FRESH_CANDIDATE_OPAQUE_SECRET_MIN_LENGTH)) fail('CONTROLLED_CONFIGURATION_SECRET_VALUE_INVALID')
+  try { controlledFreshCandidateValidatedPgConnection(params.secrets.DATABASE_URI) } catch { fail('CONTROLLED_CONFIGURATION_SECRET_VALUE_INVALID') }
   const authorizationKey = exactBase64Key(params.secrets[CONTROLLED_FRESH_CANDIDATE_AUTHORIZATION_KEY_ENV])
   const receiptKey = exactBase64Key(params.secrets[CONTROLLED_FRESH_CANDIDATE_RECEIPT_KEY_ENV])
   if (!authorizationKey || !receiptKey) fail('CONTROLLED_CONFIGURATION_KEY_INVALID')
@@ -604,6 +713,7 @@ export function buildControlledFreshCandidateConfigurationEnvironment(params: {
 export function loadControlledFreshCandidateConfigurationEnvironment(
   options: ControlledFreshCandidateConfigurationLoadOptions,
 ): NodeJS.ProcessEnv {
+  assertControlledFreshCandidateNoAmbientPgOverrides()
   const secrets = readControlledFreshCandidatePersistentSecrets(options)
   return buildControlledFreshCandidateConfigurationEnvironment({
     secrets,
@@ -614,6 +724,9 @@ export function loadControlledFreshCandidateConfigurationEnvironment(
 function exactRuntimeInput(value: unknown): value is RuntimeInput {
   if (!isPlainRecord(value) || !exactOwnKeys(value, RUNTIME_INPUT_KEYS)) return false
   return value.version === CONTROLLED_FRESH_CANDIDATE_RUNTIME_INPUT_VERSION
+    && validateControlledFreshCandidatePilotManifest(value.pilotManifest, {
+      expectedCommitIdentity: typeof value.runtimeCommitIdentity === 'string' ? value.runtimeCommitIdentity : undefined,
+    })
     && typeof value.authorizationIdentity === 'string'
     && typeof value.authorizationTokenBase64 === 'string'
     && typeof value.issuedAt === 'string'
@@ -638,14 +751,28 @@ function exactRuntimeInput(value: unknown): value is RuntimeInput {
     && typeof value.observationPath === 'string'
     && typeof value.runtimeCommitIdentity === 'string'
     && typeof value.environmentIdentity === 'string'
+    && value.manifestIdentity === value.pilotManifest.candidateIdentity
+    && value.title === value.pilotManifest.title
+    && value.positivePrice === value.pilotManifest.positivePrice
+    && value.provenanceStatement === value.pilotManifest.provenance
+    && value.stockCandidate === value.pilotManifest.stockCandidate
+    && value.originalMimeType === value.pilotManifest.original.mimeType
+    && value.originalWidth === value.pilotManifest.original.width
+    && value.originalHeight === value.pilotManifest.original.height
 }
 
 function exactOperationPackageShape(value: ControlledFreshCandidateOperationPackageResult): boolean {
   return exactOwnKeys(value as unknown as Record<string, unknown>, [
-    'operationId', 'manifestPath', 'receiptPath', 'observationPath', 'expiresAt', 'eligibleForPublishing',
+    'operationId', 'manifestPath', 'receiptPath', 'observationPath', 'authorizationPath',
+    'candidateDigest', 'packageDigest', 'runtimeCommitIdentity', 'environmentIdentity',
+    'expiresAt', 'eligibleForPublishing',
   ])
     && /^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/u.test(value.operationId)
     && typeof value.expiresAt === 'string'
+    && /^[0-9a-f]{64}$/u.test(value.candidateDigest)
+    && /^[0-9a-f]{64}$/u.test(value.packageDigest)
+    && /^[0-9a-f]{40}$/u.test(value.runtimeCommitIdentity)
+    && typeof value.environmentIdentity === 'string' && value.environmentIdentity.length >= 1
     && value.eligibleForPublishing === false
 }
 
@@ -655,11 +782,78 @@ function decodeExactToken(value: string): Buffer | null {
   return decoded.byteLength === 32 && decoded.toString('base64') === value ? decoded : null
 }
 
+export async function resolveControlledFreshCandidateOperationPackage(params: {
+  operationId: string
+  testOnlyLedgerRoot?: string
+  timeoutMs?: number
+}): Promise<ControlledFreshCandidateOperationPackageResult> {
+  assertLinux()
+  if (!/^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/u.test(params.operationId)) {
+    fail('CONTROLLED_CONFIGURATION_OPERATION_INVALID')
+  }
+  const ledgerRoot = params.testOnlyLedgerRoot ?? CONTROLLED_FRESH_CANDIDATE_APPROVED_LEDGER_ROOT
+  const operationDirectory = path.join(ledgerRoot, 'operations-v1', params.operationId)
+  const manifestPath = path.join(operationDirectory, 'runtime-input.json')
+  const receiptPath = path.join(operationDirectory, 'private-receipt.json')
+  const observationPath = path.join(operationDirectory, 'observation.json')
+  const authorizationPath = path.join(operationDirectory, 'owner-authorization.json')
+  const ledgerMetadata = assertPrivateDirectory(ledgerRoot)
+  const operationMetadata = assertPrivateDirectory(operationDirectory)
+  if (operationMetadata.dev !== ledgerMetadata.dev) fail('CONTROLLED_CONFIGURATION_OPERATION_INVALID')
+  const timeoutMs = params.timeoutMs ?? 30_000
+  if (!Number.isSafeInteger(timeoutMs) || timeoutMs <= 0 || timeoutMs > 30_000) {
+    fail('CONTROLLED_CONFIGURATION_OPERATION_INVALID')
+  }
+  const scope = createControlledFreshCandidateOperationScope({ timeoutMs, totalTimeoutMs: timeoutMs })
+  try {
+    const manifestBytes = await readControlledFreshCandidatePrivateFile(
+      scope,
+      manifestPath,
+      ledgerMetadata.dev,
+      'manifest',
+    )
+    let parsed: unknown
+    try {
+      const serialized = new TextDecoder('utf-8', { fatal: true }).decode(manifestBytes)
+      parsed = JSON.parse(serialized)
+      if (controlledFreshCandidateCanonicalJson(parsed) !== serialized) {
+        fail('CONTROLLED_CONFIGURATION_OPERATION_INVALID')
+      }
+    } catch (error) {
+      if (error instanceof ControlledFreshCandidateConfigurationError) throw error
+      fail('CONTROLLED_CONFIGURATION_OPERATION_INVALID')
+    }
+    if (!exactRuntimeInput(parsed) || parsed.executionId !== params.operationId) {
+      fail('CONTROLLED_CONFIGURATION_OPERATION_INVALID')
+    }
+    return Object.freeze({
+      operationId: params.operationId,
+      manifestPath,
+      receiptPath,
+      observationPath,
+      authorizationPath,
+      candidateDigest: parsed.pilotManifest.manifestDigest,
+      packageDigest: createHash('sha256').update(manifestBytes).digest('hex'),
+      runtimeCommitIdentity: parsed.runtimeCommitIdentity,
+      environmentIdentity: parsed.environmentIdentity,
+      expiresAt: parsed.expiresAt,
+      eligibleForPublishing: false,
+    })
+  } finally {
+    try { await scope.cancel() } catch { /* fail-closed caller result */ }
+    try { await scope.drain() } catch { /* fail-closed caller result */ }
+    try { scope.close() } catch { /* fail-closed caller result */ }
+  }
+}
+
 export async function buildControlledFreshCandidateExecutionEnvironment(params: {
   configurationEnvironment: NodeJS.ProcessEnv
   packageResult: ControlledFreshCandidateOperationPackageResult
   now?: number
   testOnlyLedgerRoot?: string
+  authorizationState?: 'available' | 'consumed'
+  timeoutMs?: number
+  releaseAttestation?: ControlledFreshCandidateReleaseAttestation
 }): Promise<NodeJS.ProcessEnv> {
   assertLinux()
   if (!exactOperationPackageShape(params.packageResult)) fail('CONTROLLED_CONFIGURATION_OPERATION_INVALID')
@@ -671,20 +865,33 @@ export async function buildControlledFreshCandidateExecutionEnvironment(params: 
   const expectedManifest = path.join(expectedDirectory, 'runtime-input.json')
   const expectedReceipt = path.join(expectedDirectory, 'private-receipt.json')
   const expectedObservation = path.join(expectedDirectory, 'observation.json')
+  const expectedAuthorization = path.join(expectedDirectory, 'owner-authorization.json')
+  const authorizationState = params.authorizationState ?? 'available'
+  const authorizationReadPath = authorizationState === 'available'
+    ? expectedAuthorization
+    : path.join(expectedDirectory, 'owner-authorization.consumed.json')
   if (
     params.packageResult.manifestPath !== expectedManifest
     || params.packageResult.receiptPath !== expectedReceipt
     || params.packageResult.observationPath !== expectedObservation
+    || params.packageResult.authorizationPath !== expectedAuthorization
   ) fail('CONTROLLED_CONFIGURATION_OPERATION_INVALID')
   const ledgerMetadata = assertPrivateDirectory(ledgerRoot)
   const operationMetadata = assertPrivateDirectory(expectedDirectory)
   if (operationMetadata.dev !== ledgerMetadata.dev) fail('CONTROLLED_CONFIGURATION_OPERATION_INVALID')
-  try {
-    lstatSync(expectedReceipt)
-    fail('CONTROLLED_CONFIGURATION_OPERATION_INVALID')
-  } catch (error) {
-    if (error instanceof ControlledFreshCandidateConfigurationError) throw error
-    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') fail('CONTROLLED_CONFIGURATION_OPERATION_INVALID')
+  if (authorizationState === 'available') {
+    try {
+      lstatSync(expectedReceipt)
+      fail('CONTROLLED_CONFIGURATION_OPERATION_INVALID')
+    } catch (error) {
+      if (error instanceof ControlledFreshCandidateConfigurationError) throw error
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') fail('CONTROLLED_CONFIGURATION_OPERATION_INVALID')
+    }
+  } else {
+    const receiptStat = lstatSync(expectedReceipt)
+    if (!receiptStat.isFile() || receiptStat.isSymbolicLink() || (receiptStat.mode & 0o777) !== 0o600) {
+      fail('CONTROLLED_CONFIGURATION_OPERATION_INVALID')
+    }
   }
 
   const authorizationKey = exactBase64Key(params.configurationEnvironment[CONTROLLED_FRESH_CANDIDATE_AUTHORIZATION_KEY_ENV])
@@ -698,8 +905,43 @@ export async function buildControlledFreshCandidateExecutionEnvironment(params: 
     || configuredEnvironment !== CONTROLLED_FRESH_CANDIDATE_PRODUCTION_ENVIRONMENT_IDENTITY
   ) fail('CONTROLLED_CONFIGURATION_OPERATION_INVALID')
 
-  const scope = createControlledFreshCandidateOperationScope({ timeoutMs: 30_000 })
+  const timeoutMs = params.timeoutMs ?? 30_000
+  if (!Number.isSafeInteger(timeoutMs) || timeoutMs <= 0 || timeoutMs > 30_000) {
+    fail('CONTROLLED_CONFIGURATION_OPERATION_INVALID')
+  }
+  const scope = createControlledFreshCandidateOperationScope({ timeoutMs, totalTimeoutMs: timeoutMs })
   try {
+    const authorizationBytes = await readControlledFreshCandidatePrivateFile(
+      scope,
+      authorizationReadPath,
+      ledgerMetadata.dev,
+      'authority',
+    )
+    let ownerAuthorization: unknown
+    try {
+      const serialized = new TextDecoder('utf-8', { fatal: true }).decode(authorizationBytes)
+      ownerAuthorization = JSON.parse(serialized)
+      if (controlledFreshCandidateCanonicalJson(ownerAuthorization) !== serialized) {
+        fail('CONTROLLED_CONFIGURATION_OPERATION_INVALID')
+      }
+    } catch (error) {
+      if (error instanceof ControlledFreshCandidateConfigurationError) throw error
+      fail('CONTROLLED_CONFIGURATION_OPERATION_INVALID')
+    }
+    if (!validateControlledFreshCandidateOwnerAuthorization(ownerAuthorization, {
+      key: authorizationKey,
+      observedAt: params.now,
+      expected: {
+        operationId: params.packageResult.operationId,
+        packageDigest: params.packageResult.packageDigest,
+        candidateDigest: params.packageResult.candidateDigest,
+        runtimeCommitIdentity: configuredCommit,
+        environmentIdentity: configuredEnvironment,
+      },
+    })) fail('CONTROLLED_CONFIGURATION_OPERATION_INVALID')
+    if (Date.parse(ownerAuthorization.expiresAt) > Date.parse(params.packageResult.expiresAt)) {
+      fail('CONTROLLED_CONFIGURATION_OPERATION_INVALID')
+    }
     const manifestBytes = await readControlledFreshCandidatePrivateFile(
       scope,
       expectedManifest,
@@ -720,6 +962,8 @@ export async function buildControlledFreshCandidateExecutionEnvironment(params: 
       || parsed.observationPath !== expectedObservation
       || parsed.runtimeCommitIdentity !== configuredCommit
       || parsed.environmentIdentity !== configuredEnvironment
+      || parsed.pilotManifest.manifestDigest !== params.packageResult.candidateDigest
+      || createHash('sha256').update(manifestBytes).digest('hex') !== params.packageResult.packageDigest
     ) fail('CONTROLLED_CONFIGURATION_OPERATION_INVALID')
     const originalBytes = await readControlledFreshCandidatePrivateFile(
       scope,
@@ -728,6 +972,12 @@ export async function buildControlledFreshCandidateExecutionEnvironment(params: 
       'original',
     )
     if (originalBytes.byteLength < 1 || originalBytes.byteLength > CONTROLLED_FRESH_CANDIDATE_MAX_ORIGINAL_BYTES) {
+      fail('CONTROLLED_CONFIGURATION_OPERATION_INVALID')
+    }
+    if (
+      path.basename(parsed.originalPath) !== parsed.pilotManifest.original.filename
+      || createHash('sha256').update(originalBytes).digest('hex') !== parsed.pilotManifest.original.contentDigest
+    ) {
       fail('CONTROLLED_CONFIGURATION_OPERATION_INVALID')
     }
     const manifestInput: ControlledFreshCandidateManifestInput = {
@@ -810,6 +1060,16 @@ export async function buildControlledFreshCandidateExecutionEnvironment(params: 
     child[CONTROLLED_FRESH_CANDIDATE_RECEIPT_PATH_ENV] = expectedReceipt
     child[CONTROLLED_FRESH_CANDIDATE_OBSERVATION_PATH_ENV] = expectedObservation
     authenticatedExecutionEnvironments.add(child)
+    if (params.releaseAttestation) {
+      if (!controlledFreshCandidateReleaseIsAuthenticated(params.releaseAttestation)
+        || params.releaseAttestation.sourceCommit !== configuredCommit
+        || params.releaseAttestation.packageDigest !== params.packageResult.packageDigest
+        || params.releaseAttestation.authorizationIdentity !== ownerAuthorization.authorizationIdentity
+        || params.releaseAttestation.authorizationDigest !== createHash('sha256').update(authorizationBytes).digest('hex')) {
+        throw new Error('CONTROLLED_RELEASE_ATTESTATION_INVALID')
+      }
+      releaseEnvironments.set(child, params.releaseAttestation)
+    }
     return child
   } catch (error) {
     if (error instanceof ControlledFreshCandidateConfigurationError) throw error

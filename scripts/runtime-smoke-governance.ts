@@ -90,7 +90,11 @@ function controlledReceiptGovernanceFixture(): Omit<ControlledFreshCandidatePriv
       expectedFilename: filename,
       actualFilename: filename,
     },
-    storageLedger: [{ ordinal: 1, filename, state: 'known_present' }],
+    storageLedger: [{ ordinal: 1, filename, state: 'known_present', descriptor: {
+      key: filename, contentDigest: '3'.repeat(64), mimeType: 'image/png', byteSize: 4, width: 1, height: 1,
+      candidateIdentity: 'governance-manifest-0001', originalContentDigest: '3'.repeat(64),
+      operationId: 'governance-execution-0001', authorizationIdentity: 'governance-owner-0001', authorizationDigest: '1'.repeat(64),
+    } }],
     transactions: {
       productCreate: { intent: 'dispatched', certainty: 'observed' },
       mediaCreate: { intent: 'dispatched', certainty: 'observed' },
@@ -127,11 +131,11 @@ function controlledReceiptGovernanceFixture(): Omit<ControlledFreshCandidatePriv
 }
 
 function assertControlledReceiptSemanticGovernance(): void {
-  assert.equal(CONTROLLED_FRESH_CANDIDATE_PRIVATE_VERSION, 'controlled-fresh-candidate-private/v3')
+  assert.equal(CONTROLLED_FRESH_CANDIDATE_PRIVATE_VERSION, 'controlled-fresh-candidate-private/v4')
   assert.equal(CONTROLLED_FRESH_CANDIDATE_MANIFEST_VERSION, 'controlled-fresh-candidate-manifest/v1')
   assert.equal(CONTROLLED_FRESH_CANDIDATE_RUNTIME_IDENTITY, 'controlled-fresh-candidate-runtime/v3')
   assert.equal(CONTROLLED_FRESH_CANDIDATE_CONTRACT_IDENTITY, 'controlled-fresh-candidate-contract/v3')
-  assert.equal(CONTROLLED_FRESH_CANDIDATE_RECEIPT_DOMAIN, 'uygunayakkabi:controlled-fresh-candidate:private-receipt:v3')
+  assert.equal(CONTROLLED_FRESH_CANDIDATE_RECEIPT_DOMAIN, 'uygunayakkabi:controlled-fresh-candidate:private-receipt:v4')
   assert.equal(CONTROLLED_FRESH_CANDIDATE_RECEIPT_CONSUMPTION_DOMAIN, 'uygunayakkabi:controlled-fresh-candidate:receipt-consumption:v3')
 
   const unsigned = controlledReceiptGovernanceFixture()
@@ -524,6 +528,10 @@ const controlledCandidateSecretContract = read('scripts/controlled-fresh-candida
 const controlledCandidateSecretLoader = read('scripts/controlled-fresh-candidate-secret-loader.ts')
 const controlledCandidateSecretBootstrap = read('scripts/controlled-fresh-candidate-secret-bootstrap.ts')
 const controlledCandidateConnectivity = read('scripts/controlled-fresh-candidate-connectivity.ts')
+const controlledCandidatePgSecurity = read('scripts/controlled-fresh-candidate-pg-security.ts')
+const controlledCandidateLauncher = read('scripts/controlled-fresh-candidate-launcher.ts')
+const controlledCandidateStrictVerifier = read('scripts/controlled-fresh-candidate-strict-verifier.ts')
+const controlledCandidatePilotContract = read('src/lib/controlledFreshCandidatePilotContract.ts')
 const controlledCandidateConnectivityTest = read('scripts/controlled-fresh-candidate-connectivity.test.ts')
 const controlledCandidateConnectivityBounded = controlledCandidateConnectivity.slice(
   controlledCandidateConnectivity.indexOf('async function bounded'),
@@ -541,6 +549,9 @@ assertIncludes(controlledCandidateTests, 'controlledFreshCandidateCreation.test.
 assertIncludes(controlledCandidateTests, 'controlledFreshCandidateAuthorization.test.ts', 'controlled candidate authorization tests')
 assertIncludes(controlledCandidateTests, 'controlledFreshCandidateObservation.test.ts', 'controlled candidate observation tests')
 assertIncludes(controlledCandidateTests, 'controlledFreshCandidateTargetVerifier.test.ts', 'controlled candidate verifier tests')
+assertIncludes(controlledCandidateTests, 'controlledFreshCandidatePilotContract.test.ts', 'controlled candidate pilot contract tests')
+assertIncludes(controlledCandidateTests, 'controlled-fresh-candidate-pg-security.test.ts', 'controlled candidate pg security tests')
+assertIncludes(controlledCandidateTests, 'controlled-fresh-candidate-launcher.test.ts', 'controlled candidate launcher tests')
 assertIncludes(controlledCandidateTests, 'controlled-fresh-candidate-readiness.test.ts', 'controlled candidate readiness tests')
 assertIncludes(controlledCandidateTests, 'controlled-fresh-candidate-secret-loader.test.ts', 'controlled candidate loader tests')
 assertIncludes(controlledCandidateTests, 'controlled-fresh-candidate-secret-bootstrap.test.ts', 'controlled candidate bootstrap tests')
@@ -551,11 +562,14 @@ assert.ok(!(scripts['test:safe'] ?? '').includes('smoke:controlled-fresh-candida
 assert.deepEqual(
   Object.keys(scripts).filter((name) => name.includes('controlled-fresh-candidate')).sort(),
   [
+    'controlled-fresh-candidate:authorize',
     'controlled-fresh-candidate:bootstrap',
     'controlled-fresh-candidate:connectivity',
+    'controlled-fresh-candidate:execute',
     'controlled-fresh-candidate:observe',
     'controlled-fresh-candidate:package',
     'controlled-fresh-candidate:readiness',
+    'controlled-fresh-candidate:verify',
     'test:controlled-fresh-candidate',
     'test:controlled-fresh-candidate-bootstrap',
     'test:controlled-fresh-candidate-connectivity',
@@ -565,6 +579,9 @@ assert.deepEqual(
   'controlled candidate exposes only governed bootstrap, readiness, connectivity, offline preparation, read-only observation, and tests',
 )
 assertIncludes(scripts['controlled-fresh-candidate:package'] ?? '', 'controlled-fresh-candidate-package-builder.ts', 'controlled offline package command')
+assertIncludes(scripts['controlled-fresh-candidate:authorize'] ?? '', 'controlled-fresh-candidate-owner-authorization.ts', 'controlled owner authorization command')
+assertIncludes(scripts['controlled-fresh-candidate:execute'] ?? '', 'controlled-fresh-candidate-launcher.ts', 'controlled one-process launcher command')
+assertIncludes(scripts['controlled-fresh-candidate:verify'] ?? '', 'controlled-fresh-candidate-strict-verifier.ts', 'controlled separate strict verifier command')
 assertIncludes(scripts['controlled-fresh-candidate:readiness'] ?? '', 'controlled-fresh-candidate-secret-contract.ts', 'controlled secret readiness command')
 assertIncludes(scripts['controlled-fresh-candidate:bootstrap'] ?? '', 'controlled-fresh-candidate-secret-bootstrap.ts', 'controlled secret bootstrap command')
 assertIncludes(scripts['controlled-fresh-candidate:connectivity'] ?? '', 'controlled-fresh-candidate-connectivity.ts', 'controlled connectivity command')
@@ -576,6 +593,18 @@ assertIncludes(controlledCandidateScript, "process.env.PAYLOAD_DB_PUSH = 'false'
 assertIncludes(controlledCandidateScript, "process.env.PAYLOAD_DROP_DATABASE = 'false'", 'controlled database-drop boundary')
 assert.ok(!controlledCandidateScript.includes('process.exit('), 'controlled runtime must terminate naturally')
 assertIncludes(controlledCandidateResources, 'CONTROLLED_FRESH_CANDIDATE_BLOB_RETRY_BUDGET = 0', 'controlled Blob zero retry')
+assertIncludes(controlledCandidateResources, 'max: 1', 'controlled database pool maximum one')
+assertIncludes(controlledCandidateResources, 'min: 0', 'controlled database pool minimum zero')
+assert.ok(!controlledCandidateResources.includes('rejectUnauthorized: false'), 'controlled runtime must not weaken TLS')
+assertIncludes(controlledCandidatePgSecurity, 'rejectUnauthorized: true', 'controlled runtime certificate verification')
+assertIncludes(controlledCandidatePgSecurity, 'checkServerIdentity', 'controlled runtime hostname verification')
+assertIncludes(controlledCandidatePgSecurity, 'SCRAM-SHA-256-PLUS', 'controlled runtime PLUS channel binding')
+assertIncludes(controlledCandidatePgSecurity, 'enableChannelBinding: true', 'controlled runtime channel binding enabled')
+assertIncludes(controlledCandidatePilotContract, 'CONTROLLED_FRESH_CANDIDATE_SQL_DERIVATION', 'controlled static SQL budget derivation')
+assertIncludes(controlledCandidatePilotContract, 'CONTROLLED_RUNTIME_BUDGET_EXHAUSTED', 'controlled fail-closed centralized runtime budget')
+assertIncludes(controlledCandidateLauncher, 'buildControlledFreshCandidateExecutionEnvironment', 'controlled authenticated one-process launcher')
+assertIncludes(controlledCandidateLauncher, 'consumeControlledFreshCandidateOwnerAuthorization', 'controlled one-use owner authorization consumption')
+assert.ok(!controlledCandidateStrictVerifier.includes('runControlledFreshCandidateRuntime'), 'strict verifier must not invoke mutation runtime')
 assertIncludes(controlledCandidateResources, 'multipart: false', 'controlled Blob multipart disabled')
 assertIncludes(controlledCandidateResources, "handleDelete: async () => { throw", 'controlled storage delete denied')
 assertIncludes(controlledCandidateResources, 'fsConstants.O_CREAT | fsConstants.O_EXCL | fsConstants.O_WRONLY | fsConstants.O_NOFOLLOW', 'controlled one-use authorization marker')

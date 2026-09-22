@@ -17,6 +17,8 @@ import {
   type ControlledFreshCandidatePhase,
   type ControlledFreshCandidatePrivateReceipt,
   type ControlledFreshCandidateQuarantineCertainty,
+  controlledFreshCandidateBlobDescriptor,
+  type ControlledFreshCandidateBlobMetadata,
 } from './controlledFreshCandidateReceipt'
 
 export const CONTROLLED_FRESH_CANDIDATE_PUBLIC_VERSION = 'controlled-fresh-candidate-public/v1' as const
@@ -59,8 +61,51 @@ export type ControlledFreshCandidateOperationScope = {
   close(): void
 }
 
+const terminalDeadlines = new WeakMap<ControlledFreshCandidateOperationScope, number>()
+const terminalClocks = new WeakMap<ControlledFreshCandidateOperationScope, () => number>()
+export function controlledFreshCandidateTerminalDeadlineAt(scope: ControlledFreshCandidateOperationScope): number {
+  return terminalDeadlines.get(scope) ?? scope.deadline
+}
+const physicalShutdownHandlers = new WeakMap<ControlledFreshCandidateOperationScope, Set<() => void>>()
+export function registerControlledFreshCandidatePhysicalShutdown(scope: ControlledFreshCandidateOperationScope, handler: () => void): void {
+  let handlers = physicalShutdownHandlers.get(scope)
+  if (!handlers) { handlers = new Set(); physicalShutdownHandlers.set(scope, handlers) }
+  handlers.add(handler)
+}
+
+export async function controlledFreshCandidateBoundedShutdown<T>(
+  scope: ControlledFreshCandidateOperationScope,
+  operation: Promise<T>,
+  onExpiry: () => void = () => undefined,
+): Promise<T> {
+  const remaining = controlledFreshCandidateTerminalDeadlineAt(scope) - (terminalClocks.get(scope) ?? Date.now)()
+  const expire = (): void => {
+    for (const handler of physicalShutdownHandlers.get(scope) ?? []) {
+      try { handler() } catch { /* report remains terminally uncertain */ }
+    }
+    onExpiry()
+  }
+  if (remaining <= 0) {
+    operation.catch(() => undefined)
+    expire()
+    throw new ControlledFreshCandidateTerminalUncertaintyError()
+  }
+  let timer: ReturnType<typeof setTimeout> | undefined
+  try {
+    return await Promise.race([operation, new Promise<never>((_resolve, reject) => {
+      timer = setTimeout(() => {
+        try {
+          expire()
+        } finally { reject(new ControlledFreshCandidateTerminalUncertaintyError()) }
+      }, Math.max(1, remaining))
+    })])
+  } finally { if (timer) clearTimeout(timer) }
+}
+
 export function createControlledFreshCandidateOperationScope(params: {
   timeoutMs?: number
+  totalTimeoutMs?: number
+  deadlineAt?: number
   now?: () => number
   onOperationRegistered?: () => void
   onCleanupRegistered?: (generation: number) => void
@@ -71,7 +116,23 @@ export function createControlledFreshCandidateOperationScope(params: {
   if (!Number.isSafeInteger(timeoutMs) || timeoutMs <= 0 || Object.is(timeoutMs, -0)) {
     throw new Error('CONTROLLED_DEADLINE_CONFIGURATION_INVALID')
   }
-  const deadline = now() + timeoutMs
+  // Production reserves five seconds of the SAME 45-second wall-clock budget
+  // for physical shutdown. Tiny synthetic operation deadlines retain a bounded
+  // cleanup window without turning the operation timer into an unbounded drain.
+  const totalTimeoutMs = params.totalTimeoutMs ?? Math.min(timeoutMs + 5_000, 45_000)
+  if (!Number.isSafeInteger(totalTimeoutMs) || totalTimeoutMs <= 0 || totalTimeoutMs > 45_000) {
+    throw new Error('CONTROLLED_DEADLINE_CONFIGURATION_INVALID')
+  }
+  const enteredAt = now()
+  const terminalDeadline = params.deadlineAt ?? Date.now() + totalTimeoutMs
+  if (!Number.isSafeInteger(terminalDeadline) || terminalDeadline <= enteredAt
+    || params.deadlineAt !== undefined && terminalDeadline > enteredAt + CONTROLLED_FRESH_CANDIDATE_EXECUTION_TIMEOUT_MS) {
+    throw new Error('CONTROLLED_DEADLINE_CONFIGURATION_INVALID')
+  }
+  // An inherited deadline is never converted to a duration and re-anchored.
+  const deadline = params.deadlineAt !== undefined
+    ? terminalDeadline - Math.min(5_000, Math.floor((terminalDeadline - enteredAt) / 2))
+    : enteredAt + Math.min(timeoutMs, Math.max(1, totalTimeoutMs - Math.min(5_000, Math.floor(totalTimeoutMs / 2))))
   if (!Number.isSafeInteger(deadline) || Object.is(deadline, -0)) {
     throw new Error('CONTROLLED_DEADLINE_CONFIGURATION_INVALID')
   }
@@ -101,7 +162,12 @@ export function createControlledFreshCandidateOperationScope(params: {
     if (cleanupFailureCount > 0) throw terminalUncertainty
   }
   const settleAndInspect = async (pending: Promise<unknown>[]): Promise<void> => {
-    const results = await Promise.allSettled(pending)
+    let results: PromiseSettledResult<unknown>[]
+    try { results = await controlledFreshCandidateBoundedShutdown(scope, Promise.allSettled(pending)) } catch {
+      cleanupFailureCount += 1
+      transition('TERMINAL_UNCERTAIN')
+      throw terminalUncertainty
+    }
     for (let index = 0; index < results.length; index += 1) {
       if (results[index]?.status === 'rejected' && knownTerminalizations.has(pending[index])) {
         recordCleanupFailure(pending[index])
@@ -183,7 +249,7 @@ export function createControlledFreshCandidateOperationScope(params: {
       throw new ControlledFreshCandidateDeadlineError()
     }
   }
-  return {
+  const scope: ControlledFreshCandidateOperationScope = {
     deadline,
     signal: controller.signal,
     get state() { return state },
@@ -271,6 +337,9 @@ export function createControlledFreshCandidateOperationScope(params: {
       for (const operation of activeOperations) operation.then(() => undefined, () => undefined)
     },
   }
+  terminalDeadlines.set(scope, terminalDeadline)
+  terminalClocks.set(scope, params.deadlineAt === undefined ? Date.now : now)
+  return scope
 }
 
 export const CONTROLLED_FRESH_CANDIDATE_PUBLIC_COUNT_KEYS = [
@@ -403,7 +472,7 @@ export function serializeControlledFreshCandidateExecutionGrant(
 }
 
 export type ControlledFreshCandidateUploadCallbacks = {
-  beforeUpload(filename: string): Promise<void>
+  beforeUpload(filename: string, metadata?: ControlledFreshCandidateBlobMetadata): Promise<void>
   afterUpload(filename: string): Promise<void>
   uploadUncertain(filename: string): Promise<void>
 }
@@ -1346,7 +1415,7 @@ export async function createControlledFreshCandidate(
       draft.media.productId = productId
     })
     const uploads: ControlledFreshCandidateUploadCallbacks = {
-      beforeUpload: async (filename) => {
+      beforeUpload: async (filename, metadata) => {
         await assertDeadline()
         if (!receipt) throw new ControlledCreationFailure('PRIVATE_RECEIPT_PERSIST_FAILED')
         const ordinal = receipt.storageLedger.length + 1
@@ -1354,12 +1423,19 @@ export async function createControlledFreshCandidate(
           ordinal > 4
           || !/^[a-z0-9][a-z0-9._-]+$/i.test(filename)
           || filename.includes('..')
+          || receipt.storageLedger.some((entry) => entry.filename === filename)
         ) {
           throw new ControlledCreationFailure('STORAGE_OUTCOME_UNCERTAIN', 'CREATION_RECOVERY_REQUIRED')
         }
         await mutateReceipt((draft) => {
           draft.budgets.logicalStorageUploads = ordinal
-          draft.storageLedger.push({ ordinal, filename, state: 'intended' })
+          if (!metadata && filename !== manifest.original.filename) throw new Error('CONTROLLED_BLOB_DESCRIPTOR_REQUIRED')
+          const actual = metadata ?? { ...manifest.original, key: filename }
+          draft.storageLedger.push({ ordinal, filename, state: 'intended',
+            descriptor: controlledFreshCandidateBlobDescriptor(draft, {
+              key: actual.key, contentDigest: actual.contentDigest, byteSize: actual.byteSize,
+              mimeType: actual.mimeType, width: actual.width, height: actual.height,
+            }) })
         })
         await assertDeadline()
       },
@@ -1522,7 +1598,7 @@ export async function createControlledFreshCandidate(
   try { await dependencies.revokeMutationCapability() } catch { /* terminal uncertainty is reported below */ }
   let teardownOk = false
   try {
-    const teardown = await dependencies.teardown()
+    const teardown = await controlledFreshCandidateBoundedShutdown(dependencies.scope, dependencies.teardown())
     teardownOk = teardown.ok
   } catch {
     teardownOk = false
@@ -1542,7 +1618,7 @@ export async function createControlledFreshCandidate(
 
   let authorityClosureOk = false
   try {
-    const authorityClosure = await dependencies.closeAuthorityResources()
+    const authorityClosure = await controlledFreshCandidateBoundedShutdown(dependencies.scope, dependencies.closeAuthorityResources())
     authorityClosureOk = authorityClosure.ok
   } catch {
     authorityClosureOk = false

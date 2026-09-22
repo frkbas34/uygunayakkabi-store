@@ -2,6 +2,7 @@ import {
   CONTROLLED_FRESH_CANDIDATE_PUBLIC_COUNT_KEYS,
   CONTROLLED_FRESH_CANDIDATE_PUBLIC_VERSION,
   controlledFreshCandidateDigest,
+  controlledFreshCandidateBoundedShutdown,
   controlledFreshCandidateMediaMatches,
   controlledFreshCandidateProductMatches,
   createControlledFreshCandidateOperationScope,
@@ -21,12 +22,14 @@ import {
   type ControlledFreshCandidatePhase,
   type ControlledFreshCandidateQuarantineCertainty,
   type ControlledFreshCandidateTargetCapability,
+  type ControlledFreshCandidateBlobDescriptor,
 } from './controlledFreshCandidateReceipt'
 
 export type ControlledFreshCandidateStrictVerdict =
   | 'STRICT_FRESH_TARGET_READY'
-  | 'STRICT_FRESH_TARGET_BLOCKED'
-  | 'STRICT_FRESH_TARGET_UNSUPPORTED'
+  | 'FAILED_CLOSED_BEFORE_MUTATION'
+  | 'PARTIAL_SIDE_EFFECT_RECONCILIATION_REQUIRED'
+  | 'UNKNOWN_OUTCOME_RECOVERY_REQUIRED'
 
 export type ControlledFreshCandidateStrictReasonCode =
   | 'STRICT_TARGET_READY'
@@ -63,6 +66,37 @@ export type ControlledFreshCandidateStrictTargetReport = {
 
 export type ControlledFreshCandidateStrictTargetDependencies = FreshVisualStrictTargetDependencies & {
   teardown(): Promise<{ ok: true } | { ok: false }>
+  readBlobSet?(expected: readonly ControlledFreshCandidateBlobDescriptor[], signal: AbortSignal, snapshot: FreshVisualStrictTargetSnapshot): Promise<readonly ControlledFreshCandidateBlobDescriptor[]>
+}
+
+export function controlledFreshCandidateBlobSetMatches(
+  expected: readonly ControlledFreshCandidateBlobDescriptor[],
+  observed: readonly ControlledFreshCandidateBlobDescriptor[],
+  media: Record<string, unknown>,
+): boolean {
+  if (expected.length < 1 || expected.length > 4 || observed.length !== expected.length) return false
+  const keys = new Set(expected.map((entry) => entry.key))
+  if (keys.size !== expected.length || new Set(observed.map((entry) => entry.key)).size !== observed.length) return false
+  if (observed.some((entry) => !expected.some((item) => controlledFreshCandidateDigest(item) === controlledFreshCandidateDigest(entry)))) return false
+  const filenames: string[] = typeof media.filename === 'string' ? [media.filename] : []
+  if (media.sizes !== undefined && media.sizes !== null) {
+    if (!isPlainRecord(media.sizes) || Object.keys(media.sizes).some((key) => !['thumbnail', 'card', 'large'].includes(key))) return false
+    for (const [size, value] of Object.entries(media.sizes)) {
+      if (value === null) continue
+      if (!isPlainRecord(value)) return false
+      if (value.filename === undefined || value.filename === null) {
+        if (Object.values(value).some((field) => field !== null && field !== undefined)) return false
+        continue
+      }
+      const descriptor = expected.find((entry) => entry.key === value.filename)
+      const dimension = { thumbnail: 300, card: 600, large: 1200 }[size as 'thumbnail' | 'card' | 'large']
+      if (!descriptor || descriptor.width !== dimension || descriptor.height !== dimension
+        || value.width !== descriptor.width || value.height !== descriptor.height
+        || value.filesize !== descriptor.byteSize || value.mimeType !== descriptor.mimeType) return false
+      filenames.push(String(value.filename))
+    }
+  }
+  return filenames.length === keys.size && new Set(filenames).size === filenames.length && filenames.every((key) => keys.has(key))
 }
 
 const STRICT_REASON_CODES = new Set<ControlledFreshCandidateStrictReasonCode>([
@@ -261,7 +295,10 @@ export function validateControlledFreshCandidateStrictTargetReport(
   ])) return false
   if (!isPlainRecord(value.counts) || !hasExactOwnKeys(value.counts, CONTROLLED_FRESH_CANDIDATE_PUBLIC_COUNT_KEYS)) return false
   return value.version === CONTROLLED_FRESH_CANDIDATE_PUBLIC_VERSION
-    && ['STRICT_FRESH_TARGET_READY', 'STRICT_FRESH_TARGET_BLOCKED', 'STRICT_FRESH_TARGET_UNSUPPORTED'].includes(String(value.verdict))
+    && [
+      'STRICT_FRESH_TARGET_READY', 'FAILED_CLOSED_BEFORE_MUTATION',
+      'PARTIAL_SIDE_EFFECT_RECONCILIATION_REQUIRED', 'UNKNOWN_OUTCOME_RECOVERY_REQUIRED',
+    ].includes(String(value.verdict))
     && Array.isArray(value.reasonCodes)
     && value.reasonCodes.length >= 1
     && value.reasonCodes.every((code) => typeof code === 'string' && STRICT_REASON_CODES.has(code as ControlledFreshCandidateStrictReasonCode))
@@ -284,17 +321,20 @@ export async function verifyControlledFreshCandidateTarget(params: {
   capability: ControlledFreshCandidateTargetCapability
   dependencies: ControlledFreshCandidateStrictTargetDependencies
 }): Promise<ControlledFreshCandidateStrictTargetReport> {
+  const operationScope = params.dependencies.operationScope ?? createControlledFreshCandidateOperationScope({
+    now: params.dependencies.now,
+  })
   let receipt: ReturnType<typeof readControlledFreshCandidateCapability>
   try {
     receipt = readControlledFreshCandidateCapability(params.capability)
   } catch {
-    try { await params.dependencies.teardown() } catch { /* sanitized report only */ }
-    return report({ verdict: 'STRICT_FRESH_TARGET_BLOCKED', reasonCodes: ['RECEIPT_CAPABILITY_INVALID'] })
+    let closed = false
+    try { closed = (await controlledFreshCandidateBoundedShutdown(operationScope, params.dependencies.teardown())).ok } catch { /* sanitized report only */ }
+    if (!params.dependencies.operationScope) { try { operationScope.close() } catch { closed = false } }
+    return report({ verdict: closed ? 'FAILED_CLOSED_BEFORE_MUTATION' : 'UNKNOWN_OUTCOME_RECOVERY_REQUIRED',
+      reasonCodes: closed ? ['RECEIPT_CAPABILITY_INVALID'] : ['RECEIPT_CAPABILITY_INVALID', 'STRICT_TARGET_TEARDOWN_FAILED'] })
   }
   const counts = publicCounts(receipt.budgets)
-  const operationScope = params.dependencies.operationScope ?? createControlledFreshCandidateOperationScope({
-    now: params.dependencies.now,
-  })
   const controlledDependencies = { ...params.dependencies, operationScope }
   const common = {
     counts,
@@ -326,27 +366,61 @@ export async function verifyControlledFreshCandidateTarget(params: {
   ) reasonCodes.push('RECEIPT_TARGET_INVALID')
 
   if (reasonCodes.length === 0 && productId && mediaId) {
+    try {
     const first = await captureFreshVisualStrictTargetSnapshot({ productId, dependencies: controlledDependencies })
+    const firstBlobs = first.ok && params.dependencies.readBlobSet
+      ? await operationScope.run((signal) => params.dependencies.readBlobSet!(receipt.storageLedger.map((entry) => entry.descriptor), signal, first.snapshot)) : null
     const second = await captureFreshVisualStrictTargetSnapshot({ productId, dependencies: controlledDependencies })
+    const secondBlobs = second.ok && params.dependencies.readBlobSet
+      ? await operationScope.run((signal) => params.dependencies.readBlobSet!(receipt.storageLedger.map((entry) => entry.descriptor), signal, second.snapshot)) : null
     if (!first.ok || !second.ok) {
       reasonCodes.push('STRICT_TARGET_CAPTURE_UNSUPPORTED')
       unsupported = true
     } else if (first.snapshot.observationDigest !== second.snapshot.observationDigest) {
       reasonCodes.push('STRICT_TARGET_STATE_DRIFTED')
     } else {
+      if (!firstBlobs || !secondBlobs
+        || !controlledFreshCandidateBlobSetMatches(receipt.storageLedger.map((entry) => entry.descriptor), firstBlobs, first.snapshot.media[0] ?? {})
+        || !controlledFreshCandidateBlobSetMatches(receipt.storageLedger.map((entry) => entry.descriptor), secondBlobs, second.snapshot.media[0] ?? {})
+        || controlledFreshCandidateDigest(firstBlobs) !== controlledFreshCandidateDigest(secondBlobs)) {
+        reasonCodes.push('STRICT_TARGET_ORIGINAL_EVIDENCE_INVALID')
+      }
       reasonCodes.push(...assessSnapshot({ snapshot: first.snapshot, productId, mediaId, receipt }))
       reasonCodes.push(...assessSnapshot({ snapshot: second.snapshot, productId, mediaId, receipt }))
+    }
+    } catch {
+      unsupported = true
+      reasonCodes.push('STRICT_TARGET_CAPTURE_UNSUPPORTED')
     }
   }
 
   let teardownOk = false
-  try { teardownOk = (await params.dependencies.teardown()).ok } catch { teardownOk = false }
-  if (!params.dependencies.operationScope) operationScope.close()
+  try { teardownOk = (await controlledFreshCandidateBoundedShutdown(operationScope, params.dependencies.teardown())).ok } catch { teardownOk = false }
+  if (!params.dependencies.operationScope) { try { operationScope.close() } catch { teardownOk = false } }
   if (!teardownOk) reasonCodes.push('STRICT_TARGET_TEARDOWN_FAILED')
   reasonCodes = [...new Set(reasonCodes)].sort()
   const ready = reasonCodes.length === 0
+  const transactionStages = Object.values(receipt.transactions)
+  const observedSideEffect = receipt.product.id !== null
+    || receipt.media.id !== null
+    || receipt.storageLedger.some((entry) => entry.state === 'known_present')
+    || receipt.commitCertainty === 'committed_observed'
+    || transactionStages.some((stage) => stage.certainty === 'observed')
+  const uncertainSideEffect = receipt.commitCertainty === 'rollback_requested'
+    || receipt.storageLedger.some((entry) => entry.state === 'intended' || entry.state === 'uncertain')
+    || transactionStages.some((stage) => stage.intent === 'dispatched' && stage.certainty !== 'observed')
+  const terminallyUnknown = unsupported
+    || reasonCodes.includes('STRICT_TARGET_STATE_DRIFTED')
+    || reasonCodes.includes('STRICT_TARGET_TEARDOWN_FAILED')
+    || uncertainSideEffect
   return report({
-    verdict: ready ? 'STRICT_FRESH_TARGET_READY' : unsupported ? 'STRICT_FRESH_TARGET_UNSUPPORTED' : 'STRICT_FRESH_TARGET_BLOCKED',
+    verdict: ready
+      ? 'STRICT_FRESH_TARGET_READY'
+      : terminallyUnknown
+        ? 'UNKNOWN_OUTCOME_RECOVERY_REQUIRED'
+        : observedSideEffect
+          ? 'PARTIAL_SIDE_EFFECT_RECONCILIATION_REQUIRED'
+          : 'FAILED_CLOSED_BEFORE_MUTATION',
     reasonCodes: ready ? ['STRICT_TARGET_READY'] : reasonCodes,
     ...common,
     cleanupStatus: teardownOk ? 'complete' : 'failed',

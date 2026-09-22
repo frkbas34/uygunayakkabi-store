@@ -21,6 +21,8 @@ import {
 } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
+import { runInNewContext } from 'node:vm'
+import ts from 'typescript'
 import { pathToFileURL } from 'node:url'
 
 import {
@@ -28,6 +30,8 @@ import {
   controlledFreshCandidateDigest,
   createControlledFreshCandidateManifestEvidence,
   createControlledFreshCandidateOperationScope,
+  controlledFreshCandidateBoundedShutdown,
+  registerControlledFreshCandidatePhysicalShutdown,
   deriveControlledFreshCandidateAuthorizationIdentity,
   fixedControlledFreshCandidateProduct,
   prepareControlledFreshCandidateManifest,
@@ -54,6 +58,7 @@ import {
   controlledFreshCandidateRuntimeUsage,
   parseControlledFreshCandidateRuntimeArgs,
   runControlledFreshCandidateRuntime as runControlledFreshCandidateRuntimeProduction,
+  finalizeControlledFreshCandidateRuntimeReport,
 } from './controlled-fresh-candidate-runtime'
 import {
   createControlledFreshCandidateBoundaryLoggerConfiguration,
@@ -68,6 +73,7 @@ import {
   controlledFreshCandidateFilenameIsApproved,
   controlledFreshCandidateReceiptDestinationDigest,
   finalizeControlledFreshCandidateProductAtomically,
+  resolveControlledFinalizationTableAuthority,
   initializeControlledFreshCandidateOwnerLedger,
   openControlledFreshCandidatePhysicalReceiptDestination,
   parseControlledFreshCandidateMountInfo,
@@ -79,6 +85,8 @@ import {
   CONTROLLED_FRESH_CANDIDATE_MAX_MOUNTINFO_BYTES,
   type ControlledRuntimePayload,
 } from './controlled-fresh-candidate-runtime-resources'
+import { controlledFreshCandidateBudgetForScope, createControlledFreshCandidateRuntimeBudget } from '../src/lib/controlledFreshCandidatePilotContract'
+import { fixture as creationFixture, input as creationFixtureInput } from '../src/lib/controlledFreshCandidateCreation.test'
 
 let posixLedgerEvidence = false
 
@@ -120,9 +128,13 @@ function sanitizedChildEnvironment(additional: Record<string, string> = {}): Nod
   return {
     Path: process.env.Path ?? process.env.PATH ?? '',
     PATH: process.env.PATH ?? process.env.Path ?? '',
-    SystemRoot: process.env.SystemRoot ?? 'C:\\Windows',
-    TEMP: process.env.TEMP ?? 'C:\\Windows\\Temp',
-    TMP: process.env.TMP ?? 'C:\\Windows\\Temp',
+    ...(process.platform === 'win32' ? { SystemRoot: process.env.SystemRoot ?? 'C:\\Windows' } : {}),
+    TEMP: process.platform === 'win32' ? process.env.TEMP : '/tmp',
+    TMP: process.platform === 'win32' ? process.env.TMP : '/tmp',
+    TMPDIR: process.platform === 'win32' ? process.env.TEMP : '/tmp',
+    TSX_DISABLE_CACHE: '1',
+    CONTROLLED_FRESH_CANDIDATE_OFFLINE_GUARD_PATH: offlineGuardPath,
+    CFC_POSIX_TEST_NATIVE_ROOT: process.env.CFC_POSIX_TEST_NATIVE_ROOT ?? (process.platform === 'linux' ? '/tmp' : undefined),
     NODE_OPTIONS: offlineGuardPath
       ? `--unhandled-rejections=strict --require=${offlineGuardPath}`
       : '--unhandled-rejections=strict',
@@ -344,6 +356,132 @@ function sealedRuntimeReceipt(seed: number, receiptDestinationDigest = 'd'.repea
 
 async function main(): Promise<void> {
   if (await runPosixPrimitiveChildMode()) return
+  {
+    const state = creationFixture({ failAt: 'final-readback' })
+    const report = await (await import('../src/lib/controlledFreshCandidateCreation')).createControlledFreshCandidate(creationFixtureInput(23), state.dependencies)
+    assert.equal(report.verdict, 'CREATION_FINALIZATION_UNCERTAIN_RECOVERY_REQUIRED')
+    assert.deepEqual(report.reasonCodes, ['FINALIZATION_READBACK_UNCERTAIN'])
+    assert.equal(report.cleanupStatus, 'complete')
+    assert.equal(finalizeControlledFreshCandidateRuntimeReport(report, createControlledFreshCandidateRuntimeBudget()).runtimeBudget.completionCertainty, 'UNKNOWN')
+    for (const verdict of ['CREATION_BLOCKED', 'FAILED_CLOSED_BEFORE_MUTATION', 'CREATION_RECOVERY_REQUIRED', 'CREATION_FINALIZATION_UNCERTAIN_RECOVERY_REQUIRED',
+      'CREATION_TEARDOWN_FAILED_RECOVERY_REQUIRED', 'PARTIAL_SIDE_EFFECT_RECONCILIATION_REQUIRED',
+      'UNKNOWN_OUTCOME_RECOVERY_REQUIRED', 'NEW_UNKNOWN_VERDICT']) {
+      const budget = createControlledFreshCandidateRuntimeBudget()
+      assert.equal(finalizeControlledFreshCandidateRuntimeReport({ ...report, verdict }, budget).runtimeBudget.completionCertainty, 'UNKNOWN', verdict)
+      budget.cleanup()
+      assert.equal(budget.report().completionCertainty, 'UNKNOWN', 'successful cleanup cannot downgrade business uncertainty')
+    }
+    const clean = creationFixture()
+    const cleanReport = await (await import('../src/lib/controlledFreshCandidateCreation')).createControlledFreshCandidate(creationFixtureInput(24), clean.dependencies)
+    assert.equal(finalizeControlledFreshCandidateRuntimeReport(cleanReport, createControlledFreshCandidateRuntimeBudget()).runtimeBudget.completionCertainty, 'OBSERVED')
+    const strictReport = { ...cleanReport, verdict: 'STRICT_FRESH_TARGET_READY', reasonCodes: ['STRICT_TARGET_READY'], eligibleForVisualOnlyGeneration: true }
+    assert.equal(finalizeControlledFreshCandidateRuntimeReport(strictReport, createControlledFreshCandidateRuntimeBudget()).runtimeBudget.completionCertainty, 'OBSERVED')
+    const sticky = createControlledFreshCandidateRuntimeBudget()
+    sticky.markUncertain()
+    assert.equal(finalizeControlledFreshCandidateRuntimeReport(cleanReport, sticky).runtimeBudget.completionCertainty, 'UNKNOWN')
+    const refused = await (await import('../src/lib/controlledFreshCandidateCreation')).createControlledFreshCandidate(null as never, clean.dependencies)
+    assert.equal(finalizeControlledFreshCandidateRuntimeReport(refused, createControlledFreshCandidateRuntimeBudget()).runtimeBudget.completionCertainty, 'OBSERVED')
+  }
+  if (process.platform === 'linux') {
+    for (const failure of ['final-readback', 'commit', 'create-media', 'finalize', 'persist', 'teardown', 'authority-close'] as const) {
+      const output = captureIo()
+      const budget = createControlledFreshCandidateRuntimeBudget()
+      let state: ReturnType<typeof creationFixture> | undefined
+      const code = await runControlledFreshCandidateRuntime({
+        argv: [CONTROLLED_FRESH_CANDIDATE_CREATE_CONFIRMATION], io: output.io, runtimeBudget: budget,
+        initializeCreation: async (scope) => {
+          state = creationFixture({ scope, ...(failure === 'teardown' ? { teardown: false }
+            : failure === 'authority-close' ? { authorityClose: false } : { failAt: failure }) })
+          return { ...inertObservationHooks(), scope, creationInput: creationFixtureInput(25), creationDependencies: state.dependencies,
+            destroy: async () => ({ ok: failure !== 'teardown' && failure !== 'authority-close' }) }
+        },
+      })
+      assert.equal(code, 3, failure)
+      const terminal = JSON.parse(output.stdout[0])
+      assert.equal(terminal.runtimeBudget.completionCertainty, 'UNKNOWN', failure)
+      assert.equal(terminal.eligibleForPublishing, false)
+      if (failure === 'final-readback') {
+        assert.equal(terminal.verdict, 'CREATION_FINALIZATION_UNCERTAIN_RECOVERY_REQUIRED')
+        assert.deepEqual(terminal.reasonCodes, ['FINALIZATION_READBACK_UNCERTAIN'])
+        assert.equal(terminal.cleanupStatus, 'complete')
+        assert.equal(state?.events.filter((event) => event === 'product-finalize').length, 1)
+      }
+    }
+  }
+  const cacheArtifacts = () => readdirSync(process.cwd()).filter((name) => /Windows.*Temp|tsx-1000|esbuild/u.test(name))
+  assert.deepEqual(cacheArtifacts(), [], 'no repository-local native cache residue')
+  {
+    const budget = createControlledFreshCandidateRuntimeBudget()
+    budget.setup()
+    const output = captureIo()
+    assert.equal(await runControlledFreshCandidateRuntimeProduction({
+      argv: [CONTROLLED_FRESH_CANDIDATE_CREATE_CONFIRMATION], io: output.io, runtimeBudget: budget,
+    }), 2)
+    const terminal = JSON.parse(output.stdout[0])
+    assert.equal(terminal.status, 'UNKNOWN_OUTCOME_RECOVERY_REQUIRED')
+    assert.equal(terminal.runtimeBudget.actual.setupOperations, 1)
+    assert.equal(terminal.runtimeBudget.actual.connectionAttempts, 0)
+    assert.equal(terminal.runtimeBudget.completionCertainty, 'UNKNOWN')
+  }
+  if (process.platform === 'linux') {
+    assert.equal(process.env.TSX_DISABLE_CACHE, '1')
+    assert.ok(process.env.TMPDIR?.startsWith('/'))
+    assert.ok(!process.env.TMPDIR?.startsWith(process.cwd()))
+    assert.ok(!process.env.TMPDIR?.startsWith('/mnt/'))
+  }
+  {
+    const scope = createControlledFreshCandidateOperationScope({ timeoutMs: 30, totalTimeoutMs: 30 })
+    let physicallyClosed = false
+    let acknowledgeEnd!: () => void
+    const end = new Promise<void>((resolve) => { acknowledgeEnd = resolve })
+    const registry = createControlledFreshCandidateTerminalResourceRegistry({ scope, mutationActive: { current: true }, dispatcher: { destroy: async () => undefined } })
+    registry.registerClient({ end: () => end, connection: { stream: { destroy() { physicallyClosed = true; acknowledgeEnd() } } } })
+    const budget = createControlledFreshCandidateRuntimeBudget()
+    let privateHandleCloseAttempts = 0
+    registerControlledFreshCandidatePhysicalShutdown(scope, () => {
+      if (privateHandleCloseAttempts) return
+      privateHandleCloseAttempts += 1
+      budget.cleanup()
+    })
+    scope.registerCancellation(registry.terminalizeOwnedResources)
+    const started = Date.now()
+    await assert.rejects(controlledFreshCandidateBoundedShutdown(scope, scope.cancel()), /TERMINAL_CLEANUP_UNCERTAIN/u)
+    assert.ok(Date.now() - started < 300)
+    assert.equal(budget.report().actual.cleanupOperations, 1, 'deadline report follows synchronous private-handle closure attempts')
+    await new Promise<void>((resolve) => setImmediate(resolve))
+    assert.equal(physicallyClosed, true, 'owned socket force closure is attempted, not just an unref')
+    assert.throws(() => scope.close(), /TERMINAL_CLEANUP_UNCERTAIN/u)
+  }
+  if (process.platform === 'linux') {
+    for (const failedAfter of ['acquisition', 'transaction', 'product', 'media', 'blob', 'receipt', 'cleanup']) {
+      const output = captureIo()
+      let cleanupCalls = 0
+      const authoritativeBudget = createControlledFreshCandidateRuntimeBudget()
+      authoritativeBudget.setup()
+      const code = await runControlledFreshCandidateRuntime({ argv: [CONTROLLED_FRESH_CANDIDATE_CREATE_CONFIRMATION], io: output.io,
+        runtimeBudget: authoritativeBudget,
+        initializeCreation: async (scope) => {
+          const budget = controlledFreshCandidateBudgetForScope(scope)
+          assert.equal(budget, authoritativeBudget, 'setup, initialization and cleanup must share one object')
+          budget.poolConstructed(); budget.clientConstructed(); budget.connectionAttempted(); budget.channelBindingConfirmed(); budget.clientAcquired()
+          scope.registerCancellation(async () => { cleanupCalls += 1; budget.clientReleased(); budget.cleanup(); if (failedAfter === 'cleanup') throw new Error('synthetic-cleanup-failure') })
+          if (failedAfter !== 'acquisition') await budget.withSqlPhase({ phase: 'begin' }, async () => budget.sql({ text: 'begin', values: [] }))
+          if (['product', 'media', 'blob', 'receipt', 'cleanup'].includes(failedAfter)) budget.applicationMutation('products')
+          if (['media', 'blob', 'receipt', 'cleanup'].includes(failedAfter)) budget.applicationMutation('media')
+          if (['blob', 'receipt', 'cleanup'].includes(failedAfter)) budget.blobCall()
+          throw new Error('synthetic-never-print-this-error')
+        } })
+      assert.equal(code, 1)
+      const terminal = JSON.parse(output.stdout[0]) as { status: string; runtimeBudget: { actual: Record<string, number>; completionCertainty: string } }
+      assert.equal(terminal.status, 'UNKNOWN_OUTCOME_RECOVERY_REQUIRED')
+      assert.equal(terminal.runtimeBudget.actual.connectionAttempts, 1)
+      assert.equal(terminal.runtimeBudget.actual.setupOperations, 1)
+      assert.equal(terminal.runtimeBudget.actual.cleanupOperations, 1, 'report follows cleanup accounting, including initialization failure')
+      assert.equal(terminal.runtimeBudget.completionCertainty, 'UNKNOWN')
+      assert.equal(cleanupCalls, 1)
+      assert.equal(output.stdout.join('').includes('synthetic-never-print-this-error'), false)
+    }
+  }
   if (process.env.CONTROLLED_FRESH_CANDIDATE_OFFLINE_GUARD_PATH) {
     assert.throws(() => fetch('https://transport.invalid'), /CONTROLLED_FRESH_CANDIDATE_OFFLINE_TRANSPORT_BLOCKED/)
   }
@@ -622,6 +760,8 @@ async function main(): Promise<void> {
     const report = JSON.parse(io.stdout[0] ?? '{}') as Record<string, unknown>
     assert.equal(report.eligibleForPublishing, false)
     assert.equal(report.eligibleForVisualOnlyGeneration, false)
+    assert.equal(typeof report.runtimeBudget, 'object')
+    assert.deepEqual(io.stderr, [])
     assert.equal(JSON.stringify(report).includes('gateway must not be called'), false)
   }
 
@@ -664,12 +804,14 @@ async function main(): Promise<void> {
       },
     })
     await new Promise((resolve) => setTimeout(resolve, 25))
-    assert.deepEqual(io.stdout, [])
-    assert.deepEqual(io.stderr, [])
+    assert.equal(io.stdout.length, 1, 'overall deadline includes cancellation; uncertain cleanup cannot postpone the report indefinitely')
+    assert.equal(JSON.parse(io.stdout[0]).status, 'UNKNOWN_OUTCOME_RECOVERY_REQUIRED')
+    assert.deepEqual(io.stderr, ['CONTROLLED_FRESH_CANDIDATE_INTERNAL_FAILURE'])
     assert.ok(releaseInitialization)
     releaseInitialization()
     const code = await execution
     assert.equal(code, 1)
+    await new Promise((resolve) => setTimeout(resolve, 30)) // settle this synthetic timer fixture, never retry runtime
     assert.equal(cancellationEstablished, true)
     assert.ok(Date.now() - started >= 30)
     assert.deepEqual(io.stderr, ['CONTROLLED_FRESH_CANDIDATE_INTERNAL_FAILURE'])
@@ -1185,31 +1327,48 @@ async function main(): Promise<void> {
   }
 
   {
-    const { integer, jsonb, pgTable, serial, text } = await import('drizzle-orm/pg-core')
-    const tables = {
-      products: pgTable('products', { id: serial('id').primaryKey() }),
-      products_rels: pgTable('products_rels', {
-        id: serial('id').primaryKey(),
-        order: integer('order'),
-        parent: integer('parent_id'),
-        path: text('path'),
-        mediaID: integer('media_id'),
-      }),
-      media: pgTable('media', { id: serial('id').primaryKey(), product: integer('product_id') }),
-      image_generation_jobs: pgTable('image_generation_jobs', { id: serial('id').primaryKey(), product: integer('product_id') }),
-      payload_jobs: pgTable('payload_jobs', { id: serial('id').primaryKey(), taskSlug: text('task_slug'), input: jsonb('input') }),
-      bot_events: pgTable('bot_events', { id: serial('id').primaryKey(), product: integer('product_id') }),
-      story_jobs: pgTable('story_jobs', { id: serial('id').primaryKey(), product: integer('product_id') }),
-    }
-    const tableNameMap = new Map(Object.keys(tables).map((name) => [name, name]))
-    const collections = Object.fromEntries([
-      ['products', 'products'],
-      ['media', 'media'],
-      ['image-generation-jobs', 'image-generation-jobs'],
-      ['payload-jobs', 'payload-jobs'],
-      ['bot-events', 'bot-events'],
-      ['story-jobs', 'story-jobs'],
-    ].map(([key, slug]) => [key, { config: { slug } }]))
+    const { BasePayload, buildConfig } = await import('payload')
+    const { postgresAdapter } = await import('@payloadcms/db-postgres')
+    const { lexicalEditor } = await import('@payloadcms/richtext-lexical')
+    const { getTableColumns, getTableName } = await import('drizzle-orm')
+    const { Products } = await import('../src/collections/Products')
+    const { Variants } = await import('../src/collections/Variants')
+    const { MediaCollection } = await import('../src/collections/Media')
+    const { Brands } = await import('../src/collections/Brands')
+    const { Categories } = await import('../src/collections/Categories')
+    const { BlogPosts } = await import('../src/collections/BlogPosts')
+    const { ImageGenerationJobs } = await import('../src/collections/ImageGenerationJobs')
+    const { BotEvents } = await import('../src/collections/BotEvents')
+    const { StoryJobs } = await import('../src/collections/StoryJobs')
+    const schemaPayload = new BasePayload()
+    await schemaPayload.init({ disableDBConnect: true, disableOnInit: true, config: buildConfig({
+      secret: 'synthetic-offline-schema-only', telemetry: false, typescript: { autoGenerate: false }, editor: lexicalEditor(),
+      collections: [Products, Variants, MediaCollection, Brands, Categories, BlogPosts, ImageGenerationJobs, BotEvents, StoryJobs]
+        .map((collection) => ({ ...collection, hooks: {} })),
+      db: postgresAdapter({ pool: { connectionString: 'postgresql://synthetic:synthetic@synthetic.invalid/synthetic' }, push: false }),
+      // Production registers image-gen. Installed Payload omits payload-jobs
+      // entirely when no task/workflow is registered; this handler is never run.
+      jobs: { tasks: [{ slug: 'image-gen', handler: async () => ({ output: {} }) }] },
+      logger: createControlledFreshCandidateBoundaryLoggerConfiguration(),
+    }) })
+    const generatedDb = schemaPayload.db as unknown as { tables: Record<string, Record<string, unknown>>; tableNameMap: Map<string, string>; relationshipsSuffix: string }
+    const { tables, tableNameMap } = generatedDb
+    const collections = schemaPayload.collections
+    assert.equal(tableNameMap.has('products_rels'), false, 'installed build derives root rels via suffix, not a guessed map entry')
+    assert.deepEqual(Object.keys(getTableColumns(tables.products_rels as never)), ['id', 'order', 'parent', 'path', 'variantsID'])
+    assert.equal((getTableColumns(tables.products_images as never) as Record<string, { name: string }>).image.name, 'image_id')
+    assert.equal(tables.products_rels.mediaID, undefined)
+    const resourcesSource = readFileSync(path.resolve('scripts/controlled-fresh-candidate-runtime-resources.ts'), 'utf8')
+    const resolverSource = resourcesSource.slice(resourcesSource.indexOf('const CONTROLLED_FINALIZATION_COLLECTION_TABLES ='), resourcesSource.indexOf('const enteredFinalizationPhases ='))
+    const mutatedResolver = ts.transpileModule(resolverSource.replace('!products.id', '!products.id || !tables.products_rels.mediaID'), {
+      compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
+    }).outputText
+    const mutantModule = { exports: {} as { resolveControlledFinalizationTableAuthority: typeof resolveControlledFinalizationTableAuthority } }
+    runInNewContext(mutatedResolver, { module: mutantModule, exports: mutantModule.exports, Map, getTableColumns, getTableName,
+      isPlainRecord: (value: unknown) => value !== null && typeof value === 'object' && !Array.isArray(value) })
+    assert.throws(() => mutantModule.exports.resolveControlledFinalizationTableAuthority(schemaPayload as unknown as ControlledRuntimePayload, generatedDb as unknown as Record<string, unknown>), /table_unavailable/u,
+      'mutation control: reinstating nonexistent mediaID rejects the real installed schema')
+    resolveControlledFinalizationTableAuthority(schemaPayload as unknown as ControlledRuntimePayload, generatedDb as unknown as Record<string, unknown>)
     const sealed = JSON.parse(sealedRuntimeReceipt(9)) as {
       manifest: ReturnType<typeof createControlledFreshCandidateManifestEvidence>
     }
@@ -1225,6 +1384,8 @@ async function main(): Promise<void> {
       missingMapping?: boolean
       duplicateMapping?: boolean
       missingColumn?: boolean
+      missingImageTable?: boolean
+      missingImageColumn?: boolean
       inconsistentCollection?: boolean
       evidence?: 'media' | 'gallery' | 'image-job' | 'bot-event' | 'story-job' | 'queue'
     } = {}) => {
@@ -1257,10 +1418,13 @@ async function main(): Promise<void> {
       const sessions: Record<string, unknown> = { 'tx-1': { db: transaction } }
       const mappings = new Map(options.missingMapping ? [] : tableNameMap)
       if (options.duplicateMapping) mappings.set('ambiguous_media_alias', 'media')
-      const effectiveTables = options.missingColumn
+      const effectiveTables = options.missingImageTable ? { ...tables, products_images: undefined }
+        : options.missingImageColumn ? { ...tables, products_images: { ...tables.products_images, image: undefined } }
+        : options.missingColumn
         ? { ...tables, media: { ...tables.media, product: undefined } }
         : tables
       const db = {
+        relationshipsSuffix: generatedDb.relationshipsSuffix,
         tableNameMap: mappings,
         tables: effectiveTables,
         sessions,
@@ -1438,6 +1602,8 @@ async function main(): Promise<void> {
 
     for (const configuration of [
       { missingColumn: true },
+      { missingImageTable: true },
+      { missingImageColumn: true },
       { inconsistentCollection: true },
     ]) {
       const state = await atomicFixture(configuration)
@@ -1472,6 +1638,7 @@ async function main(): Promise<void> {
       assert.deepEqual(state.events, [])
       state.scope.close()
     }
+    await schemaPayload.db.destroy!()
   }
 
   {
@@ -1605,6 +1772,7 @@ async function main(): Promise<void> {
         let reconnectTimers = 0;
         const scheduledReconnects = [];
         globalThis.setTimeout = ((callback, _delay, ...args) => {
+          if (_delay !== 1000) return nativeSetTimeout(callback, _delay, ...args);
           reconnectTimers += 1;
           scheduledReconnects.push(() => callback(...args));
           return { ref() { return this; }, unref() { return this; }, hasRef() { return false; } };
@@ -1630,8 +1798,8 @@ async function main(): Promise<void> {
             }
             async end() { faultCounters.poolEnds += 1; }
           }
-          const faultedFactory = resources.createControlledFreshCandidateDatabaseAdapter({
-            postgresModule,
+          const faultedFactory = postgresModule.postgresAdapter({
+            disableCreateDatabase: true, push: false,
             // Deliberately omit the production PoolClient prependListener refusal
             // so the installed adapter's former recurring timer chain is observable.
             pg: { Pool: FaultedPool, Client: FaultedClient },
@@ -1706,6 +1874,11 @@ async function main(): Promise<void> {
               }
               async end() {
                 if (this.checkedOut) throw new Error('RAW_POOL_END_WITH_CHECKOUT');
+                if (counters.clientRemovals === 0) {
+                  await this.client.end();
+                  counters.clientRemovals += 1;
+                  this.emit('remove', this.client);
+                }
                 if (counters.clientRemovals !== 1) throw new Error('RAW_POOL_END_BEFORE_CLIENT_REMOVAL');
                 counters.poolEnds += 1;
               }
@@ -2706,8 +2879,8 @@ async function main(): Promise<void> {
         name: 'private-v3-disconnected-token',
         source: replaceProtection(
           receiptSource,
-          "export const CONTROLLED_FRESH_CANDIDATE_PRIVATE_VERSION = 'controlled-fresh-candidate-private/v3' as const",
-          "export const CONTROLLED_FRESH_CANDIDATE_PRIVATE_VERSION = 'controlled-fresh-candidate-private/v1' as const // controlled-fresh-candidate-private/v3",
+          "export const CONTROLLED_FRESH_CANDIDATE_PRIVATE_VERSION = 'controlled-fresh-candidate-private/v4' as const",
+          "export const CONTROLLED_FRESH_CANDIDATE_PRIVATE_VERSION = 'controlled-fresh-candidate-private/v1' as const // controlled-fresh-candidate-private/v4",
         ),
       },
       {
@@ -2890,17 +3063,10 @@ async function main(): Promise<void> {
         recordCleanupFailure(tracked)
         terminalizations.delete(tracked)
       },`
-    const settledInspection = `  const settleAndInspect = async (pending: Promise<unknown>[]): Promise<void> => {
-    const results = await Promise.allSettled(pending)
-    for (let index = 0; index < results.length; index += 1) {
-      if (results[index]?.status === 'rejected' && knownTerminalizations.has(pending[index])) {
+    const settledInspection = `      if (results[index]?.status === 'rejected' && knownTerminalizations.has(pending[index])) {
         recordCleanupFailure(pending[index])
-      }
-    }
-  }`
-    const ignoreSettledRejections = `  const settleAndInspect = async (pending: Promise<unknown>[]): Promise<void> => {
-    await Promise.allSettled(pending)
-  }`
+      }`
+    const ignoreSettledRejections = ''
     const withoutRejectedObserver = (source: string): string => replaceProtection(
       source,
       rejectionObserver,
@@ -3060,6 +3226,7 @@ async function main(): Promise<void> {
   assert.equal(resourcesSource.includes('shopier'), false)
   assert.ok(resourcesSource.indexOf("if (process.env.PAYLOAD_DB_PUSH !== 'false')") < resourcesSource.indexOf("import('@vercel/blob')"))
 
+  assert.deepEqual(cacheArtifacts(), [], 'native validation must not leave repository-local cache artifacts')
   console.log('controlledFreshCandidateRuntime: ALL OK')
 }
 

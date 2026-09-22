@@ -15,6 +15,7 @@ import {
   serializeControlledFreshCandidateReceipt,
   type ControlledFreshCandidatePrivateReceipt,
   type ControlledFreshCandidateTargetCapability,
+  type ControlledFreshCandidateBlobDescriptor,
 } from './controlledFreshCandidateReceipt'
 import {
   validateControlledFreshCandidateStrictTargetReport,
@@ -42,9 +43,10 @@ function receipt(seed: number, options: {
   productId?: number
   mediaId?: number
   incomplete?: boolean
+  beforeMutation?: boolean
 } = {}): ControlledFreshCandidatePrivateReceipt {
-  const productId = options.productId ?? 77
-  const mediaId = options.mediaId ?? 501
+  const productId = options.beforeMutation ? null : options.productId ?? 77
+  const mediaId = options.beforeMutation ? null : options.mediaId ?? 501
   const manifest = createControlledFreshCandidateManifestEvidence({
     input: {
       identity: `strict-manifest-${seed}`,
@@ -82,32 +84,39 @@ function receipt(seed: number, options: {
     },
     stockCandidate: manifest.stockCandidate,
     expectedStateFingerprint: controlledFreshCandidateDigest(fixedControlledFreshCandidateProduct(manifest, 'pending')),
-    product: { state: 'retained', id: productId, fingerprint: controlledFreshCandidateDigest({ id: productId }) },
+    product: options.beforeMutation
+      ? { state: 'not_created', id: null, fingerprint: null }
+      : { state: 'retained', id: productId, fingerprint: controlledFreshCandidateDigest({ id: productId }) },
     media: {
-      state: 'retained',
+      state: options.beforeMutation ? 'not_created' : 'retained',
       id: mediaId,
       productId,
       expectedFilename: manifest.original.filename,
-      actualFilename: manifest.original.filename,
+      actualFilename: options.beforeMutation ? null : manifest.original.filename,
     },
-    storageLedger: [{ ordinal: 1, filename: manifest.original.filename, state: 'known_present' }],
+    storageLedger: options.beforeMutation ? [] : [{ ordinal: 1, filename: manifest.original.filename, state: 'known_present',
+      descriptor: { key: manifest.original.filename, contentDigest: manifest.original.contentDigest,
+        byteSize: manifest.original.byteSize, mimeType: manifest.original.mimeType,
+        width: manifest.original.width, height: manifest.original.height, candidateIdentity: manifest.identity,
+        originalContentDigest: manifest.original.contentDigest, operationId: `strict-execution-${seed}`,
+        authorizationIdentity: `strict-owner-${seed}`, authorizationDigest: controlledFreshCandidateDigest(`strict-token-${seed}`) } }],
     transactions: {
-      productCreate: { intent: 'dispatched', certainty: 'observed' },
-      mediaCreate: { intent: 'dispatched', certainty: 'observed' },
-      relationshipUpdate: { intent: 'dispatched', certainty: 'observed' },
-      finalization: { intent: 'dispatched', certainty: options.incomplete ? 'unknown' : 'observed' },
+      productCreate: options.beforeMutation ? { intent: 'not_started', certainty: 'unknown' } : { intent: 'dispatched', certainty: 'observed' },
+      mediaCreate: options.beforeMutation ? { intent: 'not_started', certainty: 'unknown' } : { intent: 'dispatched', certainty: 'observed' },
+      relationshipUpdate: options.beforeMutation ? { intent: 'not_started', certainty: 'unknown' } : { intent: 'dispatched', certainty: 'observed' },
+      finalization: options.beforeMutation ? { intent: 'not_started', certainty: 'unknown' } : { intent: 'dispatched', certainty: options.incomplete ? 'unknown' : 'observed' },
     },
-    phase: 'teardown_observed',
+    phase: options.beforeMutation ? 'stock_qualified' : 'teardown_observed',
     budgets: {
       stockCandidates: 1,
       stockLookups: 1,
-      productCreates: 1,
-      mediaCreates: 1,
-      productRelationshipUpdates: 1,
-      productFinalizationUpdates: 1,
+      productCreates: options.beforeMutation ? 0 : 1,
+      mediaCreates: options.beforeMutation ? 0 : 1,
+      productRelationshipUpdates: options.beforeMutation ? 0 : 1,
+      productFinalizationUpdates: options.beforeMutation ? 0 : 1,
       explicitMediaUpdates: 0,
-      canonicalMediaMetadataUpdates: 1,
-      logicalStorageUploads: 1,
+      canonicalMediaMetadataUpdates: options.beforeMutation ? 0 : 1,
+      logicalStorageUploads: options.beforeMutation ? 0 : 1,
       productDeletes: 0,
       mediaDeletes: 0,
       variantMutations: 0,
@@ -118,9 +127,9 @@ function receipt(seed: number, options: {
       operatorRetries: 0,
       replacementExecutions: 0,
     },
-    quarantineCertainty: 'pending_observed',
-    commitCertainty: 'committed_observed',
-    finalization: { requested: true, observed: !options.incomplete },
+    quarantineCertainty: options.beforeMutation ? 'unknown' : 'pending_observed',
+    commitCertainty: options.beforeMutation ? 'unknown' : 'committed_observed',
+    finalization: { requested: !options.beforeMutation, observed: !options.beforeMutation && !options.incomplete },
     mutationResourceTeardown: { attempted: true, completed: true, status: 'complete' },
     authorityClosure: { status: 'pending_not_attested', boundary: 'outside_durable_receipt' },
   }, KEY)
@@ -200,6 +209,7 @@ function verifierFixture(sealed: ControlledFreshCandidatePrivateReceipt, options
     return page(docs, requestedPage, limit)
   }
   const dependencies: ControlledFreshCandidateStrictTargetDependencies = {
+    readBlobSet: async (expected) => structuredClone(expected),
     gateway: {
       readOwnedProduct: async (id) => {
         reads.push(`product:${id}`)
@@ -278,6 +288,41 @@ function assertSanitized(value: unknown, sealed: ControlledFreshCandidatePrivate
 }
 
 async function main(): Promise<void> {
+  for (const failure of ['none', 'missing-second', 'duplicate', 'foreign', 'unexpected', 'drift', 'reject'] as const) {
+    const base = receipt(110)
+    const unsigned = structuredClone(base) as Partial<ControlledFreshCandidatePrivateReceipt>
+    delete unsigned.seal
+    const original = base.storageLedger[0].descriptor
+    const descriptors: ControlledFreshCandidateBlobDescriptor[] = [original, ...[300, 600, 1200].map((size) => ({
+      ...original, key: original.key.replace(/\.(png|jpeg|jpg|webp)$/u, `-${size}x${size}.$1`),
+      contentDigest: String(size / 300).repeat(64), width: size, height: size,
+    }))]
+    unsigned.storageLedger = descriptors.map((descriptor, index) => ({ ordinal: index + 1, filename: descriptor.key, state: 'known_present', descriptor }))
+    unsigned.budgets = { ...base.budgets, logicalStorageUploads: descriptors.length }
+    const sealed = sealControlledFreshCandidateReceipt(unsigned as Omit<ControlledFreshCandidatePrivateReceipt, 'seal'>, KEY)
+    const target = authenticateControlledFreshCandidateReceipt({ serialized: serializeControlledFreshCandidateReceipt(sealed), key: KEY,
+      expectedCommitIdentity: COMMIT_IDENTITY, expectedEnvironmentIdentity: ENVIRONMENT_IDENTITY, consume: () => true })
+    const state = verifierFixture(sealed, { media: [{ id: sealed.media.id, product: sealed.product.id, type: 'original', generationLineage: null,
+      altText: sealed.manifest.title, filename: original.key, mimeType: original.mimeType,
+      sizes: Object.fromEntries(['thumbnail', 'card', 'large'].map((size, index) => { const blob = descriptors[index + 1];
+        return [size, { filename: blob.key, width: blob.width, height: blob.height, filesize: blob.byteSize, mimeType: blob.mimeType }] })) }] })
+    let snapshots = 0
+    state.dependencies.readBlobSet = async () => {
+      snapshots += 1
+      if (failure === 'reject') throw new Error('RAW_BLOB_FAILURE_MUST_NOT_ESCAPE')
+      const observed = structuredClone(descriptors)
+      if (failure === 'missing-second' && snapshots === 2) observed.pop()
+      if (failure === 'duplicate') observed[3] = observed[0]
+      if (failure === 'foreign') observed[3].candidateIdentity = 'foreign'
+      if (failure === 'unexpected') observed[3].key = 'unexpected.png'
+      if (failure === 'drift' && snapshots === 2) observed[3].contentDigest = 'f'.repeat(64)
+      return observed
+    }
+    const result = await verifyControlledFreshCandidateTarget({ capability: target, dependencies: state.dependencies })
+    assert.equal(result.verdict === 'STRICT_FRESH_TARGET_READY', failure === 'none', `${failure}:${JSON.stringify(result.reasonCodes)}`)
+    assert.equal(state.reads.at(-1), 'teardown', failure)
+    if (failure === 'none' || failure === 'missing-second') assert.equal(snapshots, 2)
+  }
   {
     const authenticated = capability(1)
     const state = verifierFixture(authenticated.receipt)
@@ -313,8 +358,23 @@ async function main(): Promise<void> {
       }],
     })
     const result = await verifyControlledFreshCandidateTarget({ capability: authenticated.capability, dependencies: state.dependencies })
+    assert.equal(result.verdict, 'PARTIAL_SIDE_EFFECT_RECONCILIATION_REQUIRED')
     assert.equal(result.eligibleForVisualOnlyGeneration, false)
     assert.ok(result.reasonCodes.includes('STRICT_TARGET_MEDIA_OWNERSHIP_INVALID'))
+  }
+
+  {
+    const authenticated = capability(20, { beforeMutation: true })
+    const state = verifierFixture(authenticated.receipt)
+    const result = await verifyControlledFreshCandidateTarget({
+      capability: authenticated.capability,
+      dependencies: state.dependencies,
+    })
+    assert.equal(result.verdict, 'FAILED_CLOSED_BEFORE_MUTATION')
+    assert.equal(result.eligibleForVisualOnlyGeneration, false)
+    assert.ok(result.reasonCodes.includes('RECEIPT_CONSTRUCTION_INCOMPLETE'))
+    assert.ok(result.reasonCodes.includes('RECEIPT_TARGET_INVALID'))
+    assert.equal(state.reads.some((entry) => entry.startsWith('product:')), false)
   }
 
   {
@@ -458,7 +518,7 @@ async function main(): Promise<void> {
     const authenticated = capability(51)
     const state = verifierFixture(authenticated.receipt, { malformedPagination: true })
     const result = await verifyControlledFreshCandidateTarget({ capability: authenticated.capability, dependencies: state.dependencies })
-    assert.equal(result.verdict, 'STRICT_FRESH_TARGET_UNSUPPORTED')
+    assert.equal(result.verdict, 'UNKNOWN_OUTCOME_RECOVERY_REQUIRED')
     assert.deepEqual(result.reasonCodes, ['STRICT_TARGET_CAPTURE_UNSUPPORTED'])
   }
 
@@ -466,6 +526,7 @@ async function main(): Promise<void> {
     const authenticated = capability(52, { incomplete: true })
     const state = verifierFixture(authenticated.receipt)
     const result = await verifyControlledFreshCandidateTarget({ capability: authenticated.capability, dependencies: state.dependencies })
+    assert.equal(result.verdict, 'UNKNOWN_OUTCOME_RECOVERY_REQUIRED')
     assert.ok(result.reasonCodes.includes('RECEIPT_CONSTRUCTION_INCOMPLETE'))
     assert.equal(state.reads.some((entry) => entry.startsWith('product:')), false)
   }
@@ -628,6 +689,7 @@ async function main(): Promise<void> {
       dependencies: state.dependencies,
     })
     assert.deepEqual(result.reasonCodes, ['RECEIPT_CAPABILITY_INVALID'])
+    assert.equal(result.verdict, 'FAILED_CLOSED_BEFORE_MUTATION')
     assert.equal(state.reads.some((entry) => entry.startsWith('product:')), false)
     assert.equal(state.reads.at(-1), 'teardown')
   }
@@ -640,7 +702,7 @@ async function main(): Promise<void> {
       capability: authenticated.capability,
       dependencies: state.dependencies,
     })
-    assert.equal(result.verdict, 'STRICT_FRESH_TARGET_UNSUPPORTED')
+    assert.equal(result.verdict, 'UNKNOWN_OUTCOME_RECOVERY_REQUIRED')
     assert.ok(result.reasonCodes.includes('STRICT_TARGET_CAPTURE_UNSUPPORTED'))
     assert.ok(Date.now() - started < 1_000)
     assert.equal(state.reads.at(-1), 'teardown')

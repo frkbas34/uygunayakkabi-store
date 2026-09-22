@@ -1,7 +1,11 @@
 import { pathToFileURL } from 'node:url'
 
 import {
+  CONTROLLED_FRESH_CANDIDATE_EXECUTION_TIMEOUT_MS,
   createControlledFreshCandidateOperationScope,
+  controlledFreshCandidateBoundedShutdown,
+  CONTROLLED_FRESH_CANDIDATE_PUBLIC_COUNT_KEYS,
+  CONTROLLED_FRESH_CANDIDATE_PUBLIC_VERSION,
   type ControlledFreshCandidateOperationScope,
   type ControlledFreshCandidatePublicReport,
 } from '../src/lib/controlledFreshCandidateCreation'
@@ -22,7 +26,15 @@ import {
 } from './controlled-fresh-candidate-secret-contract'
 import {
   controlledFreshCandidateExecutionEnvironmentIsAuthenticated,
+  assertControlledFreshCandidateNoAmbientPgOverrides,
+  controlledFreshCandidateExecutionReleaseIsVerified,
 } from './controlled-fresh-candidate-secret-loader'
+import {
+  bindControlledFreshCandidateBudget,
+  controlledFreshCandidateBudgetForScope,
+  type ControlledFreshCandidateRuntimeBudget,
+  type ControlledFreshCandidateRuntimeBudgetReport,
+} from '../src/lib/controlledFreshCandidatePilotContract'
 
 export const CONTROLLED_FRESH_CANDIDATE_CREATE_CONFIRMATION = '--confirm-controlled-fresh-candidate-create' as const
 export const CONTROLLED_FRESH_CANDIDATE_VERIFY_CONFIRMATION = '--confirm-controlled-fresh-candidate-receipt-verification' as const
@@ -46,6 +58,8 @@ export type ControlledFreshCandidateRuntimeOptions = {
   initializeCreation?: (scope: ControlledFreshCandidateOperationScope) => Promise<ControlledFreshCandidateRuntimeResource>
   initializeVerification?: (scope: ControlledFreshCandidateOperationScope) => Promise<ControlledFreshCandidateVerificationResource>
   operationTimeoutMs?: number
+  deadlineAt?: number
+  runtimeBudget?: ControlledFreshCandidateRuntimeBudget
 }
 
 const defaultIo: ControlledFreshCandidateRuntimeIo = {
@@ -99,10 +113,63 @@ function verificationExitCode(report: ControlledFreshCandidateStrictTargetReport
   return report.verdict === 'STRICT_FRESH_TARGET_READY' ? 0 : 4
 }
 
+export function finalizeControlledFreshCandidateRuntimeReport<T extends Record<string, unknown>>(
+  report: T,
+  budget: ControlledFreshCandidateRuntimeBudget,
+): T & { runtimeBudget: ControlledFreshCandidateRuntimeBudgetReport } {
+  // Default deny: only a complete, known success or a proven local validation
+  // refusal may retain OBSERVED. Cleanup can never undo sticky business UNKNOWN.
+  const knownSuccess = report.version === CONTROLLED_FRESH_CANDIDATE_PUBLIC_VERSION
+    && report.eligibleForPublishing === false
+    && report.cleanupStatus === 'complete'
+    && report.quarantineCertainty === 'pending_observed'
+    && report.commitCertainty === 'committed_observed'
+    && report.ownerInputManifestMatch === true
+    && Array.isArray(report.reasonCodes) && report.reasonCodes.length === 1
+    && ((report.verdict === 'CREATION_COMMITTED_QUARANTINED' && report.reasonCodes[0] === 'CREATION_COMPLETE')
+      || (report.verdict === 'STRICT_FRESH_TARGET_READY' && report.reasonCodes[0] === 'STRICT_TARGET_READY'
+        && report.eligibleForVisualOnlyGeneration === true))
+  const counts = report.counts as Record<string, unknown> | undefined
+  const actual = budget.report().actual
+  const provenLocalRefusal = report.version === CONTROLLED_FRESH_CANDIDATE_PUBLIC_VERSION
+    && report.verdict === 'CREATION_BLOCKED' && report.phase === 'not_started'
+    && report.cleanupStatus === 'not_started' && report.eligibleForPublishing === false
+    && Array.isArray(report.reasonCodes) && report.reasonCodes.length === 1
+    && ['CONTROLLED_INPUT_INVALID', 'MUTATION_CAPABILITY_INVALID'].includes(String(report.reasonCodes[0]))
+    && counts && Object.keys(counts).length === CONTROLLED_FRESH_CANDIDATE_PUBLIC_COUNT_KEYS.length
+    && CONTROLLED_FRESH_CANDIDATE_PUBLIC_COUNT_KEYS.every((key) => counts[key] === 0)
+    && actual.applicationMutations === 0 && actual.blobCalls === 0 && actual.transactions === 0
+    && Object.entries(actual).every(([key, value]) => key === 'cleanupOperations' || value === 0)
+  if (!knownSuccess && !provenLocalRefusal) budget.markUncertain()
+  return {
+    ...report,
+    runtimeBudget: budget.report(),
+  }
+}
+
 export async function runControlledFreshCandidateRuntime(
   options: ControlledFreshCandidateRuntimeOptions,
 ): Promise<number> {
+  const startedAt = Date.now()
+  const deadlineAt = options.deadlineAt ?? startedAt + Math.min(
+    options.operationTimeoutMs ?? CONTROLLED_FRESH_CANDIDATE_EXECUTION_TIMEOUT_MS,
+    CONTROLLED_FRESH_CANDIDATE_EXECUTION_TIMEOUT_MS,
+  )
   const io = options.io ?? defaultIo
+  const refuseBeforeInitialization = (code: string): number => {
+    io.stderr(`CONTROLLED_FRESH_CANDIDATE_REFUSED: ${code}`)
+    // A launcher may already have consumed authorization and performed setup.
+    // Preserve that authoritative accounting even when runtime preflight fails.
+    if (options.runtimeBudget) {
+      options.runtimeBudget.markUncertain()
+      io.stdout(JSON.stringify({ status: 'UNKNOWN_OUTCOME_RECOVERY_REQUIRED',
+        eligibleForPublishing: false, runtimeBudget: options.runtimeBudget.report() }))
+    }
+    return 2
+  }
+  try { assertControlledFreshCandidateNoAmbientPgOverrides() } catch {
+    return refuseBeforeInitialization('AMBIENT_PG_OVERRIDE_FORBIDDEN')
+  }
   const decision = parseControlledFreshCandidateRuntimeArgs(options.argv)
   if (decision.ok && decision.helpRequested) {
     io.stdout(controlledFreshCandidateRuntimeUsage())
@@ -115,8 +182,7 @@ export async function runControlledFreshCandidateRuntime(
   }
 
   if (process.platform !== 'linux') {
-    io.stderr('CONTROLLED_FRESH_CANDIDATE_REFUSED: POSIX_RUNTIME_REQUIRED')
-    return 2
+    return refuseBeforeInitialization('POSIX_RUNTIME_REQUIRED')
   }
 
   const testOnlyBypassExecutionReadiness = options.testOnlyBypassExecutionReadiness === true
@@ -125,9 +191,9 @@ export async function runControlledFreshCandidateRuntime(
   const requiresExecutionReadiness = !testOnlyBypassExecutionReadiness
   if (requiresExecutionReadiness) {
     const environment = options.executionEnvironment
-    if (!environment || !controlledFreshCandidateExecutionEnvironmentIsAuthenticated(environment)) {
-      io.stderr('CONTROLLED_FRESH_CANDIDATE_REFUSED: EXECUTION_READINESS_REQUIRED')
-      return 2
+    if (!environment || !controlledFreshCandidateExecutionEnvironmentIsAuthenticated(environment)
+      || !controlledFreshCandidateExecutionReleaseIsVerified(environment)) {
+      return refuseBeforeInitialization('EXECUTION_READINESS_REQUIRED')
     }
     const readiness = controlledFreshCandidateSecretReadiness(environment, {
       stage: 'execution',
@@ -135,14 +201,12 @@ export async function runControlledFreshCandidateRuntime(
       operationPackageAuthenticated: true,
     })
     if (!readiness.executionReady) {
-      io.stderr('CONTROLLED_FRESH_CANDIDATE_REFUSED: EXECUTION_READINESS_REQUIRED')
-      return 2
+      return refuseBeforeInitialization('EXECUTION_READINESS_REQUIRED')
     }
     for (const name of CONTROLLED_FRESH_CANDIDATE_RUNTIME_ENVIRONMENT_ALLOWLIST) {
       const value = environment[name]
       if (value === undefined) {
-        io.stderr('CONTROLLED_FRESH_CANDIDATE_REFUSED: EXECUTION_READINESS_REQUIRED')
-        return 2
+        return refuseBeforeInitialization('EXECUTION_READINESS_REQUIRED')
       }
       process.env[name] = value
     }
@@ -154,18 +218,33 @@ export async function runControlledFreshCandidateRuntime(
     process.env.PAYLOAD_DB_PUSH !== 'false'
     || process.env.PAYLOAD_DROP_DATABASE !== 'false'
   ) {
-    io.stderr('CONTROLLED_FRESH_CANDIDATE_REFUSED: DATABASE_MANAGEMENT_DISABLED_REQUIRED')
-    return 2
+    return refuseBeforeInitialization('DATABASE_MANAGEMENT_DISABLED_REQUIRED')
   }
+  if (!Number.isSafeInteger(deadlineAt) || deadlineAt <= Date.now()
+    || deadlineAt > startedAt + CONTROLLED_FRESH_CANDIDATE_EXECUTION_TIMEOUT_MS) {
+    return refuseBeforeInitialization('ABSOLUTE_DEADLINE_REQUIRED')
+  }
+  const assertTerminalDeadline = (): void => {
+    if (Date.now() >= deadlineAt) throw new Error('controlled_runtime_terminal_deadline')
+  }
+  let scope: ReturnType<typeof createControlledFreshCandidateOperationScope>
+  try {
+    scope = createControlledFreshCandidateOperationScope({ deadlineAt })
+  } catch {
+    // The clock can expire between preflight and scope construction. Preserve
+    // the launcher's consumed-authority accounting rather than detach a throw.
+    return refuseBeforeInitialization('ABSOLUTE_DEADLINE_REQUIRED')
+  }
+  if (options.runtimeBudget) bindControlledFreshCandidateBudget(scope, options.runtimeBudget)
+  const budget = controlledFreshCandidateBudgetForScope(scope)
 
   if (decision.mode === 'create') {
-    const scope = createControlledFreshCandidateOperationScope({ timeoutMs: options.operationTimeoutMs })
     let resource: ControlledFreshCandidateRuntimeResource | null = null
     try {
       resource = await scope.run(() => (options.initializeCreation ?? initializeControlledFreshCandidateCreationRuntime)(scope))
       if (resource.scope !== scope) throw new Error('controlled_runtime_scope_mismatch')
       const report = await executeControlledCreationResource(resource)
-      const terminal = await resource.destroy()
+      const terminal = await controlledFreshCandidateBoundedShutdown(scope, resource.destroy())
       await scope.cancel()
       await scope.drain()
       const terminalFailureAlreadyReported = report.reasonCodes.some((reason) => (
@@ -178,23 +257,31 @@ export async function runControlledFreshCandidateRuntime(
       resource.completeObservation(report, terminal.ok)
       resource.closeObservation()
       resource = null
-      io.stdout(JSON.stringify(report))
+      assertTerminalDeadline()
+      io.stdout(JSON.stringify(finalizeControlledFreshCandidateRuntimeReport(report, budget)))
       return creationExitCode(report)
     } catch {
+      budget.markUncertain()
       if (resource) {
-        try { await resource.destroy() } catch { /* sanitized terminal failure */ }
+        try { await controlledFreshCandidateBoundedShutdown(scope, resource.destroy()) } catch { budget.markUncertain() }
       }
       try { await scope.cancel() } catch { /* sanitized terminal failure */ }
       try { await scope.drain() } catch { /* terminal uncertainty remains non-successful */ }
       try { scope.close() } catch { /* terminal uncertainty remains non-successful */ }
       try { resource?.failObservation() } catch { /* observation failure is sticky */ }
       try { resource?.closeObservation() } catch { /* sanitized observation closure */ }
+      const runtimeBudget = budget.report()
       io.stderr('CONTROLLED_FRESH_CANDIDATE_INTERNAL_FAILURE')
+      io.stdout(JSON.stringify({
+        version: 'controlled-fresh-candidate-runtime-terminal/v1',
+        status: 'UNKNOWN_OUTCOME_RECOVERY_REQUIRED',
+        runtimeBudget,
+        eligibleForPublishing: false,
+      }))
       return 1
     }
   }
 
-  const scope = createControlledFreshCandidateOperationScope({ timeoutMs: options.operationTimeoutMs })
   let resource: ControlledFreshCandidateVerificationResource | null = null
   try {
     resource = await scope.run(() => (options.initializeVerification ?? initializeControlledFreshCandidateVerificationRuntime)(scope))
@@ -203,7 +290,7 @@ export async function runControlledFreshCandidateRuntime(
       capability: resource.capability,
       dependencies: resource.dependencies,
     })
-    const terminal = await resource.destroy()
+    const terminal = await controlledFreshCandidateBoundedShutdown(scope, resource.destroy())
     await scope.cancel()
     await scope.drain()
     if (!terminal.ok) throw new Error('controlled_runtime_terminalization_failed')
@@ -211,18 +298,27 @@ export async function runControlledFreshCandidateRuntime(
     resource.completeObservation(report, terminal.ok)
     resource.closeObservation()
     resource = null
-    io.stdout(JSON.stringify(report))
+    assertTerminalDeadline()
+    io.stdout(JSON.stringify(finalizeControlledFreshCandidateRuntimeReport(report, budget)))
     return verificationExitCode(report)
   } catch {
+    budget.markUncertain()
     if (resource) {
-      try { await resource.destroy() } catch { /* sanitized terminal failure */ }
+      try { await controlledFreshCandidateBoundedShutdown(scope, resource.destroy()) } catch { budget.markUncertain() }
     }
     try { await scope.cancel() } catch { /* sanitized terminal failure */ }
     try { await scope.drain() } catch { /* terminal uncertainty remains non-successful */ }
     try { scope.close() } catch { /* terminal uncertainty remains non-successful */ }
     try { resource?.failObservation() } catch { /* observation failure is sticky */ }
     try { resource?.closeObservation() } catch { /* sanitized observation closure */ }
+    const runtimeBudget = budget.report()
     io.stderr('CONTROLLED_FRESH_CANDIDATE_INTERNAL_FAILURE')
+    io.stdout(JSON.stringify({
+      version: 'controlled-fresh-candidate-runtime-terminal/v1',
+      status: 'UNKNOWN_OUTCOME_RECOVERY_REQUIRED',
+      runtimeBudget,
+      eligibleForPublishing: false,
+    }))
     return 1
   }
 }

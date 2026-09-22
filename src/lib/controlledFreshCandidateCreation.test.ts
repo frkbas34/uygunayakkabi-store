@@ -1,8 +1,11 @@
 import assert from 'node:assert/strict'
+import path from 'node:path'
 
 import {
   CONTROLLED_FRESH_CANDIDATE_AUTHORIZATION_VERSION,
   createControlledFreshCandidateOperationScope,
+  controlledFreshCandidateTerminalDeadlineAt,
+  controlledFreshCandidateBoundedShutdown,
   createControlledFreshCandidate,
   deriveControlledFreshCandidateAuthorizationIdentity,
   prepareControlledFreshCandidateManifest,
@@ -26,7 +29,7 @@ const ENVIRONMENT_IDENTITY = 'controlled-test-environment'
 const RECEIPT_DESTINATION_DIGEST = 'a'.repeat(64)
 const AUTHORIZATION_TEST_NOW = Date.now()
 
-function input(seed = 0): ControlledFreshCandidateCreationInput {
+export function input(seed = 0): ControlledFreshCandidateCreationInput {
   const issuedAt = new Date(AUTHORIZATION_TEST_NOW - 1_000).toISOString()
   const notBefore = issuedAt
   const expiresAt = new Date(Date.parse(issuedAt) + 30 * 60 * 1_000).toISOString()
@@ -96,6 +99,7 @@ function authenticateReceipt(params: {
 }
 
 type FixtureOptions = {
+  scope?: ReturnType<typeof createControlledFreshCandidateOperationScope>
   authorization?: boolean
   stockCollision?: boolean
   productId?: unknown
@@ -115,7 +119,7 @@ type FixtureOptions = {
   consume?: () => Promise<boolean>
 }
 
-function fixture(options: FixtureOptions = {}) {
+export function fixture(options: FixtureOptions = {}) {
   const events: string[] = []
   const receipts: string[] = []
   let product: Record<string, unknown> | null = null
@@ -124,7 +128,7 @@ function fixture(options: FixtureOptions = {}) {
   let syntheticNow = 1_000
   let teardownOccurred = false
   const now = options.now ?? (() => syntheticNow)
-  const scope = createControlledFreshCandidateOperationScope({ now })
+  const scope = options.scope ?? createControlledFreshCandidateOperationScope({ now })
   let mutationRevoked = false
   const markMutationRevoked = () => {
     if (mutationRevoked) return
@@ -299,6 +303,22 @@ function assertPublicReportIsSanitized(report: unknown, sentinels: readonly stri
 }
 
 async function main(): Promise<void> {
+  {
+    let clock = 100_000
+    const deadlineAt = clock + 45_000
+    clock += 12_000 + 2_000
+    const scope = createControlledFreshCandidateOperationScope({ deadlineAt, now: () => clock })
+    assert.equal(controlledFreshCandidateTerminalDeadlineAt(scope), deadlineAt)
+    assert.equal(deadlineAt - clock, 31_000)
+    assert.equal(scope.deadline, deadlineAt - 5_000)
+    clock += 25_000
+    clock += 5_000 // Physical cleanup spends the SAME remaining deadline.
+    await controlledFreshCandidateBoundedShutdown(scope, Promise.resolve())
+    scope.close()
+    clock = deadlineAt
+    await assert.rejects(controlledFreshCandidateBoundedShutdown(scope, Promise.resolve()), /CLEANUP_UNCERTAIN/u)
+    assert.throws(() => createControlledFreshCandidateOperationScope({ deadlineAt, now: () => clock }), /CONFIGURATION_INVALID/u)
+  }
   {
     const state = fixture()
     const candidate = input(1)
@@ -640,6 +660,7 @@ async function main(): Promise<void> {
     assert.equal(result.verdict, 'CREATION_FINALIZATION_UNCERTAIN_RECOVERY_REQUIRED')
     assert.deepEqual(result.reasonCodes, ['FINALIZATION_READBACK_UNCERTAIN'])
     assert.equal(result.quarantineCertainty, 'unknown')
+    assert.equal(result.cleanupStatus, 'complete', 'exact final-readback returns normally after successful cleanup')
     assert.equal(state.events.filter((event) => event === 'product-finalize').length, 1)
     assert.equal(state.events.filter((event) => event === 'relationship-update').length, 1)
   }
@@ -977,7 +998,7 @@ async function main(): Promise<void> {
   console.log('controlledFreshCandidateCreation: ALL OK')
 }
 
-main().catch((error) => {
+if (path.basename(process.argv[1] ?? '') === 'controlledFreshCandidateCreation.test.ts') main().catch((error) => {
   console.error(error instanceof Error ? error.stack ?? error.message : error)
   process.exit(1)
 })

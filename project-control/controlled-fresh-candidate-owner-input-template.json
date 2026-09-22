@@ -1,0 +1,51 @@
+{
+  "candidateIdentity": "<required-new-candidate-identity>",
+  "createdAt": "<required-canonical-utc-timestamp>",
+  "creationEnvelope": {
+    "blobDeletes": 0,
+    "blobObjects": 4,
+    "blobOverwrites": 0,
+    "existingProductMutations": 0,
+    "generatedOrEnhancedMedia": 0,
+    "localOperationPackages": 1,
+    "mediaUpdates": 0,
+    "newMedia": 1,
+    "newProducts": 1,
+    "productFinalizationCasUpdates": 1,
+    "productImageRelationshipUpdates": 1,
+    "recordDeletes": 0,
+    "replacementExecutions": 0,
+    "retries": 0
+  },
+  "declaredBlobObjectMaximum": 4,
+  "exactCommitIdentity": "<required-released-40-character-sha>",
+  "existingProductId": null,
+  "expiresAt": "<required-canonical-utc-timestamp-no-more-than-30-minutes-after-createdAt>",
+  "externalEffectEnvelope": {
+    "advertisingActions": 0,
+    "blobWrites": 4,
+    "customerDispatches": 0,
+    "mediaGeneration": 0,
+    "providerCalls": 0,
+    "queueInsertions": 0,
+    "shopierSynchronizations": 0,
+    "storefrontPublishing": 0,
+    "telegramMessages": 0
+  },
+  "manifestDigest": "<required-sha256-of-canonical-manifest-without-this-field-and-originalPath>",
+  "original": {
+    "contentDigest": "<required-original-byte-sha256>",
+    "filename": "<required-safe-basename>",
+    "height": 0,
+    "identity": "<required-original-media-identity>",
+    "mimeType": "<required-image/jpeg-image/png-or-image/webp>",
+    "width": 0
+  },
+  "originalPath": "<required-absolute-native-WSL-private-path-with-matching-basename>",
+  "positivePrice": 0,
+  "provenance": "<required-owner-provenance-statement>",
+  "runtimeBudgetIdentity": "<required-exact-committed-runtime-budget-identity>",
+  "stockCandidate": "<required-unused-SNdddd>",
+  "title": "<required-product-title>",
+  "version": "controlled-fresh-candidate-pilot-manifest/v2"
+}
